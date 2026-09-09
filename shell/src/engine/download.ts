@@ -16,7 +16,7 @@ import { currentTarget, engineRoot, enginesDir, serverEntryFor } from './paths';
  * `docs/desktop/00-architecture.md` §"Ship vs. download".
  */
 
-/** GitHub Releases. Assets are published by `.github/workflows/release-engines.yml`. */
+/** GitHub Releases. Assets are published by the `engines` job of `.github/workflows/release-desktop.yml`. */
 const DEFAULT_BASE_URL = 'https://github.com/Fluid-CAD/FluidCAD/releases/download';
 
 export type EngineManifest = {

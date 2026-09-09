@@ -9,25 +9,27 @@ FluidCAD ships as a desktop app for Windows, Linux and macOS, and as an npm pack
 
 Models are `.part.js` files (parts) and `.assembly.js` files (assemblies), written by the viewport as you work.
 
+Every download is on the [latest GitHub release](https://github.com/Fluid-CAD/FluidCAD/releases/latest). The app updates itself from there afterwards: it checks quietly in the background and installs the next version when you quit.
+
 ## Windows
 
-- Installer (x64): *link coming soon*
+- Installer (x64): `FluidCAD-<version>-win-x64.exe`
 
-Run the installer and follow the prompts. Windows SmartScreen may warn on first launch because the build is not yet signed; choose **More info → Run anyway**.
+Run the installer and follow the prompts. The installer is not code-signed, so Windows SmartScreen shows **Windows protected your PC** on first launch; choose **More info → Run anyway**.
 
 ## Linux
 
-- AppImage (x64): *link coming soon*
-- Debian package (x64): *link coming soon*
+- AppImage (x64): `FluidCAD-<version>-linux-x86_64.AppImage`
+- Debian package (x64): `FluidCAD-<version>-linux-amd64.deb`
 
-For the AppImage, mark it executable (`chmod +x FluidCAD-*.AppImage`) and run it. For the `.deb`, install it with `sudo apt install ./FluidCAD-*.deb`.
+For the AppImage, mark it executable (`chmod +x FluidCAD-*.AppImage`) and run it. For the `.deb`, install it with `sudo apt install ./FluidCAD-*.deb`. The AppImage updates itself; the `.deb` is updated by installing the next release's package.
 
 ## macOS
 
-- Disk image (Apple Silicon): *link coming soon*
-- Zip archive (Apple Silicon): *link coming soon*
+- Disk image (Apple Silicon): `FluidCAD-<version>-mac-arm64.dmg`
+- Zip archive (Apple Silicon): `FluidCAD-<version>-mac-arm64.zip`
 
-Open the disk image and drag FluidCAD into **Applications**.
+Open the disk image and drag FluidCAD into **Applications**. The build is signed and notarized, so it opens without a Gatekeeper prompt.
 
 ## npm installation
 

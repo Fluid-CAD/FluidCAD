@@ -2,6 +2,16 @@ appId: io.fluidcad.desktop
 productName: FluidCAD
 copyright: Copyright © Marwan Aouida
 
+# One naming scheme for every platform: `FluidCAD-0.0.43-win-x64.exe`,
+# `FluidCAD-0.0.43-mac-arm64.dmg`, `FluidCAD-0.0.43-linux-x86_64.AppImage`,
+# `FluidCAD-0.0.43-linux-amd64.deb` (Linux targets spell `${arch}` their own
+# way). The defaults differ per target (`FluidCAD Setup 0.0.43.exe`, with
+# spaces, for NSIS; `fluidcad-desktop_0.0.43_amd64.deb` for the deb), which
+# made the download list hard to read and the installation page hard to
+# write. electron-updater reads the names from `latest*.yml`, so it follows
+# along. The installation page lists these names; keep the two in step.
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
 directories:
   output: release
   buildResources: build
@@ -71,8 +81,17 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  # Unsigned: SmartScreen will warn on first run until a certificate is added.
+  # Unsigned on purpose (2026-09-09): the Microsoft Store was considered and
+  # deferred, and a code-signing certificate is a separate expense. SmartScreen
+  # warns on first run; the installation page tells users to choose
+  # "More info → Run anyway". The executable is still edited (icon, version
+  # resources), just not signed.
   signAndEditExecutable: true
+  # There is no certificate, so there is no publisher to verify an update
+  # against; electron-updater would skip the check anyway with no
+  # `publisherName`, and this says so out loud. Turn it back on the day a
+  # certificate is added, or updates could be swapped in transit.
+  verifyUpdateCodeSignature: false
 
 nsis:
   oneClick: false
@@ -97,4 +116,10 @@ publish:
   provider: github
   owner: Fluid-CAD
   repo: FluidCAD
-  releaseType: release
+  # Draft, never release: the publisher uploads into the draft the engines job
+  # of `release-desktop.yml` created for the tag, and that workflow's publish
+  # job makes the release public once every platform's assets are on it.
+  # electron-updater only lists published releases, so a release that went
+  # public with a platform still building would offer nothing to update to —
+  # or, worse, a `latest.yml` pointing at an installer not yet uploaded.
+  releaseType: draft

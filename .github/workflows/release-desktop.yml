@@ -1,13 +1,30 @@
-name: Build Desktop App
+name: Release Desktop App
 
-# The shell is built per platform (electron-builder needs the host OS for dmg
-# and nsis), and each build stages its own built-in engine from the tarball
-# `build-engine-tarball.ts` produces.
+# One workflow, three stages, one GitHub release:
+#
+#   engines  → build the four engine tarballs and upload them to a *draft*
+#              release for the tag
+#   desktop  → one job per platform (electron-builder needs the host OS for
+#              dmg and nsis); each stages its own built-in engine from the
+#              tarball `build-engine-tarball.ts` produces, then uploads its
+#              installers and updater feeds into that same draft
+#   publish  → flip the draft to a public release once everything is on it
+#
+# The draft is load-bearing. electron-updater lists only published releases,
+# and the shell downloads pinned engines from published assets, so a release
+# must not become visible until every tarball and every `latest*.yml` is on
+# it. Two separate workflows used to race for the release: whichever job got
+# there first decided whether it was created as a draft (never published) or
+# as a public release with most of its assets still missing.
 #
 # macOS builds are signed with a Developer ID Application certificate and
 # notarized (2026-08-16); the secrets involved are listed on the "Prepare macOS
-# signing" step below. Windows is still unsigned: no certificate yet, so
-# SmartScreen warns on first run.
+# signing" step below. Windows ships unsigned on purpose (2026-09-09): the
+# Microsoft Store was considered and deferred, and a code-signing certificate
+# is a separate expense. SmartScreen warns on first run; the installation
+# page tells users to choose "More info → Run anyway". electron-updater still
+# installs unsigned Windows updates — with no `publisherName` in the config
+# there is no signature to verify.
 
 on:
   push:
@@ -16,8 +33,61 @@ on:
   workflow_dispatch:
 
 jobs:
-  desktop:
+  engines:
     if: github.repository == 'Fluid-CAD/FluidCAD'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the package
+        run: npm run build
+
+      # All four targets come out of this one Linux job: npm's `--os`/`--cpu`
+      # flags fetch the right prebuilt binaries, so no build matrix is needed.
+      - name: Build engine tarballs
+        run: npm run build:engine -- --all
+
+      - name: Report sizes
+        run: ls -lh dist-engines
+
+      - name: Create the draft release and upload the tarballs
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          # workflow_dispatch runs off a branch, where the tag may not exist
+          # yet; `--target` pins the tag GitHub then creates to this commit
+          # instead of the default branch's head.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+              --title "$TAG" --notes "FluidCAD $VERSION"
+          fi
+          gh release upload "$TAG" dist-engines/*.tar.gz dist-engines/*.json --clobber
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Archive engine manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-manifests
+          path: dist-engines/*.json
+
+  desktop:
+    needs: engines
     strategy:
       fail-fast: false
       matrix:
@@ -102,13 +172,16 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-      - name: Build and publish the app
+      - name: Build the app and upload it to the draft release
         # The arch is pinned per runner so nothing is cross-compiled twice.
         # `mac.forceCodeSigning` turns "skipped macOS code signing" from a log
         # line into a failure here — a release must never publish an unsigned
         # macOS build (Gatekeeper would refuse it and electron-updater could
         # not install it) — while the config itself leaves it off so a machine
         # without the certificate can still build locally.
+        # `publish.releaseType: draft` in electron-builder.yml makes the
+        # publisher upload into the draft the engines job created and never
+        # create a public release of its own; the publish job below does that.
         run: npx electron-builder ${{ matrix.flags }} --publish always -c.mac.forceCodeSigning=true
         working-directory: shell
         env:
@@ -118,3 +191,21 @@ jobs:
           # keychain the previous step's CSC_LINK is imported into, so
           # discovery has to stay on there.
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' }}
+
+  publish:
+    # Runs only when every platform succeeded (`fail-fast: false` lets the
+    # others finish, but a failed one still skips this job). A partial release
+    # stays a draft for someone to look at, never a public release missing a
+    # platform.
+    needs: [engines, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.engines.outputs.tag }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

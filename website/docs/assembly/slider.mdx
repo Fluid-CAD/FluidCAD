@@ -25,7 +25,7 @@ A slider mate leaves one degree of freedom: translation along the shared Z axis.
 ![Carriage part-way along its rail](/img/docs/assembly/asm-slider.png)
 
 <ExplainedCode code={asmSlider} fileName="linear-stage.assembly.js">
-  Both connectors point Z along the direction of travel — the rail's top-face frame and the carriage's groove-ceiling frame, each turned 90° about its own Y:
+  Both connectors point Z along the direction of travel. Each is a face frame — the rail's top face, the carriage's groove ceiling — given X across the rail with `xDirection: 'y'` and then turned 90° about that X. Built the same way, the two frames meet face-to-face with their X axes agreeing, so the carriage lands upright on the rail with no further options:
   <ExplainedCode code={asmRail} fileName="rail.part.js" title="rail.part.js" />
   <ExplainedCode code={asmCarriage} fileName="carriage.part.js" title="carriage.part.js" />
 </ExplainedCode>
@@ -43,4 +43,6 @@ mate('slider', track.connectors.track, slide.connectors.slide)
 
 ## Choosing the connectors
 
-The free axis is the connectors' Z, so the connectors must point along the direction of travel. A face connector points out of its face; turn it with `.rotate('y', 90)` on the connector (as the rail and carriage do) or pick a straight edge, whose frame already has Z along the edge.
+The free axis is the connectors' Z, so the connectors must point along the direction of travel. A face connector points out of its face; turn it with `.rotate()` on the connector, or pick a straight edge, whose frame already has Z along the edge.
+
+The mate also lines up the two frames' X axes, and on a slider that fixes the roll about the rail. Two face frames on facing faces get opposite default X directions, so turning each about its own Y leaves the second part rolled half a turn. Give both connectors the same `xDirection` (the rail and carriage use `'y'`, across the rail) and turn both about that X instead — they then meet face-to-face as they are. `.rotate(180)` on the mate spins a part that still lands upside down.

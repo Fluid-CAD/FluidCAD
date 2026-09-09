@@ -24,7 +24,9 @@ export const rail = part('Rail', () => {
     });
     const body = extrude(12);
     chamfer(1.5, body.endEdges());
-    // The track frame: the top-face frame turned so Z runs along the rail.
-    // A slider mate frees exactly that direction.
-    connector('track', select(face().planar().onPlane('xy', 12))).rotate('y', 90);
+    // The track frame, on the top face: X across the rail (world Y), then
+    // turned 90° about that X so Z runs along the rail. The carriage's
+    // frame is built the same way, so the two meet face-to-face with their
+    // X axes agreeing, and a slider mate frees exactly the shared Z.
+    connector('track', select(face().planar().onPlane('xy', 12)), { xDirection: 'y' }).rotate('x', 90);
 });

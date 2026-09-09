@@ -7,8 +7,8 @@ import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import {ModeTable} from '@site/src/components/docs/ModeTable';
 import {UiFigure} from '@site/src/components/docs/UiFigure';
 import loftBefore from '!!raw-loader!./_examples/loft-before.js';
-import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
-import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
+import loftVase from '!!raw-loader!./_examples/loft-vase.js';
+import loftThreeSections from '!!raw-loader!./_examples/loft-three-sections.js';
 import loftThin from '!!raw-loader!./_examples/loft-thin.js';
 import loftGuides from '!!raw-loader!./_examples/loft-guides.js';
 import loftConditions from '!!raw-loader!./_examples/loft-conditions.js';
@@ -17,7 +17,7 @@ import loftThinAdd from '!!raw-loader!./_examples/loft-thin-add.js';
 
 # Loft
 
-Loft blends two or more sketch profiles on different planes into one smooth solid. Reach for it when the cross-section changes along the length — a duct that goes from rectangular to round, a transition piece, a hopper.
+Loft blends two or more sketch profiles on different planes into one smooth solid. Reach for it when the cross-section changes along the length — a vase, a duct that goes from rectangular to round, a hopper.
 
 ## In the viewport
 
@@ -42,28 +42,34 @@ Loft blends two or more sketch profiles on different planes into one smooth soli
 
 ## From sections to a solid
 
-A rectangular duct mouth and a round outlet 110 mm above it — the transition piece between them is one loft:
+A vase is four circles on planes 40 apart, each a different diameter. Loft passes one surface through all of them:
 
 <ModeTable columns={[
-  {title: 'Before', code: 'two sections', image: '/img/docs/3d-operations/loft-before.png', description: 'The two closed profiles, seen from above: a 120 × 70 rectangle on the ground plane and a Ø70 circle on a plane 110 above it.'},
-  {title: 'After', code: 'loft(bottom, top)', image: '/img/docs/3d-operations/loft-two-profiles.png', description: 'One solid whose section changes from rectangle to circle over its height — the adapter you would weld between a rectangular duct and a round pipe.'},
+  {title: 'Before', code: 'four sections', image: '/img/docs/3d-operations/loft-before.png', description: 'The sections, bottom to top: a Ø60 foot on the ground plane, a Ø100 belly at 40, a Ø44 neck at 80 and a Ø70 lip at 120. Nothing is solid yet.'},
+  {title: 'After', code: 'loft(foot, belly, neck, lip)', image: '/img/docs/3d-operations/loft-vase.png', description: 'One solid whose section follows the circles — out to the belly, in at the neck, out again at the lip.'},
 ]} />
 
-<ExplainedCode code={loftBefore} fileName="adapter.part.js" title="The two sketches" />
+<ExplainedCode code={loftBefore} fileName="vase.part.js" title="The four sketches" />
 
-<ExplainedCode code={loftTwo} title="The complete file" />
+<ExplainedCode code={loftVase} title="The complete file">
+The sketches go into `loft()` in the order the surface should pass through them — the same order the chips take in the **Sketches** slot.
+</ExplainedCode>
 
 ## Multiple profiles
 
-Add more sketches to the list and the surface runs through all of them, in order. A third section is what lets a loft change direction as well as shape — here the middle circle carries the duct sideways as it rises:
+Every sketch in the list is a section the surface has to pass through, so adding a section is how you shape the result. The same vase built up one section at a time:
 
-![Offset transition duct lofted through three sections](/img/docs/3d-operations/loft-three-profiles.png)
+<ModeTable columns={[
+  {title: 'Two sections', code: 'loft(foot, lip)', image: '/img/docs/3d-operations/loft-two-sections.png', description: 'Foot and lip only. The surface runs straight between them — a tube tapering gently from Ø60 to Ø70.'},
+  {title: 'Three sections', code: 'loft(foot, belly, lip)', image: '/img/docs/3d-operations/loft-three-sections.png', description: 'The Ø100 belly added in the middle. The surface has to pass through it on the way up, so the tube swells out.'},
+  {title: 'Four sections', code: 'loft(foot, belly, neck, lip)', image: '/img/docs/3d-operations/loft-vase.png', description: 'The Ø44 neck between belly and lip pinches it back in — the vase.'},
+]} />
 
-<ExplainedCode code={loftThree} fileName="offset-duct.part.js">
-Take the middle section away and the loft would run straight from the rectangle to the outlet; it is the third profile, and its position, that bends the duct over.
+<ExplainedCode code={loftThreeSections} fileName="vase.part.js" title="The three-section column's code">
+Each column's file contains only the sketches it lofts; the highlighted line is the only difference in what `loft()` is handed.
 </ExplainedCode>
 
-The profiles must be on different planes — typically parallel planes at different offsets.
+The profiles must be on different planes — typically parallel planes at different offsets — and the order in the list matters: a belly listed after the neck would make the surface double back on itself.
 
 ## Guide curves
 

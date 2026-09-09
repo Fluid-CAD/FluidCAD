@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Vector3 } from 'three';
+import { Object3D, PerspectiveCamera, Vector3 } from 'three';
 import {
   NAMED_VIEW_DIRECTIONS,
   eyeTargetForNamedView,
   eyeTargetForOrbit,
+  orientCameraForView,
   resolveView,
   type NamedView,
 } from '../src/screenshot-view';
@@ -140,5 +141,55 @@ describe('resolveView', () => {
       target,
     );
     expect(result!.target).toEqual(new Vector3(1, 2, 3));
+  });
+});
+
+describe('orientCameraForView', () => {
+  const zUp = new Vector3(0, 0, 1);
+
+  it('ignores the sketch-mode up vector so a named view is not rolled', () => {
+    const savedUp = Object3D.DEFAULT_UP.clone();
+    Object3D.DEFAULT_UP.copy(zUp);
+    try {
+      const { eye, target } = eyeTargetForNamedView('iso-ftr', new Vector3(0, 0, 30), 200);
+
+      const reference = new PerspectiveCamera();
+      reference.up.copy(zUp);
+      reference.position.copy(eye);
+      reference.lookAt(target);
+
+      // Sketch mode on an XY plane points camera.up along the plane's Y axis.
+      const sketchMode = new PerspectiveCamera();
+      sketchMode.up.set(0, 1, 0);
+      orientCameraForView(sketchMode, eye, target);
+
+      expect(sketchMode.quaternion.angleTo(reference.quaternion)).toBeCloseTo(0, 9);
+      expect(sketchMode.position.distanceTo(eye)).toBeCloseTo(0, 9);
+      // The camera's right vector stays level: no component along world up.
+      const right = new Vector3(1, 0, 0).applyQuaternion(sketchMode.quaternion);
+      expect(Math.abs(right.dot(zUp))).toBeLessThan(1e-9);
+    } finally {
+      Object3D.DEFAULT_UP.copy(savedUp);
+    }
+  });
+
+  it('frames top and bottom views with world +Y up instead of an arbitrary roll', () => {
+    const savedUp = Object3D.DEFAULT_UP.clone();
+    Object3D.DEFAULT_UP.copy(zUp);
+    try {
+      for (const name of ['top', 'bottom'] as NamedView[]) {
+        const { eye, target } = eyeTargetForNamedView(name, new Vector3(5, -3, 0), 100);
+        const camera = new PerspectiveCamera();
+        // Whatever the live camera was doing (here: an XZ sketch's up).
+        camera.up.set(0, 0, 1);
+        orientCameraForView(camera, eye, target);
+        const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+        expect(up.distanceTo(new Vector3(0, 1, 0))).toBeCloseTo(0, 9);
+        const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        expect(right.distanceTo(new Vector3(name === 'top' ? 1 : -1, 0, 0))).toBeCloseTo(0, 9);
+      }
+    } finally {
+      Object3D.DEFAULT_UP.copy(savedUp);
+    }
   });
 });

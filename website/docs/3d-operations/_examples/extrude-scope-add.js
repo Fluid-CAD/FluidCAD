@@ -2,7 +2,7 @@
 import { sketch, plane, extrude, circle, line } from 'fluidcad/core';
 import { coincident, diameter, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
-// The base part every column shares: a 60 mm cube.
+// The base part every column shares: a 60 mm cube standing on the ground plane.
 sketch("xy", () => {
     const sg1 = line([-30, -30], [30, -30]);
     const sg2 = line([30, -30], [30, 30]);
@@ -22,15 +22,18 @@ sketch("xy", () => {
   })
 extrude(60)
 
-// The feature profile: a Ø50 circle on the cube's right-hand face. The face
-// normal points away from the cube, so an extrusion grows out sideways and a
-// cut bores straight in.
-sketch(plane("yz", { offset: 30 }), () => {
-    const c = circle([0, 30], 50);
-    fix(c.center(), [0, 30]);
+// The feature profile: a Ø50 circle on a plane halfway up the cube, centred
+// 45 to the right so it overlaps the cube's right-hand side by 10. Extruding
+// symmetrically from this plane grows 30 up and 30 down — the same height as
+// the cube — so the cylinder stands on the ground beside the cube and runs
+// into it.
+sketch(plane("xy", { offset: 30 }), () => {
+    const c = circle([45, 0], 50);
+    fix(c.center(), [45, 0]);
     diameter(c, 50);
   })
 
-// Add tab: a Ø50 boss 40 long, fused with the cube — one solid.
+// Add tab, Symmetric direction: a Ø50 cylinder the height of the cube, fused
+// with it — one solid, no seam where they meet.
 // highlight-next-line
-extrude(40);
+extrude(60).symmetric();

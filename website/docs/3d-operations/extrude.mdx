@@ -126,22 +126,24 @@ Up to face, first face and last face currently work with **planar and cylindrica
 
 ## Add, New and Remove
 
-The three tabs at the top of the dialog decide how the extrusion meets the solids already in the scene. The pictures below all start from the same place — a 60 mm cube with a Ø50 circle sketched on its right-hand face:
+The three tabs at the top of the dialog decide how the extrusion meets the solids already in the scene. The pictures below all start from the same place — a 60 mm cube, and a Ø50 circle on a plane halfway up it that overlaps the cube's right-hand side by 10:
 
-![A cube with a Ø50 circle sketched on its right-hand face](/img/docs/3d-operations/extrude-scope-before.png)
+![A cube with a Ø50 circle sketched on a plane halfway up it, overlapping its right-hand side](/img/docs/3d-operations/extrude-scope-before.png)
 
-<ExplainedCode code={extrudeScopeBefore} fileName="cube.part.js" title="The starting point" />
+<ExplainedCode code={extrudeScopeBefore} fileName="cube.part.js" title="The starting point">
+The circle sits on a plane through the middle of the cube rather than on the ground so that, with **Symmetric** on, the same 60 mm reaches the ground and the top in every tab — a Remove runs into the material and an Add runs out along it, and here the cylinder does both.
+</ExplainedCode>
 
-Only the tab changes between the three results:
+**Symmetric** is on in all three, so the cylinder is the same height as the cube and stands beside it on the ground. Only the tab changes between the results:
 
 <ModeTable columns={[
-  {title: 'Add', code: 'extrude(40)', image: '/img/docs/3d-operations/extrude-scope-add.png', description: 'A Ø50 rod grows out of the face and fuses with the cube — one body, no seam where they meet.'},
-  {title: 'New', code: 'extrude(40).new()', image: '/img/docs/3d-operations/extrude-scope-new.png', description: 'The same rod, kept separate. It looks alike, but the Shapes panel lists two solids and later features on the cube leave the rod alone.'},
-  {title: 'Remove', code: 'cut(40)', image: '/img/docs/3d-operations/extrude-scope-remove.png', description: 'The rod\'s volume is bored out of the cube instead — a Ø50 hole, 40 deep.'},
+  {title: 'Add', code: 'extrude(60).symmetric()', image: '/img/docs/3d-operations/extrude-scope-add.png', description: 'The cylinder fuses with the cube where the two overlap — one body, no seam inside the overlap.'},
+  {title: 'New', code: 'extrude(60).symmetric().new()', image: '/img/docs/3d-operations/extrude-scope-new.png', description: 'The same cylinder, kept separate. The Shapes panel lists two solids, the edge where the cylinder passes through the cube stays drawn, and later features on the cube leave the cylinder alone.'},
+  {title: 'Remove', code: 'cut(60).symmetric()', image: '/img/docs/3d-operations/extrude-scope-remove.png', description: 'The cylinder\'s volume is carved out of the cube instead — a full-height round scallop 10 deep in the right-hand face, and nothing added beside it.'},
 ]} />
 
 <ExplainedCode code={extrudeScopeAdd} title="The Add column's code">
-The New column ends the highlighted line with `.new()`; the Remove column replaces it with `cut(40)`. Everything above the highlighted line is identical in the three files.
+The New column ends the highlighted line with `.new()`; the Remove column replaces it with `cut(60).symmetric()`. Everything above the highlighted line is identical in the three files.
 </ExplainedCode>
 
 Three things to know about the Remove tab:
@@ -187,7 +189,7 @@ extrude(30).thin(-5)   // 5 units inward
 
 ### Thin in the three modes
 
-Thin combines with every tab. Same cube, same circle on its right-hand face, **Thin** on with a thickness of 3:
+Thin combines with every tab. A 60 mm cube with a Ø50 circle sketched on its right-hand face, **Thin** on with a thickness of 3:
 
 <ModeTable columns={[
   {title: 'Add', code: 'extrude(40).thin(3)', image: '/img/docs/3d-operations/extrude-thin-add.png', description: 'A tube instead of a rod — a spigot fused with the cube.'},

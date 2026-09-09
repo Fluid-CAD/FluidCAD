@@ -1,10 +1,8 @@
 // @screenshot view iso-ftr
-import { sketch, plane, circle } from 'fluidcad/core';
+import { sketch, plane, loft, circle } from 'fluidcad/core';
 import { diameter, fix } from "fluidcad/constraints";
 
-// Nothing solid yet — four round sections on planes 40 apart, each fully constrained. Only the
-// diameter changes from one to the next: a Ø60 foot, a Ø100 belly, a Ø44 neck
-// and a Ø70 lip.
+// The foot and lip again, with the Ø100 belly between them.
 const foot = sketch("xy", () => {
     const c = circle([0, 0], 60);
     fix(c.center(), [0, 0]);
@@ -17,14 +15,13 @@ const belly = sketch(plane("xy", { offset: 40 }), () => {
     diameter(c, 100);
   })
 
-const neck = sketch(plane("xy", { offset: 80 }), () => {
-    const c = circle([0, 0], 44);
-    fix(c.center(), [0, 0]);
-    diameter(c, 44);
-  })
-
 const lip = sketch(plane("xy", { offset: 120 }), () => {
     const c = circle([0, 0], 70);
     fix(c.center(), [0, 0]);
     diameter(c, 70);
   })
+
+// Three sections: the surface now has to pass through the belly on its way
+// up, so the tube swells out in the middle.
+// highlight-next-line
+loft(foot, belly, lip);

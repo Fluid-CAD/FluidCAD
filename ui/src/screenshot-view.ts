@@ -1,4 +1,4 @@
-import { Box3, MathUtils, Object3D, Vector3 } from 'three';
+import { Box3, Camera, MathUtils, Object3D, Vector3 } from 'three';
 
 // View types — mirrored from server/src/ws-protocol.ts. We don't import from
 // that file because the UI is built with its own tsconfig and shouldn't pull
@@ -165,4 +165,36 @@ function expandBounds(box: Box3, object: Object3D): void {
   for (const child of object.children) {
     expandBounds(box, child);
   }
+}
+
+/**
+ * Point `camera` at `target` from `eye` for an export view. Every resolved
+ * view (named, orbit, look-from) is defined against world up, but sketch mode
+ * points `camera.up` along the sketch plane's Y axis and `lookAt` rolls the
+ * frame around whatever `up` is — the ground grid came out vertical and every
+ * sketch looked drawn on the wrong plane. Callers restore the saved `up`
+ * afterwards so the interactive sketch camera is untouched.
+ */
+export function orientCameraForView(camera: Camera, eye: Vector3, target: Vector3): void {
+  camera.up.copy(exportUpFor(eye.clone().sub(target)));
+  camera.position.copy(eye);
+  camera.lookAt(target);
+}
+
+/**
+ * The up vector an export view is framed against: world up, except when the
+ * viewing direction is parallel to it (top and bottom views), where lookAt
+ * has no roll to work from and three.js would pick one by nudging the axis.
+ * Those views take world +Y as up — X to the right, Y up the page, the way a
+ * drawing's plan view reads and the way the XY sketch camera already frames
+ * it.
+ */
+export function exportUpFor(viewDirection: Vector3): Vector3 {
+  const worldUp = Object3D.DEFAULT_UP;
+  const parallel = viewDirection.clone().normalize().cross(worldUp).lengthSq() < 1e-9;
+  return parallel ? planUp(worldUp) : worldUp.clone();
+}
+
+function planUp(worldUp: Vector3): Vector3 {
+  return Math.abs(worldUp.z) > 0.5 ? new Vector3(0, 1, 0) : new Vector3(0, 0, 1);
 }

@@ -8,7 +8,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
-import { resolveView, type ScreenshotView } from './screenshot-view';
+import { orientCameraForView, resolveView, type ScreenshotView } from './screenshot-view';
 import { findGeometryRoot } from './scene/scene-geometry-bounds';
 import { runFrameHooks } from './meshes/frame-hooks';
 import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
@@ -170,6 +170,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   cc.getPosition(savedCamPos);
   cc.getTarget(savedCamTarget);
   const savedZoom = camera.zoom;
+  const savedUp = camera.up.clone();
 
   // --- Apply export settings ---
   if (gridObj) { gridObj.visible = showGrid; }
@@ -201,8 +202,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   if (view.kind !== 'current') {
     const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
     if (target) {
-      camera.position.copy(target.eye);
-      camera.lookAt(target.target);
+      orientCameraForView(camera, target.eye, target.target);
 
       if (cam.isOrthographicCamera && resolved.diameter > 0) {
         const frustumW = cam.right - cam.left;
@@ -317,6 +317,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     cam.aspect = savedCameraState.aspect;
   }
   camera.zoom = savedZoom;
+  camera.up.copy(savedUp);
   camera.position.copy(savedCamPos);
   camera.lookAt(savedCamTarget);
   cam.updateProjectionMatrix();

@@ -1,38 +1,51 @@
-import { sketch, circle, extrude, fuse, cut, line } from 'fluidcad/core';
+// @screenshot view iso-ftr
+import { sketch, line, extrude, fuse } from 'fluidcad/core';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 
-// A mounting plate and a boss that were modelled as separate bodies.
+// Cube A. The four lines and the constraints that hold them square are what
+// the Rectangle tool writes; `fix` pins one corner, the two `distance`s size
+// the square.
 sketch("xy", () => {
-    const b = line([-50, -30], [50, -30]);
-    const r = line([50, -30], [50, 30]);
-    const t = line([50, 30], [-50, 30]);
-    const l = line([-50, 30], [-50, -30]);
-    coincident(b.end(), r.start());
-    coincident(r.end(), t.start());
-    coincident(t.end(), l.start());
-    coincident(l.end(), b.start());
-    horizontal(b);
-    vertical(r);
-    horizontal(t);
-    vertical(l);
-    fix(b.start(), [-50, -30]);
-    distance(b.start(), b.end(), 100);
-    distance(r.start(), r.end(), 60);
+    const bottom = line([-30, -30], [30, -30]);
+    const right = line([30, -30], [30, 30]);
+    const top = line([30, 30], [-30, 30]);
+    const left = line([-30, 30], [-30, -30]);
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-30, -30]);
+    distance(bottom.start(), bottom.end(), 60);
+    distance(right.start(), right.end(), 60);
 });
-const plate = extrude(8);
+const a = extrude(60);
 
-// The boss stands on the plate but .new() keeps it its own solid.
-sketch(plate.endFaces(), () => { circle([0, 0], 30); });
-const boss = extrude(25).new();
+// Cube B. The same square, shifted 30 mm along X and Y, so the two cubes
+// share a 30 x 30 x 60 corner.
+sketch("xy", () => {
+    const bottom = line([0, 0], [60, 0]);
+    const right = line([60, 0], [60, 60]);
+    const top = line([60, 60], [0, 60]);
+    const left = line([0, 60], [0, 0]);
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [0, 0]);
+    distance(bottom.start(), bottom.end(), 60);
+    distance(right.start(), right.end(), 60);
+});
+const b = extrude(60).new();
 
-// highlight-start
-// The Boolean dialog's Fuse tab with the plate and the boss in the Solids
-// slot: one body out, the shared face merged away. Colours follow the FIRST
-// input — the plate here.
-fuse(plate, boss);
-// highlight-end
-
-// The bore goes through the fused body as one cut. The boss's top face is
-// still a valid sketch plane after the fuse consumed the boss.
-sketch(boss.endFaces(), () => { circle([0, 0], 12); });
-cut();
+// highlight-next-line
+fuse(a, b);
+// One solid out. The faces inside the shared corner are gone; the outline is
+// the staircase both cubes together fill.

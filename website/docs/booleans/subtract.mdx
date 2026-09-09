@@ -4,22 +4,45 @@ title: "Subtract"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import booleanSubtract from '!!raw-loader!./_examples/boolean-subtract.js';
 
 # Subtract
 
-Subtract removes one solid's volume from another: the **base** keeps everything the **tool** does not occupy. It is the boolean behind cavities shaped by a second body — a mould around a part, a clearance pocket the size of a mating component.
+Subtract carves one solid out of another. The **base** is the solid you keep; the **tool** is the solid whose volume is taken away. Whatever the tool occupied becomes a hollow in the base, and the tool itself is gone.
+
+That makes it the operation for cavities shaped by a real body: a mould around a part, a clearance pocket the size of the component that has to fit in it, a channel cut by a swept or lofted shape.
 
 ## In the viewport
 
 1. Click **Boolean** on the toolbar and choose the **Subtract** tab.
-2. Click the solid to keep; it fills the **Base** slot. Click the solid to remove; it fills the **Tool** slot. Arm either slot by clicking it to change the pick.
-3. Click **Apply**. The tool is consumed and the base loses its volume.
+2. Click the solid you want to keep — it fills the **Base** slot, and the **Tool** slot arms itself next.
+3. Click the solid to remove. It fills **Tool**.
+4. Click **Apply**.
 
-![A hub with its bore subtracted](/img/docs/booleans/boolean-subtract.png)
+<UiFigure
+  src="/img/docs/ui/boolean-subtract-dialog.png"
+  alt="The Boolean dialog on the Subtract tab with a base and a tool picked"
+  markers={[
+    {n: 1, x: 5, y: 23, label: 'Subtract tab', description: 'Swapping to this tab turns the single Solids slot into the two slots below. The first two solids you had picked become the base and the tool; any extras are dropped, since a subtract takes exactly two.'},
+    {n: 2, x: 5, y: 46, label: 'Base', description: 'The solid that survives — one solid only. While this slot is armed, picking a different solid replaces what is in it.'},
+    {n: 3, x: 5, y: 69, label: 'Tool', description: 'The solid that is taken away, also one only. Click a slot to arm it (blue border) before re-picking; a chip’s ✕ empties the slot, and so does clicking the solid that is already in it.'},
+    {n: 4, x: 5, y: 89, label: 'Apply', description: 'Writes subtract(base, tool). Both slots must be filled first; Exit closes the dialog without writing anything.'},
+  ]}
+/>
 
-<ExplainedCode code={booleanSubtract} fileName="hub.part.js">
-The bore body is extruded with `.new()` so it stays a separate solid until the boolean runs; without it the two would fuse and there would be nothing to subtract.
+Getting the two the wrong way round is the usual mistake, and it is easy to spot: you end up with the tool full of a base-shaped hole. Click **Base** to re-arm it and pick again.
+
+The same two cubes, with the second one taken out of the first:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'two solids', image: '/img/docs/booleans/boolean-separate.png', description: 'Cube A is the base, cube B the tool. They share a 30 × 30 × 60 corner.'},
+  {title: 'After', code: 'subtract(a, b)', image: '/img/docs/booleans/boolean-subtract.png', description: 'Cube A with that corner taken out of it. Cube B is used up doing the cutting and is no longer in the Shapes panel.'},
+]} />
+
+<ExplainedCode code={booleanSubtract} fileName="cubes.part.js">
+The notch is exactly the corner the two cubes shared — nothing more is removed than the tool actually occupied.
 </ExplainedCode>
 
 ## Code forms
@@ -30,7 +53,7 @@ import { subtract } from 'fluidcad/core';
 subtract(base, tool)     // keep base, remove tool's volume
 ```
 
-Both arguments are required and the order matters. The result's new faces are the tool's surfaces where they crossed the base:
+Both arguments are required, and swapping them gives a different solid. The faces the cut leaves behind are the tool's surfaces where they ran through the base:
 
 ```js
 const s = subtract(box, cyl)
@@ -38,8 +61,10 @@ s.internalFaces()        // the cavity walls
 s.internalEdges()
 ```
 
-## Subtract versus cut
+## Subtract or cut?
 
-For a pocket or a hole whose shape you can sketch, use the extrude dialog's **Remove** tab (`cut()`): it sketches and removes in one step and stays parametric with the sketch. `subtract()` is for removing a body that already exists as a solid — an imported part, a revolved or lofted shape, another feature's result.
+If you can draw the shape you want to remove, sketch it and use the extrude dialog's **Remove** tab instead — that writes `cut()`, which stays tied to its sketch, so changing the sketch changes the pocket. It is the right tool for holes, slots and pockets.
 
-Inside a sketch, holes need no boolean at all: a closed profile drawn inside another becomes a hole when the sketch is extruded.
+`subtract()` is for removing a body that already exists as a solid: a STEP import, a revolve, a loft, the result of another feature.
+
+And inside a sketch you need neither. A closed profile drawn inside another closed profile becomes a hole as soon as the sketch is extruded.

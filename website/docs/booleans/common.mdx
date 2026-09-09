@@ -4,21 +4,43 @@ title: "Common"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import booleanCommon from '!!raw-loader!./_examples/boolean-common.js';
 
 # Common
 
-Common keeps only the volume that lies inside **every** input solid — the intersection. It is the boolean for rounding a box off with a cylinder, trimming a body to an envelope, or reading the overlap of two parts.
+Common keeps only the volume that lies inside **every** solid you pick, and throws the rest away. With two solids that is their overlap; with three it is the part all three cover.
+
+It is the operation for trimming a body down to an envelope — the space a part is allowed to occupy, the shape two profiles have in common when you approach a form from two directions.
 
 ## In the viewport
 
 1. Click **Boolean** on the toolbar and choose the **Common** tab.
-2. Click the solids to intersect; each becomes a chip in the **Solids** slot.
-3. Click **Apply**. Everything outside the overlap is gone.
+2. Click each solid. They land in the **Solids** slot as numbered chips.
+3. Click **Apply**. Everything outside the shared volume disappears.
 
-![A drive peg: the volume a square bar and a round shaft share](/img/docs/booleans/boolean-common.png)
+<UiFigure
+  src="/img/docs/ui/boolean-common-dialog.png"
+  alt="The Boolean dialog on the Common tab with two solids picked"
+  markers={[
+    {n: 1, x: 5, y: 25, label: 'Common tab', description: 'Uses the same single Solids slot as Fuse, so you can pick the solids first and choose the operation after.'},
+    {n: 2, x: 5, y: 38, label: 'Solids', description: 'Two or more. With three solids only the volume all three share is left, which is usually much smaller than you expect.'},
+    {n: 3, x: 5, y: 51, label: 'The chips', description: 'Numbered in pick order, but the order changes nothing here — the shared volume is the same whichever way round you pick.'},
+    {n: 4, x: 5, y: 88, label: 'Apply', description: 'Writes common(…). Exit closes the dialog and leaves the model alone.'},
+  ]}
+/>
 
-<ExplainedCode code={booleanCommon} fileName="peg.part.js" />
+Two cubes standing side by side, overlapping by half a cube, show it plainly:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'two solids', image: '/img/docs/booleans/boolean-common-before.png', description: 'Two 60 mm cubes in a row, the second shifted 30 mm along X. The band down the middle is where they overlap.'},
+  {title: 'After', code: 'common(a, b)', image: '/img/docs/booleans/boolean-common.png', description: 'That band and nothing else: a 30 × 60 × 60 slab. Both cubes are consumed.'},
+]} />
+
+<ExplainedCode code={booleanCommon} fileName="cubes.part.js">
+Everything either cube held on its own is gone. Common always shrinks the model — the result can never be bigger than the smallest solid you picked.
+</ExplainedCode>
 
 ## Code forms
 
@@ -30,4 +52,4 @@ common(a, b, c)     // the volume inside all three
 common()            // every solid in the current context
 ```
 
-Solids that do not overlap produce an empty result, which the feature reports as an error rather than a silent empty body. The inputs are consumed; the surviving faces keep their colours.
+Solids that do not overlap have nothing in common, so the result would be empty. Rather than leave you with a silently missing body, the feature reports it as an error on its timeline row.

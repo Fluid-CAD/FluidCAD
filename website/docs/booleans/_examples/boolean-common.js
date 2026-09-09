@@ -1,33 +1,48 @@
-import { sketch, circle, extrude, common, line } from 'fluidcad/core';
+// @screenshot view iso-ftr
+import { sketch, line, extrude, common } from 'fluidcad/core';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 
-// A drive peg with four flats: the volume a round shaft and a square bar have
-// in common — a square section whose corners are turned off to the shaft's
-// diameter.
+// Cube A, on the left.
 sketch("xy", () => {
-    const b = line([-20, -20], [20, -20]);
-    const r = line([20, -20], [20, 20]);
-    const t = line([20, 20], [-20, 20]);
-    const l = line([-20, 20], [-20, -20]);
-    coincident(b.end(), r.start());
-    coincident(r.end(), t.start());
-    coincident(t.end(), l.start());
-    coincident(l.end(), b.start());
-    horizontal(b);
-    vertical(r);
-    horizontal(t);
-    vertical(l);
-    fix(b.start(), [-20, -20]);
-    distance(b.start(), b.end(), 40);
-    distance(r.start(), r.end(), 40);
+    const bottom = line([-45, -30], [15, -30]);
+    const right = line([15, -30], [15, 30]);
+    const top = line([15, 30], [-45, 30]);
+    const left = line([-45, 30], [-45, -30]);
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-45, -30]);
+    distance(bottom.start(), bottom.end(), 60);
+    distance(right.start(), right.end(), 60);
 });
-const bar = extrude(60);
+const a = extrude(60);
 
-// The round shaft, a separate body of the same height.
-sketch("xy", () => { circle([0, 0], 50); });
-const shaft = extrude(60).new();
+// Cube B, 30 mm to the right of A — the two overlap by half a cube.
+sketch("xy", () => {
+    const bottom = line([-15, -30], [45, -30]);
+    const right = line([45, -30], [45, 30]);
+    const top = line([45, 30], [-15, 30]);
+    const left = line([-15, 30], [-15, -30]);
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-15, -30]);
+    distance(bottom.start(), bottom.end(), 60);
+    distance(right.start(), right.end(), 60);
+});
+const b = extrude(60).new();
 
-// highlight-start
-// The Boolean dialog's Common tab: only the volume inside BOTH solids stays.
-common(bar, shaft);
-// highlight-end
+// highlight-next-line
+common(a, b);
+// Only the slab both cubes cover is left: 30 mm along X, the full
+// 60 x 60 of their shared face.

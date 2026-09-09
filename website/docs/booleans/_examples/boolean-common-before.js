@@ -2,14 +2,12 @@
 import { sketch, line, extrude } from 'fluidcad/core';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 
-// Cube A. The four lines and the constraints that hold them square are what
-// the Rectangle tool writes; `fix` pins one corner, the two `distance`s size
-// the square.
+// Cube A, on the left.
 sketch("xy", () => {
-    const bottom = line([-30, -30], [30, -30]);
-    const right = line([30, -30], [30, 30]);
-    const top = line([30, 30], [-30, 30]);
-    const left = line([-30, 30], [-30, -30]);
+    const bottom = line([-45, -30], [15, -30]);
+    const right = line([15, -30], [15, 30]);
+    const top = line([15, 30], [-45, 30]);
+    const left = line([-45, 30], [-45, -30]);
     coincident(bottom.end(), right.start());
     coincident(right.end(), top.start());
     coincident(top.end(), left.start());
@@ -18,19 +16,18 @@ sketch("xy", () => {
     vertical(right);
     horizontal(top);
     vertical(left);
-    fix(bottom.start(), [-30, -30]);
+    fix(bottom.start(), [-45, -30]);
     distance(bottom.start(), bottom.end(), 60);
     distance(right.start(), right.end(), 60);
 });
 extrude(60);
 
-// Cube B. The same square, shifted 30 mm along X and Y, so the two cubes
-// share a 30 x 30 x 60 corner.
+// Cube B, 30 mm to the right of A — the two overlap by half a cube.
 sketch("xy", () => {
-    const bottom = line([0, 0], [60, 0]);
-    const right = line([60, 0], [60, 60]);
-    const top = line([60, 60], [0, 60]);
-    const left = line([0, 60], [0, 0]);
+    const bottom = line([-15, -30], [45, -30]);
+    const right = line([45, -30], [45, 30]);
+    const top = line([45, 30], [-15, 30]);
+    const left = line([-15, 30], [-15, -30]);
     coincident(bottom.end(), right.start());
     coincident(right.end(), top.start());
     coincident(top.end(), left.start());
@@ -39,12 +36,11 @@ sketch("xy", () => {
     vertical(right);
     horizontal(top);
     vertical(left);
-    fix(bottom.start(), [0, 0]);
+    fix(bottom.start(), [-15, -30]);
     distance(bottom.start(), bottom.end(), 60);
     distance(right.start(), right.end(), 60);
 });
 
 // highlight-next-line
-extrude(60);
-// Nothing here mentions cube A. The new solid touches it, so the two merge
-// on their own — the Shapes panel lists one solid, not two.
+extrude(60).new();
+// Two solids, overlapping by 30 mm along X.

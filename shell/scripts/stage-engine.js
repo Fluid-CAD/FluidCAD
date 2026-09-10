@@ -90,9 +90,14 @@ function main() {
 
   if (force || isStale(tarball)) {
     console.log(`Building engine ${version} for ${target}…`);
+    // Started as `node <tsx> …` rather than `npx tsx …`: on Windows `npx` is
+    // `npx.cmd`, which is a batch file and not something `execFileSync` can
+    // start (ENOENT). Node itself is always spawnable and tsx is a dependency
+    // of the engine checkout, so it is resolved from there.
+    const tsx = require.resolve('tsx/cli', { paths: [REPO_ROOT] });
     execFileSync(
-      'npx',
-      ['tsx', 'scripts/build-engine-tarball.ts', '--platform', target, '--out', ENGINES_DIR],
+      process.execPath,
+      [tsx, 'scripts/build-engine-tarball.ts', '--platform', target, '--out', ENGINES_DIR],
       { cwd: REPO_ROOT, stdio: 'inherit' },
     );
   }

@@ -118,6 +118,51 @@ function run(cmd: string, args: string[], cwd: string): string {
   return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 }
 
+/**
+ * `npm` as something `execFileSync` can start on every platform.
+ *
+ * On Windows `npm` is `npm.cmd`, a batch file: spawning it without a shell
+ * fails (ENOENT, or EINVAL on newer Node), and going through a shell would
+ * mean quoting every argument for cmd.exe. Node itself is always spawnable,
+ * so npm is run the way `npm.cmd` runs it — `node <npm-cli.js>`. When this
+ * script was started by npm (`npm run build:engine`, the shell's
+ * `stage-engine.js`), npm says where it lives in `npm_execpath`; otherwise
+ * it is looked up next to the running node binary, where every installer
+ * (nvm, nvm-windows, Volta, the official MSI/pkg) puts it.
+ */
+let resolvedNpm: { cmd: string; args: string[] } | undefined;
+function npmCommand(): { cmd: string; args: string[] } {
+  if (resolvedNpm) {
+    return resolvedNpm;
+  }
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  for (const cli of candidates) {
+    // `npm_execpath` is also set by yarn and pnpm, pointing at themselves.
+    if (cli && path.basename(cli) === 'npm-cli.js' && fs.existsSync(cli)) {
+      resolvedNpm = { cmd: process.execPath, args: [cli] };
+      return resolvedNpm;
+    }
+  }
+  if (process.platform === 'win32') {
+    throw new Error(
+      `Could not find npm-cli.js next to ${process.execPath}. ` +
+        'Run this through `npm run build:engine` so npm can say where it lives.',
+    );
+  }
+  resolvedNpm = { cmd: 'npm', args: [] };
+  return resolvedNpm;
+}
+
+function npm(args: string[], cwd: string): string {
+  const { cmd, args: lead } = npmCommand();
+  return run(cmd, [...lead, ...args], cwd);
+}
+
 function readJson(filePath: string): any {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -176,7 +221,7 @@ function packRepo(outDir: string, version: string): string {
   }
 
   fs.mkdirSync(outDir, { recursive: true });
-  run('npm', ['pack', '--ignore-scripts', '--pack-destination', outDir], REPO_ROOT);
+  npm(['pack', '--ignore-scripts', '--pack-destination', outDir], REPO_ROOT);
   const packed = path.join(outDir, `fluidcad-${version}.tgz`);
   if (!fs.existsSync(packed)) {
     throw new Error(`npm pack did not produce ${packed}`);
@@ -200,7 +245,7 @@ function packRepo(outDir: string, version: string): string {
   const engineDir = path.join(outDir, 'engine');
   fs.rmSync(engineDir, { recursive: true, force: true });
   fs.mkdirSync(engineDir, { recursive: true });
-  run('npm', ['pack', '--ignore-scripts', '--pack-destination', engineDir, extracted], outDir);
+  npm(['pack', '--ignore-scripts', '--pack-destination', engineDir, extracted], outDir);
   const engineTgz = path.join(engineDir, `fluidcad-${version}.tgz`);
   if (!fs.existsSync(engineTgz)) {
     throw new Error(`Repacking the MCP-less engine did not produce ${engineTgz}`);
@@ -233,8 +278,7 @@ function installStaging(stagingDir: string, packedTgz: string, engineTarget: Eng
     ) + '\n',
   );
 
-  run(
-    'npm',
+  npm(
     [
       'install',
       '--omit=dev',

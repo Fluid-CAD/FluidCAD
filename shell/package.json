@@ -13,7 +13,7 @@
     "stage:engine": "node scripts/stage-engine.js",
     "dev": "npm run build && electron .",
     "pack": "npm run build && npm run stage:engine && electron-builder --dir",
-    "pack:local": "npm run build && npm run stage:engine && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "pack:local": "npm run build && npm run stage:engine && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "dist": "npm run build && npm run stage:engine && electron-builder"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.1",
+    "cross-env": "^10.1.0",
     "electron": "^40.0.0",
     "electron-builder": "^26.0.12",
     "typescript": "^5.9.2"

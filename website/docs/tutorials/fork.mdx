@@ -156,7 +156,7 @@ A face sketch has its own axes, and they do not run through the boss centre — 
 
 ![The Project tool with the boss rim picked](/img/docs/tutorials/fork-ui-17-project-rim.png)
 
-Click **Apply**. The rim is now a fixed reference circle inside the sketch.
+Click **Apply**. The rim is now a fixed circle inside the sketch.
 
 ### Draw the bore against it
 
@@ -168,7 +168,9 @@ Click the **new circle**, **Ctrl+click** the **projected rim**, and click **Conc
 
 That is the last of it: *Fully constrained*, and the bore is on the boss axis by construction rather than by a number you typed.
 
-![The ⌀30 bore concentric with the projected rim](/img/docs/tutorials/fork-ui-19-bore-sketch.png)
+The rim has done its job, so demote it: click it and hit **Guide**. That appends `.guide()` to the projection, which turns it into construction geometry — still there to hold the concentric, but no longer a profile the cut could pick up.
+
+![The ⌀30 bore, the rim now a guide](/img/docs/tutorials/fork-ui-19-bore-sketch.png)
 
 ### Cut through everything
 
@@ -249,6 +251,6 @@ Everything above was written into `fork.fluid.js` by the dialogs. Open the code 
 - **Dimension** against the sketch axes instead of typed coordinates, with the DOF pill as the check that nothing is left loose
 - Two overlapping closed regions in one sketch, fused by a single **symmetric** extrude
 - A **construction plane** at an offset, for a boss too big to sketch on the face it grows from
-- **Project**, to bring a model edge into a face sketch as a fixed reference, then **Concentric** against it
+- **Project**, to bring a model edge into a face sketch, **Concentric** against it, then **Guide** to demote it to construction geometry
 - **Polygon**, circumscribed, for a square described by one diameter and one angle
 - **Thin walls** on a **Remove** extrude — cutting a ring around a profile to leave the shape inside it standing

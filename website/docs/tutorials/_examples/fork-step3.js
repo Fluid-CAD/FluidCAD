@@ -68,7 +68,7 @@ const boss = extrude(22);
 repeat("mirror", "yz", boss);
 
 sketch(boss.endFaces(), () => {
-    const rim = project(boss.startEdges(edge().arc()));
+    const rim = project(boss.startEdges(edge().arc())).guide();
     const bore = circle([0, -38], 30);
     diameter(bore, 30);
     concentric(bore, rim);

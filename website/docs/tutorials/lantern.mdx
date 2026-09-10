@@ -12,256 +12,265 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={lanternFinal} entry="lantern.fluid.js" />
 
-In this tutorial, you'll build a hexagonal lantern from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=F2C5cfJ2PrQ). It covers a wide range of FluidCAD features: constraint-sketch polygons, draft extrusions, shelling, projecting geometry, pattern cuts, lofting, and revolving.
+In this tutorial, you'll build a hexagonal lantern, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=F2C5cfJ2PrQ). You build almost all of it from the FluidCAD workspace: the toolbar, the sketch tools, the constraint bar and the feature dialogs. Every dialog writes a line of code into your file as you apply it, so the [full code](#full-code) at the end is what the UI produced, not something you type.
 
-Create a new file called `lantern.fluid.js` in your project.
+It covers the Polygon tool and its Inscribed option, construction planes stacked up the Z axis, a drafted extrusion kept as a separate solid, shelling by picking the faces to remove, projecting a model face into a sketch as fixed reference geometry, an inward Offset to make a window, a circular Repeat of a whole cut, sketching on faces the model already has, and a Loft between two faces for the roof.
 
-## Setup
+The finial and the hanging ring at the very top are the exception: spheres, `translate()` and offset axes have no tool yet, so [Step 5](#step-5-the-finial-and-the-ring-code-only) is typed into the code editor.
 
-Start with imports and some variables that define the lantern's dimensions. Using variables makes the model parametric — change a number and the whole lantern updates.
+## Before you start
 
-```js
-import {
-    axis, circle, cut, extrude, line, loft, offset,
-    plane, project, repeat, revolve, select, shell,
-    sketch, sphere, translate
-} from 'fluidcad/core';
-import { coincident, equal } from 'fluidcad/constraints';
-import { face } from 'fluidcad/filters';
+Open a workspace and create a new part file: click **+** in the top bar and type `lantern.fluid.js`. The new tab opens on an empty scene. The screenshots use the light theme; the sun/moon button at the top right switches it.
 
-const sides = 6;
-const draft = 8;
-const windowOffset = 6;
-const wallThickness = 7;
-const middleHeight = 150;
-```
+A few UI habits you will use throughout:
 
-- **`sides`** — number of sides for the lantern's cross-section (hexagonal)
-- **`draft`** — draft angle in degrees, so the body tapers as it goes up
-- **`windowOffset`** — how far the window cutouts are inset from the face edges
-- **`wallThickness`** — wall thickness after shelling
-- **`middleHeight`** — height of the main body
-
-The `coincident` and `equal` imports come from `fluidcad/constraints` — constraint statements that tell the sketch solver how geometry relates, rather than where every point sits.
-
-### A polygon helper
-
-The lantern uses five hexagonal profiles of different sizes, so we define one small helper that draws a regular polygon as solved geometry: one `line()` per side with exact vertex guesses on the circumscribing circle (first vertex due east), `coincident()` constraints joining the corners, and `equal()` constraints keeping every side the same length.
-
-```js
-function ngon(diameter) {
-    const r = diameter / 2;
-    const points = [];
-    for (let i = 0; i < sides; i++) {
-        const a = (2 * Math.PI * i) / sides;
-        points.push([r * Math.cos(a), r * Math.sin(a)]);
-    }
-    const edges = points.map((p, i) => line(p, points[(i + 1) % sides]));
-    for (let i = 0; i < sides; i++) {
-        coincident(edges[i].end(), edges[(i + 1) % sides].start());
-    }
-    for (let i = 1; i < sides; i++) {
-        equal(edges[0], edges[i]);
-    }
-    return edges;
-}
-```
-
-In a constraint sketch every primitive is fully specified up front — those computed points are *guesses*, and the solver keeps geometry exactly where its guesses put it unless a constraint says otherwise. Here the guesses already form a perfect polygon; the constraints record the design intent (closed loop, equal sides) and keep it intact if you later drag or re-dimension an edge.
+- **Ctrl+click** adds an entity to the current selection. A plain click replaces it.
+- The **constraint bar** appears under the toolbar while you sketch. Its buttons are icons; hover one for its name. A button lights up only when the current selection makes sense for it.
+- The **DOF pill** at the bottom of the viewport counts the degrees of freedom left in a sketch and turns into *Fully constrained* when you are done. Every sketch in this tutorial ends there.
+- Every feature dialog shows the **statement** it is about to write, just under the dialog. **Apply** (or <kbd>Enter</kbd>) writes it; **Exit** / **Cancel** (or <kbd>Escape</kbd>) discards it.
+- A construction plane you create is pickable only while it is the newest one. Once a sketch has consumed it, it leaves the pick set — so make a plane and sketch on it in one go, as each of Steps 1 and 4 does.
 
 ## Step 1: The middle body
 
-The lantern's main body is a hexagonal prism with a slight taper and hollow walls.
+The lantern's cage is a hexagonal prism that tapers as it rises and is hollow inside. It starts 24 mm up, to leave room for the base underneath.
 
-### Extrude with draft
+### A plane 24 mm up
 
-Sketch a hexagon on a plane that's offset 24 units above the origin (to leave room for the base below), then extrude it upward with a draft angle. Units are millimetres unless a file says otherwise — see the [Units guide](/docs/extra/units). The `true` argument after the callback makes this a constraint sketch — the mode every sketch in this tutorial uses. The `.new()` keeps the extrusion as a separate solid — we'll need to reference its faces later without interference from other parts.
+Click **Plane** in the toolbar and click the **XY** origin plane for the base. Set **Offset** to `24`. The yellow quad and its arrow preview the new plane, and the statement reads `plane('xy', 24)`.
 
-```js
-sketch(plane("xy", { offset: 24 }), () => {
-    ngon(100);
-})
+![Plane dialog with the XY plane offset 24 mm up](/img/docs/tutorials/lantern-ui-01-plane-offset.png)
 
-const middle = extrude(middleHeight).draft(draft).new()
-```
+Click **Apply**.
 
-![Hexagon sketch](/img/docs/tutorials/lantern-step1-sketch.png)
+### Sketch on it
 
-The draft angle makes the hexagon slightly wider at the top than the bottom, giving the lantern its characteristic tapered shape.
+Click **Sketch**. The dialog asks for a face or a plane, and the origin planes appear alongside the one you just made — the larger quad with the orange outline.
 
-![Tapered hexagonal prism](/img/docs/tutorials/lantern-step1.png)
+![Sketch tool armed, the new plane offered alongside the origin planes](/img/docs/tutorials/lantern-ui-02-sketch-pick-plane.png)
+
+Click the **new plane**. The camera locks onto it, the sketch toolbar replaces the feature toolbar, and the constraint bar appears above the viewport. The chip reads *Plane*.
+
+### Draw the hexagon with the Polygon tool
+
+A regular hexagon is one tool, not six lines and a pile of constraints.
+
+Click **Polygon**. The button opens a small option menu asking where the guide circle sits: **Circumscribed** draws the sides tangent around it, **Inscribed** puts the corners on it. Choose **Inscribed**, so the diameter you type is measured across the corners.
+
+![The Polygon tool's option menu, with Inscribed selected](/img/docs/tutorials/lantern-ui-03-polygon-options.png)
+
+Click the **origin** for the centre. A **⌀** readout follows the mouse with a dashed guide circle; type `100` and press <kbd>Enter</kbd>.
+
+![Polygon tool: the diameter is typed, the guide circle previews it](/img/docs/tutorials/lantern-ui-04-polygon-diameter.png)
+
+The readout switches to the number of sides. Type `6` and press <kbd>Enter</kbd>.
+
+![Polygon tool: six sides, inscribed in the ⌀100 guide circle](/img/docs/tutorials/lantern-ui-05-polygon-sides.png)
+
+One gesture, and the hexagon arrives almost fully described: six lines, a coincident at every corner, one `equal` covering all six sides, all six corners coincident with a `.guide()` circle, the ⌀100 on that circle, and its centre on the origin. The DOF pill still reads *1 DOF remaining* — nothing yet says which way round the hexagon sits.
+
+![The hexagon with its guide circle and constraint badges, 1 DOF left](/img/docs/tutorials/lantern-ui-06-hexagon-1dof.png)
+
+Click the **top side** and click **Horizontal**. That is the last degree of freedom.
+
+![The hexagon, fully constrained by a horizontal on the top side](/img/docs/tutorials/lantern-ui-07-hexagon-constrained.png)
+
+### Extrude it with a draft
+
+Click **Finish Sketch ▾** and choose **Extrude**.
+
+![The Finish Sketch menu over the finished hexagon](/img/docs/tutorials/lantern-ui-08-finish-sketch-menu.png)
+
+Select the **New** tab, set **Distance** to `150` and **Draft angle** to `8`. New keeps the cage as its own solid, so the base and the top you add later cannot interfere with the faces you are about to reference. The draft is what gives the lantern its taper — the hexagon grows as it rises. The statement reads `extrude(150).draft(8).new()`.
+
+![Extrude dialog with the drafted 150 mm ghost preview](/img/docs/tutorials/lantern-ui-09-extrude-ghost.png)
+
+Click **Apply**.
+
+![The tapered hexagonal prism](/img/docs/tutorials/lantern-ui-10-body.png)
 
 ### Shell it hollow
 
-Select the top and bottom faces, then shell the body to create hollow walls:
+Click **Shell** in the toolbar and click the **top face** of the prism. Rotate the view until you can see underneath and **Ctrl+click** the **bottom face** too — those are the two faces that get removed. Set **Thickness** to `-7`; the negative sign keeps the wall inside the original surface, so the outside of the lantern does not move.
 
-```js
-select(
-    face().onPlane("xy", middleHeight + 24),
-    face().onPlane("xy", 24),
-);
+The statement names the picks by the operation that made them: `shell(-7, e.endFaces(), e.startFaces())`.
 
-shell(-wallThickness)
-```
+![Shell dialog with the top and bottom faces picked and a −7 wall](/img/docs/tutorials/lantern-ui-11-shell-picks.png)
 
-`face().onPlane("xy", middleHeight + 24)` finds the top face (at height 174), and `face().onPlane("xy", 24)` finds the bottom face. These two faces are removed, and the rest of the solid is hollowed out with walls of `wallThickness` (7 units).
+Click **Apply**. What is left is a 7 mm hexagonal tube.
 
-![Shelled hexagonal body](/img/docs/tutorials/lantern-step1-shell.png)
+![The shelled body, open top and bottom](/img/docs/tutorials/lantern-ui-12-shelled.png)
 
 ## Step 2: Cut the windows
 
-Each side of the lantern gets a window. We'll create one window and repeat it around the body.
+Every side of the lantern gets a window, inset 6 mm from the edges of its face. Rather than measure that inset, project the face itself into the sketch and shrink it.
 
-### Project and offset
+### Sketch on a side face
 
-To create a window that fits exactly within a side face, we project the face outline onto a sketch, then offset it inward:
+Click **Sketch** and click one of the **side faces** of the body. The chip reads *Face — Shell*: FluidCAD remembered which operation produced that face, so the sketch follows the body if you change it later. The camera looks straight at the face, and the face itself is drawn dimmed behind the sketch.
 
-```js
-sketch(middle.sideFaces(0), () => {
-    const outline = project(middle.sideFaces(0)).guide()
-    offset(-windowOffset, outline)
-})
-```
+![A sketch opened on one side face of the body](/img/docs/tutorials/lantern-ui-13-sketch-side-face.png)
 
-- `middle.sideFaces(0)` gives us the first side face of the hexagonal body — we use it both as the sketch plane and as the geometry to project.
-- `project()` traces the face's outline onto the sketch as fixed reference geometry — the solver locks it in place, so nothing can drag it away from the face it came from.
+### Project the face
 
-![Projected face outline](/img/docs/tutorials/lantern-step2-project.png)
+Pick the **Project** tool from the sketch toolbar. It suspends sketch editing so you can pick in the free 3D view; click the **same side face**. The statement reads `project(e.sideFaces(1))` — a rule, not a fixed index, so it survives edits.
 
-- `.guide()` marks the projected outline as construction geometry: it steers other statements but doesn't become part of the profile itself.
-- `offset(-windowOffset, outline)` shrinks the guide outline inward by 6 units. Since the projection is only a guide, the inset shape is the sketch's sole profile — exactly the window we want to cut.
+![Project tool with the side face picked](/img/docs/tutorials/lantern-ui-14-project-pick.png)
 
-![Offset window cutout](/img/docs/tutorials/lantern-step2-offset.png)
+Click **Apply**. Four projected edges arrive, exactly on the outline of the face. They come in **fixed**: they add no freedom to the sketch and other geometry can lean on them, which is why the pill still reads *Fully constrained*.
 
-### Cut and repeat
+Now make them reference geometry. Click one projected edge, **Ctrl+click** the other three, and click **Guide**.
 
-Cut through the wall, then repeat the cut for all sides:
+![All four projected edges selected, ready to become guides](/img/docs/tutorials/lantern-ui-15-projection-selected.png)
 
-```js
-const c = cut(7)
+The statement grows a `.guide()`: `project(e.sideFaces(1)).guide()`. Guides steer other statements but never become part of a profile, so the outline of the face will not be cut — only what you derive from it.
 
-repeat("circular", "z", {
-    count: sides,
-    offset: 360 / sides
-})
-```
+### Offset it inward
 
-`cut(7)` removes 7 units of material (matching the wall thickness). The `repeat("circular")` re-applies this cut around the Z axis, once for each side of the hexagon. `count` includes the original, so `sides` gives us one cut per face.
+Pick the **Offset** tool. Click one guide edge, then **Ctrl+click** the other three so the whole loop is in the Selection list. Set **Distance** to `-6` — negative offsets run inward. The statement collapses the four picks back to the projection they came from: `offset(-6, pj)`.
 
-![Lantern body with windows](/img/docs/tutorials/lantern-step2.png)
+![Offset dialog with the four guide edges picked and a −6 distance](/img/docs/tutorials/lantern-ui-16-offset-picks.png)
+
+Click **Apply**. The inset loop is the sketch's only real profile, and it is exactly the window.
+
+![The window profile, 6 mm inside the face outline](/img/docs/tutorials/lantern-ui-17-window-profile.png)
+
+### Cut it, then repeat it around
+
+Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab and set **Depth** to `7` — the wall thickness. A cut runs opposite the sketch normal, so 7 mm from the outer face is exactly through the wall. The red ghost is the material about to disappear and the statement is `cut(7)`.
+
+![Extrude dialog on the Remove tab, red ghost through the wall](/img/docs/tutorials/lantern-ui-18-cut-ghost.png)
+
+Click **Apply**.
+
+![One window cut](/img/docs/tutorials/lantern-ui-19-one-window.png)
+
+Click **Repeat** in the toolbar and set **Type** to **Circular**. Repeat takes its targets from the History panel: click the **Cut** row, and it lands in the Features slot. The axis defaults to **World Z**, which is what you want. Set **Total Count** to `6` and leave the angle on **Total 360**, so the six instances spread evenly all the way round.
+
+![Repeat dialog, the cut ghosted six times around the Z axis](/img/docs/tutorials/lantern-ui-20-repeat-ghost.png)
+
+Click **Apply**. Repeat re-applies the *operation*, not the solid, so each face gets its own window cut through its own wall.
+
+![The lantern cage with six windows](/img/docs/tutorials/lantern-ui-21-windows.png)
 
 ## Step 3: The base
 
-The base is two stacked hexagonal layers — a wider bottom tier and a narrower upper tier.
+The base is two stacked hexagonal tiers, each 12 mm tall, that lift the cage off the ground.
 
-```js
-sketch("xy", () => {
-    ngon(150);
-});
+### A wider hexagon on the XY plane
 
-const pl1 = extrude(12)
+Click **Sketch** and click the **XY** origin plane — the horizontal one, at z = 0.
 
-sketch(pl1.endFaces(), () => {
-    ngon(115);
-});
+![Sketch tool armed with the origin planes shown around the cage](/img/docs/tutorials/lantern-ui-22-sketch-xy.png)
 
-extrude(12)
-```
+Draw the same way as before: **Polygon**, origin, ⌀`150`, `6` sides, then a **Horizontal** on the top side to spend the last degree of freedom.
 
-- The first sketch draws a hexagon with diameter 150 on the XY plane.
-- `extrude(12)` creates a 12-unit tall base slab. It auto-fuses since we didn't use `.new()`.
-- The second hexagon (diameter 115) is drawn on the top face of the first layer (`pl1.endFaces()`), then extruded another 12 units. This creates a stepped base.
+**Finish Sketch ▾ → Extrude**, **Distance** `12`, **Add** tab. The green ghost is the slab.
 
-![Lantern with base](/img/docs/tutorials/lantern-step3.png)
+![Extrude dialog with the 12 mm base slab ghost](/img/docs/tutorials/lantern-ui-23-base-extrude-ghost.png)
 
-## Step 4: The top
+Click **Apply**.
 
-The top mirrors the base with a wider cap, then lofts up to a narrow tip.
+![The lower base tier](/img/docs/tutorials/lantern-ui-24-base-tier.png)
 
-### Cap and tip
+### A narrower hexagon on top of it
 
-```js
-const topPlane = plane("xy", { offset: middleHeight + 24 });
-sketch(topPlane, () => {
-    ngon(165);
-});
+Click **Sketch** again and this time click the **top face of the slab**. The chip reads *Face — Extrude*.
 
-const top = extrude(12)
+Draw a **Polygon** on the origin, ⌀`115`, `6` sides, **Horizontal** on the top side, then **Finish Sketch ▾ → Extrude**, **Distance** `12`.
 
-sketch(plane(topPlane, { offset: 52 + 12 }), () => {
-    ngon(50);
-});
+![Extrude dialog with the upper tier's ghost on the slab](/img/docs/tutorials/lantern-ui-25-base-upper-ghost.png)
 
-const tip = extrude(12)
-```
+Click **Apply**. The upper tier reaches z = 24, meets the bottom of the cage and fuses with it — the whole lantern is one solid from here on.
 
-- `topPlane` is positioned at the top of the middle body (height 174).
-- A wide hexagon (diameter 165) is extruded 12 units to form the cap.
-- A small hexagon (diameter 50) is placed 64 units above `topPlane` and extruded 12 units for the tip.
+![The stepped base under the cage](/img/docs/tutorials/lantern-ui-26-base.png)
 
-### Loft between cap and tip
+## Step 4: The top and the lofted roof
 
-```js
-loft(top.endFaces(), tip.startFaces())
-```
+The top is a wide cap over the cage, a small hexagonal tip floating above it, and a loft joining the two.
 
-`loft()` creates a smooth transition between the top of the cap and the bottom of the tip. This forms the sloped roof of the lantern.
+### The cap
 
-![Lantern with top and loft](/img/docs/tutorials/lantern-step4.png)
+Click **Plane**, pick **XY** and set **Offset** to `174` — 24 plus the 150 mm of cage, so the plane lands on top of the body. Apply, then click **Sketch** and pick the new plane.
 
-## Step 5: The ring and handle
+![Sketch tool armed on the plane 174 mm up](/img/docs/tutorials/lantern-ui-27-sketch-plane-174.png)
 
-Finally, a small sphere sits on top, and a ring loops above it as a handle.
+**Polygon**, origin, ⌀`165`, `6` sides, **Horizontal**. Then **Finish Sketch ▾ → Extrude**, **Distance** `12`, **Apply**.
 
-### Sphere
+![The cap on top of the cage](/img/docs/tutorials/lantern-ui-28-cap.png)
+
+### The tip
+
+Click **Plane** again, **XY**, **Offset** `238`. Apply, **Sketch** on it, and draw a **Polygon** on the origin, ⌀`50`, `6` sides, **Horizontal**.
+
+**Finish Sketch ▾ → Extrude**, **Distance** `12`. The tip floats 52 mm above the cap for now — nothing joins them yet.
+
+![Extrude dialog with the small tip ghost floating above the cap](/img/docs/tutorials/lantern-ui-29-tip-ghost.png)
+
+Click **Apply**.
+
+### Loft the roof between them
+
+Click **Loft** in the toolbar. The dialog wants profiles in loft order, and a profile can be a face you pick in the 3D view. Click the **top face of the cap**, then rotate the view until you can see under the tip and click the **bottom face of the tip**.
+
+The two chips are the two ends of the roof, and the statement names them by the operations that made them: `loft(e3.endFaces(), e4.startFaces())`. The green ghost is the surface they describe.
+
+![Loft dialog with the cap top and the tip bottom picked, roof ghosted green](/img/docs/tutorials/lantern-ui-30-loft-ghost.png)
+
+Click **Apply**. Nothing about the roof was dimensioned — its slope falls out of where the two faces are.
+
+![The lofted roof](/img/docs/tutorials/lantern-ui-31-roof.png)
+
+## Step 5: The finial and the ring (code only)
+
+The last two features have no tool in the workspace yet: there is no primitive tool for a sphere, no move tool for `translate()`, and no way to create an offset `axis()` for a revolve to turn around. So this step is typed, not clicked.
+
+Open the code editor with the `</>` button on the left rail and add these lines at the end of the file:
 
 ```js
 let s = sphere(25 / 2)
 translate([0, 0, 257], s)
-```
 
-A small sphere (diameter 12.5) is placed at the very top of the lantern at height 257.
+const ringAxis = axis('y', { offsetZ: 290 })
 
-### Ring
-
-```js
-const ringAxis = axis("y", { offsetZ: 290 })
-
-sketch("yz", () => {
+sketch('yz', () => {
     circle([0, 290 + (65 / 2) - (7 / 2)], 7)
-});
+})
 
 revolve(ringAxis).new()
 ```
 
-- `axis("y", { offsetZ: 290 })` creates a Y-axis shifted up to height 290 — this is the center of the ring.
-- A small circle (diameter 7) is sketched on the YZ plane, positioned to form the ring's cross-section.
+- `sphere(25 / 2)` makes the finial and `translate()` lifts it to z = 257, just above the tip.
+- `axis('y', { offsetZ: 290 })` is a Y axis raised to z = 290 — the centre line of the ring, well above any geometry.
+- The ⌀7 circle on the YZ plane is the ring's cross-section, placed 29 mm out from that axis.
+- `revolve(ringAxis)` sweeps the circle a full turn around the raised axis, which produces the torus. `.new()` keeps it as its own solid, so it hangs from the finial rather than fusing into it.
 
-![Ring cross-section sketch](/img/docs/tutorials/lantern-step5-sketch.png)
-
-- `revolve(ringAxis)` rotates this circle around the offset axis, creating a torus (ring). The `.new()` keeps it separate from the rest.
-
-![Finished lantern](/img/docs/tutorials/lantern-final.png)
-
-:::tip[Try it parametric]
-Change the `sides` variable to any even number ≥ 4 (e.g. `4`, `6`, `8`) and the whole lantern — body, windows, base, top, and loft — adapts automatically.
-:::
+![The finished lantern](/img/docs/tutorials/lantern-ui-32-final.png)
 
 ## Full code
 
-<OpenInViewer code={lanternFinal} entry="lantern.fluid.js" />
+Everything up to the roof was written into `lantern.fluid.js` by the dialogs — the five polygons, their constraints, the planes, the extrusions, the shell, the projection, the offset, the cut, the repeat and the loft. Open the code editor with the `</>` button on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to read it alongside the model.
 
-<CodeBlock language="js">{lanternFinal}</CodeBlock>
+![The code editor showing the statements the dialogs wrote](/img/docs/tutorials/lantern-ui-33-code-editor.png)
+
+The listing below is that file, plus the four hand-typed statements from Step 5. The coordinates you clicked will differ from these, but the constraints make the geometry identical.
+
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{lanternFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={lanternFinal} entry="lantern.fluid.js" />
 
 ## What you practiced
 
-- **Parametric variables** — defining dimensions at the top so the whole model adapts when you change a value
-- **`plane()` with offset** — positioning sketches at specific heights
-- **Constraint sketches** — building polygon profiles from `line()` primitives with `coincident()` and `equal()` constraints
-- **`.draft()`** — tapering an extrusion
-- **`.new()`** — preventing auto-fusion to keep parts separate
-- **`select()` + `shell()`** — hollowing a solid by removing specific faces
-- **`project().guide()` + `offset()`** — tracing a face outline as fixed reference geometry and shrinking it for window cutouts
-- **`repeat("circular")`** — repeating a cut around an axis
-- **`loft()`** — smoothly connecting two faces at different heights
-- **`axis()` with offset + `revolve()`** — creating a ring (torus) by revolving a circle around an offset axis
+- The **Polygon** tool with a typed diameter and side count, and its **Inscribed** option, which decides whether the diameter is measured across the corners or across the flats
+- **Plane** at an offset, three times, as scaffolding for geometry that does not sit on an origin plane — and the rule that a plane is only pickable until a sketch consumes it
+- **Draft** on an extrusion, and the **New** tab, which keeps a solid separate so its faces stay easy to reference
+- **Shell** by picking the faces to remove, with a negative thickness that grows the wall inward
+- **Project** to bring a model face into a sketch as fixed reference geometry, and **Guide** to keep it out of the profile
+- The 2D **Offset** tool with a negative distance, deriving a window from the face it sits on instead of dimensioning it
+- **Repeat → Circular**, which re-applies a whole cut around an axis rather than copying the solid
+- **Sketching on a face** the model already has, and reading the *Face — Extrude* chip that keeps the reference alive through edits
+- **Loft** between two picked faces, where the shape of the roof is decided entirely by where its two ends are

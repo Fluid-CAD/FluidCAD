@@ -1,38 +1,33 @@
 import {
-    axis, circle, cut, extrude, line, loft, offset,
-    plane, project, repeat, revolve, select, shell,
-    sketch, sphere, translate
+    axis, circle, cut, extrude, line, loft, offset, origin,
+    plane, project, repeat, revolve, shell, sketch, sphere, translate
 } from 'fluidcad/core';
-import { coincident, equal } from 'fluidcad/constraints';
-import { face } from 'fluidcad/filters';
+import { coincident, diameter, equal, horizontal } from 'fluidcad/constraints';
 
-const sides = 6;
-const draft = 8;
-const windowOffset = 6;
-const wallThickness = 7;
-const middleHeight = 150;
-
-// A regular polygon of `sides` sides as solved lines: exact vertex guesses
-// on the circumscribing circle (first vertex due east), coincident corners,
-// and equal side lengths.
-function ngon(diameter) {
-    const r = diameter / 2;
-    const points = [];
-    for (let i = 0; i < sides; i++) {
-        const a = (2 * Math.PI * i) / sides;
-        points.push([r * Math.cos(a), r * Math.sin(a)]);
-    }
-    const edges = points.map((p, i) => line(p, points[(i + 1) % sides]));
-    for (let i = 0; i < sides; i++) {
-        coincident(edges[i].end(), edges[(i + 1) % sides].start());
-    }
-    for (let i = 1; i < sides; i++) {
-        equal(edges[0], edges[i]);
-    }
-    return edges;
-}
-
-// Middle Body
-sketch(plane("xy", { offset: 24 }), () => {
-    ngon(100);
-})
+// Middle body
+const p = plane('xy', 24);
+sketch(p, () => {
+  const l1 = line([50, 0], [25, 43.3]);
+  const l2 = line([25, 43.3], [-25, 43.3]);
+  const l3 = line([-25, 43.3], [-50, 0]);
+  const l4 = line([-50, 0], [-25, -43.3]);
+  const l5 = line([-25, -43.3], [25, -43.3]);
+  const l6 = line([25, -43.3], [50, 0]);
+  const c1 = circle([0, 0], 100).guide();
+  coincident(l1.end(), l2.start());
+  coincident(l2.end(), l3.start());
+  coincident(l3.end(), l4.start());
+  coincident(l4.end(), l5.start());
+  coincident(l5.end(), l6.start());
+  coincident(l6.end(), l1.start());
+  equal(l1, l2, l3, l4, l5, l6);
+  coincident(l1.start(), c1);
+  coincident(l2.start(), c1);
+  coincident(l3.start(), c1);
+  coincident(l4.start(), c1);
+  coincident(l5.start(), c1);
+  coincident(l6.start(), c1);
+  diameter(c1, 100);
+  coincident(c1.center(), origin());
+  horizontal(l2);
+});

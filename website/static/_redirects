@@ -2,8 +2,10 @@
 # Specific rules first; Cloudflare Pages applies the first match.
 
 /docs/getting-started/installation            /docs/installation                              301
-/docs/getting-started/editor-setup            /docs/extra/editor-setup                        301
-/docs/getting-started/project-configuration   /docs/extra/project-configuration               301
+/docs/getting-started/editor-setup            /docs/installation#editor-setup                 301
+/docs/extra/editor-setup                      /docs/installation#editor-setup                 301
+/docs/getting-started/project-configuration   /docs/project-configuration                     301
+/docs/extra/project-configuration             /docs/project-configuration                     301
 /docs/getting-started/user-interface          /docs/user-interface                            301
 /docs/getting-started/your-first-model        /docs/getting-started                           301
 

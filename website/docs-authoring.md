@@ -15,7 +15,7 @@ This file is the contract for everyone (people and agents) adding pages.
 
 ```
 website/docs/
-  introduction.mdx, installation.mdx, user-interface.mdx, cli.mdx
+  introduction.mdx, installation.mdx, project-configuration.mdx, user-interface.mdx, cli.mdx
   getting-started/   part-container → basic-sketch → 3d-features → connectors →
                      export → insert-into-assembly → joints → animate-joint
   datums/            axes, planes
@@ -26,7 +26,7 @@ website/docs/
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat
   appearance/        color
-  extra/             reusable-objects, units, project-configuration, editor-setup
+  extra/             reusable-objects, units
   import-export/     import, export
   part/              introduction, part, param, connector, expose
   assembly/          introduction, grounded, fastened, slider, revolute, cylindrical, planar, tangent, replicate

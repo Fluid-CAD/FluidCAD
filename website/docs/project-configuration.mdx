@@ -1,0 +1,131 @@
+---
+sidebar_position: 3
+title: "Project Configuration"
+---
+
+# Project configuration
+
+A FluidCAD project is an ordinary folder: a descriptor, an entry point, and one file per model. Nothing is hidden in a database — the server reads the folder, and everything in it is plain text you can diff and commit.
+
+```
+my-hinge/
+├── package.json          ← npm dependencies (the fluidcad package)
+├── jsconfig.json         ← editor type hints
+├── fluidcad.json         ← project descriptor: engine pin, unit
+├── init.js               ← required entry point
+├── leaf.part.js          ← a part
+├── pin.part.js           ← another part
+└── hinge.assembly.js     ← an assembly of the two
+```
+
+`npx fluidcad init` writes the first four; you add the model files as you work. [Installation](/docs/installation#npm-installation) covers creating the project in the first place.
+
+`package.json` holds the `fluidcad` dependency — the engine resolves from the project's `node_modules`, which is why FluidCAD is installed per project rather than globally. `jsconfig.json` points your editor at that package's type declarations, so `extrude(` shows its signature outside the FluidCAD editor too.
+
+## `init.js`
+
+The project's entry point. It loads the geometry kernel and creates the scene that every model file writes into, so it must exist at the project root before any `.part.js` can run:
+
+```js
+import { init } from 'fluidcad';
+
+export default await init();
+```
+
+`npx fluidcad init` generates it, and it is not meant to be edited: the top-level `await` is what makes the kernel ready before the first sketch statement executes.
+
+For completeness, `init()` accepts an options object — `init({ unit: 'in' })` overrides the project's length unit, and a `mesh` option sets display density. Those are hooks for embedding hosts and test setups; a normal project sets [`unit`](#unit) in `fluidcad.json` and leaves `init.js` untouched.
+
+## `fluidcad.json`
+
+The project descriptor, written next to `init.js`: plain JSON that the server, the CLI and the desktop app read without executing any of your code.
+
+```json
+{
+  "engine": "0.0.42",
+  "unit": "mm"
+}
+```
+
+Both keys are optional. A project with no `fluidcad.json` behaves as if the file held neither: no engine pin, millimetres.
+
+### `engine`
+
+The FluidCAD version the project's geometry was authored against. `npx fluidcad init` pins the version it was run with and leaves an existing pin alone.
+
+The pin records intent; it does not switch versions by itself. `npx fluidcad serve` runs whatever `fluidcad` is installed in the project, and when that differs from the pin the startup banner says so before anything is rebuilt:
+
+```
+FluidCAD: this project pins engine 0.0.42 (fluidcad.json), but 0.0.45 is running.
+Geometry may differ from what the project was authored against.
+```
+
+The desktop app goes one step further and uses the pin to choose which engine to load for the project. Bump the pin once you have upgraded `fluidcad` and checked the model still builds the way you expect.
+
+`package.json` is accepted as an alternative home for the same pin — `{ "fluidcad": { "engine": "0.0.42" } }` — and `fluidcad.json` wins when both exist. An `engine` value that is not a version string is reported and ignored.
+
+### `unit`
+
+The project's length unit. It is the unit of every part file that does not declare its own with `unit()`, and the unit of assembly space. One of `mm`, `cm`, `m`, `in`, `ft`; the default is `mm`.
+
+```bash
+npx fluidcad init --unit in
+```
+
+writes `"unit": "in"`. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
+
+Numbers in a file are in that file's unit. A part file can opt out of the project unit with a single statement at the top:
+
+```js
+import { unit, extrude, sketch, circle } from 'fluidcad/core';
+
+unit('in');
+
+sketch("xy", () => {
+    circle([0, 0], 1);   // 1 in
+});
+extrude(0.5);            // 0.5 in
+```
+
+Assemblies never declare a unit: their offsets and translations are in the project unit, and inserted parts of any unit are scaled into it automatically. The [Units guide](/docs/extra/units) covers the rules, the `fluidcad/units` conversion helpers, import/export, and which unit to pick for which feature scale.
+
+## `.part.js` — parts
+
+A part file is a normal ES module: it imports the statements it uses from `fluidcad/core` and runs them top to bottom, and the shapes it builds are the model the viewport shows. Bare statements render as a standalone model; wrapping them in an exported [`part()`](/docs/part/introduction) is what makes the file insertable into an assembly. The convention is one part per file, named after the thing it is — `bracket.part.js` exports `bracket`.
+
+```js
+// leaf.part.js
+import { part, sketch, rect, extrude } from 'fluidcad/core';
+
+export const leaf = part('Leaf', () => {
+    sketch('xy', () => {
+        rect([0, 0], 60, 40);
+    });
+    extrude(4);
+});
+```
+
+The file is live in both directions: modelling in the viewport writes the statements into it, and editing it by hand and saving rebuilds the model.
+
+## `.assembly.js` — assemblies
+
+An assembly file imports part files and places instances of them: [`insert()`](/docs/assembly/introduction) to add a part, `.grounded()` to anchor one, `mate()` to join two connectors. Offsets and translations here are in the project unit, and parts authored in another unit are scaled in automatically.
+
+```js
+// hinge.assembly.js
+import { assembly, insert, mate } from 'fluidcad/core';
+import { leaf } from './leaf.part.js';
+import { pin } from './pin.part.js';
+
+export const hinge = assembly('hinge', () => {
+    const base = insert(leaf).grounded();
+    const rod = insert(pin);
+    mate('revolute', base.connectors.bore, rod.connectors.shaft);
+});
+```
+
+An exported `assembly()` definition can itself be inserted into another assembly as a sub-assembly.
+
+## File naming
+
+The extension is what FluidCAD keys on: `.part.js` is a part file and `.assembly.js` an assembly, and both appear in the workspace's file tabs, the Insert dialog and the CLI's export targets. A `.js` file that follows neither convention is ignored by the viewer — it is just a module your model files can import from, which is how [reusable objects](/docs/extra/reusable-objects) are shared between parts.

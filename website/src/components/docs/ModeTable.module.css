@@ -19,13 +19,11 @@
   background: var(--ifm-background-surface-color);
 }
 
-.head {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+.title {
+  line-height: 1.4;
 }
 
-.head code {
+.code {
   font-size: 0.8rem;
   align-self: flex-start;
 }

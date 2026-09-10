@@ -6,7 +6,7 @@ export type ModeColumn = {
   title: string;
   /** Screenshot of the result in this mode. */
   image: string;
-  /** One line under the heading — the dialog tab or the chained method. */
+  /** One line under the image — the dialog tab or the chained method. */
   code?: string;
   /** What happens in this mode. */
   description?: ReactNode;
@@ -27,11 +27,9 @@ export function ModeTable({columns}: ModeTableProps) {
       <div className={styles.grid} style={{gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`}}>
         {columns.map((c) => (
           <div key={c.title} className={styles.cell}>
-            <div className={styles.head}>
-              <strong>{c.title}</strong>
-              {c.code && <code>{c.code}</code>}
-            </div>
+            <strong className={styles.title}>{c.title}</strong>
             <img src={c.image} alt={`${c.title} mode`} loading="lazy" />
+            {c.code && <code className={styles.code}>{c.code}</code>}
             {c.description && <p className={styles.desc}>{c.description}</p>}
           </div>
         ))}

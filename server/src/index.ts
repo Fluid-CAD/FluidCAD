@@ -172,7 +172,7 @@ app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadSer
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
-app.use('/api', createRenderRouter((fileName, code, keepCurrent) => runLiveRender(fileName, code, keepCurrent)));
+app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes)));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));
@@ -375,9 +375,11 @@ function emitMissingEngine(version: number, filePath: string): boolean {
  * the HTTP `/api/render` route. Bumps `renderVersion`, broadcasts the
  * lifecycle pings, runs the dedupable `updateLiveCode`, and emits success /
  * compile-error to the UI + extension. Returns a structured outcome so the
- * HTTP caller (MCP) can hand it straight to the agent.
+ * HTTP caller (MCP) can hand it straight to the agent. `changes` (MCP only)
+ * adds the render's change summary to that outcome; the UI broadcasts never
+ * carry it.
  */
-async function runLiveRender(fileName: string, code: string, keepCurrent = false): Promise<RenderOutcome> {
+async function runLiveRender(fileName: string, code: string, keepCurrent = false, changes = false): Promise<RenderOutcome> {
   const startedAt = Date.now();
   const myVersion = ++renderVersion;
   broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
@@ -391,9 +393,10 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
     currentFile = fileName;
   }
   try {
+    const options = changes ? { changes: true } : undefined;
     const data = dependency
-      ? await fluidCadServer.updateDependencyCode(fileName, code)
-      : await fluidCadServer.updateLiveCode(fileName, code);
+      ? await fluidCadServer.updateDependencyCode(fileName, code, options)
+      : await fluidCadServer.updateLiveCode(fileName, code, options);
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -413,6 +416,7 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
         absPath: data.absPath,
         durationMs: Date.now() - startedAt,
         objectErrors: data.objectErrors,
+        ...(data.changes ? { changes: data.changes } : {}),
       };
     }
     return {
@@ -420,6 +424,7 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
       version: myVersion,
       absPath: data.absPath,
       durationMs: Date.now() - startedAt,
+      ...(data.changes ? { changes: data.changes } : {}),
     };
   } catch (err) {
     if (myVersion !== renderVersion) {

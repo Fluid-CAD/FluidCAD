@@ -165,6 +165,8 @@ export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';
 export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
+export { RenderChangeTracker } from './rendering/render-changes.js';
+export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';
 export type {
   ResolveSelectionRequest, ResolveSelectionResult, ResolvedSelectionMatch, ResolvedSelectionScope, SelectionScopeInput,
 } from './selection/resolve-selection.js';

@@ -791,6 +791,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       'Destructive override — write even if the editor has unsaved changes for this file. Surface the dirty-files list to the user before passing true.',
     );
 
+  const includeChangesArg = z
+    .boolean()
+    .optional()
+    .describe(
+      'Default true: the render outcome carries `changes` — which scene objects the render rebuilt, added, removed and how many it reused, each with exact bounds before and after (no volumes; call get_shape_properties on the named objects for those). Pass false on a very large model to skip the summary.',
+    );
+
   const positionArg = z
     .object({
       line: z.number().int().nonnegative().describe('Zero-based line number.'),
@@ -825,16 +832,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. `render.changes` (unless `includeChanges: false`) says what the render actually rebuilt: `rebuilt` (objects built again, each with `sceneObjectId`, `name`, `kind`, `sourceLocation`, `shapes` and exact `bounds.before` / `bounds.after` of its solids — volumes are not included), `added`, `removed`, `reused` (count served from cache, geometry untouched) and `truncated` when a list hit its 50-entry cap. Re-verify the rebuilt objects; an object you did not mean to touch appearing under `rebuilt` with different bounds is an unintended downstream change. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
         content: z.string().describe('Full UTF-8 file contents to write.'),
         force: forceArg,
+        includeChanges: includeChangesArg,
       },
     },
-    async ({ workspace, path, content, force }) =>
-      toMcp(await writeFile({ workspace, path, content, force })),
+    async ({ workspace, path, content, force, includeChanges }) =>
+      toMcp(await writeFile({ workspace, path, content, force, includeChanges })),
   );
 
   server.registerTool(
@@ -842,7 +850,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome as `write_file`.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome (including `render.changes`: rebuilt / added / removed objects with exact before and after bounds, plus the reused count) as `write_file`.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -850,10 +858,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         end: positionArg,
         newText: z.string().describe('Replacement text (may be empty to delete the range).'),
         force: forceArg,
+        includeChanges: includeChangesArg,
       },
     },
-    async ({ workspace, path, start, end, newText, force }) =>
-      toMcp(await editRange({ workspace, path, start, end, newText, force })),
+    async ({ workspace, path, start, end, newText, force, includeChanges }) =>
+      toMcp(await editRange({ workspace, path, start, end, newText, force, includeChanges })),
   );
 
   // -------------------------------------------------------------------------
@@ -865,10 +874,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Force a full recompute of the current file',
       description:
-        'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles. Reports `state` (rendered | build-error) and `objectErrors` for any feature that failed to build.',
-      inputSchema: workspaceArg,
+        'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles. Reports `state` (rendered | build-error) and `objectErrors` for any feature that failed to build, plus `changes` (unless `includeChanges: false`): every object is `rebuilt` since nothing is cached, each with exact `bounds.before` / `bounds.after` of its solids (no volumes), so a differing pair is geometry that changed since the last render.',
+      inputSchema: { ...workspaceArg, includeChanges: includeChangesArg },
     },
-    async ({ workspace }) => toMcp(await recompute({ workspace })),
+    async ({ workspace, includeChanges }) => toMcp(await recompute({ workspace, includeChanges })),
   );
 
   server.registerTool(

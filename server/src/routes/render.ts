@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import type { CompileError } from '../ws-protocol.ts';
 import type { ObjectBuildError } from '../fluidcad-server.ts';
+import type { RenderChanges } from '../../../lib/dist/index.js';
 
 export type RenderOutcome =
-  | { state: 'rendered'; version: number; absPath: string; durationMs: number }
+  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges }
   | {
       state: 'build-error';
       version: number;
       absPath: string;
       durationMs: number;
       objectErrors: ObjectBuildError[];
+      changes?: RenderChanges;
     }
   | { state: 'compile-error'; version: number; durationMs: number; compileError: CompileError }
   | { state: 'superseded'; version: number; durationMs: number }
@@ -33,17 +35,23 @@ export type RenderOutcome =
  * run at all vs. it ran and one of its features failed to build. The second
  * still produces a scene, just not the one the source describes.
  *
+ * `changes` asks for the render's change summary (`RenderChanges`: the scene
+ * objects rebuilt / added / removed, with exact bounds, and the reused
+ * count) under `changes` of a `rendered` / `build-error` outcome. Only the
+ * MCP's write tools set it; the in-page host never does, and a render
+ * without it is byte-for-byte the render it always was.
+ *
  * Whoever invokes this is responsible for the on-disk write — we only run
  * the render. Pairing both in one HTTP round-trip is what lets MCP
  * `write_file` return a synchronous { written, render } to the agent.
  */
 export function createRenderRouter(
-  runLiveRender: (fileName: string, code: string, keepCurrent: boolean) => Promise<RenderOutcome>,
+  runLiveRender: (fileName: string, code: string, keepCurrent: boolean, changes: boolean) => Promise<RenderOutcome>,
 ): Router {
   const router = Router();
 
   router.post('/render', async (req, res) => {
-    const { filePath, code, keepCurrent } = req.body ?? {};
+    const { filePath, code, keepCurrent, changes } = req.body ?? {};
     if (typeof filePath !== 'string' || filePath.length === 0) {
       res.status(400).json({ error: '`filePath` must be a non-empty string.' });
       return;
@@ -54,7 +62,7 @@ export function createRenderRouter(
     }
 
     try {
-      const outcome = await runLiveRender(filePath, code, keepCurrent === true);
+      const outcome = await runLiveRender(filePath, code, keepCurrent === true, changes === true);
       res.json(outcome);
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });

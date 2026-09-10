@@ -205,8 +205,10 @@ export function createParamsRouter(
     return res.statusCode < 400;
   }
 
-  router.post('/recompute', async (_req, res) => {
-    const data = await fluidCadServer.recomputeCurrentFile(true);
+  router.post('/recompute', async (req, res) => {
+    // `changes: true` (the MCP's recompute) adds the render's change summary
+    // to the response — every object rebuilt, with bounds before and after.
+    const data = await fluidCadServer.recomputeCurrentFile(true, req.body?.changes === true ? { changes: true } : undefined);
     if (!data) {
       res.status(404).json({ error: 'No active scene' });
       return;
@@ -236,6 +238,7 @@ export function createParamsRouter(
       success: true,
       state: data.objectErrors.length > 0 ? 'build-error' : 'rendered',
       objectErrors: data.objectErrors,
+      ...(data.changes ? { changes: data.changes } : {}),
     });
   });
 

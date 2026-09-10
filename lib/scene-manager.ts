@@ -4,6 +4,7 @@ import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
+import { RenderChangeTracker } from "./rendering/render-changes.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
 import { buildTextPathPreview } from "./rendering/text-path-preview.js";
@@ -183,11 +184,25 @@ class SceneManager {
     return { stop: clamped, scopePartId: part.id };
   }
 
-  compare(previous: Scene, current: Scene) {
+  /**
+   * `changes` asks the compare to record what it replaces, for a change
+   * summary after the render (see RenderChangeTracker). Only a render the
+   * MCP flagged passes one; without it the compare is exactly the host's.
+   */
+  compare(previous: Scene, current: Scene, changes?: RenderChangeTracker) {
     if (previous instanceof AssemblyScene && current instanceof AssemblyScene) {
-      return AssemblyCompare.compare(previous, current);
+      return AssemblyCompare.compare(previous, current, changes);
     }
-    return SceneCompare.compare(previous, current);
+    return SceneCompare.compare(previous, current, changes);
+  }
+
+  /**
+   * A tracker for one render's change summary. Hand it to `compare` (or
+   * `captureBefore` a scene about to be dropped without a compare), then
+   * `summarize` the rendered scene. `limit` caps each list of the summary.
+   */
+  trackRenderChanges(limit?: number): RenderChangeTracker {
+    return new RenderChangeTracker(limit);
   }
 
   /**

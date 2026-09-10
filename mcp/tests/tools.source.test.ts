@@ -3,6 +3,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import http from 'http';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { buildServer } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import {
   editRange,
@@ -18,7 +21,7 @@ let workspace: string;
 let fakeServer: http.Server | null = null;
 let fakePort = 0;
 let dirtyFiles: { path: string; lastModifiedMs: number }[] = [];
-let renderRequests: { filePath: string; code: string }[] = [];
+let renderRequests: { filePath: string; code: string; changes?: boolean }[] = [];
 // Default outcome for the fake `/api/render`. Tests can override per-case.
 let renderResponse: { status: number; body: unknown } = {
   status: 200,
@@ -70,7 +73,11 @@ function startFakeServer(): Promise<number> {
         req.on('end', () => {
           try {
             const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            renderRequests.push({ filePath: parsed.filePath, code: parsed.code });
+            renderRequests.push({
+              filePath: parsed.filePath,
+              code: parsed.code,
+              ...(parsed.changes !== undefined ? { changes: parsed.changes } : {}),
+            });
           } catch {
             // fall through — request capture is best-effort
           }
@@ -232,6 +239,33 @@ describe('write_file', () => {
     expect(renderRequests[0].code).toBe('sphere(5);');
     expect(renderRequests[0].filePath).toBe(path.join(workspace, 'new.fluid.js'));
     expect(result.data.render).toMatchObject({ state: 'rendered', version: 1 });
+  });
+
+  // The change summary is asked for by default, so an agent sees what its
+  // edit rebuilt without another call; `includeChanges: false` drops the
+  // flag from the request entirely so an older server sees the request it
+  // always did.
+  it('asks /api/render for the change summary by default and surfaces it', async () => {
+    const changes = {
+      rebuilt: [{ sceneObjectId: 'o2', name: 'boss', kind: 'extrude', shapes: 1, bounds: { before: { min: [0, 0, 0], max: [1, 1, 1] }, after: { min: [0, 0, 0], max: [1, 1, 2] } } }],
+      added: [],
+      removed: [],
+      reused: 3,
+    };
+    renderResponse = { status: 200, body: { state: 'rendered', version: 2, absPath: '', durationMs: 7, changes } };
+    const result = await writeFile({ path: 'changes.fluid.js', content: 'sphere(5);' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(renderRequests[0].changes).toBe(true);
+    expect(result.data.render).toMatchObject({ state: 'rendered', changes });
+  });
+
+  it('includeChanges: false leaves the flag off the render request', async () => {
+    const result = await writeFile({ path: 'plain.fluid.js', content: 'sphere(5);', includeChanges: false });
+    expect(result.ok).toBe(true);
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0]).not.toHaveProperty('changes');
+    expect(JSON.stringify(renderRequests[0])).not.toContain('changes');
   });
 
   it('degrades to render-failed when /api/render is missing (older server)', async () => {
@@ -471,7 +505,23 @@ describe('edit_range', () => {
     if (!result.ok) { return; }
     expect(renderRequests).toHaveLength(1);
     expect(renderRequests[0].code).toBe('line one\nline TWO\nline three\n');
+    expect(renderRequests[0].changes).toBe(true);
     expect(result.data.render).toMatchObject({ state: 'rendered' });
+  });
+
+  it('includeChanges: false leaves the flag off the render request', async () => {
+    const target = path.join(workspace, 'render-edit-plain.fluid.js');
+    fs.writeFileSync(target, 'line one\n');
+    const result = await editRange({
+      path: 'render-edit-plain.fluid.js',
+      start: { line: 0, column: 0 },
+      end: { line: 0, column: 4 },
+      newText: 'LINE',
+      includeChanges: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0]).not.toHaveProperty('changes');
   });
 
   it('lints the post-edit contents and refuses a write that drops the import', async () => {
@@ -523,5 +573,43 @@ describe('list_fluid_files', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) { return; }
     expect(result.data.files.sort()).toEqual(['a.fluid.js', path.join('sub', 'b.fluid.js')].sort());
+  });
+});
+
+// The tool descriptions are where an agent learns what `render.changes`
+// means; the skill only says when to read it. Pin the contract: what the
+// summary lists, that bounds are exact and volumes are not included, and
+// the input that turns it off.
+describe('change summary descriptions', () => {
+  it('write_file, edit_range and recompute describe render.changes and takes includeChanges', async () => {
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const { tools } = await client.listTools();
+      const byName = new Map(tools.map((t) => [t.name, t]));
+      for (const name of ['write_file', 'edit_range', 'recompute']) {
+        const tool = byName.get(name);
+        expect(tool, name).toBeDefined();
+        expect(tool!.description, name).toContain('changes');
+        expect(tool!.description, name).toContain('rebuilt');
+        expect(tool!.description, name).toContain('bounds');
+        const includeChanges = (tool!.inputSchema as any).properties?.includeChanges;
+        expect(includeChanges, `${name}.includeChanges`).toBeDefined();
+        expect(includeChanges.description).toContain('Default true');
+        expect(includeChanges.description).toContain('exact bounds');
+        expect(includeChanges.description).toContain('no volumes');
+      }
+      expect(byName.get('write_file')!.description).toContain('volumes are not included');
+      expect(byName.get('write_file')!.description).toContain('reused');
+      expect(byName.get('recompute')!.description).toContain('no volumes');
+      // rollback_to does not rebuild anything, so it has no summary to offer.
+      expect((byName.get('rollback_to')!.inputSchema as any).properties?.includeChanges).toBeUndefined();
+      expect(byName.get('rollback_to')!.description).not.toContain('changes');
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

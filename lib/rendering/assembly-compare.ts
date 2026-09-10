@@ -3,11 +3,13 @@ import { Shape } from "../common/shape.js";
 import { AssemblyScene } from "./assembly-scene.js";
 import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
+import type { RenderChangeTracker } from "./render-changes.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
 export class AssemblyCompare {
-  static compare(oldScene: AssemblyScene, newScene: AssemblyScene): AssemblyScene {
+  /** `changes`: the MCP-only change summary hook — see SceneCompare.compare. */
+  static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker): AssemblyScene {
     const map = new Map<SceneObject, SceneObject>();
 
     const newTopParts = topLevelParts(newScene);
@@ -67,6 +69,10 @@ export class AssemblyCompare {
           newScene.markCached(pair.newObj);
         }
       }
+    }
+
+    if (changes) {
+      changes.captureBefore(oldScene, map);
     }
 
     // State is cloned per new SceneObject; aliasing the old Map propagates

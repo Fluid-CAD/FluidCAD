@@ -21,6 +21,8 @@ Read when the task starts from a file that already exists rather than from a bla
 
 ## Re-verify only what the edit touched
 
+Read `render.changes` after every write (`write_file`, `edit_range`) and `changes` after `recompute`. It lists what the render rebuilt, added and removed, with the bounds of each object's solids before and after, and how many objects were reused untouched. Rebuilt is the re-verification list. An object you did not mean to change appearing under rebuilt with different bounds is the signal that the edit reached further than intended, usually through a face or edge a later feature sits on; re-measure it before moving on. Same bounds under rebuilt means the geometry was built again unchanged. The bounds are exact, volumes are not included; `get_shape_properties` on the named objects gives those.
+
 - The written feature: `render.state`, `objectErrors`, a screenshot if the feature earns one under the core cadence.
 - Everything downstream of it in the tree: `resolve_selection` counts for its filters, `measure` for the dimensions it drives.
 - The fingerprints from step 4: unchanged solids report the same volume and bounding box; the body count is the same unless the change was meant to add or remove a body.

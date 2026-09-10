@@ -159,12 +159,29 @@ const BUILD_ERROR = {
 };
 
 describe('recompute', () => {
-  it('POSTs /api/recompute', async () => {
+  it('POSTs /api/recompute asking for the change summary by default', async () => {
     const result = await recompute({});
     expect(result.ok).toBe(true);
     if (!result.ok) { return; }
-    expect(requests.find((r) => r.url === '/api/recompute')?.method).toBe('POST');
+    const request = requests.find((r) => r.url === '/api/recompute');
+    expect(request?.method).toBe('POST');
+    expect(JSON.parse(request!.body)).toEqual({ changes: true });
     expect(result.data.state).toBe('rendered');
+  });
+
+  it('includeChanges: false sends the bare request', async () => {
+    const result = await recompute({ includeChanges: false });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(requests.find((r) => r.url === '/api/recompute')!.body)).toEqual({});
+  });
+
+  it('surfaces the change summary the server reports', async () => {
+    const changes = { rebuilt: [{ sceneObjectId: 'o1', name: 'Extrude', kind: 'extrude', shapes: 1 }], added: [], removed: [], reused: 0 };
+    renderReport = { state: 'rendered', objectErrors: [], changes } as typeof renderReport;
+    const result = await recompute({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.changes).toEqual(changes);
   });
 
   it('surfaces features that failed to build', async () => {

@@ -3,6 +3,7 @@ import { Scene } from "./scene.js";
 import { SceneDisposal } from "./scene-disposal.js";
 import { Sketch } from "../features/2d/sketch.js";
 import type { Part } from "../features/part.js";
+import type { RenderChangeTracker } from "./render-changes.js";
 
 // State entries whose records reference the scene object that performed the
 // action. On transfer they are pruned to actors that survived the compare —
@@ -19,7 +20,12 @@ const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
 ];
 
 export class SceneCompare {
-  public static compare(oldScene: Scene, newScene: Scene): Scene {
+  /**
+   * `changes` is the MCP-only change summary hook: when present it records
+   * the old objects that did not survive, while their shapes are still
+   * alive. Absent (every host and UI render), nothing here differs.
+   */
+  public static compare(oldScene: Scene, newScene: Scene, changes?: RenderChangeTracker): Scene {
     if (oldScene === newScene) {
       return newScene;
     }
@@ -68,6 +74,10 @@ export class SceneCompare {
     }
 
     SceneCompare.dropPartiallyMatchedForeignParts(newScene, map);
+
+    if (changes) {
+      changes.captureBefore(oldScene, map);
+    }
 
     // Snapshot before the state rewrite below prunes cross-references out of
     // the transferred maps — the pruned records are exactly the resources

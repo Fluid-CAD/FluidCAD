@@ -24,20 +24,28 @@ let server: http.Server;
 let baseUrl: string;
 /** What the stubbed engine hands back for the next recompute/rollback. */
 let objectErrors: ObjectBuildError[] = [];
+/** The options the stubbed engine was recomputed with. */
+let recomputeArgs: unknown[] = [];
 
-function renderData(): SceneRenderedData {
+const CHANGES = { rebuilt: [], added: [], removed: [], reused: 4 };
+
+function renderData(changes?: boolean): SceneRenderedData {
   return {
     absPath: '/ws/part.fluid.js',
     result: [],
     rollbackStop: 0,
     objectErrors,
+    ...(changes ? { changes: CHANGES } : {}),
   };
 }
 
 describe('render reporting on scene-mutating routes', () => {
   beforeAll(async () => {
     const engine = {
-      recomputeCurrentFile: async () => renderData(),
+      recomputeCurrentFile: async (...args: unknown[]) => {
+        recomputeArgs = args;
+        return renderData((args[1] as { changes?: boolean } | undefined)?.changes);
+      },
       rollbackFromUI: async () => renderData(),
     } as unknown as FluidCadServer;
 
@@ -86,6 +94,25 @@ describe('render reporting on scene-mutating routes', () => {
       state: 'rendered',
       objectErrors: [],
     });
+  });
+
+  // The recompute route serves the UI's "Recompute scene" button and the
+  // MCP's recompute alike; only a body carrying `changes: true` asks the
+  // engine for the summary, and only then does the response carry it.
+  it('recomputes without a change summary unless asked', async () => {
+    objectErrors = [];
+
+    const json = await post('/api/recompute');
+    expect(recomputeArgs).toEqual([true, undefined]);
+    expect(json).not.toHaveProperty('changes');
+  });
+
+  it('forwards changes: true to the engine and echoes the summary', async () => {
+    objectErrors = [];
+
+    const json = await post('/api/recompute', { changes: true });
+    expect(recomputeArgs).toEqual([true, { changes: true }]);
+    expect(json).toEqual({ success: true, state: 'rendered', objectErrors: [], changes: CHANGES });
   });
 
   it('reports build-error with the failed features', async () => {

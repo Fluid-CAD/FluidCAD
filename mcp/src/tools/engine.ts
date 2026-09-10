@@ -9,7 +9,7 @@ import path from 'node:path';
 import { resolveClient, type WorkspaceArg } from './inspection.ts';
 import { FluidCadClient, HttpError } from '../client.ts';
 import { err, ok, type ToolResult } from '../types.ts';
-import type { ObjectBuildError } from './source.ts';
+import type { ObjectBuildError, RenderChanges } from './source.ts';
 
 /**
  * Shared shape of the scene-mutating routes: the render ran, but individual
@@ -50,11 +50,16 @@ async function callWithClient<T>(
 // recompute
 // ---------------------------------------------------------------------------
 
-export type RecomputeInput = WorkspaceArg;
-export type RecomputeOutput = { success: boolean } & RenderReport;
+export type RecomputeInput = WorkspaceArg & {
+  /** Ask for `changes` (default true); false skips the summary on a huge model. */
+  includeChanges?: boolean;
+};
+/** `changes`: every object rebuilt (a recompute caches nothing), with bounds before and after. */
+export type RecomputeOutput = { success: boolean; changes?: RenderChanges } & RenderReport;
 
 export async function recompute(input: RecomputeInput): Promise<ToolResult<RecomputeOutput>> {
-  return callWithClient(input, (client) => client.postJson<RecomputeOutput>('/api/recompute', {}));
+  const body = input?.includeChanges === false ? {} : { changes: true };
+  return callWithClient(input, (client) => client.postJson<RecomputeOutput>('/api/recompute', body));
 }
 
 // ---------------------------------------------------------------------------

@@ -203,6 +203,40 @@ export type ObjectBuildError = {
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
+/** Axis-aligned bounds in the document unit, rounded to its meaningful precision. */
+export type RenderChangeBounds = { min: [number, number, number]; max: [number, number, number] };
+
+/** One scene object a render built (or built again). */
+export type RenderChangeEntry = {
+  /** The object's id in this render — what `get_scene_summary` reports now. */
+  sceneObjectId: string;
+  name: string;
+  kind: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+  /** Shapes the object added to the scene. */
+  shapes: number;
+  /** Exact bounds of the object's added solids before and after the render; a side is absent when that instance added no solid. */
+  bounds?: { before?: RenderChangeBounds; after?: RenderChangeBounds };
+};
+
+/**
+ * What a render changed, from the engine's incremental compare. Mirrored
+ * from `lib/rendering/render-changes.ts`. Requested with `changes: true` on
+ * the render; the tools send it unless `includeChanges: false`.
+ */
+export type RenderChanges = {
+  /** Objects whose geometry was built again, paired with their previous instance. */
+  rebuilt: RenderChangeEntry[];
+  /** Objects the previous render did not have. */
+  added: RenderChangeEntry[];
+  /** Objects the previous render had and this one does not (`sceneObjectId` is the old id). */
+  removed: { sceneObjectId: string; name: string; kind: string; sourceLocation?: { filePath: string; line: number; column: number } }[];
+  /** Objects served from cache, geometry untouched. */
+  reused: number;
+  /** Entries dropped from the lists above by the size cap. */
+  truncated?: number;
+};
+
 /**
  * Render outcome as reported by `POST /api/render`. Mirrored from
  * `server/src/routes/render.ts` — kept hand-typed here so the MCP package
@@ -213,13 +247,14 @@ export type ObjectBuildError = {
  * scene is being served but it's missing whatever that feature produced.
  */
 export type RenderOutcome =
-  | { state: 'rendered'; version: number; absPath: string; durationMs: number }
+  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges }
   | {
       state: 'build-error';
       version: number;
       absPath: string;
       durationMs: number;
       objectErrors: ObjectBuildError[];
+      changes?: RenderChanges;
     }
   | {
       state: 'compile-error';
@@ -243,15 +278,24 @@ export type RenderOutcome =
  *
  * Non-fatal: any transport error is folded into the outcome as
  * `render-failed` so the agent still sees the write succeeded.
+ *
+ * `changes` asks the server for the render's change summary (see
+ * `RenderChanges`); the flag is only sent when set, so an older server
+ * sees the request it always did.
  */
 async function triggerRender(
   entry: RegistryEntry,
   filePath: string,
   code: string,
+  changes: boolean,
 ): Promise<RenderOutcome> {
   const client = new FluidCadClient(entry);
   try {
-    const outcome = await client.postJson<RenderOutcome>('/api/render', { filePath, code });
+    const outcome = await client.postJson<RenderOutcome>('/api/render', {
+      filePath,
+      code,
+      ...(changes ? { changes: true } : {}),
+    });
     return outcome;
   } catch (e: any) {
     if (e instanceof HttpError && e.statusCode === 404) {
@@ -374,7 +418,14 @@ export type WriteFileInput = WorkspaceArg & {
   path: string;
   content: string;
   force?: boolean;
+  /** Ask for `render.changes` (default true); false skips the summary on a huge model. */
+  includeChanges?: boolean;
 };
+
+/** The tools ask for the change summary unless told not to. */
+function wantsChanges(input: { includeChanges?: boolean }): boolean {
+  return input.includeChanges !== false;
+}
 export type WriteFileOutput = {
   path: string;
   bytesWritten: number;
@@ -411,7 +462,7 @@ export async function writeFile(input: WriteFileInput): Promise<ToolResult<Write
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
-  const render = await triggerRender(entry.data, resolved.data.absPath, input.content);
+  const render = await triggerRender(entry.data, resolved.data.absPath, input.content, wantsChanges(input));
   return ok({
     path: resolved.data.absPath,
     bytesWritten: Buffer.byteLength(input.content, 'utf8'),
@@ -430,6 +481,8 @@ export type EditRangeInput = WorkspaceArg & {
   end: Position;
   newText: string;
   force?: boolean;
+  /** Ask for `render.changes` (default true); false skips the summary on a huge model. */
+  includeChanges?: boolean;
 };
 export type EditRangeOutput = {
   path: string;
@@ -533,7 +586,7 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
-  const render = await triggerRender(entry.data, resolved.data.absPath, next);
+  const render = await triggerRender(entry.data, resolved.data.absPath, next, wantsChanges(input));
   return ok({
     path: resolved.data.absPath,
     bytesWritten: Buffer.byteLength(next, 'utf8'),

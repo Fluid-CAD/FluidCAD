@@ -15,7 +15,7 @@ import type { PartScanResult } from './part-catalog/scan.ts';
 import type {
   AssemblyExportOutcome, AssemblyExportPose, ImportReport, ParamDefinition, ParamRegistry, ParamVal,
   ResolveSelectionRequest, ResolveSelectionResult, SceneValidationOutcome, ValidateSceneRequest,
-  InterferenceRequest, SceneInterferenceOutcome,
+  InterferenceRequest, SceneInterferenceOutcome, RenderChanges, RenderChangeTracker,
 } from '../../lib/dist/index.js';
 import { MeasureEntityResolver } from './measure-entities.ts';
 import type { MeasureEntitiesFailure, MeasureEntity } from './measure-entities.ts';
@@ -139,10 +139,13 @@ type SceneManager = {
   renderScene(scene: any): any;
   getAssemblyData(scene: any): SerializedAssembly | null;
   rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
-  compare(previousScene: any, currentScene: any): any;
+  compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate scene disposal.
   disposeScene?(scene: any): void;
+  // Optional: may predate render change summaries. Only a render flagged
+  // `changes` (the MCP's writes) asks for one — see `RenderOptions`.
+  trackRenderChanges?(): RenderChangeTracker;
   setCurrentFile(filePath: string): void;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
   getShapeProperties(scene: any, shapeId: string): any;
@@ -344,7 +347,22 @@ export type SceneRenderedData = {
    * the scene is wrong — see `FluidCadServer.collectObjectErrors`.
    */
   objectErrors: ObjectBuildError[];
+  /**
+   * What this render rebuilt, added, removed and reused, with exact bounds
+   * — present only when the render was requested with `changes: true`.
+   */
+  changes?: RenderChanges;
 };
+
+/**
+ * Per-render options a caller can set. `changes` asks for a
+ * `SceneRenderedData.changes` summary: the incremental compare records the
+ * objects it replaces (with their bounds, before the old scene is disposed)
+ * and the rendered scene is summarized against them. Only the MCP's
+ * write/edit/recompute set it; editor hosts and the UI never do, and a
+ * render without it runs exactly the code it always has.
+ */
+export type RenderOptions = { changes?: boolean };
 
 /**
  * A live dialog geometry request ("ghost"), every dialog value already
@@ -1068,10 +1086,22 @@ export class FluidCadServer {
     return (this.sceneManager as { projectUnit?: LengthUnit } | null)?.projectUnit ?? 'mm';
   }
 
+  /**
+   * The tracker for a render that asked for a change summary, or undefined
+   * — for every other render, and for an engine that predates the summary.
+   */
+  private renderChangeTracker(options: RenderOptions | undefined): RenderChangeTracker | undefined {
+    if (!options?.changes) {
+      return undefined;
+    }
+    return this.sceneManager?.trackRenderChanges?.();
+  }
+
   private async processFileInternal(
     sessionId: string,
     filePath: string,
     ignoreCache: boolean,
+    changes?: RenderChangeTracker,
   ): Promise<SceneRenderedData | null> {
     return this.serialized(async () => {
       if (!this.sceneManager) {
@@ -1171,13 +1201,14 @@ export class FluidCadServer {
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
-          scene = this.sceneManager.compare(previousScene, scene);
+          scene = this.sceneManager.compare(previousScene, scene, changes);
         }
 
         this.previousScenes.set(sessionId, scene);
 
         this.sceneManager.renderScene(scene);
         const result = scene.getRenderedObjects();
+        const renderChanges = changes ? changes.summarize(scene) : undefined;
 
         for (const obj of result) {
           if (obj.sourceLocation) {
@@ -1245,6 +1276,7 @@ export class FluidCadServer {
           params,
           objectErrors: FluidCadServer.collectObjectErrors(result),
           ...(assembly ? { assembly } : {}),
+          ...(renderChanges ? { changes: renderChanges } : {}),
         };
       }
       catch (error) {
@@ -1350,8 +1382,9 @@ export class FluidCadServer {
     this.host.setBuffer(`virtual:live-render:${fileName}`, code);
   }
 
-  async updateLiveCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
+  async updateLiveCode(fileName: string, code: string, options?: RenderOptions): Promise<SceneRenderedData | null> {
     fileName = normalizePath(fileName);
+    const changes = this.renderChangeTracker(options);
 
     // Dedup against the last successful render. Multiple producers (editor
     // live-update, save-triggered process-file, watcher, MCP /api/render)
@@ -1373,6 +1406,12 @@ export class FluidCadServer {
       this.currentFilePath = `virtual:live-render:${fileName}`;
       this.lastRollbackStop = cached.data.rollbackStop;
       this.lastRollbackScopePartId = null;
+      // A deduplicated render built nothing: the summary says so rather
+      // than leaving the caller to guess from a missing field.
+      const scene = changes ? this.previousScenes.get(fileName) : undefined;
+      if (changes && scene) {
+        return { ...cached.data, changes: changes.summarizeUnchanged(scene) };
+      }
       return cached.data;
     }
 
@@ -1380,13 +1419,19 @@ export class FluidCadServer {
     this.host.setBuffer(id, code);
     this.renderingCache.delete(fileName);
     this.sessionFiles.set(fileName, fileName);
-    const result = await this.processFileInternal(fileName, id, true);
+    const result = await this.processFileInternal(fileName, id, true, changes);
     if (result) {
       // Re-hash after the render, not before: a render can drop param
       // overrides the source re-declared, and a key cut from the pre-render
       // overrides would never match again — every later keystroke on
       // identical code would re-render.
-      this.lastRendered.set(fileName, { paramsHash: this.computeParamsHash(fileName, code), data: result });
+      // The change summary describes THIS render; a deduplicated later one
+      // built nothing, so the cached data never carries it.
+      const { changes: _changes, ...unchanged } = result;
+      this.lastRendered.set(fileName, {
+        paramsHash: this.computeParamsHash(fileName, code),
+        data: result.changes ? unchanged : result,
+      });
     }
     return result;
   }
@@ -1400,7 +1445,7 @@ export class FluidCadServer {
    * (and any later identical live-update) sees the new dependency; the
    * current scene/file identity is left untouched.
    */
-  async updateDependencyCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
+  async updateDependencyCode(fileName: string, code: string, options?: RenderOptions): Promise<SceneRenderedData | null> {
     fileName = normalizePath(fileName);
     this.host.setBuffer(`virtual:live-render:${fileName}`, code);
     this.lastRendered.delete(fileName);
@@ -1410,7 +1455,7 @@ export class FluidCadServer {
     }
     this.renderingCache.delete(current);
     this.lastRendered.delete(current);
-    return this.processFileInternal(current, this.currentFilePath ?? current, true);
+    return this.processFileInternal(current, this.currentFilePath ?? current, true, this.renderChangeTracker(options));
   }
 
   async rollbackFromUI(index: number, scope?: 'part'): Promise<SceneRenderedData | null> {
@@ -1456,13 +1501,14 @@ export class FluidCadServer {
     return this.host.getBuffer(normalizePath(filePath));
   }
 
-  async recomputeCurrentFile(forceFullRebuild = false): Promise<SceneRenderedData | null> {
+  async recomputeCurrentFile(forceFullRebuild = false, options?: RenderOptions): Promise<SceneRenderedData | null> {
     if (!this.currentFilePath) {
       return null;
     }
     const sessionId = this.currentFileName;
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
+    const changes = this.renderChangeTracker(options);
     if (forceFullRebuild) {
       // Drop the incremental-compare baseline so every object is rebuilt from
       // scratch instead of being carried over as cached. Without this, an
@@ -1473,11 +1519,17 @@ export class FluidCadServer {
       // Param edits keep the baseline so slider drags stay fast.
       const staleScene = this.previousScenes.get(sessionId);
       if (staleScene) {
+        // No compare will run, so the summary's "before" side is captured
+        // here, while the scene is still alive: nothing matched, everything
+        // the next render builds pairs with what this one had.
+        if (changes) {
+          changes.captureBefore(staleScene, new Map());
+        }
         this.sceneManager?.disposeScene?.(staleScene);
       }
       this.previousScenes.delete(sessionId);
     }
-    return this.processFileInternal(sessionId, this.currentFilePath, true);
+    return this.processFileInternal(sessionId, this.currentFilePath, true, changes);
   }
 
   /**

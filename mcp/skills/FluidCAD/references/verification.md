@@ -4,7 +4,7 @@ Read before declaring any feature or part done. Visual review is diagnostic, nev
 
 ## What "done" requires
 
-1. `render.state === "rendered"` on the last write, and `recompute` after any rollback investigation reports `rendered` with an empty `objectErrors`.
+1. `render.state === "rendered"` on the last write, and `recompute` after any rollback investigation reports `rendered` with an empty `objectErrors`. On an edit to an existing model, `render.changes` names the objects to re-verify (see the modifying reference).
 2. Every solid the plan promised exists and is sound: `list_shapes` count matches the intended body count, and `validate` reports `ok: true` over the whole scene. A render and a screenshot say nothing about closure or orientation; an open five-face box and an inside-out solid both look fine. `validate` is the check: `openShell` and `nonPositiveVolume` name the shape and the object that produced it. It does not check self-intersection, and says so in `notChecked`.
 3. Every functional dimension in the plan was measured and matches.
 4. A screenshot was reviewed for the final state, unless a skip case applies.

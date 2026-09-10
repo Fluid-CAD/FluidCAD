@@ -12,7 +12,7 @@ import { createRenderRouter, type RenderOutcome } from '../../src/routes/render.
 
 let server: http.Server;
 let baseUrl: string;
-let calls: { fileName: string; code: string; keepCurrent: boolean }[] = [];
+let calls: { fileName: string; code: string; keepCurrent: boolean; changes: boolean }[] = [];
 
 async function post(body: unknown): Promise<{ status: number; body: any }> {
   const res = await fetch(`${baseUrl}/api/render`, {
@@ -27,8 +27,8 @@ describe('POST /api/render', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api', createRenderRouter(async (fileName, code, keepCurrent): Promise<RenderOutcome> => {
-      calls.push({ fileName, code, keepCurrent });
+    app.use('/api', createRenderRouter(async (fileName, code, keepCurrent, changes): Promise<RenderOutcome> => {
+      calls.push({ fileName, code, keepCurrent, changes });
       return { state: 'rendered', version: 1, absPath: fileName, durationMs: 0 };
     }));
     server = http.createServer(app);
@@ -49,7 +49,19 @@ describe('POST /api/render', () => {
     const { status, body } = await post({ filePath: '/ws/robot.assembly.js', code: '// a' });
     expect(status).toBe(200);
     expect(body.state).toBe('rendered');
-    expect(calls).toEqual([{ fileName: '/ws/robot.assembly.js', code: '// a', keepCurrent: false }]);
+    expect(calls).toEqual([{ fileName: '/ws/robot.assembly.js', code: '// a', keepCurrent: false, changes: false }]);
+  });
+
+  // The change summary is the MCP's request, never the page's: the flag
+  // is off unless the body says `changes: true`.
+  it('forwards changes so an MCP write gets its change summary', async () => {
+    await post({ filePath: '/ws/arm.part.js', code: '// e', changes: true });
+    expect(calls[0]?.changes).toBe(true);
+  });
+
+  it('treats anything but boolean true as no change summary', async () => {
+    await post({ filePath: '/ws/arm.part.js', code: '// f', changes: 'yes' });
+    expect(calls[0]?.changes).toBe(false);
   });
 
   it('forwards keepCurrent so a cross-file edit folds in as a dependency', async () => {

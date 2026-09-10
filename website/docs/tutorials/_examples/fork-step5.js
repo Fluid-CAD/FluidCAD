@@ -1,105 +1,109 @@
-// @screenshot waitForInput hideGrid
-import { arc, circle, cut, extrude, line, mirror, plane, sketch, yAxis } from "fluidcad/core";
-import { coincident, concentric, distance, equal, fix, horizontal, perpendicular, radius, vertical } from "fluidcad/constraints";
+// @screenshot waitForInput
+import { arc, circle, cut, extrude, line, mirror, origin, plane, project, repeat,
+    sketch, xAxis, yAxis } from "fluidcad/core";
+import { angle, coincident, concentric, diameter, distance, equal, horizontal,
+    radius, tangent, vertical } from "fluidcad/constraints";
+import { edge } from "fluidcad/filters";
 
-sketch("front", () => {
-    // Arch: two concentric semicircles closed at both ends (wall thickness 18)
+sketch("xz", () => {
+    // Arch wall: two semicircles centred on the origin, R18 inside, R36 outside
     const inner = arc([18, 0], [-18, 0], [0, 0]);
     const outer = arc([36, 0], [-36, 0], [0, 0]);
-    const capR = line([18, 0], [36, 0]);
-    const capL = line([-36, 0], [-18, 0]);
-
-    // Right leg, 18 x 40, hanging below the arch's right end
-    const legB = line([18, -40], [36, -40]);
-    const legR = line([36, -40], [36, 0]);
-    const legT = line([36, 0], [18, 0]);
-    const legL = line([18, 0], [18, -40]);
-
-    // Column, 36 wide, from y = 18 up to the 129 overall height
-    const colB = line([-18, 18], [18, 18]);
-    const colR = line([18, 18], [18, 129]);
-    const colT = line([18, 129], [-18, 129]);
-    const colL = line([-18, 129], [-18, 18]);
-
-    coincident(inner.start(), capR.start());
-    coincident(capR.end(), outer.start());
-    coincident(outer.end(), capL.start());
-    coincident(capL.end(), inner.end());
-    concentric(inner, outer);
-    horizontal(capR);
-    horizontal(capL);
-    fix(inner.center(), [0, 0]);
+    coincident(inner.center(), origin());
+    coincident(inner.start(), xAxis());
+    coincident(inner.end(), xAxis());
     radius(inner, 18);
+    coincident(outer.center(), origin());
+    coincident(outer.start(), xAxis());
+    coincident(outer.end(), xAxis());
     radius(outer, 36);
 
-    coincident(legB.end(), legR.start());
-    coincident(legR.end(), legT.start());
-    coincident(legT.end(), legL.start());
-    coincident(legL.end(), legB.start());
-    horizontal(legB);
-    vertical(legR);
-    horizontal(legT);
-    vertical(legL);
-    fix(legT.end(), [18, 0]);
-    distance(legB.start(), legB.end(), 18);
-    distance(legR.start(), legR.end(), 40);
+    // Right leg: three lines hanging from the two ends of the arch wall
+    const legInner = line([18, 0], [18, -40]);
+    const legOuter = line([36, 0], [36, -40]);
+    const legBottom = line([18, -40], [36, -40]);
+    coincident(legInner.start(), inner.start());
+    vertical(legInner);
+    coincident(legOuter.start(), outer.start());
+    vertical(legOuter);
+    coincident(legBottom.start(), legInner.end());
+    coincident(legBottom.end(), legOuter.end());
+    horizontal(legBottom);
+    distance(legInner.end(), xAxis(), 40);
 
-    coincident(colB.end(), colR.start());
-    coincident(colR.end(), colT.start());
-    coincident(colT.end(), colL.start());
-    coincident(colL.end(), colB.start());
-    horizontal(colB);
-    vertical(colR);
-    horizontal(colT);
-    vertical(colL);
-    fix(colB.start(), [-18, 18]);
-    distance(colB.start(), colB.end(), 36);
-    distance(colR.start(), colR.end(), 129 - 18);
+    // Column: 36 wide, its top face 129 above the arch centreline
+    const colBottom = line([-18, 18], [18, 18]);
+    const colRight = line([18, 18], [18, 129]);
+    const colTop = line([18, 129], [-18, 129]);
+    const colLeft = line([-18, 129], [-18, 18]);
+    coincident(colBottom.end(), colRight.start());
+    coincident(colRight.end(), colTop.start());
+    coincident(colTop.end(), colLeft.start());
+    coincident(colLeft.end(), colBottom.start());
+    horizontal(colBottom);
+    horizontal(colTop);
+    vertical(colRight);
+    vertical(colLeft);
+    distance(colBottom.start(), colBottom.end(), 36);
+    distance(colRight.start(), colRight.end(), 111);
+    distance(colBottom.start(), yAxis(), 18);
+    distance(colTop.start(), xAxis(), 129);
 
-    mirror(yAxis(), legB, legR, legT, legL);
+    mirror(yAxis(), legInner, legOuter, legBottom);
 });
 
-extrude(36).symmetric();
+const body = extrude(36).symmetric();
 
-sketch(plane("right", 18), () => {
-    circle([0, -38], 60);
+const bossPlane = plane("yz", 18);
+
+sketch(bossPlane, () => {
+    const disc = circle([0, -38], 60);
+    coincident(disc.center(), yAxis());
+    diameter(disc, 60);
+    distance(disc.center(), xAxis(), 38);
 });
 
-const bossDepth = (80 - 36) / 2
-const e = extrude(bossDepth);
+const boss = extrude(22);
 
-mirror("right")
+repeat("mirror", "yz", boss);
 
-sketch(e.endFaces(), () => {
-    // Concentric with the boss: its center sits at [0, -38] on this face
-    circle([0, -38], 30);
+sketch(boss.endFaces(), () => {
+    const rim = project(boss.startEdges(edge().arc()));
+    const bore = circle([0, -38], 30);
+    diameter(bore, 30);
+    concentric(bore, rim);
 });
 
 cut();
 
-sketch(plane("top", 129), () => {
-    circle([0, 0], 30);
+sketch(body.sideFaces(6), () => {
+    const post = circle([0, 0], 30);
+    coincident(post.center(), origin());
+    diameter(post, 30);
 });
 
-extrude(20).thin(20).remove()
+const postStep = cut(20).thin(20);
 
-sketch(plane("top", 129 - 20), () => {
-    // Rotated square circumscribed around a 36-diameter circle:
-    // its corners sit on the axes, 18·√2 from the center
-    const c = 18 * Math.SQRT2;
-    const s1 = line([c, 0], [0, c]);
-    const s2 = line([0, c], [-c, 0]);
-    const s3 = line([-c, 0], [0, -c]);
-    const s4 = line([0, -c], [c, 0]);
+sketch(postStep.internalFaces(0), () => {
+    // What the Polygon tool wrote: four equal sides tangent to a 36 guide circle
+    const s1 = line([25.46, 0], [0, 25.46]);
+    const s2 = line([0, 25.46], [-25.46, 0]);
+    const s3 = line([-25.46, 0], [0, -25.46]);
+    const s4 = line([0, -25.46], [25.46, 0]);
+    const guide = circle([0, 0], 36).guide();
     coincident(s1.end(), s2.start());
     coincident(s2.end(), s3.start());
     coincident(s3.end(), s4.start());
     coincident(s4.end(), s1.start());
-    equal(s1, s2);
-    equal(s2, s3);
-    equal(s3, s4);
-    perpendicular(s1, s2);
-    fix(s1.start(), [c, 0]);
+    equal(s1, s2, s3);
+    tangent(s1, guide);
+    tangent(s2, guide);
+    tangent(s3, guide);
+    tangent(s4, guide);
+    angle(s1, s2, 90);
+    diameter(guide, 36);
+    coincident(guide.center(), origin());
+    coincident(s1.start(), xAxis());
 });
 
-extrude(45).thin(20).remove()
+cut(45).thin(20);

@@ -1,62 +1,55 @@
-// @screenshot waitForInput hideGrid
-import { arc, circle, cut, extrude, line, mirror, plane, sketch, yAxis } from "fluidcad/core";
-import { coincident, concentric, distance, fix, horizontal, radius, vertical } from "fluidcad/constraints";
+// @screenshot waitForInput
+import { arc, circle, cut, extrude, line, mirror, origin, plane, project, repeat,
+    sketch, xAxis, yAxis } from "fluidcad/core";
+import { angle, coincident, concentric, diameter, distance, equal, horizontal,
+    radius, tangent, vertical } from "fluidcad/constraints";
+import { edge } from "fluidcad/filters";
 
-sketch("front", () => {
-    // Arch: two concentric semicircles closed at both ends (wall thickness 18)
+sketch("xz", () => {
+    // Arch wall: two semicircles centred on the origin, R18 inside, R36 outside
     const inner = arc([18, 0], [-18, 0], [0, 0]);
     const outer = arc([36, 0], [-36, 0], [0, 0]);
-    const capR = line([18, 0], [36, 0]);
-    const capL = line([-36, 0], [-18, 0]);
-
-    // Right leg, 18 x 40, hanging below the arch's right end
-    const legB = line([18, -40], [36, -40]);
-    const legR = line([36, -40], [36, 0]);
-    const legT = line([36, 0], [18, 0]);
-    const legL = line([18, 0], [18, -40]);
-
-    // Column, 36 wide, from y = 18 up to the 129 overall height
-    const colB = line([-18, 18], [18, 18]);
-    const colR = line([18, 18], [18, 129]);
-    const colT = line([18, 129], [-18, 129]);
-    const colL = line([-18, 129], [-18, 18]);
-
-    coincident(inner.start(), capR.start());
-    coincident(capR.end(), outer.start());
-    coincident(outer.end(), capL.start());
-    coincident(capL.end(), inner.end());
-    concentric(inner, outer);
-    horizontal(capR);
-    horizontal(capL);
-    fix(inner.center(), [0, 0]);
+    coincident(inner.center(), origin());
+    coincident(inner.start(), xAxis());
+    coincident(inner.end(), xAxis());
     radius(inner, 18);
+    coincident(outer.center(), origin());
+    coincident(outer.start(), xAxis());
+    coincident(outer.end(), xAxis());
     radius(outer, 36);
 
-    coincident(legB.end(), legR.start());
-    coincident(legR.end(), legT.start());
-    coincident(legT.end(), legL.start());
-    coincident(legL.end(), legB.start());
-    horizontal(legB);
-    vertical(legR);
-    horizontal(legT);
-    vertical(legL);
-    fix(legT.end(), [18, 0]);
-    distance(legB.start(), legB.end(), 18);
-    distance(legR.start(), legR.end(), 40);
+    // Right leg: three lines hanging from the two ends of the arch wall
+    const legInner = line([18, 0], [18, -40]);
+    const legOuter = line([36, 0], [36, -40]);
+    const legBottom = line([18, -40], [36, -40]);
+    coincident(legInner.start(), inner.start());
+    vertical(legInner);
+    coincident(legOuter.start(), outer.start());
+    vertical(legOuter);
+    coincident(legBottom.start(), legInner.end());
+    coincident(legBottom.end(), legOuter.end());
+    horizontal(legBottom);
+    distance(legInner.end(), xAxis(), 40);
 
-    coincident(colB.end(), colR.start());
-    coincident(colR.end(), colT.start());
-    coincident(colT.end(), colL.start());
-    coincident(colL.end(), colB.start());
-    horizontal(colB);
-    vertical(colR);
-    horizontal(colT);
-    vertical(colL);
-    fix(colB.start(), [-18, 18]);
-    distance(colB.start(), colB.end(), 36);
-    distance(colR.start(), colR.end(), 129 - 18);
+    // Column: 36 wide, its top face 129 above the arch centreline
+    const colBottom = line([-18, 18], [18, 18]);
+    const colRight = line([18, 18], [18, 129]);
+    const colTop = line([18, 129], [-18, 129]);
+    const colLeft = line([-18, 129], [-18, 18]);
+    coincident(colBottom.end(), colRight.start());
+    coincident(colRight.end(), colTop.start());
+    coincident(colTop.end(), colLeft.start());
+    coincident(colLeft.end(), colBottom.start());
+    horizontal(colBottom);
+    horizontal(colTop);
+    vertical(colRight);
+    vertical(colLeft);
+    distance(colBottom.start(), colBottom.end(), 36);
+    distance(colRight.start(), colRight.end(), 111);
+    distance(colBottom.start(), yAxis(), 18);
+    distance(colTop.start(), xAxis(), 129);
 
-    mirror(yAxis(), legB, legR, legT, legL);
+    mirror(yAxis(), legInner, legOuter, legBottom);
 });
 
-extrude(36).symmetric();
+const body = extrude(36).symmetric();

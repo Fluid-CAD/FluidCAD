@@ -73,35 +73,3 @@ sketch(boss.endFaces(), () => {
     diameter(bore, 30);
     concentric(bore, rim);
 });
-
-cut();
-
-sketch(body.sideFaces(6), () => {
-    const post = circle([0, 0], 30);
-    coincident(post.center(), origin());
-    diameter(post, 30);
-});
-
-const postStep = cut(20).thin(20);
-
-sketch(postStep.internalFaces(0), () => {
-    // What the Polygon tool wrote: four equal sides tangent to a 36 guide circle
-    const s1 = line([25.46, 0], [0, 25.46]);
-    const s2 = line([0, 25.46], [-25.46, 0]);
-    const s3 = line([-25.46, 0], [0, -25.46]);
-    const s4 = line([0, -25.46], [25.46, 0]);
-    const guide = circle([0, 0], 36).guide();
-    coincident(s1.end(), s2.start());
-    coincident(s2.end(), s3.start());
-    coincident(s3.end(), s4.start());
-    coincident(s4.end(), s1.start());
-    equal(s1, s2, s3);
-    tangent(s1, guide);
-    tangent(s2, guide);
-    tangent(s3, guide);
-    tangent(s4, guide);
-    angle(s1, s2, 90);
-    diameter(guide, 36);
-    coincident(guide.center(), origin());
-    coincident(s1.start(), xAxis());
-});

@@ -9,16 +9,21 @@ function finiteFields(v: unknown, keys: string[]): boolean {
   return typeof v === 'object' && v !== null && keys.every(k => Number.isFinite((v as Record<string, unknown>)[k]));
 }
 
-function isPose(v: unknown): boolean {
-  if (typeof v !== 'object' || v === null) {
-    return false;
+/** The live-pose shape `measure` and `interfere` accept for an assembly instance. */
+export class PoseRequests {
+  static readonly DESCRIPTION = 'a finite position {x,y,z} and a non-zero quaternion {x,y,z,w}';
+
+  static isPose(v: unknown): boolean {
+    if (typeof v !== 'object' || v === null) {
+      return false;
+    }
+    const { position, quaternion } = v as { position?: unknown; quaternion?: unknown };
+    if (!finiteFields(position, ['x', 'y', 'z']) || !finiteFields(quaternion, ['x', 'y', 'z', 'w'])) {
+      return false;
+    }
+    const q = quaternion as { x: number; y: number; z: number; w: number };
+    return Math.hypot(q.x, q.y, q.z, q.w) > 0;
   }
-  const { position, quaternion } = v as { position?: unknown; quaternion?: unknown };
-  if (!finiteFields(position, ['x', 'y', 'z']) || !finiteFields(quaternion, ['x', 'y', 'z', 'w'])) {
-    return false;
-  }
-  const q = quaternion as { x: number; y: number; z: number; w: number };
-  return Math.hypot(q.x, q.y, q.z, q.w) > 0;
 }
 
 export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
@@ -56,7 +61,7 @@ export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
         res.status(400).json({ error: 'instanceId must be a non-empty string' });
         return;
       }
-      if (entity.pose !== undefined && !isPose(entity.pose)) {
+      if (entity.pose !== undefined && !PoseRequests.isPose(entity.pose)) {
         res.status(400).json({ error: 'pose needs a finite position {x,y,z} and a non-zero quaternion {x,y,z,w}' });
         return;
       }

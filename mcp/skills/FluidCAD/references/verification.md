@@ -29,6 +29,7 @@ Do not loop on screenshots. If two views did not settle a doubt, the third will 
 | Hole pattern asymmetric or uneven | `resolve_selection` `face().cylinder(d)` and read each match's center; `measure` between two cylindrical faces for the pitch |
 | Boss, rib or standoff floating | `list_shapes` count (an extra body means it did not fuse); `measure` between its base face and the face it should touch (distance 0) |
 | Pocket or bore depth | `measure` the pocket floor to the top face (parallel planar faces); a `screenshot` with `hide` on the occluding shape or `highlight` on the floor face when the referent is unclear |
+| Bore, blind hole or wall looks wrong | `screenshot` with `section` through the feature's axis, then `measure` the depth (floor face to top face) or the wall (outer face to inner face) |
 | Wall thickness after a shell | `measure` an outer face against the matching `s.internalFaces()` face; check `objectErrors` for a shell failure first |
 | Fillet or chamfer caught the wrong edges | `resolve_selection` the edge expression and count; `measure` one edge of the result (`edge().arc(r)`) |
 | Pattern direction or count | `resolve_selection` the repeated feature's faces; count and centers of the first and last |
@@ -39,6 +40,10 @@ Do not loop on screenshots. If two views did not settle a doubt, the third will 
 | Two instances collide (assembly) | No interference tool yet: `measure` the two nearest faces with their `instanceId` (statement poses) and inspect a screenshot with `focus` on the pair |
 
 Do not assert a concern is fine because a second screenshot looked fine; run the check.
+
+## When a section is worth taking
+
+Take a section screenshot when the geometry in doubt is inside the part: a blind hole's floor, a counterbore step, a wall left by a shell, a boss that should be hollow. Put the plane through the feature's axis (`{ plane: "xz", offset: y }` for a hole at y) and view it square on; the cut faces are capped, so a solid reads solid and a hole reads hollow. A section shows whether the feature is there and roughly where; it does not measure it. Follow it with the `measure` call from the table.
 
 ## Report only checks that ran
 

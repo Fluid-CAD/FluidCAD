@@ -338,6 +338,45 @@ describe('screenshot overlays', () => {
     });
   });
 
+  it('screenshot posts a section through to the server, and screenshot_multi applies it to the grid', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const result = await screenshot({ section: { plane: 'xy', offset: 10 }, view: { kind: 'named', name: 'top' } });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ view: { kind: 'named', name: 'top' }, section: { plane: 'xy', offset: 10 } });
+
+    const explicit = { plane: { origin: [0, 5, 0] as [number, number, number], normal: [0, 1, 0] as [number, number, number] }, flip: true };
+    const multi = await screenshotMulti({ section: explicit });
+    expect(multi.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ multi: true, section: explicit });
+
+    const shape = await screenshotShape({ shapeId: 'sh-1', section: { plane: 'yz' } });
+    expect(shape.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).section).toEqual({ plane: 'yz' });
+  });
+
+  it('rejects a malformed section without contacting the server', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const cases: Array<[unknown, string]> = [
+      ['xy', '`section` must be an object'],
+      [{ plane: 'ab' }, '`section.plane`'],
+      [{ plane: { origin: [0, 0, 0], normal: [0, 0, 0] } }, 'zero vector'],
+      [{ plane: { origin: [0, 0], normal: [0, 0, 1] } }, '`section.plane.origin`'],
+      [{ plane: 'xy', offset: 'far' }, '`section.offset`'],
+      [{ plane: 'xy', flip: 0 }, '`section.flip`'],
+    ];
+    for (const [section, expected] of cases) {
+      const result = await screenshot({ section } as any);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe('invalid-input');
+        expect(result.message).toContain(expected);
+      }
+    }
+    expect(lastRequest).toBeNull();
+  });
+
   it('screenshot_shape carries the overlays beside its framing view', async () => {
     fakePort = await pngServer();
     writeRegistry([entry()]);
@@ -483,6 +522,34 @@ describe('measure with image', () => {
     });
   });
 
+  it('MeasureImage carries a section into the screenshot body and validates it', () => {
+    const body = MeasureImage.screenshotBody(MEASURED, { section: { plane: 'xz', offset: -2 } });
+    expect(body.section).toEqual({ plane: 'xz', offset: -2 });
+    expect(body.fitTo).toBe('highlight');
+    const view = (v: unknown) => v as any;
+    expect(MeasureImage.validate({ section: { plane: 'xy' } }, view)).toEqual({ ok: true, data: { section: { plane: 'xy' } } });
+    const bad = MeasureImage.validate({ section: { plane: 'xy', offset: 'x' } }, view);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.message).toContain('`image.section.offset`');
+    }
+  });
+
+  it('measure with image.section requests the screenshot in section', async () => {
+    fakePort = await measureServer();
+    writeRegistry([entry()]);
+    const result = await measure({
+      entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }, { shapeId: 'sh-1', kind: 'face', index: 4 }],
+      image: { section: { plane: 'yz', offset: 1, flip: true } },
+    });
+    expect(result.ok).toBe(true);
+    expect(lastRequest?.url).toBe('/api/screenshot');
+    const body = JSON.parse(lastRequest!.body);
+    expect(body.section).toEqual({ plane: 'yz', offset: 1, flip: true });
+    expect(body.view).toEqual({ kind: 'named', name: 'iso-ftr' });
+    expect(body.highlight).toHaveLength(2);
+  });
+
   it('measure without image posts once and returns the measurement alone', async () => {
     fakePort = await measureServer();
     writeRegistry([entry()]);
@@ -584,12 +651,18 @@ describe('measure with image', () => {
       const props = (name: string) => Object.keys((byName.get(name)!.inputSchema as any).properties ?? {});
       expect(props('measure')).toContain('image');
       for (const tool of ['screenshot', 'screenshot_multi', 'screenshot_shape']) {
-        for (const key of ['highlight', 'hide', 'focus', 'annotations', 'fitTo']) {
+        for (const key of ['highlight', 'hide', 'focus', 'annotations', 'fitTo', 'section']) {
           expect(props(tool)).toContain(key);
         }
       }
       expect(props('screenshot_multi')).toContain('views');
       expect(byName.get('screenshot_multi')!.description).toContain('iso-bbl');
+      const imageSchema = (byName.get('measure')!.inputSchema as any).properties.image;
+      expect(Object.keys(imageSchema.properties)).toContain('section');
+      const sectionSchema = (byName.get('screenshot')!.inputSchema as any).properties.section;
+      expect(sectionSchema.description).toContain('document units');
+      expect(sectionSchema.description).toContain('normal points away from');
+      expect(Object.keys(sectionSchema.properties)).toEqual(['plane', 'offset', 'flip']);
     } finally {
       await client.close();
       await server.close();

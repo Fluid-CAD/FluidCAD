@@ -171,7 +171,7 @@ So:
 - **Verify a mate visually** (a screenshot after each), and **numerically only when the statement pose equals the mated pose**: give each instance a `.translate()` / `.rotate()` that is the pose the mate produces, as in the example. Then `measure` between two faces on different instances (each with its `instanceId`) reports the assembled distance, and `resolve_selection` with `{ instanceId }` scope finds faces on that instance alone. When the pose is unknown, drag the instance in the viewport: the pose is written back onto the statement, and the next `measure` reads it.
 - **Check the interface fits**: `measure` a standoff's bore face against the plate's hole face (both with instance ids) for concentricity; the `foot` face against the plate top face for a zero gap.
 - **Count instances** with `get_scene_summary`: one entry per inserted instance and replica, named as expected.
-- **Interference.** There is no interference-check tool yet (one is planned). Until then, say so in the report; a screenshot with `focus` on a suspicious pair plus `measure` of their nearest faces is the available evidence, and it is not a proof of clearance.
+- **Interference.** `interfere` in the assembly file compares every instance's bodies pairwise and reports the shared volume: a pair from two instances is a `clash`, a pair inside one instance (a multi-solid part) is `intraPart` and never fails, and anything below `tolerance` (1 mm³ by default, so touching faces pass) is ignored. Read `ok` together with `inconclusive`: one instance, or every body in one instance, is inconclusive and not a pass. It runs at statement poses like `measure`, so either give each instance the pose the mate produces (above) or pass `poses` from `get_scene_summary` after a viewport drag wrote the solved pose back. Narrow with `instanceIds`: one id tests that instance against everything, two test that pair. A `failed` pair is neither cleared nor a clash; say so.
 
 Everything else follows the core skill: `render.state`, `objectErrors` (a failing part feature fails inside its instance), the report template, and the "never claim" list.
 
@@ -187,7 +187,8 @@ Everything else follows the core skill: `render.state`, `objectErrors` (a failin
 - **A connector source matching two faces.** The statement fails; `resolve_selection` with the part as scope before writing it, and narrow to one.
 - **Nothing grounded, or two things grounded.** Ground exactly one instance per mechanism; a second ground pins a part the mates were supposed to move.
 - **Replicating before the mates.** Only mates written before `replicate()` are copied; a mate added afterwards applies to the seed only.
-- **Measuring a mated distance from statement poses.** The number is the starting pose, not the solved one; see section 8.
+- **Measuring a mated distance from statement poses.** The number is the starting pose, not the solved one; see section 8. `interfere` reads the same poses: a clash it reports between two instances that the mates pull apart is a starting-pose overlap, and a clear result at starting poses says nothing about the mated layout.
+- **`.rotate()` after `.translate()` on an instance.** `rotate(axis, deg)` turns the whole pose about the world axis, position included: `insert(p).translate(10, 0, 0).rotate("z", 90)` lands at `(0, 10, 0)`, not at `(10, 0, 0)` turned in place. Write `.rotate()` first, then `.translate()` (evidence: `lib/features/pose-handle.ts`, and an `interfere` test that expected the in-place turn).
 - **Reading a part file's parameter from outside its body.** The body runs later, per variant; `param()` inside, values from the callback only.
 
 ## Quick reference: the assembly loop
@@ -197,5 +198,5 @@ Everything else follows the core skill: `render.state`, `objectErrors` (a failin
 3. Create the assembly file; insert every instance with a starting pose near its final one; screenshot.
 4. Ground one instance.
 5. One `mate()` per write, screenshot after each; `replicate()` once the seed is right.
-6. Verify: `validate` for the prototypes; screenshots for the mated layout; `measure` plus `instanceId` where the statement pose is the mated pose; instance count from `get_scene_summary`.
-7. Report per the core skill; state that interference was not checked.
+6. Verify: `validate` for the prototypes; screenshots for the mated layout; `measure` plus `instanceId` where the statement pose is the mated pose; `interfere` once every instance sits at its mated pose; instance count from `get_scene_summary`.
+7. Report per the core skill; quote the `interfere` result (clashes, or inconclusive with the reason) rather than claiming clearance from a screenshot.

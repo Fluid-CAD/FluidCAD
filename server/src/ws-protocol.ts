@@ -552,6 +552,21 @@ export type ScreenshotAnnotation = {
 };
 
 
+/** The world datum planes a section can be taken on. */
+export type SectionPlaneName = 'xy' | 'yz' | 'xz';
+
+/**
+ * A section (cut-away) view, document units. Mirrored from
+ * ui/src/scene/section-spec.ts, which owns the math: the normal points at
+ * the half that is removed, `offset` moves the plane along the normal,
+ * `flip` keeps the other half. Validated by `SectionRequests`.
+ */
+export type SectionSpec = {
+  plane: SectionPlaneName | { origin: [number, number, number]; normal: [number, number, number] };
+  offset?: number;
+  flip?: boolean;
+};
+
 export type UITakeScreenshotMessage = {
   type: 'take-screenshot';
   requestId: string;
@@ -590,6 +605,8 @@ export type UITakeScreenshotMessage = {
     fitTo?: 'highlight';
     /** `multi` captures: the cells' views (2-6), two per row, each labelled. */
     views?: ScreenshotView[];
+    /** Cut the model away on one side of a plane, cut faces capped; every cell of a `multi` capture. */
+    section?: SectionSpec;
   };
 };
 

@@ -178,6 +178,40 @@ describe('POST /api/screenshot overlays', () => {
     expect(notMulti.status).toBe(400);
     expect(notMulti.body.error).toContain('multi: true');
   });
+
+  it('forwards a named-plane section and an explicit-plane section to the page as given', async () => {
+    const named = await post({ section: { plane: 'xy', offset: 10 } });
+    expect(named.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: 'xy', offset: 10 });
+
+    const explicit = await post({ multi: true, section: { plane: { origin: [1, 2, 3], normal: [0, -1, 0] }, flip: true } });
+    expect(explicit.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [1, 2, 3], normal: [0, -1, 0] }, flip: true });
+    expect(lastOptions?.multi).toBe(true);
+
+    const bare = await post({ section: { plane: 'yz' } });
+    expect(bare.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: 'yz' });
+  });
+
+  it('refuses a malformed section with the field named', async () => {
+    const cases: Array<[unknown, string]> = [
+      ['xy', 'section must be an object'],
+      [{}, 'section.plane must be one of xy, yz, xz'],
+      [{ plane: 'ab' }, 'section.plane'],
+      [{ plane: { origin: [0, 0], normal: [0, 0, 1] } }, 'section.plane.origin'],
+      [{ plane: { origin: [0, 0, 0], normal: [0, 0, 0] } }, 'zero vector'],
+      [{ plane: { origin: [0, 0, 0], normal: [0, 'a', 1] } }, 'section.plane.normal'],
+      [{ plane: 'xy', offset: '10' }, 'section.offset'],
+      [{ plane: 'xy', flip: 'yes' }, 'section.flip'],
+    ];
+    for (const [section, expected] of cases) {
+      const res = await post({ section });
+      expect(res.status, JSON.stringify(section)).toBe(400);
+      expect(res.body.error).toContain(expected);
+    }
+    expect(lastOptions).toBeNull();
+  });
 });
 
 describe('POST /api/screenshot without a resolver', () => {

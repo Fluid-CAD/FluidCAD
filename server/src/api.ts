@@ -49,6 +49,7 @@ export type { CameraStateGetter } from './routes/scene.ts';
 export { createHitTestRouter } from './routes/hit-test.ts';
 export { createResolveSelectionRouter } from './routes/resolve-selection.ts';
 export { createValidateRouter, ValidateRequests } from './routes/validate.ts';
+export { createInterfereRouter, InterfereRequests } from './routes/interfere.ts';
 export { createScreenshotRouter } from './routes/screenshot.ts';
 export { ScreenshotRequests } from './routes/screenshot-overlays.ts';
 export type { ScreenshotOverlayOptions, ScreenshotSelectionResolver } from './routes/screenshot-overlays.ts';

@@ -137,7 +137,7 @@ A screenshot serves two purposes with different cadences: a **verification gate 
 
 **Skip the gate when the feature is simple** and sits on geometry you have already seen: an extrude or cut of a rect, circle, slot or polygon on a verified plane; a plain through-hole at a known position; a translate or mirror of a body you already looked at. Batch two or three of these and verify them at the next checkpoint; never batch across a plane change or in front of a complex feature.
 
-When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not.
+When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the doubt is inside the part (a blind hole, a counterbore, a shelled wall), pass `section` to cut the model open; `references/verification.md` says when that is worth doing.
 
 ## Naming geometry: resolve the filter first, then write it
 

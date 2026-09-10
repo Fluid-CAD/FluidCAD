@@ -1,8 +1,7 @@
 import { Scene } from "../rendering/scene.js";
-import { AssemblyScene } from "../rendering/assembly-scene.js";
-import { SceneObject } from "../common/scene-object.js";
-import { Shape } from "../common/shape.js";
 import { ShapeValidator } from "../oc/shape-validator.js";
+import { RenderedSolidPool } from "./rendered-pool.js";
+import type { RenderedPoolRefusalCode } from "./rendered-pool.js";
 import type { ShapeFindingKind } from "../oc/shape-validator.js";
 import { EntitySummaryBuilder } from "../oc/measure/entity-summary.js";
 import { describeError } from "../common/describe-error.js";
@@ -66,24 +65,21 @@ export type SceneValidationReport = {
   unit: LengthUnit;
 };
 
-export type SceneValidationRefusalCode = 'unknown-shape' | 'unknown-instance' | 'not-an-assembly';
+export type SceneValidationRefusalCode = RenderedPoolRefusalCode;
 
 export type SceneValidationOutcome =
   | { kind: 'report'; report: SceneValidationReport }
   | { kind: 'refused'; code: SceneValidationRefusalCode; reason: string };
-
-/** A shape the scene currently renders, with the leaf object that owns it. */
-type RenderedCandidate = { object: SceneObject; shape: Shape };
 
 /**
  * Runs {@link ShapeValidator} over the shapes a scene renders and addresses
  * every result the way the other inspection paths do (shape id, owning scene
  * object and part, instance ids in an assembly).
  *
- * "What the scene renders" is read from the scene's rendered objects: a
- * visible leaf object's `sceneShapes`, so a solid a later cut consumed, a
- * feature hidden by a rollback, or an exposure's soft-removed source is not
- * examined — the agent asked about the geometry it can see.
+ * The pool is {@link RenderedSolidPool}: what the scene renders, so a solid
+ * a later cut consumed, a feature hidden by a rollback, or an exposure's
+ * soft-removed source is not examined — the agent asked about the geometry
+ * it can see.
  *
  * In an assembly the instances of one part share the part's prototype
  * shapes, so each unique shape is validated once and every instance that
@@ -93,11 +89,11 @@ type RenderedCandidate = { object: SceneObject; shape: Shape };
 export class SceneValidator {
 
   static validate(scene: Scene, request: ValidateSceneRequest = {}): SceneValidationOutcome {
-    const instances = SceneValidator.instancesByPartId(scene);
-    let candidates = SceneValidator.renderedCandidates(scene);
+    const instances = RenderedSolidPool.instancesByPartId(scene);
+    let candidates = RenderedSolidPool.renderedCandidates(scene);
 
     if (request.instanceId !== undefined) {
-      const scoped = SceneValidator.scopeToInstance(scene, candidates, request.instanceId);
+      const scoped = RenderedSolidPool.scopeToInstance(scene, candidates, request.instanceId);
       if (scoped.kind === 'refused') {
         return scoped;
       }
@@ -105,13 +101,13 @@ export class SceneValidator {
     }
 
     if (request.shapeIds) {
-      const picked = SceneValidator.pickShapes(candidates, request.shapeIds);
+      const picked = RenderedSolidPool.pickShapes(candidates, request.shapeIds);
       if (picked.kind === 'refused') {
         return picked;
       }
       candidates = picked.candidates;
     } else {
-      candidates = candidates.filter(c => SceneValidator.isRenderedSolid(scene, c, instances));
+      candidates = candidates.filter(c => RenderedSolidPool.isRenderedSolid(scene, c, instances));
     }
 
     const decimals = EntitySummaryBuilder.decimalsFor(scene.unit);
@@ -163,94 +159,5 @@ export class SceneValidator {
         unit: scene.unit,
       },
     };
-  }
-
-  /**
-   * Every shape a visible leaf object currently renders, in scene order.
-   * The rendered record carries shape ids (its `object` is the serialized
-   * form); the live wrappers come from the scene object itself.
-   */
-  private static renderedCandidates(scene: Scene): RenderedCandidate[] {
-    const out: RenderedCandidate[] = [];
-    for (const object of scene.getAllSceneObjects()) {
-      if (object.isContainer()) {
-        continue;
-      }
-      const rendered = scene.getRenderedObject(object);
-      if (!rendered || !rendered.visible || rendered.sceneShapes.length === 0) {
-        continue;
-      }
-      const renderedIds = new Set(rendered.sceneShapes.map(s => s.shapeId));
-      for (const shape of object.getOwnShapes({ excludeMeta: false, excludeGuide: false })) {
-        if (renderedIds.has(shape.id)) {
-          out.push({ object, shape });
-        }
-      }
-    }
-    return out;
-  }
-
-  /** Part id → instance ids, or null when the scene is not an assembly. */
-  private static instancesByPartId(scene: Scene): Map<string, string[]> | null {
-    if (!(scene instanceof AssemblyScene)) {
-      return null;
-    }
-    const map = new Map<string, string[]>();
-    for (const instance of scene.getSerializedInstances()) {
-      const list = map.get(instance.partId) ?? [];
-      list.push(instance.instanceId);
-      map.set(instance.partId, list);
-    }
-    return map;
-  }
-
-  /**
-   * The default pool: solids only (sketch geometry and helper shapes are
-   * never solids and would report `noSolid` on every line), no meta or guide
-   * shape, and in an assembly only prototypes at least one instance shows.
-   */
-  private static isRenderedSolid(scene: Scene, candidate: RenderedCandidate, instances: Map<string, string[]> | null): boolean {
-    const shape = candidate.shape;
-    if (shape.getType() !== 'solid' || shape.isMetaShape() || shape.isGuideShape()) {
-      return false;
-    }
-    if (!instances) {
-      return true;
-    }
-    const part = scene.findEnclosingPart(candidate.object);
-    return part !== null && (instances.get(part.id)?.length ?? 0) > 0;
-  }
-
-  private static scopeToInstance(
-    scene: Scene,
-    candidates: RenderedCandidate[],
-    instanceId: string,
-  ): { kind: 'ok'; candidates: RenderedCandidate[] } | Extract<SceneValidationOutcome, { kind: 'refused' }> {
-    if (!(scene instanceof AssemblyScene)) {
-      return { kind: 'refused', code: 'not-an-assembly', reason: `instanceId "${instanceId}" needs an assembly file; this scene is a part.` };
-    }
-    const instance = scene.getInstance(instanceId);
-    if (!instance) {
-      return { kind: 'refused', code: 'unknown-instance', reason: `No instance "${instanceId}" in the assembly (instance ids come from get_scene_summary).` };
-    }
-    const members = new Set(scene.getPartScopedAllObjects(instance.part));
-    return { kind: 'ok', candidates: candidates.filter(c => members.has(c.object)) };
-  }
-
-  private static pickShapes(
-    candidates: RenderedCandidate[],
-    shapeIds: string[],
-  ): { kind: 'ok'; candidates: RenderedCandidate[] } | Extract<SceneValidationOutcome, { kind: 'refused' }> {
-    const byId = new Map(candidates.map(c => [c.shape.id, c]));
-    const missing = shapeIds.filter(id => !byId.has(id));
-    if (missing.length > 0) {
-      return {
-        kind: 'refused',
-        code: 'unknown-shape',
-        reason: `No rendered shape ${missing.map(id => `"${id}"`).join(', ')} in the scene (shape ids come from list_shapes or get_scene_summary).`,
-      };
-    }
-    const unique = [...new Set(shapeIds)];
-    return { kind: 'ok', candidates: unique.map(id => byId.get(id)!) };
   }
 }

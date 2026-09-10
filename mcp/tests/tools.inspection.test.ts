@@ -19,6 +19,7 @@ import {
   resolveClient,
   resolveSelection,
   validate,
+  interfere,
 } from '../src/tools/inspection.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -237,8 +238,96 @@ describe('inspection tools (unit)', () => {
           },
         };
       },
+      '/api/interfere': (_req, body) => {
+        const request = body ? JSON.parse(body) : {};
+        if (request.instanceIds?.includes('nope')) {
+          return { status: 404, body: { error: 'No instance "nope" in the assembly (instance ids come from get_scene_summary).', code: 'unknown-instance' } };
+        }
+        const bodyA = { shapeId: 'sh-2', sceneObjectId: 'obj-13', sceneObjectName: 'extrude', part: 'box', instanceId: 'inst-1' };
+        const bodyB = { ...bodyA, instanceId: 'inst-2' };
+        if (request.shapeIds?.length === 1) {
+          return {
+            status: 200,
+            body: { ok: false, inconclusive: 'only one rendered solid; interference needs at least two bodies', bodies: 1, units: 1, checked: 0, rejectedByBounds: 0, clashes: [], intraPart: [], failed: [], tolerance: 0.000061, unit: 'in' },
+          };
+        }
+        const clear = request.poses !== undefined || (request.tolerance ?? 0) > 5;
+        return {
+          status: 200,
+          body: {
+            ok: clear, bodies: 2, units: 2, checked: 1, rejectedByBounds: 0,
+            clashes: clear ? [] : [{ a: bodyA, b: bodyB, volume: 4.88 }],
+            intraPart: [], failed: [], tolerance: request.tolerance ?? 0.000061, unit: 'in',
+          },
+        };
+      },
     });
     writeRegistry([entry()]);
+  });
+
+  it('interfere posts an empty body for the whole scene and returns the report', async () => {
+    const result = await interfere({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(lastRequest?.method).toBe('POST');
+    expect(lastRequest?.url).toBe('/api/interfere');
+    expect(JSON.parse(lastRequest!.body)).toEqual({});
+    const data = result.data as any;
+    expect(data.ok).toBe(false);
+    expect(data.checked).toBe(1);
+    expect(data.clashes[0]).toMatchObject({ a: { instanceId: 'inst-1' }, b: { instanceId: 'inst-2' }, volume: 4.88 });
+    expect(data.unit).toBe('in');
+  });
+
+  it('interfere forwards instanceIds, shapeIds, tolerance and poses and omits the keys it was not given', async () => {
+    const scoped = await interfere({ shapeIds: ['sh-2'] });
+    expect(scoped.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ shapeIds: ['sh-2'] });
+    expect((scoped.ok && (scoped.data as any).inconclusive)).toContain('only one');
+
+    const pose = { instanceId: 'inst-2', position: { x: 40, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } };
+    const posed = await interfere({ instanceIds: ['inst-1', 'inst-2'], tolerance: 0, poses: [pose] });
+    expect(posed.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ instanceIds: ['inst-1', 'inst-2'], tolerance: 0, poses: [pose] });
+    expect((posed.ok && (posed.data as any).ok)).toBe(true);
+  });
+
+  it('interfere rejects empty id lists, a negative tolerance and a malformed pose before calling the server', async () => {
+    lastRequest = null;
+    const empty = await interfere({ instanceIds: [] });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.code).toBe('invalid-input');
+      expect(empty.message).toContain('instanceIds');
+    }
+    const blankShape = await interfere({ shapeIds: ['sh-2', ''] });
+    expect(blankShape.ok).toBe(false);
+    const negative = await interfere({ tolerance: -1 });
+    expect(negative.ok).toBe(false);
+    if (!negative.ok) {
+      expect(negative.message).toContain('tolerance');
+    }
+    const badPose = await interfere({ poses: [{ instanceId: 'inst-1', position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 0 } }] });
+    expect(badPose.ok).toBe(false);
+    if (!badPose.ok) {
+      expect(badPose.message).toContain('quaternion');
+    }
+    const noInstance = await interfere({ poses: [{ position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } } as any] });
+    expect(noInstance.ok).toBe(false);
+    expect(lastRequest).toBeNull();
+  });
+
+  it('interfere surfaces an unknown instance as the server\'s 404 with its code', async () => {
+    const result = await interfere({ instanceIds: ['nope'] });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('http-error');
+    expect(result.message).toContain('unknown-instance');
+    expect((result.details as any).statusCode).toBe(404);
   });
 
   it('validate posts an empty body for the whole scene and returns the report', async () => {
@@ -511,8 +600,25 @@ describe('inspection tools (over MCP)', () => {
         'hit_test',
         'resolve_selection',
         'validate',
+        'interfere',
       ]) {
         expect(names.has(expected)).toBe(true);
+      }
+      // interfere must tell the agent what a clash and an intraPart entry
+      // are, that inconclusive is not a pass, what tolerance means, and
+      // which poses the bodies sit at.
+      const interfereTool = tools.tools.find((t) => t.name === 'interfere')!;
+      expect(interfereTool.description).toContain('`clash`');
+      expect(interfereTool.description).toContain('`intraPart`');
+      expect(interfereTool.description).toContain('never fail');
+      expect(interfereTool.description).toContain('NOT a pass');
+      expect(interfereTool.description).toContain('`tolerance`');
+      expect(interfereTool.description).toContain('document unit cubed');
+      expect(interfereTool.description).toContain('STATEMENT poses');
+      expect(interfereTool.description).toContain('`poses`');
+      const interfereSchema = JSON.stringify(interfereTool.inputSchema);
+      for (const field of ['instanceIds', 'shapeIds', 'tolerance', 'poses']) {
+        expect(interfereSchema).toContain(`"${field}"`);
       }
       // validate must tell the agent what a render does not prove, what each
       // finding means, that inversion is caught by the volume sign alone, and

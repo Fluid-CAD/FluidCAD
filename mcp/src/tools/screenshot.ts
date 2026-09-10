@@ -2,17 +2,21 @@
 // MCP `image` content blocks. Views are stateless: the agent picks a vantage
 // (named view, orbit-from-current, or look-from) and the user's interactive
 // camera is never touched. Every tool takes the same overlay options —
-// highlighted entities, hidden/focused shapes, labelled annotation lines and
-// framing to the highlight — which the server resolves and the page draws.
+// highlighted entities, hidden/focused shapes, labelled annotation lines,
+// framing to the highlight and a section (cut-away) plane — which the
+// server resolves and the page draws.
 
 import { MeasureEntityInputs, resolveClient, type MeasureEntityInput, type WorkspaceArg } from './inspection.ts';
 import { ScreenshotRequest, type ImageResult } from './screenshot-request.ts';
 import { ScreenshotViews, type NamedView, type ScreenshotView } from './screenshot-views.ts';
+import { ScreenshotSections, type SectionSpec } from './screenshot-section.ts';
 import { err, ok, type ToolResult } from '../types.ts';
 
 export type { ImageResult } from './screenshot-request.ts';
 export type { NamedView, ScreenshotView } from './screenshot-views.ts';
+export type { SectionSpec } from './screenshot-section.ts';
 export { NAMED_VIEWS } from './screenshot-views.ts';
+export { SECTION_PLANE_NAMES } from './screenshot-section.ts';
 
 export type ScreenshotAnnotationInput = {
   from: [number, number, number];
@@ -27,6 +31,7 @@ export type ScreenshotOverlayInput = {
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
   fitTo?: 'highlight';
+  section?: SectionSpec;
 };
 
 export type ScreenshotInput = WorkspaceArg & ScreenshotOverlayInput & {
@@ -198,6 +203,7 @@ export type ValidatedOverlays = {
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
   fitTo?: 'highlight';
+  section?: SectionSpec;
 };
 
 /**
@@ -215,7 +221,7 @@ export class ScreenshotOverlayInputs {
 
   static validate(input: ScreenshotOverlayInput): ToolResult<ValidatedOverlays> {
     const out: ValidatedOverlays = {};
-    const { highlight, hide, focus, annotations, fitTo } = input ?? {};
+    const { highlight, hide, focus, annotations, fitTo, section } = input ?? {};
 
     if (hide !== undefined && focus !== undefined) {
       return err('invalid-input', '`hide` and `focus` are exclusive: pass one of them (hide removes shapes from the render, focus ghosts everything else).');
@@ -255,6 +261,14 @@ export class ScreenshotOverlayInputs {
         return err('invalid-input', '`fitTo: "highlight"` needs a non-empty `highlight` to frame.');
       }
       out.fitTo = fitTo;
+    }
+
+    if (section !== undefined) {
+      const parsed = ScreenshotSections.validate(section);
+      if (typeof parsed === 'string') {
+        return err('invalid-input', parsed);
+      }
+      out.section = parsed;
     }
 
     return ok(out);

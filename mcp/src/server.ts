@@ -29,6 +29,7 @@ import {
   measure,
   resolveSelection,
   validate,
+  interfere,
 } from './tools/inspection.ts';
 import {
   getCameraState,
@@ -415,6 +416,61 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await validate({ workspace, shapeIds, instanceId })),
   );
 
+  const instancePoseArg = z.object({
+    instanceId: z.string().min(1).describe('The instance this pose is for (ids from get_scene_summary).'),
+    position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+    quaternion: z.object({ x: z.number(), y: z.number(), z: z.number(), w: z.number() }),
+  });
+
+  server.registerTool(
+    'interfere',
+    {
+      title: 'Check whether any two bodies occupy the same space',
+      description:
+        'Interference check over the solids the scene renders: every candidate pair is bounds-rejected, then the surviving pairs run ' +
+        'a boolean common and report the volume they share. The unit of the verdict is the PART: in an assembly, a pair of bodies from ' +
+        'two different instances that share more than `tolerance` is a `clash`; two bodies inside one instance (a multi-solid part) ' +
+        'are listed under `intraPart` and never fail. In a part file with several part() blocks the same rule applies per part; with no ' +
+        'parts, every solid is its own unit. `tolerance` is the smallest shared volume, in the document unit cubed, that counts ' +
+        '(default: the equivalent of 1 mm³, because touching faces yield slivers). Fewer than two bodies, or all bodies in one ' +
+        'part/instance, is `inconclusive` with `ok: false` — it is NOT a pass; say so rather than claiming clearance. `ok` is true ' +
+        'only when at least two parts were compared, no pair clashed and no pair failed. Result: `ok`, `inconclusive` (reason, when ' +
+        'set), `bodies`, `units` (parts or instances compared), `checked` (pairs whose boolean ran — the cost), `rejectedByBounds`, ' +
+        '`clashes` and `intraPart` (each pair: two bodies with shapeId, sceneObjectId, part, instanceId in an assembly, and the shared ' +
+        '`volume`), `failed` (pairs whose boolean threw, with the message; not cleared), `tolerance`, `unit`. Assembly instances sit ' +
+        'at their STATEMENT poses (insert().translate()/.rotate()); mate-solved or dragged poses seen in the viewport are not applied ' +
+        'unless you pass `poses` (a world pose per instance, from get_scene_summary after a viewport drag writes it back). `instanceIds` ' +
+        'with one id tests that instance against every other body; with two or more, only the named instances among themselves. ' +
+        '`shapeIds` narrows to those shapes (every instance showing them). An unknown shape or instance, or no rendered scene, is an ' +
+        'error naming the problem.',
+      inputSchema: {
+        ...workspaceArg,
+        instanceIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .optional()
+          .describe('Assembly files: one id tests that instance against everything; two or more test only the named instances among themselves (ids from get_scene_summary).'),
+        shapeIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .optional()
+          .describe('Only these shape ids (from list_shapes or get_scene_summary). Omit to check every solid the scene renders.'),
+        tolerance: z
+          .number()
+          .min(0)
+          .optional()
+          .describe('Smallest shared volume that counts, in the document unit cubed. Default: the equivalent of 1 mm³.'),
+        poses: z
+          .array(instancePoseArg)
+          .min(1)
+          .optional()
+          .describe('Assembly files: world poses to use instead of the statement poses, per instance.'),
+      },
+    },
+    async ({ workspace, instanceIds, shapeIds, tolerance, poses }) =>
+      toMcp(await interfere({ workspace, instanceIds, shapeIds, tolerance, poses })),
+  );
+
   const namedViewArg = z.enum([
     'front', 'back', 'left', 'right', 'top', 'bottom',
     'iso-ftr', 'iso-fbr', 'iso-ftl', 'iso-fbl',
@@ -477,6 +533,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const marginArg = z.number().nonnegative().optional();
 
   const idListArg = z.array(z.string().min(1)).min(1).max(64);
+  const sectionArg = z
+    .object({
+      plane: z
+        .union([
+          z.enum(['xy', 'yz', 'xz']).describe('A world datum plane through the origin: xy (normal +Z), yz (normal +X) or xz (normal +Y).'),
+          z.object({
+            origin: vec3.describe('A point on the cut plane, document units.'),
+            normal: vec3.describe('The plane normal; it points at the half that is removed.'),
+          }),
+        ])
+        .describe('The cut plane: a named datum plane or an explicit { origin, normal }, document units.'),
+      offset: z.number().optional().describe('Moves the cut plane along its normal, document units (default 0). { plane: "xy", offset: 10 } cuts at z = 10.'),
+      flip: z.boolean().optional().describe('Keep the other half: the side the normal points at stays and the far side is removed.'),
+    })
+    .optional()
+    .describe(
+      'Section (cut-away) view, document units. The model is cut on the plane and the half the normal points at is removed, so the ' +
+      'picture shows the cut from the normal\'s side; by default the far half (the side the normal points away from) is kept. Cut ' +
+      'faces are capped in the body\'s colour so solids read solid and holes read hollow; highlights are clipped with the model. ' +
+      'Use it when a bore, blind hole, counterbore or wall cannot be seen from outside; grid and axes are not cut.',
+    );
   const screenshotOverlayArgs = {
     highlight: z
       .array(measureEntityArg)
@@ -504,6 +581,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       .literal('highlight')
       .optional()
       .describe('Frame the highlighted entities\' combined bounding box (plus annotation points) instead of the whole model, the way screenshot_shape frames one shape. Needs highlight.'),
+    section: sectionArg,
   };
 
   const measureImageArg = z
@@ -512,12 +590,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       width: widthArg,
       height: heightArg,
       pixelRatio: z.number().min(1).max(4).optional(),
+      section: sectionArg,
     })
     .optional()
     .describe(
       'When given, the result also carries a PNG (returned as an image block after the JSON) showing the measured entities highlighted, ' +
       'the two realizing points of the primary value joined by a line labelled with that value and the unit, framed to the entities. ' +
-      'Ask for it when the numbers alone leave doubt about which geometry was measured.',
+      'Ask for it when the numbers alone leave doubt about which geometry was measured; add `section` when the measured geometry is internal.',
     );
 
   server.registerTool(
@@ -552,7 +631,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Capture a PNG of the current scene from a stateless view',
       description:
         'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
-        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, and `fitTo: "highlight"` frames the highlighted geometry. Returns an MCP image content block.',
+        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane (cut faces capped) to show bores, blind holes and walls. Returns an MCP image content block.',
       inputSchema: {
         ...workspaceArg,
         view: screenshotViewArg.optional(),
@@ -582,7 +661,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description:
         'Renders one PNG with 2-6 views laid out two per row, each cell labelled with its view in the corner. Default views: iso-ftr, its opposite iso-bbl ' +
         '(two opposed isometrics show every face in at least one cell), top and front. Pass `views` for other vantages (named, look-from, orbit-from-current). ' +
-        'Use this to "see all sides at once" without several tool calls; the overlay options (highlight, hide, focus, annotations, fitTo) apply to every cell. The user\'s interactive camera is never moved.',
+        'Use this to "see all sides at once" without several tool calls; the overlay options (highlight, hide, focus, annotations, fitTo, section) apply to every cell. The user\'s interactive camera is never moved.',
       inputSchema: {
         ...workspaceArg,
         views: z
@@ -609,7 +688,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a framed iso view of a single shape',
       description:
-        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo overlays as screenshot.',
+        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

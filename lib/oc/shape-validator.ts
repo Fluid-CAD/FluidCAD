@@ -161,7 +161,12 @@ export class ShapeValidator {
     return open;
   }
 
-  private static signedVolume(solid: TopoDS_Shape): number {
+  /**
+   * Signed volume of a solid (or the sum over a compound's solids) in the
+   * document unit cubed. Shared with {@link ShapeInterference}, whose
+   * common-volume verdict must integrate the way the validator's does.
+   */
+  static signedVolume(solid: TopoDS_Shape): number {
     const oc = getOC();
     const props = new oc.GProp_GProps();
     try {

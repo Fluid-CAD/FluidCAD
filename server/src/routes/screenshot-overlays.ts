@@ -1,6 +1,7 @@
-import type { NamedView, ScreenshotAnnotation, ScreenshotHighlightRef, ScreenshotView } from '../ws-protocol.ts';
+import type { NamedView, ScreenshotAnnotation, ScreenshotHighlightRef, ScreenshotView, SectionSpec } from '../ws-protocol.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import { SelectionRequests } from './selection-requests.ts';
+import { SectionRequests } from './screenshot-section.ts';
 
 const NAMED_VIEWS: ReadonlySet<NamedView> = new Set([
   'front', 'back', 'left', 'right', 'top', 'bottom',
@@ -19,6 +20,7 @@ export type ScreenshotOverlayOptions = {
   annotations?: ScreenshotAnnotation[];
   fitTo?: 'highlight';
   views?: ScreenshotView[];
+  section?: SectionSpec;
 };
 
 export type ScreenshotOverlayValidation =
@@ -26,7 +28,7 @@ export type ScreenshotOverlayValidation =
   | { ok: false; status: number; error: string; code?: string; candidates?: unknown[] };
 
 /**
- * Body validation for `/screenshot`'s view and overlay fields. Highlight
+ * Body validation for `/screenshot`'s view, overlay and section fields. Highlight
  * entities take the same union `/measure` accepts — index refs or filter
  * expressions — and filters are resolved here, every match kept, so the page
  * only ever sees concrete `{ shapeId, kind, index, instanceId? }` refs; an
@@ -86,7 +88,7 @@ export class ScreenshotRequests {
   /** Validate and resolve the overlay fields of a `/screenshot` body. */
   static overlays(body: Record<string, unknown>, resolveSelection: ScreenshotSelectionResolver | undefined): ScreenshotOverlayValidation {
     const options: ScreenshotOverlayOptions = {};
-    const { highlight, hide, focus, annotations, fitTo, views, multi } = body;
+    const { highlight, hide, focus, annotations, fitTo, views, multi, section } = body;
 
     if (hide !== undefined && focus !== undefined) {
       return ScreenshotRequests.refuse(400, 'hide and focus are exclusive: pass one of them (hide removes shapes from the render, focus ghosts everything else).');
@@ -141,6 +143,14 @@ export class ScreenshotRequests {
         return ScreenshotRequests.refuse(400, parsed);
       }
       options.views = parsed;
+    }
+
+    if (section !== undefined) {
+      const parsed = SectionRequests.validate(section);
+      if (typeof parsed === 'string') {
+        return ScreenshotRequests.refuse(400, parsed);
+      }
+      options.section = parsed;
     }
 
     return { ok: true, options };

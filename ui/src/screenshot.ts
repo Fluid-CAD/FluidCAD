@@ -21,8 +21,10 @@ import {
   type ScreenshotAnnotation,
   type ScreenshotHighlightRef,
 } from './screenshot-overlays';
+import { SectionController, type SectionSpec } from './scene/section-controller';
 
 export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
+export type { SectionSpec } from './scene/section-controller';
 
 /**
  * Padding on a highlight-fitted frame: looser than a whole-model fit so a
@@ -92,6 +94,13 @@ export interface ScreenshotOptions {
   fitTo: 'highlight' | null;
   /** Multi captures: the cells' views, 2-6, laid out two per row. */
   views: ScreenshotView[];
+  /**
+   * Cut the model away on one side of a plane and cap the cut faces (see
+   * {@link SectionController}). Applies to every cell of a multi capture.
+   * Helpers outside the geometry root (grid, axes) stay whole; highlights
+   * are clipped with the model.
+   */
+  section: SectionSpec | null;
 }
 
 const DEFAULTS: ScreenshotOptions = {
@@ -115,6 +124,7 @@ const DEFAULTS: ScreenshotOptions = {
   annotations: [],
   fitTo: null,
   views: MultiViewLayout.DEFAULT_VIEWS,
+  section: null,
 };
 
 /** Render the current scene to a PNG blob with the given options. */
@@ -176,7 +186,7 @@ export function captureScreenshotMulti(
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
     width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
-    showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo,
+    showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo, section,
   } = options;
 
   const scene = sceneCtx.scene;
@@ -283,11 +293,20 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   }
 
   // --- Render to off-screen canvas ---
+  // The section goes on last, after every visibility change above, and is
+  // cleared right after the render: its caps are built from what is visible
+  // and its overlays hang off the model meshes (see SectionController).
+  const sectionController = section ? ScreenshotSection.apply(sceneCtx, section) : null;
   const tmpRenderer = new WebGLRenderer({
     antialias: true,
     alpha: true,
     preserveDrawingBuffer: true,
+    // The caps of a section are stencil-masked; three defaults the buffer off.
+    stencil: sectionController !== null,
   });
+  // Material clipping only for the section: a capture taken in sketch mode
+  // keeps drawing the whole model, as it always has.
+  tmpRenderer.localClippingEnabled = sectionController !== null;
   // Pixel ratio first: setSize multiplies the drawing buffer by it, so the
   // buffer lands on width × height while getSize() — what the overlay
   // layout sizes glyphs against — reports the CSS-pixel canvas.
@@ -316,6 +335,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   tmpRenderer.render(scene, camera);
   // Project while the camera is still posed for the capture; painted below.
   const plannedAnnotations = ScreenshotAnnotationPlan.project(annotations, camera, width, height);
+  // Before the crop measures bounds, and before the overlays it clipped go.
+  sectionController?.clear();
 
   // --- Optional auto-crop ---
   let exportCanvas: HTMLCanvasElement = tmpRenderer.domElement;
@@ -466,6 +487,24 @@ function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasE
 }
 
 /**
+ * A capture's section view: one {@link SectionController} applied to the
+ * geometry root for the duration of the render. Nothing to cut (an empty
+ * scene) yields null so the renderer is not asked for a stencil buffer.
+ */
+class ScreenshotSection {
+
+  static apply(sceneCtx: SceneContext, section: SectionSpec): SectionController | null {
+    const root = geometryRoot(sceneCtx);
+    if (!root) {
+      return null;
+    }
+    const controller = new SectionController();
+    controller.apply(root, section);
+    return controller;
+  }
+}
+
+/**
  * What a capture frames: the whole model (a named view, `fitToModel`), or
  * the highlighted entities when the capture asks for `fitTo: "highlight"` —
  * the same centre-plus-bounding-diameter that `screenshot_shape` frames one
@@ -592,6 +631,8 @@ function computeCropRect(
 function expandBounds(box: Box3, object: Object3D, framePlanes = false): void {
   if (object.userData.isConstructionPlane && !framePlanes) { return; }
   if (!object.visible) { return; }
+  // Section caps and coplanar overlays redraw model surfaces; they add no extent of their own.
+  if (object.userData.isSectionOverlay) { return; }
   const o = object as any;
   if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
     o.geometry.computeBoundingBox();

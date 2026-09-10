@@ -274,6 +274,90 @@ export async function validate(input: ValidateInput) {
   return callWithClient(input ?? {}, (client) => client.postJson<unknown>('/api/validate', body));
 }
 
+export type InterferencePoseInput = {
+  instanceId: string;
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+};
+export type InterfereInput = WorkspaceArg & {
+  instanceIds?: string[];
+  shapeIds?: string[];
+  tolerance?: number;
+  poses?: InterferencePoseInput[];
+};
+
+/**
+ * Input checks for `interfere`: the server validates again, but a malformed
+ * list or threshold is cheaper to refuse here with the exact field named.
+ */
+class InterfereInputs {
+  static readonly MAX_IDS = 500;
+
+  static error(input: InterfereInput | undefined): string | null {
+    const idsError = InterfereInputs.idListError('shapeIds', input?.shapeIds, 'ids from list_shapes or get_scene_summary; omit it to check every solid the scene renders')
+      ?? InterfereInputs.idListError('instanceIds', input?.instanceIds, 'ids from get_scene_summary in an assembly file; omit it to check every instance');
+    if (idsError) {
+      return idsError;
+    }
+    const tolerance = input?.tolerance;
+    if (tolerance !== undefined && (typeof tolerance !== 'number' || !Number.isFinite(tolerance) || tolerance < 0)) {
+      return '`tolerance` must be a finite number >= 0: the smallest shared volume, in the document unit cubed, that counts as a clash.';
+    }
+    const poses = input?.poses;
+    if (poses !== undefined) {
+      if (!Array.isArray(poses) || poses.length === 0) {
+        return '`poses` must be a non-empty array of { instanceId, position, quaternion } when given.';
+      }
+      for (const pose of poses) {
+        if (typeof pose?.instanceId !== 'string' || pose.instanceId.length === 0) {
+          return '`poses` entries need a non-empty `instanceId` (ids from get_scene_summary).';
+        }
+        if (!InterfereInputs.isPose(pose)) {
+          return `\`poses\` entry for "${pose.instanceId}" needs a finite position {x,y,z} and a non-zero quaternion {x,y,z,w}.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  private static idListError(field: string, value: unknown, hint: string): string | null {
+    if (value === undefined) {
+      return null;
+    }
+    if (!Array.isArray(value) || value.length === 0 || value.length > InterfereInputs.MAX_IDS) {
+      return `\`${field}\` must be an array of 1-${InterfereInputs.MAX_IDS} ids when given (${hint}).`;
+    }
+    if (!value.every((id) => typeof id === 'string' && id.length > 0)) {
+      return `\`${field}\` entries must be non-empty strings (${hint}).`;
+    }
+    return null;
+  }
+
+  private static isPose(pose: InterferencePoseInput): boolean {
+    const finite = (v: unknown, keys: string[]) =>
+      typeof v === 'object' && v !== null && keys.every((k) => Number.isFinite((v as Record<string, unknown>)[k]));
+    if (!finite(pose.position, ['x', 'y', 'z']) || !finite(pose.quaternion, ['x', 'y', 'z', 'w'])) {
+      return false;
+    }
+    const q = pose.quaternion;
+    return Math.hypot(q.x, q.y, q.z, q.w) > 0;
+  }
+}
+
+export async function interfere(input: InterfereInput) {
+  const error = InterfereInputs.error(input);
+  if (error) {
+    return err('invalid-input', error);
+  }
+  const body = {
+    ...(input?.instanceIds ? { instanceIds: input.instanceIds } : {}),
+    ...(input?.shapeIds ? { shapeIds: input.shapeIds } : {}),
+    ...(input?.tolerance !== undefined ? { tolerance: input.tolerance } : {}),
+    ...(input?.poses ? { poses: input.poses } : {}),
+  };
+  return callWithClient(input ?? {}, (client) => client.postJson<unknown>('/api/interfere', body));
+}
+
 export type MeasureIndexEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number; instanceId?: string };
 export type MeasureFilterEntityInput = { expression: string; scope?: SelectionScopeInput };
 export type MeasureEntityInput = MeasureIndexEntityInput | MeasureFilterEntityInput;

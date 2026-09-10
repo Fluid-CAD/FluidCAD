@@ -64,6 +64,8 @@ import { SelectionResolver } from "./selection/resolve-selection.js";
 import type { ResolveSelectionRequest, ResolveSelectionResult } from "./selection/resolve-selection.js";
 import { SceneValidator } from "./validation/scene-validator.js";
 import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
+import { SceneInterference } from "./validation/scene-interference.js";
+import type { InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
   SelectionBoundary, SelectionScene, SynthesizeOptions,
@@ -303,6 +305,16 @@ class SceneManager {
    */
   validate(scene: Scene, request: ValidateSceneRequest = {}): SceneValidationOutcome {
     return SceneValidator.validate(scene, request);
+  }
+
+  /**
+   * Do any two bodies of the scene share volume — see SceneInterference.
+   * Bodies of different parts (assembly: instances) that overlap are
+   * clashes; overlaps inside one part are reported and never fail; fewer
+   * than two parts is inconclusive, not a pass.
+   */
+  interfere(scene: Scene, request: InterferenceRequest = {}): SceneInterferenceOutcome {
+    return SceneInterference.check(scene, request);
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {

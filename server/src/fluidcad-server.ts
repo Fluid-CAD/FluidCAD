@@ -15,6 +15,7 @@ import type { PartScanResult } from './part-catalog/scan.ts';
 import type {
   AssemblyExportOutcome, AssemblyExportPose, ImportReport, ParamDefinition, ParamRegistry, ParamVal,
   ResolveSelectionRequest, ResolveSelectionResult, SceneValidationOutcome, ValidateSceneRequest,
+  InterferenceRequest, SceneInterferenceOutcome,
 } from '../../lib/dist/index.js';
 import { MeasureEntityResolver } from './measure-entities.ts';
 import type { MeasureEntitiesFailure, MeasureEntity } from './measure-entities.ts';
@@ -36,6 +37,9 @@ export type ResolveSelectionUnavailable = { ok: false; code: 'no-scene' | 'unsup
 
 /** Why a validation could not run before the lib's own validator ran; the same shape as its refusals. */
 export type ValidateUnavailable = { kind: 'refused'; code: 'no-scene' | 'unsupported'; reason: string };
+
+/** Why an interference check could not run before the lib's own checker ran; the same shape as its refusals. */
+export type InterfereUnavailable = ValidateUnavailable;
 
 export type MeasureEntitiesOutcome =
   | { ok: true; result: any }
@@ -150,6 +154,8 @@ type SceneManager = {
   resolveSelection?(scene: any, request: ResolveSelectionRequest): ResolveSelectionResult;
   // Optional: may predate geometry validation.
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
+  // Optional: may predate interference checking.
+  interfere?(scene: any, request: InterferenceRequest): SceneInterferenceOutcome;
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
@@ -1637,6 +1643,26 @@ export class FluidCadServer {
       return { kind: 'refused', code: 'no-scene', reason: 'No rendered scene — open and render a file first.' };
     }
     return this.sceneManager.validate(scene, request);
+  }
+
+  /**
+   * Shared volume between bodies of the current scene — the lib's
+   * SceneInterference owns the pairing rule and the verdict. `no-scene`
+   * before the first render, `unsupported` on a workspace engine that
+   * predates it.
+   */
+  interfere(request: InterferenceRequest): SceneInterferenceOutcome | InterfereUnavailable {
+    if (!this.sceneManager) {
+      return { kind: 'refused', code: 'no-scene', reason: this.describeMissingEngine() ?? 'No engine loaded' };
+    }
+    if (!this.sceneManager.interfere) {
+      return { kind: 'refused', code: 'unsupported', reason: 'This workspace engine predates interference checking; update its fluidcad install.' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return { kind: 'refused', code: 'no-scene', reason: 'No rendered scene — open and render a file first.' };
+    }
+    return this.sceneManager.interfere(scene, request);
   }
 
   explainSelection(

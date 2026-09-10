@@ -5,12 +5,15 @@
 
 import { err, ok, type ToolResult } from '../types.ts';
 import type { ScreenshotView } from './screenshot.ts';
+import { ScreenshotSections, type SectionSpec } from './screenshot-section.ts';
 
 export type MeasureImageInput = {
   view?: ScreenshotView;
   width?: number;
   height?: number;
   pixelRatio?: number;
+  /** Cut the model away on one side of a plane so an internal measurement (a bore depth, a wall) is seen in section. */
+  section?: SectionSpec;
 };
 
 type Vec = { x: number; y: number; z: number };
@@ -31,7 +34,7 @@ export class MeasureImage {
       return ok({});
     }
     if (image === null || typeof image !== 'object' || Array.isArray(image)) {
-      return err('invalid-input', '`image` must be an object { view?, width?, height?, pixelRatio? }.');
+      return err('invalid-input', '`image` must be an object { view?, width?, height?, pixelRatio?, section? }.');
     }
     const input = image as Record<string, unknown>;
     const out: MeasureImageInput = {};
@@ -58,6 +61,13 @@ export class MeasureImage {
       }
       out.view = view;
     }
+    if (input.section !== undefined) {
+      const section = ScreenshotSections.validate(input.section, '`image.section`');
+      if (typeof section === 'string') {
+        return err('invalid-input', section);
+      }
+      out.section = section;
+    }
     return ok(out);
   }
 
@@ -65,7 +75,8 @@ export class MeasureImage {
    * The `/api/screenshot` body for a measurement: every measured entity
    * highlighted, one labelled line for a two-entity measurement, framed to
    * the highlight. `view` defaults to iso-ftr so the picture is a known
-   * vantage rather than wherever the user's camera happens to be.
+   * vantage rather than wherever the user's camera happens to be; `section`
+   * is passed through so an internal measurement is seen in section.
    */
   static screenshotBody(measured: Record<string, any>, image: MeasureImageInput): Record<string, unknown> {
     const entities: MeasuredEntity[] = Array.isArray(measured.entities) ? measured.entities : [];
@@ -85,7 +96,7 @@ export class MeasureImage {
     if (annotation) {
       body.annotations = [annotation];
     }
-    for (const key of ['width', 'height', 'pixelRatio'] as const) {
+    for (const key of ['width', 'height', 'pixelRatio', 'section'] as const) {
       if (image[key] !== undefined) {
         body[key] = image[key];
       }

@@ -4,7 +4,7 @@ import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screensh
 /**
  * POST /screenshot — validate the capture options and forward them to the
  * page over the `take-screenshot` message. Overlay fields (`highlight`,
- * `hide`, `focus`, `annotations`, `fitTo`, `views`) are checked by
+ * `hide`, `focus`, `annotations`, `fitTo`, `views`, `section`) are checked by
  * {@link ScreenshotRequests}; highlight expressions resolve through
  * `resolveSelection` here so the page only receives index refs.
  */

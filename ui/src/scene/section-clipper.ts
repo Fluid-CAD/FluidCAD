@@ -16,6 +16,17 @@ import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 
 type PositionAttribute = BufferAttribute | InterleavedBufferAttribute;
 
+/** See {@link SectionClipper.classifyTriangles}. */
+export type TriangleClassification = {
+  triangleCount: number;
+  /** Vertex indices, three per coplanar triangle. */
+  coplanarIndices: number[];
+  /** Vertex indices, three per triangle off the plane; empty unless asked for. */
+  offPlaneIndices: number[];
+  /** The plane expressed in the mesh's local space. */
+  localPlane: Plane;
+};
+
 // CPU-side classification tolerance for "lies on the section plane", relative
 // to the geometry's coordinate magnitude and floored at the CAD kernel's
 // absolute tolerance. It only decides which primitives are exempt from
@@ -57,6 +68,49 @@ export class SectionClipper {
   }
 
   // -------------------------------------------------------------------------
+  // Classification (shared with the section caps)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Sort a mesh's triangles by their relation to `plane`, in the mesh's local
+   * space and with the same tolerance the clipping exemption uses.
+   * `coplanarIndices` holds the vertex indices (three per triangle) of the
+   * triangles lying on the plane; `offPlaneIndices` the rest, filled only
+   * when `collectOffPlane` is set (the clipper itself never needs them).
+   * Null when the geometry carries no position attribute.
+   */
+  static classifyTriangles(
+    mesh: Mesh,
+    plane: Plane,
+    collectOffPlane = false,
+  ): TriangleClassification | null {
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position') as PositionAttribute | undefined;
+    if (!position) {
+      return null;
+    }
+
+    const { localPlane, tolerance } = SectionClipper.toLocal(mesh, geometry, plane);
+    const onPlane = SectionClipper.vertexFlags(position, localPlane, tolerance);
+
+    const index = geometry.getIndex();
+    const triangleCount = Math.floor((index ? index.count : position.count) / 3);
+    const coplanarIndices: number[] = [];
+    const offPlaneIndices: number[] = [];
+    for (let t = 0; t < triangleCount; t++) {
+      const a = index ? index.getX(t * 3) : t * 3;
+      const b = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const c = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+      if (onPlane[a] && onPlane[b] && onPlane[c]) {
+        coplanarIndices.push(a, b, c);
+      } else if (collectOffPlane) {
+        offPlaneIndices.push(a, b, c);
+      }
+    }
+    return { triangleCount, coplanarIndices, offPlaneIndices, localPlane };
+  }
+
+  // -------------------------------------------------------------------------
   // Traversal
   // -------------------------------------------------------------------------
 
@@ -89,27 +143,12 @@ export class SectionClipper {
   // -------------------------------------------------------------------------
 
   private clipMesh(mesh: Mesh, plane: Plane): void {
-    const geometry = mesh.geometry;
-    const position = geometry.getAttribute('position') as PositionAttribute | undefined;
-    if (!position) {
+    const classified = SectionClipper.classifyTriangles(mesh, plane);
+    if (!classified) {
       SectionClipper.setClipping(mesh, plane);
       return;
     }
-
-    const { localPlane, tolerance } = SectionClipper.toLocal(mesh, geometry, plane);
-    const onPlane = SectionClipper.vertexFlags(position, localPlane, tolerance);
-
-    const index = geometry.getIndex();
-    const triangleCount = Math.floor((index ? index.count : position.count) / 3);
-    const coplanarIndices: number[] = [];
-    for (let t = 0; t < triangleCount; t++) {
-      const a = index ? index.getX(t * 3) : t * 3;
-      const b = index ? index.getX(t * 3 + 1) : t * 3 + 1;
-      const c = index ? index.getX(t * 3 + 2) : t * 3 + 2;
-      if (onPlane[a] && onPlane[b] && onPlane[c]) {
-        coplanarIndices.push(a, b, c);
-      }
-    }
+    const { triangleCount, coplanarIndices } = classified;
 
     if (triangleCount > 0 && coplanarIndices.length === triangleCount * 3) {
       SectionClipper.setClipping(mesh, null);
@@ -128,6 +167,8 @@ export class SectionClipper {
       return;
     }
 
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position') as PositionAttribute;
     const overlayGeometry = new BufferGeometry();
     overlayGeometry.setAttribute(
       'position',
@@ -329,7 +370,7 @@ export class SectionClipper {
   }
 
   /** Expand the picked indices into a compact non-indexed vertex array. */
-  private static gatherVertices(attribute: PositionAttribute, indices: number[]): Float32Array {
+  static gatherVertices(attribute: PositionAttribute, indices: number[]): Float32Array {
     const out = new Float32Array(indices.length * 3);
     for (let i = 0; i < indices.length; i++) {
       const v = indices[i];

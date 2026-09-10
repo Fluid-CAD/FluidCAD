@@ -120,7 +120,9 @@ export class SceneContext {
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    this.renderer = new WebGLRenderer({ antialias: true, alpha: true });
+    // Stencil: section-view caps are stencil-masked (see SectionController);
+    // three r163+ leaves the buffer off unless asked.
+    this.renderer = new WebGLRenderer({ antialias: true, alpha: true, stencil: true });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     LineResolutionRegistry.setResolution(width, height);

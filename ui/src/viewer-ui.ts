@@ -44,6 +44,8 @@ export { describeMateFailure } from './ui/mate-failure-text';
 export { SelectionInfoOverlay } from './ui/selection-info-overlay';
 export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';
+export { SectionController, SectionPlaneMath } from './scene/section-controller';
+export type { SectionSpec, SectionPlaneSpec, SectionPlaneName } from './scene/section-controller';
 
 export type { EngineClient, EngineEditorClient } from './engine-client';
 export type {

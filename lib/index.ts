@@ -174,6 +174,10 @@ export type {
   ValidatedShape, SkippedShape,
 } from './validation/scene-validator.js';
 export type { ShapeFindingKind, ShapeFinding, ShapeValidation } from './oc/shape-validator.js';
+export type {
+  InterferenceRequest, InterferencePose, InterferenceBody, InterferencePair, InterferenceFailure,
+  SceneInterferenceReport, SceneInterferenceRefusalCode, SceneInterferenceOutcome,
+} from './validation/scene-interference.js';
 export type { AssemblyExportPose } from './io/assembly-export/index.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';

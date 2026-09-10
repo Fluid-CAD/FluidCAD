@@ -321,22 +321,28 @@ export class FileTabs {
 
   /**
    * The scene's own file wears its icon in full strength; another open model
-   * wears it dimmed, and a helper gets the quieter file icon. Parts and
-   * assemblies share the cube — an assembly's is tinted the assembly accent
-   * (the teal the assembly workbench uses) so the two read apart at a glance.
+   * wears the same colour dimmed, and a helper gets the quieter file icon.
+   * Parts and assemblies share the cube — a part's keeps the theme's primary
+   * blue, an assembly's is tinted the assembly accent (the teal the assembly
+   * workbench uses) — so the two read apart at a glance whether or not the
+   * scene is theirs.
    */
   private static buildIcon(tab: FileTab, model: ModelName | null, isCurrentModel: boolean): HTMLElement {
     const icon = document.createElement('span');
+    const dimmed = isCurrentModel ? '' : 'opacity-40';
     if (model?.type === 'Assembly') {
-      icon.className = `shrink-0 [&>svg]:size-3.5 ${isCurrentModel ? '' : 'opacity-40'}`;
+      icon.className = `shrink-0 [&>svg]:size-3.5 ${dimmed}`;
       icon.style.color = ASSEMBLY_ACCENT;
       icon.innerHTML = ICON_CUBE;
       return icon;
     }
-    icon.className = `shrink-0 [&>svg]:size-3.5 ${
-      isCurrentModel ? 'text-primary' : 'text-base-content/40'
-    }`;
-    icon.innerHTML = tab.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE;
+    if (tab.kind === 'model') {
+      icon.className = `shrink-0 [&>svg]:size-3.5 text-primary ${dimmed}`;
+      icon.innerHTML = ICON_CUBE;
+      return icon;
+    }
+    icon.className = 'shrink-0 [&>svg]:size-3.5 text-base-content/40';
+    icon.innerHTML = ICON_FILE_CODE;
     return icon;
   }
 

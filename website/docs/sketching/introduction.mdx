@@ -108,6 +108,35 @@ The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Pol
 - <kbd>Esc</kbd> leaves the active tool. Typed coordinates clear first, then the tool.
 - **Dragging.** Geometry that still has freedom can be dragged; the solver re-solves live while you drag, honouring every constraint.
 
+## Keyboard shortcuts
+
+Every drawing tool and every constraint button has a letter shortcut, shown in its tooltip. Press the letters with nothing focused; a two-letter chord is typed one key after the other. A single letter that also starts a chord (<kbd>c</kbd> is Circle, <kbd>cc</kbd> Coincident) fires after a short pause or as soon as the next key rules the chord out.
+
+| Tool | Keys | Tool | Keys |
+|---|---|---|---|
+| Line | <kbd>l</kbd> | Polyline | <kbd>ll</kbd> |
+| Circle | <kbd>c</kbd> | Center arc | <kbd>ca</kbd> |
+| Three-point arc | <kbd>a</kbd> | Rectangle | <kbd>r</kbd> |
+| Polygon | <kbd>p</kbd> | Bezier | <kbd>b</kbd> |
+| Text | <kbd>x</kbd> | Fillet | <kbd>f</kbd> |
+| Offset | <kbd>o</kbd> | Project | <kbd>pj</kbd> |
+| Copy | <kbd>cp</kbd> | Mirror | <kbd>m</kbd> |
+| Guide latch | <kbd>g</kbd> | Look along the sketch normal | <kbd>n</kbd> |
+
+A constraint shortcut only works while its button would accept a click — pick the geometry first, exactly as for the button. With an illegal pick set the key does nothing.
+
+| Constraint | Keys | Constraint | Keys |
+|---|---|---|---|
+| Coincident | <kbd>cc</kbd> | Concentric | <kbd>cn</kbd> |
+| Horizontal | <kbd>h</kbd> | Collinear | <kbd>cl</kbd> |
+| Vertical | <kbd>v</kbd> | Midpoint | <kbd>mp</kbd> |
+| Parallel | <kbd>pa</kbd> | Symmetric | <kbd>s</kbd> |
+| Perpendicular | <kbd>pe</kbd> | Fix | <kbd>fx</kbd> |
+| Tangent | <kbd>t</kbd> | Dimension | <kbd>d</kbd> |
+| Equal | <kbd>e</kbd> | Angle | <kbd>da</kbd> |
+
+<kbd>Delete</kbd> removes a picked constraint glyph, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> undo and redo any operation the sketcher wrote (see [Undo and redo](/docs/user-interface#undo-and-redo)).
+
 ## Reading the viewport
 
 - **Green** geometry is fully constrained — the solver has locked it.

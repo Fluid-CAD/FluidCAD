@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 // Resolved through node:path, not `new URL(...)`: under jsdom the global URL is
 // jsdom's own, which fileURLToPath cannot convert.
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-import { SolvedConstraintToolbar } from '../src/interactive/solved-constraint-toolbar/solved-constraint-toolbar';
+import {
+  CONSTRAINT_SHORTCUTS,
+  SolvedConstraintToolbar,
+} from '../src/interactive/solved-constraint-toolbar/solved-constraint-toolbar';
+import { TOOL_SHORTCUTS } from '../src/ui/sketch-toolbar';
+import { ShortcutManager } from '../src/ui/shortcut-manager';
 
 const LABELS = [
   'Coincident', 'Horizontal', 'Vertical', 'Parallel', 'Perpendicular', 'Tangent',
@@ -65,5 +70,35 @@ describe('SolvedConstraintToolbar view', () => {
     const btn = buttonsOf(container).get('Dimension')!;
     expect(btn.disabled).toBe(false);
     expect(btn.querySelector('img')!.className).not.toContain('grayscale');
+  });
+});
+
+describe('SolvedConstraintToolbar shortcuts', () => {
+  // Every sketch-mode chord lands on ONE ShortcutManager (the drawing tools,
+  // the guide latch, the view key, the constraint bar), and registering the
+  // same chord twice throws — so this is the collision check for the two
+  // vocabularies.
+  it('share the sketch-mode manager with the drawing tools without colliding', () => {
+    const m = new ShortcutManager();
+    for (const keys of Object.values(TOOL_SHORTCUTS)) {
+      m.register(keys, () => {});
+    }
+    m.register('g', () => {});
+    m.register('n', () => {});
+    for (const keys of Object.values(CONSTRAINT_SHORTCUTS)) {
+      expect(() => m.register(keys, () => {})).not.toThrow();
+    }
+    m.destroy();
+  });
+
+  it('show the chord in every button tooltip', () => {
+    const container = document.createElement('div');
+    new SolvedConstraintToolbar(container);
+    for (const [id, keys] of Object.entries(CONSTRAINT_SHORTCUTS)) {
+      const label = id[0].toUpperCase() + id.slice(1);
+      const btn = buttonsOf(container).get(label)!;
+      const kbd = btn.parentElement!.querySelector('kbd');
+      expect(kbd?.textContent, id).toBe(keys);
+    }
   });
 });

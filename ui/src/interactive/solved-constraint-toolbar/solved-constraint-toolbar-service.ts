@@ -35,7 +35,8 @@ import {
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
 import type { Vec2 } from '../../sketch-solver-client/resolve';
 import { refPoint } from '../../sketch-solver-client/resolve';
-import { SolvedConstraintToolbar } from './solved-constraint-toolbar';
+import { CONSTRAINT_SHORTCUTS, SolvedConstraintToolbar } from './solved-constraint-toolbar';
+import type { ShortcutManager } from '../../ui/shortcut-manager';
 import {
   ConstraintButtonId,
   DimensionForm,
@@ -157,10 +158,19 @@ export class SolvedConstraintToolbarService {
     private ctx: SceneContext,
     private showMessage: (message: string) => void,
     private fetchVariables: () => Promise<VariableInfo[]>,
+    shortcuts: ShortcutManager,
   ) {
     this.view = new SolvedConstraintToolbar(container);
     this.valueInput = new ExpressionInput(container);
     this.view.onApply = (id) => void this.apply(id);
+    // The chords live on the sketch-mode manager the drawing tools use, so
+    // the two vocabularies cannot collide; each exists only while its button
+    // would accept a click, so an illegal pick set leaves the key alone.
+    for (const [id, keys] of Object.entries(CONSTRAINT_SHORTCUTS) as [ConstraintButtonId, string][]) {
+      shortcuts.register(keys, () => void this.apply(id), {
+        when: () => this.view.isVisible && this.view.isEnabled(id),
+      });
+    }
     this.view.onDelete = () => this.deletePicked();
     this.view.onHoverButton = (id) => this.updateGhost(id);
     this.boundKeyDown = this.handleKeyDown.bind(this);

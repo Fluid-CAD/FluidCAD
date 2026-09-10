@@ -149,22 +149,24 @@ export class SketchToolbarService {
     };
     this.projectionService.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
 
+    // One manager for every sketch-mode shortcut (drawing tools, view keys,
+    // constraints): shared so no letter can be a chord in one owner and a
+    // chord prefix in another. Enabled with the sketch toolbar.
+    this.shortcuts = new ShortcutManager({ timeout: 200 });
     const sketchGroup = navbar.addGroup('sketch', { visible: false, exclusive: true });
     this.toolbar = new SketchToolbar(
       sketchGroup,
       (toolId) => this.handleToolSelect(toolId),
       (visible) => navbar.setGroupVisible('sketch', visible),
       () => this.handleGuidePress(),
+      this.shortcuts,
     );
 
-    this.shortcuts = new ShortcutManager();
     this.shortcuts.register('n', () => this.lookAlongSketchNormal());
     // While an armed tool's coordinate pill is up it takes the next printable
-    // key to open itself, so both shortcut tries stand down — the pill is a
-    // visible field, and coordinates are expressions, not just digits.
-    const pillWantsKeys = () => this.activeDrawingTool?.wantsPrintableKeys() ?? false;
-    this.shortcuts.suspendWhile = pillWantsKeys;
-    this.toolbar.shortcutSuspend = pillWantsKeys;
+    // key to open itself, so the chords stand down — the pill is a visible
+    // field, and coordinates are expressions, not just digits.
+    this.shortcuts.suspendWhile = () => this.activeDrawingTool?.wantsPrintableKeys() ?? false;
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
@@ -236,6 +238,7 @@ export class SketchToolbarService {
       viewer.sceneContext,
       (message) => this.showOpMessage(message),
       () => this.fetchScopeVariables(),
+      this.shortcuts,
     );
     this.solvedDimensionEditor = new SolvedDimensionEditor(
       container,

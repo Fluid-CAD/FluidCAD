@@ -30,6 +30,32 @@ const BUTTONS: { id: ConstraintButtonId; label: string }[] = [
 ];
 
 /**
+ * Letter chords for the constraint buttons, typed with nothing focused while
+ * the bar is up. They share the sketch-mode ShortcutManager with the drawing
+ * tools (`c` circle, `l` line, `p` polygon, `m` mirror, `f` fillet, `a`
+ * arc…), so the kinds whose initial is taken use a two-letter chord; single
+ * letters go to the kinds whose initial is free. Each chord fires the same
+ * path as a click, and only while the button is enabled for the picks —
+ * otherwise the key is not consumed at all.
+ */
+export const CONSTRAINT_SHORTCUTS: Record<ConstraintButtonId, string> = {
+  coincident: 'cc',
+  horizontal: 'h',
+  vertical: 'v',
+  parallel: 'pa',
+  perpendicular: 'pe',
+  tangent: 't',
+  equal: 'e',
+  concentric: 'cn',
+  collinear: 'cl',
+  midpoint: 'mp',
+  symmetric: 's',
+  fix: 'fx',
+  dimension: 'd',
+  angle: 'da',
+};
+
+/**
  * Button ids are constraint kinds, with one exception: `dimension` arms the
  * two-pick flow that ends in a distance/radius/diameter statement, so it
  * wears the distance artwork.
@@ -168,6 +194,12 @@ export class SolvedConstraintToolbar {
     this.render();
   }
 
+  /** Whether a click (or its shortcut) on `id` would do anything right now. */
+  isEnabled(id: ConstraintButtonId): boolean {
+    const btn = this.buttons.get(id);
+    return btn !== undefined && !btn.disabled;
+  }
+
   private render(): void {
     for (const { id, label } of BUTTONS) {
       const btn = this.buttons.get(id)!;
@@ -181,13 +213,18 @@ export class SolvedConstraintToolbar {
       btn.disabled = !enabled;
       btn.className = armed ? BTN_ARMED : enabled ? BTN_ENABLED : BTN_DISABLED;
       icon.className = enabled ? ICON_ENABLED : ICON_DISABLED;
-      tip.textContent = armed
+      const text = armed
         ? 'Dimension armed — pick two points/entities, one line, or one circle/arc'
         : option?.enabled
           ? `Add ${label.toLowerCase()}`
           : option?.reason
             ? `${label} — ${option.reason}`
             : label;
+      tip.textContent = text;
+      const kbd = document.createElement('kbd');
+      kbd.className = 'kbd kbd-xs ml-1.5';
+      kbd.textContent = CONSTRAINT_SHORTCUTS[id];
+      tip.appendChild(kbd);
     }
     this.deleteBtn.disabled = this.busy || !this.deleteEnabled;
     this.deleteBtn.className = this.deleteBtn.disabled ? BTN_DISABLED : BTN_ENABLED;

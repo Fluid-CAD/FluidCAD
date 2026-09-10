@@ -1,6 +1,6 @@
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ToolId } from '../interactive/sketch-tool';
-import { ShortcutManager } from './shortcut-manager';
+import type { ShortcutManager } from './shortcut-manager';
 import {
   TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_ACTIVE_STRONG, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL,
 } from './toolbar-styles';
@@ -53,7 +53,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
 ];
 
-const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
+export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   circle: 'c',
   rect: 'r',
   line: 'l',
@@ -77,13 +77,6 @@ export class SketchToolbar {
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
-  private shortcutManager: ShortcutManager;
-
-  /** See `ShortcutManager.suspendWhile` — set by the sketch toolbar service
-   * so the coordinate pill can claim printable keys. */
-  set shortcutSuspend(fn: (() => boolean) | null) {
-    this.shortcutManager.suspendWhile = fn;
-  }
   private visible = false;
 
   private boundKeyDown: (e: KeyboardEvent) => void;
@@ -125,6 +118,7 @@ export class SketchToolbar {
     onToolSelect: (toolId: ToolId | null) => void,
     setGroupVisible: (visible: boolean) => void,
     onGuidePress: () => void,
+    shortcuts: ShortcutManager,
   ) {
     this.onToolSelect = onToolSelect;
     this.onGuidePress = onGuidePress;
@@ -145,18 +139,19 @@ export class SketchToolbar {
     this.boundClosePolygonMenu = this.handleClosePolygonMenu.bind(this);
     this.boundCloseSlotMenu = this.handleCloseSlotMenu.bind(this);
 
-    this.shortcutManager = new ShortcutManager({ timeout: 200 });
+    // The sketch-mode manager is shared with every other sketch-mode
+    // shortcut owner (the service's view keys, the constraint bar) so a
+    // letter can only mean one thing; the service enables it with the bar.
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
-      this.shortcutManager.register(keys, () => this.handleToolClick(toolId as ToolId));
+      shortcuts.register(keys, () => this.handleToolClick(toolId as ToolId));
     }
-    this.shortcutManager.register('g', () => this.onGuidePress());
+    shortcuts.register('g', () => this.onGuidePress());
   }
 
   show(): void {
     this.visible = true;
     this.setGroupVisible(true);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.shortcutManager.enable();
   }
 
   hide(): void {
@@ -166,7 +161,6 @@ export class SketchToolbar {
     this.closePolygonMenu();
     this.closeSlotMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
-    this.shortcutManager.disable();
     if (this.activeToolId) {
       this.setActiveTool(null);
     }

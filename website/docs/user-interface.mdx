@@ -95,6 +95,10 @@ Opening a `.assembly.js` file swaps the toolbar for the assembly tools and the p
 
 See [Assembly](/docs/assembly/introduction) for the joints and the [Getting started](/docs/getting-started) chain for the full flow.
 
+## Undo and redo
+
+Every toolbar operation is one edit to the source file, so Undo and Redo step the editor's own history: the first two buttons on the toolbar, <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Ctrl</kbd>+<kbd>Y</kbd> also redoes; on macOS use <kbd>⌘</kbd>). The keys work in both workbenches with the viewport focused; inside the code editor or a text field they keep their native meaning. The group appears once an editor is attached — the in-page editor, or the VS Code / Neovim extension.
+
 ## Editors
 
 The in-page editor is enough for most work: it completes against the engine's own type declarations and shows diagnostics inline. The VS Code and Neovim extensions drive the same server from your editor; see [Editor setup](/docs/extra/editor-setup).

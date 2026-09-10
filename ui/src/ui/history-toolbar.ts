@@ -1,6 +1,18 @@
 import type { Navbar } from './navbar';
 import { ICON_UNDO, ICON_REDO } from './icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_LABEL } from './toolbar-styles';
+import { formatShortcut } from './shortcut-manager';
+
+/**
+ * The history keys, registered by main.ts on the global ShortcutManager and
+ * shown in the tooltips here. `mod+z`/`mod+shift+z` are the platform pair;
+ * `ctrl+y` is the Windows/Linux redo habit.
+ */
+export const HISTORY_SHORTCUTS = {
+  undo: 'mod+z',
+  redo: 'mod+shift+z',
+  redoAlt: 'ctrl+y',
+} as const;
 
 export interface HistoryToolbarHandlers {
   onUndo: () => void;
@@ -28,8 +40,13 @@ export class HistoryToolbar {
   constructor(navbar: Navbar, handlers: HistoryToolbarHandlers) {
     this.navbar = navbar;
     const group = navbar.addGroup('history', { visible: false, immune: true, mode: 'all' });
-    this.addButton(group, ICON_UNDO, 'Undo', handlers.onUndo);
-    this.addButton(group, ICON_REDO, 'Redo', handlers.onRedo);
+    this.addButton(group, ICON_UNDO, 'Undo', HISTORY_SHORTCUTS.undo, handlers.onUndo);
+    this.addButton(group, ICON_REDO, 'Redo', HISTORY_SHORTCUTS.redo, handlers.onRedo);
+  }
+
+  /** Whether the attached editor has declared undo/redo support. */
+  get isAvailable(): boolean {
+    return this.available;
   }
 
   /** Show the group once the attached editor has declared undo/redo support. */
@@ -41,7 +58,7 @@ export class HistoryToolbar {
     this.navbar.setGroupVisible('history', available);
   }
 
-  private addButton(group: HTMLElement, icon: string, label: string, onClick: () => void): void {
+  private addButton(group: HTMLElement, icon: string, label: string, shortcut: string, onClick: () => void): void {
     const button = document.createElement('button');
     button.className = TOOLBAR_BTN_BASE;
     button.setAttribute('aria-label', label);
@@ -51,7 +68,7 @@ export class HistoryToolbar {
     button.addEventListener('click', onClick);
     const wrap = document.createElement('span');
     wrap.className = 'tooltip tooltip-bottom shrink-0';
-    wrap.dataset.tip = label;
+    wrap.dataset.tip = `${label} (${formatShortcut(shortcut)})`;
     wrap.appendChild(button);
     group.appendChild(wrap);
   }

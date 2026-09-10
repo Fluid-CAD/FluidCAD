@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
-import { ShortcutManager } from '../src/ui/shortcut-manager';
+import { ShortcutManager, formatShortcut } from '../src/ui/shortcut-manager';
 
 const managers: ShortcutManager[] = [];
 
@@ -80,5 +80,170 @@ describe('ShortcutManager suspendWhile', () => {
 
     expect(fired).toEqual([]);
     field.remove();
+  });
+});
+
+describe('ShortcutManager modifier combos', () => {
+  it('fires mod+z on Ctrl and on ⌘, and preventDefaults it', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('mod+z', () => fired.push('undo'));
+    m.enable();
+
+    const ctrl = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ctrl);
+    const meta = new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(meta);
+
+    expect(fired).toEqual(['undo', 'undo']);
+    expect(ctrl.defaultPrevented).toBe(true);
+    expect(meta.defaultPrevented).toBe(true);
+  });
+
+  it('keeps shift and alt exact: mod+shift+z is not mod+z', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('mod+z', () => fired.push('undo'));
+    m.register('mod+shift+z', () => fired.push('redo'));
+    m.enable();
+
+    press('Z', { ctrlKey: true, shiftKey: true });
+    press('z', { ctrlKey: true, altKey: true });
+    press('y', { ctrlKey: true });
+
+    expect(fired).toEqual(['redo']);
+  });
+
+  it('honours a literal ctrl (ctrl+y) but not meta for it', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('ctrl+y', () => fired.push('redo'));
+    m.enable();
+
+    press('y', { metaKey: true });
+    press('y', { ctrlKey: true });
+
+    expect(fired).toEqual(['redo']);
+  });
+
+  it('repeats while the key is held, unlike chords', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('mod+z', () => fired.push('undo'));
+    m.register('c', () => fired.push('c'));
+    m.enable();
+
+    press('z', { ctrlKey: true, repeat: true });
+    press('c', { repeat: true });
+
+    expect(fired).toEqual(['undo']);
+  });
+
+  it('leaves a focused field its native history', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('mod+z', () => fired.push('undo'));
+    m.enable();
+
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    field.dispatchEvent(e);
+
+    expect(fired).toEqual([]);
+    expect(e.defaultPrevented).toBe(false);
+    field.remove();
+  });
+
+  it('flushes a pending chord before the combo fires', () => {
+    const fired: string[] = [];
+    const m = make();
+    m.register('l', () => fired.push('l'));
+    m.register('ll', () => fired.push('ll'));
+    m.register('mod+z', () => fired.push('undo'));
+    m.enable();
+
+    press('l');
+    press('z', { ctrlKey: true });
+
+    expect(fired).toEqual(['l', 'undo']);
+  });
+});
+
+describe('ShortcutManager when guards', () => {
+  it('does not consume a key whose binding is inactive', () => {
+    const fired: string[] = [];
+    const m = make();
+    let active = false;
+    m.register('mod+z', () => fired.push('undo'), { when: () => active });
+    m.register('h', () => fired.push('h'), { when: () => active });
+    m.enable();
+
+    const combo = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(combo);
+    const chord = new KeyboardEvent('keydown', { key: 'h', bubbles: true, cancelable: true });
+    window.dispatchEvent(chord);
+    expect(fired).toEqual([]);
+    expect(combo.defaultPrevented).toBe(false);
+    expect(chord.defaultPrevented).toBe(false);
+
+    active = true;
+    press('z', { ctrlKey: true });
+    press('h');
+    expect(fired).toEqual(['undo', 'h']);
+  });
+
+  // `d` is Dimension and `da` Angle on the constraint bar; with no angle
+  // pick set the `d` must not wait out the chord timeout.
+  it('an inactive longer chord does not hold the shorter one back', () => {
+    const fired: string[] = [];
+    const m = make();
+    let angleLegal = false;
+    m.register('d', () => fired.push('d'));
+    m.register('da', () => fired.push('da'), { when: () => angleLegal });
+    m.enable();
+
+    press('d');
+    expect(fired).toEqual(['d']);
+
+    angleLegal = true;
+    press('d');
+    expect(fired).toEqual(['d']);   // pending now — `da` is possible
+    press('a');
+    expect(fired).toEqual(['d', 'da']);
+  });
+});
+
+describe('ShortcutManager registration', () => {
+  it('rejects a binding registered twice', () => {
+    const m = make();
+    m.register('c', () => {});
+    m.register('mod+z', () => {});
+    expect(() => m.register('c', () => {})).toThrow(/already registered/);
+    expect(() => m.register('mod+z', () => {})).toThrow(/already registered/);
+  });
+
+  it('rejects a string that is neither chord nor combo', () => {
+    const m = make();
+    expect(() => m.register('ctrl+', () => {})).toThrow();
+    expect(() => m.register('super+z', () => {})).toThrow();
+  });
+
+  it('lists every binding', () => {
+    const m = make();
+    m.register('c', () => {});
+    m.register('ca', () => {});
+    m.register('mod+shift+z', () => {});
+    expect(m.bindings().sort()).toEqual(['c', 'ca', 'mod+shift+z']);
+  });
+});
+
+describe('formatShortcut', () => {
+  it('shows chords verbatim and combos per platform', () => {
+    expect(formatShortcut('ll')).toBe('ll');
+    expect(formatShortcut('mod+z', false)).toBe('Ctrl+Z');
+    expect(formatShortcut('mod+shift+z', false)).toBe('Ctrl+Shift+Z');
+    expect(formatShortcut('ctrl+y', false)).toBe('Ctrl+Y');
+    expect(formatShortcut('mod+shift+z', true)).toBe('⌘⇧Z');
   });
 });

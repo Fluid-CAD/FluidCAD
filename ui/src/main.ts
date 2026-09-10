@@ -22,7 +22,8 @@ import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
-import { HistoryToolbar } from './ui/history-toolbar';
+import { HISTORY_SHORTCUTS, HistoryToolbar } from './ui/history-toolbar';
+import { ShortcutManager } from './ui/shortcut-manager';
 import { SelectionContextMenu } from './interactive/selection-menu';
 import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
@@ -771,6 +772,21 @@ const historyToolbar = new HistoryToolbar(navbar, {
   onUndo: () => runEditorHistory('undo'),
   onRedo: () => runEditorHistory('redo'),
 });
+
+/**
+ * Shortcuts that hold in every mode and both workbenches. Letter chords stay
+ * on the sketch-mode manager (sketch-toolbar-service) — this one carries
+ * modifier combos only, so the two never contend for a key. Undo/Redo bind
+ * only while the editor host has declared the capability: without it the
+ * keys are not consumed, so the host bridge (VSCode) still sees them. A
+ * focused field — the code editor included — keeps its native history.
+ */
+const globalShortcuts = new ShortcutManager();
+const historyAvailable = () => historyToolbar.isAvailable;
+globalShortcuts.register(HISTORY_SHORTCUTS.undo, () => runEditorHistory('undo'), { when: historyAvailable });
+globalShortcuts.register(HISTORY_SHORTCUTS.redo, () => runEditorHistory('redo'), { when: historyAvailable });
+globalShortcuts.register(HISTORY_SHORTCUTS.redoAlt, () => runEditorHistory('redo'), { when: historyAvailable });
+globalShortcuts.enable();
 
 /**
  * The desktop shell's application menu. It sends intents, never actions — each

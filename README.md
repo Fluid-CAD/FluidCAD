@@ -4,9 +4,10 @@
 
 <h1 align="center">FluidCAD</h1>
 
-<p align="center"><strong>Write CAD models in JavaScript. See the result in real time.</strong></p>
+<p align="center"><strong>Parametric CAD where the model is JavaScript. Sketch, extrude, constrain and assemble with the mouse or in code -- both edit the same file.</strong></p>
 
 <p align="center">
+  <a href="#download">Download</a> &middot;
   <a href="https://fluidcad.io/docs/getting-started">Getting Started</a> &middot;
   <a href="https://fluidcad.io/docs/tutorials/">Tutorials</a> &middot;
   <a href="https://fluidcad.io/docs/guides">Guides</a>
@@ -15,6 +16,20 @@
 > FluidCAD is under active development. APIs and features may change as the project evolves.
 >
 > I'm not accepting pull requests just yet -- I'm still finalizing the design and putting together a roadmap. Once I hit **v0.1.0**, I'd love to have contributions from the community. Stay tuned!
+
+---
+
+## Download
+
+FluidCAD ships as a desktop app for Windows, Linux and macOS. Every build is on the [latest GitHub release](https://github.com/Fluid-CAD/FluidCAD/releases/latest); the app then updates itself from there in the background.
+
+| Platform | Download | Notes |
+|----------|----------|-------|
+| **Windows** (x64) | `FluidCAD-<version>-win-x64.exe` | Not code-signed yet: SmartScreen shows *Windows protected your PC* on first launch. Choose **More info → Run anyway**. |
+| **Linux** (x64) | `FluidCAD-<version>-linux-x86_64.AppImage` or `FluidCAD-<version>-linux-amd64.deb` | AppImage: `chmod +x` and run. Deb: `sudo apt install ./FluidCAD-*.deb`. |
+| **macOS** (Apple Silicon) | `FluidCAD-<version>-mac-arm64.dmg` or `.zip` | Signed and notarized; drag into **Applications**. |
+
+Prefer a terminal and your own browser? FluidCAD is also an npm package -- see [Getting Started](#getting-started) below.
 
 ---
 
@@ -33,8 +48,7 @@ A huge thanks to the [opencascade.js](https://ocjs.org/) team for making this po
 Design parametric 3D models using JavaScript. Every change in your code is reflected instantly in the 3D viewport.
 
 ```js
-import { extrude, fillet, sketch } from 'fluidcad/core';
-import { circle } from 'fluidcad/core';
+import { extrude, fillet, sketch, circle } from 'fluidcad/core';
 
 sketch("xy", () => {
     circle(50)
@@ -44,18 +58,6 @@ const e = extrude(50)
 
 fillet(5, e.startEdges())
 ```
-
-### Traditional CAD Workflow
-
-A modeling workflow that feels familiar to users of mainstream CAD software -- sketches, extrusions, fillets, shells, booleans, and more -- all driven by code.
-
-### Modeling History
-
-Navigate through your modeling history step by step. Review how any model was built and roll back to any point in the feature tree.
-
-<p align="center">
-  <img src="https://fluidcad.io/img/history.gif" alt="FluidCAD History" />
-</p>
 
 ### Model with the Mouse
 
@@ -67,6 +69,80 @@ It's a companion to the code, not a replacement: everything it produces is ordin
 </p>
 <p align="center">
   <img src="https://fluidcad.io/img/region-extrude.gif" alt="FluidCAD Region Extrude" />
+</p>
+
+### Constraint-Driven Sketches
+
+Sketches work the way they do in mainstream CAD: the geometry you draw is a rough guess, and constraints state what must be true. A solver moves the geometry until every relationship holds, re-solving live while you drag. Fourteen constraints -- coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, fix, dimension, angle -- each with a toolbar button, a keyboard shortcut and a badge in the viewport. The status pill tells you when the sketch is fully constrained.
+
+<p align="center">
+  <img src="https://fluidcad.io/img/readme/sketch-solver.png" alt="A connecting-rod profile in sketch mode with its constraint code on the left, dimensions and constraint badges in the viewport, and the status pill reading Fully constrained" />
+</p>
+
+```js
+import { sketch, line } from 'fluidcad/core';
+import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
+
+sketch("xy", () => {
+    // Rough guesses -- the constraints do the work.
+    const b = line([1, -2], [99, 3]);
+    const r = line([99, 3], [101, 52]);
+    const t = line([101, 52], [-2, 48]);
+    const l = line([-2, 48], [1, -2]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), 100);
+    distance(r.start(), r.end(), 50);
+})
+```
+
+Drawing tools infer constraints as you go (snapping onto a vertex writes `coincident`, a near-horizontal line writes `horizontal`), and the Rectangle, Polygon and Slot tools write their shape's constraints along with the lines and arcs, so every side stays editable afterwards. Projected edges from existing solids become fixed reference geometry you can constrain against.
+
+### Assemblies
+
+An `.assembly.js` file inserts parts, grounds one of them and joins the rest with mates. The viewport solves the mates live: drag a part and the mechanism moves within the freedom its joints leave.
+
+<p align="center">
+  <img src="https://fluidcad.io/img/readme/engine-workspace.png" alt="A four-cylinder crank assembly open in the FluidCAD workspace: parts, connectors and joints on the left, the solved mechanism in the viewport" />
+</p>
+
+```js
+import { assembly, insert, mate } from 'fluidcad/core';
+import { plate } from './plate.part.js';
+import { lever } from './lever.part.js';
+import { pin } from './pin.part.js';
+
+export const leverAssembly = assembly('lever-assembly', () => {
+    const base = insert(plate).grounded();
+    const arm = insert(lever);
+    const pivotPin = insert(pin);
+
+    // A hinge: the lever swings about the plate's bore, 30° at rest, ±45° of travel.
+    mate('revolute', base.connectors.bore, arm.connectors.pivot).rotate(30).limits(-45, 45);
+    // The pin rides along with the lever.
+    mate('fastened', arm.connectors.pinSeat, pivotPin.connectors.head);
+});
+```
+
+- **Six mate types**: fastened, revolute, slider, cylindrical, planar and tangent, with flip, rotate, offset and limits.
+- **Connectors** are the mating frames: hover a face or edge on a part and the Connector tool writes `connector('name', …)`; assemblies can add free frames of their own.
+- **Sub-assemblies** are `assembly()` definitions you insert like parts; `replicate()` stamps a mated sub-assembly onto more targets (the engine above is one piston sub-assembly and three replicas).
+- **Parametric parts**: `param()` declares a value with a control in the Parameters panel, and `insert(part, { Width: 120 })` overrides it per instance.
+- **Animate** a revolute or slider joint from its row in the Joints panel, and **export the whole assembly** as STEP (tree preserved) or STL.
+
+### Modeling History
+
+Navigate through your modeling history step by step. Review how any model was built and roll back to any point in the feature tree.
+
+<p align="center">
+  <img src="https://fluidcad.io/img/history.gif" alt="FluidCAD History" />
 </p>
 
 ### Feature Transforms
@@ -101,15 +177,19 @@ repeat("linear", ["x", "y"], {
 
 ### Pattern Copying
 
-Duplicate features in linear or circular patterns to quickly populate repetitive geometry.
+Duplicate features in linear, circular or mirror patterns to quickly populate repetitive geometry -- `repeat()` re-applies a feature so it interacts with the solid at each new spot, `copy()` produces independent solids.
 
 ### Smart Defaults
 
 Most operations just do the right thing without extra arguments. `extrude` picks up the last sketch, `fillet` targets the last selection, and touching shapes are automatically fused -- less boilerplate, more readable code.
 
+### Selection Filters That Survive Edits
+
+Picking faces and edges in the viewport writes a filter expression, not a list of indices: `face().planar().onPlane('xy', 10)`, `e.endEdges()`, `r.instance(1).endEdges()`. Filters compose by plane, shape, rank (largest, nearest, nth), convexity and feature of origin, so a fillet keeps finding its edges after the model above it changes.
+
 ### STEP Import / Export
 
-Import and export STEP files with full color support. Bring in existing CAD models or share your designs with any standard CAD tool.
+Import and export STEP files with full color support. Bring in existing CAD models or share your designs with any standard CAD tool. Assemblies export as a STEP tree, one product per part and one component per instance.
 
 <p align="center">
   <img src="https://fluidcad.io/img/step-import.png" alt="FluidCAD Step Import" />
@@ -117,11 +197,11 @@ Import and export STEP files with full color support. Bring in existing CAD mode
 
 ### Use Your Favorite Editor
 
-FluidCAD ships official extensions for **VS Code** and **Neovim**, but works with any editor -- just point the CLI at your project.
+The desktop app and `npx fluidcad serve` both come with a built-in code editor. FluidCAD also ships official extensions for **VS Code** and **Neovim**, and works with any editor -- just point the CLI at your project.
 
 ### LLM / AI Agent Integration (MCP)
 
-FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit `.fluid.js` files, and look up the API by symbol. See [Set Up the MCP Server](#4-optional-set-up-the-mcp-server) below.
+FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit model files, and look up the API by symbol. See [Set Up the MCP Server](#4-optional-set-up-the-mcp-server) below.
 
 
 ---
@@ -177,6 +257,8 @@ Step-by-step tutorials from simple shapes to exam-level parts. [Browse all tutor
 
 ## Getting Started
 
+The quickest route is the [desktop app](#download): install it, open a folder, and start modeling. The steps below are for running FluidCAD from a Node.js project in your browser.
+
 ### 1. Create a New Project
 
 ```bash
@@ -186,20 +268,19 @@ npm install fluidcad
 npx fluidcad init
 ```
 
-This generates `init.js` and `jsconfig.json` to get you started.
+This generates `init.js`, `jsconfig.json`, a `fluidcad.json` project configuration and a starter `box.part.js`.
 
 ### File extensions
 
-FluidCAD recognizes two source-file extensions:
+FluidCAD recognizes two kinds of source file:
 
-- `*.part.js` — a **part-design** file. Code defines geometry; every edit
+- `*.part.js` — a **part** file. Code defines geometry; every edit
   rebuilds the model and updates the viewport.
-- `*.assembly.js` — an **assembly driver** file. Code references parts and
-  declares mates between them; the viewport then lets you manipulate the
-  result interactively.
+- `*.assembly.js` — an **assembly** file. Code inserts parts and
+  declares mates between them; the viewport solves the mechanism and lets you
+  drag it.
 
-`*.fluid.js` continues to work as a back-compat alias for `*.part.js`, so
-existing projects keep running unchanged.
+`*.fluid.js` is also recognized as a part file.
 
 ### 2. Open It
 
@@ -219,7 +300,7 @@ every change. Nothing else to install.
 | `-p, --port <port>` | Server port -- if it's taken, the next free one is used | `3100` |
 | `--no-open` | Don't launch a browser -- for CI and remote sessions | _opens by default_ |
 
-The code editor is hidden until you want it: open it from the ☰ menu or with
+The code editor is hidden until you want it: open it from the left rail or with
 <kbd>Ctrl</kbd>+<kbd>B</kbd>, and it takes width from the left rather than
 covering the model.
 
@@ -235,7 +316,7 @@ drive the same server.
 2. Open your project folder in VS Code.
 3. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **Show FluidCAD Scene**.
 
-The 3D viewport opens in a side panel and updates live as you edit `.fluid.js` files.
+The 3D viewport opens in a side panel and updates live as you edit `.part.js` and `.assembly.js` files.
 
 </details>
 
@@ -254,7 +335,7 @@ Add the plugin with [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-Open a `.fluid.js` file and the server starts automatically. Run `:FluidCadOpenBrowser` to open the 3D viewport in your browser.
+Open a `.part.js` file and the server starts automatically. Run `:FluidCadOpenBrowser` to open the 3D viewport in your browser.
 
 See the full list of commands in the [Neovim plugin README](extension/neovim/README.md).
 
@@ -264,7 +345,7 @@ See the full list of commands in the [Neovim plugin README](extension/neovim/REA
 <summary><strong>Any Other Editor</strong></summary>
 
 `npx fluidcad serve` (above) works alongside any editor: keep the browser tab
-open on the viewport and edit `.fluid.js` in your own editor -- the model
+open on the viewport and edit your model files in your own editor -- the model
 rebuilds on save.
 
 </details>
@@ -349,7 +430,7 @@ If a FluidCAD server is already running for the project (started by `serve` or a
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
-| `-e, --entry <file>` | Which `.fluid.js` to render | The workspace's only one |
+| `-e, --entry <file>` | Which model file to render | The workspace's only one |
 | `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory |
 | `-p, --port <port>` | Export from the running server on this port | Auto-discovered |
 | `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |

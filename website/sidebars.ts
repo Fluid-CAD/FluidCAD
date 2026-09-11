@@ -88,7 +88,7 @@ const sidebars: SidebarsConfig = {
         type: 'doc',
         id: 'tutorials/index',
       },
-      items: ['tutorials/lantern', 'tutorials/ice-cube-tray', 'tutorials/upper-alignment-clamp', 'tutorials/gear-housing', 'tutorials/cswp-sample-exam', 'tutorials/grooved-box', 'tutorials/flange-with-notch', 'tutorials/hinge-bracket', 'tutorials/l-stub', 'tutorials/drafted-box', 'tutorials/desk-organizer', 'tutorials/fork', 'tutorials/custom-elbow'],
+      items: ['tutorials/lantern', 'tutorials/upper-alignment-clamp', 'tutorials/flange-with-notch', 'tutorials/desk-organizer', 'tutorials/fork'],
     },
   ],
   apiSidebar: [

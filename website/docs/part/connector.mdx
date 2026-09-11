@@ -47,6 +47,7 @@ Two chained modifiers move the frame after it is derived, in call order:
 | Source | Origin | Z |
 |--------|--------|---|
 | A planar face — `select(face().onPlane('xy', 10))` | Face centre | Face normal, pointing out of the solid |
+| A cylindrical or conical face — `select(face().cylinder())` | On the axis, at the face's mid-height | The surface axis, always oriented up (or +Y / +X when horizontal), never toward the seam |
 | A circular edge — `select(edge().circle())` | Circle centre | Circle axis |
 | A straight edge — `select(edge().line())` | Edge midpoint | Edge tangent |
 | A vertex | The point | World Z |

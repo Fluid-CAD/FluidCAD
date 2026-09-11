@@ -4,6 +4,7 @@ import { getSceneManager } from "../scene-manager.js";
 import { SceneCompare } from "../rendering/scene-compare.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import cut from "../core/cut.js";
 import select from "../core/select.js";
 import plane from "../core/plane.js";
 import part from "../core/part.js";
@@ -510,6 +511,88 @@ describe("connector frame", () => {
     render();
 
     expect(connA.compareTo(connB)).toBe(false);
+  });
+
+  it("a cylindrical face gives the cylinder axis as Z, on the axis, not the seam normal", () => {
+    // circle(10) on 'xy' extruded 15: wall r=10, axis +Z from z=0 to z=15.
+    let conn!: Connector;
+    part("cyl-wall", () => {
+      sketch("xy", () => { circle([0, 0], 10); });
+      extrude(15);
+      conn = connector('c', select(face().cylinder())) as unknown as Connector;
+    });
+    render();
+
+    const frame = conn.getFrame();
+    expect(frame.origin.x).toBeCloseTo(0, 5);
+    expect(frame.origin.y).toBeCloseTo(0, 5);
+    expect(frame.origin.z).toBeCloseTo(7.5, 5);
+    expect(frame.normal.x).toBeCloseTo(0, 5);
+    expect(frame.normal.y).toBeCloseTo(0, 5);
+    expect(frame.normal.z).toBeCloseTo(1, 5);
+  });
+
+  it("a cylindrical face's Z sign is canonical whichever way the cylinder was built", () => {
+    // The same wall built by extruding down from z=15 must give the same
+    // frame as the one extruded up from z=0: Z up, origin at mid-height.
+    let up!: Connector;
+    let down!: Connector;
+    part("cyl-up", () => {
+      sketch("xy", () => { circle([0, 0], 10); });
+      extrude(15);
+      up = connector('c', select(face().cylinder())) as unknown as Connector;
+    });
+    part("cyl-down", () => {
+      sketch(plane("xy", { offset: 15 }), () => { circle([0, 0], 10); });
+      extrude(-15);
+      down = connector('c', select(face().cylinder())) as unknown as Connector;
+    });
+    render();
+
+    const a = up.getFrame();
+    const b = down.getFrame();
+    expect(a.normal.z).toBeCloseTo(1, 5);
+    expect(b.normal.z).toBeCloseTo(1, 5);
+    expect(b.origin.z).toBeCloseTo(a.origin.z, 5);
+    expect(b.xDirection.x).toBeCloseTo(a.xDirection.x, 5);
+    expect(b.xDirection.y).toBeCloseTo(a.xDirection.y, 5);
+  });
+
+  it("a horizontal cylindrical face points Z along +Y (canonical sign), origin on the axis", () => {
+    // circle on 'xz' extruded along ±Y: the axis is horizontal along Y, so
+    // the canonical rule picks +Y regardless of the sketch plane's normal.
+    let conn!: Connector;
+    part("cyl-horizontal", () => {
+      sketch("xz", () => { circle([5, 8], 10); });
+      extrude(20);
+      conn = connector('c', select(face().cylinder())) as unknown as Connector;
+    });
+    render();
+
+    const frame = conn.getFrame();
+    expect(frame.normal.x).toBeCloseTo(0, 5);
+    expect(frame.normal.y).toBeCloseTo(1, 5);
+    expect(frame.normal.z).toBeCloseTo(0, 5);
+    expect(frame.origin.x).toBeCloseTo(5, 5);
+    expect(frame.origin.z).toBeCloseTo(8, 5);
+  });
+
+  it("a bore wall (two half-faces from a cut) also lands on the hole axis with Z up", () => {
+    let conn!: Connector;
+    part("bore", () => {
+      sketch("xy", () => { testRect(40, 60); });
+      const e = extrude(20);
+      sketch(e.endFaces(), () => { circle([10, 20], 5); });
+      cut();
+      conn = connector('c', select(face().notPlanar()).center()) as unknown as Connector;
+    });
+    render();
+
+    const frame = conn.getFrame();
+    expect(frame.origin.x).toBeCloseTo(10, 5);
+    expect(frame.origin.y).toBeCloseTo(20, 5);
+    expect(frame.origin.z).toBeCloseTo(10, 5);
+    expect(frame.normal.z).toBeCloseTo(1, 5);
   });
 
   it("connectors are tracked as Part children in source order", () => {

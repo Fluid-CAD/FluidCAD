@@ -13,8 +13,7 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
-import { buildOrthonormalFrame, computeFaceBoundingBoxCenter } from "./shape-anchor.js";
-import { FaceOps } from "../oc/face-ops.js";
+import { buildOrthonormalFrame, facePlacement } from "./shape-anchor.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { EdgeQuery } from "../oc/edge-query.js";
 import { getOC } from "../oc/init.js";
@@ -115,10 +114,8 @@ function frameFromSelection(
 }
 
 function frameFromFace(face: Face, options: ConnectorOptions): Plane {
-  const rawFace = face.getShape() as TopoDS_Face;
-  const center = computeFaceBoundingBoxCenter(rawFace);
-  const normal = FaceOps.calculateNormalRaw(rawFace).normalize();
-  return buildOrthonormalFrame(center, normal, options);
+  const placement = facePlacement(face.getShape() as TopoDS_Face);
+  return buildOrthonormalFrame(placement.origin, placement.zDir, options);
 }
 
 function frameFromEdge(edge: Edge, options: ConnectorOptions): Plane {

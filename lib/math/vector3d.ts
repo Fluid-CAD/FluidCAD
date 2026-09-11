@@ -80,6 +80,22 @@ export class Vector3d {
     return new Vector3d(-this.x, -this.y, -this.z);
   }
 
+  /**
+   * This vector, or its negation, chosen so the sign is deterministic for an
+   * axis that only has a line to stand on (a cylinder's axis, a revolve's
+   * spindle): the first non-negligible component in Z, Y, X order comes out
+   * positive. An axis pointing up stays up; a horizontal one points +Y (or
+   * +X when it lies along X); a downward one is flipped up.
+   */
+  canonicalSign(tolerance: number = 1e-9): Vector3d {
+    for (const component of [this.z, this.y, this.x]) {
+      if (Math.abs(component) > tolerance) {
+        return component < 0 ? this.negate() : this;
+      }
+    }
+    return this;
+  }
+
   distanceTo(other: Vector3d): number {
     const dx = this.x - other.x;
     const dy = this.y - other.y;

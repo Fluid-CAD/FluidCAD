@@ -51,9 +51,34 @@ function anchorFromFace(face: Face, spec: VertexAnchorSpec): AnchorPlacement {
   if (spec.kind !== "center") {
     throw new Error(`${describeAnchor(spec)} needs an edge selection — a face only supports center().`);
   }
-  const raw = face.getShape() as TopoDS_Face;
+  return facePlacement(face.getShape() as TopoDS_Face);
+}
+
+/**
+ * Where a frame attached to a face stands: the one rule connector sources,
+ * `.center()` anchors and the hover-suggestion gizmo all share.
+ *
+ * - A cylindrical or conical face is treated as the axis it wraps: Z runs
+ *   along the surface axis and the origin is the face's bounding-box centre
+ *   dropped onto that axis, so a half-round sits on the axis too rather than
+ *   inside the material. The axis sign is canonicalized (see
+ *   {@link Vector3d.canonicalSign}) so the frame does not depend on which
+ *   way the extrude, revolve or import happened to run.
+ * - Every other face keeps the outward normal at the surface's UV origin
+ *   and the bounding-box centre. On a curved face that normal is only the
+ *   seam's, which is why the axial surfaces get their own branch above.
+ */
+export function facePlacement(raw: TopoDS_Face): AnchorPlacement {
+  const center = computeFaceBoundingBoxCenter(raw);
+  const axis = FaceOps.axialSurfaceAxisRaw(raw);
+  if (axis) {
+    const direction = axis.direction.normalize();
+    const offset = axis.origin.vectorTo(center);
+    const origin = axis.origin.add(direction.multiply(offset.dot(direction)));
+    return { origin, zDir: direction.canonicalSign() };
+  }
   return {
-    origin: computeFaceBoundingBoxCenter(raw),
+    origin: center,
     zDir: FaceOps.calculateNormalRaw(raw).normalize(),
   };
 }

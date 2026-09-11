@@ -4,6 +4,7 @@ import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
+import { Axis } from "../math/axis.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
@@ -163,6 +164,34 @@ export class FaceOps {
   static calculateNormal(face: Face | TopoDS_Face): Vector3d {
     const rawFace = face instanceof Face ? face.getShape() as TopoDS_Face : face;
     return FaceOps.calculateNormalRaw(rawFace);
+  }
+
+  /**
+   * The axis of a face whose surface is a cylinder or a cone — origin at the
+   * surface's own location, direction along its axis — or null for any other
+   * surface. The direction carries the surface's raw sign: for an extruded
+   * circle that is the extrude direction, for a revolve or an imported body
+   * whatever the modeller stored. Callers that need a stable sign apply
+   * {@link Vector3d.canonicalSign}.
+   */
+  static axialSurfaceAxisRaw(face: TopoDS_Face): Axis | null {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), true);
+    const type = adaptor.GetType();
+    let axis: Axis | null = null;
+    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder || type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
+      const surface = type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder ? adaptor.Cylinder() : adaptor.Cone();
+      const ax1 = surface.Axis();
+      const location = ax1.Location();
+      const direction = ax1.Direction();
+      axis = new Axis(Convert.toPoint(location), Convert.toVector3dFromGpDir(direction));
+      direction.delete();
+      location.delete();
+      ax1.delete();
+      surface.delete();
+    }
+    adaptor.delete();
+    return axis;
   }
 
   static calculateNormalRaw(face: TopoDS_Face): Vector3d {

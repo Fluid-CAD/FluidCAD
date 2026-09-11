@@ -1,6 +1,6 @@
 import { Matrix4 } from "../../math/matrix4.js";
 import { Edge, Face } from "../../common/shapes.js";
-import { FilterBase } from "../filter-base.js";
+import { FilterBase, applyFilterStages } from "../filter-base.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 
 export class HasEdgeFilter extends FilterBase<Face> {
@@ -11,12 +11,9 @@ export class HasEdgeFilter extends FilterBase<Face> {
   match(shape: Face): boolean {
     const edges = shape.getEdges();
 
-    return this.edgeFilterBuilders.every(builder => {
-      const filters = builder.getFilters();
-      return edges.some(edge =>
-        filters.every(f => f.match(edge))
-      );
-    });
+    return this.edgeFilterBuilders.every(builder =>
+      applyFilterStages(edges, builder.getFilters()).length > 0
+    );
   }
 
   compareTo(other: HasEdgeFilter): boolean {
@@ -45,12 +42,9 @@ export class NotHasEdgeFilter extends FilterBase<Face> {
   match(shape: Face): boolean {
     const edges = shape.getEdges();
 
-    return !this.edgeFilterBuilders.every(builder => {
-      const filters = builder.getFilters();
-      return edges.some(edge =>
-        filters.every(f => f.match(edge))
-      );
-    });
+    return !this.edgeFilterBuilders.every(builder =>
+      applyFilterStages(edges, builder.getFilters()).length > 0
+    );
   }
 
   compareTo(other: NotHasEdgeFilter): boolean {

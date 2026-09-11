@@ -6,7 +6,6 @@ import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
-import { EdgeOps } from "./edge-ops.js";
 import { Wire } from "../common/wire.js";
 import { mmTol } from "../units/tolerance.js";
 
@@ -193,52 +192,44 @@ export class FaceOps {
    * be off by the angular distance). Orientation-corrected like
    * `calculateNormalRaw`.
    *
-   * The binding only exposes the index-based `BRep_Tool::CurveOnSurface`, so
-   * the edge's stored pcurves are walked and the one that belongs to this
-   * face is recognized by geometry: its UV, plugged into THIS face's surface,
-   * lands on the edge midpoint; a pcurve on the neighbouring face's surface
-   * lands elsewhere (and when the two surfaces coincide the normal is the
-   * same either way). Null when no pcurve matches or the normal is undefined
-   * there (a degenerate apex).
+   * The pcurve comes from the face-form `BRep_Tool::CurveOnSurface` (bound
+   * as `BRep_ToolExt.CurveOnFace`), which also derives one on the fly for
+   * faces that store none — planar faces, typically. Null when the edge has
+   * no pcurve on this face or the normal is undefined there (a degenerate
+   * apex).
    */
   static outwardNormalOnEdge(face: Face | TopoDS_Face, edge: Edge | TopoDS_Edge): Vector3d | null {
     const oc = getOC();
     const rawFace = oc.TopoDS.Face(face instanceof Face ? face.getShape() : face);
     const rawEdge = oc.TopoDS.Edge(edge instanceof Edge ? edge.getShape() : edge);
-    const midpoint = EdgeOps.getEdgeMidPointRaw(rawEdge);
-    const tolerance = mmTol(1e-3);
 
-    const location = new oc.TopLoc_Location();
+    const rep = oc.BRep_ToolExt.CurveOnFace(rawEdge, rawFace);
+    const pcurve = rep.returnValue;
+    // A null handle arrives as JS null, never as a wrapper.
+    if (!pcurve) {
+      return null;
+    }
     const surface = oc.BRep_Tool.Surface(rawFace);
     try {
-      for (let index = 1; ; index++) {
-        const rep = oc.BRep_Tool.CurveOnSurface(rawEdge, location, 0, 0, index);
-        if (!rep.C || rep.C.isNull()) {
+      const uv = pcurve.Value((rep.First + rep.Last) / 2);
+      const props = new oc.GeomLProp_SLProps(surface, uv.X(), uv.Y(), 1, 1e-6);
+      try {
+        if (!props.IsNormalDefined()) {
           return null;
         }
-        const uv = rep.C.Value((rep.First + rep.Last) / 2);
-        const onFace = surface.Value(uv.X(), uv.Y());
-        const hit = Convert.toPoint(onFace, true).distanceTo(midpoint) < tolerance;
-        if (!hit) {
-          continue;
+        let normal = props.Normal();
+        if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
+          normal = normal.Reversed();
         }
-        const props = new oc.GeomLProp_SLProps(surface, uv.X(), uv.Y(), 1, 1e-6);
-        try {
-          if (!props.IsNormalDefined()) {
-            return null;
-          }
-          let normal = props.Normal();
-          if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-            normal = normal.Reversed();
-          }
-          return Convert.toVector3dFromGpDir(normal);
-        } finally {
-          props.delete();
-        }
+        return Convert.toVector3dFromGpDir(normal);
+      } finally {
+        props.delete();
+        uv.delete();
       }
     } finally {
       surface.delete();
-      location.delete();
+      pcurve.delete();
+      rep[Symbol.dispose]?.();
     }
   }
 

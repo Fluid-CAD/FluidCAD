@@ -1,5 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Face } from "../common/face.js";
+import { Shape } from "../common/shape.js";
 import { Plane } from "../math/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { withUnit } from "../units/registry.js";
@@ -26,11 +27,7 @@ export function resolvePlaneRef(source: PlaneRefSource): Plane {
   if (source instanceof PlaneObjectBase) {
     return source.getPlane();
   }
-  let shapes = source.getShapes();
-  if (shapes.length === 0 && source.isLazy()) {
-    withUnit(source.getUnit(), () => source.build());
-    shapes = source.getShapes();
-  }
+  const shapes = resolveRefShapes(source);
   if (shapes.length === 0) {
     throw new Error("onPlane: the selection resolved no shapes to take a plane from");
   }
@@ -39,6 +36,21 @@ export function resolvePlaneRef(source: PlaneRefSource): Plane {
     throw new Error(`onPlane: the selected shape is not a face; cannot extract a plane: ${face.getType()}`);
   }
   return (face as Face).getPlane();
+}
+
+/**
+ * The shapes a scene-object reference resolves to. A bare accessor passed
+ * straight into a filter is lazy and lives outside the scene, so the render
+ * pipeline never builds it — build it here on demand (its producer precedes
+ * the consuming statement, so the recorded bucket state is already in place).
+ */
+export function resolveRefShapes(source: SceneObject): Shape[] {
+  let shapes = source.getShapes();
+  if (shapes.length === 0 && source.isLazy()) {
+    withUnit(source.getUnit(), () => source.build());
+    shapes = source.getShapes();
+  }
+  return shapes;
 }
 
 /** Structural equality between two plane references (scene-compare reuse). */

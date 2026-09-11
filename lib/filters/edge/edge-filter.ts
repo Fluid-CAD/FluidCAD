@@ -19,6 +19,12 @@ import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with
 import { AbovePlaneFilter, BelowPlaneFilter } from "./above-below.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
+import { PlaneRefSource } from "../plane-ref.js";
+import { DirectionLike } from "../direction.js";
+import { ConvexityFilter } from "./convexity.js";
+import { ExtremalFilter } from "../rank/extremal.js";
+import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
+
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   constructor() {
@@ -354,55 +360,51 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects edges that are entirely above the given plane (in the direction of its normal).
-   * @param plane - The reference plane.
+   * Selects edges that are entirely above the given plane (in the direction of its normal). Besides a
+   * standard plane or a plane feature, any scene object whose first shape is
+   * a face works as the reference — a bucket accessor like `base.endFaces()`
+   * — so the half-space follows the referenced feature through edits. The
+   * offset runs along the resolved plane's normal.
+   * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  above(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+  above(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    const planeRef: PlaneRefSource = plane instanceof PlaneObjectBase || plane instanceof SceneObject
+      ? plane
+      : new PlaneObject(normalizePlane(plane as PlaneLike));
 
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
-    }
-    else {
-      let normalized = normalizePlane(plane);
-      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
-    }
-
-    const filter = new AbovePlaneFilter(planeObj, partial);
+    const filter = new AbovePlaneFilter(planeRef, partial, offset);
     this.filters.push(filter);
     return this;
   }
 
   /**
-   * Selects edges that are entirely below the given plane (opposite to its normal direction).
-   * @param plane - The reference plane.
+   * Selects edges that are entirely below the given plane (opposite to its normal direction). Besides a
+   * standard plane or a plane feature, any scene object whose first shape is
+   * a face works as the reference — a bucket accessor like `base.endFaces()`
+   * — so the half-space follows the referenced feature through edits. The
+   * offset runs along the resolved plane's normal.
+   * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  below(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+  below(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    const planeRef: PlaneRefSource = plane instanceof PlaneObjectBase || plane instanceof SceneObject
+      ? plane
+      : new PlaneObject(normalizePlane(plane as PlaneLike));
 
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
-    }
-    else {
-      let normalized = normalizePlane(plane);
-      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
-    }
-
-    const filter = new BelowPlaneFilter(planeObj, partial);
+    const filter = new BelowPlaneFilter(planeRef, partial, offset);
     this.filters.push(filter);
     return this;
   }
@@ -417,6 +419,146 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     // time, so the donor's geometry precedes the consuming select().
     const filter = new FromSceneObjectFilter<Edge>(materializePartArgs(sceneObjects) as SceneObject[], "edge");
     this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects convex edges — outer corners, where the solid's two faces meet
+   * at an angle opening outward. The classic fillet target: `e.sideEdges(edge().convex())`
+   * rounds every outer vertical corner of a profile and leaves its inner
+   * corners sharp.
+   */
+  convex() {
+    this.filters.push(new ConvexityFilter('convex'));
+    return this;
+  }
+
+  /** Excludes convex edges (outer corners). */
+  notConvex() {
+    this.filters.push(new ConvexityFilter('convex', true));
+    return this;
+  }
+
+  /**
+   * Selects concave edges — inner corners, where a boss meets its base or a
+   * pocket wall meets its floor.
+   */
+  concave() {
+    this.filters.push(new ConvexityFilter('concave'));
+    return this;
+  }
+
+  /** Excludes concave edges (inner corners). */
+  notConcave() {
+    this.filters.push(new ConvexityFilter('concave', true));
+    return this;
+  }
+
+  /**
+   * Selects smooth edges — no corner at all, the two faces being tangent
+   * there, as along a fillet's boundary.
+   */
+  smooth() {
+    this.filters.push(new ConvexityFilter('smooth'));
+    return this;
+  }
+
+  /** Excludes smooth (tangent-transition) edges. */
+  notSmooth() {
+    this.filters.push(new ConvexityFilter('smooth', true));
+    return this;
+  }
+
+  /**
+   * Keeps the layer of edges farthest along a direction — every edge whose
+   * center of mass lies at the maximum (within tolerance) along it. A box's
+   * `farthest('z')` is its four top rim edges; chain order is evaluation
+   * order, so `edge().line().farthest('z')` ranks only the lines.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  farthest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'farthest' }));
+    return this;
+  }
+
+  /**
+   * Excludes the layer of edges farthest along a direction.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  notFarthest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'farthest' }, true));
+    return this;
+  }
+
+  /**
+   * Keeps the layer of edges nearest along a direction — the minimum of the
+   * center of mass along it (`nearest('z')` is the same as `farthest('-z')`).
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  nearest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nearest' }));
+    return this;
+  }
+
+  /**
+   * Excludes the layer of edges nearest along a direction.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  notNearest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nearest' }, true));
+    return this;
+  }
+
+  /**
+   * Keeps the k-th layer of edges along a direction, counting layers of
+   * equal center position from the near end (0-based); a negative index
+   * counts from the far end, so `nth('z', -1)` is `farthest('z')`.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   * @param index - Layer index; out-of-range indices match nothing.
+   */
+  nth(direction: DirectionLike, index: number) {
+    if (!Number.isInteger(index)) {
+      throw new Error(`nth(direction, index): index must be an integer (got ${index})`);
+    }
+    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nth', index }));
+    return this;
+  }
+
+  /**
+   * Keeps the largest edges — by length unless a measure is given — including
+   * every edge that ties with the largest.
+   * @param measure - `'length'` (default) or `'radius'` for circular edges.
+   */
+  largest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Edge>('largest', measure));
+    return this;
+  }
+
+  /**
+   * Excludes the largest edges (and their ties).
+   * @param measure - `'length'` (default) or `'radius'`.
+   */
+  notLargest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Edge>('largest', measure, true));
+    return this;
+  }
+
+  /**
+   * Keeps the smallest edges — by length unless a measure is given — including
+   * every edge that ties with the smallest.
+   * @param measure - `'length'` (default) or `'radius'` for circular edges.
+   */
+  smallest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Edge>('smallest', measure));
+    return this;
+  }
+
+  /**
+   * Excludes the smallest edges (and their ties).
+   * @param measure - `'length'` (default) or `'radius'`.
+   */
+  notSmallest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Edge>('smallest', measure, true));
     return this;
   }
 

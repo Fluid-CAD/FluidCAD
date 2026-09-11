@@ -367,11 +367,12 @@ describe("connector synthesis", () => {
     }
   });
 
-  it("prefers the index form when the filter would bake a full-precision constant", () => {
-    // Polygon end edge: the only isolating filter is
+  it("prefers a constant-free form, then the index, over a filter baking a full-precision constant", () => {
+    // Polygon end edge: the constant-bearing filter is
     // `edge().line(63.30447167189937).above('yz').above('xz', -200)` — a
     // measured side length no dimension edit tracks. The connector must be
-    // written on the index form, keeping the filter as an alternative.
+    // written on a constant-free rank form, keeping the index and the baked
+    // filter as alternatives.
     const p = part("mypart", () => {
       sketch("xy", () => {
         circle([50, 70], 35.77);
@@ -405,9 +406,10 @@ describe("connector synthesis", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toMatch(
-        /^connector\('c4', e\.endEdges\(\d+\)\.center\(\)\)\.rotate\('x', 270\)$/,
+      expect(result.preview).toBe(
+        "connector('c4', e.endEdges(edge().above('yz').line().nearest('x').nearest('y')).center()).rotate('x', 270)",
       );
+      expect(result.alternatives.some(a => /^e\.endEdges\(\d+\)\.center\(\)$/.test(a))).toBe(true);
       expect(result.alternatives.some(a =>
         /e\.endEdges\(edge\(\)\.line\(63\.304\d+\)/.test(a) && a.endsWith('.center()'))).toBe(true);
     }

@@ -90,6 +90,43 @@ edge().parallelTo("xz")        // edges parallel to the XZ plane
 ```js
 edge().onPlane("xy", 30)                   // edges that lie on the XY plane at height 30
 edge().onPlane("yz", { offset: 50, bothDirections: true }) // edges on YZ plane at offset ±50
+edge().above("xy", 10)                     // edges entirely above z = 10
+edge().below("xz", { partial: true })      // edges with at least one end on the −y side of XZ
+```
+
+### Relative to another feature
+
+A plane, half-space, or parent-face test can take a feature's face group instead of a number. The reference follows the feature through later edits, so no offset is baked into the selector:
+
+```js
+const base = extrude(10);
+edge().onPlane(base.endFaces())            // edges on the plane of the base's top faces
+edge().above(base.endFaces())              // edges entirely above that plane
+edge().above(base.endFaces(), 5)           // … offset 5 along its normal
+edge().belongsToFace(base.endFaces())      // edges bounding one of those faces (as built)
+```
+
+### By rank and extremes
+
+Rank filters compare an edge with the other candidates instead of with a number. They keep the whole tied group — every edge whose center of mass sits at the extreme within tolerance — so a box's `farthest("z")` is its four top rim edges:
+
+```js
+edge().farthest("z")           // the topmost layer of edges (by center of mass)
+edge().nearest("x")            // the layer with the least x
+edge().farthest("-y")          // negative axes, vectors ([1, 1, 0]) and axes work too
+edge().nth("z", 1)             // the second layer from the bottom; nth("z", -1) is farthest("z")
+edge().largest()               // the longest edges (ties included)
+edge().smallest("radius")      // the circles / arcs of least radius
+```
+
+Chain order is evaluation order: `edge().line().farthest("z")` ranks only the lines, while `edge().farthest("z").line()` keeps the lines within the overall top layer.
+
+### By convexity
+
+```js
+edge().convex()                // outer corners — the usual fillet targets
+edge().concave()               // inner corners — where a boss meets its base
+edge().smooth()                // tangent transitions, such as a fillet's boundaries
 ```
 
 ### By shape
@@ -143,6 +180,8 @@ select(edge().from(a, b).circle())            // circle edges from either `a` or
 edge().notOnPlane("xy")        // edges NOT on the ground plane
 edge().notCircle()             // edges that aren't circular
 edge().notBelongsToFace(face().cylinder())  // edges NOT on cylindrical faces
+edge().notFarthest("z")        // everything but the top layer
+edge().notConvex()             // inner corners and smooth transitions only
 ```
 
 ## Face filters
@@ -164,7 +203,21 @@ face().parallelTo("xz")        // faces parallel to the XZ plane (front/back fac
 
 ```js
 face().onPlane("xy", 30)       // faces on the XY plane at height 30
+face().above("xy", 10)         // faces entirely above z = 10
+face().below(base.endFaces())  // faces entirely below the plane of a feature's face group
 ```
+
+### By rank and extremes
+
+```js
+face().farthest("z")           // the top face(s) — the layer with the greatest center z
+face().nearest("-x")           // the face(s) farthest along −x
+face().nth("y", 1)             // the second layer of faces from the −y end
+face().largest()               // the faces of greatest area (ties included)
+face().smallest("radius")      // the cylinder of least radius
+```
+
+Rank filters evaluate over whatever the chain has kept so far: `face().planar().farthest("z")` is the topmost planar face.
 
 ### By shape
 
@@ -202,6 +255,7 @@ face().notOnPlane("xy", 0)     // faces NOT on the ground plane
 face().notCircle()             // non-circular faces
 face().notEdgeCount(4)         // faces that don't have exactly 4 edges
 face().notHasEdge(edge().arc())  // faces without any arc edges
+face().notLargest()            // every face but the largest
 ```
 
 ## Using selections

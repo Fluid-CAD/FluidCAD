@@ -8,19 +8,20 @@ import { ShapeFilter } from "../filters/filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
+import { injectFilterScope } from "../filters/scope-injection.js";
+import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { Atom, ParameterLink, PlaneSource, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
-import { induceConjunction } from "./induction.js";
+import { Atom, ParameterLink, FaceSource, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
+import { induceConjunctions } from "./induction.js";
 import { probeEdge, probeFace } from "./probe.js";
 
 /**
  * One induction universe: the shapes a candidate filter runs over and the
  * exact evaluation the emitted code would perform there. Bucket contexts
- * mirror `resolveEdges`/`resolveFaces`; the global context mirrors what a
- * `select()` sees at end-of-scope, including its `belongsToFace` scope
- * injection.
+ * mirror `resolveEdges`/`resolveFaces` (including their as-built-solid scope
+ * injection); the global context mirrors what a `select()` sees at
+ * end-of-scope, including its scene-wide scope injection.
  */
 export type InductionContext = {
   universeKeys: number[];
@@ -57,12 +58,14 @@ export function bucketContext(
   return {
     universeKeys: bucket.memberKeys,
     kindFn: bucket.def.kind,
-    evaluate: builders => new ShapeFilter(bucket.members, ...builders).apply(),
+    // Exactly what the accessor runs: scope-aware filters see the feature's
+    // as-built solid, so convexity atoms are valid at the bucket tiers too.
+    evaluate: builders => applyBucketFilters(bucket.members, builders, bucket.feature),
     instantiate: attrs => bucket.def.kind === 'edge'
       ? instantiateEdgeAtoms(
         attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
         bucket.members as Edge[],
-        false,
+        true,
         params,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
@@ -80,14 +83,14 @@ export function globalContext(
   kind: 'edge' | 'face',
   params: ParameterLink[] = [],
   partScope: SceneObject | null = null,
-  planeSources: PlaneSource[] = [],
+  faceSources: FaceSource[] = [],
 ): InductionContext {
-  // A plane reference renders as `onPlane(<var>.<accessor>())`, and the
+  // A face-group reference renders as `<var>.<accessor>()`, and the
   // variable only exists inside the part() callback that declared it — a
   // source from another part (or from a part when the picks are unparted)
   // would emit an out-of-scope identifier that dies as an undefined variable
   // at build time. Scope the sources exactly like the universe below.
-  const scopedPlaneSources = planeSources.filter(
+  const scopedFaceSources = faceSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
   const solids: Solid[] = [];
@@ -132,7 +135,7 @@ export function globalContext(
     universeKeys,
     kindFn: kind,
     evaluate: builders => {
-      const hasher = injectBelongsToFaceScope(builders, () => ({ solids, extraFaces: [] }));
+      const hasher = injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
       try {
         return new ShapeFilter(universe, ...builders).apply();
       } finally {
@@ -147,13 +150,13 @@ export function globalContext(
         universe as Edge[],
         true,
         params,
-        scopedPlaneSources,
+        scopedFaceSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
         params,
-        scopedPlaneSources,
+        scopedFaceSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };
@@ -164,7 +167,8 @@ export function globalContext(
  * one conjunction covering all picks, or (when allowed) one per pick. The
  * returned `filterArgs` is the rendered argument list; a final oracle pass
  * over the composed builders guards against any drift between induction and
- * the code that will be written.
+ * the code that will be written. The best candidate of
+ * {@link induceFilterCandidates}.
  */
 export function induceFilterArgs(
   index: SelectionIndex,
@@ -172,71 +176,104 @@ export function induceFilterArgs(
   attrs: PickAttribution[],
   pickKeys: Set<number>,
 ): InducedFilter | null {
+  return induceFilterCandidates(index, ctx, attrs, pickKeys, 1)[0] ?? null;
+}
+
+/**
+ * Ranked verified filter candidates for the picks, best first: the distinct
+ * conjunctions induction finds over all picks (constant-free ones first),
+ * each re-verified by executing the composed builders exactly as emitted.
+ * When no single conjunction covers the picks and the context allows it,
+ * the one candidate is an OR-split — one builder argument per pick.
+ */
+export function induceFilterCandidates(
+  index: SelectionIndex,
+  ctx: InductionContext,
+  attrs: PickAttribution[],
+  pickKeys: Set<number>,
+  limit = 3,
+): InducedFilter[] {
   const universeSet = new Set(ctx.universeKeys);
   for (const key of pickKeys) {
     if (!universeSet.has(key)) {
-      return null;
+      return [];
     }
   }
 
+  const keysOf = (resolved: Shape[]) => new Set(resolved.map(s => index.keyOf(s)));
   const evaluateAtoms = (atoms: Atom<FilterBuilderBase<Shape>>[]) => {
     const matches = new Map<Atom<FilterBuilderBase<Shape>>, Set<number>>();
     for (const atom of atoms) {
+      if (atom.contextual) {
+        continue;
+      }
       const builder = newBuilder(ctx.kindFn);
       atom.addTo(builder);
-      const resolved = ctx.evaluate([builder]);
-      matches.set(atom, new Set(resolved.map(s => index.keyOf(s))));
+      matches.set(atom, keysOf(ctx.evaluate([builder])));
     }
     return matches;
   };
-
-  let conjunctions: Atom<FilterBuilderBase<Shape>>[][] | null = null;
+  // A contextual atom is evaluated as the closing stage of the conjunction
+  // built so far — the same chain the emitted code would run.
+  const evaluateContextual = (
+    conjunction: Atom<FilterBuilderBase<Shape>>[],
+    atom: Atom<FilterBuilderBase<Shape>>,
+  ) => {
+    const builder = newBuilder(ctx.kindFn);
+    for (const a of conjunction) {
+      a.addTo(builder);
+    }
+    atom.addTo(builder);
+    return keysOf(ctx.evaluate([builder]));
+  };
 
   const atoms = ctx.instantiate(attrs);
-  const conjunction = induceConjunction(atoms, evaluateAtoms(atoms), pickKeys, universeSet);
-  if (conjunction) {
-    conjunctions = [conjunction];
-  } else if (ctx.orSplit && attrs.length >= 2 && attrs.length <= 3) {
-    conjunctions = [];
+  let candidates: Atom<FilterBuilderBase<Shape>>[][][] = induceConjunctions(
+    atoms, evaluateAtoms(atoms), pickKeys, universeSet, 4, evaluateContextual, limit,
+  ).map(conjunction => [conjunction]);
+
+  if (candidates.length === 0 && ctx.orSplit && attrs.length >= 2 && attrs.length <= 3) {
+    const split: Atom<FilterBuilderBase<Shape>>[][] = [];
     for (const attr of attrs) {
       const single = ctx.instantiate([attr]);
-      const singleConjunction = induceConjunction(
-        single, evaluateAtoms(single), new Set([attr.pickedKey!]), universeSet,
-      );
+      const singleConjunction = induceConjunctions(
+        single, evaluateAtoms(single), new Set([attr.pickedKey!]), universeSet, 4, evaluateContextual, 1,
+      )[0];
       if (!singleConjunction) {
-        conjunctions = null;
-        break;
+        return [];
       }
-      conjunctions.push(singleConjunction);
+      split.push(singleConjunction);
     }
-  }
-  if (!conjunctions) {
-    return null;
+    candidates = [split];
   }
 
-  // Final oracle pass over the composed builders, exactly as emitted.
-  const builders = conjunctions.map(conj => {
-    const builder = newBuilder(ctx.kindFn);
-    for (const atom of conj) {
-      atom.addTo(builder);
+  const results: InducedFilter[] = [];
+  for (const conjunctions of candidates) {
+    // Final oracle pass over the composed builders, exactly as emitted.
+    const builders = conjunctions.map(conj => {
+      const builder = newBuilder(ctx.kindFn);
+      for (const atom of conj) {
+        atom.addTo(builder);
+      }
+      return builder;
+    });
+    if (!resolvesExactly(index, ctx.evaluate(builders), pickKeys)) {
+      continue;
     }
-    return builder;
-  });
-  if (!resolvesExactly(index, ctx.evaluate(builders), pickKeys)) {
-    return null;
-  }
 
-  const refs: SceneObject[] = [];
-  const filterArgs = conjunctions
-    .map(conj => `${ctx.kindFn}()${conj.map(a => renderAtomCode(a, refs)).join('')}`)
-    .join(', ');
-  const constants = conjunctions.reduce(
-    (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
-  );
-  const bakedConstants = conjunctions.reduce(
-    (sum, conj) => sum + conj.reduce((s, a) => s + (a.bakedConstants ?? 0), 0), 0,
-  );
-  return { filterArgs, constants, bakedConstants, builders, refs };
+    const refs: SceneObject[] = [];
+    const filterArgs = conjunctions
+      .map(conj => `${ctx.kindFn}()${conj.map(a => renderAtomCode(a, refs)).join('')}`)
+      .join(', ');
+    const constants = conjunctions.reduce(
+      (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
+    );
+    const bakedConstants = conjunctions.reduce(
+      (sum, conj) => sum + conj.reduce((s, a) => s + (a.bakedConstants ?? 0), 0), 0,
+    );
+    results.push({ filterArgs, constants, bakedConstants, builders, refs });
+  }
+  return results;
 }
 
 /**

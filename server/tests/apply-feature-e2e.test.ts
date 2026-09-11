@@ -1144,9 +1144,9 @@ describe('cross-part sketch on a face whose producer variable is reassigned', ()
     if (synthesis.ok !== true) {
       return;
     }
-    // No plane reference to the unbindable extrude — a constant datum plane,
-    // binding no variable at all.
-    expect(synthesis.preview).toBe("expose('lidSeat', select(face().onPlane('xy', 30)))");
+    // No plane reference to the unbindable extrude — a variable-free form
+    // (the topmost face), binding nothing at all.
+    expect(synthesis.preview).toBe("expose('lidSeat', select(face().farthest('z')))");
     expect(synthesis.spec.producers.filter(p => p.bind)).toHaveLength(0);
     expect(synthesis.spec.expose?.part).toEqual({ line: 3, column: 23 });
 
@@ -1166,7 +1166,7 @@ describe('cross-part sketch on a face whose producer variable is reassigned', ()
     });
     expect(edited.error).toBeUndefined();
     const lines = edited.newCode.split('\n');
-    const exposeRow = lines.findIndex(l => l.includes("expose('lidSeat', select(face().onPlane('xy', 30)))"));
+    const exposeRow = lines.findIndex(l => l.includes("expose('lidSeat', select(face().farthest('z')))"));
     const lidRow = lines.findIndex(l => l.includes('part("Box Lid"'));
     const sketchRow = lines.findIndex(l => l.includes('sketch(boxBody.features.lidSeat, () => {'));
     expect(exposeRow).toBeGreaterThan(-1);

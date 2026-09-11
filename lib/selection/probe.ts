@@ -7,6 +7,8 @@ import { EdgeOps } from "../oc/edge-ops.js";
 import { EdgeProps, EdgeProperties } from "../oc/edge-props.js";
 import { FaceProps, FaceProperties } from "../oc/face-props.js";
 import { TopologyIndex } from "../oc/topology-index.js";
+import { ShapeMeasure } from "../oc/shape-measure.js";
+import { EdgeConvexity, EdgeConvexityOps } from "../oc/edge-convexity.js";
 
 /**
  * Geometric summary of a picked edge, used to instantiate filter atoms.
@@ -14,12 +16,20 @@ import { TopologyIndex } from "../oc/topology-index.js";
  * evaluated through the real filter predicates, never modeled.
  */
 export type EdgeProbe = {
+  /** The picked edge itself, for reference lookups (`belongsToFace(ref)`). */
+  edge: Edge;
   props: EdgeProperties;
   /** First and last vertex points — what the plane-side predicates test. */
   ends: Point[];
   mid: Point;
+  /** Center of mass — what the rank filters project onto a direction. */
+  center: Point;
+  /** Length — what `largest()`/`smallest()` compare edges by. */
+  size: number;
   /** Surface properties of the owning solid's faces this edge bounds. */
   adjacentFaces: FaceProperties[];
+  /** Outer corner, inner corner, or tangent transition within the owning solid. */
+  convexity: EdgeConvexity | null;
 };
 
 export type FaceProbe = {
@@ -28,22 +38,32 @@ export type FaceProbe = {
   /** Boundary vertex points — what the face plane-side predicates test. */
   points: Point[];
   edgeCount: number;
+  /** Center of mass — what the rank filters project onto a direction. */
+  center: Point;
+  /** Area — what `largest()`/`smallest()` compare faces by. */
+  size: number;
 };
 
 export function probeEdge(edge: Edge, ownerSolid: Shape | null): EdgeProbe {
   const props = EdgeProps.getProperties(edge.getShape());
   const adjacentFaces: FaceProperties[] = [];
+  let convexity: EdgeConvexity | null = null;
   if (ownerSolid instanceof Solid) {
     const index = ownerSolid.getEdgeToFacesIndex();
     for (const raw of TopologyIndex.seekShapes(index, edge.getShape())) {
       adjacentFaces.push(FaceProps.getProperties(raw));
     }
+    convexity = EdgeConvexityOps.classify(edge, ownerSolid);
   }
   return {
+    edge,
     props,
     ends: edgeEndPoints(edge),
     mid: EdgeOps.getEdgeMidPoint(edge),
+    center: ShapeMeasure.centerOfMass(edge),
+    size: ShapeMeasure.size(edge),
     adjacentFaces,
+    convexity,
   };
 }
 
@@ -57,7 +77,11 @@ export function probeFace(face: Face): FaceProbe {
     points.push(...edgeEndPoints(edge));
     points.push(EdgeOps.getEdgeMidPoint(edge));
   }
-  return { props, edgeProps, points, edgeCount: edges.length };
+  return {
+    props, edgeProps, points, edgeCount: edges.length,
+    center: ShapeMeasure.centerOfMass(face),
+    size: ShapeMeasure.size(face),
+  };
 }
 
 /** Endpoint samples of an edge — the points `above`/`below` filters test. */

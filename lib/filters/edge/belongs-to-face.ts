@@ -5,10 +5,11 @@ import { Solid } from "../../common/solid.js";
 import { Explorer } from "../../oc/explorer.js";
 import { TopologyIndex } from "../../oc/topology-index.js";
 import { ShapeHasher } from "../../oc/shape-hash.js";
-import { FilterBase } from "../filter-base.js";
+import { FilterBase, applyFilterStages } from "../filter-base.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
+import { ScopeAwareFilter } from "../scope-injection.js";
 
-abstract class BelongsToFaceFilterBase extends FilterBase<Edge> {
+abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements ScopeAwareFilter {
   protected scopeSolids: Solid[] = [];
   protected scopeFaces: Face[] = [];
   protected faceByHash: Map<number, Face[]> = new Map();
@@ -62,12 +63,9 @@ export class BelongsToFaceFilter extends BelongsToFaceFilterBase {
   match(shape: Edge): boolean {
     const containingFaces = this.findContainingFaces(shape);
 
-    return this.faceFilterBuilders.every(builder => {
-      const filters = builder.getFilters();
-      return containingFaces.some(face =>
-        filters.every(f => f.match(face))
-      );
-    });
+    return this.faceFilterBuilders.every(builder =>
+      applyFilterStages(containingFaces, builder.getFilters()).length > 0
+    );
   }
 
   compareTo(other: BelongsToFaceFilter): boolean {
@@ -92,12 +90,9 @@ export class NotBelongsToFaceFilter extends BelongsToFaceFilterBase {
   match(shape: Edge): boolean {
     const containingFaces = this.findContainingFaces(shape);
 
-    return !this.faceFilterBuilders.every(builder => {
-      const filters = builder.getFilters();
-      return containingFaces.some(face =>
-        filters.every(f => f.match(face))
-      );
-    });
+    return !this.faceFilterBuilders.every(builder =>
+      applyFilterStages(containingFaces, builder.getFilters()).length > 0
+    );
   }
 
   compareTo(other: NotBelongsToFaceFilter): boolean {

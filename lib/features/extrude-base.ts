@@ -15,6 +15,7 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
+import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
@@ -157,7 +158,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalFaces = transform
           ? (this.getState('start-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -170,7 +171,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalFaces = transform
           ? (this.getState('end-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -183,7 +184,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalEdges = transform
           ? this.getClassifiedEdges(this, 'start-edges', 'start-faces')
           : null;
-        return this.resolveEdges(edges, args, transform, originalEdges);
+        return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
   }
 
@@ -196,7 +197,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalEdges = transform
           ? this.getClassifiedEdges(this, 'end-edges', 'end-faces')
           : null;
-        return this.resolveEdges(edges, args, transform, originalEdges);
+        return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
   }
 
@@ -209,7 +210,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalFaces = transform
           ? (this.getState('side-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -219,7 +220,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       (parent) => {
         const classified = parent.getState('side-edges') as Edge[] | undefined;
         if (classified !== undefined) {
-          return this.resolveEdges(classified, args);
+          return this.resolveEdges(classified, args, null, null, parent);
         }
         // Fallback for peer ops that haven't called classifyExtrudeEdges: derive on the fly.
         const sideFaces = parent.getState('side-faces') as Face[] || [];
@@ -227,7 +228,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const endFaces = parent.getState('end-faces') as Face[] || [];
         const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
         const edges = dedupEdgesByMapExcluding(sideFaces.flatMap(f => f.getEdges()), excludedEdges);
-        return this.resolveEdges(edges, args);
+        return this.resolveEdges(edges, args, null, null, parent);
       }, this, args);
   }
 
@@ -256,7 +257,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalFaces = transform
           ? (this.getState('internal-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -265,7 +266,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = this.getClassifiedEdges(parent, 'internal-edges', 'internal-faces');
-        return this.resolveEdges(edges, args);
+        return this.resolveEdges(edges, args, null, null, parent);
       }, this, args);
   }
 
@@ -278,7 +279,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const originalFaces = transform
           ? (this.getState('cap-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -287,7 +288,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = this.getClassifiedEdges(parent, 'cap-edges', 'cap-faces');
-        return this.resolveEdges(edges, args);
+        return this.resolveEdges(edges, args, null, null, parent);
       }, this, args);
   }
 
@@ -439,7 +440,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   private resolveFaces<T extends Shape>(shapes: Face[], args: number[] | FaceFilterBuilder[],
     transform: Matrix4 = null,
-    originalShapes: Face[] = null): T[] {
+    originalShapes: Face[] = null,
+    owner: SceneObject = this): T[] {
     if (args.length === 0) {
       return new ShapeFilter(shapes).apply() as T[];
     }
@@ -457,12 +459,13 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     if (transform) {
       filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
     }
-    return new ShapeFilter(shapes, ...filters).apply() as T[];
+    return applyBucketFilters(shapes, filters, owner) as unknown as T[];
   }
 
   private resolveEdges<T extends Shape>(shapes: Edge[], args: number[] | EdgeFilterBuilder[],
     transform: Matrix4 = null,
-    originalShapes: Edge[] = null): T[] {
+    originalShapes: Edge[] = null,
+    owner: SceneObject = this): T[] {
     if (args.length === 0) {
       return new ShapeFilter(shapes).apply() as T[];
     }
@@ -480,7 +483,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     if (transform) {
       filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
     }
-    return new ShapeFilter(shapes, ...filters).apply() as T[];
+    return applyBucketFilters(shapes, filters, owner) as unknown as T[];
   }
 
   draft(value: NumberParam | [NumberParam, NumberParam]): this {

@@ -8,12 +8,13 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink, PlaneSource } from "./atoms.js";
+import { ParameterLink, FaceSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
   globalContext,
   induceFilterArgs,
+  induceFilterCandidates,
   resolvesExactly,
 } from "./filter-search.js";
 import { mmTol } from "../units/tolerance.js";
@@ -160,7 +161,7 @@ export function synthesizeSelectors(
     return null;
   };
 
-  const planeSources = collectPlaneSources(index, stmtBindable);
+  const faceSources = collectFaceSources(index, stmtBindable);
 
   // Bucket groups synthesize first but commit last: a global pool that can't
   // resolve on its own may need to absorb same-kind bucket picks (see below),
@@ -180,7 +181,7 @@ export function synthesizeSelectors(
     if (pool.length === 0) {
       continue;
     }
-    let result = synthesizeGlobalCandidates(scene, index, kind, pool, params, planeSources);
+    let result = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources);
     if (result.ok === false) {
       // The pool must resolve to exactly its own picks — but when the user
       // selected a whole repeat family (original + clones), the original's
@@ -200,7 +201,7 @@ export function synthesizeSelectors(
           break;
         }
         const mergedPool = [...pool, ...merge.flatMap(([, group]) => group.attrs)];
-        const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, planeSources);
+        const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources);
         if (retry.ok) {
           result = retry;
           for (const [bucket] of merge) {
@@ -234,7 +235,7 @@ export function synthesizeSelectors(
   }
 
   for (const chain of chains) {
-    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, planeSources, stmtBindable));
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, faceSources, stmtBindable));
     if (failure) {
       return failure;
     }
@@ -259,43 +260,48 @@ export function synthesizeSelectors(
 const PLANE_SOURCE_TOLERANCE = 1e-7;
 
 /**
- * Face groups usable as plane references (`onPlane(e.endFaces())`): every
- * bindable feature's face bucket whose members share one plane. The plane is
- * the first member's — exactly what the emitted `onPlane(<var>.<accessor>())`
+ * Face groups usable as filter references: every bindable feature's face
+ * bucket with its as-built members, plus the members' shared plane when
+ * they have one (`onPlane`/`above`/`below` references). The plane is the
+ * first member's — exactly what the emitted `onPlane(<var>.<accessor>())`
  * resolves — and requiring the rest coplanar with a same-side normal keeps
  * the reference meaningful under member reordering. Consumption doesn't
  * disqualify a group: a bucket accessor resolves its recorded as-built
- * faces, and a plane reference only reads the plane off them (the same
- * contract sketch-on-face relies on).
+ * faces, and a reference only reads them (the same contract sketch-on-face
+ * relies on).
  */
-function collectPlaneSources(
+function collectFaceSources(
   index: SelectionIndex,
   stmtBindable?: (feature: SceneObject) => boolean,
-): PlaneSource[] {
-  const sources: PlaneSource[] = [];
+): FaceSource[] {
+  const sources: FaceSource[] = [];
   for (const bucket of index.buckets) {
-    if (bucket.def.kind !== 'face' || checkBindable(index, bucket.feature) !== null
+    if (bucket.def.kind !== 'face' || bucket.members.length === 0
+      || checkBindable(index, bucket.feature) !== null
       || !(stmtBindable?.(bucket.feature) ?? true)) {
       continue;
     }
+    const members = bucket.members.filter((m): m is Face => m instanceof Face);
+    if (members.length !== bucket.members.length) {
+      continue;
+    }
     const planes: Plane[] = [];
-    for (const member of bucket.members) {
-      const plane = member instanceof Face ? FaceOps.tryGetPlane(member) : null;
+    for (const member of members) {
+      const plane = FaceOps.tryGetPlane(member);
       if (!plane) {
         break;
       }
       planes.push(plane);
     }
-    if (planes.length !== bucket.members.length) {
-      continue;
+    let plane: Plane | null = null;
+    if (planes.length === members.length) {
+      const first = planes[0];
+      const shared = planes.every(p =>
+        first.isCoplanarWith(p, mmTol(1e-7), PLANE_SOURCE_TOLERANCE)
+        && first.normal.dot(p.normal) > 0);
+      plane = shared ? first : null;
     }
-    const first = planes[0];
-    const shared = planes.every(p =>
-      first.isCoplanarWith(p, mmTol(1e-7), PLANE_SOURCE_TOLERANCE)
-      && first.normal.dot(p.normal) > 0);
-    if (shared) {
-      sources.push({ feature: bucket.feature, accessor: bucket.def.accessor, plane: first });
-    }
+    sources.push({ feature: bucket.feature, accessor: bucket.def.accessor, members, plane });
   }
   return sources;
 }
@@ -360,18 +366,20 @@ function synthesizeBucketCandidates(
     });
   }
 
-  let bakedConstants = 0;
+  // Every verified filter form, best first; each remembers whether it bakes
+  // a geometry constant so the ranking below can place it against the index.
+  const baked = new Map<SelectorPart, number>();
   if (!wholeBucket) {
-    const induced = induceFilterArgs(index, bucketContext(bucket, false, params), groupAttrs, pickKeys);
-    if (induced) {
-      bakedConstants = induced.bakedConstants;
-      candidates.push({
+    for (const induced of induceFilterCandidates(index, bucketContext(bucket, false, params), groupAttrs, pickKeys)) {
+      const part: SelectorPart = {
         producer: feature,
         accessor: bucket.def.accessor,
         indices: null,
         filterArgs: induced.filterArgs,
         tier: induced.constants === 0 ? 1 : 2,
-      });
+      };
+      baked.set(part, induced.bakedConstants);
+      candidates.push(part);
     }
   }
 
@@ -396,13 +404,23 @@ function synthesizeBucketCandidates(
   // A filter that only resolves by baking a geometry constant — a measured
   // length like `line(63.30447167189937)` or a positional offset like
   // `onPlane('yz', 233.74)` that no user parameter tracks — silently breaks
-  // on dimension edits. The index form survives those, so it outranks the
-  // filter; constant-free and parameter-linked filters keep winning.
-  if (preferIndices || bakedConstants > 0) {
-    // Whole bucket stays first, then indices, then filters (stable sort).
-    const rank = (c: SelectorPart) => (c.tier === 0 ? 0 : c.tier === 4 ? 1 : 2);
-    candidates.sort((a, b) => rank(a) - rank(b));
-  }
+  // on dimension edits. The index form survives those, so it outranks such
+  // a filter; constant-free and parameter-linked filters keep winning unless
+  // the consumer asked for indices first. Whole bucket always leads; the
+  // sort is stable, so induction's own order holds within each rank.
+  const rank = (c: SelectorPart) => {
+    if (c.tier === 0) {
+      return 0;
+    }
+    if (c.tier === 4) {
+      return preferIndices ? 1 : 2;
+    }
+    if ((baked.get(c) ?? 0) > 0) {
+      return 3;
+    }
+    return preferIndices ? 2 : 1;
+  };
+  candidates.sort((a, b) => rank(a) - rank(b));
   return { ok: true, candidates };
 }
 
@@ -418,7 +436,7 @@ function synthesizeGlobalCandidates(
   kind: 'edge' | 'face',
   pool: PickAttribution[],
   params: ParameterLink[],
-  planeSources: PlaneSource[],
+  faceSources: FaceSource[],
 ): GroupResult {
   const scope = resolvePartScope(scene, pool);
   if (scope.ok === false) {
@@ -426,24 +444,22 @@ function synthesizeGlobalCandidates(
   }
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
-  const induced = induceFilterArgs(
-    index, globalContext(scene, index, kind, params, scope.part, planeSources), pool, pickKeys,
+  const induced = induceFilterCandidates(
+    index, globalContext(scene, index, kind, params, scope.part, faceSources), pool, pickKeys,
   );
-  if (!induced) {
+  if (induced.length === 0) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
   }
   return {
     ok: true,
-    candidates: [
-      {
-        producer: null,
-        accessor: 'select',
-        indices: null,
-        filterArgs: induced.filterArgs,
-        refs: induced.refs,
-        tier: 3,
-      },
-    ],
+    candidates: induced.map(candidate => ({
+      producer: null,
+      accessor: 'select',
+      indices: null,
+      filterArgs: candidate.filterArgs,
+      refs: candidate.refs,
+      tier: 3,
+    })),
   };
 }
 
@@ -461,7 +477,7 @@ function synthesizeChainCandidates(
   index: SelectionIndex,
   chain: SelectorChain,
   params: ParameterLink[],
-  planeSources: PlaneSource[],
+  faceSources: FaceSource[],
   stmtBindable?: (feature: SceneObject) => boolean,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
@@ -540,7 +556,7 @@ function synthesizeChainCandidates(
     return scope;
   }
 
-  const globalCtx = globalContext(scene, index, kind, params, scope.part, planeSources);
+  const globalCtx = globalContext(scene, index, kind, params, scope.part, faceSources);
   const candidates: SelectorPart[] = [];
 
   const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);

@@ -228,14 +228,18 @@ Excludes edges that geometrically intersect with edges of the given scene object
 ### .above()
 
 ```ts
-.above(plane: PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
+.above(plane: SceneObject | PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
 ```
 
-Selects edges that are entirely above the given plane (in the direction of its normal).
+Selects edges that are entirely above the given plane (in the direction of its normal). Besides a
+standard plane or a plane feature, any scene object whose first shape is
+a face works as the reference — a bucket accessor like `base.endFaces()`
+— so the half-space follows the referenced feature through edits. The
+offset runs along the resolved plane's normal.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
 | `offsetOrOptions` | `number \| { offset?: number; partial?: boolean; }` | Offset distance, or an options object with `offset` and `partial`. *(optional)* |
 
 ---
@@ -243,14 +247,18 @@ Selects edges that are entirely above the given plane (in the direction of its n
 ### .below()
 
 ```ts
-.below(plane: PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
+.below(plane: SceneObject | PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
 ```
 
-Selects edges that are entirely below the given plane (opposite to its normal direction).
+Selects edges that are entirely below the given plane (opposite to its normal direction). Besides a
+standard plane or a plane feature, any scene object whose first shape is
+a face works as the reference — a bucket accessor like `base.endFaces()`
+— so the half-space follows the referenced feature through edits. The
+offset runs along the resolved plane's normal.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
 | `offsetOrOptions` | `number \| { offset?: number; partial?: boolean; }` | Offset distance, or an options object with `offset` and `partial`. *(optional)* |
 
 ---
@@ -267,4 +275,190 @@ Recursive: passing a container picks up edges from its descendants.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | Scene objects whose edges (and edges of their sub-shapes) are matched against. *(optional)* |
+
+---
+
+### .convex()
+
+```ts
+.convex(): this
+```
+
+Selects convex edges — outer corners, where the solid's two faces meet
+at an angle opening outward. The classic fillet target: `e.sideEdges(edge().convex())`
+rounds every outer vertical corner of a profile and leaves its inner
+corners sharp.
+
+### .notConvex()
+
+```ts
+.notConvex(): this
+```
+
+Excludes convex edges (outer corners).
+
+---
+
+### .concave()
+
+```ts
+.concave(): this
+```
+
+Selects concave edges — inner corners, where a boss meets its base or a
+pocket wall meets its floor.
+
+### .notConcave()
+
+```ts
+.notConcave(): this
+```
+
+Excludes concave edges (inner corners).
+
+---
+
+### .smooth()
+
+```ts
+.smooth(): this
+```
+
+Selects smooth edges — no corner at all, the two faces being tangent
+there, as along a fillet's boundary.
+
+### .notSmooth()
+
+```ts
+.notSmooth(): this
+```
+
+Excludes smooth (tangent-transition) edges.
+
+---
+
+### .farthest()
+
+```ts
+.farthest(direction: DirectionLike): this
+```
+
+Keeps the layer of edges farthest along a direction — every edge whose
+center of mass lies at the maximum (within tolerance) along it. A box's
+`farthest('z')` is its four top rim edges; chain order is evaluation
+order, so `edge().line().farthest('z')` ranks only the lines.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+### .notFarthest()
+
+```ts
+.notFarthest(direction: DirectionLike): this
+```
+
+Excludes the layer of edges farthest along a direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+---
+
+### .nearest()
+
+```ts
+.nearest(direction: DirectionLike): this
+```
+
+Keeps the layer of edges nearest along a direction — the minimum of the
+center of mass along it (`nearest('z')` is the same as `farthest('-z')`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+### .notNearest()
+
+```ts
+.notNearest(direction: DirectionLike): this
+```
+
+Excludes the layer of edges nearest along a direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+---
+
+### .nth()
+
+```ts
+.nth(direction: DirectionLike, index: number): this
+```
+
+Keeps the k-th layer of edges along a direction, counting layers of
+equal center position from the near end (0-based); a negative index
+counts from the far end, so `nth('z', -1)` is `farthest('z')`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+| `index` | number | Layer index; out-of-range indices match nothing. |
+
+---
+
+### .largest()
+
+```ts
+.largest(measure?: SizeMeasure): this
+```
+
+Keeps the largest edges — by length unless a measure is given — including
+every edge that ties with the largest.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'length'` (default) or `'radius'` for circular edges. *(optional)* |
+
+### .notLargest()
+
+```ts
+.notLargest(measure?: SizeMeasure): this
+```
+
+Excludes the largest edges (and their ties).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'length'` (default) or `'radius'`. *(optional)* |
+
+---
+
+### .smallest()
+
+```ts
+.smallest(measure?: SizeMeasure): this
+```
+
+Keeps the smallest edges — by length unless a measure is given — including
+every edge that ties with the smallest.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'length'` (default) or `'radius'` for circular edges. *(optional)* |
+
+### .notSmallest()
+
+```ts
+.notSmallest(measure?: SizeMeasure): this
+```
+
+Excludes the smallest edges (and their ties).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'length'` (default) or `'radius'`. *(optional)* |
 

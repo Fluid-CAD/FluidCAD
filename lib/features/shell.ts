@@ -11,6 +11,7 @@ import { Plane } from "../math/plane.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
+import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { IShell, ShellJoinType } from "../core/interfaces.js";
 import { requireShapes } from "../common/operand-check.js";
@@ -199,7 +200,7 @@ export class Shell extends SceneObject implements IShell {
         const originalFaces = transform
           ? (this.getState('internal-faces') as Face[] || [])
           : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
 
@@ -212,7 +213,7 @@ export class Shell extends SceneObject implements IShell {
         const originalEdges = transform
           ? (this.getState('internal-edges') as Edge[] || [])
           : null;
-        return this.resolveEdges(edges, args, transform, originalEdges);
+        return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
   }
 
@@ -225,7 +226,8 @@ export class Shell extends SceneObject implements IShell {
   }
 
   private resolveEdges(shapes: Edge[], args: (number | EdgeFilterBuilder)[],
-                       transform: Matrix4 = null, originalShapes: Edge[] = null): Edge[] {
+                       transform: Matrix4 = null, originalShapes: Edge[] = null,
+                       owner: SceneObject = this): Edge[] {
     if (args.length === 0) {
       return shapes;
     }
@@ -243,11 +245,12 @@ export class Shell extends SceneObject implements IShell {
     if (transform) {
       filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
     }
-    return new ShapeFilter(shapes as any, ...filters).apply() as Edge[];
+    return applyBucketFilters(shapes, filters, owner) as Edge[];
   }
 
   private resolveFaces(shapes: Face[], args: (number | FaceFilterBuilder)[],
-                       transform: Matrix4 = null, originalShapes: Face[] = null): Face[] {
+                       transform: Matrix4 = null, originalShapes: Face[] = null,
+                       owner: SceneObject = this): Face[] {
     if (args.length === 0) {
       return shapes;
     }
@@ -265,7 +268,7 @@ export class Shell extends SceneObject implements IShell {
     if (transform) {
       filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
     }
-    return new ShapeFilter(shapes as any, ...filters).apply() as Face[];
+    return applyBucketFilters(shapes, filters, owner) as Face[];
   }
 
   compareTo(other: SceneObject): boolean {

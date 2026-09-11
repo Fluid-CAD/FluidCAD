@@ -67,12 +67,12 @@ describe("plane-reference selectors", () => {
     }
   });
 
-  it("falls back to the baked datum offset when the producer's statement cannot be bound", () => {
+  it("falls back to a variable-free form when the producer's statement cannot be bound", () => {
     // The transform refuses to reference a producer whose variable is
     // reassigned after the call (`let body; body = extrude(...); body =
     // shell(...)`). The server reports that through the `bindable` probe;
     // synthesis must then skip the plane reference — which would bind the
-    // variable — and emit the constant datum form, which binds nothing.
+    // variable — and emit a form that binds nothing (the topmost face).
     sketch("xy", () => {
       testRect(123.28, 56.07, { at: [-61.64, -28.035] });
     });
@@ -91,7 +91,7 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });
@@ -117,7 +117,7 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });
@@ -150,7 +150,7 @@ describe("plane-reference selectors", () => {
     // picked face — but its variable lives in part 1's callback, out of reach
     // of a statement executing in part 2. The reference would be written as
     // `onPlane(e.endFaces())` and die as an undefined variable at build time;
-    // the constant datum form must win instead.
+    // a reference-free form must win instead.
     const p1 = part("first", () => {
       testRectSketch("xy", 20, 20);
       const e = extrude(25) as Extrude;
@@ -178,7 +178,7 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });

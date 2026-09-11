@@ -1215,14 +1215,15 @@ describe("parameter linking", () => {
   it("renders a dimension constant as the user's variable when values match exactly", () => {
     const { scene, refs } = makeOffsetEdgeScene();
 
-    // Unlinked, the baked offset loses to the index form; the constant
-    // filter survives in the alternatives.
+    // Unlinked, the baked offset loses to the constant-free rank form and to
+    // the index form; the constant filter survives in the alternatives.
     const plain = synthesizeApplyFeature(scene, refs, 'fillet', 3);
     expect(plain.ok).toBe(true);
     if (plain.ok !== true) {
       return;
     }
-    expect(plain.args).toMatch(/^e\.endEdges\(\d+\)$/);
+    expect(plain.args).toBe("e.endEdges(edge().farthest('y'))");
+    expect(plain.alternatives.some(a => /^e\.endEdges\(\d+\)$/.test(a))).toBe(true);
     expect(plain.alternatives.some(a => a.includes("onPlane('xz', -50)"))).toBe(true);
 
     // Linked, the offset tracks the user's variable — the filter wins again.

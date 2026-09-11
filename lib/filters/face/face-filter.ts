@@ -23,6 +23,10 @@ import { AboveFacePlaneFilter, BelowFacePlaneFilter } from "./above-below.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
+import { PlaneRefSource } from "../plane-ref.js";
+import { DirectionLike } from "../direction.js";
+import { ExtremalFilter } from "../rank/extremal.js";
+import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   constructor() {
@@ -385,55 +389,51 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces that are entirely above the given plane (in the direction of its normal).
-   * @param plane - The reference plane.
+   * Selects faces that are entirely above the given plane (in the direction of its normal). Besides a
+   * standard plane or a plane feature, any scene object whose first shape is
+   * a face works as the reference — a bucket accessor like `base.endFaces()`
+   * — so the half-space follows the referenced feature through edits. The
+   * offset runs along the resolved plane's normal.
+   * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  above(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+  above(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    const planeRef: PlaneRefSource = plane instanceof PlaneObjectBase || plane instanceof SceneObject
+      ? plane
+      : new PlaneObject(normalizePlane(plane as PlaneLike));
 
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
-    }
-    else {
-      let normalized = normalizePlane(plane);
-      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
-    }
-
-    const filter = new AboveFacePlaneFilter(planeObj, partial);
+    const filter = new AboveFacePlaneFilter(planeRef, partial, offset);
     this.filters.push(filter);
     return this;
   }
 
   /**
-   * Selects faces that are entirely below the given plane (opposite to its normal direction).
-   * @param plane - The reference plane.
+   * Selects faces that are entirely below the given plane (opposite to its normal direction). Besides a
+   * standard plane or a plane feature, any scene object whose first shape is
+   * a face works as the reference — a bucket accessor like `base.endFaces()`
+   * — so the half-space follows the referenced feature through edits. The
+   * offset runs along the resolved plane's normal.
+   * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  below(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+  below(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    const planeRef: PlaneRefSource = plane instanceof PlaneObjectBase || plane instanceof SceneObject
+      ? plane
+      : new PlaneObject(normalizePlane(plane as PlaneLike));
 
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
-    }
-    else {
-      let normalized = normalizePlane(plane);
-      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
-    }
-
-    const filter = new BelowFacePlaneFilter(planeObj, partial);
+    const filter = new BelowFacePlaneFilter(planeRef, partial, offset);
     this.filters.push(filter);
     return this;
   }
@@ -450,5 +450,97 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     this.filters.push(filter);
     return this;
   }
-}
 
+  /**
+   * Keeps the layer of faces farthest along a direction — every edge whose
+   * center of mass lies at the maximum (within tolerance) along it. A box's
+   * `farthest('z')` is its top face; chain order is evaluation
+   * order, so `face().planar().farthest('z')` ranks only the planar faces.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  farthest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'farthest' }));
+    return this;
+  }
+
+  /**
+   * Excludes the layer of faces farthest along a direction.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  notFarthest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'farthest' }, true));
+    return this;
+  }
+
+  /**
+   * Keeps the layer of faces nearest along a direction — the minimum of the
+   * center of mass along it (`nearest('z')` is the same as `farthest('-z')`).
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  nearest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nearest' }));
+    return this;
+  }
+
+  /**
+   * Excludes the layer of faces nearest along a direction.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   */
+  notNearest(direction: DirectionLike) {
+    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nearest' }, true));
+    return this;
+  }
+
+  /**
+   * Keeps the k-th layer of faces along a direction, counting layers of
+   * equal center position from the near end (0-based); a negative index
+   * counts from the far end, so `nth('z', -1)` is `farthest('z')`.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   * @param index - Layer index; out-of-range indices match nothing.
+   */
+  nth(direction: DirectionLike, index: number) {
+    if (!Number.isInteger(index)) {
+      throw new Error(`nth(direction, index): index must be an integer (got ${index})`);
+    }
+    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nth', index }));
+    return this;
+  }
+
+  /**
+   * Keeps the largest faces — by area unless a measure is given — including
+   * every face that ties with the largest.
+   * @param measure - `'area'` (default) or `'radius'` for circular faces.
+   */
+  largest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Face>('largest', measure));
+    return this;
+  }
+
+  /**
+   * Excludes the largest faces (and their ties).
+   * @param measure - `'area'` (default) or `'radius'`.
+   */
+  notLargest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Face>('largest', measure, true));
+    return this;
+  }
+
+  /**
+   * Keeps the smallest faces — by area unless a measure is given — including
+   * every face that ties with the smallest.
+   * @param measure - `'area'` (default) or `'radius'` for circular faces.
+   */
+  smallest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Face>('smallest', measure));
+    return this;
+  }
+
+  /**
+   * Excludes the smallest faces (and their ties).
+   * @param measure - `'area'` (default) or `'radius'`.
+   */
+  notSmallest(measure: SizeMeasure = 'size') {
+    this.filters.push(new MeasureExtremeFilter<Face>('smallest', measure, true));
+    return this;
+  }
+}

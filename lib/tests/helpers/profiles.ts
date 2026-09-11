@@ -58,3 +58,13 @@ export function testRectSketch(
     testRect(width, height, opts);
   }) as unknown as Sketch;
 }
+
+/** An L-shaped profile (60 × 60 with a 40 × 40 notch): five outer corners, one inner. */
+export function testL() {
+  const pts: [number, number][] = [[0, 0], [60, 0], [60, 20], [20, 20], [20, 60], [0, 60]];
+  const lines = pts.map((p, i) => line(p, pts[(i + 1) % pts.length]));
+  for (let i = 0; i < lines.length; i++) {
+    coincident(lines[i].end(), lines[(i + 1) % lines.length].start());
+  }
+  fix(lines[0].start(), [0, 0]);
+}

@@ -293,14 +293,18 @@ Excludes faces with the given number of edges.
 ### .above()
 
 ```ts
-.above(plane: PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
+.above(plane: SceneObject | PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
 ```
 
-Selects faces that are entirely above the given plane (in the direction of its normal).
+Selects faces that are entirely above the given plane (in the direction of its normal). Besides a
+standard plane or a plane feature, any scene object whose first shape is
+a face works as the reference — a bucket accessor like `base.endFaces()`
+— so the half-space follows the referenced feature through edits. The
+offset runs along the resolved plane's normal.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
 | `offsetOrOptions` | `number \| { offset?: number; partial?: boolean; }` | Offset distance, or an options object with `offset` and `partial`. *(optional)* |
 
 ---
@@ -308,14 +312,18 @@ Selects faces that are entirely above the given plane (in the direction of its n
 ### .below()
 
 ```ts
-.below(plane: PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
+.below(plane: SceneObject | PlaneLike, offsetOrOptions?: number | { offset?: number; partial?: boolean; }): this
 ```
 
-Selects faces that are entirely below the given plane (opposite to its normal direction).
+Selects faces that are entirely below the given plane (opposite to its normal direction). Besides a
+standard plane or a plane feature, any scene object whose first shape is
+a face works as the reference — a bucket accessor like `base.endFaces()`
+— so the half-space follows the referenced feature through edits. The
+offset runs along the resolved plane's normal.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
 | `offsetOrOptions` | `number \| { offset?: number; partial?: boolean; }` | Offset distance, or an options object with `offset` and `partial`. *(optional)* |
 
 ---
@@ -332,4 +340,131 @@ Recursive: passing a container picks up faces from its descendants.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | Scene objects whose faces (and faces of their sub-shapes) are matched against. *(optional)* |
+
+---
+
+### .farthest()
+
+```ts
+.farthest(direction: DirectionLike): this
+```
+
+Keeps the layer of faces farthest along a direction — every edge whose
+center of mass lies at the maximum (within tolerance) along it. A box's
+`farthest('z')` is its top face; chain order is evaluation
+order, so `face().planar().farthest('z')` ranks only the planar faces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+### .notFarthest()
+
+```ts
+.notFarthest(direction: DirectionLike): this
+```
+
+Excludes the layer of faces farthest along a direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+---
+
+### .nearest()
+
+```ts
+.nearest(direction: DirectionLike): this
+```
+
+Keeps the layer of faces nearest along a direction — the minimum of the
+center of mass along it (`nearest('z')` is the same as `farthest('-z')`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+### .notNearest()
+
+```ts
+.notNearest(direction: DirectionLike): this
+```
+
+Excludes the layer of faces nearest along a direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+
+---
+
+### .nth()
+
+```ts
+.nth(direction: DirectionLike, index: number): this
+```
+
+Keeps the k-th layer of faces along a direction, counting layers of
+equal center position from the near end (0-based); a negative index
+counts from the far end, so `nth('z', -1)` is `farthest('z')`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+| `index` | number | Layer index; out-of-range indices match nothing. |
+
+---
+
+### .largest()
+
+```ts
+.largest(measure?: SizeMeasure): this
+```
+
+Keeps the largest faces — by area unless a measure is given — including
+every face that ties with the largest.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'area'` (default) or `'radius'` for circular faces. *(optional)* |
+
+### .notLargest()
+
+```ts
+.notLargest(measure?: SizeMeasure): this
+```
+
+Excludes the largest faces (and their ties).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'area'` (default) or `'radius'`. *(optional)* |
+
+---
+
+### .smallest()
+
+```ts
+.smallest(measure?: SizeMeasure): this
+```
+
+Keeps the smallest faces — by area unless a measure is given — including
+every face that ties with the smallest.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'area'` (default) or `'radius'` for circular faces. *(optional)* |
+
+### .notSmallest()
+
+```ts
+.notSmallest(measure?: SizeMeasure): this
+```
+
+Excludes the smallest faces (and their ties).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `measure` | SizeMeasure | `'area'` (default) or `'radius'`. *(optional)* |
 

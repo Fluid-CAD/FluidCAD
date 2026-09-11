@@ -9,7 +9,7 @@ import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
-import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
+import { injectFilterScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
 import { Edge } from "../common/edge.js";
@@ -311,7 +311,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
   }
 
   private static injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
-    return injectBelongsToFaceScope(filters, () => ({
+    return injectFilterScope(filters, () => ({
       solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
       extraFaces: [],
     }));

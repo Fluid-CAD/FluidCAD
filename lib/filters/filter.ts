@@ -1,4 +1,5 @@
 import { Shape } from "../common/shapes.js";
+import { applyFilterStages } from "./filter-base.js";
 import { FilterBuilderBase } from "./filter-builder-base.js";
 import { TangentExpander } from "./tangent-expander.js";
 
@@ -18,29 +19,9 @@ export class ShapeFilter {
     const result = new Set<Shape>();
 
     for (const builder of this.builders) {
-      const filters = builder.getFilters();
-      // Per-builder ordered match list — preserves input (OCC iteration) order
-      // so positional selectors (.first/.last/.at) are deterministic.
-      const matched: Shape[] = [];
-      for (const shape of this.shapes) {
-        let ok = true;
-        for (const f of filters) {
-          try {
-            if (!f.match(shape)) {
-              ok = false;
-              break;
-            }
-          }
-          catch (e) {
-            console.error('Error applying filter:', e, f);
-            ok = false;
-            break;
-          }
-        }
-        if (ok) {
-          matched.push(shape);
-        }
-      }
+      // Per-builder ordered match list — stages preserve input (OCC iteration)
+      // order so positional selectors (.first/.last/.at) are deterministic.
+      const matched = applyFilterStages(this.shapes, builder.getFilters());
 
       const sel = builder.getIndexSelector();
       let selected: Shape[];
@@ -73,4 +54,3 @@ export class ShapeFilter {
     return resultArr;
   }
 }
-

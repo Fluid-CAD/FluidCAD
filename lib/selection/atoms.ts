@@ -7,6 +7,9 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
 import { mmTol } from "../units/tolerance.js";
+import { Shape } from "../common/shape.js";
+import { ShapeMeasure } from "../oc/shape-measure.js";
+import { groupLayers } from "../filters/rank/extremal.js";
 
 /**
  * One filter predicate candidate: a rendered code fragment plus the builder
@@ -35,6 +38,18 @@ export type Atom<B> = {
   /** True when the predicate only evaluates correctly inside `select()`. */
   needsScope: boolean;
   /**
+   * Set-level predicate (`farthest`, `largest`, `nth`…) whose match set
+   * depends on the candidates it runs over: induction evaluates it against
+   * the conjunction built so far rather than a precomputed universe match.
+   */
+  contextual?: boolean;
+  /**
+   * Earliest conjunction position a contextual atom may take. A layer index
+   * (`nth`) only reads well inside an already-described family — "the second
+   * layer of arcs on the top face" — never as an opener.
+   */
+  minDepth?: number;
+  /**
    * Producer whose variable the rendered code references (plane-reference
    * atoms). The code carries the `{{ref}}` placeholder where the variable
    * name goes; the writer must bind `ref` and substitute its name.
@@ -56,15 +71,18 @@ export type FaceAtom = Atom<FaceFilterBuilder>;
 export type ParameterLink = { name: string; value: number };
 
 /**
- * A feature face group whose plane can stand in for a numeric plane offset:
- * `onPlane(e.endFaces())` instead of `onPlane('xy', 25)`. The group's
- * recorded faces survive consumption (a bucket accessor resolves its
- * as-built state), so the reference stays valid even when a later feature
- * reshaped or consumed the geometry — and unlike the baked offset it tracks
- * dimension edits. `plane` is what the emitted `onPlane(<var>.<accessor>())`
- * resolves: the first member's surface plane.
+ * A bindable feature's face group, usable as a reference inside a filter:
+ * `onPlane(e.endFaces())` / `above(base.endFaces())` instead of a numeric
+ * plane offset, or `belongsToFace(boss.sideFaces())` instead of a diameter.
+ * The group's recorded faces survive consumption (a bucket accessor resolves
+ * its as-built state), so the reference stays valid even when a later
+ * feature reshaped or consumed the geometry — and unlike a baked constant it
+ * tracks dimension edits. `plane` is what the emitted `onPlane(<var>.<accessor>())`
+ * resolves — the first member's surface plane — or null when the members
+ * are not one plane; `members` are what `belongsToFace(<var>.<accessor>())`
+ * looks edges up in.
  */
-export type PlaneSource = { feature: SceneObject; accessor: string; plane: Plane };
+export type FaceSource = { feature: SceneObject; accessor: string; members: Face[]; plane: Plane | null };
 
 /**
  * Format a dimension-like constant, preferring the name of an exactly-equal
@@ -116,15 +134,16 @@ function planeNormalSign(plane: PrincipalPlane): number {
  * Instantiate candidate edge atoms from the picked edges' geometry. Universe
  * members are only consulted for `above`/`below` threshold placement; atom
  * truth over the universe is established later through the real predicates.
- * `allowScoped` gates `belongsToFace` atoms, which need select()'s scope
- * injection and therefore cannot appear in bucket-accessor arguments.
+ * `allowScoped` gates the scope-aware atoms (`belongsToFace`, convexity),
+ * which need the evaluator's scope injection — `select()` and bucket
+ * accessors both provide it.
  */
 export function instantiateEdgeAtoms(
   probes: EdgeProbe[],
   universe: Edge[],
   allowScoped: boolean,
   params: ParameterLink[] = [],
-  planeSources: PlaneSource[] = [],
+  faceSources: FaceSource[] = [],
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
 
@@ -184,8 +203,11 @@ export function instantiateEdgeAtoms(
   }
 
   atoms.push(...planeRefAtoms<EdgeFilterBuilder>(
-    probes.flatMap(p => [...p.ends, p.mid]), planeSources,
+    probes.flatMap(p => [...p.ends, p.mid]), faceSources,
   ));
+  atoms.push(...faceRefAtoms(probes, faceSources));
+
+  atoms.push(...rankAtoms<EdgeFilterBuilder>(probes, universe));
 
   const targetEnds = probes.flatMap(p => p.ends);
   const universeEnds = universe.map(e => edgeEndPoints(e));
@@ -194,17 +216,37 @@ export function instantiateEdgeAtoms(
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
   if (allowScoped) {
+    atoms.push(...convexityAtoms(probes));
     atoms.push(...belongsToFaceAtoms(probes, params));
   }
 
   return atoms;
 }
 
+/**
+ * `convex()` / `concave()` / `smooth()` — the qualitative corner class the
+ * picks share within their owning solid. Scope-dependent (the predicate
+ * looks up the edge's two faces), constant-free, and the most descriptive
+ * predicate a fillet or chamfer pick usually has: "the inner corners" beats
+ * any plane the junction happens to sit on.
+ */
+function convexityAtoms(probes: EdgeProbe[]): EdgeAtom[] {
+  const convexity = sharedString(probes.map(p => p.convexity ?? undefined));
+  if (convexity === null) {
+    return [];
+  }
+  return [{
+    code: `.${convexity}()`,
+    addTo: b => b[convexity](),
+    weight: 26, constants: 0, needsScope: true,
+  }];
+}
+
 export function instantiateFaceAtoms(
   probes: FaceProbe[],
   universe: Face[],
   params: ParameterLink[] = [],
-  planeSources: PlaneSource[] = [],
+  faceSources: FaceSource[] = [],
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
 
@@ -302,7 +344,9 @@ export function instantiateFaceAtoms(
     }
   }
 
-  atoms.push(...planeRefAtoms<FaceFilterBuilder>(probes.flatMap(p => p.points), planeSources));
+  atoms.push(...planeRefAtoms<FaceFilterBuilder>(probes.flatMap(p => p.points), faceSources));
+
+  atoms.push(...rankAtoms<FaceFilterBuilder>(probes, universe));
 
   const targetPoints = probes.flatMap(p => p.points);
   const universePoints = universe.map(f => faceBoundaryPoints(f));
@@ -370,33 +414,84 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
 }
 
 /**
- * Plane-reference atoms: when every picked point lies on a plane a feature's
- * face group names, `.onPlane({{ref}}.endFaces())` selects the same shapes
- * without baking the offset in — a dimension edit moves the reference plane
- * along with the geometry. Weight sits above every constant-bearing
- * predicate (`onPlane(P, 25)` at 20) but below the exact datum planes
- * (`onPlane('xy')` at 22): a standard plane needs no variable to stay true.
- * Coplanar duplicate sources collapse to the first (buckets scan
- * latest-feature-first, mirroring attribution's preference).
+ * Plane-reference atoms over a feature's planar face group. When every
+ * picked point lies on the plane, `.onPlane({{ref}}.endFaces())` selects the
+ * same shapes without baking the offset in; when every point lies strictly
+ * on one side, `.above({{ref}}.endFaces())` / `.below(...)` name the
+ * half-space the same way — a dimension edit moves the reference plane along
+ * with the geometry. Weight sits above every constant-bearing predicate
+ * (`onPlane(P, 25)` at 20) but below the exact datum planes (`onPlane('xy')`
+ * at 22): a standard plane needs no variable to stay true. Coplanar
+ * duplicate sources collapse to the first (buckets scan latest-feature-first,
+ * mirroring attribution's preference).
  */
-function planeRefAtoms<B extends { onPlane(plane: Plane): unknown }>(
+function planeRefAtoms<B extends { onPlane(plane: Plane): unknown; above(plane: Plane): unknown; below(plane: Plane): unknown }>(
   points: Point[],
-  sources: PlaneSource[],
+  sources: FaceSource[],
 ): Atom<B>[] {
   const atoms: Atom<B>[] = [];
   const seen: Plane[] = [];
   for (const source of sources) {
-    if (!points.every(pt => source.plane.containsPoint(pt, sharedTolerance()))) {
+    const plane = source.plane;
+    if (!plane) {
       continue;
     }
-    if (seen.some(p => p.isCoplanarWith(source.plane, sharedTolerance(), SHARED_ANGULAR_TOLERANCE))) {
+    if (seen.some(p => p.isCoplanarWith(plane, sharedTolerance(), SHARED_ANGULAR_TOLERANCE))) {
       continue;
     }
-    seen.push(source.plane);
+    const distances = points.map(pt => plane.signedDistanceToPoint(pt));
+    const tol = sharedTolerance();
+    if (distances.every(d => Math.abs(d) <= tol)) {
+      seen.push(plane);
+      atoms.push({
+        code: `.onPlane({{ref}}.${source.accessor}())`,
+        addTo: b => b.onPlane(plane),
+        weight: 21, constants: 0, needsScope: false,
+        ref: source.feature,
+      });
+    } else if (distances.every(d => d > tol)) {
+      seen.push(plane);
+      atoms.push({
+        code: `.above({{ref}}.${source.accessor}())`,
+        addTo: b => b.above(plane),
+        weight: 21, constants: 0, needsScope: false,
+        ref: source.feature,
+      });
+    } else if (distances.every(d => d < -tol)) {
+      seen.push(plane);
+      atoms.push({
+        code: `.below({{ref}}.${source.accessor}())`,
+        addTo: b => b.below(plane),
+        weight: 21, constants: 0, needsScope: false,
+        ref: source.feature,
+      });
+    }
+  }
+  return atoms;
+}
+
+/**
+ * `belongsToFace({{ref}}.sideFaces())` atoms: a feature's face group every
+ * picked edge bounds. Two of them name a junction ring by its two families
+ * ("the edges where the boss's side meets the base's top") with no constant
+ * at all. Whether a group's recorded faces still bound the final edge after
+ * later booleans is exactly what verification decides.
+ */
+function faceRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
+  const atoms: EdgeAtom[] = [];
+  for (const source of sources) {
+    const bounded = probes.every(p =>
+      source.members.some(face => face.hasEdge(p.edge.getShape()) !== null));
+    if (!bounded) {
+      continue;
+    }
+    // Evaluate through the very accessor object the emitted code names —
+    // the lazy selection resolves the recorded group on demand.
+    const accessor = source.feature as unknown as Record<string, () => SceneObject>;
     atoms.push({
-      code: `.onPlane({{ref}}.${source.accessor}())`,
-      addTo: b => b.onPlane(source.plane),
-      weight: 21, constants: 0, needsScope: false,
+      code: `.belongsToFace({{ref}}.${source.accessor}())`,
+      addTo: b => b.belongsToFace(accessor[source.accessor]()),
+      weight: 20, constants: 0, needsScope: false,
       ref: source.feature,
     });
   }
@@ -424,6 +519,112 @@ function onPlaneAtom<B>(
     addTo: b => addTo(b, c.value),
     weight: 20, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false,
   };
+}
+
+type RankProbe = { center: Point; size: number; props: { radius?: number } };
+
+type RankBuilder = {
+  farthest(direction: 'x' | 'y' | 'z'): unknown;
+  nearest(direction: 'x' | 'y' | 'z'): unknown;
+  nth(direction: 'x' | 'y' | 'z', index: number): unknown;
+  largest(measure?: 'size' | 'radius'): unknown;
+  smallest(measure?: 'size' | 'radius'): unknown;
+};
+
+/** Two centers this close along an axis share a rank layer (mirrors the filter). */
+function rankLayerTolerance(): number {
+  return mmTol(1e-4);
+}
+
+/**
+ * Rank atoms: the set-level predicates that replace a numeric cut with a
+ * relation to the rest of the candidates. `farthest`/`nearest` per world
+ * axis when the picks share a center layer along it; `nth` when that layer
+ * is interior over the universe (the ends are the extremes' job); `largest`/
+ * `smallest` when the picks share a size (or radius) that is the universe's
+ * extreme. All are contextual — their truth depends on what the conjunction
+ * already narrowed the candidates to — and constant-free, so they join the
+ * robust pass and outrank every gap cut. `nth`'s index is a count, not a
+ * geometry constant, but a layer number is less self-evident than an extreme,
+ * so it ranks last among them.
+ */
+function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]): Atom<B>[] {
+  const atoms: Atom<B>[] = [];
+  if (probes.length === 0) {
+    return atoms;
+  }
+  const universeCenters = universe.map(shape => ShapeMeasure.centerOfMass(shape));
+
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const shared = sharedNumber(probes.map(p => p.center[axis]));
+    if (shared === null) {
+      continue;
+    }
+    atoms.push({
+      code: `.farthest('${axis}')`, addTo: b => b.farthest(axis),
+      weight: 19, constants: 0, needsScope: false, contextual: true,
+    });
+    atoms.push({
+      code: `.nearest('${axis}')`, addTo: b => b.nearest(axis),
+      weight: 19, constants: 0, needsScope: false, contextual: true,
+    });
+
+    // Interior layers: which index the picks' layer gets depends on what the
+    // conjunction has narrowed the candidates to, so every plausible index
+    // is offered (bounded by the universe's layer count) and the contextual
+    // evaluation keeps the ones that hold. Smaller indices read better —
+    // `nth('z', 1)` over `nth('z', -3)` — so they rank slightly higher; 0
+    // and -1 are `nearest`/`farthest`'s job.
+    const measures = universeCenters.map(c => c[axis]);
+    const layerCount = Math.max(...groupLayers(measures, rankLayerTolerance())) + 1;
+    const maxIndex = Math.min(layerCount - 2, 6);
+    for (let k = 1; k <= maxIndex; k++) {
+      for (const index of [k, -k - 1]) {
+        atoms.push({
+          code: `.nth('${axis}', ${index})`, addTo: b => b.nth(axis, index),
+          weight: 14 - k * 0.1, constants: 0, needsScope: false, contextual: true, minDepth: 1,
+        });
+      }
+    }
+  }
+
+  const size = sharedNumber(probes.map(p => p.size));
+  if (size !== null) {
+    const sizes = universe.map(shape => ShapeMeasure.size(shape));
+    const sizeTol = Math.max(size * 1e-6, sharedTolerance());
+    if (sizes.every(v => v <= size + sizeTol)) {
+      atoms.push({
+        code: '.largest()', addTo: b => b.largest(),
+        weight: 18, constants: 0, needsScope: false, contextual: true,
+      });
+    }
+    if (sizes.every(v => v >= size - sizeTol)) {
+      atoms.push({
+        code: '.smallest()', addTo: b => b.smallest(),
+        weight: 18, constants: 0, needsScope: false, contextual: true,
+      });
+    }
+  }
+
+  const radius = sharedNumber(probes.map(p => p.props.radius));
+  if (radius !== null) {
+    const radii = universe.map(shape => ShapeMeasure.radius(shape)).filter((r): r is number => r !== null);
+    const radiusTol = Math.max(radius * 1e-6, sharedTolerance());
+    if (radii.every(r => r <= radius + radiusTol)) {
+      atoms.push({
+        code: ".largest('radius')", addTo: b => b.largest('radius'),
+        weight: 17, constants: 0, needsScope: false, contextual: true,
+      });
+    }
+    if (radii.every(r => r >= radius - radiusTol)) {
+      atoms.push({
+        code: ".smallest('radius')", addTo: b => b.smallest('radius'),
+        weight: 17, constants: 0, needsScope: false, contextual: true,
+      });
+    }
+  }
+
+  return atoms;
 }
 
 /**

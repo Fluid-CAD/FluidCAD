@@ -1,9 +1,17 @@
 name: Deploy Website
 
+# Deploys when a GitHub release is published, not when the tag is pushed: the
+# installation page links the installers of the version in package.json
+# (DownloadLink reads it through customFields), and those URLs only resolve
+# once the release leaves its draft. The site is built from main rather than
+# the release tag so a docs fix landed after the tag ships with the release,
+# and `workflow_dispatch` redeploys main for docs-only changes in between
+# releases (mind that a bumped-but-unpublished version on main would link a
+# release that does not exist yet).
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -15,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Node
         uses: actions/setup-node@v4

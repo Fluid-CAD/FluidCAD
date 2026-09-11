@@ -225,7 +225,9 @@ jobs:
     needs: [engines, desktop]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # A draft release is invisible to a read-only token (`gh release view`
+      # reports "release not found"); write is what it takes to list one.
+      contents: write
     steps:
       - name: List the draft release assets
         env:

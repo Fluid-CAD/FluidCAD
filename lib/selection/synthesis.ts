@@ -9,7 +9,7 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink, FaceSource } from "./atoms.js";
+import { ParameterLink, FaceSource, InstanceSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
@@ -197,7 +197,7 @@ export function synthesizeSelectors(
       // leads when it needs no baked constant.
       if (wholeFamilies.length > 0) {
         const attempt = synthesizeGlobalCandidates(
-          scene, index, kind, [...pool, ...wholeFamilies.flatMap(e => e.attrs)], params, faceSources,
+          scene, index, kind, [...pool, ...wholeFamilies.flatMap(e => e.attrs)], params, faceSources, stmtBindable,
         );
         if (attempt.ok && (attempt.candidates[0].bakedConstants ?? 0) === 0) {
           result = attempt;
@@ -207,7 +207,7 @@ export function synthesizeSelectors(
 
       let alone: GroupResult | null = null;
       if (!result) {
-        alone = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources);
+        alone = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources, stmtBindable);
         if (alone.ok) {
           result = alone;
         }
@@ -233,7 +233,7 @@ export function synthesizeSelectors(
           }
           tried.add(key);
           const mergedPool = [...pool, ...merge.flatMap(e => e.attrs)];
-          const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources);
+          const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources, stmtBindable);
           if (retry.ok) {
             result = retry;
             merged = merge;
@@ -263,7 +263,7 @@ export function synthesizeSelectors(
     // partial family keeps its instance addresses.
     for (const family of collectWholeFamilies(sameKind()).values()) {
       const familyPool = family.flatMap(e => e.attrs);
-      const merged = synthesizeGlobalCandidates(scene, index, kind, familyPool, params, faceSources);
+      const merged = synthesizeGlobalCandidates(scene, index, kind, familyPool, params, faceSources, stmtBindable);
       if (merged.ok && (merged.candidates[0].bakedConstants ?? 0) === 0) {
         for (const e of family) {
           absorbed.add(e.bucket);
@@ -460,6 +460,42 @@ function callAccessor(target: object, accessor: string): SceneObject {
 }
 
 /**
+ * The repeat instance every pick in `pool` lives on, as a `from()` scope
+ * source — when all picks sit on solids owned by features in one slot of one
+ * bindable repeat. This reaches the clones bucket accessors cannot: a slot
+ * that repeats several features, or a dependency clone whose solid a
+ * repeated modifier owns. Empty when the picks span slots or repeats, or
+ * when the repeat cannot be bound.
+ */
+function sharedInstanceSources(
+  index: SelectionIndex,
+  pool: PickAttribution[],
+  stmtBindable?: (feature: SceneObject) => boolean,
+): InstanceSource[] {
+  let shared: { repeat: RepeatBase; slot: number } | null = null;
+  for (const attr of pool) {
+    const owner = attr.solidOwner;
+    const parent = owner ? owner.getParent() : null;
+    if (!owner || !(parent instanceof RepeatBase)) {
+      return [];
+    }
+    const slot = parent.slotOf(owner);
+    if (slot === null) {
+      return [];
+    }
+    if (shared && (shared.repeat !== parent || shared.slot !== slot)) {
+      return [];
+    }
+    shared = { repeat: parent, slot };
+  }
+  if (!shared || !canBindProducer(index, shared.repeat, stmtBindable)) {
+    return [];
+  }
+  const { repeat, slot } = shared;
+  return [{ feature: repeat, slot, resolve: () => repeat.instance(slot) }];
+}
+
+/**
  * Whether the emitted code can reference `feature` through a bound variable:
  * bindable structurally ({@link checkBindable}) and accepted by the
  * statement-level probe the server resolves from the live buffer. The one
@@ -601,6 +637,7 @@ function synthesizeGlobalCandidates(
   pool: PickAttribution[],
   params: ParameterLink[],
   faceSources: FaceSource[],
+  stmtBindable?: (feature: SceneObject) => boolean,
 ): GroupResult {
   const scope = resolvePartScope(scene, pool);
   if (scope.ok === false) {
@@ -608,8 +645,9 @@ function synthesizeGlobalCandidates(
   }
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
+  const instanceSources = sharedInstanceSources(index, pool, stmtBindable);
   const induced = induceFilterCandidates(
-    index, globalContext(scene, index, kind, params, scope.part, faceSources), pool, pickKeys,
+    index, globalContext(scene, index, kind, params, scope.part, faceSources, instanceSources), pool, pickKeys,
   );
   if (induced.length === 0) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
@@ -721,7 +759,10 @@ function synthesizeChainCandidates(
     return scope;
   }
 
-  const globalCtx = globalContext(scene, index, kind, params, scope.part, faceSources);
+  const globalCtx = globalContext(
+    scene, index, kind, params, scope.part, faceSources,
+    sharedInstanceSources(index, [chain.seed, ...members], stmtBindable),
+  );
   const candidates: SelectorPart[] = [];
 
   const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);

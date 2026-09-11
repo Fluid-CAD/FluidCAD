@@ -1,6 +1,7 @@
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { SceneObject } from "../common/scene-object.js";
+import { ISceneObject } from "../core/interfaces.js";
 import { Point } from "../math/point.js";
 import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
@@ -94,6 +95,16 @@ export type FaceSource = {
 };
 
 /**
+ * One instance of a bindable repeat that every pick lives on, usable as a
+ * `from()` scope: `select(edge().from(r.instance(1)).circle())`. This is
+ * the address of a clone the bucket accessors cannot reach — a slot that
+ * repeats several features, or a dependency clone (the extrude behind a
+ * repeated fillet). `resolve` is the very instance object the emitted
+ * `<var>.instance(<slot>)` evaluates to.
+ */
+export type InstanceSource = { feature: SceneObject; slot: number; resolve: () => SceneObject };
+
+/**
  * Format a dimension-like constant, preferring the name of an exactly-equal
  * user parameter. Exact equality (post-rounding) keeps the verification
  * invariant intact: the emitted expression evaluates to the same number the
@@ -153,8 +164,10 @@ export function instantiateEdgeAtoms(
   allowScoped: boolean,
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
+  instanceSources: InstanceSource[] = [],
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
+  atoms.push(...instanceAtoms<EdgeFilterBuilder>(instanceSources));
 
   const curveClass = sharedString(probes.map(p => p.props.curveType));
   if (curveClass === 'line') {
@@ -256,8 +269,10 @@ export function instantiateFaceAtoms(
   universe: Face[],
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
+  instanceSources: InstanceSource[] = [],
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
+  atoms.push(...instanceAtoms<FaceFilterBuilder>(instanceSources));
 
   const surfaceClass = sharedString(probes.map(p => p.props.surfaceType));
   if (surfaceClass === 'plane') {
@@ -477,6 +492,23 @@ function planeRefAtoms<B extends { onPlane(plane: Plane): unknown; above(plane: 
     }
   }
   return atoms;
+}
+
+/**
+ * `from({{ref}}.instance(k))` atoms: the repeat instance every pick lives on,
+ * as a scope. Constant-free and stronger than any plane reference — it names
+ * the instance outright, so the rest of the conjunction only has to describe
+ * the picks within it, exactly as it would on the original.
+ */
+function instanceAtoms<B extends { from(...objects: ISceneObject[]): unknown }>(
+  sources: InstanceSource[],
+): Atom<B>[] {
+  return sources.map(source => ({
+    code: `.from({{ref}}.instance(${source.slot}))`,
+    addTo: b => b.from(source.resolve() as unknown as ISceneObject),
+    weight: 24, constants: 0, needsScope: false,
+    ref: source.feature,
+  }));
 }
 
 /**

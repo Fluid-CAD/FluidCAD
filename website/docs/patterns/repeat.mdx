@@ -126,7 +126,7 @@ The instance is also a whole geometry: `fillet(2, r.instance(1))` rounds every e
 
 Slots are numbered like the [copy](/docs/patterns/copy) tool's: circular, mirror, rotate and matrix repeats keep the original at slot 0; a linear repeat linearizes its grid in axis order (the first axis varies slowest) with the original at its own cell — slot 0, or the centre cell when `centered`. The numbering is the one `skip` uses, and a skipped slot is an error to address.
 
-Picking a clone's edges in the viewport writes this form: the Fillet tool on the middle instance's rim emits `r.instance(1).endEdges()` and binds the repeat statement to `r`. Picking the same edges on every instance emits one scene-wide `select()` for the pattern instead.
+Picking a clone's edges in the viewport writes this form: the Fillet tool on the middle instance's rim emits `r.instance(1).endEdges()` and binds the repeat statement to `r`. When the repeat clones several features, or the pick lands on geometry a repeated fillet or chamfer took over, the tool scopes a `select()` to the instance instead — `select(edge().onPlane('xy').from(r.instance(1)))`. Picking the same edges on every instance emits one scene-wide `select()` for the pattern.
 
 ## Ribs and other features
 

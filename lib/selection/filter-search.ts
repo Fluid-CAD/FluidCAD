@@ -12,7 +12,9 @@ import { injectFilterScope } from "../filters/scope-injection.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { Atom, ParameterLink, FaceSource, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
+import {
+  Atom, ParameterLink, FaceSource, InstanceSource, instantiateEdgeAtoms, instantiateFaceAtoms,
+} from "./atoms.js";
 import { induceConjunctions } from "./induction.js";
 import { probeEdge, probeFace } from "./probe.js";
 
@@ -84,6 +86,7 @@ export function globalContext(
   params: ParameterLink[] = [],
   partScope: SceneObject | null = null,
   faceSources: FaceSource[] = [],
+  instanceSources: InstanceSource[] = [],
 ): InductionContext {
   // A face-group reference renders as `<var>.<accessor>()`, and the
   // variable only exists inside the part() callback that declared it — a
@@ -91,6 +94,9 @@ export function globalContext(
   // would emit an out-of-scope identifier that dies as an undefined variable
   // at build time. Scope the sources exactly like the universe below.
   const scopedFaceSources = faceSources.filter(
+    source => scene.findEnclosingPart(source.feature) === partScope,
+  );
+  const scopedInstanceSources = instanceSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
   const solids: Solid[] = [];
@@ -151,12 +157,14 @@ export function globalContext(
         true,
         params,
         scopedFaceSources,
+        scopedInstanceSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
         params,
         scopedFaceSources,
+        scopedInstanceSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };

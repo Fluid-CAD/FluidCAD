@@ -487,7 +487,7 @@ describe("apply-feature synthesis", () => {
     const a = extrude(10).new();
     setLocation(a, 4);
     sketch("xy", () => {
-        testRect(20, 20, { at: [0, 40] });
+        circle([10, 50], 20);
       });
     const b = extrude(10).new();
     setLocation(b, 8);
@@ -499,7 +499,8 @@ describe("apply-feature synthesis", () => {
     expect(solids.length).toBe(6);
 
     // Two features per instance: instance(k) cannot forward an accessor, so
-    // the clone stays unbindable and the pick goes through select().
+    // the clone stays unbindable and the pick goes through select() — scoped
+    // to the instance with from(r.instance(1)), never a gap cut.
     const middle = solids.find(s =>
       Explorer.findEdgesWrapped(s).every(eg => {
         const m = EdgeOps.getEdgeMidPoint(eg);
@@ -515,8 +516,49 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.parts).toHaveLength(1);
       expect(result.spec.parts[0].producer).toBeNull();
       expect(result.spec.parts[0].accessor).toBe("select");
-      expect(result.spec.parts[0].filterArgs).toMatch(/^edge\(\)\./);
-      expect(result.spec.producers.every(p => p.featureType !== "repeat-linear")).toBe(true);
+      expect(result.args).toContain("from(r.instance(1))");
+      expect(result.args).not.toMatch(/\d\d/);
+      const repeatProducer = result.spec.producers.find(p => p.featureType === "repeat-linear")!;
+      expect(repeatProducer).toBeDefined();
+      expect(repeatProducer.bind).toBe(true);
+      expect(result.spec.parts[0].refs).toContain(result.spec.producers.indexOf(repeatProducer));
+    }
+  });
+
+  it("scopes a dependency clone's pick with from(r.instance(k))", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const f = fillet(1, e.endEdges());
+    setLocation(f, 5);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, f);
+    setLocation(r, 6);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(3);
+
+    // The bottom rim of the middle instance attributes to the extrude clone
+    // pulled in behind the repeated fillet — not a slot root, so no accessor
+    // reaches it; the fillet clone owns the solid, and that is the instance.
+    const middle = solids.find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => {
+        const m = EdgeOps.getEdgeMidPoint(eg);
+        return m.x > 30 && m.x < 70;
+      }))!;
+    expect(middle).toBeDefined();
+    const refs = edgeRefsWhere(middle, m => Math.abs(m.z) < 1e-6);
+    expect(refs).toHaveLength(4);
+
+    const result = synthesizeApplyFeature(scene, refs, 'chamfer', 1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("select");
+      expect(result.args).toBe("select(edge().onPlane('xy').from(r.instance(1)))");
+      expect(result.spec.producers.some(p => p.featureType === "repeat-linear" && p.bind)).toBe(true);
     }
   });
 

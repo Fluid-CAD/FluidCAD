@@ -174,6 +174,8 @@ select(edge().from(a, b).circle())            // circle edges from either `a` or
 
 `from()` composes with the rest of the chain (AND), so `edge().from(a).onPlane("xy", 0)` returns edges from `a` that also lie on the XY plane.
 
+One instance of a `repeat()` pattern is a source object too: `select(edge().from(r.instance(1)).circle())` scopes the filter to the second instance of the repeat `r`. When the repeat clones a single feature, the instance also forwards that feature's accessors — `r.instance(1).endEdges()` — see [Selecting one instance](/docs/patterns/repeat#selecting-one-instance).
+
 ### Negation
 
 ```js
@@ -247,6 +249,8 @@ select(face().from(a, b).cylinder())          // cylindrical faces from either o
 ```
 
 `from()` composes with other filters as AND. When the surrounding `select()` is cloned by `repeat()` or `mirror()`, the references are remapped to the cloned objects automatically.
+
+One instance of a pattern is a source object too: `select(edge().from(r.instance(1)).circle())` scopes the filter to the second instance of the repeat `r`. When the repeat clones a single feature, the instance also forwards that feature's accessors — `r.instance(1).endEdges()` — see [Selecting one instance](/docs/patterns/repeat#selecting-one-instance).
 
 ### Negation
 

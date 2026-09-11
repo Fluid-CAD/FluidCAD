@@ -244,7 +244,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return allocated;
   }
 
-  private static collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
+  static collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
     const objects: SceneObject[] = [];
     for (const builder of filters) {
       for (const filter of builder.getFilters()) {

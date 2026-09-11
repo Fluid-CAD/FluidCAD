@@ -1051,6 +1051,103 @@ export interface ICopy extends ISceneObject {
   instance(index: number): ICopyInstance;
 }
 
+/**
+ * One instance of a 3D `repeat()` pattern. As a whole it is the repeated
+ * geometry at that slot — a whole-geometry operand (`fillet(2, r.instance(1))`)
+ * and a `from()` scope (`select(edge().from(r.instance(1)).circle())`).
+ * When the repeat clones exactly one feature per instance, the instance
+ * also forwards that feature's bucket accessors: `r.instance(1).endEdges()`
+ * is the clone's own end-edge bucket, with the same index and filter
+ * arguments the original's accessor takes.
+ */
+export interface IRepeatInstance extends ISelection {
+  /**
+   * The repeated feature's start faces at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's end (cap) faces at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's start edges at this instance.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's end (cap) edges at this instance.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's side faces at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's side edges at this instance.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's internal faces at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's internal edges at this instance.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's cap faces at this instance (thin-walled extrudes).
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's cap edges at this instance (thin-walled extrudes).
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The repeated feature's section edges at this instance, by index.
+   * @param indices - Edge indices within the section-edge bucket.
+   */
+  edges(...indices: number[]): ISelection;
+}
+
+/**
+ * A 3D `repeat()` — linear, circular, mirror, rotate or matrix. Its
+ * instances are addressable by slot, so one clone of a pattern can be
+ * selected without describing its position numerically.
+ */
+export interface IRepeat extends ISceneObject {
+  /**
+   * Selects one instance of the pattern: the repeated features at that slot
+   * as a whole geometry, plus their forwarded bucket accessors when the
+   * repeat clones a single feature (`r.instance(1).endEdges()`). Slot 0 is
+   * the original for circular, mirror, rotate and matrix repeats. Linear
+   * repeats linearize the grid in axis order (the first axis varies
+   * slowest) with the original at its own slot — 0 when not centered, the
+   * center slot when centered — the same numbering the `skip` option uses;
+   * a skipped slot is an error.
+   * @param index - The slot index.
+   */
+  instance(index: number): IRepeatInstance;
+}
+
 export interface IMirror extends IBooleanOperation {
   /**
    * Excludes the given objects from the mirror operation. Useful when

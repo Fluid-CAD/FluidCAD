@@ -8,7 +8,7 @@ description: "Creates linear repeated instances along an axis."
 
 Creates linear repeated instances along an axis.
 
-**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+**Returns**: [**`Repeat`**](/docs/api/types/repeat)
 
 :::tip
 See the [guide](/docs/patterns/repeat) for detailed usage examples.
@@ -17,7 +17,7 @@ See the [guide](/docs/patterns/repeat) for detailed usage examples.
 ## Signatures
 
 ```ts
-repeat(type: "linear", axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): SceneObject
+repeat(type: "linear", axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): Repeat
 ```
 
 Creates linear repeated instances along an axis.
@@ -32,7 +32,7 @@ Creates linear repeated instances along an axis.
 ---
 
 ```ts
-repeat(type: "linear", axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): SceneObject
+repeat(type: "linear", axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): Repeat
 ```
 
 Creates linear repeated instances along multiple axes.
@@ -57,7 +57,7 @@ Creates linear repeated instances along multiple axes.
 ---
 
 ```ts
-repeat(type: "circular", axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): SceneObject
+repeat(type: "circular", axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): Repeat
 ```
 
 Creates circular repeated instances around an axis.
@@ -82,7 +82,7 @@ Creates circular repeated instances around an axis.
 ---
 
 ```ts
-repeat(type: "mirror", plane: PlaneLike, ...objects: SceneObject[]): SceneObject
+repeat(type: "mirror", plane: PlaneLike, ...objects: SceneObject[]): Repeat
 ```
 
 Creates a mirrored instance of objects across a plane.
@@ -96,7 +96,7 @@ Creates a mirrored instance of objects across a plane.
 ---
 
 ```ts
-repeat(type: "rotate", axis: AxisLike, angle?: NumberParam, ...objects: SceneObject[]): SceneObject
+repeat(type: "rotate", axis: AxisLike, angle?: NumberParam, ...objects: SceneObject[]): Repeat
 ```
 
 Creates a rotated clone of objects around an axis.
@@ -111,7 +111,7 @@ Creates a rotated clone of objects around an axis.
 ---
 
 ```ts
-repeat(matrix: Matrix4, ...objects: SceneObject[]): SceneObject
+repeat(matrix: Matrix4, ...objects: SceneObject[]): Repeat
 ```
 
 Creates a transformed clone of objects using an arbitrary matrix.

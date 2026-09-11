@@ -1,0 +1,218 @@
+---
+sidebar_position: 10.8
+title: "RepeatInstance"
+description: "The RepeatInstance type. Extends Select."
+---
+
+# RepeatInstance
+
+Extends [`Select`](/docs/api/types/select)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### startFaces()
+
+```ts
+startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+```
+
+The repeated feature's start faces at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### endFaces()
+
+```ts
+endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+```
+
+The repeated feature's end (cap) faces at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### startEdges()
+
+```ts
+startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+```
+
+The repeated feature's start edges at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### endEdges()
+
+```ts
+endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+```
+
+The repeated feature's end (cap) edges at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### sideFaces()
+
+```ts
+sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+```
+
+The repeated feature's side faces at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### sideEdges()
+
+```ts
+sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+```
+
+The repeated feature's side edges at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### internalFaces()
+
+```ts
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+```
+
+The repeated feature's internal faces at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### internalEdges()
+
+```ts
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+```
+
+The repeated feature's internal edges at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### capFaces()
+
+```ts
+capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+```
+
+The repeated feature's cap faces at this instance (thin-walled extrudes).
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### capEdges()
+
+```ts
+capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+```
+
+The repeated feature's cap edges at this instance (thin-walled extrudes).
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
+### edges()
+
+```ts
+edges(...indices: number[]): ISelection
+```
+
+The repeated feature's section edges at this instance, by index.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...indices` | number[] | Edge indices within the section-edge bucket. *(optional)* |
+

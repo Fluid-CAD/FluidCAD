@@ -216,7 +216,7 @@ describe('select→apply-feature end to end', () => {
       .toBeLessThan(ShapeProps.getProperties((solid as Solid).getShape()).volumeMm3 * 0.5);
   });
 
-  it('fillets one repeat instance through a synthesized scene-wide select()', async () => {
+  it('fillets one repeat instance through r.instance(k)', async () => {
     const code = [
       `import { sketch, line, extrude, repeat } from 'fluidcad/core'`,
       ``,
@@ -248,7 +248,8 @@ describe('select→apply-feature end to end', () => {
     }
     expect(solids).toHaveLength(3);
 
-    // The middle instance (x ∈ [40, 60]) is a clone — no variable to bind.
+    // The middle instance (x ∈ [40, 60]) is a clone — it binds through the
+    // repeat statement's variable and its slot.
     const middle = solids.find(s => {
       const xs = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg).x);
       return Math.min(...xs) > 30 && Math.max(...xs) < 70;
@@ -262,14 +263,14 @@ describe('select→apply-feature end to end', () => {
     if (synthesis.ok !== true) {
       return;
     }
-    expect(synthesis.preview).toMatch(/^fillet\(2, select\(edge\(\)\./);
+    expect(synthesis.preview).toBe('fillet(2, r.instance(1).endEdges())');
 
     const edited = await applyFeatureEdit(code, synthesis.spec);
     expect(edited.error).toBeUndefined();
-    expect(edited.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
-    expect(edited.newCode).toContain('fillet(2, select(edge().');
-    // The repeat statement is untouched — no variable was bound to a clone.
-    expect(edited.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
+    expect(edited.newCode).not.toContain(`from 'fluidcad/filters'`);
+    // The bare repeat statement gains a binding for the instance address.
+    expect(edited.newCode).toContain(`const r = repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
+    expect(edited.newCode).toContain('fillet(2, r.instance(1).endEdges())');
 
     // Execute the edited program: exactly one instance gains fillet
     // cylinders, the other two stay plain boxes.

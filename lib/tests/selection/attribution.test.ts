@@ -443,7 +443,7 @@ describe("apply-feature synthesis", () => {
     }
   });
 
-  it("synthesizes a scene-wide select() for a repeat-instance pick (tier 3)", () => {
+  it("binds a repeat clone through r.instance(k) (tier 0)", () => {
     sketch("xy", () => {
         testRect(20, 20);
       });
@@ -456,10 +456,57 @@ describe("apply-feature synthesis", () => {
     const solids = findSolids(scene);
     expect(solids.length).toBe(3);
 
-    // The middle instance's whole top rim: no variable can be bound to a
-    // clone, so the synthesizer brackets the instance with plane predicates.
+    // The middle instance's whole top rim: the clone binds through the
+    // repeat's variable and its slot, so the whole-bucket form applies —
+    // no plane brackets with gap constants.
     const cloneSolid = solids[1];
     const refs = edgeRefsWhere(cloneSolid, m => Math.abs(m.z - 10) < 1e-6);
+    expect(refs).toHaveLength(4);
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].producer).toBe(0);
+      expect(result.spec.parts[0].accessor).toBe("instance(1).endEdges");
+      expect(result.spec.parts[0].filterArgs).toBeNull();
+      expect(result.spec.parts[0].indices).toBeNull();
+      expect(result.spec.producers).toHaveLength(1);
+      expect(result.spec.producers[0].featureType).toBe("repeat-linear");
+      expect(result.spec.producers[0].line).toBe(6);
+      expect(result.spec.producers[0].bind).toBe(true);
+      expect(result.spec.imports).not.toContain("select");
+      expect(result.preview).toBe("fillet(2, r.instance(1).endEdges())");
+    }
+  });
+
+  it("synthesizes a scene-wide select() when a clone's slot repeats several features (tier 3)", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const a = extrude(10).new();
+    setLocation(a, 4);
+    sketch("xy", () => {
+        testRect(20, 20, { at: [0, 40] });
+      });
+    const b = extrude(10).new();
+    setLocation(b, 8);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, a, b);
+    setLocation(r, 10);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids.length).toBe(6);
+
+    // Two features per instance: instance(k) cannot forward an accessor, so
+    // the clone stays unbindable and the pick goes through select().
+    const middle = solids.find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => {
+        const m = EdgeOps.getEdgeMidPoint(eg);
+        return m.x > 30 && m.x < 70 && m.y < 30;
+      }))!;
+    expect(middle).toBeDefined();
+    const refs = edgeRefsWhere(middle, m => Math.abs(m.z - 10) < 1e-6);
     expect(refs).toHaveLength(4);
 
     const result = synthesizeApplyFeature(scene, refs, 'fillet', 2);
@@ -469,17 +516,7 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.parts[0].producer).toBeNull();
       expect(result.spec.parts[0].accessor).toBe("select");
       expect(result.spec.parts[0].filterArgs).toMatch(/^edge\(\)\./);
-      // The rim height comes from the source extrude's end plane (a bound
-      // reference, not a baked constant); only the instance brackets keep
-      // constants — nothing else separates a clone from its twins.
-      expect(result.spec.producers).toHaveLength(1);
-      expect(result.spec.producers[0].featureType).toBe("extrude");
-      expect(result.spec.producers[0].bind).toBe(true);
-      expect(result.spec.parts[0].refs).toEqual([0]);
-      expect(result.spec.imports).toEqual(expect.arrayContaining(["select", "edge"]));
-      expect(result.preview).toBe(
-        "fillet(2, select(edge().onPlane(e.endFaces()).above('yz', 30).below('yz', 70)))",
-      );
+      expect(result.spec.producers.every(p => p.featureType !== "repeat-linear")).toBe(true);
     }
   });
 
@@ -496,9 +533,9 @@ describe("apply-feature synthesis", () => {
     const solids = findSolids(scene);
 
     // One edge on each clone instance, on opposite sides (y = 0 vs y = 20):
-    // no single conjunction covers both without also matching their twins, so
-    // the synthesizer must fall back to one arg per pick. (The original
-    // instance is bindable, so both picks must land on clones.)
+    // each clone binds through its own slot, so the statement takes one
+    // instance accessor per pick — and never merges them into a select(),
+    // since the picks do not span the whole family.
     const refs = [
       ...edgeRefsWhere(solids[1], m => Math.abs(m.y) < 1e-6 && Math.abs(m.z - 10) < 1e-6),
       ...edgeRefsWhere(solids[2], m => Math.abs(m.y - 20) < 1e-6 && Math.abs(m.z - 10) < 1e-6),
@@ -508,9 +545,40 @@ describe("apply-feature synthesis", () => {
     const result = synthesizeApplyFeature(scene, refs, 'fillet', 1);
     expect(result.ok).toBe(true);
     if (result.ok) {
+      expect(result.spec.parts).toHaveLength(2);
+      const accessors = result.spec.parts.map(p => p.accessor).sort();
+      expect(accessors).toEqual(["instance(1).endEdges", "instance(2).endEdges"]);
+      expect(result.spec.producers).toHaveLength(1);
+      expect(result.spec.producers[0].featureType).toBe("repeat-linear");
+      expect(result.args).toMatch(/^r\.instance\(1\)\.endEdges\(.+\), r\.instance\(2\)\.endEdges\(.+\)$/);
+    }
+  });
+
+  it("merges a whole-family pick into one select() when it needs no constant", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 6);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids.length).toBe(3);
+
+    // The top rim of every instance: the pattern's geometry, not three
+    // addresses — one constant-free select() over the family's end plane.
+    const refs = solids.flatMap(s => edgeRefsWhere(s, m => Math.abs(m.z - 10) < 1e-6));
+    expect(refs).toHaveLength(12);
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
       expect(result.spec.parts).toHaveLength(1);
       expect(result.spec.parts[0].accessor).toBe("select");
-      expect(result.spec.parts[0].filterArgs).toMatch(/^edge\(\)\..*, edge\(\)\./);
+      expect(result.spec.parts[0].filterArgs).not.toMatch(/\d\d/);
+      expect(result.args).not.toContain("instance(");
     }
   });
 
@@ -625,7 +693,7 @@ describe("apply-feature synthesis", () => {
     }
   });
 
-  it("synthesizes a select() withTangents chain on a repeat instance", () => {
+  it("binds a tangent chain on a repeat instance through r.instance(k)", () => {
     sketch("xy", () => {
         testRect(20, 20);
         fillet(5);
@@ -659,10 +727,13 @@ describe("apply-feature synthesis", () => {
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
+      // The chain covers the clone's whole end-edge bucket, reached through
+      // its repeat slot; the tangent-chain form stays on as an alternative.
       expect(result.spec.parts).toHaveLength(1);
-      expect(result.spec.parts[0].accessor).toBe("select");
-      expect(result.args).toMatch(/^select\(edge\(\)\./);
-      expect(result.args).toContain(".withTangents()");
+      expect(result.spec.parts[0].accessor).toBe("instance(1).endEdges");
+      expect(result.args).toBe("r.instance(1).endEdges()");
+      expect(result.alternatives.some(a =>
+        a.startsWith("r.instance(1).endEdges(edge().") && a.includes(".withTangents()"))).toBe(true);
     }
   });
 
@@ -1072,7 +1143,7 @@ describe("producer naming", () => {
     }
   });
 
-  it("labels clone picks honestly in the teach-mode expression", () => {
+  it("shows the instance address for an addressable clone pick", () => {
     sketch("xy", () => {
         testRect(20, 20);
       });
@@ -1092,11 +1163,41 @@ describe("producer naming", () => {
     const pick = explainSelection(scene, [allEdgeRefs(clone)[0]]).picks[0];
     expect(pick.attributed).toBe(true);
     expect(pick.producer!.isClone).toBe(true);
-    // No variable can be bound to a clone — the accessor form (`e.endEdges(0)`)
-    // would be a lie, so the tooltip says what will really be synthesized.
+    // The clone binds through its repeat's slot, so the tooltip shows the
+    // instance address the synthesizer will write — never a bare `e.`.
+    expect(pick.expression).toMatch(/^r\.instance\([12]\)\.\w+Edges\(\d+\) — /);
+    expect(pick.expression).toContain('of extrude() (instance of repeat @ line 6)');
+    expect(pick.expression).not.toMatch(/^e\./);
+  });
+
+  it("labels an unaddressable clone pick honestly in the teach-mode expression", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const a = extrude(10).new();
+    setLocation(a, 4);
+    sketch("xy", () => {
+        testRect(20, 20, { at: [0, 40] });
+      });
+    const b = extrude(10).new();
+    setLocation(b, 8);
+    const r = repeat("linear", "x", { count: 2, offset: 40 }, a, b);
+    setLocation(r, 10);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    const clone = solids.find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => EdgeOps.getEdgeMidPoint(eg).x > 30))!;
+    expect(clone).toBeDefined();
+
+    const pick = explainSelection(scene, [allEdgeRefs(clone)[0]]).picks[0];
+    expect(pick.attributed).toBe(true);
+    expect(pick.producer!.isClone).toBe(true);
+    // Two features per instance: no accessor forwards, so the tooltip says
+    // what will really be synthesized.
     expect(pick.expression).toContain('(repeat instance)');
     expect(pick.expression).toContain('select()');
-    expect(pick.expression).not.toMatch(/^e\./);
+    expect(pick.expression).not.toMatch(/^[er]\./);
   });
 
   it("falls back to hint names when the namer throws or returns null", () => {

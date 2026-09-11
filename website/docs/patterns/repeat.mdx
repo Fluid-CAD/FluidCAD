@@ -109,6 +109,25 @@ Each repetition cuts into the same tray — one solid with 14 pockets.
 
 ![Ice cube tray with repeated pockets](/img/docs/patterns/pattern-ice-tray.png)
 
+## Selecting one instance
+
+`repeat()` returns the pattern, and `instance(k)` addresses one of its instances without describing where it is. When the repeat clones a single feature, the instance forwards that feature's selection accessors, so a clone is selected exactly like the original:
+
+```js
+const e = extrude(10)
+const r = repeat("linear", "x", { count: 3, offset: 40 }, e)
+
+fillet(2, e.endEdges())                 // the original's top rim
+fillet(2, r.instance(1).endEdges())     // the middle instance's top rim
+fillet(2, r.instance(2).sideEdges(0))   // one side edge of the last instance
+```
+
+The instance is also a whole geometry: `fillet(2, r.instance(1))` rounds every edge of that instance, and `select(edge().from(r.instance(1)).circle())` scopes a filter to it — the form to use when the repeat clones several features at once, where a forwarded accessor would be ambiguous.
+
+Slots are numbered like the [copy](/docs/patterns/copy) tool's: circular, mirror, rotate and matrix repeats keep the original at slot 0; a linear repeat linearizes its grid in axis order (the first axis varies slowest) with the original at its own cell — slot 0, or the centre cell when `centered`. The numbering is the one `skip` uses, and a skipped slot is an error to address.
+
+Picking a clone's edges in the viewport writes this form: the Fillet tool on the middle instance's rim emits `r.instance(1).endEdges()` and binds the repeat statement to `r`. Picking the same edges on every instance emits one scene-wide `select()` for the pattern instead.
+
 ## Ribs and other features
 
 Anything a create feature returns can be repeated, including a [rib](/docs/3d-operations/rib#patterning-ribs) fanned around an axis, a fillet, or a set of features together. Repeating a feature that was applied to a selection re-maps the selection to the cloned geometry automatically.

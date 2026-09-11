@@ -1425,10 +1425,26 @@ const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
 };
 
 /** The chain-root callees producers of `featureType` may bind. */
+/**
+ * Chain-root callees per repeat feature type: a clone's picks bind the
+ * `repeat()` statement itself (`r.instance(k).endEdges()`). `mirror` is the
+ * `getType()` of both `repeat('mirror', …)` and the `mirror()` builder.
+ */
+const REPEAT_PRODUCER_CALLEES: Record<string, string[]> = {
+  'repeat-linear': ['repeat'],
+  'repeat-circular': ['repeat'],
+  'repeat-matrix': ['repeat'],
+  'mirror': ['repeat', 'mirror'],
+};
+
 function producerCallees(featureType: string): Set<string> {
   const sketchCallees = SKETCH_PRODUCER_CALLEES[featureType];
   if (sketchCallees) {
     return new Set(sketchCallees);
+  }
+  const repeatCallees = REPEAT_PRODUCER_CALLEES[featureType];
+  if (repeatCallees) {
+    return new Set(repeatCallees);
   }
   return featureType === 'feature' ? REPEAT_TARGET_CALLEES : PRODUCER_CALLEES;
 }

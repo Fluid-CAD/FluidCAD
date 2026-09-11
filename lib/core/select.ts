@@ -17,19 +17,20 @@ function build(context: SceneParserContext): SelectFunction {
   return function select(): SelectSceneObject {
     const params = Array.from(arguments);
 
-    let selectObject: SelectSceneObject;
     if (params.length === 0) {
       throw new Error("At least one argument is required for select function");
     }
-    else if (params.length >= 1) {
-      const actualFilters = params as FilterBuilderBase<Shape>[];
-      selectObject = new SelectSceneObject(actualFilters);
-    }
+    const actualFilters = params as FilterBuilderBase<Shape>[];
+    const selectObject = new SelectSceneObject(actualFilters);
 
-    if (!selectObject) {
-      throw new Error("Invalid arguments for select function");
+    // A lazy `from()` operand (`r.instance(1)`, `e.endFaces()`) only holds
+    // shapes once built; register it ahead of the select so the build loop
+    // resolves it first, exactly as fillet() does for its selections.
+    for (const obj of SelectSceneObject.collectFromSceneObjects(actualFilters)) {
+      if (obj.isLazy()) {
+        context.addSceneObject(obj);
+      }
     }
-
     context.addSceneObject(selectObject);
     return selectObject;
   }

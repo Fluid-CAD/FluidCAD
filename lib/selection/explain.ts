@@ -7,7 +7,9 @@ import { FaceOps } from "../oc/face-ops.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { BucketHit, BucketRecord, SelectionIndex } from "./selection-index.js";
 import { attributePick, inPartScope, pickPartScope, PickAttribution } from "./attribution.js";
-import { canBindProducer, synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
+import {
+  canBindProducer, checkBindable, producerBinding, synthesizeSelectors, SelectorChain, SelectorPart,
+} from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
@@ -787,11 +789,18 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
       isClone: !!feature.getCloneSource(),
     };
     const at = loc ? ` @ line ${loc.line}` : '';
-    const bindable = !explanation.producer.sharedCallSite && !explanation.producer.isClone;
+    // A clone binds through its repeat's variable (`r.instance(k)`) when the
+    // repeat can address it; a shared call site never binds.
+    const binding = producerBinding(feature);
+    const bindable = !explanation.producer.sharedCallSite
+      && (!explanation.producer.isClone || checkBindable(index, feature) === null);
     if (bindable) {
-      const hint = nameHintFor(feature.getType());
+      const hint = nameHintFor(binding.producer.getType());
+      const repeatLoc = binding.producer !== feature ? binding.producer.getSourceLocation() : null;
+      const where = repeatLoc ? ` (instance of repeat @ line ${repeatLoc.line})` : at;
       explanation.expression =
-        `${hint}.${def.accessor}(${attr.producer.index}) — ${def.key.replace('-', ' ')} of ${feature.getType()}()${at}`;
+        `${hint}.${binding.accessorPrefix}${def.accessor}(${attr.producer.index}) — `
+        + `${def.key.replace('-', ' ')} of ${feature.getType()}()${where}`;
     } else {
       // No variable can be bound to a clone or shared call site, so the
       // accessor form would be a lie — say what will actually be synthesized.

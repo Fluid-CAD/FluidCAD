@@ -82,7 +82,16 @@ export type ParameterLink = { name: string; value: number };
  * are not one plane; `members` are what `belongsToFace(<var>.<accessor>())`
  * looks edges up in.
  */
-export type FaceSource = { feature: SceneObject; accessor: string; members: Face[]; plane: Plane | null };
+export type FaceSource = {
+  /** The producer the emitted code binds a variable to (a repeat for a clone's group). */
+  feature: SceneObject;
+  /** Accessor chain after the variable, e.g. `endFaces` or `instance(1).endFaces`. */
+  accessor: string;
+  members: Face[];
+  plane: Plane | null;
+  /** Evaluates the accessor exactly as the emitted `<var>.<accessor>()` would. */
+  resolve: () => SceneObject;
+};
 
 /**
  * Format a dimension-like constant, preferring the name of an exactly-equal
@@ -487,10 +496,9 @@ function faceRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
     }
     // Evaluate through the very accessor object the emitted code names —
     // the lazy selection resolves the recorded group on demand.
-    const accessor = source.feature as unknown as Record<string, () => SceneObject>;
     atoms.push({
       code: `.belongsToFace({{ref}}.${source.accessor}())`,
-      addTo: b => b.belongsToFace(accessor[source.accessor]()),
+      addTo: b => b.belongsToFace(source.resolve()),
       weight: 20, constants: 0, needsScope: false,
       ref: source.feature,
     });

@@ -114,7 +114,7 @@ export const features: FeatureEntry[] = [
   { name: 'rotate', displayName: 'rotate', category: ['transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 2 },
   { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'IMirror', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 3, sidebarPositions: { '2d': 28 } },
   { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ICopy', relatedGuide: '/docs/patterns/copy', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
-  { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/patterns/repeat', sidebarPosition: 5 },
+  { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'IRepeat', relatedGuide: '/docs/patterns/repeat', sidebarPosition: 5 },
 
   // Utilities
   { name: 'select', displayName: 'select', category: 'utilities', sourceFile: 'core/select.ts', interfaceName: 'SelectFunction', returnType: 'ISelect', relatedGuide: '/docs/3d-operations/selection-and-filters', sidebarPosition: 1 },
@@ -159,6 +159,8 @@ export const types: TypeEntry[] = [
   { name: 'ISweep', displayName: 'Sweep', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 10 },
   { name: 'IMirror', displayName: 'Mirror', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 10.5 },
   { name: 'ICopy', displayName: 'Copy', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 10.6 },
+  { name: 'IRepeat', displayName: 'Repeat', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 10.7 },
+  { name: 'IRepeatInstance', displayName: 'RepeatInstance', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 10.8 },
   { name: 'ICommon', displayName: 'Common', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 11 },
   { name: 'IShell', displayName: 'Shell', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12 },
   { name: 'IDraft', displayName: 'Draft', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 29 },
@@ -336,6 +338,8 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IPlane': 'Plane',
   'IAxis': 'Axis',
   'ISelect': 'Select',
+  'IRepeat': 'Repeat',
+  'IRepeatInstance': 'RepeatInstance',
   'FaceFilterBuilder': 'FaceFilter',
   'EdgeFilterBuilder': 'EdgeFilter',
   'Point2DLike': 'Point2DLike',

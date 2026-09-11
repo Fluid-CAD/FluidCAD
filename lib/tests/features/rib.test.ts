@@ -284,7 +284,7 @@ describe("rib", () => {
 
     it("repeat circular on extended rib should produce valid copies", async () => {
       const repeatModule = await import("../../core/repeat.js");
-      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+      const repeat = (repeatModule as unknown as { default: (...args: unknown[]) => SceneObject }).default;
 
       // The scope (box + boss) must be rotationally symmetric about Z so that a
       // 90°/180°/270° clone really is congruent to the original — otherwise the
@@ -349,7 +349,7 @@ describe("rib", () => {
 
     it("repeat mirror keeps the parallel rib on the correct side", async () => {
       const repeatModule = await import("../../core/repeat.js");
-      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+      const repeat = (repeatModule as unknown as { default: (...args: unknown[]) => SceneObject }).default;
 
       // Box centered on the origin and symmetric across the front (XZ) plane,
       // so mirroring across "front" (Y → −Y) maps the scope onto itself. The
@@ -561,7 +561,7 @@ describe("rib", () => {
 
     it("repeat circular preserves draft on every rotated clone", async () => {
       const repeatModule = await import("../../core/repeat.js");
-      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+      const repeat = (repeatModule as unknown as { default: (...args: unknown[]) => SceneObject }).default;
 
       sketch("top", () => {
           testRect(100, 100, { at: [-50, -50] });

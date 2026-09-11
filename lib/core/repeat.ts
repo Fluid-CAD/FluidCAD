@@ -7,7 +7,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { LinearRepeatOptions, RepeatAxisSource, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
-import { ISceneObject } from "./interfaces.js";
+import { IRepeat, ISceneObject } from "./interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 import { PlaneLike } from "../math/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
@@ -15,6 +15,7 @@ import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { resolveAxis, resolvePlane } from "../helpers/resolve.js";
 import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { RepeatBase, RepeatSlot } from "../features/repeat-base.js";
 
 /**
  * Resolve a repeat axis argument to a value usable by LazyMatrix. Scene-
@@ -38,6 +39,23 @@ function resolveRepeatAxis(arg: unknown, context: SceneParserContext): RepeatAxi
 
 export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
+/**
+ * The clones of the repeat's own targets among everything `cloneWithTransform`
+ * produced (dependency and child clones included) — what `instance(k)`
+ * addresses and forwards accessors to.
+ */
+function rootClones(cloned: SceneObject[], objects: SceneObject[]): SceneObject[] {
+  return cloned.filter(copy => {
+    const source = copy.getCloneSource();
+    return source !== null && objects.includes(source);
+  });
+}
+
+/** Original at slot 0, the single clone at slot 1 (mirror, rotate, matrix). */
+function recordPairSlots(feature: RepeatBase, objects: SceneObject[], cloned: SceneObject[]): void {
+  feature.setInstanceSlots([objects, rootClones(cloned, objects)], 0);
+}
+
 interface RepeatFunction {
   /**
    * Creates linear repeated instances along an axis.
@@ -46,7 +64,7 @@ interface RepeatFunction {
    * @param options - Repeat count, spacing, etc.
    * @param objects - The objects to repeat (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: ISceneObject[]): IRepeat;
   /**
    * Creates linear repeated instances along multiple axes.
    * @param type - Must be `'linear'`
@@ -54,7 +72,7 @@ interface RepeatFunction {
    * @param options - Repeat count, spacing, etc.
    * @param objects - The objects to repeat (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: ISceneObject[]): IRepeat;
 
   /**
    * Creates circular repeated instances around an axis.
@@ -63,7 +81,7 @@ interface RepeatFunction {
    * @param options - Repeat count, angle, etc.
    * @param objects - The objects to repeat (defaults to last object)
    */
-  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): IRepeat;
 
   /**
    * Creates a mirrored instance of objects across a plane.
@@ -71,7 +89,7 @@ interface RepeatFunction {
    * @param plane - The plane to mirror across
    * @param objects - The objects to mirror (defaults to last object)
    */
-  (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): IRepeat;
 
   /**
    * Creates a rotated clone of objects around an axis.
@@ -80,14 +98,14 @@ interface RepeatFunction {
    * @param angle - The rotation angle in degrees (defaults to 90)
    * @param objects - The objects to rotate (defaults to last object)
    */
-  (type: 'rotate', axis: AxisLike, angle?: NumberParam, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'rotate', axis: AxisLike, angle?: NumberParam, ...objects: ISceneObject[]): IRepeat;
 
   /**
    * Creates a transformed clone of objects using an arbitrary matrix.
    * @param matrix - The transformation matrix to apply
    * @param objects - The objects to transform (defaults to last object)
    */
-  (matrix: Matrix4, ...objects: ISceneObject[]): ISceneObject;
+  (matrix: Matrix4, ...objects: ISceneObject[]): IRepeat;
 }
 
 function build(context: SceneParserContext): RepeatFunction {
@@ -109,6 +127,7 @@ function build(context: SceneParserContext): RepeatFunction {
       const lazy = LazyMatrix.of(matrix);
       const feature = new RepeatMatrix(lazy, objects);
       const cloned = cloneWithTransform(objects, lazy, feature);
+      recordPairSlots(feature, objects, cloned);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);
@@ -145,6 +164,10 @@ function build(context: SceneParserContext): RepeatFunction {
         const repeat = new RepeatLinear(axisSources, options, objects);
 
         const transformedObjects: SceneObject[] = [];
+        // One slot per grid cell in combination order; the original keeps its
+        // own cell, skipped cells stay null.
+        const slots: RepeatSlot[] = [];
+        let originalSlot = 0;
 
         const axisOffsets = axisSources.map((axis, i) => {
           const count = counts[i] ?? counts[0];
@@ -169,20 +192,20 @@ function build(context: SceneParserContext): RepeatFunction {
 
         for (const indices of indexCombinations) {
           // Skip the origin instance
-          if (options.centered) {
-            if (indices.every((idx, a) => idx === Math.floor(axisOffsets[a].count / 2))) {
-              continue;
-            }
-          } else {
-            if (indices.every(i => i === 0)) {
-              continue;
-            }
+          const isOrigin = options.centered
+            ? indices.every((idx, a) => idx === Math.floor(axisOffsets[a].count / 2))
+            : indices.every(i => i === 0);
+          if (isOrigin) {
+            originalSlot = slots.length;
+            slots.push(objects);
+            continue;
           }
 
           // Skip if in the skip list
           if (options.skip?.some(s =>
             s.length === indices.length && s.every((v, i) => v === indices[i])
           )) {
+            slots.push(null);
             continue;
           }
 
@@ -209,8 +232,10 @@ function build(context: SceneParserContext): RepeatFunction {
 
           const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
+          slots.push(rootClones(cloned, objects));
         }
 
+        repeat.setInstanceSlots(slots, originalSlot);
         context.addSceneObject(repeat);
         context.addSceneObjects(transformedObjects);
         return repeat;
@@ -235,9 +260,12 @@ function build(context: SceneParserContext): RepeatFunction {
         const startOffset = centered ? -(count * offset) / 2 : 0;
 
         const transformedObjects: SceneObject[] = [];
+        // Rotation step i is slot i; the original is step 0.
+        const slots: RepeatSlot[] = [objects];
 
         for (let i = 1; i < count; i++) {
           if (skip?.includes(i)) {
+            slots.push(null);
             continue;
           }
 
@@ -246,8 +274,10 @@ function build(context: SceneParserContext): RepeatFunction {
 
           const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
+          slots.push(rootClones(cloned, objects));
         }
 
+        repeat.setInstanceSlots(slots, 0);
         context.addSceneObject(repeat);
         context.addSceneObjects(transformedObjects);
         return repeat;
@@ -265,6 +295,7 @@ function build(context: SceneParserContext): RepeatFunction {
       const lazy = LazyMatrix.mirror(planeObj);
       const mirrorFeature = new MirrorFeature(planeObj, lazy, targetObjects);
       const mirrorTree = cloneWithTransform(targetObjects, lazy, mirrorFeature);
+      recordPairSlots(mirrorFeature, targetObjects, mirrorTree);
 
       context.addSceneObject(mirrorFeature);
       context.addSceneObjects(mirrorTree);
@@ -291,6 +322,7 @@ function build(context: SceneParserContext): RepeatFunction {
       const sources = axis instanceof AxisObjectBase ? [axis] : [];
       const feature = new RepeatMatrix(lazy, objects, sources);
       const cloned = cloneWithTransform(objects, lazy, feature);
+      recordPairSlots(feature, objects, cloned);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);

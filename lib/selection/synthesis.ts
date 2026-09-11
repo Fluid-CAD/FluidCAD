@@ -1,4 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
+import { RepeatBase } from "../features/repeat-base.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Plane } from "../math/plane.js";
@@ -33,6 +34,8 @@ export type SelectorPart = {
    * (plane-reference atoms); each needs a bound variable at render time.
    */
   refs?: SceneObject[];
+  /** Geometry constants the filter bakes that no user parameter tracks (filter forms). */
+  bakedConstants?: number;
   tier: 0 | 1 | 2 | 3 | 4;
 };
 
@@ -177,44 +180,97 @@ export function synthesizeSelectors(
   const globalResults: GroupResult[] = [];
   const absorbed = new Set<BucketRecord>();
   for (const kind of ['edge', 'face'] as const) {
+    const sameKind = () => [...bucketResults.entries()]
+      .filter(([bucket]) => bucket.def.kind === kind && !absorbed.has(bucket))
+      .map(([bucket, group]) => ({ bucket, attrs: group.attrs }));
+
     const pool = globalPools[kind];
-    if (pool.length === 0) {
-      continue;
-    }
-    let result = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources);
-    if (result.ok === false) {
-      // The pool must resolve to exactly its own picks — but when the user
-      // selected a whole repeat family (original + clones), the original's
-      // picks were routed to its bindable bucket, and no filter separates the
-      // clones from that geometrically identical twin. Retry over the union:
-      // first the pool plus the same-kind buckets of the clones' source
-      // features, then plus every same-kind bucket. On success the merged
-      // select() replaces the absorbed bucket groups.
-      const sameKind = [...bucketResults.entries()]
-        .filter(([bucket]) => bucket.def.kind === kind);
-      const sources = new Set(pool.map(a =>
-        a.producer ? a.producer.bucket.feature.getCloneSource() : null));
-      const family = sameKind.filter(([bucket]) => sources.has(bucket.feature));
-      for (const merge of family.length > 0 && family.length < sameKind.length
-        ? [family, sameKind] : [sameKind]) {
-        if (merge.length === 0) {
-          break;
-        }
-        const mergedPool = [...pool, ...merge.flatMap(([, group]) => group.attrs)];
-        const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources);
-        if (retry.ok) {
-          result = retry;
-          for (const [bucket] of merge) {
-            absorbed.add(bucket);
-          }
-          break;
+    if (pool.length > 0) {
+      const entries = sameKind();
+      const wholeFamilies = [...collectWholeFamilies(entries).values()].flat();
+      let result: GroupResult | null = null;
+      let merged: FamilyGroup[] = [];
+
+      // A whole repeat family alongside the pool (the rim arcs a pattern of
+      // cuts left on the body, plus the cuts' own arcs on every instance):
+      // one select() over pool and family describes the pattern, so it
+      // leads when it needs no baked constant.
+      if (wholeFamilies.length > 0) {
+        const attempt = synthesizeGlobalCandidates(
+          scene, index, kind, [...pool, ...wholeFamilies.flatMap(e => e.attrs)], params, faceSources,
+        );
+        if (attempt.ok && (attempt.candidates[0].bakedConstants ?? 0) === 0) {
+          result = attempt;
+          merged = wholeFamilies;
         }
       }
+
+      let alone: GroupResult | null = null;
+      if (!result) {
+        alone = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources);
+        if (alone.ok) {
+          result = alone;
+        }
+      }
+
+      if (!result) {
+        // The pool must resolve to exactly its own picks — but a pick that
+        // no bucket binds (a clone the repeat cannot address, an edge born
+        // in a later boolean) often has geometrically identical twins that
+        // did bind, and no filter separates it from them. Retry over the
+        // union: first the pool plus the buckets of the unbindable clones'
+        // source features, then plus every whole repeat family, then plus
+        // every same-kind bucket. On success the merged select() replaces
+        // the absorbed bucket groups.
+        const sources = new Set(pool.map(a =>
+          a.producer ? a.producer.bucket.feature.getCloneSource() : null));
+        const cloneFamily = entries.filter(e => sources.has(e.bucket.feature));
+        const tried = new Set<string>();
+        for (const merge of [cloneFamily, wholeFamilies, entries]) {
+          const key = merge.map(e => e.bucket.feature.id + e.bucket.def.key).sort().join(',');
+          if (merge.length === 0 || tried.has(key)) {
+            continue;
+          }
+          tried.add(key);
+          const mergedPool = [...pool, ...merge.flatMap(e => e.attrs)];
+          const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources);
+          if (retry.ok) {
+            result = retry;
+            merged = merge;
+            break;
+          }
+        }
+      }
+
+      if (!result) {
+        return alone && alone.ok === false
+          ? alone
+          : { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
+      }
+      for (const e of merged) {
+        absorbed.add(e.bucket);
+      }
+      globalResults.push(result);
     }
-    if (result.ok === false) {
-      return result;
+
+    // A whole repeat family: bucket groups on one repeat's instances (the
+    // original and its clones bind separately — `c.endEdges()`,
+    // `r.instance(1).endEdges()`, …) that between them reach every instance.
+    // The user selected the pattern, not particular instances, so one
+    // scene-wide select() describing the pattern's geometry reads better
+    // than a per-instance list — but only when it needs no baked constant;
+    // the instance forms survive dimension edits, a gap cut does not. A
+    // partial family keeps its instance addresses.
+    for (const family of collectWholeFamilies(sameKind()).values()) {
+      const familyPool = family.flatMap(e => e.attrs);
+      const merged = synthesizeGlobalCandidates(scene, index, kind, familyPool, params, faceSources);
+      if (merged.ok && (merged.candidates[0].bakedConstants ?? 0) === 0) {
+        for (const e of family) {
+          absorbed.add(e.bucket);
+        }
+        globalResults.push(merged);
+      }
     }
-    globalResults.push(result);
   }
 
   for (const [bucket, { result }] of bucketResults) {
@@ -301,9 +357,106 @@ function collectFaceSources(
         && first.normal.dot(p.normal) > 0);
       plane = shared ? first : null;
     }
-    sources.push({ feature: bucket.feature, accessor: bucket.def.accessor, members, plane });
+    const binding = producerBinding(bucket.feature);
+    const accessor = `${binding.accessorPrefix}${bucket.def.accessor}`;
+    sources.push({
+      feature: binding.producer,
+      accessor,
+      members,
+      plane,
+      // Evaluate through the very accessor object the emitted code names —
+      // the lazy selection resolves the recorded group on demand.
+      resolve: () => binding.resolveAccessor(bucket.def.accessor),
+    });
   }
-  return sources;
+  // The index scans latest-first, which puts a repeat's clones ahead of
+  // their original. A reference should name the original's group
+  // (`e.endFaces()`, not `r.instance(2).endFaces()`) when both describe the
+  // same plane, so originals lead; the sort is stable within each half.
+  return sources.sort((a, b) => Number(a.accessor.startsWith('instance(')) - Number(b.accessor.startsWith('instance(')));
+}
+
+/**
+ * How emitted code reaches a producer's accessors: through the feature's
+ * own variable, or — for a feature `repeat()` cloned into one of its slots —
+ * through the repeat's variable and `instance(k)`, which forwards the clone's
+ * bucket accessors. `producer` is what binds a variable; `accessorPrefix`
+ * goes between the variable and the bucket accessor; `resolveAccessor`
+ * evaluates an accessor exactly as the rendered code would.
+ */
+export type ProducerBinding = {
+  producer: SceneObject;
+  accessorPrefix: string;
+  resolveAccessor: (accessor: string) => SceneObject;
+};
+
+/**
+ * The repeat slot `feature` is a root clone of, when its repeat can address
+ * it: the clone sits directly under the repeat container, its slot holds
+ * exactly one repeated feature (so `instance(k)` forwards unambiguously),
+ * and the pick attributes to that feature — not to a dependency clone the
+ * repeat pulled in alongside it.
+ */
+function cloneSlot(feature: SceneObject): { repeat: RepeatBase; slot: number } | null {
+  if (!feature.getCloneSource()) {
+    return null;
+  }
+  const parent = feature.getParent();
+  if (!(parent instanceof RepeatBase)) {
+    return null;
+  }
+  const slot = parent.slotOf(feature);
+  if (slot === null || parent.getInstanceRoots(slot).length !== 1) {
+    return null;
+  }
+  return { repeat: parent, slot };
+}
+
+type FamilyGroup = { bucket: BucketRecord; attrs: PickAttribution[] };
+
+/**
+ * Bucket groups that together cover a whole repeat: for every repeat some
+ * group's clone binds through, the groups on any of its slots (the
+ * original's included), kept only when they reach every live slot.
+ */
+function collectWholeFamilies(groups: FamilyGroup[]): Map<RepeatBase, FamilyGroup[]> {
+  const repeats = new Set<RepeatBase>();
+  for (const { bucket } of groups) {
+    const clone = cloneSlot(bucket.feature);
+    if (clone) {
+      repeats.add(clone.repeat);
+    }
+  }
+  const families = new Map<RepeatBase, FamilyGroup[]>();
+  for (const repeat of repeats) {
+    const family = groups.filter(g => repeat.slotOf(g.bucket.feature) !== null);
+    const slots = new Set(family.map(g => repeat.slotOf(g.bucket.feature)));
+    const live = repeat.getInstanceSlots().filter(slot => slot !== null).length;
+    if (slots.size >= 2 && slots.size >= live) {
+      families.set(repeat, family);
+    }
+  }
+  return families;
+}
+
+export function producerBinding(feature: SceneObject): ProducerBinding {
+  const clone = cloneSlot(feature);
+  if (!clone) {
+    return {
+      producer: feature,
+      accessorPrefix: '',
+      resolveAccessor: accessor => callAccessor(feature, accessor),
+    };
+  }
+  return {
+    producer: clone.repeat,
+    accessorPrefix: `instance(${clone.slot}).`,
+    resolveAccessor: accessor => callAccessor(clone.repeat.instance(clone.slot), accessor),
+  };
+}
+
+function callAccessor(target: object, accessor: string): SceneObject {
+  return (target as unknown as Record<string, () => SceneObject>)[accessor]();
 }
 
 /**
@@ -318,13 +471,23 @@ export function canBindProducer(
   feature: SceneObject,
   stmtBindable?: (feature: SceneObject) => boolean,
 ): boolean {
-  return checkBindable(index, feature) === null && (stmtBindable?.(feature) ?? true);
+  return checkBindable(index, feature) === null
+    && (stmtBindable?.(producerBinding(feature).producer) ?? true);
 }
 
-/** Returns a failure reason when the producer cannot be bound to a variable, null when it can. */
+/**
+ * Returns a failure reason when the producer cannot be bound to a variable,
+ * null when it can. A repeat clone binds through its repeat's variable
+ * (`r.instance(k)`), so it is bindable exactly when the repeat is.
+ */
 export function checkBindable(index: SelectionIndex, feature: SceneObject): string | null {
   if (feature.getCloneSource()) {
-    return `this selection belongs to a repeated ${feature.getType()}() instance (repeat/mirror)`;
+    const clone = cloneSlot(feature);
+    if (!clone) {
+      return `this selection belongs to a repeated ${feature.getType()}() instance (repeat/mirror) `
+        + `that instance(k) cannot address`;
+    }
+    return checkBindable(index, clone.repeat);
   }
   if (!feature.getSourceLocation()) {
     return `the producing ${feature.getType()}() has no recorded source location`;
@@ -355,14 +518,15 @@ function synthesizeBucketCandidates(
   preferIndices: boolean = false,
 ): GroupResult {
   const pickKeys = new Set(groupAttrs.map(a => a.pickedKey!));
-  const feature = bucket.feature;
+  const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
+  const accessor = `${accessorPrefix}${bucket.def.accessor}`;
   const candidates: SelectorPart[] = [];
 
   const wholeBucket = bucket.memberKeys.length === pickKeys.size
     && bucket.memberKeys.every(k => pickKeys.has(k));
   if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), pickKeys)) {
     candidates.push({
-      producer: feature, accessor: bucket.def.accessor, indices: null, filterArgs: null, tier: 0,
+      producer: feature, accessor, indices: null, filterArgs: null, tier: 0,
     });
   }
 
@@ -373,7 +537,7 @@ function synthesizeBucketCandidates(
     for (const induced of induceFilterCandidates(index, bucketContext(bucket, false, params), groupAttrs, pickKeys)) {
       const part: SelectorPart = {
         producer: feature,
-        accessor: bucket.def.accessor,
+        accessor,
         indices: null,
         filterArgs: induced.filterArgs,
         tier: induced.constants === 0 ? 1 : 2,
@@ -389,12 +553,12 @@ function synthesizeBucketCandidates(
     : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
   if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), pickKeys)) {
     candidates.push({
-      producer: feature, accessor: bucket.def.accessor, indices, filterArgs: null, tier: 4,
+      producer: feature, accessor, indices, filterArgs: null, tier: 4,
     });
   }
 
   if (candidates.length === 0) {
-    const call = `${bucket.def.accessor}(${indices.join(', ')})`;
+    const call = `${accessor}(${indices.join(', ')})`;
     return {
       ok: false,
       reason: `synthesized selector ${call} did not resolve back to the picked ${bucket.def.kind}s — refusing to write it`,
@@ -458,6 +622,7 @@ function synthesizeGlobalCandidates(
       indices: null,
       filterArgs: candidate.filterArgs,
       refs: candidate.refs,
+      bakedConstants: candidate.bakedConstants,
       tier: 3,
     })),
   };
@@ -489,18 +654,18 @@ function synthesizeChainCandidates(
   const bucket = buckets[0];
   const sameBindableBucket = bucket !== null
     && buckets.every(b => b === bucket)
-    && checkBindable(index, bucket.feature) === null
-    && (stmtBindable?.(bucket.feature) ?? true);
+    && canBindProducer(index, bucket.feature, stmtBindable);
 
   if (sameBindableBucket) {
     const candidates: SelectorPart[] = [];
-    const feature = bucket.feature;
+    const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
+    const accessor = `${accessorPrefix}${bucket.def.accessor}`;
 
     const wholeBucket = bucket.memberKeys.length === memberKeys.size
       && bucket.memberKeys.every(k => memberKeys.has(k));
     if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), memberKeys)) {
       candidates.push({
-        producer: feature, accessor: bucket.def.accessor, indices: null, filterArgs: null, tier: 0,
+        producer: feature, accessor, indices: null, filterArgs: null, tier: 0,
       });
     }
 
@@ -513,7 +678,7 @@ function synthesizeChainCandidates(
       if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys)) {
         candidates.push({
           producer: feature,
-          accessor: bucket.def.accessor,
+          accessor,
           indices: null,
           filterArgs: `${seedInduced.filterArgs}.withTangents()`,
           tier: seedInduced.constants === 0 ? 1 : 2,
@@ -526,7 +691,7 @@ function synthesizeChainCandidates(
       if (plain) {
         candidates.push({
           producer: feature,
-          accessor: bucket.def.accessor,
+          accessor,
           indices: null,
           filterArgs: plain.filterArgs,
           tier: plain.constants === 0 ? 1 : 2,
@@ -540,7 +705,7 @@ function synthesizeChainCandidates(
       : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
     if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), memberKeys)) {
       candidates.push({
-        producer: feature, accessor: bucket.def.accessor, indices, filterArgs: null, tier: 4,
+        producer: feature, accessor, indices, filterArgs: null, tier: 4,
       });
     }
 

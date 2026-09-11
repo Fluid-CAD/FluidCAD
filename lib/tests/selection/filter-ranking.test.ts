@@ -351,7 +351,13 @@ describe("feature-group references in synthesized selectors", () => {
       const members = endFaces.getShapes() as Face[];
       const atoms = instantiateEdgeAtoms(
         [probeEdge(attr.picked as Edge, attr.solidShape)], universe, true, [],
-        [{ feature: base as unknown as SceneObject, accessor: 'endFaces', members, plane: FaceOps.tryGetPlane(members[0]) }],
+        [{
+          feature: base as unknown as SceneObject,
+          accessor: 'endFaces',
+          members,
+          plane: FaceOps.tryGetPlane(members[0]),
+          resolve: () => base.endFaces() as unknown as SceneObject,
+        }],
       );
       const codes = atoms.map(a => a.code);
       expect(codes).toContain('.belongsToFace({{ref}}.endFaces())');

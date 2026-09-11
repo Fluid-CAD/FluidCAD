@@ -414,6 +414,11 @@ export function nameHintFor(featureType: string): string {
     case 'text': return 'tx';
     case 'copy-linear': return 'cp';
     case 'copy-circular': return 'cp';
+    // 3D repeats — bound when a clone is addressed through instance(k).
+    case 'repeat-linear': return 'r';
+    case 'repeat-circular': return 'r';
+    case 'repeat-matrix': return 'r';
+    case 'mirror': return 'm';
     default: return 'f';
   }
 }

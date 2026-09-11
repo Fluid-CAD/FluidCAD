@@ -8,7 +8,7 @@ name: Release Desktop App
 #              dmg and nsis); each stages its own built-in engine from the
 #              tarball `build-engine-tarball.ts` produces, then uploads its
 #              installers and updater feeds into that same draft
-#   publish  → flip the draft to a public release once everything is on it
+#   verify   → list what landed on the draft; the release stays a draft
 #
 # The draft is load-bearing. electron-updater lists only published releases,
 # and the shell downloads pinned engines from published assets, so a release
@@ -16,6 +16,11 @@ name: Release Desktop App
 # it. Two separate workflows used to race for the release: whichever job got
 # there first decided whether it was created as a draft (never published) or
 # as a public release with most of its assets still missing.
+#
+# Publishing is a manual step so the builds can be tested first. Once the
+# draft's installers check out, run:
+#
+#   gh release edit vX.Y.Z --repo Fluid-CAD/FluidCAD --draft=false --latest
 #
 # macOS builds are signed with a Developer ID Application certificate and
 # notarized (2026-08-16); the secrets involved are listed on the "Prepare macOS
@@ -192,20 +197,22 @@ jobs:
           # discovery has to stay on there.
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' }}
 
-  publish:
+  verify:
     # Runs only when every platform succeeded (`fail-fast: false` lets the
-    # others finish, but a failed one still skips this job). A partial release
-    # stays a draft for someone to look at, never a public release missing a
-    # platform.
+    # others finish, but a failed one still skips this job). The release is
+    # never published here: it stays a draft so the installers can be tested
+    # before the manual `gh release edit --draft=false --latest` in the header.
     needs: [engines, desktop]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Publish the release
+      - name: List the draft release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.engines.outputs.tag }}
         run: |
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
+            --jq '"draft: \(.isDraft)", (.assets[].name)'
+          echo "Release $TAG left as a draft. Publish it once the builds are tested:"
+          echo "  gh release edit $TAG --repo $GITHUB_REPOSITORY --draft=false --latest"

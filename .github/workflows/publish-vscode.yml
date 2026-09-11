@@ -1,9 +1,13 @@
 name: Publish VSCode Extension
 
+# Gated on the GitHub release being published (temporary, 2026-09-11): the
+# desktop workflow leaves every release as a draft so the builds can be tested
+# first, and the extension must not reach the marketplace before that manual
+# `gh release edit --draft=false` flips the draft. The checkout below lands on
+# the release tag because a `release` event's ref is `refs/tags/<tag>`.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 jobs:
   publish:

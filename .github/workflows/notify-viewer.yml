@@ -5,10 +5,15 @@
 # Required repo secret: VIEWER_DISPATCH_TOKEN — a fine-grained PAT with
 # contents:read+write ("Actions: repository dispatch") on
 # marwndev/FluidCAD-Viewer.
+#
+# Gated on the GitHub release being published (temporary, 2026-09-11): the
+# desktop workflow leaves every release as a draft so the builds can be tested
+# first, and the viewer must not redeploy before the manual
+# `gh release edit --draft=false` flips the draft.
 name: notify-viewer
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
 
 jobs:
   dispatch:
@@ -17,7 +22,7 @@ jobs:
       - name: Dispatch fluidcad-release to the viewer repo
         env:
           GH_TOKEN: ${{ secrets.VIEWER_DISPATCH_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           gh api repos/marwndev/FluidCAD-Viewer/dispatches \
             -f event_type=fluidcad-release \

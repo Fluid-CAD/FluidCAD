@@ -57,7 +57,7 @@ mac:
     - target: zip
       arch: [arm64]
   # Signed with the "Developer ID Application" identity electron-builder
-  # imports from CSC_LINK / CSC_KEY_PASSWORD (see release-desktop.yml), then
+  # finds in the keychain release-desktop.yml builds (CSC_KEYCHAIN), then
   # notarized through notarytool with the App Store Connect API key in
   # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER. Nothing is pinned by
   # name on purpose so a local `npm run dist` keeps working: on a machine

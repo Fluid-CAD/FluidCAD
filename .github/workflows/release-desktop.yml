@@ -106,7 +106,15 @@ jobs:
           # last.
           - os: macos-latest
             target: darwin-arm64
-            flags: --mac --arm64
+            # `-c.mac.forceCodeSigning=true` turns "skipped macOS code
+            # signing" from a log line into a failure: a release must never
+            # publish an unsigned macOS build (Gatekeeper would refuse it and
+            # electron-updater could not install it), while the config itself
+            # leaves it off so a machine without the certificate can still
+            # build locally. It lives here, not on the build step, because
+            # PowerShell on the Windows runner splits `-c.mac…` into `-c` +
+            # a config-file path and electron-builder fails with ENOENT.
+            flags: --mac --arm64 -c.mac.forceCodeSigning=true
           - os: windows-latest
             target: win32-x64
             flags: --win --x64
@@ -148,24 +156,40 @@ jobs:
         #   APPLE_API_KEY_B64      base64 of the App Store Connect AuthKey_*.p8
         #   APPLE_API_KEY_ID       its 10-character Key ID
         #   APPLE_API_ISSUER       the Issuer ID of the key
-        # electron-builder imports the .p12 into a temporary keychain from
-        # CSC_LINK / CSC_KEY_PASSWORD, and notarytool reads the .p8 from the
-        # absolute path in APPLE_API_KEY. Everything is exported through
-        # GITHUB_ENV from a macOS-only step rather than set on the build step
-        # for every runner: electron-builder would otherwise pick CSC_LINK up on
-        # Windows too and try to sign the NSIS installer with an Apple
-        # certificate.
+        # The keychain is built here rather than handed to electron-builder as
+        # CSC_LINK / CSC_KEY_PASSWORD: electron-builder 26.15 creates its
+        # temporary keychain with a random password and then runs
+        # `set-key-partition-list` with the .p12 password instead, which
+        # macOS 26 (the current macos-latest) rejects with "SecKeychainUnlock:
+        # The user name or passphrase you entered is not correct". With
+        # CSC_LINK unset and CSC_KEYCHAIN pointing at this keychain,
+        # electron-builder skips its import and discovers the Developer ID
+        # identity here. notarytool reads the .p8 from the absolute path in
+        # APPLE_API_KEY. Everything is exported through GITHUB_ENV from a
+        # macOS-only step rather than set on the build step for every runner.
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
+          keychain="$RUNNER_TEMP/fluidcad-signing.keychain-db"
+          keychain_password=$(openssl rand -base64 32)
+          certificate="$RUNNER_TEMP/certificate.p12"
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PWD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          rm -f "$certificate"
+          security find-identity -v -p codesigning "$keychain"
           key_dir="$RUNNER_TEMP/private_keys"
           mkdir -p "$key_dir"
           key_file="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
           printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$key_file"
           {
-            echo "CSC_LINK=$MACOS_CERTIFICATE"
-            echo "CSC_KEY_PASSWORD=$MACOS_CERTIFICATE_PWD"
+            echo "CSC_KEYCHAIN=$keychain"
             echo "APPLE_API_KEY=$key_file"
             echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
             echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
@@ -179,22 +203,18 @@ jobs:
 
       - name: Build the app and upload it to the draft release
         # The arch is pinned per runner so nothing is cross-compiled twice.
-        # `mac.forceCodeSigning` turns "skipped macOS code signing" from a log
-        # line into a failure here — a release must never publish an unsigned
-        # macOS build (Gatekeeper would refuse it and electron-updater could
-        # not install it) — while the config itself leaves it off so a machine
-        # without the certificate can still build locally.
         # `publish.releaseType: draft` in electron-builder.yml makes the
         # publisher upload into the draft the engines job created and never
-        # create a public release of its own; the publish job below does that.
-        run: npx electron-builder ${{ matrix.flags }} --publish always -c.mac.forceCodeSigning=true
+        # create a public release of its own; the release stays a draft until
+        # the manual publish in the header.
+        run: npx electron-builder ${{ matrix.flags }} --publish always
         working-directory: shell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Windows has no certificate; keep electron-builder from hunting for
           # one and failing the build. On macOS the identity comes from the
-          # keychain the previous step's CSC_LINK is imported into, so
-          # discovery has to stay on there.
+          # keychain the previous step built (CSC_KEYCHAIN), so discovery has
+          # to stay on there.
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' }}
 
   verify:

@@ -54,6 +54,17 @@ Do not ask about: a default clearance hole, a cosmetic radius, a chamfer size, a
 
 **Autonomous fallback.** When no user is available to answer (an unattended run, a benchmark, or the user said to proceed without them), the defaults are the whole procedure: proceed on assumptions, keep the build moving, and list every assumption in the final report. Do not stall.
 
+## Check the spec against itself before planning
+
+A spec written by hand can contradict its own geometry, and the contradiction is invisible in the numbers until two features share the same space. Before planning, do the arithmetic for every feature that lives inside or next to another one, in one line each:
+
+- **A hole, slot or pocket against the wall it sits in.** Its outline (centre plus radius, or slot ends plus half-width) must lie inside the material with wall left on every side, and must not break into a bore, another hole or an outside face it was not meant to reach. A bolt at `x = 22` with a 5 mm drill spans 19.5 to 24.5; a 47 mm bore around the same axis reaches 23.5: that hole breaks into the bore, and no build order fixes it.
+- **A hole or slot against the body above it.** Whatever a fastener enters from must be open: nothing may stand over the outline on the insertion side. A pedestal 60 wide over slots that run from 28 to 42 buries 2 mm of each slot, and the bolt head no longer seats.
+- **A fastener chain.** Head seat, then each thickness it passes, then engagement, then the hole floor: the numbers must add up with clearance at the tip. A 30 mm screw seated 14 mm above a split face with a 14 mm tapped hole below it bottoms out by 2 mm.
+- **A part inside another part's envelope.** Rings, balls, pins and shafts against the width and bore they sit in; a fastener axis against every body it crosses on its way (a bolt at `y = 0` through a bearing plane centred on `y = 0` passes through the bearing).
+
+A number that fails this check is a **spec conflict**, and the clarification policy applies: it makes the model impossible as described, so ask when a user is present. Unattended, choose the fix that keeps the function (move the bolt pattern outboard of the bore, narrow the pedestal clear of the slots, shorten the screw or deepen the hole), write it as a `// DEVIATION:` comment on the feature, and put it at the top of the report. Never build the conflict as written and hand it in, and never wrap it in an `// ASSUMPTION:`: an assumption that produces two bodies in the same space is not an assumption, it is the defect.
+
 ## Plan the part before writing code
 
 The plan is the cheapest artifact in the project to change: a few paragraphs, against a model with six dependent features. Restate the requirements, pin down the dimensions that matter, then write the plan the way an experienced CAD designer would.
@@ -104,6 +115,7 @@ Show it. When a user is present, pause for them, and confirm before the first fe
 - **Sketch on face references, not transformed planes.** `sketch(e.endFaces(), ...)` moves with the extrude; `sketch(plane("xy", 40), ...)` is a magic-number duplicate of geometry that already exists.
 - **Keep features small and named clearly.** One feature per logical operation makes filters such as `face().cylinder(5)` and `edge().circle(5)` predictable. `face().cylinder()` is a full bore; a fillet or rounded corner is `face().cylinderCurve()`.
 - **Comment the decisions.** Anything the user resolved, every `// ASSUMPTION:`, and anything you deliberately did not model (thread forms, surface finish, knurls). Silence reads as an oversight; a comment reads as a decision.
+- **Colour every body that meets another body.** Colours are model content (they survive features and export to STEP), not a viewing aid, so they are written once and kept. Give a distinct colour to every body that touches, fits into or moves against another body: each part destined for an assembly (a bare `color("steelblue")` as the last statement of the `part()` body paints the whole part), and each separate body inside a multi-body part (`color("silver", ring)`, `color("dimgray", balls)`). Pick from a palette that stays apart in a capped section: `steelblue`, `tomato`, `goldenrod`, `seagreen`, `slateblue`, `sienna`, `silver`, `dimgray`. Two mating parts never share a colour; small parts (fasteners, balls, pins) get the warm colours so they stand out inside the big grey ones. A single-body part with no neighbours needs no colour. The existing rule stands for inspection: never add a temporary `color()` to look at a selection; that is what `highlight` is for.
 
 ## Build in small increments
 
@@ -137,7 +149,11 @@ A screenshot serves two purposes with different cadences: a **verification gate 
 
 **Skip the gate when the feature is simple** and sits on geometry you have already seen: an extrude or cut of a rect, circle, slot or polygon on a verified plane; a plain through-hole at a known position; a translate or mirror of a body you already looked at. Batch two or three of these and verify them at the next checkpoint; never batch across a plane change or in front of a complex feature.
 
-When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the doubt is inside the part (a blind hole, a counterbore, a shelled wall), pass `section` to cut the model open; `references/verification.md` says when that is worth doing.
+When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the feature is inside the part (a blind hole, a counterbore, a tapped hole, a shelled wall, a bore another part will sit in), an outside view shows nothing: pass `section` through the feature's axis and look square on. Sections through every internal fit are mandatory before "done", and they only read when the bodies are coloured; `references/verification.md` lists them and says how to read one.
+
+### Two or more bodies: run `interfere` before you look
+
+The moment the scene holds a second solid (a `.new()` body, a copy, a second `part()`, an inserted instance), a screenshot can no longer tell you the bodies are apart: an overlap renders as one surface hiding another. `interfere` reports every pair's shared volume; run it after the feature that added the body and again on the final state. Any `clashes` entry, and any `intraPart` entry you did not intend, is a defect to fix at its source (the spec conflict, the connector offset, the hole depth), not a line for the report. Then take the section through that pair to see where the overlap is.
 
 ## Naming geometry: resolve first, then write the synthesized selector
 
@@ -206,7 +222,7 @@ Load only what the task needs, from this skill's `references/` folder:
 
 - `references/traps.md`: read before fillet, chamfer, shell, cut, repeat, `plane()` offsets, sketching on a face, or a breakpoint. FluidCAD-specific silent failures with their signatures and fixes.
 - `references/repair-loop.md`: read the moment `render.state` is not `rendered`. Failure classes keyed by the actual `compileError` and `objectErrors` messages, with the smallest fix and what to rerun.
-- `references/verification.md`: read before declaring any feature or part done. Screenshot skip list, the visual-concern-to-deterministic-check table, what never to claim, the final report template.
+- `references/verification.md`: read before declaring any feature or part done. Screenshot skip list, the visual-concern-to-deterministic-check table, the mandatory `interfere` and section gates and how to read a section, what never to claim, the final report template.
 - `references/modifying.md`: read when the task starts from an existing file rather than a blank one.
 - `references/sketching.md`: read before the first constrained sketch, or when a sketch solves somewhere you did not draw it.
 - `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
@@ -216,10 +232,10 @@ Assemblies (parts, inserts, mates, connectors) are covered by the separate **Flu
 ## Quick reference: the loop
 
 1. Read the docs for the step (`search_docs` / `read_doc` / `get_api_signature` / `get_type_definition`), in parallel sub-agents where possible. Sub-agents read; they never build.
-2. Agree on the step with the user when one is present; otherwise proceed on stated assumptions.
-3. Write the code with all imports, dimensions as named consts, dependents derived.
+2. Agree on the step with the user when one is present; otherwise proceed on stated assumptions. Spec conflicts (a hole that breaks into a bore, a slot under a wall, a fastener that bottoms out) are found and settled before the first write.
+3. Write the code with all imports, dimensions as named consts, dependents derived, and a colour on every body that meets another body.
 4. Check `render.state`; fix compile errors and every `objectErrors` entry before going further.
-5. `validate` every new solid; then screenshot when the feature earns it, and `measure` the numbers a later feature depends on.
+5. `validate` every new solid; `interfere` as soon as there are two; then screenshot when the feature earns it (a `section` through anything internal), and `measure` the numbers a later feature depends on.
 6. Before a filter-driven feature, `resolve_selection` your expression or picks at the right scope and boundary, `highlight` it if in doubt, then write `synthesized.source`.
 7. When something looks wrong, `rollback_to` the feature before it and look; `recompute` to restore before writing more.
 8. Move on to the next feature.

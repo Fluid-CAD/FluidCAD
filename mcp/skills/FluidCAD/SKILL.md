@@ -139,22 +139,27 @@ A screenshot serves two purposes with different cadences: a **verification gate 
 
 When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the doubt is inside the part (a blind hole, a counterbore, a shelled wall), pass `section` to cut the model open; `references/verification.md` says when that is worth doing.
 
-## Naming geometry: resolve the filter first, then write it
+## Naming geometry: resolve first, then write the synthesized selector
 
-The expression you verify is the expression you ship. Never edit the user's file to look at geometry (no temporary `select()` or `color()` calls): a forgotten one ships, and a viewing question is not a source edit.
+The selector you write is the one the tool verified. Never edit the user's file to look at geometry (no temporary `select()` or `color()` calls): a forgotten one ships, and a viewing question is not a source edit.
 
-1. **Resolve the expression** with `resolve_selection` at the scope the statement will run in. It returns one entry per match with its geometric summary, and `count`. Zero matches is a normal result and the one that matters most: it is exactly the selection a fillet, chamfer or shell would fail on ("the selection resolved to no edges"), and a cut aimed at nothing would silently miss. More matches than you meant is the other failure; narrow the filter until the count is the count you intend.
+1. **Resolve what you mean** with `resolve_selection`, at the scope the statement will run in and at its boundary (`before`, below). Give it either an `expression` (your first guess at a filter) or `picks` (face/edge refs from `hit_test`, a highlight you looked at, or an earlier match). It returns one entry per match with its geometric summary, and `count`. Zero matches is a normal result and the one that matters most: it is exactly the selection a fillet, chamfer or shell would fail on ("the selection resolved to no edges"), and a cut aimed at nothing would silently miss. More matches than you meant is the other failure; narrow the filter (or drop picks) until the count is the count you intend.
 2. **Look when the referent is in doubt.** Take a `screenshot` with `highlight` set to the same entities (highlights show through occluders, so bores and far-side faces read), `fitTo: "highlight"` to frame them, `hide` or `focus` to clear the clutter.
-3. **Write the same expression into the file.** The tool binds scene objects by id as `$obj["<id>"]` (so `face().from($obj["extrude-3"])` or `$obj["extrude-3"].endFaces()` work outside the file); swap that for the variable holding the feature when you write the source. The filter itself does not change.
+3. **Write `synthesized.source` into the file.** That is the selector the language itself would write for exactly those matches — the same ranked, verified synthesis the UI runs on a pick. A feature accessor on a variable (`e.endEdges()`, `c.sideFaces(2)`) beats a filter that bakes a geometry constant (`edge().circle(5)`): it survives a dimension change, the constant does not. The source form already uses the file's variable names; check `synthesized.producers[i].bound` — `false` means the producing statement has no variable yet, so put `const <variable> = ` in front of it. Add whatever `synthesized.imports` lists (`select`, `edge`, `face`, `plane`). `sameAsInput: true` means your expression already was the best form.
+4. **Fall back to a filter only when synthesis refuses.** `synthesized.ok: false` names why (geometry from a loop or helper call site, picks across part scopes, a repeat instance no accessor addresses). The matches are still valid: write a filter, resolve it again, and read the count.
+
+`synthesized.expression` is the same selector in the tool's `$obj["<id>"]` form; resolving it again is the cheapest double-check. `alternatives` are verified runner-ups when the winner reads badly in context.
+
+**Boundary rule.** A selection is evaluated where its statement runs, not at the tip of the model. Pass `before` = the scene-object `index` (from `get_scene_summary`) of the statement the selection is written before — the statement you are editing, or the one a new statement is inserted in front of. Only objects strictly before it exist then, the same world `rollback_to(before - 1)` renders, so the fillet's edges are resolved on the solid the fillet actually sees, and picks are addressed on that world's solids. Omit `before` for a statement appended at the end of the file.
 
 **Scoping rule.** The evaluator sees exactly what a `select(...)` at that scope sees:
 
 - scope = a scene object or a part (id from `get_scene_summary`, or a part name): only that part's geometry, so a filter inside `part("base", ...)` never matches a face of `part("pillar", ...)`;
 - no scope: the whole scene, which is what a root-level `select()` sees; every result names the part that owns it;
-- assembly files: scope by `instanceId`; results carry the instance and its statement pose so they feed `measure` unchanged;
+- assembly files: scope by `instanceId`; results carry the instance and its statement pose so they feed `measure` unchanged (no `before`, and no synthesis: selectors are written in the part file);
 - `.from(obj)` inside the expression crosses parts, as it does in source.
 
-Indices from `hit_test` and the scene summary still work as a fallback, but they renumber after every feature; a filter survives edits.
+Indices from `hit_test` and the scene summary still work as a fallback, but they renumber after every feature; a filter survives edits, and an accessor survives more.
 
 ## When something is wrong, roll the scene back and look
 
@@ -166,7 +171,7 @@ When a feature comes out wrong, or a later feature fails because an earlier one 
 
 Three uses that pay off repeatedly:
 
-- **Inspect the inputs to a failing feature.** Roll back to the index before it and `resolve_selection` its filter there, then screenshot with `highlight`. A fillet that errors, a cut that misses or a shell that fails almost always means the face or edge it was handed was already wrong.
+- **Inspect the inputs to a failing feature.** `resolve_selection` its filter with `before` = the feature's index (the rollback is only for looking: pass `before` and the resolver sees the same world), then roll back and screenshot with `highlight`. A fillet that errors, a cut that misses or a shell that fails almost always means the face or edge it was handed was already wrong.
 - **Bisect a part that is wrong at the end.** Roll back to the middle index, look, halve again. Two or three screenshots localize the culprit faster than re-reading the file.
 - **Compare against a reference at an intermediate stage.** Requirements and reference views often correspond to a mid-build state, before fillets, chamfers and shells cover the underlying geometry. `measure` the base dimensions there.
 
@@ -215,6 +220,6 @@ Assemblies (parts, inserts, mates, connectors) are covered by the separate **Flu
 3. Write the code with all imports, dimensions as named consts, dependents derived.
 4. Check `render.state`; fix compile errors and every `objectErrors` entry before going further.
 5. `validate` every new solid; then screenshot when the feature earns it, and `measure` the numbers a later feature depends on.
-6. Before a filter-driven feature, `resolve_selection` the expression at the right scope, `highlight` it if in doubt, then write that expression.
+6. Before a filter-driven feature, `resolve_selection` your expression or picks at the right scope and boundary, `highlight` it if in doubt, then write `synthesized.source`.
 7. When something looks wrong, `rollback_to` the feature before it and look; `recompute` to restore before writing more.
 8. Move on to the next feature.

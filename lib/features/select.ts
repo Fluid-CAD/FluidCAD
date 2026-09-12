@@ -136,10 +136,18 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * scene-level evaluator (`SelectionResolver`) so a tool that evaluates a
    * filter expression sees exactly what the statement would.
    */
+  /**
+   * `removalScope` bounds which removals count when reading the candidates'
+   * solids (see SceneObject.getOwnShapes): a statement-boundary evaluation
+   * passes the objects before the boundary, so a solid a later feature
+   * consumed is still a candidate there. Absent, hard removals apply as for
+   * any feature build.
+   */
   static evaluateFilters(
     filters: FilterBuilderBase<Shape>[],
     sceneObjects: SceneObject[],
     excludedShapes: Shape[] = [],
+    removalScope?: Set<SceneObject>,
   ): Shape[] {
     const type = SelectSceneObject.shapeTypeOf(filters);
 
@@ -155,10 +163,10 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes);
+    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope);
     let scopeHasher: ShapeHasher | null = null;
     if (type === "edge") {
-      scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects);
+      scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
     }
     const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
     try {
@@ -260,8 +268,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return objects;
   }
 
-  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[]) {
-    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(type)).flat());
+  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>) {
+    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid', removalScope).map(s => s.getSubShapes(type)).flat());
     const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(type));
     if (flatExcluded.length === 0) {
       return scopeShapes;
@@ -310,9 +318,13 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return new SelectSceneObject(mirroredFilters);
   }
 
-  private static injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
+  private static injectScopeFaces(
+    filters: FilterBuilderBase<Shape>[],
+    sceneObjects: SceneObject[],
+    removalScope?: Set<SceneObject>,
+  ): ShapeHasher | null {
     return injectFilterScope(filters, () => ({
-      solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
+      solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid', removalScope)) as Solid[],
       extraFaces: [],
     }));
   }

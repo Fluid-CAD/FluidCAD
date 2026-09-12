@@ -168,8 +168,12 @@ export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';
 export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';
 export type {
-  ResolveSelectionRequest, ResolveSelectionResult, ResolvedSelectionMatch, ResolvedSelectionScope, SelectionScopeInput,
+  ResolveSelectionRequest, ResolveSelectionResult, ResolveSelectionErrorCode, ResolvedSelectionMatch, ResolvedSelectionScope,
+  SelectionScopeInput,
 } from './selection/resolve-selection.js';
+export type {
+  SynthesizedSelection, SynthesizedSelectionPart, SynthesizedProducer, SynthesizedForm,
+} from './selection/synthesize-selection.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';
 export type {
   ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,

@@ -641,7 +641,7 @@ function renderPreview(
  * "assume bindable", the same contract as a namer failure; a feature without
  * a source location is already unbindable structurally (`checkBindable`).
  */
-function makeStatementBindable(
+export function makeStatementBindable(
   bindable?: ProducerBindable,
 ): ((feature: SceneObject) => boolean) | undefined {
   if (!bindable) {

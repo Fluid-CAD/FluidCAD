@@ -1,5 +1,5 @@
 import type { MeasureRef } from './fluidcad-server.ts';
-import type { ResolveSelectionResult, ResolvedSelectionMatch, SelectionScopeInput } from '../../lib/dist/index.js';
+import type { ResolveSelectionErrorCode, ResolveSelectionResult, ResolvedSelectionMatch, SelectionScopeInput } from '../../lib/dist/index.js';
 
 /** A measure entity named by a filter expression instead of an index. */
 export type MeasureFilterEntity = {
@@ -21,7 +21,7 @@ export type MeasureEntityProvenance = {
 
 export type MeasureEntitiesFailure = {
   ok: false;
-  code: 'no-scene' | 'unsupported' | 'unknown-scope' | 'ambiguous-scope' | 'evaluation-error' | 'not-a-selection' | 'no-match' | 'ambiguous-match';
+  code: 'no-scene' | 'unsupported' | ResolveSelectionErrorCode | 'no-match' | 'ambiguous-match';
   error: string;
   candidates?: unknown[];
 };

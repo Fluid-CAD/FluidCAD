@@ -155,6 +155,131 @@ describe('POST /api/resolve-selection', () => {
   });
 });
 
+/**
+ * The synthesis side of the route: the file-coupled options it builds over
+ * the live buffer (namer, bindable, params) and the `bound` annotation on
+ * the synthesized producers. The engine is a fake that records what it was
+ * handed and answers with a canned synthesis naming line 4 (bound in CODE)
+ * and line 8 (a bare statement).
+ */
+describe('POST /api/resolve-selection — synthesis context', () => {
+  const CODE = [
+    'import { sketch, extrude, cut, fillet } from "fluidcad/core";',
+    'const height = 50;',
+    'sketch("xy", () => { rect(100, 100); });',
+    'const e = extrude(height);',
+    'sketch(e.endFaces(), () => { circle([50, 50], 40); });',
+    '',
+    '',
+    'cut(30);',
+  ].join('\n');
+  let synthServer: http.Server;
+  let synthUrl: string;
+  let handed: { request: unknown; synthesis: any } | null = null;
+  let answer: any = null;
+
+  const fakeEngine = {
+    getCurrentFileName: () => '/ws/m.fluid.js',
+    getCurrentCode: () => CODE,
+    getParamDefinitions: () => [],
+    resolveSelection: (request: unknown, synthesis: unknown) => {
+      handed = { request, synthesis };
+      return answer;
+    },
+  } as any;
+
+  beforeAll(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createResolveSelectionRouter(fakeEngine));
+    synthServer = http.createServer(app);
+    await new Promise<void>((resolve) => {
+      synthServer.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = synthServer.address();
+    synthUrl = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => synthServer.close(() => resolve()));
+  });
+
+  async function postSynth(body: unknown): Promise<{ status: number; body: any }> {
+    const res = await fetch(`${synthUrl}/api/resolve-selection`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  }
+
+  it('hands the engine picks as lib refs, the boundary, and options built over the buffer', async () => {
+    answer = { ok: true, matches: [], count: 0, scope: { kind: 'root' }, before: 7, unit: 'mm' };
+    const { status, body } = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'edge', index: 3 }], before: 7 });
+    expect(status).toBe(200);
+    expect(body.before).toBe(7);
+    expect(handed!.request).toEqual({
+      picks: [{ shapeId: 'sh-1', sub: { type: 'edge', index: 3 } }],
+      scope: undefined,
+      before: 7,
+    });
+    const synthesis = handed!.synthesis;
+    expect(typeof synthesis.namer).toBe('function');
+    expect(typeof synthesis.bindable).toBe('function');
+    // The namer reuses the const at line 4 and allocates a hint for the bare cut at line 8.
+    expect(synthesis.namer([
+      { line: 4, nameHint: 'e', featureType: 'extrude' },
+      { line: 8, nameHint: 'c', featureType: 'cut' },
+    ])).toEqual(['e', 'c']);
+    expect(synthesis.params).toEqual([{ name: 'height', value: 50 }]);
+  });
+
+  it('marks each synthesized producer bound or not from the buffer', async () => {
+    answer = {
+      ok: true, matches: [TOP_FACE], count: 1, scope: { kind: 'root' }, unit: 'mm',
+      synthesized: {
+        ok: true, expression: '[$obj["obj-2"].endFaces(), $obj["obj-5"].startEdges()]', source: 'e.endFaces(), c.startEdges()',
+        sameAsInput: false, parts: [], imports: [], alternatives: [],
+        producers: [
+          { sceneObjectId: 'obj-2', sceneObjectName: 'extrude', featureType: 'extrude', variable: 'e', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+          { sceneObjectId: 'obj-5', sceneObjectName: 'cut', featureType: 'cut', variable: 'c', filePath: '/ws/m.fluid.js', line: 8, column: 0 },
+          { sceneObjectId: 'obj-9', sceneObjectName: 'loft', featureType: 'loft', variable: 'lf', filePath: null, line: null, column: null },
+        ],
+      },
+    };
+    const { status, body } = await postSynth({ expression: 'face().onPlane("xy", 50)' });
+    expect(status).toBe(200);
+    expect(body.synthesized.producers.map((p: any) => p.bound)).toEqual([true, false, false]);
+  });
+
+  it('validates picks and the boundary, and insists on exactly one of expression / picks', async () => {
+    const both = await postSynth({ expression: 'face()', picks: [{ shapeId: 'sh-1', kind: 'face', index: 0 }] });
+    expect(both.status).toBe(400);
+    expect(both.body.error).toContain('exactly one of expression');
+    expect((await postSynth({ picks: [] })).status).toBe(400);
+    const badPick = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] });
+    expect(badPick.status).toBe(400);
+    expect(badPick.body.error).toContain('picks[0]');
+    const badBefore = await postSynth({ expression: 'face()', before: 0 });
+    expect(badBefore.status).toBe(400);
+    expect(badBefore.body.error).toContain('before');
+    expect((await postSynth({ expression: 'face()', before: 2.5 })).status).toBe(400);
+  });
+
+  it('maps the new refusals to statuses and returns the failing pick on the wire', async () => {
+    answer = { ok: false, code: 'unresolved-pick', reason: 'No solid "nope"', pick: { shapeId: 'nope', sub: { type: 'face', index: 0 } } };
+    const unresolved = await postSynth({ picks: [{ shapeId: 'nope', kind: 'face', index: 0 }] });
+    expect(unresolved.status).toBe(404);
+    expect(unresolved.body).toEqual({ error: 'No solid "nope"', code: 'unresolved-pick', pick: { shapeId: 'nope', kind: 'face', index: 0 } });
+
+    answer = { ok: false, code: 'invalid-boundary', reason: '`before` must be a statement index from 1 to 3' };
+    expect((await postSynth({ expression: 'face()', before: 9 })).status).toBe(400);
+
+    answer = { ok: false, code: 'out-of-scope', reason: 'face 5 of "sh-1" belongs to part "base"', pick: { shapeId: 'sh-1', sub: { type: 'face', index: 5 } } };
+    expect((await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'face', index: 5 }], scope: { part: 'pillar' } })).status).toBe(422);
+  });
+});
+
 describe('POST /api/measure with filter entities', () => {
   beforeAll(async () => {
     const app = express();

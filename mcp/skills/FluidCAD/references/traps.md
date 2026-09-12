@@ -13,7 +13,7 @@ Read before a fillet, chamfer, shell, cut, repeat, `plane()` offset, a sketch on
 - **Signature, under-match.** `render.state` is `build-error` and `objectErrors` carries `fillet: the selection resolved to no edges — nothing was filleted.` (chamfer and shell have the same shape of message, "no faces" for shell). The rest of the model renders, so the picture looks fine at a glance.
 - **Signature, over-match.** No error at all: the fillet also rounded the edges of a hole or a far-side face, and only a close look at the screenshot shows it. A `cut` aimed with an over-matching face reference cuts from the wrong face.
 - **Evidence.** `lib/features/fillet.ts`, `chamfer.ts`, `shell.ts` set those errors on an empty resolution; the over-match case is observed in sessions.
-- **Fix.** `resolve_selection` the expression at the scope the statement runs in and read `count` before writing it. Narrow with a second predicate (`edge().circle(5).onPlane("xy", 10)`, `face().planar().above("xy", 20)`) or restrict with `.from(feature)` or the feature's own accessor (`e.endEdges()`). Re-run the resolution after any edit upstream of the feature.
+- **Fix.** `resolve_selection` the expression at the scope and boundary (`before`) the statement runs in and read `count` before writing anything. Narrow with a second predicate (`edge().circle(5).onPlane("xy", 10)`, `face().planar().above("xy", 20)`) until the count is right, then write `synthesized.source` — usually the feature's own accessor (`e.endEdges()`), which cannot over-match. Re-run the resolution after any edit upstream of the feature.
 
 ## `plane()` offsets duplicate a dimension
 

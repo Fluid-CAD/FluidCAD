@@ -35,6 +35,18 @@ export type MeasureRef = {
 /** Why a selection could not be resolved before the lib's own resolver ran. */
 export type ResolveSelectionUnavailable = { ok: false; code: 'no-scene' | 'unsupported'; reason: string };
 
+/**
+ * Source-derived context for selector synthesis, built over the live buffer
+ * (see `makeSynthesisOptionsForFile`): producer variable names as the code
+ * transform would bind them, statement bindability, and the file's numeric
+ * constants for parameter linking.
+ */
+export type SelectionSynthesisOptions = {
+  namer?: (producers: { line: number; nameHint: string; featureType?: string }[]) => (string | null)[];
+  bindable?: (producer: { line: number; featureType?: string }) => boolean;
+  params?: { name: string; value: number }[];
+};
+
 /** Why a validation could not run before the lib's own validator ran; the same shape as its refusals. */
 export type ValidateUnavailable = { kind: 'refused'; code: 'no-scene' | 'unsupported'; reason: string };
 
@@ -154,7 +166,7 @@ type SceneManager = {
   measure(scene: any, refs: MeasureRef[]): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate filter-expression resolution.
-  resolveSelection?(scene: any, request: ResolveSelectionRequest): ResolveSelectionResult;
+  resolveSelection?(scene: any, request: ResolveSelectionRequest, synthesis?: SelectionSynthesisOptions): ResolveSelectionResult;
   // Optional: may predate geometry validation.
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   // Optional: may predate interference checking.
@@ -1659,12 +1671,17 @@ export class FluidCadServer {
   }
 
   /**
-   * Evaluate a filter expression against the current scene at the requested
-   * scope — the lib's SelectionResolver owns the scoping rule. `no-scene`
-   * before the first render, `unsupported` on a workspace engine that
-   * predates the resolver.
+   * Evaluate a filter expression (or explicit picks) against the current
+   * scene at the requested scope and statement boundary — the lib's
+   * SelectionResolver owns the scoping rule. With synthesis options the
+   * result also carries the selector the language would write for the
+   * matches. `no-scene` before the first render, `unsupported` on a
+   * workspace engine that predates the resolver.
    */
-  resolveSelection(request: ResolveSelectionRequest): ResolveSelectionResult | ResolveSelectionUnavailable {
+  resolveSelection(
+    request: ResolveSelectionRequest,
+    synthesis?: SelectionSynthesisOptions,
+  ): ResolveSelectionResult | ResolveSelectionUnavailable {
     if (!this.sceneManager) {
       return { ok: false, code: 'no-scene', reason: this.describeMissingEngine() ?? 'No engine loaded' };
     }
@@ -1675,7 +1692,7 @@ export class FluidCadServer {
     if (!scene) {
       return { ok: false, code: 'no-scene', reason: 'No rendered scene — open and render a file first.' };
     }
-    return this.sceneManager.resolveSelection(scene, request);
+    return this.sceneManager.resolveSelection(scene, request, synthesis);
   }
 
   /**

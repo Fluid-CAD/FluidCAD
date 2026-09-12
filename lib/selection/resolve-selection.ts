@@ -52,7 +52,7 @@ export type ResolveSelectionRequest = {
 export type ResolveSelectionErrorCode = 'unknown-scope' | 'ambiguous-scope' | 'evaluation-error' | 'not-a-selection';
 
 export type ResolveSelectionResult =
-  | { ok: true; matches: ResolvedSelectionMatch[]; count: number; scope: ResolvedSelectionScope; unit: LengthUnit }
+  | { ok: true; matches: ResolvedSelectionMatch[]; count: number; scope: ResolvedSelectionScope; unit: LengthUnit; warning?: string }
   | { ok: false; code: ResolveSelectionErrorCode; reason: string; candidates?: string[] };
 
 type ScopeResolution =
@@ -156,15 +156,33 @@ export class SelectionResolver {
 
     const owners = SelectionResolver.ownersOf(scene, shapes);
     const matches: ResolvedSelectionMatch[] = [];
+    let orphaned = 0;
     for (let i = 0; i < shapes.length; i++) {
       const owner = owners[i];
       if (!owner) {
+        orphaned++;
         continue;
       }
       matches.push(SelectionResolver.toMatch(scene, shapes[i], owner, scope.instance));
     }
 
-    return { ok: true, matches, count: matches.length, scope: scope.scope, unit: scene.unit };
+    const result: ResolveSelectionResult = { ok: true, matches, count: matches.length, scope: scope.scope, unit: scene.unit };
+    if (orphaned > 0) {
+      result.warning = SelectionResolver.orphanWarning(orphaned, shapes.length);
+    }
+    return result;
+  }
+
+  /**
+   * A selection can name sub-shapes no solid in the final model carries — a
+   * feature accessor whose members a later operation consumed, or a stale
+   * select(). Dropping them silently reads as "matches nothing"; say what
+   * happened instead.
+   */
+  private static orphanWarning(orphaned: number, total: number): string {
+    return `${orphaned} of ${total} selected shape(s) belong to no solid in the final model and were dropped — `
+      + 'a later feature consumed or reshaped them. Re-select on the final geometry (a face()/edge() filter), '
+      + 'or consume the accessor in source right after the feature that owns it.';
   }
 
   private static objectsById(scene: Scene): Record<string, SceneObject> {

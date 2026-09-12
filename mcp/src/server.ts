@@ -365,7 +365,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
         'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Zero matches is a normal result with count 0 — check it before ' +
-        'writing a fillet/chamfer/color on that filter, which would silently do nothing. Verify the expression here, then write the ' +
+        'writing a fillet/chamfer/color on that filter, which would silently do nothing. A `warning` names selected shapes no solid ' +
+        'in the final model carries (a later feature consumed them): re-select on the final geometry. Verify the expression here, then write the ' +
         'same expression into the source: indices renumber after every feature, filters survive edits. An expression that fails to ' +
         'evaluate, an unknown scope, or a part name shared by several variants is an error naming the problem.',
       inputSchema: {

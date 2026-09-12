@@ -23,6 +23,17 @@ Chain: `.thin()`, plus the boolean scope methods. Direct accessors:
 `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`,
 `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges`.
 
+A loft rebuilds its section edges as B-splines, so a lofted rounded
+rectangle's straight segments and corner arcs are no longer stored as lines
+and circles. Edge filters classify by geometry, so `edge().line()` and
+`edge().arc(r)` still find them; a section the loft had to split (a circle
+lofted to a rectangle) answers to `arc(r)` rather than `circle(d)`.
+
+When the first profile lies on an existing solid's face, the fusion merges
+the loft's start face into that face. `startEdges()` then names the junction
+edges in the final solid (the usual fillet target), and `startFaces()` the
+face the loft grew from.
+
 ## Example
 
 ```fluid.js

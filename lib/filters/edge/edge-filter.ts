@@ -230,7 +230,10 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects circular edges, optionally matching a specific diameter.
+   * Selects full circular edges (a hole rim, a boss rim), optionally matching
+   * a specific diameter. Geometry decides, not the kernel's storage: a
+   * B-spline edge that traces a circle — a lofted or swept section, an
+   * imported STEP edge — counts as one.
    * @param diameter - Optional diameter to match.
    */
   circle(diameter?: number) {
@@ -250,7 +253,10 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects arc edges, optionally matching a specific radius.
+   * Selects circular arcs (a fillet's edge, a rounded corner), optionally
+   * matching a specific radius. Geometry decides, not the kernel's storage:
+   * a B-spline edge that traces an arc — a lofted or swept section, an
+   * imported STEP edge — counts as one.
    * @param radius - Optional radius to match.
    */
   arc(radius?: number) {
@@ -270,7 +276,9 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects straight-line edges, optionally matching a specific length.
+   * Selects straight edges, optionally matching a specific length. Geometry
+   * decides, not the kernel's storage: a B-spline edge that runs straight —
+   * a lofted or swept section, an imported STEP edge — counts as one.
    * @param length - Optional length to match.
    */
   line(length?: number) {

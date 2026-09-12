@@ -128,7 +128,10 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects cylindrical faces, optionally matching a specific diameter.
+   * Selects full cylindrical faces — ones that wrap all the way around their
+   * axis and so carry a circular rim: a hole's bore, a boss's wall.
+   * A partial cylinder (a fillet face, a bore cut open by a slot) is a
+   * {@link cylinderCurve}.
    * @param diameter - Optional diameter to match.
    */
   cylinder(diameter?: number) {
@@ -138,7 +141,8 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Excludes cylindrical faces, optionally matching a specific diameter.
+   * Excludes full cylindrical faces (see {@link cylinder}), optionally
+   * matching a specific diameter.
    * @param diameter - Optional diameter to exclude.
    */
   notCylinder(diameter?: number) {
@@ -148,8 +152,10 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces bounded by cylindrical curves, optionally matching a specific diameter.
-   * @param diameter - Optional diameter to match.
+   * Selects partial cylindrical faces — ones that do not wrap all the way
+   * around their axis: a fillet along an edge, a rounded corner of a pad, a
+   * bore cut open by a slot. A full bore is a {@link cylinder}.
+   * @param diameter - Optional diameter to match (a fillet of radius r has diameter 2r).
    */
   cylinderCurve(diameter?: number) {
     const filter = new CylinderCurveFilter(diameter);
@@ -158,7 +164,8 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Excludes faces bounded by cylindrical curves, optionally matching a specific diameter.
+   * Excludes partial cylindrical faces (see {@link cylinderCurve}),
+   * optionally matching a specific diameter.
    * @param diameter - Optional diameter to exclude.
    */
   notCylinderCurve(diameter?: number) {

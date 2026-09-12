@@ -21,8 +21,14 @@ Returns a chainable filter builder. Chain calls narrow the candidate set
 ## By shape
 
 - `.planar()` / `.notPlanar()`
-- `.cylinder(diameter?)` / `.notCylinder(...)`
-- `.cylinderCurve(diameter?)` — faces bounded by cylindrical curves
+- `.cylinder(diameter?)` / `.notCylinder(...)` — full cylinders, wrapping all
+  the way around their axis: a hole's bore, a boss's wall
+- `.cylinderCurve(diameter?)` / `.notCylinderCurve(...)` — partial cylinders:
+  a fillet face, a pad's rounded corner, a bore cut open by a slot. A fillet
+  of radius `r` is `cylinderCurve(2 * r)`
+
+`cylinder()` never matches a fillet, and `cylinderCurve()` never matches a
+bore — pick by whether the face closes on itself, not by its radius.
 - `.cone()` / `.notCone()`
 - `.torus(majorRadius?, minorRadius?)`
 - `.circle(diameter?)` — flat disc faces

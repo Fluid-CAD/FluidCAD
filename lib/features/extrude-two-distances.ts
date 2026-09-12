@@ -188,9 +188,10 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.addShapes(fusionResult.newShapes);
 
     if (fusionResult.toolHistory) {
-      this.remapClassifiedFaces(fusionResult.toolHistory);
+      this.remapClassifiedBuckets(fusionResult.toolHistory, fusionResult.newShapes);
+    } else {
+      this.classifyExtrudeEdges();
     }
-    this.classifyExtrudeEdges();
     this.setFinalShapes(this.getShapes());
   }
 

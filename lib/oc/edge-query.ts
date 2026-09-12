@@ -7,8 +7,19 @@ import { Vector3d } from "../math/vector3d.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
+import { mmTol } from "../units/tolerance.js";
+
+/** An edge's geometry independent of its kernel representation; see {@link EdgeQuery.getEdgeGeometryRaw}. */
+export type EdgeGeometry =
+  | { kind: 'line'; length: number }
+  | { kind: 'circle'; radius: number; closed: boolean }
+  | { kind: 'other' };
 
 export class EdgeQuery {
+
+  /** See {@link EdgeQuery.geometryTolerance}. */
+  private static readonly GEOMETRY_TOLERANCE_MM = 1e-3;
+
   // Wrapper methods (public API for external callers)
   static isCircleEdge(edge: Shape, diameter?: number): boolean {
     return EdgeQuery.isCircleEdgeRaw(edge.getShape(), diameter);
@@ -78,80 +89,106 @@ export class EdgeQuery {
 
   // Raw methods (for oc-internal and common/ use)
   static isCircleEdgeRaw(edge: TopoDS_Shape, diameter?: number): boolean {
-    const oc = getOC();
-    const ocEdge = oc.TopoDS.Edge(edge);
-    const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
-
-    const curveType = curveAdaptor.GetType();
-    if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      curveAdaptor.delete();
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    if (geometry.kind !== 'circle' || !geometry.closed) {
       return false;
     }
-
-    if (!curveAdaptor.IsClosed()) {
-      curveAdaptor.delete();
-      return false;
-    }
-
-    if (diameter === undefined) {
-      curveAdaptor.delete();
-      return true;
-    }
-
-    const circle = curveAdaptor.Circle();
-    const r = circle.Radius();
-    circle.delete();
-    curveAdaptor.delete();
-    return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
+    return diameter === undefined || EdgeQuery.sameLength(geometry.radius, diameter / 2);
   }
 
   static isArcEdgeRaw(edge: TopoDS_Shape, radius?: number): boolean {
-    const oc = getOC();
-    const ocEdge = oc.TopoDS.Edge(edge);
-    const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
-
-    const curveType = curveAdaptor.GetType();
-    if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      curveAdaptor.delete();
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    if (geometry.kind !== 'circle' || geometry.closed) {
       return false;
     }
-
-    if (curveAdaptor.IsClosed()) {
-      curveAdaptor.delete();
-      return false;
-    }
-
-    if (radius === undefined) {
-      curveAdaptor.delete();
-      return true;
-    }
-
-    const circle = curveAdaptor.Circle();
-    const r = circle.Radius();
-    circle.delete();
-    curveAdaptor.delete();
-    return Math.abs(r - radius) <= oc.Precision.Confusion();
+    return radius === undefined || EdgeQuery.sameLength(geometry.radius, radius);
   }
 
   static isLineEdgeRaw(edge: TopoDS_Shape, length?: number): boolean {
-    const oc = getOC();
-    const ocEdge = oc.TopoDS.Edge(edge);
-    const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
-
-    const curveType = curveAdaptor.GetType();
-    if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Line) {
-      curveAdaptor.delete();
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    if (geometry.kind !== 'line') {
       return false;
     }
+    return length === undefined || EdgeQuery.sameLength(geometry.length, length);
+  }
 
-    if (length === undefined) {
-      curveAdaptor.delete();
-      return true;
+  /**
+   * The edge's geometry, regardless of how the kernel stores it. A native
+   * line or circle reads straight off the curve adaptor. A B-spline or
+   * Bezier edge — what lofts, sweeps and STEP imports carry even for
+   * straight segments and circular arcs — is handed to OCC's analytical
+   * converter, which recovers the line or circle it approximates within
+   * {@link GEOMETRY_TOLERANCE_MM}; anything it cannot recover stays `other`.
+   */
+  static getEdgeGeometryRaw(edge: TopoDS_Shape): EdgeGeometry {
+    const oc = getOC();
+    const ocEdge = oc.TopoDS.Edge(edge);
+    const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
+    try {
+      const type = adaptor.GetType();
+      if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
+        return { kind: 'line', length: Math.abs(adaptor.LastParameter() - adaptor.FirstParameter()) };
+      }
+      if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+        const circle = adaptor.Circle();
+        const radius = circle.Radius();
+        circle.delete();
+        return { kind: 'circle', radius, closed: adaptor.IsClosed() };
+      }
+      if (type === oc.GeomAbs_CurveType.GeomAbs_BSplineCurve || type === oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
+        return EdgeQuery.recoverAnalyticalGeometry(ocEdge, adaptor.IsClosed());
+      }
+      return { kind: 'other' };
+    } finally {
+      adaptor.delete();
     }
+  }
 
-    const edgeLength = Math.abs(curveAdaptor.LastParameter() - curveAdaptor.FirstParameter());
-    curveAdaptor.delete();
-    return Math.abs(edgeLength - length) <= oc.Precision.Confusion();
+  private static recoverAnalyticalGeometry(edge: TopoDS_Edge, closed: boolean): EdgeGeometry {
+    const oc = getOC();
+    const curve = oc.BRep_Tool.Curve(edge, 0, 1);
+    const converter = new oc.GeomConvert_CurveToAnaCurve(curve.returnValue);
+    converter.SetConvType(oc.GeomConvert_ConvType.GeomConvert_Simplest);
+    const converted = converter.ConvertToAnalytical(EdgeQuery.geometryTolerance(), curve.First, curve.Last);
+    try {
+      if (!converted.returnValue) {
+        return { kind: 'other' };
+      }
+      const analytical = new oc.GeomAdaptor_Curve(converted.theResultCurve);
+      try {
+        const type = analytical.GetType();
+        if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
+          return { kind: 'line', length: Math.abs(converted.newL - converted.newF) };
+        }
+        if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+          const circle = analytical.Circle();
+          const radius = circle.Radius();
+          circle.delete();
+          return { kind: 'circle', radius, closed };
+        }
+        return { kind: 'other' };
+      } finally {
+        analytical.delete();
+      }
+    } finally {
+      converted[Symbol.dispose]();
+      converter.delete();
+      curve[Symbol.dispose]();
+    }
+  }
+
+  /**
+   * How far a B-spline may stray from the line or circle it stands for, and
+   * how closely a measured length or radius must match a requested one. A
+   * loft approximates its section arcs to a few 1e-5 mm, so 1e-3 mm keeps
+   * them recognisable while staying far below any feature size.
+   */
+  private static geometryTolerance(): number {
+    return mmTol(EdgeQuery.GEOMETRY_TOLERANCE_MM);
+  }
+
+  private static sameLength(measured: number, requested: number): boolean {
+    return Math.abs(measured - requested) <= EdgeQuery.geometryTolerance();
   }
 
   static isEdgeOnPlaneRaw(edge: TopoDS_Shape, plane: gp_Pln): boolean {

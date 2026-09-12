@@ -25,13 +25,13 @@ Do not loop on screenshots. If two views did not settle a doubt, the third will 
 | Looks wrong | Check with |
 | --- | --- |
 | Overall size or proportion | `measure` two opposing planar faces (`face().onPlane(...)` filters); compare `get_shape_properties` bounding box against the envelope |
-| A hole is the wrong size | `measure` on `face().cylinder()` (reports the diameter), or `get_face_properties` with the index |
+| A hole is the wrong size | `measure` on `face().cylinder()` (reports the diameter), or `get_face_properties` with the index. `cylinder()` is full bores only; a fillet or a rounded corner is `face().cylinderCurve(2 * r)` |
 | Hole pattern asymmetric or uneven | `resolve_selection` `face().cylinder(d)` and read each match's center; `measure` between two cylindrical faces for the pitch |
 | Boss, rib or standoff floating | `list_shapes` count (an extra body means it did not fuse); `measure` between its base face and the face it should touch (distance 0) |
 | Pocket or bore depth | `measure` the pocket floor to the top face (parallel planar faces); a `screenshot` with `hide` on the occluding shape or `highlight` on the floor face when the referent is unclear |
 | Bore, blind hole or wall looks wrong | `screenshot` with `section` through the feature's axis, then `measure` the depth (floor face to top face) or the wall (outer face to inner face) |
 | Wall thickness after a shell | `measure` an outer face against the matching `s.internalFaces()` face; check `objectErrors` for a shell failure first |
-| Fillet or chamfer caught the wrong edges | `resolve_selection` the edge expression and count; `measure` one edge of the result (`edge().arc(r)`) |
+| Fillet or chamfer caught the wrong edges | `resolve_selection` the edge expression and count; `measure` one edge of the result (`edge().arc(r)`) or a fillet face (`face().cylinderCurve(2 * r)`) |
 | Pattern direction or count | `resolve_selection` the repeated feature's faces; count and centers of the first and last |
 | A feature went the wrong way (cut sign) | `get_shape_properties` volume before and after (via `rollback_to`); `measure` the face the cut should have created |
 | A body looks hollow, inside-out, or seems to be missing a face | `validate` on that shape: `openShell` means a free edge, `nonPositiveVolume` means the solid is reversed; `rollback_to` the feature before the finding's `sceneObjectId` and `validate` again to find where it went wrong |

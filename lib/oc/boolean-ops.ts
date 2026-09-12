@@ -208,6 +208,29 @@ export class BooleanOps {
    * Do not use this for the user-facing `Fuse` scene object (keep
    * `BooleanOps.fuse` for that — it treats all inputs as symmetric peers).
    */
+  /**
+   * Whether a fuse result is safe to adopt. A BOP can come back empty without
+   * raising an error — it marks the inputs deleted and returns no solid (seen
+   * with a strongly skewed loft fused into a sweep body) — and a fuse that
+   * consumed stock but produced no solid would leave the scene with nothing.
+   * A fuse that consumed nothing and produced nothing is fine: the callers
+   * keep the tools as they are.
+   */
+  static diagnoseFuseResult(
+    result: Shape[],
+    modifiedShapes: Shape[],
+    maker: { HasErrors(): boolean },
+  ): { ok: true } | { ok: false; reason: string } {
+    if (maker.HasErrors()) {
+      return { ok: false, reason: 'the kernel reported a boolean error' };
+    }
+    const producedSolid = result.some(s => s.getType() === 'solid');
+    if (!producedSolid && modifiedShapes.length > 0) {
+      return { ok: false, reason: 'the boolean consumed the existing solid but returned no solid' };
+    }
+    return { ok: true };
+  }
+
   static fuseStockAndTools(
     stock: Shape[],
     tools: Shape[],

@@ -22,6 +22,7 @@ import { Explorer } from "../oc/explorer.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+import { ClassifiedBucketRemapper } from "./classified-buckets.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 import { mmTol } from "../units/tolerance.js";
@@ -35,20 +36,17 @@ export type ClassifiedFaces = {
   capFaces: Face[];
 };
 
-function dedupEdgesByMap(edges: Edge[]): Edge[] {
-  if (edges.length === 0) {
-    return [];
-  }
-  const oc = getOC();
-  const seen = new oc.TopTools_MapOfShape();
-  const result: Edge[] = [];
-  for (const edge of edges) {
-    if (seen.Add(edge.getShape())) {
-      result.push(edge);
-    }
-  }
-  seen.delete();
-  return result;
+/** What a fusion leaves of the start/end edge buckets; see `ExtrudeBase.classifyExtrudeEdges`. */
+type FusedEdgeBuckets = {
+  startEdges: Edge[];
+  endEdges: Edge[];
+  /** Edges of the feature's own (not re-homed) start/end faces — the side-edge exclusion set. */
+  ownStartEndEdges: Edge[];
+};
+
+/** The distinct edges of the given faces, in face order. */
+function edgesOfFaces(faces: Face[]): Edge[] {
+  return ClassifiedBucketRemapper.distinct(faces.flatMap(f => f.getEdges()));
 }
 
 // Dedup `edges` by TShape pointer while also excluding any edge that shares a
@@ -304,21 +302,47 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return classified;
     }
     const faces = source.getState(faceKey) as Face[] || [];
-    return dedupEdgesByMap(faces.flatMap(f => f.getEdges()));
+    return edgesOfFaces(faces);
   }
 
   /**
-   * Remap the state-stored face category arrays through a fusion's tool-side
-   * history so each face reference points at the actual post-fusion face in
-   * the final solid. Call after `fuseWithSceneObjects` returns a `toolHistory`.
+   * Carry the classified buckets across a fusion (see
+   * {@link ClassifiedBucketRemapper}), then classify the edges. Call after
+   * `fuseWithSceneObjects` returns a `toolHistory` and the result has been
+   * added to this op.
+   *
+   * Start and end buckets are re-homed onto `finalShapes`: their faces
+   * merge into the stock whenever the feature starts or ends on an existing
+   * face, and their edges become the junction with it. Side, internal and
+   * cap buckets only follow the history, as they always have: their members
+   * are what index picks on fused features (`e.sideEdges(9)`, as the editor
+   * emits them) were recorded against, and re-homing or pruning them would
+   * renumber those picks.
    */
-  protected remapClassifiedFaces(history: ShapeHistory) {
-    const keys = ['start-faces', 'end-faces', 'side-faces', 'internal-faces', 'cap-faces'];
-    for (const key of keys) {
-      const faces = this.getState(key) as Face[] | undefined;
-      if (faces && faces.length > 0) {
+  protected remapClassifiedBuckets(history: ShapeHistory, finalShapes: Shape[]) {
+    const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+    try {
+      const rehome = (key: string) => {
+        const asBuilt = this.getState(key) as Face[] || [];
+        const edges = remapper.remapEdges(edgesOfFaces(asBuilt));
+        const faces = remapper.remapFaces(asBuilt, edges);
+        this.setState(key, faces.faces);
+        return { edges, own: faces.own };
+      };
+      const start = rehome('start-faces');
+      const end = rehome('end-faces');
+      for (const key of ['side-faces', 'internal-faces', 'cap-faces']) {
+        const faces = this.getState(key) as Face[] || [];
         this.setState(key, ShapeHistoryTracker.remapFaces(faces, history));
       }
+
+      this.classifyExtrudeEdges({
+        startEdges: start.edges,
+        endEdges: end.edges,
+        ownStartEndEdges: edgesOfFaces([...start.own, ...end.own]),
+      });
+    } finally {
+      remapper.dispose();
     }
   }
 
@@ -386,42 +410,44 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this.addShapes(fusionResult.newShapes);
 
     if (fusionResult.toolHistory) {
-      p.record('Remap classified faces', () => this.remapClassifiedFaces(fusionResult.toolHistory!));
+      p.record('Remap classified buckets', () => this.remapClassifiedBuckets(fusionResult.toolHistory!, fusionResult.newShapes));
+    } else {
+      p.record('Classify edges', () => this.classifyExtrudeEdges());
     }
-    p.record('Classify edges', () => this.classifyExtrudeEdges());
   }
 
   /**
    * One-shot edge classification: derive start/end/side/internal/cap edges
-   * from the already-classified face arrays in state and store them as
-   * `start-edges`, `end-edges`, `side-edges`, `internal-edges`, `cap-edges`.
+   * from the classified face arrays in state and store them as
+   * `start-edges`, `end-edges`, `side-edges`, `internal-edges`, `cap-edges`,
+   * so the selection accessors read pre-computed arrays instead of
+   * re-deriving on every access. Matches the classification step from the
+   * spec: "Classify the new edges and faces created by the operation".
    *
-   * Call this once after face classification (and after any post-fusion
-   * face remapping) so that the selection accessors can just read the
-   * pre-computed arrays instead of re-deriving on every access. Matches
-   * the classification step from the spec: "Classify the new edges and
-   * faces created by the operation".
+   * Call it once after face classification. After a fusion, pass what the
+   * {@link ClassifiedBucketRemapper} carried across it: a start face merged
+   * into the stock has no image to derive its edges from, while those edges
+   * live on as the junction with the stock.
    *
-   * Side edges are the edges of side faces minus any edge that's also on
-   * a start/end face (those already belong to start-edges / end-edges).
+   * Side edges are the edges of side faces minus those on the feature's own
+   * start/end faces. A junction edge lies on the stock's face, not on one of
+   * the feature's own, so it stays a side edge as well as a start edge —
+   * the membership index-based picks on fused features have always seen.
    */
-  protected classifyExtrudeEdges() {
+  protected classifyExtrudeEdges(remapped?: FusedEdgeBuckets) {
     const startFaces = this.getState('start-faces') as Face[] || [];
     const endFaces = this.getState('end-faces') as Face[] || [];
     const sideFaces = this.getState('side-faces') as Face[] || [];
     const internalFaces = this.getState('internal-faces') as Face[] || [];
     const capFaces = this.getState('cap-faces') as Face[] || [];
 
-    const startEdges = dedupEdgesByMap(startFaces.flatMap(f => f.getEdges()));
-    const endEdges = dedupEdgesByMap(endFaces.flatMap(f => f.getEdges()));
+    const startEdges = remapped ? remapped.startEdges : edgesOfFaces(startFaces);
+    const endEdges = remapped ? remapped.endEdges : edgesOfFaces(endFaces);
+    const sideExclusion = remapped ? remapped.ownStartEndEdges : [...startEdges, ...endEdges];
 
-    const sideEdges = dedupEdgesByMapExcluding(
-      sideFaces.flatMap(f => f.getEdges()),
-      [...startEdges, ...endEdges],
-    );
-
-    const internalEdges = dedupEdgesByMap(internalFaces.flatMap(f => f.getEdges()));
-    const capEdges = dedupEdgesByMap(capFaces.flatMap(f => f.getEdges()));
+    const sideEdges = dedupEdgesByMapExcluding(sideFaces.flatMap(f => f.getEdges()), sideExclusion);
+    const internalEdges = edgesOfFaces(internalFaces);
+    const capEdges = edgesOfFaces(capFaces);
 
     this.setState('start-edges', startEdges);
     this.setState('end-edges', endEdges);
@@ -443,7 +469,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     originalShapes: Face[] = null,
     owner: SceneObject = this): T[] {
     if (args.length === 0) {
-      return new ShapeFilter(shapes).apply() as T[];
+      return new ShapeFilter(ClassifiedBucketRemapper.distinct(shapes)).apply() as T[];
     }
 
     if (args.some(a => typeof a === 'number')) {

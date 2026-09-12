@@ -102,7 +102,7 @@ Show it. When a user is present, pause for them, and confirm before the first fe
 - **Prefer built-ins over hand math.** A circular `repeat` on the `cut()`, not hand-computed hole angles.
 - **Prefer feature repeat over sketch pattern.** Repeating the feature keeps each instance a first-class entity you can filter, fillet or reference later.
 - **Sketch on face references, not transformed planes.** `sketch(e.endFaces(), ...)` moves with the extrude; `sketch(plane("xy", 40), ...)` is a magic-number duplicate of geometry that already exists.
-- **Keep features small and named clearly.** One feature per logical operation makes filters such as `face().cylinder(5)` and `edge().circle(5)` predictable.
+- **Keep features small and named clearly.** One feature per logical operation makes filters such as `face().cylinder(5)` and `edge().circle(5)` predictable. `face().cylinder()` is a full bore; a fillet or rounded corner is `face().cylinderCurve()`.
 - **Comment the decisions.** Anything the user resolved, every `// ASSUMPTION:`, and anything you deliberately did not model (thread forms, surface finish, knurls). Silence reads as an oversight; a comment reads as a decision.
 
 ## Build in small increments

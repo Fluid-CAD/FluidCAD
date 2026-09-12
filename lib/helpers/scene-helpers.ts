@@ -65,6 +65,19 @@ export function fuseWithSceneObjects(
     ? p.record('Boolean fuse', fuseRun)
     : fuseRun();
 
+  // An empty or errored fuse must not be adopted: the callers would remove
+  // the consumed stock and add nothing, silently emptying the scene.
+  const verdict = BooleanOps.diagnoseFuseResult(result, modifiedShapes, maker);
+  if (verdict.ok === false) {
+    dispose();
+    const label = opts?.recordHistoryFor ? opts.recordHistoryFor.getType() : 'fuse';
+    throw new Error(
+      `${label}: fusing the new body into the existing solid failed — ${verdict.reason}. `
+      + 'The new body is probably self-intersecting, inverted or only touches the '
+      + 'existing solid along a sliver; the existing solids were left unchanged.',
+    );
+  }
+
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     dispose();
     if (opts?.recordHistoryFor) {

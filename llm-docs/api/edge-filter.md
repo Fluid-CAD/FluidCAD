@@ -19,9 +19,16 @@ Returns a chainable edge filter. Chained predicates AND together.
 
 ## By shape
 
-- `.line(length?)` / `.notLine(...)`
-- `.circle(diameter?)` / `.notCircle(...)`
-- `.arc(radius?)` / `.notArc(...)`
+- `.line(length?)` / `.notLine(...)` — straight edges
+- `.circle(diameter?)` / `.notCircle(...)` — full circles (a hole or boss rim)
+- `.arc(radius?)` / `.notArc(...)` — circular arcs (a fillet's edge, a rounded corner)
+
+Shape predicates classify by geometry, not by how the kernel stores the
+curve. A loft or sweep rebuilds its section edges as B-splines — the straight
+segments and rounded corners of a lofted rounded rectangle included — and an
+imported STEP file often does the same; `line()`, `arc(r)` and `circle(d)`
+still recognise them (within 1e-3 mm). An edge that is neither straight nor
+circular (an ellipse's arcs, a free-form spline) matches none of the three.
 
 ## By orientation
 

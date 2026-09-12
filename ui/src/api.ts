@@ -3925,12 +3925,22 @@ export async function moveToPart(
 // ---------------------------------------------------------------------------
 
 export async function importFile(fileName: string, data: string): Promise<ImportResult> {
-  return (
-    (await postJson<ImportResult>('/api/import-file', { fileName, data })) ?? {
-      success: false,
-      error: 'Network error',
+  // A failed import carries the engine's message in the error body; only a
+  // request that never reached the server is a network error.
+  try {
+    const res = await fetch('/api/import-file', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ fileName, data }),
+    });
+    const body = (await res.json().catch(() => null)) as ImportResult | null;
+    if (!res.ok || !body) {
+      return { success: false, error: body?.error ?? `Request failed (${res.status})` };
     }
-  );
+    return body;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
 }
 
 export async function exportShapes(body: ExportRequestBody): Promise<Blob> {

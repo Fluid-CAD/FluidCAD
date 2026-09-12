@@ -85,6 +85,20 @@ describe("load() units", () => {
     expect(FileImport.readAssetUnit("meta")).toBe("mm");
   });
 
+  it("creates the imports folder when a fresh workspace has none", () => {
+    const fresh = fs.mkdtempSync(join(os.tmpdir(), "fluidcad-fresh-import-"));
+    try {
+      expect(fs.existsSync(join(fresh, "imports"))).toBe(false);
+      const result = FileImport.importFile(fresh, "first.step", stepBytes);
+      expect(result.solids.length).toBe(1);
+      for (const name of ["first.brep", "first.colors.json", "first.import.json"]) {
+        expect(fs.existsSync(join(fresh, "imports", name))).toBe(true);
+      }
+    } finally {
+      fs.rmSync(fresh, { recursive: true, force: true });
+    }
+  });
+
   it("loads an mm asset into an mm document unscaled", () => {
     importBox("mmbox");
     load("mmbox");

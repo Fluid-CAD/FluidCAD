@@ -90,6 +90,7 @@ export class SolvedConstraintToolbar {
   private busy = false;
   private dimensionArmed = false;
   private deleteEnabled = false;
+  private deleteLabel: string | null = null;
 
   constructor(container: HTMLElement) {
     this.root = document.createElement('div');
@@ -189,8 +190,11 @@ export class SolvedConstraintToolbar {
     this.render();
   }
 
-  setDeleteEnabled(enabled: boolean): void {
+  /** `label` names what Delete would remove when it is not a picked badge
+   * (a vertex pick standing in for its coincident ring). */
+  setDeleteEnabled(enabled: boolean, label?: string): void {
     this.deleteEnabled = enabled;
+    this.deleteLabel = enabled ? label ?? null : null;
     this.render();
   }
 
@@ -230,7 +234,7 @@ export class SolvedConstraintToolbar {
     this.deleteBtn.className = this.deleteBtn.disabled ? BTN_DISABLED : BTN_ENABLED;
     this.deleteIcon.className = this.deleteBtn.disabled ? ICON_DISABLED : ICON_ENABLED;
     this.deleteTip.textContent = this.deleteEnabled
-      ? 'Delete the picked constraint (Del)'
-      : 'Click a constraint badge to pick it';
+      ? `${this.deleteLabel ?? 'Delete the picked constraint'} (Del)`
+      : 'Click a constraint badge, or a vertex that shares a coincident, to pick it';
   }
 }

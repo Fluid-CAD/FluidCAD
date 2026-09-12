@@ -553,3 +553,46 @@ describe('applySolvedEmission removals', () => {
     expect(result.newCode).not.toContain('coincident(');
   });
 });
+
+// A removals-only emission: the constraint bar deletes the coincident(s)
+// behind a vertex pick through this rail — several statements at a junction
+// go in ONE edit, so no removal can shift another's line out from under it.
+describe('applySolvedEmission removals-only', () => {
+  const JUNCTION = [
+    `import { sketch, line } from "fluidcad/core";`,
+    `import { coincident, horizontal } from "fluidcad/constraints";`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const a = line([0, 0], [100, 0]);`,
+    `  const b = line([100, 0], [100, 50]);`,
+    `  const c = line([100, 0], [150, -20]);`,
+    `  coincident(a.end(), b.start());`,
+    `  horizontal(a);`,
+    `  coincident(c.start(), a.end());`,
+    `});`,
+  ].join('\n');
+
+  it('deletes every listed coincident and nothing else', async () => {
+    const result = await applySolvedEmission(JUNCTION, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 8 }, { line: 10 }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('coincident(');
+    expect(result.newCode).toContain('horizontal(a);');
+    expect(result.newCode).toContain(`const c = line([100, 0], [150, -20]);`);
+    expect(result.geometryLines).toEqual([]);
+  });
+
+  it('still refuses an empty emission', async () => {
+    const result = await applySolvedEmission(JUNCTION, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [],
+    });
+    expect(result.error).toContain('nothing to emit');
+  });
+});

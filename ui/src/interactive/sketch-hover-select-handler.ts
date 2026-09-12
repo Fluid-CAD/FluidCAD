@@ -137,6 +137,9 @@ export class SketchHoverSelectHandler {
   /** Sketch-space click point per selected edge pick (see SolvedPick.at). */
   private edgePickAt = new Map<string, [number, number]>();
   private hoveredBadge: BadgeHitTarget | null = null;
+  /** Constraint statements tinted while a vertex pick stands for them (the
+   * coincident ring behind a selected junction) — by render objId. */
+  private pinnedBadgeIds = new Set<string>();
   private hoveredBadgeShapeIds: string[] = [];
   /** The active sketch's id — the key for finding its SketchMesh (whose
    * read model is the one mutated in place during live drags). */
@@ -211,6 +214,7 @@ export class SketchHoverSelectHandler {
     // sketch's badge pick targets and the entity→shape join for hover tints.
     this.clearBadgeHover();
     this.badgeTargets = this.collectBadgeTargets(sketchId);
+    this.applyPinnedTint();
     this.entityShapeIds = new Map();
     for (const obj of sceneObjects) {
       if (obj.parentId !== sketchId) {
@@ -1149,12 +1153,51 @@ export class SketchHoverSelectHandler {
     this.ctx.requestRender();
   }
 
+  /**
+   * Tint the glyphs of these constraint statements as if hovered, for as
+   * long as they stay pinned. The solved constraint toolbar pins the
+   * coincident ring(s) a vertex pick stands for, so the Delete target is
+   * visible even though the ring itself is never a pick target (P4).
+   */
+  setPinnedBadges(objIds: string[]): void {
+    const next = new Set(objIds);
+    for (const target of this.badgeTargets) {
+      if (target.objId !== undefined && this.pinnedBadgeIds.has(target.objId) && !next.has(target.objId)
+        && target !== this.hoveredBadge) {
+        for (const material of target.materials) {
+          material.color.copy(target.baseColor);
+        }
+      }
+    }
+    this.pinnedBadgeIds = next;
+    this.applyPinnedTint();
+    this.ctx.requestRender();
+  }
+
+  private applyPinnedTint(): void {
+    if (this.pinnedBadgeIds.size === 0) {
+      return;
+    }
+    for (const target of this.badgeTargets) {
+      if (target.objId !== undefined && this.pinnedBadgeIds.has(target.objId)) {
+        for (const material of target.materials) {
+          material.color.set(themeColors.highlightColor);
+        }
+      }
+    }
+  }
+
   private clearBadgeHover(): void {
     if (!this.hoveredBadge) {
       return;
     }
+    const pinned = this.hoveredBadge.objId !== undefined && this.pinnedBadgeIds.has(this.hoveredBadge.objId);
     for (const material of this.hoveredBadge.materials) {
-      material.color.copy(this.hoveredBadge.baseColor);
+      if (pinned) {
+        material.color.set(themeColors.highlightColor);
+      } else {
+        material.color.copy(this.hoveredBadge.baseColor);
+      }
     }
     for (const shapeId of this.hoveredBadgeShapeIds) {
       this.removeHoverHighlight(shapeId);

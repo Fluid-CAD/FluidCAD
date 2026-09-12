@@ -5,7 +5,7 @@
 
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
-import type { ArrowEnds, SolvedSketchModel } from '../../sketch-solver-client';
+import type { ArrowEnds, SolvedConstraintView, SolvedSketchModel } from '../../sketch-solver-client';
 import { diameterChord, distanceLeaderLayout } from '../../sketch-solver-client';
 import {
   Vec2,
@@ -680,4 +680,108 @@ export function dimensionPreviewLayout(
     arrows: 'both',
     ...(layout.extensions.length > 0 ? { extensions: layout.extensions } : {}),
   };
+}
+
+// -- coincident removal from a vertex pick ------------------------------------
+//
+// Point–point coincidents draw as a ring ON the shared vertex, and that ring
+// is deliberately not a pick target (P4: ring priority starved vertex drags
+// and the two-pick flow). Picking the VERTEX stands in for picking the ring:
+// the constraint bar's Delete then removes the coincidents bound to that
+// point — every one of them at a junction of three or more segments, since
+// the vertices there overlap and only one of them can ever be clicked.
+
+function sameRef(a: SolverRef, b: SolverRef): boolean {
+  return a.entity === b.entity && (a.point ?? null) === (b.point ?? null);
+}
+
+/** A point–point coincident: both refs resolve to points (the point-on
+ * form has its own pickable `⊙` badge and is not handled here). */
+function isRingCoincident(model: SolvedSketchModel, c: SolvedConstraintView): boolean {
+  return c.spec.kind === 'coincident'
+    && refPoint(model, c.spec.a) !== null
+    && refPoint(model, c.spec.b) !== null;
+}
+
+/**
+ * The point–point coincidents a vertex pick stands for: with ONE point
+ * pick, every coincident binding that point; with TWO point picks, the
+ * coincident binding exactly those two. Any other pick set (edges, three
+ * or more points, nothing) names no coincident. Model order is kept, so
+ * the first entry is the ring the glyph layout actually drew.
+ */
+export function coincidentsAtPicks(model: SolvedSketchModel, picks: SolvedPick[]): SolvedConstraintView[] {
+  if (picks.length === 0 || picks.length > 2 || !picks.every(isPointPick)) {
+    return [];
+  }
+  const refs = picks.map(pickRef);
+  return model.constraints.filter((c) => {
+    if (!isRingCoincident(model, c)) {
+      return false;
+    }
+    const { a, b } = c.spec as Extract<ConstraintSpec, { kind: 'coincident' }>;
+    if (refs.length === 1) {
+      return sameRef(a, refs[0]) || sameRef(b, refs[0]);
+    }
+    return (sameRef(a, refs[0]) && sameRef(b, refs[1]))
+      || (sameRef(a, refs[1]) && sameRef(b, refs[0]));
+  });
+}
+
+/**
+ * Every ring coincident drawn at the same spot as one of `targets`. The
+ * glyph layout collapses identical rings into ONE drawn dot carrying the
+ * first statement's id, so tinting "the ring of this coincident" means
+ * tinting whichever statement owns the dot at that position.
+ */
+export function coincidentRingIds(model: SolvedSketchModel, targets: SolvedConstraintView[]): string[] {
+  const spots: Vec2[] = [];
+  for (const c of targets) {
+    const spec = c.spec as Extract<ConstraintSpec, { kind: 'coincident' }>;
+    const pa = refPoint(model, spec.a);
+    const pb = refPoint(model, spec.b);
+    if (pa && pb) {
+      spots.push(mid(pa, pb));
+    }
+  }
+  const ids: string[] = [];
+  for (const c of model.constraints) {
+    if (!isRingCoincident(model, c) || c.obj.id === undefined) {
+      continue;
+    }
+    const spec = c.spec as Extract<ConstraintSpec, { kind: 'coincident' }>;
+    const at = mid(refPoint(model, spec.a) as Vec2, refPoint(model, spec.b) as Vec2);
+    if (spots.some(s => Math.abs(s[0] - at[0]) < 5e-4 && Math.abs(s[1] - at[1]) < 5e-4)) {
+      ids.push(c.obj.id);
+    }
+  }
+  return ids;
+}
+
+/** One ref as the Delete tooltip names it: `line end`, `arc start`,
+ * `circle center`, `point`, `origin`. */
+function describeRef(model: SolvedSketchModel, ref: SolverRef): string {
+  if (ref.entity < 0) {
+    return 'origin';
+  }
+  const e = entityFor(model, ref);
+  const kind = e?.kind ?? 'point';
+  return ref.point ? `${kind} ${ref.point}` : kind;
+}
+
+/** The Delete button's tooltip for a vertex-derived coincident set:
+ * `Delete coincident (line end · arc start)`, or a count when a junction
+ * holds several. Null when there is nothing to delete. */
+export function describeCoincidentRemoval(
+  model: SolvedSketchModel,
+  targets: SolvedConstraintView[],
+): string | null {
+  if (targets.length === 0) {
+    return null;
+  }
+  if (targets.length > 1) {
+    return `Delete ${targets.length} coincidents at this point`;
+  }
+  const spec = targets[0].spec as Extract<ConstraintSpec, { kind: 'coincident' }>;
+  return `Delete coincident (${describeRef(model, spec.a)} · ${describeRef(model, spec.b)})`;
 }

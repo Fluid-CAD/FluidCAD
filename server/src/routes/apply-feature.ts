@@ -7272,9 +7272,13 @@ export function createApplyFeatureRouter(
   // references its previous segment by line without waiting for a render.
   router.post('/sketch/insert-solved', async (req, res) => {
     const { sketchLine, filePath, geometry, constraints, newVariables, removals } = req.body ?? {};
+    // A removals-only body is a legal edit: the constraint bar deletes the
+    // coincident(s) behind a vertex pick through this rail so a junction's
+    // several statements go in one edit.
+    const removalCount = Array.isArray(removals) ? removals.length : 0;
     if (typeof sketchLine !== 'number'
       || !Array.isArray(geometry) || !Array.isArray(constraints)
-      || geometry.length + constraints.length === 0
+      || geometry.length + constraints.length + removalCount === 0
       || (filePath !== undefined && typeof filePath !== 'string')
       || (newVariables !== undefined && !Array.isArray(newVariables))
       || (removals !== undefined && !Array.isArray(removals))) {

@@ -101,6 +101,34 @@ describe('skills policy', () => {
     }
   });
 
+  it('every SKILL.md frontmatter scalar is quoted or free of YAML-significant characters', () => {
+    // `npx skills add` parses the frontmatter with a strict YAML parser. A
+    // plain (unquoted) scalar that contains `: ` reads as a nested mapping
+    // and the skill is skipped with "Nested mappings are not allowed in
+    // compact mappings", so any description with a colon must be quoted.
+    const skillFiles = files.filter((f) => path.basename(f) === 'SKILL.md');
+    const bad: string[] = [];
+    for (const file of skillFiles) {
+      const fm = frontmatter(fs.readFileSync(file, 'utf8'));
+      for (const line of fm.split('\n')) {
+        const match = line.match(/^([A-Za-z_-]+):\s*(.*)$/);
+        if (!match) {
+          bad.push(`${path.relative(skillsDir, file)}: not a key/value line: ${line}`);
+          continue;
+        }
+        const value = match[2];
+        const quoted = /^"(?:[^"\\]|\\.)*"$/.test(value) || /^'(?:[^']|'')*'$/.test(value);
+        if (quoted) {
+          continue;
+        }
+        if (/: | #|^[-?:,[\]{}#&*!|>'"%@`]/.test(value)) {
+          bad.push(`${path.relative(skillsDir, file)}: unquoted ${match[1]} needs quoting: ${value.slice(0, 60)}...`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
   it('every SKILL.md frontmatter names the MCP prefix with the registered server name', () => {
     const skillFiles = files.filter((f) => path.basename(f) === 'SKILL.md');
     for (const file of skillFiles) {

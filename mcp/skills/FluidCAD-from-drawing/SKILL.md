@@ -1,6 +1,6 @@
 ---
 name: FluidCAD-from-drawing
-description: Turning a 2D engineering drawing into a parametric FluidCAD model. Use this skill whenever the user supplies a drawing, blueprint, dimension sheet, hand sketch, screenshot, PDF, or photo of a part and wants it modeled — "model this", "build this part", "make this in CAD", "here's the drawing". Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and the geometry is being read off a drawing rather than described in conversation.
+description: "Turning a 2D engineering drawing into a parametric FluidCAD model. Use this skill whenever the user supplies a drawing, blueprint, dimension sheet, hand sketch, screenshot, PDF, or photo of a part and wants it modeled — \"model this\", \"build this part\", \"make this in CAD\", \"here's the drawing\". Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and the geometry is being read off a drawing rather than described in conversation."
 ---
 
 Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/FluidCAD`), under `mcp/skills/`. The installed local skill files are the runtime source of truth.

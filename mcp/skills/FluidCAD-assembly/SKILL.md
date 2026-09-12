@@ -1,6 +1,6 @@
 ---
 name: FluidCAD-assembly
-description: Building multi-part models in FluidCAD: assemblies, part files, inserting and mating parts, connectors, exposed geometry, part parameters, sub-assemblies, replicated instances, STEP parts, project units, and assembly export. Use this skill whenever the user wants an assembly, a mechanism, a hinge, a slider, several parts that fit or move together, a `.assembly.js` or `.part.js` file, `insert()`, `mate()`, `connector()`, `expose()`, `replicate()`, instances, or asks to split a model into parts. Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and more than one part is involved.
+description: "Building multi-part models in FluidCAD: assemblies, part files, inserting and mating parts, connectors, exposed geometry, part parameters, sub-assemblies, replicated instances, STEP parts, project units, and assembly export. Use this skill whenever the user wants an assembly, a mechanism, a hinge, a slider, several parts that fit or move together, a `.assembly.js` or `.part.js` file, `insert()`, `mate()`, `connector()`, `expose()`, `replicate()`, instances, or asks to split a model into parts. Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and more than one part is involved."
 ---
 
 Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/FluidCAD`), under `mcp/skills/`. The installed local skill files are the runtime source of truth.

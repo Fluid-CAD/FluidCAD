@@ -11,14 +11,6 @@ export type HeroModel = {
   /** Filename the viewer builds. The suffix selects part vs assembly. */
   entry: string;
   source: string;
-  poster: string;
-  /**
-   * Alt text for the poster. Read out when the still is all a visitor gets
-   * (no WebGL, no cross-origin isolation), so it describes the part.
-   */
-  posterAlt: string;
-  /** Walk the feature tree automatically. Assemblies are shown built. */
-  replay: boolean;
   /** Square, transparent render of the part for the switcher. */
   thumbnail: string;
 };
@@ -31,9 +23,6 @@ export const HERO_MODELS: HeroModel[] = [
     entry: 'cube.part.js',
     source: cubeSource,
     thumbnail: '/img/landing/thumb-cube.png',
-    poster: '/img/landing/hero-cube.png',
-    posterAlt: 'A 60 mm cube standing on the ground plane.',
-    replay: true,
   },
   {
     id: 'cylinder',
@@ -42,9 +31,6 @@ export const HERO_MODELS: HeroModel[] = [
     entry: 'cylinder.part.js',
     source: cylinderSource,
     thumbnail: '/img/landing/thumb-cylinder.png',
-    poster: '/img/landing/hero-cylinder.png',
-    posterAlt: 'A short cylinder with a round bore through its centre.',
-    replay: true,
   },
   {
     id: 'hinge',
@@ -53,8 +39,5 @@ export const HERO_MODELS: HeroModel[] = [
     entry: 'hinge.assembly.js',
     source: hingeSource,
     thumbnail: '/img/landing/thumb-hinge.png',
-    poster: '/img/landing/hero-hinge.png',
-    posterAlt: 'A square block with a thinner one closed onto it, the two hinged along their front edge.',
-    replay: false,
   },
 ];

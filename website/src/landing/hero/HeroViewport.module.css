@@ -2,8 +2,12 @@
    background is the page's own ground (--fc-bg matches the app's base-100),
    so the geometry sits on the page's surface rather than inside a
    screenshot. The host draws the panel it sits in — a radius and one step of
-   elevation — and everything here follows that radius so the live frame and
-   the still are clipped to the same shape. */
+   elevation — and the frame follows that radius, because an iframe is not
+   clipped by an ancestor's rounded overflow in WebKit.
+
+   Nothing is painted over the frame while the engine loads. The viewer says
+   "Loading engine…" and then "Building model…" for itself, and those are the
+   honest opening frames of a hero whose subject is a kernel starting up. */
 
 .stage {
   position: relative;
@@ -28,25 +32,53 @@
   color-scheme: light dark;
 }
 
-/* The still is framed exactly like the live scene, so the cross-fade holds
-   still. */
-.poster {
+/* ===== When there will be no frame to speak =====
+   Three cases and only these: the page is not cross-origin isolated, the
+   engine could not start, or the connection is metered and the download is
+   waiting to be asked for. */
+
+.notice {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-  opacity: 1;
-  transition: opacity var(--fc-settle) var(--fc-ease);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  padding: var(--fc-gutter);
+  text-align: center;
+  font-size: var(--fc-step-0);
+  line-height: 1.5;
+  color: var(--fc-ink-muted);
 }
 
-.poster[data-hidden] {
-  opacity: 0;
+.noticeText {
+  margin: 0;
+  max-width: 36ch;
+  text-wrap: pretty;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .poster {
-    transition: none;
-  }
+.noticeAction {
+  height: 2.625rem;
+  padding-inline: 1.2rem;
+  border: 1px solid var(--fc-line-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg);
+  color: var(--fc-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--fc-quick) var(--fc-ease),
+    border-color var(--fc-quick) var(--fc-ease);
+}
+
+.noticeAction:hover {
+  border-color: var(--fc-ink-faint);
+  background: var(--fc-bg-sunken);
+}
+
+.noticeAction:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
 }

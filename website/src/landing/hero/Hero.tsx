@@ -3,17 +3,17 @@ import Link from '@docusaurus/Link';
 import Heading from '@theme/Heading';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import {IconBrandGithub} from '@tabler/icons-react';
-import {HERO_MODELS, type HeroModel} from './models';
+import {HERO_MODELS} from './models';
 import HeroViewport from './HeroViewport';
 import styles from './Hero.module.css';
 
 /**
  * A drafting table with one sheet laid on it.
  *
- * The gridded band behind the headline is the table. It stops halfway down
- * the viewer, so the instrument sits half on the table and half on the page
- * — the overlap is a grid row boundary, not a measured offset, so nothing
- * here needs JavaScript to stay in register.
+ * The gridded band behind the headline is the table. It stops a little way
+ * down the viewer, so the instrument is caught by its top edge and the rest
+ * lies out on the open page — the overlap is a grid row boundary, not a
+ * measured offset, so nothing here needs JavaScript to stay in register.
  */
 export default function Hero() {
   const [activeId, setActiveId] = useState(HERO_MODELS[0].id);
@@ -52,8 +52,12 @@ export default function Hero() {
         </div>
       </div>
 
+      {/* Empty until the client mounts, and empty is right: the frame paints
+          its own "Loading engine…" the moment it is there, and a still of the
+          finished part standing in for it only ever made the real thing look
+          like a redraw. */}
       <div className={styles.sheet}>
-        <BrowserOnly fallback={<PosterFallback model={active} />}>
+        <BrowserOnly>
           {() => <HeroViewport className={styles.viewport} model={active} />}
         </BrowserOnly>
       </div>
@@ -75,14 +79,5 @@ export default function Hero() {
         ))}
       </div>
     </section>
-  );
-}
-
-/** What the server renders, and what a browser without JS keeps. */
-function PosterFallback({model}: {model: HeroModel}) {
-  return (
-    <div className={`${styles.viewport} ${styles.fallback}`}>
-      <img src={model.poster} alt={model.posterAlt} width={1500} height={1000} />
-    </div>
   );
 }

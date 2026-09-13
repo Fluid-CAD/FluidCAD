@@ -1,17 +1,17 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {useColorMode} from '@docusaurus/theme-common';
 import {ViewerEmbed} from '@site/src/lib/viewer-embed';
 import type {HeroModel} from './models';
 import styles from './HeroViewport.module.css';
 
-/** Beat between replay steps, and the rest on the finished model before looping. */
-const REPLAY_INTERVAL_MS = 950;
-const REPLAY_HOLD_MS = 3000;
-/** Let the finished model land before it rewinds and rebuilds itself. */
-const REPLAY_START_DELAY_MS = 1100;
-
-type Phase = 'poster' | 'booting' | 'live';
+/**
+ * Why the frame is or isn't there.
+ *
+ * `checking` lasts one paint: `crossOriginIsolated` is a browser fact, so it
+ * cannot be known during the server render.
+ */
+type Gate = 'checking' | 'boot' | 'held' | 'unsupported';
 
 type Props = {
   model: HeroModel;
@@ -21,7 +21,7 @@ type Props = {
 /**
  * Booting the viewer means fetching the OpenCascade kernel — tens of
  * megabytes. Worth it on a capable connection, rude on a metered one, so the
- * automatic boot is gated and everyone else keeps the still.
+ * automatic boot is gated and a metered visitor is asked first.
  */
 function connectionLooksCapable(): boolean {
   const connection = (navigator as {connection?: {saveData?: boolean; effectiveType?: string}}).connection;
@@ -30,81 +30,43 @@ function connectionLooksCapable(): boolean {
   }
   // Only the explicit signals. `effectiveType` is a rolling RTT estimate that
   // reads "3g" on plenty of fine connections, localhost included, so gating on
-  // "4g" would leave most visitors looking at a still.
+  // "4g" would hold the engine back from most visitors.
   return !connection.saveData && connection.effectiveType !== 'slow-2g' && connection.effectiveType !== '2g';
 }
 
-function prefersReducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
+/**
+ * The hero's scene: the real engine, building the real model, and then
+ * nothing. No still in front of it while it loads, and no feature-tree walk
+ * once it has — the viewer says "Loading engine…", then "Building model…",
+ * then hands over a finished part the visitor can turn.
+ */
 export default function HeroViewport({model, className}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
   const {fluidcadViewerUrl} = siteConfig.customFields as {fluidcadViewerUrl: string};
 
-  const stageRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const embedRef = useRef<ViewerEmbed | null>(null);
-  const replayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Once the visitor grabs the model, the replay stops for good. */
-  const releasedRef = useRef(false);
-  const modelRef = useRef(model);
-  modelRef.current = model;
 
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [booted, setBooted] = useState(false);
+  const [gate, setGate] = useState<Gate>('checking');
   /** Bumped every time the frame reports ready — a reload re-sends the model. */
   const [readyEpoch, setReadyEpoch] = useState(0);
-  const [phase, setPhase] = useState<Phase>('poster');
   const [failed, setFailed] = useState(false);
 
   // The viewer needs SharedArrayBuffer, so it needs this page to be
-  // cross-origin isolated. Where it isn't, the stills are the whole story.
+  // cross-origin isolated. Where it is, the frame goes in on the first client
+  // paint rather than at idle: what it paints while the engine arrives is the
+  // viewer's own "Loading engine…", which is the hero's opening frame, not a
+  // cost to defer.
   useEffect(() => {
-    setSupported(window.crossOriginIsolated === true);
+    if (window.crossOriginIsolated !== true) {
+      setGate('unsupported');
+      return;
+    }
+    setGate(connectionLooksCapable() ? 'boot' : 'held');
   }, []);
 
-  // Boot once the hero is actually on screen, at idle, and only when the
-  // connection can take it.
-  useEffect(() => {
-    if (supported !== true || booted || !connectionLooksCapable()) {
-      return undefined;
-    }
-    const stage = stageRef.current;
-    if (!stage) {
-      return undefined;
-    }
-    let idleHandle: number | null = null;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) {
-          return;
-        }
-        observer.disconnect();
-        const idle = (window as {requestIdleCallback?: (cb: () => void, o?: {timeout: number}) => number})
-          .requestIdleCallback;
-        idleHandle = idle
-          ? idle(() => setBooted(true), {timeout: 2000})
-          : window.setTimeout(() => setBooted(true), 400);
-      },
-      {rootMargin: '200px'},
-    );
-    observer.observe(stage);
-    return () => {
-      observer.disconnect();
-      if (idleHandle !== null) {
-        window.clearTimeout(idleHandle);
-      }
-    };
-  }, [supported, booted]);
-
-  const clearReplayTimer = useCallback(() => {
-    if (replayTimer.current !== null) {
-      clearTimeout(replayTimer.current);
-      replayTimer.current = null;
-    }
-  }, []);
+  const booted = gate === 'boot';
 
   // Protocol wiring. The frame boots an empty scene; the first model arrives
   // over the channel, and every switch after it does too — so the engine is
@@ -116,13 +78,12 @@ export default function HeroViewport({model, className}: Props) {
     }
     const embed = new ViewerEmbed(frame, fluidcadViewerUrl);
     embedRef.current = embed;
-    setPhase('booting');
 
     // The model itself is sent by the effect below, which runs as soon as
     // `ready` flips — one load, not two racing each other.
     const offReady = embed.on('ready', (event) => {
       // No viewport means no WebGL in the frame: the engine still runs, but
-      // there is nothing to cross-fade to. Stay on the still.
+      // there is nothing to show.
       if (!event.viewport) {
         setFailed(true);
         return;
@@ -130,24 +91,8 @@ export default function HeroViewport({model, className}: Props) {
       setReadyEpoch((epoch) => epoch + 1);
     });
     const offScene = embed.on('scene', (event) => {
-      if (event.reason !== 'load') {
-        return;
-      }
-      if (event.compileError) {
+      if (event.reason === 'load' && event.compileError) {
         setFailed(true);
-        return;
-      }
-      setPhase('live');
-      clearReplayTimer();
-      if (modelRef.current.replay && !releasedRef.current && !prefersReducedMotion()) {
-        replayTimer.current = setTimeout(() => {
-          embed.replay({
-            mode: 'play',
-            intervalMs: REPLAY_INTERVAL_MS,
-            holdMs: REPLAY_HOLD_MS,
-            loop: true,
-          });
-        }, REPLAY_START_DELAY_MS);
       }
     });
     const offError = embed.on('error', () => setFailed(true));
@@ -156,48 +101,25 @@ export default function HeroViewport({model, className}: Props) {
       offReady();
       offScene();
       offError();
-      clearReplayTimer();
       embed.dispose();
       embedRef.current = null;
       setReadyEpoch(0);
     };
-  }, [booted, fluidcadViewerUrl, clearReplayTimer]);
+  }, [booted, fluidcadViewerUrl]);
 
-  // The model, and every switch after it: back behind the still, rebuild,
-  // cross-fade in again.
+  // The model, and every switch after it.
   useEffect(() => {
     if (readyEpoch === 0) {
       return;
     }
-    clearReplayTimer();
-    setPhase('booting');
     embedRef.current?.load({files: {[model.entry]: model.source}, entry: model.entry});
-    // The model the visitor asked for is a fresh start for the replay.
-    releasedRef.current = false;
-  }, [model, readyEpoch, clearReplayTimer]);
+  }, [model, readyEpoch]);
 
   useEffect(() => {
     if (readyEpoch > 0) {
       embedRef.current?.setTheme(colorMode === 'dark' ? 'dark' : 'light');
     }
   }, [colorMode, readyEpoch]);
-
-  // Hovering is reading: hold the build where it is. Grabbing the model is
-  // taking over: stop the replay and hand the scene back whole.
-  const pause = () => embedRef.current?.replay({mode: 'pause'});
-  const resume = () => {
-    if (!releasedRef.current) {
-      embedRef.current?.replay({mode: 'resume'});
-    }
-  };
-  const release = () => {
-    if (releasedRef.current) {
-      return;
-    }
-    releasedRef.current = true;
-    clearReplayTimer();
-    embedRef.current?.replay({mode: 'stop'});
-  };
 
   // The theme is in the URL only to avoid a flash on first paint; every later
   // change goes over the channel. Putting it in `src` reactively would
@@ -208,12 +130,7 @@ export default function HeroViewport({model, className}: Props) {
   const src = `${fluidcadViewerUrl}/#chrome=none&theme=${bootTheme}&grid=0&axes=0`;
 
   return (
-    <div
-      ref={stageRef}
-      className={`${styles.stage} ${className ?? ''}`}
-      onPointerEnter={pause}
-      onPointerLeave={resume}
-      onPointerDown={release}>
+    <div className={`${styles.stage} ${className ?? ''}`}>
       {booted && !failed && (
         <iframe
           ref={frameRef}
@@ -224,16 +141,25 @@ export default function HeroViewport({model, className}: Props) {
           tabIndex={-1}
         />
       )}
-      <img
-        src={model.poster}
-        alt={model.posterAlt}
-        className={styles.poster}
-        data-hidden={phase === 'live' || undefined}
-        width={1500}
-        height={1000}
-        fetchPriority="high"
-        decoding="async"
-      />
+
+      {/* Nothing stands in for the engine while it loads: the frame says
+          "Loading engine…" and then "Building model…" itself. These are the
+          cases where there will be no frame to say anything. */}
+      {failed && <p className={styles.notice}>The viewer didn’t start.</p>}
+      {!failed && gate === 'unsupported' && (
+        <p className={styles.notice}>The viewer can’t run in this browser.</p>
+      )}
+      {!failed && gate === 'held' && (
+        <div className={styles.notice}>
+          <p className={styles.noticeText}>
+            The engine is a large download, so it isn’t fetched automatically on a metered
+            connection.
+          </p>
+          <button type="button" className={styles.noticeAction} onClick={() => setGate('boot')}>
+            Load the viewer
+          </button>
+        </div>
+      )}
     </div>
   );
 }

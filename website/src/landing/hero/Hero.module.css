@@ -319,32 +319,15 @@
   background: var(--fc-bg);
   border-radius: var(--fc-radius-lg);
   box-shadow: var(--fc-shadow-lift);
-  /* Clips the poster in the server-rendered path; the live viewer clips
-     itself, because an iframe is not clipped by an ancestor's radius in
-     WebKit. */
+  /* The viewer's frame carries this radius itself — an iframe is not clipped
+     by an ancestor's radius in WebKit — but anything else that lands in here
+     is clipped by the panel. */
   overflow: hidden;
 }
 
 .viewport {
   width: 100%;
   height: 100%;
-}
-
-/* ===== Server-rendered / no-JS stand-in ===== */
-
-.fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.fallback img {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
 }
 
 /* ===== Model switcher =====

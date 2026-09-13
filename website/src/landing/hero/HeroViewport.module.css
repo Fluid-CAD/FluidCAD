@@ -1,10 +1,15 @@
-/* The instrument. No card, no border, no window chrome: the viewer's scene
+/* The instrument. No border, no window chrome, and the viewer's scene
    background is the page's own ground (--fc-bg matches the app's base-100),
-   so the geometry sits on the page instead of inside a screenshot. */
+   so the geometry sits on the page's surface rather than inside a
+   screenshot. The host draws the panel it sits in — a radius and one step of
+   elevation — and everything here follows that radius so the live frame and
+   the still are clipped to the same shape. */
 
 .stage {
   position: relative;
   touch-action: pan-y;
+  /* Whatever the host rounds itself to, including nothing. */
+  border-radius: inherit;
   overflow: hidden;
 }
 
@@ -15,13 +20,16 @@
   height: 100%;
   border: 0;
   display: block;
+  /* Carried onto the iframe itself: WebKit does not clip a frame against an
+     ancestor's rounded overflow, so the corners have to be its own. */
+  border-radius: inherit;
   /* Keeps the frame's own canvas from painting white behind a dark page
      before the viewer's theme applies. */
   color-scheme: light dark;
 }
 
-/* The still is framed exactly like the live scene, shifted by the same
-   measurement the viewer is given, so the cross-fade holds still. */
+/* The still is framed exactly like the live scene, so the cross-fade holds
+   still. */
 .poster {
   position: absolute;
   inset: 0;
@@ -30,67 +38,11 @@
   object-fit: contain;
   pointer-events: none;
   opacity: 1;
-  transform: translate(calc(-1 * var(--hero-shift-x, 0px)), calc(-1 * var(--hero-shift-y, 0px)));
   transition: opacity var(--fc-settle) var(--fc-ease);
 }
 
 .poster[data-hidden] {
   opacity: 0;
-}
-
-/* The scene has no bottom edge: it dissolves into the page ground, which is
-   the same colour, and the model switcher sits inside that band — still on
-   the drafting surface, with the grid running under the buttons.
-
-   Two lengths place it, both measured up from the scene's bottom edge:
-
-     --hero-foot   the room the page leaves below the switcher. The buttons
-                   end exactly this far up, whatever the headline above them
-                   does to the row heights, so it is the only anchor the fade
-                   needs to find them. Unset in the stacked layout, where the
-                   switcher sits under the scene rather than inside it.
-     --hero-band   the whole of what the page has claimed down there: the
-                   switcher and that room together, measured and handed over
-                   by the frame.
-
-   The ramp is still eased rather than linear — a straight alpha ramp reads as
-   a visible band edge — but it now spends its last third under the buttons
-   instead of through them: the scene is a fifth present at their bottom rule
-   and only reaches the page ground below it. The final stop lands short of
-   the scene's own edge, so the clip has nothing left to cut.
-
-   Its length is taken from the claimed band and nothing else. Off the
-   viewport it ran a third of the way up the model, and a wash of page ground
-   over geometry reads as fog on the edges rather than as depth: the lines are
-   still drawn at full resolution, they are just being lightened. Measured
-   from the band instead, the ramp begins above the buttons and is done below
-   them, and the model sits in clear air. */
-.fade {
-  /* Stacked, the switcher is under the scene rather than in it, nothing is
-     claimed, and the ramp is simply a share of the scene's own foot. */
-  --fade-rise: clamp(11rem, 34vh, 20rem);
-  --fade-land: calc(var(--hero-foot, 0px) * 0.42);
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--fade-rise);
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    color-mix(in oklab, var(--fc-bg) 12%, transparent) 28%,
-    color-mix(in oklab, var(--fc-bg) 36%, transparent) 50%,
-    color-mix(in oklab, var(--fc-bg) 64%, transparent) 69%,
-    color-mix(in oklab, var(--fc-bg) 87%, transparent) 85%,
-    var(--fc-bg) calc(100% - var(--fade-land))
-  );
-}
-
-/* Overlaid: half again the claimed band, which puts the start of the ramp a
-   little above the buttons and its landing a little below them. */
-.banded {
-  --fade-rise: calc(var(--hero-band) * 1.55);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -15,13 +15,6 @@ type Phase = 'poster' | 'booting' | 'live';
 
 type Props = {
   model: HeroModel;
-  /** Pixels to slide the model left, clear of whatever the page overlays. */
-  viewShiftX: number;
-  /** Pixels to lift the model, clear of the band the page fades out. */
-  viewShiftY: number;
-  /** Room the page has claimed at the foot of the frame: the switcher and
-   *  the air under it. The dissolve is measured from it. */
-  band: number;
   className?: string;
 };
 
@@ -45,7 +38,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export default function HeroViewport({model, viewShiftX, viewShiftY, band, className}: Props) {
+export default function HeroViewport({model, className}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
   const {fluidcadViewerUrl} = siteConfig.customFields as {fluidcadViewerUrl: string};
@@ -58,8 +51,6 @@ export default function HeroViewport({model, viewShiftX, viewShiftY, band, class
   const releasedRef = useRef(false);
   const modelRef = useRef(model);
   modelRef.current = model;
-  const shiftRef = useRef({x: viewShiftX, y: viewShiftY});
-  shiftRef.current = {x: viewShiftX, y: viewShiftY};
 
   const [supported, setSupported] = useState<boolean | null>(null);
   const [booted, setBooted] = useState(false);
@@ -147,9 +138,6 @@ export default function HeroViewport({model, viewShiftX, viewShiftY, band, class
         return;
       }
       setPhase('live');
-      // Re-assert the offset per scene: a new model brings a new fit, and an
-      // assembly swaps the whole camera rig.
-      embed.setViewOffset(shiftRef.current.x, shiftRef.current.y);
       clearReplayTimer();
       if (modelRef.current.replay && !releasedRef.current && !prefersReducedMotion()) {
         replayTimer.current = setTimeout(() => {
@@ -194,14 +182,6 @@ export default function HeroViewport({model, viewShiftX, viewShiftY, band, class
     }
   }, [colorMode, readyEpoch]);
 
-  // The page overlays its headline on the right of the frame; the model slides
-  // left by the same measurement so nothing lands on top of it.
-  useEffect(() => {
-    if (readyEpoch > 0) {
-      embedRef.current?.setViewOffset(viewShiftX, viewShiftY);
-    }
-  }, [viewShiftX, viewShiftY, readyEpoch, phase]);
-
   // Hovering is reading: hold the build where it is. Grabbing the model is
   // taking over: stop the replay and hand the scene back whole.
   const pause = () => embedRef.current?.replay({mode: 'pause'});
@@ -223,22 +203,14 @@ export default function HeroViewport({model, viewShiftX, viewShiftY, band, class
   // change goes over the channel. Putting it in `src` reactively would
   // navigate the frame and throw the warm engine away.
   const bootTheme = useRef(colorMode === 'dark' ? 'dark' : 'light').current;
-  const src = `${fluidcadViewerUrl}/#chrome=none&theme=${bootTheme}&axes=0`;
+  // No furniture at all. The hero already rules its own ground, and the
+  // viewer's perspective grid crossing the page's flat one reads as noise.
+  const src = `${fluidcadViewerUrl}/#chrome=none&theme=${bootTheme}&grid=0&axes=0`;
 
   return (
     <div
       ref={stageRef}
       className={`${styles.stage} ${className ?? ''}`}
-      style={
-        {
-          '--hero-shift-x': `${viewShiftX}px`,
-          '--hero-shift-y': `${viewShiftY}px`,
-          // The room the page has taken at the foot of the scene: the
-          // switcher and the band under it. The dissolve is measured from
-          // it, so it clears the controls without reaching the model.
-          '--hero-band': `${band}px`,
-        } as React.CSSProperties
-      }
       onPointerEnter={pause}
       onPointerLeave={resume}
       onPointerDown={release}>
@@ -261,10 +233,6 @@ export default function HeroViewport({model, viewShiftX, viewShiftY, band, class
         height={1000}
         fetchPriority="high"
         decoding="async"
-      />
-      <div
-        className={`${styles.fade} ${band > 0 ? styles.banded : ''}`}
-        aria-hidden="true"
       />
     </div>
   );

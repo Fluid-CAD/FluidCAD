@@ -1,100 +1,109 @@
-/* The instrument is the hero. The viewer fills the width, the copy is set on
-   top of it at the right, and the model slides left so the two never meet. */
+/* A drafting table with one sheet laid on it.
+
+   The band behind the headline is the table: the app's sunken ground, ruled
+   at a fixed pitch. It ends a little way down the sheet, so the instrument
+   catches the table by its top edge and the rest of it lies out on the open
+   page. The overlap is the grid row boundary `table-end` and nothing else,
+   so the ratio below holds whatever the headline, the viewport or the type
+   do to the rows around it. */
 
 .hero {
+  /* The sheet's height. At the width it caps out at this lands around 2:1 on
+     a laptop and nearer 16:9 on a tall screen — the shape a viewport wants,
+     and enough room for the model to be the thing you look at rather than a
+     thumbnail on a lot of paper. It buys that by finishing below the fold on
+     a short window, which is the right trade for a hero whose subject is the
+     scene. The width term is what keeps a phone out of it: down there the
+     model fits to the narrow side, so height past about this is paper the
+     scene has no use for. */
+  --hero-sheet: clamp(17rem, min(54vh, 78vw), 35rem);
+  /* How much of the sheet the table is still under. Enough to read as one
+     overlapping the other; little enough that the instrument belongs to the
+     page rather than to the band. */
+  --hero-overlap: 0.3;
+  /* The table's ruling pitch. One value, one weight: a second, heavier rule
+     every fourth cell is the drafting-paper move, and on a band this shallow
+     it reads as pattern rather than as a surface. */
+  --hero-cell: 2.5rem;
+  /* Table left showing either side of the sheet. The page gutter is the
+     floor; past about 1000px it gives way to a proportional margin, because
+     a sheet that runs to within a gutter of the viewport edge stops reading
+     as something laid on top of anything. */
+  --hero-inset: max(var(--fc-gutter), 5.5vw);
+
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(var(--hero-inset), 1fr)
+    [content-start] min(60rem, 100% - 2 * var(--hero-inset))
+    [content-end] minmax(var(--hero-inset), 1fr)
+    [full-end];
+  /* The sheet is split across two tracks in the overlap's ratio, so a named
+     line lands where the table has to stop. Nothing else in the page needs
+     to know where that is. */
+  grid-template-rows:
+    [table-start] auto
+    [sheet-start] calc(var(--hero-sheet) * var(--hero-overlap))
+    [table-end] calc(var(--hero-sheet) * (1 - var(--hero-overlap)))
+    [sheet-end] auto
+    [hero-end];
   background: var(--fc-bg);
   padding-bottom: clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
 }
 
-.frame {
+/* ===== The table ===== */
+
+.table {
+  grid-column: full-start / full-end;
+  grid-row: table-start / table-end;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(1.25rem, 3vw, 2rem);
-  padding-block: clamp(1.5rem, 3vw, 2.5rem);
+  background: var(--fc-bg-sunken);
+  /* The one crisp line in the composition, and the thing that makes the
+     overlap legible: it runs out from under the sheet on both sides at the
+     height the sheet is caught. */
+  border-bottom: 1px solid var(--fc-line);
 }
 
-.viewportLayer {
-  order: 2;
-  width: 100%;
-  height: min(58vh, 460px);
+/* The ruling, on its own layer so it can fade in under the navbar while the
+   ground below it stays a flat colour. Anchored bottom-centre: the pitch is
+   symmetrical about the sheet and meets the table's edge on a whole cell at
+   every width. */
+.table::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, var(--fc-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--fc-line) 1px, transparent 1px);
+  background-size: var(--hero-cell) var(--hero-cell);
+  background-position: center bottom;
+  /* The ruling develops downward: out from under the navbar's own rule, held
+     well back behind the headline, and at full strength only where the sheet
+     cuts it. The type sits on a ground, not on a texture. */
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0) 0%,
+    rgb(0 0 0 / 0.28) 14%,
+    rgb(0 0 0 / 0.44) 46%,
+    rgb(0 0 0 / 1) 94%
+  );
 }
 
-.copy {
-  order: 1;
-  padding-inline: var(--fc-gutter);
-  max-width: 46rem;
-  /* The headline measures itself against this column in both layouts. */
+/* ===== Header ===== */
+
+.header {
+  grid-column: content-start / content-end;
+  grid-row: table-start / sheet-start;
+  /* The headline measures itself against this column, and the column is cut
+     to the headline: both lines are 10.08em wide by construction, so at the
+     clamp ceiling they fill it with a little air either side. */
+  width: min(100%, 46rem);
+  margin-inline: auto;
   container-type: inline-size;
+  /* Tighter than the band it used to fill: with only the top third of the
+     sheet under it the table is a shorter block, and the header has to sit
+     in it without leaving the instrument to finish below the fold. */
+  padding-block: clamp(2rem, 0.75rem + 3.5vh, 4rem) clamp(1.5rem, 0.75rem + 2.2vh, 3rem);
+  text-align: center;
 }
-
-/* Overlaid, the frame is a two-row grid whose height comes from what it
-   holds: one pad above the copy, the same pad between the copy and the
-   switcher, and a deeper foot below — the scene has to reach the page
-   ground somewhere, and that band is the only place it can do it without
-   crossing the buttons. The scene fills the whole frame regardless — an
-   absolutely positioned child resolves against the padding box. */
-@media (min-width: 1240px) {
-  .hero {
-    /* The landing is inside the frame now. What is left out here is the
-       plain ground the dissolve arrives on, held before the next section
-       changes the colour under it. */
-    padding-bottom: clamp(1.75rem, 1rem + 2vh, 3rem);
-  }
-
-  .frame {
-    --hero-pad: clamp(2rem, 1.2rem + 2vh, 3.25rem);
-    /* The room under the switcher, and the one measurement the fade is hung
-       from: everything below the buttons is exactly this tall, whatever the
-       headline does to the row above. */
-    --hero-foot: clamp(3.25rem, 2rem + 3vh, 5rem);
-    /* Several times the pad above the copy, and it has to be. The switcher
-       is the one thing in the frame that belongs to neither column, so it
-       needs to read as its own band, clear of the model in the scene above
-       it and of the copy beside it. The viewer fits the model to the frame,
-       so most of what this opens is handed straight back as a bigger model:
-       about half of every pixel here survives as air. */
-    --hero-gap: clamp(5.5rem, 3rem + 6.5vh, 9rem);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(21rem, 32vw, 29rem);
-    /* The scene row takes whatever the frame has over its content, so the
-       height below is a floor for the instrument rather than something the
-       copy and the switcher share out between them. */
-    grid-template-rows: minmax(0, 1fr) auto;
-    row-gap: var(--hero-gap);
-    padding-block: var(--hero-pad) var(--hero-foot);
-    padding-inline: 0 var(--fc-gutter);
-    /* Sized so the fold still shows the top of the section under it: the
-       navbar and the ground below the frame come off the same screen. The
-       ceiling is not about the fold — the viewer fits the model to the frame,
-       so past about this the model grows wider than the room between the rail
-       and the copy and starts arriving underneath the headline. */
-    min-height: clamp(34rem, 80vh, 50rem);
-  }
-
-  .viewportLayer {
-    position: absolute;
-    inset: 0;
-    height: auto;
-  }
-
-  /* In flow inside the frame, in the right column — it lands on the viewport
-     without taking the pointer away from the whole scene. */
-  .copy {
-    grid-column: 2;
-    grid-row: 1;
-    /* Held at the top of its row: the row is the one that stretches, and the
-       rail docks to the headline's line, which must not move with it. */
-    align-self: start;
-    position: relative;
-    z-index: var(--fc-z-raised);
-    width: auto;
-    max-width: none;
-    padding-inline: 0;
-  }
-}
-
-/* ===== Copy ===== */
 
 /* Two lines, two typefaces, one size. The headline says the product is two
    halves of one workflow, so it is set that way: the mouse line in an italic
@@ -124,12 +133,12 @@
   /* Quart, not the page's usual expo: expo spends most of its travel in the
      first fifth, which is over before the eye has followed it. */
   --title-draw-ease: cubic-bezier(0.25, 1, 0.5, 1);
-  margin: 0 0 1.1rem;
+  margin: 0 0 1.2rem;
   /* Set from the column, not the viewport: both lines are 10.08em wide by
      construction, so 100cqw / 10.08 is the size at which they fill it exactly.
      A little under that leaves room for rounding. Sizing off vw instead let
-     the headline outgrow a 21rem column and break into four ragged lines. */
-  font-size: clamp(1.7rem, 9.8cqw, 3.25rem);
+     the headline outgrow its column and break into four ragged lines. */
+  font-size: clamp(1.7rem, 9.8cqw, 4.25rem);
   line-height: var(--title-leading);
   color: var(--fc-ink);
 }
@@ -138,9 +147,11 @@
 .titleCode {
   display: block;
   /* Each box shrinks to its own line, so the sweep and the type reveal
-     measure against the text rather than the column around it. The line
-     lengths are unchanged; only the boxes stop overhanging them. */
+     measure against the text rather than the column around it. Centred as
+     boxes rather than as text: the reveal and the caret are laid out from
+     the box's own left edge. */
   width: fit-content;
+  margin-inline: auto;
 }
 
 .titleMouse {
@@ -202,12 +213,13 @@
 }
 
 .sub {
-  margin: 0;
-  max-width: 46ch;
+  margin: 0 auto;
+  max-width: 52ch;
   font-size: var(--fc-step-1);
   line-height: 1.55;
   color: var(--fc-ink-muted);
-  text-wrap: pretty;
+  /* Centred copy shows a ragged line length as a shape; balance it. */
+  text-wrap: balance;
   /* Under the headline's performance, not after it: the sub-head and the
      buttons settle while the serif is still being drawn, so nobody has to
      wait out the choreography to click Get started. */
@@ -222,8 +234,9 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.75rem;
-  margin-top: 1.75rem;
+  margin-top: 1.85rem;
   animation: rise 620ms var(--fc-ease) 340ms both;
 }
 
@@ -260,18 +273,61 @@
 .secondary {
   border: 1px solid var(--fc-line-strong);
   color: var(--fc-ink) !important;
-  background: transparent;
+  /* The table is under this one, so it needs its own ground to sit on. */
+  background: var(--fc-bg);
 }
 
 .secondary:hover {
   border-color: var(--fc-ink-faint);
-  background: var(--fc-bg-sunken);
+  background: var(--fc-bg-raised);
 }
 
 .primary:focus-visible,
 .secondary:focus-visible {
   outline: 2px solid var(--fc-live);
   outline-offset: 2px;
+}
+
+/* Below this the two labels no longer fit on one line, and two centred
+   buttons of different widths read as a wrap rather than a pair. Stacked to
+   one width they read as a pair again. */
+@media (max-width: 26rem) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .primary,
+  .secondary {
+    justify-content: center;
+  }
+}
+
+/* ===== The sheet =====
+   A panel lifted off the table, not a window: no border, no chrome, and the
+   viewer's scene background is still the page's own ground. What holds its
+   shape is the corner radius and one step of elevation, so it reads as a
+   sheet lying on the surface rather than a screenshot pasted into it. The
+   shadow keeps the lower part legible as the same object once it has passed
+   the table's edge onto plain ground. */
+
+.sheet {
+  grid-column: content-start / content-end;
+  grid-row: sheet-start / sheet-end;
+  position: relative;
+  z-index: var(--fc-z-raised);
+  background: var(--fc-bg);
+  border-radius: var(--fc-radius-lg);
+  box-shadow: var(--fc-shadow-lift);
+  /* Clips the poster in the server-rendered path; the live viewer clips
+     itself, because an iframe is not clipped by an ancestor's radius in
+     WebKit. */
+  overflow: hidden;
+}
+
+.viewport {
+  width: 100%;
+  height: 100%;
 }
 
 /* ===== Server-rendered / no-JS stand-in ===== */
@@ -292,26 +348,23 @@
 }
 
 /* ===== Model switcher =====
-   Overlaid, it sits inside the band where the scene fades into the page, so
-   the controls belong to the instrument instead of hanging under it. */
+   A row of controls under the instrument, on the page ground the sheet has
+   already dissolved into. */
 
 .switcher {
-  order: 3;
+  grid-column: content-start / content-end;
+  grid-row: sheet-end / hero-end;
+  /* Three equal columns rather than three content-width buttons: the strip
+     is then exactly as wide as the sheet above it and always one row, which
+     is what a control strip has to be. Left to size themselves the blurbs
+     pushed the third button onto a second line. */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
-  padding-inline: var(--fc-gutter);
-}
-
-@media (min-width: 1240px) {
-  .switcher {
-    /* Left column, second row: clear of the copy, one pad below it. */
-    grid-column: 1;
-    grid-row: 2;
-    position: relative;
-    z-index: var(--fc-z-raised);
-    padding-inline: calc(var(--fc-gutter) - 1rem) 0;
-  }
+  /* Clear of the panel's shadow, not just of its box: the lift reaches about
+     20px past the bottom edge, so anything tighter than this reads as the
+     strip being tucked under it. */
+  padding-top: clamp(1.6rem, 0.85rem + 2.4vh, 2.75rem);
 }
 
 /* Dashed until it is the one running, solid once it is: the switcher takes
@@ -320,8 +373,8 @@
 .chip {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1rem 0.75rem;
+  gap: 0.7rem;
+  padding: 0.55rem 1rem 0.6rem 0.65rem;
   text-align: left;
   background: transparent;
   border: 1px dashed var(--fc-line-strong);
@@ -356,8 +409,8 @@
    would take the blurb under 4.5:1 on the light ground. */
 .chipThumb {
   flex: none;
-  width: 3.25rem;
-  height: 3.25rem;
+  width: 2.75rem;
+  height: 2.75rem;
   object-fit: contain;
   opacity: 0.8;
   filter: grayscale(1);
@@ -374,7 +427,7 @@
 .chipText {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.1rem;
   min-width: 0;
 }
 
@@ -385,7 +438,6 @@
   color: var(--fc-ink);
 }
 
-
 .chip[aria-pressed='true'] .chipLabel {
   color: var(--fc-live);
 }
@@ -394,6 +446,31 @@
   font-size: var(--fc-step--1);
   line-height: 1.45;
   color: var(--fc-ink-muted);
+}
+
+/* Under about 38rem the three blurbs stop earning their room: each button
+   would break over four lines and the strip would be taller than the
+   instrument it controls. Thumbnail over label still says which part, and
+   the row stays a row. */
+@media (max-width: 38rem) {
+  .chip {
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.7rem 0.4rem 0.75rem;
+    text-align: center;
+  }
+
+  .chipText {
+    align-items: center;
+  }
+
+  .chipLabel {
+    font-size: var(--fc-step--1);
+  }
+
+  .chipBlurb {
+    display: none;
+  }
 }
 
 /* ===== Motion ===== */

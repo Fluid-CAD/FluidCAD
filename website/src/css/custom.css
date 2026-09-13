@@ -68,6 +68,13 @@
   --fc-radius: 10px;
   --fc-radius-lg: 14px;
 
+  /* Elevation. One step, because the page lifts exactly one thing off its
+     ground. Three tight layers rather than one wide blur: a sheet resting on
+     a surface has a contact shadow, not a halo. Tinted to the ink hue — pure
+     black over a near-white ground reads as grey smudge. */
+  --fc-shadow-lift: 0 1px 1px oklch(24% 0.022 256 / 0.06),
+    0 3px 5px oklch(24% 0.022 256 / 0.07), 0 8px 12px oklch(24% 0.022 256 / 0.06);
+
   /* Motion: exponential ease-out only. No bounce, no elastic. */
   --fc-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --fc-quick: 160ms;
@@ -119,6 +126,11 @@
   --fc-live-edge: oklch(69.3% 0.1647 254 / 0.4);
   --fc-picked: oklch(82.1% 0.1585 75.5);
   --fc-picked-ink: oklch(82.1% 0.1585 75.5);
+
+  /* Black, and deeper. The lifted panel is the lighter surface here, so the
+     shadow does the separating on its own. */
+  --fc-shadow-lift: 0 1px 1px oklch(0% 0 0 / 0.34),
+    0 3px 6px oklch(0% 0 0 / 0.3), 0 10px 16px oklch(0% 0 0 / 0.28);
 
   --ifm-color-primary: var(--fc-live);
   --ifm-color-primary-dark: oklch(64% 0.1647 254);

@@ -1,5 +1,5 @@
-import hubSource from '!!raw-loader!../models/hero-hub.part.js';
-import spacerSource from '!!raw-loader!../models/hero-spacer.part.js';
+import cubeSource from '!!raw-loader!../models/hero-cube.part.js';
+import cylinderSource from '!!raw-loader!../models/hero-cylinder.part.js';
 import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
 
 export type HeroModel = {
@@ -25,39 +25,36 @@ export type HeroModel = {
 
 export const HERO_MODELS: HeroModel[] = [
   {
-    id: 'hub',
-    label: 'Flanged hub',
-    blurb: 'Extrude, bore, then pattern one hole four ways.',
-    entry: 'hub.part.js',
-    source: hubSource,
-    thumbnail: '/img/landing/thumb-hub.png',
-    poster: '/img/landing/hero-hub.png',
-    posterAlt:
-      'A rectangular mounting plate with rounded corners, a bored cylindrical hub filleted into its top face, and four bolt holes.',
+    id: 'cube',
+    label: 'Cube',
+    blurb: 'One square sketch, one extrude.',
+    entry: 'cube.part.js',
+    source: cubeSource,
+    thumbnail: '/img/landing/thumb-cube.png',
+    poster: '/img/landing/hero-cube.png',
+    posterAlt: 'A 60 mm cube standing on the ground plane.',
     replay: true,
   },
   {
-    id: 'spacer',
-    label: 'Fluted spacer',
-    blurb: 'One cut, repeated eight times around the axis.',
-    entry: 'spacer.part.js',
-    source: spacerSource,
-    thumbnail: '/img/landing/thumb-spacer.png',
-    poster: '/img/landing/hero-spacer.png',
-    posterAlt:
-      'A thick cylindrical spacer with a central bore and eight scalloped flutes cut evenly around its rim.',
+    id: 'cylinder',
+    label: 'Bored cylinder',
+    blurb: 'A circle, an extrude, then a cut through it.',
+    entry: 'cylinder.part.js',
+    source: cylinderSource,
+    thumbnail: '/img/landing/thumb-cylinder.png',
+    poster: '/img/landing/hero-cylinder.png',
+    posterAlt: 'A short cylinder with a round bore through its centre.',
     replay: true,
   },
   {
     id: 'hinge',
-    label: 'Hinged case',
-    blurb: 'Two parts, one revolute joint, solved live.',
-    entry: 'case.assembly.js',
+    label: 'Hinged blocks',
+    blurb: 'Two parts, one revolute joint between them.',
+    entry: 'hinge.assembly.js',
     source: hingeSource,
     thumbnail: '/img/landing/thumb-hinge.png',
     poster: '/img/landing/hero-hinge.png',
-    posterAlt:
-      'A shelled rectangular case and its lid, hinged open flat beside each other.',
+    posterAlt: 'A square block with a thinner one closed onto it, the two hinged along their front edge.',
     replay: false,
   },
 ];

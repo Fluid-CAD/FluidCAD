@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { bottomRightRow, BOTTOM_RIGHT_ORDER, BOTTOM_RIGHT_ROW_REF } from '../src/ui/bottom-right-row';
+import { bottomRightRow, setBottomRightRowVisible, BOTTOM_RIGHT_ORDER, BOTTOM_RIGHT_ROW_REF } from '../src/ui/bottom-right-row';
 import { GridScaleBar } from '../src/ui/grid-scale-bar';
 import { MeasureStatusBar } from '../src/ui/measure/measure-status-bar';
 import { SelectionInfoOverlay } from '../src/ui/selection-info-overlay';
@@ -23,6 +23,30 @@ describe('bottomRightRow', () => {
     expect(row.dataset.ref).toBe(BOTTOM_RIGHT_ROW_REF);
     expect(bottomRightRow(container)).toBe(row);
     expect(container.querySelectorAll(`[data-ref="${BOTTOM_RIGHT_ROW_REF}"]`)).toHaveLength(1);
+  });
+
+  it('hides every chip as one row, and keeps it hidden for chips built later', () => {
+    new GridScaleBar(container, () => {});
+    setBottomRightRowVisible(container, false);
+
+    const row = bottomRightRow(container);
+    expect(row.classList.contains('hidden')).toBe(true);
+
+    // A chip constructed after the host's answer must not reopen the row.
+    new MeasureStatusBar(container, () => {}, null);
+    expect(bottomRightRow(container).classList.contains('hidden')).toBe(true);
+
+    setBottomRightRowVisible(container, true);
+    expect(bottomRightRow(container).classList.contains('hidden')).toBe(false);
+  });
+
+  it('starts a row hidden when the host answered before any chip existed', () => {
+    setBottomRightRowVisible(container, false);
+    // Nothing has asked for a row yet — the flag has to survive on its own.
+    expect(container.querySelector(`[data-ref="${BOTTOM_RIGHT_ROW_REF}"]`)).toBeNull();
+
+    new GridScaleBar(container, () => {});
+    expect(bottomRightRow(container).classList.contains('hidden')).toBe(true);
   });
 
   it('seats the grid chip beside the unit chip whatever the construction order', () => {

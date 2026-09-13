@@ -15,14 +15,13 @@ type Phase = 'poster' | 'booting' | 'live';
 
 type Props = {
   model: HeroModel;
-  /** Mount the feature tree beside the scene. */
-  withTimeline: boolean;
   /** Pixels to slide the model left, clear of whatever the page overlays. */
   viewShiftX: number;
   /** Pixels to lift the model, clear of the band the page fades out. */
   viewShiftY: number;
-  /** Room the page occupies inside the frame — the rail docks clear of it. */
-  panelInset: {top: number; bottom: number};
+  /** Room the page has claimed at the foot of the frame: the switcher and
+   *  the air under it. The dissolve is measured from it. */
+  band: number;
   className?: string;
 };
 
@@ -46,7 +45,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export default function HeroViewport({model, withTimeline, viewShiftX, viewShiftY, panelInset, className}: Props) {
+export default function HeroViewport({model, viewShiftX, viewShiftY, band, className}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
   const {fluidcadViewerUrl} = siteConfig.customFields as {fluidcadViewerUrl: string};
@@ -61,8 +60,6 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
   modelRef.current = model;
   const shiftRef = useRef({x: viewShiftX, y: viewShiftY});
   shiftRef.current = {x: viewShiftX, y: viewShiftY};
-  const insetRef = useRef(panelInset);
-  insetRef.current = panelInset;
 
   const [supported, setSupported] = useState<boolean | null>(null);
   const [booted, setBooted] = useState(false);
@@ -153,7 +150,6 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
       // Re-assert the offset per scene: a new model brings a new fit, and an
       // assembly swaps the whole camera rig.
       embed.setViewOffset(shiftRef.current.x, shiftRef.current.y);
-      embed.setPanelInset(insetRef.current);
       clearReplayTimer();
       if (modelRef.current.replay && !releasedRef.current && !prefersReducedMotion()) {
         replayTimer.current = setTimeout(() => {
@@ -177,9 +173,7 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
       embedRef.current = null;
       setReadyEpoch(0);
     };
-    // `withTimeline` re-keys the iframe, so the bridge has to be rebuilt
-    // against the new element.
-  }, [booted, withTimeline, fluidcadViewerUrl, clearReplayTimer]);
+  }, [booted, fluidcadViewerUrl, clearReplayTimer]);
 
   // The model, and every switch after it: back behind the still, rebuild,
   // cross-fade in again.
@@ -205,9 +199,8 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
   useEffect(() => {
     if (readyEpoch > 0) {
       embedRef.current?.setViewOffset(viewShiftX, viewShiftY);
-      embedRef.current?.setPanelInset(panelInset);
     }
-  }, [viewShiftX, viewShiftY, panelInset, readyEpoch, phase]);
+  }, [viewShiftX, viewShiftY, readyEpoch, phase]);
 
   // Hovering is reading: hold the build where it is. Grabbing the model is
   // taking over: stop the replay and hand the scene back whole.
@@ -230,7 +223,7 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
   // change goes over the channel. Putting it in `src` reactively would
   // navigate the frame and throw the warm engine away.
   const bootTheme = useRef(colorMode === 'dark' ? 'dark' : 'light').current;
-  const src = `${fluidcadViewerUrl}/#chrome=none${withTimeline ? ',timeline' : ''}&theme=${bootTheme}&axes=0`;
+  const src = `${fluidcadViewerUrl}/#chrome=none&theme=${bootTheme}&axes=0`;
 
   return (
     <div
@@ -243,7 +236,7 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
           // The room the page has taken at the foot of the scene: the
           // switcher and the band under it. The dissolve is measured from
           // it, so it clears the controls without reaching the model.
-          '--hero-band': `${panelInset.bottom}px`,
+          '--hero-band': `${band}px`,
         } as React.CSSProperties
       }
       onPointerEnter={pause}
@@ -252,7 +245,6 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
       {booted && !failed && (
         <iframe
           ref={frameRef}
-          key={withTimeline ? 'rail' : 'bare'}
           className={styles.frame}
           src={src}
           title="FluidCAD viewer"
@@ -271,7 +263,7 @@ export default function HeroViewport({model, withTimeline, viewShiftX, viewShift
         decoding="async"
       />
       <div
-        className={`${styles.fade} ${panelInset.bottom > 0 ? styles.banded : ''}`}
+        className={`${styles.fade} ${band > 0 ? styles.banded : ''}`}
         aria-hidden="true"
       />
     </div>

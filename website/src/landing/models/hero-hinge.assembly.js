@@ -1,35 +1,51 @@
-import { connector, extrude, insert, mate, part, plane, rect, select, shell, sketch } from "fluidcad/core";
+import { connector, extrude, insert, line, mate, part, plane, select, sketch } from "fluidcad/core";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 import { edge } from "fluidcad/filters";
 
-function boxBody() {
-    return part("Case", () => {
+function square(size) {
+    const half = size / 2;
+    const bottom = line([-half, -half], [half, -half]);
+    const right = line([half, -half], [half, half]);
+    const top = line([half, half], [-half, half]);
+    const left = line([-half, half], [-half, -half]);
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-half, -half]);
+    distance(bottom.start(), bottom.end(), size);
+    distance(right.start(), right.end(), size);
+}
+
+function base() {
+    return part("Base", () => {
         sketch("top", () => {
-            rect(100, 60).centered().radius(15);
+            square(60);
         });
 
-        const body = extrude(30);
+        extrude(20);
 
-        shell(-2, body.endFaces());
-
-        connector("hinge", select(edge().onPlane("top", 30).onPlane("front", -30).line()));
+        connector("hinge", select(edge().onPlane("top", 20).onPlane("front", -30).line()));
     });
 }
 
-function boxLid() {
-    return part("Lid", () => {
-        sketch(plane("top", 30), () => {
-            rect(100, 60).centered().radius(15);
+function flap() {
+    return part("Flap", () => {
+        sketch(plane("top", 20), () => {
+            square(60);
         });
 
-        const lid = extrude(10).new();
+        extrude(10).new();
 
-        shell(-2, lid.startFaces());
-
-        connector("hinge", select(edge().onPlane("top", 30).onPlane("front", -30).line()));
+        connector("hinge", select(edge().onPlane("top", 20).onPlane("front", -30).line()));
     });
 }
 
-const body = insert(boxBody()).grounded();
-const lid = insert(boxLid()).rotate("x", -55);
+const block = insert(base()).grounded();
+const lid = insert(flap());
 
-mate("revolute", body.connectors.hinge, lid.connectors.hinge).limits(0, 180);
+mate("revolute", block.connectors.hinge, lid.connectors.hinge).rotate(65).limits(0, 180);

@@ -18,41 +18,6 @@ import styles from './Hero.module.css';
  * the copy its own line, which is the better composition anyway.
  */
 const OVERLAY_MIN_WIDTH = 1240;
-/** The feature rail's own footprint inside the frame: 1.5rem inset + 220px. */
-const RAIL_CLEARANCE_PX = 268;
-/** The rail's own chrome above its first row's caps: 12px of panel padding,
- *  4px around the list, 6px around the row, and 5.6px of half-leading above
- *  a 14px/20px row. Fixed, because the rail's type doesn't scale with the
- *  page. Measured with the timeline at rest — it scrolls its own rows once
- *  the replay is under way. */
-const RAIL_ROW_CAP_PX = 28;
-
-let metricsCanvas: CanvasRenderingContext2D | null = null;
-
-/**
- * How far a line's caps sit below the top of its line box.
- *
- * The rail docks to the headline's first line, not to its box, and the two
- * are not the same distance apart at every size: that line is set in an
- * italic serif whose ascenders overshoot its caps, and it resizes with its
- * column. Reading the face's own metrics keeps the dock true at any size, and
- * through a change of typeface — so this must be given the line itself, not
- * the heading that holds it.
- */
-function capInset(line: HTMLElement): number {
-  metricsCanvas ??= document.createElement('canvas').getContext('2d');
-  if (!metricsCanvas) {
-    return 0;
-  }
-  const style = getComputedStyle(line);
-  const size = parseFloat(style.fontSize);
-  const leading = parseFloat(style.lineHeight);
-  metricsCanvas.font = `${style.fontStyle} ${style.fontWeight} ${size}px ${style.fontFamily}`;
-  const m = metricsCanvas.measureText('M');
-  const halfLeading =
-    (leading - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2;
-  return halfLeading + m.fontBoundingBoxAscent - m.actualBoundingBoxAscent;
-}
 
 export default function Hero() {
   const [activeId, setActiveId] = useState(HERO_MODELS[0].id);
@@ -61,17 +26,11 @@ export default function Hero() {
   const frameRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<HTMLDivElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
-  // Matched synchronously on the client so the frame mounts with its final
-  // chrome — a later flip re-keys the iframe and throws away a warm engine.
-  const [overlaid, setOverlaid] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(`(min-width: ${OVERLAY_MIN_WIDTH}px)`).matches,
-  );
   const [shift, setShift] = useState({x: 0, y: 0});
-  const [inset, setInset] = useState({top: 0, bottom: 0});
+  const [band, setBand] = useState(0);
 
   // Everything the frame shares with the page is measured, not guessed: the
-  // model is centred in the room left between the rail, the copy and the
-  // switcher, and the rail is docked to the same band the copy occupies.
+  // model is centred in the room the copy and the switcher leave it.
   const measure = useCallback((isOverlaid: boolean) => {
     const frame = frameRef.current;
     const copy = copyRef.current;
@@ -81,49 +40,30 @@ export default function Hero() {
     }
     if (!isOverlaid) {
       setShift({x: 0, y: 0});
-      setInset({top: 0, bottom: 0});
+      setBand(0);
       return;
     }
     const frameBox = frame.getBoundingClientRect();
     const copyBox = copy.getBoundingClientRect();
     const switcherBox = switcher.getBoundingClientRect();
-    const clearCentre = (RAIL_CLEARANCE_PX + (copyBox.left - frameBox.left)) / 2;
+    // The scene has the frame to itself as far as the copy's left edge.
+    const clearCentre = (copyBox.left - frameBox.left) / 2;
     const bottomBand = Math.max(0, frameBox.bottom - switcherBox.top);
-    // The switcher's own gap counts as claimed too. Only the lift uses it:
-    // the model is centred in what is left once the gap is spent, so it keeps
-    // that much air above the buttons instead of settling onto them. Growing
-    // the frame instead would not do it — the viewer fits the model to the
-    // frame, so a taller frame is only a bigger model in the same place.
-    const gap = parseFloat(getComputedStyle(frame).rowGap) || 0;
     setShift({
       x: Math.max(0, Math.round(frameBox.width / 2 - clearCentre)),
       // Half of what the page has taken at the foot of the frame: lifting by
-      // that much re-centres the model in what is left of it.
-      y: Math.round((bottomBand + gap) / 2),
+      // exactly that re-centres the model in what is left of it. No more than
+      // that — the viewer fits the model to the whole frame, so a model that
+      // fills the frame has only its fit margin to spare, and a lift past it
+      // is the model's own top going off the edge.
+      y: Math.round(bottomBand / 2),
     });
-    // The rail starts on the headline's line and stops above the switcher, so
-    // the two columns of chrome read as one band across the hero.
-    //
-    // The headline's own rect is no good here: it rises into place on load,
-    // and a rect taken mid-animation reads up to 14px low, which put the rail
-    // wherever the measurement happened to land. The column doesn't move, and
-    // the headline sits flush at its top, so the column gives the resting top
-    // of the line box; the face's metrics give the caps inside it.
-    const firstLine = copy.querySelector('h1')?.firstElementChild as HTMLElement | null;
-    const titleTop = copyBox.top - frameBox.top;
-    const titleCap = firstLine ? capInset(firstLine) : 0;
-    setInset({
-      top: Math.max(0, Math.round(titleTop + titleCap - RAIL_ROW_CAP_PX)),
-      bottom: Math.round(bottomBand),
-    });
+    setBand(Math.round(bottomBand));
   }, []);
 
   useEffect(() => {
     const wide = window.matchMedia(`(min-width: ${OVERLAY_MIN_WIDTH}px)`);
-    const sync = () => {
-      setOverlaid(wide.matches);
-      measure(wide.matches);
-    };
+    const sync = () => measure(wide.matches);
     sync();
     wide.addEventListener('change', sync);
     const observer = new ResizeObserver(() => measure(wide.matches));
@@ -132,11 +72,10 @@ export default function Hero() {
         observer.observe(el);
       }
     }
-    // The dock is read off the headline's own face, so it is only right once
-    // that face has arrived — until then the fallback's metrics are showing,
-    // and the serif's are far enough from Georgia's to see. `loadingdone`
-    // rather than `fonts.ready`: the headline's face is requested by its own
-    // first paint, which can land after ready has already resolved.
+    // The copy column is set in faces that arrive after first paint, and its
+    // width settles with them — so the model's clearance is only right once
+    // they have landed. `loadingdone` rather than `fonts.ready`: a face is
+    // requested by its own first paint, which can follow ready resolving.
     const remeasure = () => measure(wide.matches);
     document.fonts?.addEventListener('loadingdone', remeasure);
     return () => {
@@ -154,10 +93,9 @@ export default function Hero() {
             <HeroViewport
               className={styles.viewportLayer}
               model={active}
-              withTimeline={overlaid}
               viewShiftX={shift.x}
               viewShiftY={shift.y}
-              panelInset={inset}
+              band={band}
             />
           )}
         </BrowserOnly>

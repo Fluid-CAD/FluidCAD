@@ -5,6 +5,7 @@ import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
 import { worldFromMm } from './units/scene-scale';
 import { sceneUnit } from './units/scene-unit';
 import { GridScaleBar } from './ui/grid-scale-bar';
+import { setBottomRightRowVisible } from './ui/bottom-right-row';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
@@ -247,8 +248,12 @@ export class Viewer {
   private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
   private pendingDragValueHandler: DragValueHandler | null = null;
 
+  /** The full-size outer element every floating overlay and chip is hung on. */
+  private readonly chromeContainer: HTMLElement;
+
   constructor(containerId: string, client: EngineClient) {
     const container = document.getElementById(containerId)!;
+    this.chromeContainer = container;
     // The renderer fills a dedicated sub-container inset below the toolbar
     // (see #fluidcad-scene in styles.css); it sizes, resizes, and raycasts
     // against this element, so the scene starts under the toolbar with no
@@ -495,6 +500,17 @@ export class Viewer {
   /** The orientation gizmo in the corner of the viewport. */
   setGizmoVisible(visible: boolean): void {
     this.ctx.setGizmoVisible(visible);
+  }
+
+  /**
+   * The bottom-right status chips: grid pitch, document unit, coordinate
+   * readout, measure result. Each reports on a scene someone is working in,
+   * so a host showing the scene as a picture wants the same answer for all of
+   * them — they are switched as the one row they share, and a chip added to
+   * that row later needs no new switch here.
+   */
+  setStatusChipsVisible(visible: boolean): void {
+    setBottomRightRowVisible(this.chromeContainer, visible);
   }
 
   /** Frame the whole model, the way the fit-to-view button does. */

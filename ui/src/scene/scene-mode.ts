@@ -96,6 +96,7 @@ export class SceneModeManager {
       this.applyGridVisibility();
       // Adaptive/fixed mode or the pitch prefs may have changed.
       this.updateGridSpacing();
+      this.applyAxesVisibility();
     });
     // The pitch is a function of zoom — re-derive on every view change
     // (plain arithmetic, no debounce needed) and when the unit swaps.
@@ -282,6 +283,7 @@ export class SceneModeManager {
   private setupDefaultAxes(): void {
     const axes = new AxesHelper(1000);
     axes.name = 'defaultAxesHelper';
+    axes.visible = viewerSettings.current.showAxes;
     this.ctx.scene.add(axes);
   }
 
@@ -289,8 +291,32 @@ export class SceneModeManager {
     this.removeByName('sketchAxesHelper');
     const axes = this.ctx.scene.getObjectByName('defaultAxesHelper');
     if (axes) {
-      axes.visible = !this.defaultAxesSuppressed;
+      axes.visible = this.defaultAxesVisible();
     }
+  }
+
+  /**
+   * Whether the default axes helper should draw right now: the user (or an
+   * embedding host) wants axes at all, and the pickable world axes are not
+   * standing in for it.
+   */
+  private defaultAxesVisible(): boolean {
+    return viewerSettings.current.showAxes && !this.defaultAxesSuppressed;
+  }
+
+  /** Re-apply the showAxes setting to whichever axes helper the mode shows. */
+  private applyAxesVisibility(): void {
+    if (this.mode === 'default') {
+      const axes = this.ctx.scene.getObjectByName('defaultAxesHelper');
+      if (axes) {
+        axes.visible = this.defaultAxesVisible();
+      }
+    }
+    const sketchAxes = this.ctx.scene.getObjectByName('sketchAxesHelper');
+    if (sketchAxes) {
+      sketchAxes.visible = viewerSettings.current.showAxes;
+    }
+    this.ctx.requestRender();
   }
 
   /**

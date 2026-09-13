@@ -104,7 +104,9 @@ export class SceneContext {
   private clock = new Clock();
   private animFrameId = 0;
   private gizmoWasActive = false;
+  private gizmoVisible = true;
   private viewShiftY = 0;
+  private viewShiftX = 0;
   private running = false;
   private idleFrames = 0;
   private disposed = false;
@@ -338,6 +340,18 @@ export class SceneContext {
     this.applyRotationLock();
   }
 
+  /**
+   * Show or hide the orientation gizmo. It draws into the renderer's own
+   * canvas through a scissored viewport, so hiding it means skipping its
+   * render pass, not hiding an element.
+   */
+  setGizmoVisible(visible: boolean): void {
+    if (this.gizmoVisible === visible) return;
+    this.gizmoVisible = visible;
+    this.gizmo.enabled = visible && !this.rotationLocked;
+    this.requestRender();
+  }
+
   private applyRotationLock(): void {
     this._cc.mouseButtons.left = this.rotationLocked
       ? CameraControls.ACTION.TRUCK
@@ -345,7 +359,7 @@ export class SceneContext {
     this._cc.touches.one = this.rotationLocked
       ? CameraControls.ACTION.TOUCH_TRUCK
       : CameraControls.ACTION.TOUCH_ROTATE;
-    this.gizmo.enabled = !this.rotationLocked;
+    this.gizmo.enabled = this.gizmoVisible && !this.rotationLocked;
   }
 
   /** The adapter for ViewportGizmo compatibility. */
@@ -380,16 +394,21 @@ export class SceneContext {
   }
 
   /**
-   * Shift the rendered view up by `px` (0 clears). A pure projection-window
-   * offset (setViewOffset) — camera state is untouched, so zoom, orbit,
-   * fit-to-view and any setLookAt (sketch-close restore, gizmo snaps) compose
-   * with it, and the shift stays a constant pixel height at every zoom level.
-   * Applied to both cameras so camera switches keep it. The phone-layout
-   * dialog sheet drives it (see DialogViewOffset).
+   * Move the rendered image within the canvas: positive `x` shifts it left,
+   * positive `y` shifts it up (0, 0 clears). A pure projection-window offset
+   * (setViewOffset) — camera state is untouched, so zoom, orbit, fit-to-view
+   * and any setLookAt (sketch-close restore, gizmo snaps) compose with it,
+   * and the shift stays a constant pixel distance at every zoom level.
+   * Applied to both cameras so camera switches keep it.
+   *
+   * Two callers: the phone-layout dialog sheet lifts the model above itself
+   * (see DialogViewOffset), and an embedding host slides the model clear of
+   * whatever it overlays on the viewport.
    */
-  setViewShift(px: number): void {
-    if (px === this.viewShiftY) return;
-    this.viewShiftY = px;
+  setViewShift(y: number, x = 0): void {
+    if (y === this.viewShiftY && x === this.viewShiftX) return;
+    this.viewShiftY = y;
+    this.viewShiftX = x;
     this.applyViewShift();
     this.requestRender();
   }
@@ -398,10 +417,10 @@ export class SceneContext {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     for (const cam of [this.orthoCamera, this.perspCamera]) {
-      if (this.viewShiftY === 0) {
+      if (this.viewShiftY === 0 && this.viewShiftX === 0) {
         cam.clearViewOffset();
       } else {
-        cam.setViewOffset(width, height, 0, this.viewShiftY, width, height);
+        cam.setViewOffset(width, height, this.viewShiftX, this.viewShiftY, width, height);
       }
     }
   }
@@ -470,7 +489,9 @@ export class SceneContext {
     // own onBeforeRender never fires for the objects they need to un-hide.
     runFrameHooks(this.renderer, this.camera);
     this.renderer.render(this.scene, this.camera);
-    this.gizmo.render();
+    if (this.gizmoVisible) {
+      this.gizmo.render();
+    }
   }
 
   dispose(): void {
@@ -587,7 +608,7 @@ export class SceneContext {
     this.perspCamera.updateProjectionMatrix();
 
     // The view-shift offset stores the canvas size — refresh it
-    if (this.viewShiftY !== 0) {
+    if (this.viewShiftY !== 0 || this.viewShiftX !== 0) {
       this.applyViewShift();
     }
 

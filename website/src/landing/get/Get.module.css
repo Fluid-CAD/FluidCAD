@@ -1,0 +1,274 @@
+/* Two ways in, side by side and equal: an installer and a package. The page
+   has argued all the way down that mouse and code are one workflow, so it
+   would be odd to end by making one of them the main door. */
+
+.head {
+  max-width: 46rem;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fc-step-4);
+  line-height: 1.08;
+  letter-spacing: -0.028em;
+  font-weight: 650;
+  color: var(--fc-ink);
+}
+
+.lead {
+  margin: 1rem 0 0;
+  max-width: 54ch;
+  font-size: var(--fc-step-1);
+  line-height: 1.55;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.columns {
+  display: grid;
+  gap: clamp(2.25rem, 4vw, 3.5rem);
+  margin-top: clamp(2.25rem, 4vw, 3.25rem);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 62rem) {
+  .columns {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+}
+
+.columnTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--fc-line);
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  color: var(--fc-ink);
+}
+
+.tag {
+  font-family: var(--fc-font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--fc-ink-faint);
+}
+
+/* ===== Platforms ===== */
+
+.platforms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.platform {
+  display: grid;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--fc-line-strong);
+  border-radius: var(--fc-radius);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 34rem) {
+  .platform {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+/* Solid, not dashed: the drafting convention the page uses throughout, where
+   dashed is construction and solid is the thing itself. Here the solid one
+   is the build that matches the machine asking. */
+.platform[data-mine] {
+  border-style: solid;
+  border-color: var(--fc-live-edge);
+  background: var(--fc-live-wash);
+}
+
+.platformText {
+  min-width: 0;
+}
+
+.platformName {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  color: var(--fc-ink);
+}
+
+.yours {
+  font-family: var(--fc-font-mono);
+  font-size: 0.7rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--fc-live);
+}
+
+.platformDetail {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: var(--fc-step--1);
+  color: var(--fc-ink-muted);
+}
+
+.platformActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+@media (min-width: 34rem) {
+  .platformActions {
+    justify-content: flex-end;
+  }
+}
+
+.download {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 7px;
+  border: 1px solid var(--fc-line-strong);
+  background: var(--fc-bg);
+  font-size: var(--fc-step--1);
+  font-weight: 600;
+  color: var(--fc-ink) !important;
+  text-decoration: none !important;
+  transition: border-color var(--fc-quick) var(--fc-ease), background var(--fc-quick) var(--fc-ease);
+}
+
+.download:hover {
+  border-color: var(--fc-live-edge);
+  background: var(--fc-bg-raised);
+}
+
+.download:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
+}
+
+.size {
+  font-family: var(--fc-font-mono);
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--fc-ink-faint);
+}
+
+/* Says what is true rather than linking to a 404. Set in the mono the page
+   uses for machine facts, so it reads as a status and not as a button. */
+.pending {
+  font-family: var(--fc-font-mono);
+  font-size: 0.75rem;
+  color: var(--fc-ink-faint);
+}
+
+.pendingNote {
+  margin: 1.1rem 0 0;
+  max-width: 56ch;
+  font-size: var(--fc-step--1);
+  line-height: 1.6;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.pendingNote code,
+.packageNote code {
+  font-family: var(--fc-font-mono);
+  font-size: 0.9em;
+  color: var(--fc-ink);
+}
+
+/* ===== Package ===== */
+
+.install {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--fc-line);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg);
+  font-family: var(--fc-font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.85;
+  color: var(--fc-ink);
+  overflow-x: auto;
+}
+
+.prompt {
+  color: var(--fc-live);
+  user-select: none;
+  margin-right: 0.75ch;
+}
+
+.packageNote {
+  margin: 1rem 0 0;
+  font-size: var(--fc-step--1);
+  line-height: 1.6;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  height: 2.625rem;
+  padding-inline: 1.15rem;
+  border-radius: var(--fc-radius);
+  font-size: var(--fc-step--1);
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: background var(--fc-quick) var(--fc-ease), border-color var(--fc-quick) var(--fc-ease);
+}
+
+.primary {
+  background: var(--fc-live);
+  color: var(--fc-live-ink) !important;
+  border: 1px solid transparent;
+}
+
+.primary:hover {
+  background: var(--fc-live-hover);
+}
+
+.secondary {
+  border: 1px solid var(--fc-line-strong);
+  background: transparent;
+  color: var(--fc-ink) !important;
+}
+
+.secondary:hover {
+  border-color: var(--fc-ink-faint);
+  background: var(--fc-bg);
+}
+
+.primary:focus-visible,
+.secondary:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
+}
+
+.ahead {
+  margin: 1.5rem 0 0;
+  font-size: var(--fc-step--1);
+  line-height: 1.55;
+  color: var(--fc-ink-faint);
+  text-wrap: pretty;
+}

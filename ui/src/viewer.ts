@@ -13,6 +13,8 @@ import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, Solve
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
 import { EdgeMesh } from './meshes/shape-meshes/edge-mesh';
 import { SettingsPanel } from './ui/settings-panel';
+import { captureScreenshot, type ScreenshotOptions } from './screenshot';
+import { resolveView, type ScreenshotView } from './screenshot-view';
 import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { connectorHostHidden } from './scene/connector-host';
@@ -22,7 +24,6 @@ import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/sta
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
-import { captureScreenshot } from './screenshot';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 import { expandBoxExcludingMeta, sceneGeometryBounds } from './scene/scene-geometry-bounds';
@@ -479,6 +480,70 @@ export class Viewer {
   private refreshSketchConstraintGlyphs(): void {
     refreshSketchConstraintGlyphs(this.ctx.scene);
     this.ctx.requestRender();
+  }
+
+  /**
+   * The viewport's own controls: the scene-settings dial and fit-to-view. An
+   * embedding host that drives the camera itself hides them so the frame is
+   * geometry and nothing else.
+   */
+  setSettingsVisible(visible: boolean): void {
+    this.settingsPanel.setSettingsButtonVisible(visible);
+    this.settingsPanel.setFitButtonEnabled(visible);
+  }
+
+  /** The orientation gizmo in the corner of the viewport. */
+  setGizmoVisible(visible: boolean): void {
+    this.ctx.setGizmoVisible(visible);
+  }
+
+  /** Frame the whole model, the way the fit-to-view button does. */
+  fitView(): void {
+    this.fitViewToScene();
+  }
+
+  /**
+   * Look at the model from a named direction (or an explicit eye/target) and
+   * frame it. Shares the screenshot API's view vocabulary, so a still and the
+   * live scene can be composed to line up — which is what lets an embedder
+   * cross-fade a poster into the running viewport without the model jumping.
+   */
+  setCameraView(view: ScreenshotView, transition = true): void {
+    const box = this.sceneGeometryBounds();
+    const center = box ? box.getCenter(new Vector3()) : new Vector3();
+    const diameter = box ? box.getSize(new Vector3()).length() : 1;
+    const cc = this.ctx.cameraControls;
+    const eye = new Vector3();
+    const target = new Vector3();
+    cc.getPosition(eye);
+    cc.getTarget(target);
+    const resolved = resolveView(view, center, diameter, eye, target);
+    if (!resolved) {
+      return;
+    }
+    cc.setLookAt(
+      resolved.eye.x, resolved.eye.y, resolved.eye.z,
+      resolved.target.x, resolved.target.y, resolved.target.z,
+      transition,
+    );
+    // setLookAt fixes the angle; fitToBox keeps the distance honest for it.
+    if (box) {
+      this.ctx.fitToBox(box, transition);
+    }
+  }
+
+  /**
+   * Slide the rendered model within the canvas without touching the camera:
+   * positive `x` moves it left, positive `y` moves it up. An embedding host
+   * uses this to keep the model clear of whatever it overlays on the frame.
+   */
+  setViewShift(x: number, y: number): void {
+    this.ctx.setViewShift(y, x);
+  }
+
+  /** The current scene as a PNG blob. See {@link captureScreenshot}. */
+  captureView(options: Partial<ScreenshotOptions> = {}): Promise<Blob> {
+    return captureScreenshot(this.ctx, options);
   }
 
   setParamsToggleHandler(fn: () => void): void {

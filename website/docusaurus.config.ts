@@ -73,6 +73,9 @@ const config: Config = {
   ],
 
   plugins: [
+    // Reads the desktop builds off the latest GitHub release at build time so
+    // the download section can state today's truth. Non-fatal when offline.
+    './plugins/desktop-release.ts',
     // Dev-server twin of static/_headers: cross-origin isolation so the
     // embedded viewer iframe gets SharedArrayBuffer during `npm start` too.
     function crossOriginIsolation() {

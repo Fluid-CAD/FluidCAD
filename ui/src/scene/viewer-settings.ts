@@ -11,6 +11,9 @@ export interface ViewerSettings {
   showGrid: boolean;
   /** Part-view connector gizmos (the `connector()` axis triads). */
   showConnectors: boolean;
+  /** The world axis lines through the origin. Off for hosts that want the
+   *  model alone on the surface (an embed, a captured still). */
+  showAxes: boolean;
   sectionView: boolean;
   sketchLockCamera: boolean;
   /** Sketch dimensional-constraint annotations (distance, angle, radius,
@@ -37,6 +40,7 @@ const defaults: ViewerSettings = {
   cameraMode: 'orthographic',
   showGrid: true,
   showConnectors: true,
+  showAxes: true,
   sectionView: true,
   sketchLockCamera: true,
   sketchShowDimensions: true,

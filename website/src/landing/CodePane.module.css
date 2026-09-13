@@ -1,0 +1,76 @@
+/* The file, on the page's own ground. No window chrome, no traffic lights:
+   this is a file in a project, not a screenshot of somebody's terminal. */
+
+.pane {
+  overflow: auto;
+  scrollbar-width: thin;
+  /* The scroll happens inside a fixed box, so the step rail beside it does
+     not move as the file grows. */
+  overscroll-behavior: contain;
+}
+
+.pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.code {
+  display: block;
+  font-family: var(--fc-font-mono);
+  font-size: 0.78125rem;
+  line-height: 1.75;
+  color: var(--fc-ink);
+  /* Chivo Mono's zero is slashed at its default; the dotted form reads
+     quieter in a block this dense. */
+  font-variant-numeric: slashed-zero;
+}
+
+.line {
+  display: flex;
+  gap: 1.25ch;
+  padding-inline: 0.25rem;
+  color: var(--fc-ink);
+  transition: color var(--fc-settle) var(--fc-ease), opacity var(--fc-settle) var(--fc-ease);
+}
+
+/* Prism paints its own token colours inline. Turning the context grey means
+   overriding them, which only a filter can do without touching the markup:
+   the past of the file is desaturated and set back, the present is not. */
+.pane[data-focused] .line:not(.live) .text {
+  filter: saturate(0.15);
+  opacity: 0.55;
+}
+
+/* Everything that is not the statement of the moment is context. Held at
+   the muted ink rather than faded away, so it stays legible at AA. */
+.pane[data-focused] .line:not(.live) {
+  color: var(--fc-ink-muted);
+}
+
+.gutter {
+  flex: none;
+  width: 2ch;
+  text-align: right;
+  color: var(--fc-ink-faint);
+  opacity: 0.5;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.pane[data-focused] .live .gutter {
+  color: var(--fc-live);
+  opacity: 1;
+}
+
+.text {
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .line {
+    transition: none;
+  }
+}

@@ -1,0 +1,95 @@
+/* A list, ruled. Three fields per row: what it is, what it adds, what you
+   type. The rows are not tiles on purpose — these are six doors into one
+   running server, and a grid of equal boxes would say six products. */
+
+.list {
+  margin: clamp(2.25rem, 4vw, 3.5rem) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--fc-line);
+}
+
+.row {
+  display: grid;
+  gap: 0.5rem 2.5rem;
+  padding-block: clamp(1.4rem, 2.4vw, 2rem);
+  border-bottom: 1px solid var(--fc-line);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 54rem) {
+  .row {
+    grid-template-columns: 11rem minmax(0, 1fr) minmax(0, 20rem);
+    align-items: baseline;
+  }
+}
+
+/* The agent row is the one most visitors have not met before, so it gets the
+   room to explain itself instead of being cropped to match the others. */
+@media (min-width: 54rem) {
+  .rowWide {
+    grid-template-columns: 11rem minmax(0, 1fr);
+  }
+
+  .rowWide .command {
+    grid-column: 2;
+    margin-top: 0.85rem;
+  }
+}
+
+.name {
+  margin: 0;
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  color: var(--fc-ink);
+}
+
+.line {
+  margin: 0;
+  max-width: 58ch;
+  font-size: var(--fc-step-0);
+  line-height: 1.6;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.line code {
+  font-family: var(--fc-font-mono);
+  font-size: 0.88em;
+  color: var(--fc-ink);
+}
+
+.command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+/* What you type, set the way the app sets it: mono, on the sunken ground,
+   one hairline, no window chrome. */
+.command code {
+  font-family: var(--fc-font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--fc-line);
+  border-radius: 6px;
+  background: var(--fc-bg-sunken);
+  color: var(--fc-ink);
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.link {
+  font-size: var(--fc-step--1);
+  color: var(--fc-live);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

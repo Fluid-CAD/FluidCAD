@@ -19,6 +19,8 @@ export * from './units/units';
 export { TimelinePanel } from './ui/timeline-panel';
 export { AccordionSection } from './ui/accordion-section';
 export type { AccordionSectionOptions } from './ui/accordion-section';
+export type { TimelinePanelOptions } from './ui/timeline-panel';
+export { isHiddenTimelineRow, timelineStepIndexes } from './helpers/scene-utils';
 export { ShapesPanel } from './ui/shapes-panel';
 export { ParamsPanel } from './ui/params-panel';
 export { ShapePropertiesModal } from './ui/shape-properties-modal';

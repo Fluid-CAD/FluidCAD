@@ -12,6 +12,9 @@ export class SettingsPanel {
   private fitEl: HTMLButtonElement;
   private paramsEl: HTMLButtonElement;
   private onFitView: (() => void) | null = null;
+  /** Sketch mode takes fit-to-view away; the host gate can take it for good. */
+  private fitVisibleForScene = true;
+  private fitEnabled = true;
   private onParamsToggle: (() => void) | null = null;
 
   constructor(
@@ -120,8 +123,33 @@ export class SettingsPanel {
     this.onFitView = fn;
   }
 
+  /**
+   * Per-scene visibility: sketch mode hides fit-to-view, leaving it restores
+   * it. Gated by {@link setFitButtonEnabled} so a host that never wants the
+   * button can't have it handed back by the next render.
+   */
   setFitButtonVisible(visible: boolean): void {
-    this.fitEl.style.display = visible ? '' : 'none';
+    this.fitVisibleForScene = visible;
+    this.applyFitVisibility();
+  }
+
+  /** Host-level gate on the fit-to-view button. */
+  setFitButtonEnabled(enabled: boolean): void {
+    this.fitEnabled = enabled;
+    this.applyFitVisibility();
+  }
+
+  private applyFitVisibility(): void {
+    this.fitEl.style.display = this.fitEnabled && this.fitVisibleForScene ? '' : 'none';
+  }
+
+  /**
+   * The scene-settings speed dial. Hidden by hosts that embed the viewport as
+   * a display rather than a tool, where grid and projection are the page's
+   * decision and not the visitor's.
+   */
+  setSettingsButtonVisible(visible: boolean): void {
+    this.fabEl.style.display = visible ? '' : 'none';
   }
 
   setParamsToggleHandler(fn: () => void): void {

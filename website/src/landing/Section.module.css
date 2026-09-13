@@ -1,0 +1,53 @@
+/* The band and the column every section below the hero sits in. */
+
+.section {
+  padding-block: var(--fc-band);
+}
+
+.plain {
+  background: var(--fc-bg);
+}
+
+/* Two sections use this, and both are places where the page stops explaining
+   and starts working: the mouse/code exchange and the download band. The
+   colour is the app's own sunken surface, so the shift reads as a panel
+   rather than as decoration. */
+.sunken {
+  background: var(--fc-bg-sunken);
+  border-block: 1px solid var(--fc-line);
+}
+
+.column {
+  width: 100%;
+  max-width: 78rem;
+  margin-inline: auto;
+  padding-inline: var(--fc-gutter);
+}
+
+.head {
+  max-width: 46rem;
+}
+
+.headWide {
+  max-width: none;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fc-step-4);
+  line-height: 1.08;
+  /* The floor the type reference sets, not below it. At this size Chivo's
+     counters close up quickly. */
+  letter-spacing: -0.028em;
+  font-weight: 650;
+  color: var(--fc-ink);
+}
+
+.lead {
+  margin: 1.1rem 0 0;
+  max-width: 58ch;
+  font-size: var(--fc-step-1);
+  line-height: 1.55;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}

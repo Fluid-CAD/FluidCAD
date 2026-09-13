@@ -1,0 +1,138 @@
+/* The one section on the page where the heading sits beside the geometry
+   rather than above it. Two parts, one joint: the composition is two columns
+   held together by the same rule the copy describes. */
+
+.section {
+  padding-block: calc(var(--fc-band) * 0.9);
+}
+
+.split {
+  display: grid;
+  gap: clamp(2rem, 4vw, 3.5rem);
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 62rem) {
+  .split {
+    grid-template-columns: minmax(0, 27rem) minmax(0, 1fr);
+    gap: clamp(2.5rem, 5vw, 5rem);
+  }
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fc-step-4);
+  line-height: 1.08;
+  letter-spacing: -0.028em;
+  font-weight: 650;
+  color: var(--fc-ink);
+}
+
+.lead {
+  margin: 1.1rem 0 0;
+  font-size: var(--fc-step-1);
+  line-height: 1.55;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.pane {
+  margin-top: 1.75rem;
+  padding: 0.9rem 0.9rem 0.9rem 0.4rem;
+  background: var(--fc-bg-sunken);
+  border: 1px solid var(--fc-line);
+  border-radius: var(--fc-radius);
+}
+
+/* ===== Facts ===== */
+
+.facts {
+  display: grid;
+  gap: 1.1rem;
+  margin: 1.75rem 0 0;
+}
+
+.facts dt {
+  font-size: 0.75rem;
+  font-family: var(--fc-font-mono);
+  letter-spacing: 0.02em;
+  color: var(--fc-ink-faint);
+}
+
+.facts dd {
+  margin: 0.3rem 0 0;
+  font-size: var(--fc-step-0);
+  line-height: 1.5;
+  color: var(--fc-ink-muted);
+}
+
+/* The number the solver reports, in the colour the page uses for a thing
+   that is running. Not a hero metric — it is one fact about one joint. */
+.count {
+  font-family: var(--fc-font-mono);
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--fc-live);
+}
+
+.ahead {
+  margin: 1.5rem 0 0;
+  font-size: var(--fc-step--1);
+  color: var(--fc-ink-faint);
+}
+
+/* ===== Stage ===== */
+
+.stage {
+  margin: 0;
+  min-width: 0;
+}
+
+.render {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 26rem;
+  object-fit: contain;
+}
+
+.pivot {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--fc-font-mono);
+  font-size: 0.75rem;
+  color: var(--fc-ink-faint);
+}
+
+/* Gold: the app paints the thing being acted on in this colour, and the
+   connector pair is exactly that. */
+.pivotDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fc-picked);
+}
+
+.split[data-shown] .render {
+  animation: settleIn 760ms var(--fc-ease) both;
+}
+
+@keyframes settleIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .split[data-shown] .render {
+    animation: none;
+  }
+}

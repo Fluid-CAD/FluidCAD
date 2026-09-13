@@ -1,0 +1,514 @@
+/* The instrument is the hero. The viewer fills the width, the copy is set on
+   top of it at the right, and the model slides left so the two never meet. */
+
+.hero {
+  background: var(--fc-bg);
+  padding-bottom: clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
+}
+
+.frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.25rem, 3vw, 2rem);
+  padding-block: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.viewportLayer {
+  order: 2;
+  width: 100%;
+  height: min(58vh, 460px);
+}
+
+.copy {
+  order: 1;
+  padding-inline: var(--fc-gutter);
+  max-width: 46rem;
+  /* The headline measures itself against this column in both layouts. */
+  container-type: inline-size;
+}
+
+/* Overlaid, the frame is a two-row grid whose height comes from what it
+   holds: one pad above the copy, the same pad between the copy and the
+   switcher, and a deeper foot below — the scene has to reach the page
+   ground somewhere, and that band is the only place it can do it without
+   crossing the buttons. The scene fills the whole frame regardless — an
+   absolutely positioned child resolves against the padding box. */
+@media (min-width: 1240px) {
+  .hero {
+    /* The landing is inside the frame now. What is left out here is the
+       plain ground the dissolve arrives on, held before the next section
+       changes the colour under it. */
+    padding-bottom: clamp(1.75rem, 1rem + 2vh, 3rem);
+  }
+
+  .frame {
+    --hero-pad: clamp(2rem, 1.2rem + 2vh, 3.25rem);
+    /* The room under the switcher, and the one measurement the fade is hung
+       from: everything below the buttons is exactly this tall, whatever the
+       headline does to the row above. */
+    --hero-foot: clamp(3.25rem, 2rem + 3vh, 5rem);
+    /* Several times the pad above the copy, and it has to be. The switcher
+       is the one thing in the frame that belongs to neither column, so it
+       needs to read as its own band, clear of the model in the scene above
+       it and of the copy beside it. The viewer fits the model to the frame,
+       so most of what this opens is handed straight back as a bigger model:
+       about half of every pixel here survives as air. */
+    --hero-gap: clamp(5.5rem, 3rem + 6.5vh, 9rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(21rem, 32vw, 29rem);
+    /* The scene row takes whatever the frame has over its content, so the
+       height below is a floor for the instrument rather than something the
+       copy and the switcher share out between them. */
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: var(--hero-gap);
+    padding-block: var(--hero-pad) var(--hero-foot);
+    padding-inline: 0 var(--fc-gutter);
+    /* Sized so the fold still shows the top of the section under it: the
+       navbar and the ground below the frame come off the same screen. The
+       ceiling is not about the fold — the viewer fits the model to the frame,
+       so past about this the model grows wider than the room between the rail
+       and the copy and starts arriving underneath the headline. */
+    min-height: clamp(34rem, 80vh, 50rem);
+  }
+
+  .viewportLayer {
+    position: absolute;
+    inset: 0;
+    height: auto;
+  }
+
+  /* In flow inside the frame, in the right column — it lands on the viewport
+     without taking the pointer away from the whole scene. */
+  .copy {
+    grid-column: 2;
+    grid-row: 1;
+    /* Held at the top of its row: the row is the one that stretches, and the
+       rail docks to the headline's line, which must not move with it. */
+    align-self: start;
+    position: relative;
+    z-index: var(--fc-z-raised);
+    width: auto;
+    max-width: none;
+    padding-inline: 0;
+  }
+}
+
+/* ===== Copy ===== */
+
+/* Two lines, two typefaces, one size. The headline says the product is two
+   halves of one workflow, so it is set that way: the mouse line in an italic
+   serif that keeps moving, the code line in the editor's own monospace. They
+   are siblings — same colour, same weight on the page, same measure — and
+   only their nature differs. */
+
+.title {
+  /* The mono line's size against the serif line's. Chivo Mono's fixed advance
+     runs wide, so the two 21-character lines only end together once the mono
+     is stepped back this far — at 0.827 both measure 10.08em and the block is
+     flush on both sides. Read as one size regardless. */
+  --title-code-scale: 0.827;
+  --title-code-tracking: -0.02em;
+  --title-leading: 1.06;
+  /* The entrance, in one place. The serif line is drawn, and only once it has
+     landed does the caret arrive and start typing the mono line: the headline
+     performs the two halves of the workflow in the order the page describes
+     them. Nothing here waits on JavaScript. */
+  --title-draw-ms: 700ms;
+  --title-resolve-ms: 880ms;
+  --title-caret-at: 780ms;
+  --title-type-at: 900ms;
+  --title-type-ms: 880ms;
+  /* 120ms to arrive, the 880ms of typing, two 240ms blinks, 480ms to leave. */
+  --title-caret-ms: 2440ms;
+  /* Quart, not the page's usual expo: expo spends most of its travel in the
+     first fifth, which is over before the eye has followed it. */
+  --title-draw-ease: cubic-bezier(0.25, 1, 0.5, 1);
+  margin: 0 0 1.1rem;
+  /* Set from the column, not the viewport: both lines are 10.08em wide by
+     construction, so 100cqw / 10.08 is the size at which they fill it exactly.
+     A little under that leaves room for rounding. Sizing off vw instead let
+     the headline outgrow a 21rem column and break into four ragged lines. */
+  font-size: clamp(1.7rem, 9.8cqw, 3.25rem);
+  line-height: var(--title-leading);
+  color: var(--fc-ink);
+}
+
+.titleMouse,
+.titleCode {
+  display: block;
+  /* Each box shrinks to its own line, so the sweep and the type reveal
+     measure against the text rather than the column around it. The line
+     lengths are unchanged; only the boxes stop overhanging them. */
+  width: fit-content;
+}
+
+.titleMouse {
+  font-family: var(--fc-font-serif);
+  font-style: italic;
+  /* 560 against the mono's 500: Literata sets lighter than Chivo Mono at the
+     same nominal weight, and the pair has to hold the same colour. */
+  font-weight: 560;
+  letter-spacing: -0.018em;
+  /* Two motions, deliberately out of step. The stroke crosses the line and
+     finishes; the focus keeps resolving for another fifth of a second after
+     it, so the line settles rather than stopping. */
+  animation: draw var(--title-draw-ms) var(--title-draw-ease) both,
+    resolve var(--title-resolve-ms) var(--title-draw-ease) both;
+}
+
+.titleCode {
+  position: relative;
+  font-family: var(--fc-font-mono);
+  font-weight: 500;
+  font-size: calc(1em * var(--title-code-scale));
+  /* Divided back out, so this line advances the same distance as the serif
+     one above it. Left unitless it would take the leading off its own
+     smaller size and close the gap. */
+  line-height: calc(var(--title-leading) / var(--title-code-scale));
+  letter-spacing: var(--title-code-tracking);
+  /* One character cell: the mono advance plus the tracking that follows it.
+     Twenty-one of these is the line exactly, which is what lets the reveal
+     and the caret land on character boundaries instead of near them. */
+  --title-code-cell: calc(1ch + var(--title-code-tracking));
+}
+
+.titleCodeText {
+  display: block;
+  animation: type var(--title-type-ms) steps(21, jump-start) var(--title-type-at)
+    both;
+}
+
+/* The caret. Solid while characters are arriving, the way a terminal holds
+   it, then two blinks and gone: the line is left clean, and no part of the
+   hero is still moving five seconds in. Blue because that is what this
+   palette uses for a thing that is running. */
+.titleCode::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  /* The cell, not a tick under the text. Chivo Mono's box runs 0.937em above
+     the baseline and 0.241em below it, and this line's leading leaves 0.052em
+     of it at each end, so those three numbers place a caret that fills the
+     character height exactly the way a terminal fills it. */
+  top: 0.052em;
+  width: var(--title-code-cell);
+  height: 1.178em;
+  background: var(--fc-live);
+  opacity: 0;
+  animation: caretRide var(--title-type-ms) steps(21, jump-start)
+      var(--title-type-at) forwards,
+    caretShow var(--title-caret-ms) linear var(--title-caret-at) forwards;
+}
+
+.sub {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--fc-step-1);
+  line-height: 1.55;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+  /* Under the headline's performance, not after it: the sub-head and the
+     buttons settle while the serif is still being drawn, so nobody has to
+     wait out the choreography to click Get started. */
+  animation: rise 620ms var(--fc-ease) 220ms both;
+}
+
+/* Kept off the line break: split at its hyphen, "B-Rep" reads as two words. */
+.unbroken {
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+  animation: rise 620ms var(--fc-ease) 340ms both;
+}
+
+.secondary svg {
+  margin-right: 0.5rem;
+  color: var(--fc-ink-faint);
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  height: 2.875rem;
+  padding-inline: 1.4rem;
+  border-radius: var(--fc-radius);
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none !important;
+  transition: background var(--fc-quick) var(--fc-ease),
+    border-color var(--fc-quick) var(--fc-ease), color var(--fc-quick) var(--fc-ease);
+}
+
+.primary {
+  background: var(--fc-live);
+  color: var(--fc-live-ink) !important;
+  border: 1px solid transparent;
+}
+
+.primary:hover {
+  background: var(--fc-live-hover);
+}
+
+.secondary {
+  border: 1px solid var(--fc-line-strong);
+  color: var(--fc-ink) !important;
+  background: transparent;
+}
+
+.secondary:hover {
+  border-color: var(--fc-ink-faint);
+  background: var(--fc-bg-sunken);
+}
+
+.primary:focus-visible,
+.secondary:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
+}
+
+/* ===== Server-rendered / no-JS stand-in ===== */
+
+.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fallback img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ===== Model switcher =====
+   Overlaid, it sits inside the band where the scene fades into the page, so
+   the controls belong to the instrument instead of hanging under it. */
+
+.switcher {
+  order: 3;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.5rem;
+  padding-inline: var(--fc-gutter);
+}
+
+@media (min-width: 1240px) {
+  .switcher {
+    /* Left column, second row: clear of the copy, one pad below it. */
+    grid-column: 1;
+    grid-row: 2;
+    position: relative;
+    z-index: var(--fc-z-raised);
+    padding-inline: calc(var(--fc-gutter) - 1rem) 0;
+  }
+}
+
+/* Dashed until it is the one running, solid once it is: the switcher takes
+   the drafting convention where a dashed outline is construction and a solid
+   one is the geometry. Both are 1px, so picking one moves nothing. */
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1rem 0.75rem;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--fc-line-strong);
+  border-radius: var(--fc-radius);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background var(--fc-quick) var(--fc-ease),
+    border-color var(--fc-quick) var(--fc-ease);
+}
+
+.chip:hover {
+  background: var(--fc-bg-sunken);
+  border-color: var(--fc-ink-faint);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--fc-live-wash);
+  border-style: solid;
+  border-color: var(--fc-live-edge);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
+}
+
+/* A render of the part, not an icon: the button shows what it switches to.
+   Grey and held back until it is the one on screen, when its own colour
+   comes back — the switcher says which part is live the way the viewport
+   does. The dimming stops at the image: carrying it on the whole button
+   would take the blurb under 4.5:1 on the light ground. */
+.chipThumb {
+  flex: none;
+  width: 3.25rem;
+  height: 3.25rem;
+  object-fit: contain;
+  opacity: 0.8;
+  filter: grayscale(1);
+  transition: opacity var(--fc-quick) var(--fc-ease),
+    filter var(--fc-quick) var(--fc-ease);
+}
+
+.chip:hover .chipThumb,
+.chip[aria-pressed='true'] .chipThumb {
+  opacity: 1;
+  filter: grayscale(0);
+}
+
+.chipText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.chipLabel {
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fc-ink);
+}
+
+
+.chip[aria-pressed='true'] .chipLabel {
+  color: var(--fc-live);
+}
+
+.chipBlurb {
+  font-size: var(--fc-step--1);
+  line-height: 1.45;
+  color: var(--fc-ink-muted);
+}
+
+/* ===== Motion ===== */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Drawn, not faded. A soft-edged mask crosses the line left to right while
+   the ink resolves out of a blur, so the serif arrives as one continuous
+   stroke: the hand, moving.
+
+   The mask is declared inside the keyframes and nowhere else, so an element
+   that never animates is simply an unmasked, whole line. That is what makes
+   the reveal safe with animation switched off, and in anything that renders
+   the page without running it.
+
+   The geometry is what makes it read. A 235% mask travels 1.35 line-widths,
+   and clearing the line takes 1.235 of them, so almost none of the duration
+   is spent after the stroke has already arrived. The 45%/55% stops put the
+   soft edge fully off the line at both ends: at rest the whole line sits
+   inside the opaque region, so nothing is left permanently faded. */
+@keyframes draw {
+  from {
+    mask-image: linear-gradient(90deg, #000 0 45%, transparent 55%);
+    mask-size: 235% 100%;
+    mask-position: 100% 0;
+  }
+  to {
+    mask-image: linear-gradient(90deg, #000 0 45%, transparent 55%);
+    mask-size: 235% 100%;
+    mask-position: 0% 0;
+  }
+}
+
+/* The ink coming into focus, on its own clock. */
+@keyframes resolve {
+  from {
+    filter: blur(4px);
+  }
+  to {
+    filter: blur(0);
+  }
+}
+
+/* Twenty-one steps for twenty-one characters. The box is the line's own
+   width, so each step uncovers exactly one cell. */
+@keyframes type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes caretRide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(21 * var(--title-code-cell)));
+  }
+}
+
+/* Arrive, hold solid through the typing the way a terminal does, blink twice
+   once the line is finished, then leave. The stops are those millisecond
+   beats read as percentages of --title-caret-ms. */
+@keyframes caretShow {
+  0% {
+    opacity: 0;
+  }
+  4.9%,
+  41% {
+    opacity: 1;
+  }
+  41.1%,
+  50.8% {
+    opacity: 0;
+  }
+  50.9%,
+  60.7% {
+    opacity: 1;
+  }
+  60.8%,
+  70.5% {
+    opacity: 0;
+  }
+  70.6%,
+  80.3% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Nothing is drawn, nothing is typed, and there is no caret to blink: every
+   line is simply present. The rest of the copy keeps its own fade. */
+@media (prefers-reduced-motion: reduce) {
+  .titleMouse,
+  .titleCodeText,
+  .sub,
+  .actions {
+    animation: none;
+  }
+
+  .titleCode::after {
+    display: none;
+  }
+}

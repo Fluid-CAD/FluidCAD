@@ -1,87 +1,164 @@
-/* ===== FluidCAD Design Tokens ===== */
-/* Colors derived from the FluidCAD UI (ui/src/styles.css + Three.js scene) */
+/* ===================================================================== *
+ * FluidCAD design tokens
+ *
+ * The palette is the application's, promoted to brand. Two colors carry
+ * meaning and nothing else does:
+ *
+ *   --fc-live    the FluidCAD blue — a thing that is running, or a control
+ *   --fc-picked  the viewport's selection highlight — the thing acted on
+ *
+ * Grounds match the app's own `--color-base-100` exactly (#1e1e1e dark,
+ * #ffffff light), so an embedded viewer's scene dissolves into the page
+ * with no frame around it. Every text pair below is verified at WCAG AA
+ * (4.5:1 body, 3:1 large) in both themes.
+ * ===================================================================== */
+
+@import '@fontsource-variable/chivo';
+@import '@fontsource-variable/chivo-mono';
+/* Italic only, and only the weight axis: the serif is used for one line of
+   one headline, so nothing else in the family is worth the bytes. */
+@import '@fontsource-variable/literata/wght-italic.css';
 
 :root {
-  /* Docusaurus primary palette — matches UI --color-primary #4a9eff */
-  --ifm-color-primary: #4a9eff;
-  --ifm-color-primary-dark: #2e8df7;
-  --ifm-color-primary-darker: #1a7fee;
-  --ifm-color-primary-darkest: #0f66c4;
-  --ifm-color-primary-light: #6db1ff;
-  --ifm-color-primary-lighter: #8ac1ff;
-  --ifm-color-primary-lightest: #b8d9ff;
-  --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  /* --- grounds --- */
+  --fc-bg: oklch(100% 0 0);
+  --fc-bg-sunken: oklch(97.5% 0.004 254);
+  --fc-bg-raised: oklch(98.8% 0.003 254);
+  --fc-line: oklch(90% 0.008 254);
+  --fc-line-strong: oklch(82% 0.012 254);
 
-  /* FluidCAD tokens — light mode */
-  --fluidcad-bg-primary: #ffffff;
-  --fluidcad-bg-secondary: #f7f8fa;
-  --fluidcad-bg-surface: #f0f1f4;
-  --fluidcad-text-primary: #1a1d23;
-  --fluidcad-text-secondary: #4b5563;
-  --fluidcad-text-tertiary: #8892a4;
-  --fluidcad-border: #dfe2e8;
-  --fluidcad-border-strong: #c4c9d4;
-  --fluidcad-grid-line: rgba(74, 158, 255, 0.06);
-  --fluidcad-accent: #4a9eff;
-  --fluidcad-accent-light: #6db1ff;
-  --fluidcad-accent-glow: rgba(74, 158, 255, 0.15);
-  --fluidcad-warm: #ffc578;
-  --fluidcad-warm-deep: #c88f40;
-  --fluidcad-terminal-bg: #1e1e1e;
-  --fluidcad-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* --- ink (16.4 / 6.8 / 4.9 : 1 on --fc-bg) --- */
+  --fc-ink: oklch(24% 0.022 256);
+  --fc-ink-muted: oklch(47% 0.024 256);
+  --fc-ink-faint: oklch(55% 0.024 256);
+
+  /* --- meaning --- */
+  --fc-live: oklch(54.6% 0.2152 262.9);
+  --fc-live-hover: oklch(48% 0.2152 262.9);
+  --fc-live-ink: oklch(100% 0 0);
+  --fc-live-wash: oklch(54.6% 0.2152 262.9 / 0.08);
+  --fc-live-edge: oklch(54.6% 0.2152 262.9 / 0.35);
+  --fc-picked: oklch(82.1% 0.1585 75.5);
+  /* Gold is a graphic accent; text needs the darkened form (5.7:1). */
+  --fc-picked-ink: oklch(52% 0.13 62);
+
+  /* --- type ---
+     Three families, and each one means something. Sans is the page's voice.
+     Mono is what the app writes — code, filenames, anything the file holds.
+     The serif is italic-only and reserved for the hand: the half of the
+     workflow that is a mouse moving, set against the mono half. Using it
+     anywhere else spends the contrast for nothing. */
+  --fc-font-sans: 'Chivo Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --fc-font-mono: 'Chivo Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fc-font-serif: 'Literata Variable', Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+
+  --fc-step--1: 0.8125rem;
+  --fc-step-0: 1.0625rem;
+  --fc-step-1: 1.25rem;
+  --fc-step-2: clamp(1.4rem, 1.28rem + 0.6vw, 1.75rem);
+  --fc-step-3: clamp(1.75rem, 1.5rem + 1.2vw, 2.4rem);
+  --fc-step-4: clamp(2.1rem, 1.65rem + 2.2vw, 3.25rem);
+  --fc-step-5: clamp(2.6rem, 1.55rem + 4.6vw, 4.5rem);
+
+  /* --- rhythm --- */
+  --fc-band: clamp(4rem, 2.5rem + 6vw, 7.5rem);
+  --fc-gutter: clamp(1.25rem, 0.6rem + 2.4vw, 2.5rem);
+  --fc-measure: 62ch;
+
+  --fc-radius: 10px;
+  --fc-radius-lg: 14px;
+
+  /* Motion: exponential ease-out only. No bounce, no elastic. */
+  --fc-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fc-quick: 160ms;
+  --fc-settle: 420ms;
+
+  /* Semantic z-scale — never an arbitrary 9999. */
+  --fc-z-raised: 10;
+  --fc-z-sticky: 20;
+  --fc-z-overlay: 30;
+  --fc-z-popover: 40;
+
+  /* --- Docusaurus bindings --- */
+  --ifm-color-primary: var(--fc-live);
+  --ifm-color-primary-dark: oklch(50% 0.2152 262.9);
+  --ifm-color-primary-darker: oklch(47% 0.2152 262.9);
+  --ifm-color-primary-darkest: oklch(40% 0.19 262.9);
+  --ifm-color-primary-light: oklch(60% 0.2 262.9);
+  --ifm-color-primary-lighter: oklch(66% 0.18 262.9);
+  --ifm-color-primary-lightest: oklch(78% 0.12 262.9);
+  --ifm-font-family-base: var(--fc-font-sans);
+  --ifm-font-family-monospace: var(--fc-font-mono);
+  --ifm-background-color: var(--fc-bg);
+  --ifm-background-surface-color: var(--fc-bg-raised);
+  --ifm-heading-font-weight: 650;
+  --ifm-code-font-size: 92%;
+  --ifm-navbar-background-color: var(--fc-bg);
+  --ifm-navbar-shadow: inset 0 -1px 0 var(--fc-line);
+  --ifm-toc-border-color: var(--fc-line);
+  --docusaurus-highlighted-code-line-bg: oklch(54.6% 0.2152 262.9 / 0.1);
 }
 
 [data-theme='dark'] {
-  /* Docusaurus primary palette — dark */
-  --ifm-color-primary: #4a9eff;
-  --ifm-color-primary-dark: #2e8df7;
-  --ifm-color-primary-darker: #1a7fee;
-  --ifm-color-primary-darkest: #0f66c4;
-  --ifm-color-primary-light: #6db1ff;
-  --ifm-color-primary-lighter: #8ac1ff;
-  --ifm-color-primary-lightest: #b8d9ff;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --fc-bg: oklch(23.5% 0 0);
+  --fc-bg-sunken: oklch(20.9% 0 0);
+  --fc-bg-raised: oklch(26.4% 0 0);
+  --fc-line: oklch(32% 0.004 254);
+  --fc-line-strong: oklch(40% 0.006 254);
 
-  /* Override Docusaurus dark backgrounds — matches UI base colors */
-  --ifm-background-color: #181818;
-  --ifm-background-surface-color: #1e1e1e;
+  /* 14.9 / 7.8 / 4.9 : 1 on --fc-bg */
+  --fc-ink: oklch(96% 0.003 254);
+  --fc-ink-muted: oklch(76% 0.008 254);
+  --fc-ink-faint: oklch(63.5% 0.01 254);
 
-  /* FluidCAD tokens — dark mode */
-  --fluidcad-bg-primary: #181818;
-  --fluidcad-bg-secondary: #1e1e1e;
-  --fluidcad-bg-surface: #252525;
-  --fluidcad-text-primary: #e0e0e0;
-  --fluidcad-text-secondary: #9ca3af;
-  --fluidcad-text-tertiary: #6b7280;
-  --fluidcad-border: #333333;
-  --fluidcad-border-strong: #444444;
-  --fluidcad-grid-line: rgba(74, 158, 255, 0.06);
-  --fluidcad-accent: #4a9eff;
-  --fluidcad-accent-light: #6db1ff;
-  --fluidcad-accent-glow: rgba(74, 158, 255, 0.18);
-  --fluidcad-warm: #ffc578;
-  --fluidcad-warm-deep: #c88f40;
-  --fluidcad-terminal-bg: #141414;
-  --fluidcad-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --fc-live: oklch(69.3% 0.1647 254);
+  --fc-live-hover: oklch(76% 0.15 254);
+  /* White on this blue is 2.8:1 — a filled control takes dark ink instead. */
+  --fc-live-ink: oklch(15% 0.01 254);
+  --fc-live-wash: oklch(69.3% 0.1647 254 / 0.12);
+  --fc-live-edge: oklch(69.3% 0.1647 254 / 0.4);
+  --fc-picked: oklch(82.1% 0.1585 75.5);
+  --fc-picked-ink: oklch(82.1% 0.1585 75.5);
+
+  --ifm-color-primary: var(--fc-live);
+  --ifm-color-primary-dark: oklch(64% 0.1647 254);
+  --ifm-color-primary-darker: oklch(60% 0.1647 254);
+  --ifm-color-primary-darkest: oklch(52% 0.15 254);
+  --ifm-color-primary-light: oklch(75% 0.15 254);
+  --ifm-color-primary-lighter: oklch(80% 0.13 254);
+  --ifm-color-primary-lightest: oklch(88% 0.08 254);
+  --docusaurus-highlighted-code-line-bg: oklch(69.3% 0.1647 254 / 0.14);
 }
 
-/* ===== Dark mode footer fix ===== */
-[data-theme='dark'] .footer--dark {
-  --ifm-footer-background-color: #111111;
+/* ===== Base ===== */
+
+body {
+  background-color: var(--fc-bg);
+  color: var(--fc-ink);
+  font-family: var(--fc-font-sans);
+  font-synthesis-weight: none;
 }
 
-/* ===== CodeBlock background overrides ===== */
-[data-theme='dark'] .prism-code {
-  background-color: #1e1e1e !important;
+h1, h2, h3, h4 {
+  text-wrap: balance;
 }
 
-[data-theme='dark'] div[class*='codeBlockContainer'] {
-  background-color: #1e1e1e !important;
+/* ===== Chrome ===== */
+
+.navbar {
+  border-bottom: 1px solid var(--fc-line);
 }
 
-[data-theme='dark'] div[class*='codeBlockContent'] {
-  background-color: #1e1e1e !important;
+.footer {
+  --ifm-footer-background-color: var(--fc-bg-sunken);
+  --ifm-footer-color: var(--fc-ink-muted);
+  --ifm-footer-link-color: var(--fc-ink-muted);
+  --ifm-footer-title-color: var(--fc-ink);
+  border-top: 1px solid var(--fc-line);
+}
+
+.footer--dark {
+  --ifm-footer-background-color: var(--fc-bg-sunken);
 }
 
 /* ===== Center the search button in the navbar (desktop only) ===== */
@@ -158,60 +235,38 @@
 
 /* ===== Algolia DocSearch theming ===== */
 :root {
-  --docsearch-primary-color: var(--fluidcad-accent);
-  --docsearch-text-color: var(--fluidcad-text-primary);
-  --docsearch-muted-color: var(--fluidcad-text-tertiary);
-  --docsearch-subtle-color: var(--fluidcad-border);
-  --docsearch-icon-color: var(--fluidcad-text-secondary);
-  --docsearch-search-button-background: var(--fluidcad-bg-surface);
-  --docsearch-search-button-text-color: var(--fluidcad-text-primary);
-  --docsearch-searchbox-background: var(--fluidcad-bg-surface);
-  --docsearch-searchbox-focus-background: var(--fluidcad-bg-surface);
-  --docsearch-searchbox-shadow: inset 0 0 0 1px var(--fluidcad-border);
-  --docsearch-key-background: var(--fluidcad-bg-secondary);
-  --docsearch-key-color: var(--fluidcad-text-secondary);
+  --docsearch-primary-color: var(--fc-live);
+  --docsearch-text-color: var(--fc-ink);
+  --docsearch-muted-color: var(--fc-ink-faint);
+  --docsearch-subtle-color: var(--fc-line);
+  --docsearch-icon-color: var(--fc-ink-muted);
+  --docsearch-search-button-background: var(--fc-bg-sunken);
+  --docsearch-search-button-text-color: var(--fc-ink);
+  --docsearch-searchbox-background: var(--fc-bg-sunken);
+  --docsearch-searchbox-focus-background: var(--fc-bg-sunken);
+  --docsearch-searchbox-shadow: inset 0 0 0 1px var(--fc-line);
+  --docsearch-key-background: var(--fc-bg-raised);
+  --docsearch-key-color: var(--fc-ink-muted);
   --docsearch-key-gradient: linear-gradient(
     -225deg,
-    var(--fluidcad-bg-surface),
-    var(--fluidcad-bg-secondary)
+    var(--fc-bg-sunken),
+    var(--fc-bg-raised)
   );
-  --docsearch-key-shadow: inset 0 -1px 0 0 var(--fluidcad-border),
-    inset 0 0 0 1px var(--fluidcad-border), 0 1px 1px 0 rgba(0, 0, 0, 0.04);
-  --docsearch-modal-background: var(--fluidcad-bg-primary);
+  --docsearch-key-shadow: inset 0 -1px 0 0 var(--fc-line),
+    inset 0 0 0 1px var(--fc-line), 0 1px 1px 0 rgba(0, 0, 0, 0.04);
+  --docsearch-modal-background: var(--fc-bg);
   --docsearch-modal-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
-  --docsearch-footer-background: var(--fluidcad-bg-secondary);
-  --docsearch-footer-shadow: inset 0 1px 0 0 var(--fluidcad-border);
-  --docsearch-hit-color: var(--fluidcad-text-primary);
-  --docsearch-hit-background: var(--fluidcad-bg-secondary);
+  --docsearch-footer-background: var(--fc-bg-sunken);
+  --docsearch-footer-shadow: inset 0 1px 0 0 var(--fc-line);
+  --docsearch-hit-color: var(--fc-ink);
+  --docsearch-hit-background: var(--fc-bg-sunken);
   --docsearch-hit-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   --docsearch-hit-active-color: #ffffff;
 }
 
 [data-theme='dark'] {
-  --docsearch-text-color: var(--fluidcad-text-primary);
-  --docsearch-muted-color: var(--fluidcad-text-tertiary);
-  --docsearch-subtle-color: var(--fluidcad-border);
-  --docsearch-icon-color: var(--fluidcad-text-secondary);
-  --docsearch-search-button-background: var(--fluidcad-bg-surface);
-  --docsearch-search-button-text-color: var(--fluidcad-text-primary);
-  --docsearch-searchbox-background: var(--fluidcad-bg-surface);
-  --docsearch-searchbox-focus-background: var(--fluidcad-bg-surface);
-  --docsearch-searchbox-shadow: inset 0 0 0 1px var(--fluidcad-border);
-  --docsearch-key-background: var(--fluidcad-bg-secondary);
-  --docsearch-key-color: var(--fluidcad-text-secondary);
-  --docsearch-key-gradient: linear-gradient(
-    -225deg,
-    var(--fluidcad-bg-surface),
-    var(--fluidcad-bg-secondary)
-  );
   --docsearch-key-shadow: inset 0 -1px 0 0 rgba(0, 0, 0, 0.4),
-    inset 0 0 0 1px var(--fluidcad-border-strong), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --docsearch-modal-background: var(--fluidcad-bg-primary);
+    inset 0 0 0 1px var(--fc-line-strong), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --docsearch-modal-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  --docsearch-footer-background: var(--fluidcad-bg-secondary);
-  --docsearch-footer-shadow: inset 0 1px 0 0 var(--fluidcad-border);
-  --docsearch-hit-color: var(--fluidcad-text-primary);
-  --docsearch-hit-background: var(--fluidcad-bg-secondary);
   --docsearch-hit-shadow: none;
-  --docsearch-hit-active-color: #ffffff;
 }

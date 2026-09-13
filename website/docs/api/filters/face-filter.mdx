@@ -80,7 +80,10 @@ Excludes circular (flat, disc-shaped) faces, optionally matching a specific diam
 .cylinder(diameter?: number): this
 ```
 
-Selects cylindrical faces, optionally matching a specific diameter.
+Selects full cylindrical faces — ones that wrap all the way around their
+axis and so carry a circular rim: a hole's bore, a boss's wall.
+A partial cylinder (a fillet face, a bore cut open by a slot) is a
+`cylinderCurve`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -92,7 +95,8 @@ Selects cylindrical faces, optionally matching a specific diameter.
 .notCylinder(diameter?: number): this
 ```
 
-Excludes cylindrical faces, optionally matching a specific diameter.
+Excludes full cylindrical faces (see `cylinder`), optionally
+matching a specific diameter.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -106,11 +110,13 @@ Excludes cylindrical faces, optionally matching a specific diameter.
 .cylinderCurve(diameter?: number): this
 ```
 
-Selects faces bounded by cylindrical curves, optionally matching a specific diameter.
+Selects partial cylindrical faces — ones that do not wrap all the way
+around their axis: a fillet along an edge, a rounded corner of a pad, a
+bore cut open by a slot. A full bore is a `cylinder`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `diameter` | number | Optional diameter to match. *(optional)* |
+| `diameter` | number | Optional diameter to match (a fillet of radius r has diameter 2r). *(optional)* |
 
 ### .notCylinderCurve()
 
@@ -118,7 +124,8 @@ Selects faces bounded by cylindrical curves, optionally matching a specific diam
 .notCylinderCurve(diameter?: number): this
 ```
 
-Excludes faces bounded by cylindrical curves, optionally matching a specific diameter.
+Excludes partial cylindrical faces (see `cylinderCurve`),
+optionally matching a specific diameter.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

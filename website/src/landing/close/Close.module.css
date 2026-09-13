@@ -1,0 +1,83 @@
+/* Quiet. One sentence of provenance and the four links a reader might still
+   want, then the site footer takes over. */
+
+.close {
+  padding-block: clamp(3rem, 2rem + 4vw, 5rem);
+  border-top: 1px solid var(--fc-line);
+  background: var(--fc-bg);
+}
+
+.column {
+  width: 100%;
+  max-width: 78rem;
+  margin-inline: auto;
+  padding-inline: var(--fc-gutter);
+}
+
+.line {
+  margin: 0;
+  max-width: 60ch;
+  font-size: var(--fc-step-0);
+  line-height: 1.65;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.line a {
+  color: var(--fc-ink);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-color: var(--fc-line-strong);
+}
+
+.line a:hover {
+  text-decoration-color: var(--fc-live);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.5rem;
+  margin-top: 1.75rem;
+}
+
+.repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--fc-line-strong);
+  border-radius: var(--fc-radius);
+  font-family: var(--fc-font-mono);
+  font-size: 0.8125rem;
+  color: var(--fc-ink) !important;
+  text-decoration: none !important;
+  transition: border-color var(--fc-quick) var(--fc-ease), background var(--fc-quick) var(--fc-ease);
+}
+
+.repo:hover {
+  border-color: var(--fc-ink-faint);
+  background: var(--fc-bg-sunken);
+}
+
+.repo svg {
+  color: var(--fc-ink-faint);
+}
+
+.quiet {
+  font-size: var(--fc-step--1);
+  color: var(--fc-ink-muted) !important;
+  text-decoration: none !important;
+}
+
+.quiet:hover {
+  color: var(--fc-ink) !important;
+  text-decoration: underline !important;
+}
+
+.repo:focus-visible,
+.quiet:focus-visible {
+  outline: 2px solid var(--fc-live);
+  outline-offset: 2px;
+}

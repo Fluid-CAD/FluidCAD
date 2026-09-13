@@ -1,0 +1,90 @@
+/* A specimen row: three parts on the page's own ground, captioned. The only
+   rule on the page is the hairline over each caption, borrowed from a parts
+   drawing — it separates the view from its note and does nothing else. */
+
+.row {
+  display: grid;
+  gap: clamp(2rem, 4vw, 3.25rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  margin-top: clamp(2.5rem, 4.5vw, 4rem);
+}
+
+.specimen {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.render {
+  display: block;
+  width: 100%;
+  height: clamp(12rem, 21vw, 18rem);
+  object-fit: contain;
+  /* Left, not centred: the caption below starts at the same edge, so the
+     three specimens read as a row of entries rather than three posters. */
+  object-position: left center;
+}
+
+.caption {
+  margin-top: 1.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--fc-line-strong);
+}
+
+.name {
+  display: block;
+  font-size: var(--fc-step-0);
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  color: var(--fc-ink);
+}
+
+.note {
+  display: block;
+  margin-top: 0.4rem;
+  max-width: 40ch;
+  font-size: var(--fc-step--1);
+  line-height: 1.62;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+.formats {
+  margin: clamp(2.25rem, 4vw, 3.25rem) 0 0;
+  max-width: 62ch;
+  font-size: var(--fc-step-0);
+  line-height: 1.6;
+  color: var(--fc-ink-muted);
+  text-wrap: pretty;
+}
+
+/* The three arrive in the order they are read, and only the geometry moves:
+   each render rises a little as it lands, the captions are already there. */
+.row[data-shown] .render {
+  animation: lift 700ms var(--fc-ease) both;
+}
+
+.row[data-shown] .specimen:nth-child(2) .render {
+  animation-delay: 90ms;
+}
+
+.row[data-shown] .specimen:nth-child(3) .render {
+  animation-delay: 180ms;
+}
+
+@keyframes lift {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row[data-shown] .render {
+    animation: none;
+  }
+}

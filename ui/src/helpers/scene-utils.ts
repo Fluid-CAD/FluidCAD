@@ -1,5 +1,35 @@
 import { SceneObjectRender, SourceLocation } from '../types';
 
+/**
+ * Objects the timeline never lists: a lazy select's reference holder, a lazy
+ * vertex's anchor holder (`sel.center()` inside `connector(…)`), and the
+ * internal inputs a statement builds for itself (the plane behind
+ * `sketch('xy', …)`) — they have no statement of their own, so a row would
+ * offer navigation and edits that belong to the statement they serve.
+ *
+ * Shared with hosts that walk the build the way the panel does (the browser
+ * viewer's replay), so "what counts as a step" has one definition.
+ */
+export function isHiddenTimelineRow(obj: SceneObjectRender): boolean {
+  return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
+}
+
+/**
+ * Scene indexes a build replay stops at, in order: the rows the timeline
+ * lists at the top level — one per statement in the file, not the geometry
+ * each statement builds for itself. Indexes are positions in `sceneObjects`,
+ * which is exactly what {@link EngineClient.rollback} takes.
+ */
+export function timelineStepIndexes(sceneObjects: SceneObjectRender[]): number[] {
+  const steps: number[] = [];
+  sceneObjects.forEach((obj, index) => {
+    if (obj.parentId == null && !isHiddenTimelineRow(obj)) {
+      steps.push(index);
+    }
+  });
+  return steps;
+}
+
 export function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
   if (!obj.parentId) {
     return true;

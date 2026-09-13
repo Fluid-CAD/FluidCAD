@@ -37,6 +37,7 @@ import {
 } from './icons';
 import { AccordionSection } from './accordion-section';
 import { railSplit, type RailSection } from './assembly-rail-split';
+import { RAIL_PANEL_CLASS } from './rail-styles';
 
 /** The ⧉ marker on a replica row/header — its statement is the replicate() call. */
 const REPLICA_BADGE = '<span class="text-[10px] text-base-content/40 shrink-0" data-replica-badge title="Replica — its statement is the replicate() call; edit or trim it by row">⧉</span>';
@@ -134,11 +135,9 @@ export class PartsPanel {
     this.onEditParams = onEditParams ?? null;
 
     this.panel = document.createElement('div');
-    // Docked exactly like the part-design timeline: in the scene's left
-    // gutter (--fluidcad-panel-left already clears the rail and the editor
-    // pane), below the host chrome, one --fluidcad-panel-gap in from each.
+    // Docked exactly like the part-design timeline (see RAIL_PANEL_CLASS).
     // The TopBar owns the logo and file name for both rails.
-    this.panel.className = 'absolute left-[calc(var(--fluidcad-panel-left,0px)+var(--fluidcad-panel-gap))] top-[calc(var(--fluidcad-chrome-top,104px)+var(--fluidcad-panel-gap))] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    this.panel.className = RAIL_PANEL_CLASS;
     container.appendChild(this.panel);
 
     // One slot per section, so the three share one left-rail column under

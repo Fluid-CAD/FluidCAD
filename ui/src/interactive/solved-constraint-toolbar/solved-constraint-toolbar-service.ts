@@ -770,7 +770,8 @@ export class SolvedConstraintToolbarService {
 
   /** Emission arg order per kind (the statement forms are positional):
    * midpoint(point, line) / midpoint(point, a, b); symmetric(a, b,
-   * mirrorLine); rest keep pick order. */
+   * mirrorLine) — the point form gathers the points first, the entity form
+   * keeps pick order; rest keep pick order. */
   private orderedTargets(id: ConstraintButtonId): SolvedPick[] {
     if (id === 'midpoint') {
       if (this.picks.length === 3) {
@@ -782,8 +783,13 @@ export class SolvedConstraintToolbarService {
     }
     if (id === 'symmetric') {
       const points = this.picks.filter(isPointPick);
-      const line = this.picks.find(p => !isPointPick(p))!;
-      return [...points, line];
+      if (points.length === 2) {
+        const line = this.picks.find(p => !isPointPick(p))!;
+        return [...points, line];
+      }
+      // Entity form: pick order is the statement order — the two entities,
+      // then the mirror line (legality demands it last).
+      return this.picks;
     }
     return this.picks;
   }

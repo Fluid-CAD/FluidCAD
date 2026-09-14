@@ -16,15 +16,24 @@ Mirror reflects sketch geometry across a line or an axis. Draw one half of a sym
 <img src="/img/docs/ui/sketch-mirror-dialog.png" alt="The Mirror dialog with a latch plate's three edges picked and the sketch Y axis as the mirror line" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
 
 1. Click **Mirror** on the sketch toolbar (shortcut **M**). The Mirror dialog opens docked on the right with a **Geometry** slot and a **Mirror line** slot.
-2. Click the sketch edges to mirror. Picks accumulate as chips; click a picked edge again, or a chip's **✕**, to drop it. Any edge stands for its whole primitive — one side of a rectangle picks the rectangle.
-3. Click the **Mirror line** slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or the sketch's own X or Y axis line. An axis pick shows as the chip *Sketch Y axis* and is written as `xAxis()` / `yAxis()`. The reflection previews in blue, and the statement about to be written shows under the dialog.
+2. Click the sketch edges to mirror — lines, arcs, circles and points. Picks accumulate as chips; click a picked edge again, or a chip's **✕**, to drop it.
+3. Click the **Mirror line** slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or the sketch's own X or Y axis line. An axis pick shows as the chip *Sketch Y axis* and is written as `xAxis()` / `yAxis()`. The reflection previews in blue, and the statements about to be written show under the dialog.
 4. Click **Apply**.
 
 <div style={{clear: 'both'}} />
 
-Double-click the mirror's row in the timeline to reopen the dialog and re-pick the geometry or the line.
+The tool does not write a `mirror()` statement. Like the Rectangle tool, it writes ordinary geometry: one reflected `line()` / `arc()` / `circle()` / `point()` per picked entity, each held to its original by a [`symmetric`](/docs/sketching/constraints/positional/symmetric) constraint across the mirror line:
+
+```js
+const l2 = line([-30, 8], [-10, 2]);
+symmetric(l1, l2, yAxis());
+```
+
+The mirrored geometry is yours: drag it, dimension it, delete a copy, or delete the constraint to set it free. Dragging a mirrored edge moves its original through the constraint, and the other way round.
 
 ## By hand
+
+The `mirror()` command is the hand-written alternative: one statement that reflects whole geometry, with its images addressable as [`m.instance(l)`](#mirrored-geometry-and-constraints). Double-click a `mirror()` row in the timeline to reopen the dialog and re-pick its geometry or line.
 
 ```js
 mirror(line)                            // mirror everything across a sketched line

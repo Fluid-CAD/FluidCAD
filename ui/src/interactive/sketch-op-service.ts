@@ -51,13 +51,14 @@ export type SketchOpDialog = {
 };
 
 /**
- * The fillet dialog's window onto the solved-sketch world (P8): the resolved
- * picks and read model the corner math consumes, and the atomic
- * insert-solved emission rail its Apply writes through. Only the FILLET
- * create path uses it — an edit dialog still rewrites its legacy `fillet()`
+ * A 2D op dialog's window onto the solved-sketch world: the resolved picks
+ * and read model its client-side plan consumes, and the atomic
+ * insert-solved emission rail its Apply writes through. The constraint-
+ * native CREATE paths use it (fillet: arcs + tangents; mirror: reflected
+ * geometry + symmetric rows) — an edit dialog still rewrites its legacy
  * statement through the synthesis rail.
  */
-export type SolvedFilletRail = {
+export type SolvedOpRail = {
   picks(): SolvedPick[];
   model(): SolvedSketchModel | null;
   emit(request: SolvedEmissionRequest): Promise<SolvedEmitResult>;
@@ -180,7 +181,7 @@ export class SketchOpService {
     /** The live viewport geometry overlay; offset and fillet draw into it. */
     private readonly ghost?: FeatureGhostOverlay,
     /** Constraint-native fillet rail (P8) — fillet dialog only. */
-    private readonly solvedFillet?: SolvedFilletRail,
+    private readonly solvedFillet?: SolvedOpRail,
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;

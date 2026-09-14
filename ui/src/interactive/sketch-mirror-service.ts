@@ -3,11 +3,20 @@ import {
   fetchSketchFeatureSources, ApplyFeatureResponse, FeatureEditTarget, GhostSolid,
   Mirror2DGhostRequest, ParsedFeatureStatement, SketchApplyEntity, SketchMirrorEditAxis,
 } from '../api';
-import { SketchOpSelection, SolvedPickRail } from './sketch-op-service';
+import { SketchOpSelection, SolvedOpRail, SolvedPickRail } from './sketch-op-service';
 import { keepChip } from './create-feature/sketch-profiles';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
 import { SketchMirrorPanel, SketchMirrorArmedSlot } from './sketch-mirror-panel';
+import {
+  buildMirrorEmission, type MirrorAxisInput, type MirrorEmissionError, type MirrorEmissionPlan,
+} from './tools/mirror-emission';
+import type { SolvedPick } from './sketch-hover-select-handler';
+
+/** The mirror dialog's window onto the solved sketch: the picks + model +
+ * emission rail of the constraint-native create path, plus the datum-pick
+ * eviction the line slot uses. */
+export type SolvedMirrorRail = SolvedOpRail & SolvedPickRail;
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -21,18 +30,21 @@ type ParsedSketchMirror = Extract<ParsedFeatureStatement, { feature: 'mirror' }>
 
 /**
  * The in-sketch mirror dialog on the 2D op rails: armed from the sketch
- * toolbar, it reads the hover handler's selected edges — any pick stands for
- * its whole producing primitive — previews the synthesized statement through
- * `/api/apply-feature` (sketch branch), and applies it, writing
- * `mirror(yAxis(), r, c)` / `mirror(l, r)` into the sketch body. Exactly one
- * panel slot is armed at a time and the picks land in it: the Geometry slot
- * collects the targets; the armed Mirror line slot consumes ONE pick as the
- * line to reflect across — a sketch line (a `.guide()` included), emitted as
- * its bare variable, or one of the sketch's datum axes (a click on the X or
- * Y axis line, read off the solved-pick rail), emitted as `xAxis()` /
- * `yAxis()`.
+ * toolbar, it reads the hover handler's selected edges and — like the
+ * Rectangle and Fillet tools — writes plain geometry, not a `mirror()`
+ * statement: the reflected line/arc/circle/point statements plus one
+ * `symmetric(source, image, line)` per entity, planned client-side from the
+ * solved model (tools/mirror-emission.ts) and applied through the atomic
+ * insert-solved rail. The user gets editable geometry held symmetric by
+ * constraints they can read, move and delete. Exactly one panel slot is
+ * armed at a time and the picks land in it: the Geometry slot collects the
+ * targets; the armed Mirror line slot consumes ONE pick as the line to
+ * reflect across — a sketch line (a `.guide()` included) or one of the
+ * sketch's datum axes (a click on the X or Y axis line, read off the
+ * solved-pick rail), written as `xAxis()` / `yAxis()`.
  *
- * The same dialog edits an existing statement in place ({@link enterEdit}):
+ * The same dialog edits a hand-written `mirror()` statement in place
+ * ({@link enterEdit}), through the server synthesis rail:
  * the timeline double-click's breakpoint pauses the build just BEFORE the
  * statement (the offset edit's contract), its line slot opens on a
  * "Current: …" keep chip, and its targets seed as highlighted picks —
@@ -74,6 +86,12 @@ export class SketchMirrorService {
   private frozenTargets: string[] = [];
   /** The picked mirror line (the line slot's `edge` mode). */
   private axisEntity: string | null = null;
+  /** The solved pick behind `axisEntity` — the line entity the symmetric
+   * rows name (create mode). */
+  private axisPick: SolvedPick | null = null;
+  /** The target picks frozen with `frozenTargets` while the line slot is
+   * armed (the live selection is cleared then). */
+  private frozenPicks: SolvedPick[] = [];
   /** A datum pick is being evicted from the viewport — its own change is not a new pick. */
   private consumingDatum = false;
 
@@ -82,12 +100,12 @@ export class SketchMirrorService {
     private readonly selection: SketchOpSelection,
     private onDone: () => void,
     /** The live viewport geometry overlay, shared with the other 2D op dialogs. */
-    private readonly ghost?: FeatureGhostOverlay,
+    private readonly ghost: FeatureGhostOverlay | undefined,
     /**
-     * The solved picks beyond edge ids — where a click on the sketch's X or
-     * Y datum axis shows up (solved sketches only).
+     * The solved picks beyond edge ids (where a click on the sketch's X or
+     * Y datum axis shows up), the read model and the emission rail.
      */
-    private readonly solvedPicks?: SolvedPickRail,
+    private readonly rail: SolvedMirrorRail,
   ) {
     this.panel = new SketchMirrorPanel(container);
     this.panel.onApply = () => void this.apply();
@@ -112,6 +130,7 @@ export class SketchMirrorService {
         this.selection.deselect(shapeId);
       } else {
         this.frozenTargets = this.frozenTargets.filter(id => id !== shapeId);
+        this.frozenPicks = this.frozenPicks.filter(pick => pick.shapeId !== shapeId);
         this.refresh();
       }
     };
@@ -119,6 +138,7 @@ export class SketchMirrorService {
       // The slot left edge mode (✕, a local-axis choice) — the entity would
       // otherwise silently ride along into the next edge state.
       this.axisEntity = null;
+      this.axisPick = null;
     };
     this.panel.onArmedSlotChange = () => this.handleArmedSlotChange();
   }
@@ -161,7 +181,9 @@ export class SketchMirrorService {
     this.active = true;
     this.armedApplied = 'targets';
     this.frozenTargets = [];
+    this.frozenPicks = [];
     this.axisEntity = null;
+    this.axisPick = null;
     this.panel.show();
     this.onVisibilityChange?.(true);
     this.refresh();
@@ -188,7 +210,9 @@ export class SketchMirrorService {
     this.seedSignature = null;
     this.armedApplied = 'targets';
     this.frozenTargets = [];
+    this.frozenPicks = [];
     this.axisEntity = null;
+    this.axisPick = null;
     this.selection.clear();
     // The parse's `planeText` is the statement's first argument — the
     // in-sketch form's axis.
@@ -215,7 +239,9 @@ export class SketchMirrorService {
     this.awaitingEditSketch = false;
     this.seedSignature = null;
     this.frozenTargets = [];
+    this.frozenPicks = [];
     this.axisEntity = null;
+    this.axisPick = null;
     this.cancelPreview();
     this.ghost?.clear();
     this.panel.hide();
@@ -248,6 +274,7 @@ export class SketchMirrorService {
     }
     if (this.armedApplied === 'targets') {
       this.frozenTargets = this.selection.ids();
+      this.frozenPicks = this.livePicks();
     }
     this.armedApplied = next;
     this.selection.clear();
@@ -272,18 +299,23 @@ export class SketchMirrorService {
     if (ids.length > 0) {
       const shapeId = ids[ids.length - 1];
       this.axisEntity = shapeId;
+      // The solved pick behind the edge — the line entity the symmetric
+      // rows will name; a shape with no solver identity leaves it null and
+      // the plan refuses honestly.
+      this.axisPick = this.rail.picks().find(pick => pick.shapeId === shapeId) ?? null;
       this.panel.setAxisEdgeChip(this.selection.describe(shapeId).label);
       this.panel.setMessage(null);
       this.selection.clear();
       return;
     }
-    const datums = (this.solvedPicks?.picks() ?? [])
+    const datums = this.rail.picks()
       .filter(pick => pick.datum === 'x-axis' || pick.datum === 'y-axis');
     if (datums.length === 0) {
       return;
     }
     const pick = datums[datums.length - 1];
     this.axisEntity = null;
+    this.axisPick = null;
     this.panel.selectDatumAxis(pick.datum === 'x-axis' ? 'x' : 'y');
     this.panel.setMessage(null);
     // Evicting the datum re-enters through onSelectionChange — the flag
@@ -291,7 +323,7 @@ export class SketchMirrorService {
     this.consumingDatum = true;
     try {
       for (const datum of datums) {
-        this.solvedPicks!.deselect(datum);
+        this.rail.deselect(datum);
       }
     } finally {
       this.consumingDatum = false;
@@ -302,6 +334,58 @@ export class SketchMirrorService {
   /** The target picks: the live selection, or the frozen set while the line slot is armed. */
   private targetIds(): string[] {
     return this.panel.armedSlot === 'targets' ? this.selection.ids() : this.frozenTargets;
+  }
+
+  /** The solved edge picks behind the live selection, in selection order. */
+  private livePicks(): SolvedPick[] {
+    const ids = this.selection.ids();
+    const picks = this.rail.picks();
+    const out: SolvedPick[] = [];
+    for (const shapeId of ids) {
+      const pick = picks.find(p => p.shapeId === shapeId && p.role === undefined);
+      if (pick) {
+        out.push(pick);
+      }
+    }
+    return out;
+  }
+
+  /** The solved picks behind {@link targetIds} — live or frozen. */
+  private targetPicks(): SolvedPick[] {
+    return this.panel.armedSlot === 'targets' ? this.livePicks() : this.frozenPicks;
+  }
+
+  /**
+   * The constraint-native plan for the create dialog: the reflected
+   * geometry + symmetric rows for the current picks, an error to show, or
+   * null while the form is incomplete (still picking — no hint yet).
+   */
+  private createPlan(): MirrorEmissionPlan | MirrorEmissionError | null {
+    const picks = this.targetPicks();
+    if (picks.length === 0) {
+      return this.targetIds().length === 0
+        ? null
+        : { ok: false, reason: 'the picked geometry has no solver identity — pick drawn lines, arcs, circles or points' };
+    }
+    const selection = this.panel.axisSelection();
+    if (!selection || selection.kind === 'keep') {
+      return null;
+    }
+    let axis: MirrorAxisInput;
+    if (selection.kind === 'standard') {
+      axis = { kind: 'datum', axis: selection.axis as 'x' | 'y' };
+    } else if (this.axisPick) {
+      axis = { kind: 'pick', pick: this.axisPick };
+    } else if (this.axisEntity) {
+      return { ok: false, reason: 'the mirror line must be a sketched line — pick a line or one of the sketch axes' };
+    } else {
+      return null;
+    }
+    const model = this.rail.model();
+    if (!model) {
+      return { ok: false, reason: 'the sketch has not rendered yet' };
+    }
+    return buildMirrorEmission({ picks, model, axis });
   }
 
   /**
@@ -427,6 +511,35 @@ export class SketchMirrorService {
     this.previewAbort?.abort();
     const abort = new AbortController();
     this.previewAbort = abort;
+    // Create mode plans client-side from the solved model — no synthesis
+    // round trip; the geometry statements about to be written stand in for
+    // the statement preview, and the ghost still previews the reflection.
+    if (!this.editTarget) {
+      const plan = this.createPlan();
+      if (plan === null) {
+        this.panel.setPreview(null);
+        this.panel.setMessage(null);
+        this.panel.setApplyEnabled(true);
+        this.ghost?.clear();
+        return;
+      }
+      if ('reason' in plan) {
+        this.panel.setPreview(null);
+        this.panel.setApplyEnabled(false);
+        this.panel.setMessage(plan.reason);
+        this.ghost?.clear();
+        return;
+      }
+      this.panel.setPreview(plan.preview.join('\n'));
+      this.panel.setMessage(null);
+      this.panel.setApplyEnabled(true);
+      try {
+        await this.runGhost(abort.signal);
+      } catch {
+        // aborted
+      }
+      return;
+    }
     try {
       const result = await this.send({ preview: true, signal: abort.signal, quiet: true });
       if (abort.signal.aborted || !this.active) {
@@ -604,6 +717,29 @@ export class SketchMirrorService {
     this.applying = true;
     this.panel.setApplyEnabled(false);
     try {
+      if (!this.editTarget) {
+        // Constraint-native create: emit the reflected geometry + symmetric
+        // rows through the insert-solved rail.
+        const plan = this.createPlan();
+        if (plan === null) {
+          this.panel.setMessage(this.missingInput() ?? 'Pick sketch geometry to mirror first.');
+          this.panel.setApplyEnabled(true);
+          return;
+        }
+        if ('reason' in plan) {
+          this.panel.setMessage(plan.reason);
+          this.panel.setApplyEnabled(true);
+          return;
+        }
+        const result = await this.rail.emit(plan.request);
+        if (result.success) {
+          this.onDone();
+        } else {
+          this.panel.setMessage(result.reason ?? 'Could not apply the mirror');
+          this.panel.setApplyEnabled(true);
+        }
+        return;
+      }
       const request = this.send({});
       if (request === null) {
         // The click surfaced what is missing; the button stays available

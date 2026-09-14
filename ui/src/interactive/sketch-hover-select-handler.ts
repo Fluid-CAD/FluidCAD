@@ -47,6 +47,9 @@ export type SolvedPick = {
    * near-side touch reads min, far-side max. Valid for the render the pick
    * was made in; consumers use it at pick time only. */
   at?: [number, number];
+  /** Edge picks: the picked shape's id — the join back to the selection's
+   * shape ids (the op dialogs keep their target lists by shape id). */
+  shapeId?: string;
   /** Datum picks: the implicit origin/axes (reserved negative entityIds, no
    * source statement — emission addresses them by this name instead). */
   datum?: SketchDatumName;
@@ -437,6 +440,7 @@ export class SketchHoverSelectHandler {
             entityId: e.entityId,
             kind: e.kind,
             sourceLocation: e.obj.sourceLocation,
+            shapeId,
             ...(at ? { at } : {}),
             // An anchor statement's edges (text glyphs, the ellipse
             // perimeter) resolve to its anchor POINT — the only solver

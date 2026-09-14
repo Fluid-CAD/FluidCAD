@@ -330,8 +330,19 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       }
 
       case 'symmetric': {
+        // Point pairs badge ON each point (flat allowance, like fix); the
+        // entity forms (two lines / arcs / circles) badge each entity at
+        // its anchor, pushed off the host edge like equal/parallel.
         for (const ref of [spec.a, spec.b]) {
-          badge('symmetric', refPoint(model, ref));
+          const p = refPoint(model, ref);
+          if (p) {
+            badge('symmetric', p);
+            continue;
+          }
+          const e = entityFor(model, ref);
+          if (e) {
+            badge('symmetric', entityAnchor(e), e);
+          }
         }
         break;
       }

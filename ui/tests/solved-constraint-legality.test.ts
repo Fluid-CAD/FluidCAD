@@ -81,7 +81,8 @@ describe('constraintOptions', () => {
   it('three or more homogeneous entities: variadic equal/parallel', () => {
     const lineE: SolvedPick = { entityId: 5, kind: 'line', sourceLocation: loc(10) };
     const circleF: SolvedPick = { entityId: 6, kind: 'circle', sourceLocation: loc(11) };
-    expect(enabledIds([lineA, lineB, lineE])).toEqual(['equal', 'parallel']);
+    // Three lines also read as the entity-form symmetric (a, b, mirror line).
+    expect(enabledIds([lineA, lineB, lineE])).toEqual(['equal', 'parallel', 'symmetric']);
     expect(enabledIds([circleC, arcD, circleF])).toEqual(['equal']);
     // Mixed families and duplicate picks disable them.
     expect(enabledIds([lineA, lineB, circleC])).toEqual([]);
@@ -142,6 +143,20 @@ describe('constraintOptions', () => {
   it('one vertex: fix; a point entity counts as a point', () => {
     expect(enabledIds([endA])).toEqual(['fix']);
     expect(enabledIds([pointP])).toEqual(['dimension', 'fix'].sort().filter(id => id !== 'dimension'));
+  });
+
+  it('two same-kind entities then a line: symmetric (entity form)', () => {
+    const lineE: SolvedPick = { entityId: 5, kind: 'line', sourceLocation: loc(10) };
+    const circleF: SolvedPick = { entityId: 6, kind: 'circle', sourceLocation: loc(11) };
+    const xAxis: SolvedPick = { entityId: -2, kind: 'line', datum: 'x-axis' };
+    expect(enabledIds([lineA, lineB, lineE]).includes('symmetric')).toBe(true);
+    // The mirror line must be the LAST pick; two lines + an axis works too.
+    expect(enabledIds([lineA, lineB, xAxis]).includes('symmetric')).toBe(true);
+    expect(enabledIds([circleC, circleF, lineA]).includes('symmetric')).toBe(true);
+    // Mixed kinds, a point among entities, or the axis as an entity: no.
+    expect(enabledIds([lineA, circleC, lineB]).includes('symmetric')).toBe(false);
+    expect(enabledIds([lineA, endA, lineB]).includes('symmetric')).toBe(false);
+    expect(enabledIds([xAxis, lineA, lineB]).includes('symmetric')).toBe(false);
   });
 
   it('two points + line: symmetric', () => {

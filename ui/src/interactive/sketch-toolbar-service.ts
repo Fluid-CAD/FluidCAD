@@ -27,7 +27,7 @@ import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
 import {
-  SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedFilletRail, SolvedPickRail,
+  SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail, SolvedPickRail,
 } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
@@ -192,7 +192,7 @@ export class SketchToolbarService {
     // insert-solved rail (arc + coincident/tangent/radius rows, corner
     // coincidents removed). Bypasses the guide latch on purpose — a fillet
     // arc is real profile geometry.
-    const filletRail: SolvedFilletRail = {
+    const opRail: SolvedOpRail = {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       model: () => this.activeSketchInfo
         ? buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects)
@@ -202,16 +202,19 @@ export class SketchToolbarService {
     this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-    }, opSelection, opVars, opDone, opGhost, filletRail);
+    }, opSelection, opVars, opDone, opGhost, opRail);
     // A copy direction or the mirror line may be one of the sketch's datum
     // axes — a solved pick, not an edge id — so both dialogs read the solved
     // rail.
     const datumRail: SolvedPickRail = {
-      picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
+      picks: opRail.picks,
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
     };
     this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost, datumRail);
-    this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, datumRail);
+    // The mirror CREATE path is constraint-native like the fillet's: it
+    // reads the picks + model, plans reflected geometry + symmetric rows
+    // client-side and emits through the insert-solved rail.
+    this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, { ...opRail, ...datumRail });
     this.offsetOp = opService({
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },

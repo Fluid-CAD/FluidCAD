@@ -321,7 +321,7 @@ export class PanelShell {
           header: `<img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
             <span data-role="title" class="font-medium text-sm">${title}</span>`,
         })}
-        <div data-role="preview" class="hidden max-sm:hidden sm:max-w-[380px] bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
+        <div data-role="preview" class="hidden max-sm:hidden sm:max-w-[380px] whitespace-pre-wrap bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
         <div data-role="message" class="hidden sm:max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md"></div>
       </div>
     `;

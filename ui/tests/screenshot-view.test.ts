@@ -5,6 +5,7 @@ import {
   eyeTargetForNamedView,
   eyeTargetForOrbit,
   orientCameraForView,
+  eyeTargetForDirection,
   resolveView,
   type NamedView,
 } from '../src/screenshot-view';
@@ -191,5 +192,31 @@ describe('orientCameraForView', () => {
     } finally {
       Object3D.DEFAULT_UP.copy(savedUp);
     }
+  });
+});
+
+describe('eyeTargetForDirection', () => {
+  const center = new Vector3(0, 300, 100);
+
+  it('stands off the scene centre along the direction, at the scene’s own size', () => {
+    const result = eyeTargetForDirection(new Vector3(0, 0, 7), center, 500)!;
+    expect(result.target.toArray()).toEqual(center.toArray());
+    expect(result.eye.toArray()).toEqual([0, 300, 600]);
+  });
+
+  it('reads the direction only — length is the caller’s business, not the angle’s', () => {
+    const near = eyeTargetForDirection(new Vector3(3, -1, 1), center, 500)!;
+    const far = eyeTargetForDirection(new Vector3(300, -100, 100), center, 500)!;
+    expect(near.eye.distanceTo(far.eye)).toBeCloseTo(0, 9);
+  });
+
+  it('has nothing to resolve for a zero direction', () => {
+    expect(eyeTargetForDirection(new Vector3(), center, 500)).toBeNull();
+  });
+
+  it('resolves through resolveView the same way a named view does', () => {
+    const named = resolveView({ kind: 'named', name: 'right' }, center, 500, new Vector3(), new Vector3());
+    const direction = resolveView({ kind: 'direction', direction: [2, 0, 0] }, center, 500, new Vector3(), new Vector3());
+    expect(direction!.eye.toArray()).toEqual(named!.eye.toArray());
   });
 });

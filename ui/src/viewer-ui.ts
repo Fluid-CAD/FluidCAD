@@ -9,7 +9,9 @@
 import './styles.css';
 
 export { Viewer } from './viewer';
-export type { SelectedEntity } from './viewer';
+export type { FitPolicy, SelectedEntity } from './viewer';
+export type { FitMode, FitOptions } from './scene/camera-fit';
+export type { NamedView, ScreenshotView } from './screenshot-view';
 export { SceneContext } from './scene/scene-context';
 export { themeColors, onThemeChange } from './scene/theme-colors';
 export { viewerSettings, applyPreferences } from './scene/viewer-settings';

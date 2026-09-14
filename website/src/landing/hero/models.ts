@@ -1,3 +1,4 @@
+import type {ViewerView} from '@site/src/lib/viewer-embed';
 import cylinderSource from '!!raw-loader!../models/hero-cylinder.part.js';
 import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
 
@@ -29,7 +30,21 @@ export type HeroModel = {
   files: Record<string, string>;
   /** Square, transparent render of the part for the switcher. */
   thumbnail: string;
+  /**
+   * The direction the hero looks at this model from, as an `x,y,z` ratio.
+   * Defaults to {@link HERO_DEFAULT_VIEW}, which is the angle the app itself
+   * opens on. A model whose shape wants a different one says so: the viewer
+   * frames whatever it can see, so the angle decides how much of the sheet
+   * there is to fill.
+   */
+  view?: ViewerView;
 };
+
+/**
+ * The angle the app opens every scene on, written as a direction. Good for a
+ * compact model, which is most of them.
+ */
+export const HERO_DEFAULT_VIEW: ViewerView = '5,-5,4';
 
 export const HERO_MODELS: HeroModel[] = [
   {
@@ -48,6 +63,12 @@ export const HERO_MODELS: HeroModel[] = [
       'piston-ring.part.js': engineRing,
     },
     thumbnail: '/img/landing/thumb-engine.png',
+    // Round to the right of the default, but not all the way to a side
+    // elevation: the crank still runs at an angle into the frame, nose
+    // towards the viewer and flange away, while lying across the sheet
+    // rather than climbing a frame twice as wide as it is tall. Lower the
+    // first number to swing further round and tip the crank up more.
+    view: '1.7,-1,1',
   },
   {
     id: 'cylinder',

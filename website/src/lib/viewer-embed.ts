@@ -43,6 +43,60 @@ export type ViewerReplayEvent = {
 
 export type ViewerErrorEvent = {stage: string; message: string};
 
+/** The named directions the viewer frames a model from. */
+export type ViewerNamedView =
+  | 'front'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'iso-ftr'
+  | 'iso-fbr'
+  | 'iso-ftl'
+  | 'iso-fbl'
+  | 'iso-btr'
+  | 'iso-bbr'
+  | 'iso-btl'
+  | 'iso-bbl';
+
+/**
+ * Where the viewer looks from. `current` leaves the angle where it is; a
+ * `x,y,z` string (or the object form) is the direction to look from, for an
+ * angle none of the fourteen names — only its direction counts, since the
+ * viewer stands off by the scene's own size.
+ */
+export type ViewerView =
+  | 'current'
+  | ViewerNamedView
+  | `${number},${number},${number}`
+  | {kind: 'direction'; direction: [number, number, number]}
+  | {kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number]};
+
+/**
+ * How the viewport frames the model — the page's standing answer, not a
+ * per-call one. Mirrors `FitPolicy` in `fluidcad/viewer-ui`.
+ */
+export type ViewerFitPolicy = {
+  /** The direction an automatic fit looks from. */
+  view: ViewerView;
+  /**
+   * `sphere` frames the sphere around the model: the same from every angle,
+   * and mostly empty space for anything longer than it is wide. `tight`
+   * frames the model as it actually projects, in the viewport's own aspect
+   * ratio, so a long model fills a wide frame.
+   */
+  mode: 'sphere' | 'tight';
+  /** Air around the model, as a multiple of its framed extent. 1 is flush. */
+  padding: number;
+  /**
+   * `once` frames the first model and then leaves the camera alone. `auto`
+   * re-frames whenever the model or the viewport changes — and stops for
+   * good once the visitor moves the camera themselves.
+   */
+  refit: 'once' | 'auto';
+};
+
 type EventMap = {
   ready: ViewerReadyEvent;
   scene: ViewerSceneEvent;
@@ -105,8 +159,27 @@ export class ViewerEmbed {
     this.post({type: 'rollback', index});
   }
 
-  fit(): void {
-    this.post({type: 'fit'});
+  /**
+   * A one-off frame of whatever is in the scene. Anything passed applies to
+   * this fit alone; {@link setFitPolicy} is what makes a framing stick.
+   */
+  fit(options: Partial<ViewerFitPolicy> = {}): void {
+    this.post({type: 'fit', ...options});
+  }
+
+  /** Point the camera at the model from a given direction and frame it. */
+  setView(view: ViewerView): void {
+    this.post({type: 'set-view', view});
+  }
+
+  /**
+   * The standing framing — see {@link ViewerFitPolicy}. Everything is
+   * optional and merges into what the viewer already has, so a page can name
+   * only the part it cares about. Sent before the model, it decides the
+   * viewport's opening picture rather than correcting it afterwards.
+   */
+  setFitPolicy(policy: Partial<ViewerFitPolicy>): void {
+    this.post({type: 'set-fit', ...policy});
   }
 
   /**

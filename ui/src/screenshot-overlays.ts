@@ -500,6 +500,8 @@ export class MultiViewLayout {
     switch (view.kind) {
       case 'named':
         return view.name;
+      case 'direction':
+        return `from [${view.direction.map(MultiViewLayout.round).join(', ')}]`;
       case 'look-from':
         return `look-from [${view.eye.map(MultiViewLayout.round).join(', ')}]`;
       case 'orbit-from-current':

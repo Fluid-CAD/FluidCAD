@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {useColorMode} from '@docusaurus/theme-common';
 import {ViewerEmbed} from '@site/src/lib/viewer-embed';
-import type {HeroModel} from './models';
+import {HERO_DEFAULT_VIEW, type HeroModel} from './models';
 import styles from './HeroViewport.module.css';
 
 /**
@@ -12,6 +12,12 @@ import styles from './HeroViewport.module.css';
  * cannot be known during the server render.
  */
 type Gate = 'checking' | 'boot' | 'held' | 'unsupported';
+
+/**
+ * Air around the model, as a multiple of its framed extent. Just enough that
+ * a long model's ends aren't flush against the panel's rounded corners.
+ */
+const FIT_PADDING = 1.05;
 
 type Props = {
   model: HeroModel;
@@ -110,11 +116,15 @@ export default function HeroViewport({model, className}: Props) {
     };
   }, [booted, fluidcadViewerUrl]);
 
-  // The model, and every switch after it.
+  // The model, and every switch after it. The angle goes first, so the frame
+  // the new model arrives into is already the one it is meant to be seen from
+  // — a `refit: auto` viewport re-frames on the render either way, and this
+  // way it re-frames once.
   useEffect(() => {
     if (readyEpoch === 0) {
       return;
     }
+    embedRef.current?.setFitPolicy({view: model.view ?? HERO_DEFAULT_VIEW});
     embedRef.current?.load({files: model.files, entry: model.entry});
   }, [model, readyEpoch]);
 
@@ -128,6 +138,9 @@ export default function HeroViewport({model, className}: Props) {
   // change goes over the channel. Putting it in `src` reactively would
   // navigate the frame and throw the warm engine away.
   const bootTheme = useRef(colorMode === 'dark' ? 'dark' : 'light').current;
+  // Same reason, for the same reason: the frame must not be navigated when the
+  // visitor switches models, so the boot view is the one the page opens on.
+  const bootView = useRef(model.view ?? HERO_DEFAULT_VIEW).current;
   // No furniture at all: no ground grid (the hero rules its own, and the
   // viewer's perspective one crossing it reads as noise), no world axes, and
   // no connector gizmos — an assembly's mates are built on connectors, and
@@ -139,7 +152,15 @@ export default function HeroViewport({model, className}: Props) {
   // off, that is `/engine/dev/` — a different build from the one every other
   // viewer link on this site pins, and one whose mate solver placed this
   // assembly's parts by their fallback transforms instead of their mates.
-  const src = `${fluidcadViewerUrl}/#v=${fluidcadVersion}&chrome=none&theme=${bootTheme}&grid=0&axes=0&connectors=0`;
+  // The camera is the hero's too. `fit=tight` frames what the model covers on
+  // screen rather than the sphere around it — the engine is a long thing in a
+  // wide panel, and the sphere fit leaves it two-thirds smaller than the sheet
+  // can hold — and `refit=auto` keeps it framed when the model changes or the
+  // page is resized, right up until the visitor turns it, after which the view
+  // is theirs. The boot view is the first model's, so the opening picture is
+  // already the right one; every switch after it goes over the channel.
+  const src = `${fluidcadViewerUrl}/#v=${fluidcadVersion}&chrome=none&theme=${bootTheme}&grid=0&axes=0&connectors=0`
+    + `&view=${bootView}&fit=tight&fit-padding=${FIT_PADDING}&refit=auto`;
 
   return (
     <div className={`${styles.stage} ${className ?? ''}`}>

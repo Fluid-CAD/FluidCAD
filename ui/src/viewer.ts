@@ -1,5 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
+import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
 import { worldFromMm } from './units/scene-scale';
@@ -27,8 +28,46 @@ import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
-import { expandBoxExcludingMeta, sceneGeometryBounds } from './scene/scene-geometry-bounds';
+import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
+
+/**
+ * How the viewport frames the scene: the standing answer to "what should the
+ * camera be looking at", rather than a decision each fit call makes for
+ * itself. The fit button, the automatic fit on first render, a scene change
+ * and a resize all read the same policy, so a host sets the picture it wants
+ * once and every later re-frame keeps it.
+ */
+export type FitPolicy = {
+  /**
+   * The angle an automatic fit looks from. `current` leaves the angle alone,
+   * which is what an editing session wants — a re-fit after a scene change
+   * must never spin the view out from under the person working in it. A
+   * named view is for a host that owns the picture.
+   */
+  view: ScreenshotView;
+  /** See {@link FitMode}. `sphere` is the editing default. */
+  mode: FitMode;
+  /** Air around the model, as a multiple of its framed extent. */
+  padding: number;
+  /**
+   * `once` fits on first render and then leaves the camera to the visitor —
+   * the editing default.
+   *
+   * `auto` re-frames on every scene change and every resize, so a viewport
+   * that exists to show a model keeps showing all of it however the page is
+   * laid out and whichever model is loaded. It stops for good the moment the
+   * visitor moves the camera themselves: from then on the view is theirs.
+   */
+  refit: 'once' | 'auto';
+};
+
+const DEFAULT_FIT_POLICY: FitPolicy = {
+  view: { kind: 'current' },
+  mode: 'sphere',
+  padding: FIT_PADDING,
+  refit: 'once',
+};
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 /** Gizmo enlargement for a timeline "show connector" — bigger than the assembly hover feedback (1.35) so it reads at a glance. */
@@ -134,6 +173,9 @@ export class Viewer {
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
+  private fitPolicy: FitPolicy = { ...DEFAULT_FIT_POLICY };
+  /** Set by the visitor's first camera gesture — see {@link FitPolicy.refit}. */
+  private cameraIsTheVisitors = false;
   isRegionPicking = false;
   isDrawing = false;
   /**
@@ -290,6 +332,13 @@ export class Viewer {
       this.applyConnectorVisibility();
       this.ctx.requestRender();
     });
+
+    // The framing policy's two triggers. A gesture hands the camera to the
+    // visitor for good; a resize re-frames a scene that is still the host's.
+    this.ctx.subscribeUserCameraInput(() => {
+      this.cameraIsTheVisitors = true;
+    });
+    this.ctx.subscribeViewportResize(() => this.refitForViewport());
 
     this.initClickDetection();
     this.initHoverDetection();
@@ -514,8 +563,32 @@ export class Viewer {
   }
 
   /** Frame the whole model, the way the fit-to-view button does. */
-  fitView(): void {
-    this.fitViewToScene();
+  fitView(options: Partial<FitPolicy> = {}): void {
+    this.fitViewToScene(options);
+  }
+
+  /**
+   * The standing framing policy — see {@link FitPolicy}. Merged into what is
+   * already set, so a host can name only the part it cares about, and applied
+   * at once when the scene is already up: a page that asks for a tighter
+   * frame does not have to wait for the next render to get one.
+   */
+  setFitPolicy(policy: Partial<FitPolicy>): void {
+    this.fitPolicy = { ...this.fitPolicy, ...policy };
+    // Setting the policy takes the camera back. A host only says this when it
+    // is deciding what the viewport shows — before a different model, or
+    // because its own layout changed — and without the reset an `auto` policy
+    // would stay stood down from the visitor's last gesture and leave the next
+    // model framed for the last one.
+    this.cameraIsTheVisitors = false;
+    if (this.hasRendered) {
+      this.fitViewToScene();
+    }
+  }
+
+  /** The framing policy as it currently stands. */
+  getFitPolicy(): FitPolicy {
+    return { ...this.fitPolicy };
   }
 
   /**
@@ -526,26 +599,76 @@ export class Viewer {
    */
   setCameraView(view: ScreenshotView, transition = true): void {
     const box = this.sceneGeometryBounds();
-    const center = box ? box.getCenter(new Vector3()) : new Vector3();
-    const diameter = box ? box.getSize(new Vector3()).length() : 1;
-    const cc = this.ctx.cameraControls;
-    const eye = new Vector3();
-    const target = new Vector3();
-    cc.getPosition(eye);
-    cc.getTarget(target);
-    const resolved = resolveView(view, center, diameter, eye, target);
-    if (!resolved) {
+    this.frameScene(box, { ...this.fitPolicy, view }, transition);
+  }
+
+  /**
+   * Point the camera and frame the box in one move: the angle first, then the
+   * distance or zoom that fills the frame at that angle.
+   *
+   * Both halves read the same `policy`, and the fit is computed against the
+   * angle `setLookAt` is heading for rather than the one on screen, so a
+   * transitioning view and its framing arrive together.
+   */
+  private frameScene(box: Box3 | null, policy: FitPolicy, transition: boolean, parts?: readonly Box3[]): void {
+    if (policy.view.kind !== 'current') {
+      const center = box ? box.getCenter(new Vector3()) : new Vector3();
+      const diameter = box ? box.getSize(new Vector3()).length() : 1;
+      const cc = this.ctx.cameraControls;
+      const eye = cc.getPosition(new Vector3());
+      const target = cc.getTarget(new Vector3());
+      const resolved = resolveView(policy.view, center, diameter, eye, target);
+      if (resolved) {
+        cc.setLookAt(
+          resolved.eye.x, resolved.eye.y, resolved.eye.z,
+          resolved.target.x, resolved.target.y, resolved.target.z,
+          transition,
+        );
+      }
+    }
+    if (box && !box.isEmpty()) {
+      this.ctx.fitToBox(box, transition, {
+        mode: policy.mode,
+        padding: policy.padding,
+        parts: parts ?? this.sceneGeometryParts(),
+      });
+    }
+  }
+
+  /** The drawn pieces a tight fit frames between, rather than the box around them all. */
+  private sceneGeometryParts(): Box3[] | undefined {
+    const root = findGeometryRoot(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
+    return root ? geometryPartsOf(root) : undefined;
+  }
+
+  /**
+   * Whether a render the caller has already judged fit-eligible should
+   * actually re-frame. Normally not, when the new geometry is still inside
+   * the frame the last fit claimed — a fit that changes nothing visible is a
+   * camera move the visitor did not ask for.
+   *
+   * Under an `auto` policy it always does: a tight frame is a function of the
+   * geometry, so a smaller model sitting well inside the old frame is exactly
+   * the case that wants re-framing. That stops at the visitor's first
+   * gesture, after which the camera is theirs.
+   */
+  private shouldAutoFit(box: Box3): boolean {
+    if (this.fitPolicy.refit === 'auto' && !this.cameraIsTheVisitors) {
+      return true;
+    }
+    return !this.isBoxContained(box);
+  }
+
+  /**
+   * Re-frame after the canvas changed size. Only under `auto`, and only while
+   * the camera is still the host's: a resize must never undo an orbit. No
+   * transition — a drag-resize would otherwise chase the pointer a fit behind.
+   */
+  private refitForViewport(): void {
+    if (this.fitPolicy.refit !== 'auto' || this.cameraIsTheVisitors || !this.hasRendered) {
       return;
     }
-    cc.setLookAt(
-      resolved.eye.x, resolved.eye.y, resolved.eye.z,
-      resolved.target.x, resolved.target.y, resolved.target.z,
-      transition,
-    );
-    // setLookAt fixes the angle; fitToBox keeps the distance honest for it.
-    if (box) {
-      this.ctx.fitToBox(box, transition);
-    }
+    this.reframeScene(this.fitPolicy, false);
   }
 
   /**
@@ -1228,13 +1351,15 @@ export class Viewer {
       }
     }
 
-    // Auto-fit on first render or in sketch mode (skip if viewport barely changed).
+    // Auto-fit on first render, under an `auto` framing policy, or in sketch
+    // mode (skip if viewport barely changed).
     // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
-    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
-      const box = new Box3();
-      expandBoxExcludingMeta(box, mesh);
-      if (!box.isEmpty() && !this.isBoxContained(box)) {
-        this.ctx.fitToBox(box, true);
+    const autoRefit = this.fitPolicy.refit === 'auto' && !this.cameraIsTheVisitors;
+    if (autoRefit || (!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
+      const parts = geometryPartsOf(mesh);
+      const box = unionBox(parts);
+      if (!box.isEmpty() && this.shouldAutoFit(box)) {
+        this.frameScene(box, this.fitPolicy, true, parts);
         this.lastFitBox = box.clone();
         this.hasRendered = true;
       }
@@ -1357,11 +1482,11 @@ export class Viewer {
 
     this.assemblyController.update(sceneObjects, assembly);
 
-    if (!this.hasRendered) {
-      const box = new Box3();
-      expandBoxExcludingMeta(box, this.assemblyController.getContainer());
-      if (!box.isEmpty() && !this.isBoxContained(box)) {
-        this.ctx.fitToBox(box, true);
+    if (!this.hasRendered || (this.fitPolicy.refit === 'auto' && !this.cameraIsTheVisitors)) {
+      const parts = geometryPartsOf(this.assemblyController.getContainer());
+      const box = unionBox(parts);
+      if (!box.isEmpty() && this.shouldAutoFit(box)) {
+        this.frameScene(box, this.fitPolicy, true, parts);
         this.lastFitBox = box.clone();
         this.hasRendered = true;
       }
@@ -2118,12 +2243,31 @@ export class Viewer {
     return worldFromMm(2);
   }
 
-  /** Fit the camera to all scene geometry (part mesh or assembly), excluding meta shapes. */
-  private fitViewToScene(): void {
-    const box = this.sceneGeometryBounds();
-    if (box) {
-      this.ctx.fitToBox(box, true);
+  /**
+   * Fit the camera to all scene geometry (part mesh or assembly), excluding
+   * meta shapes. `overrides` is for a one-off fit — the fit button and the
+   * embed protocol's `fit` — and leaves the standing policy alone.
+   */
+  private fitViewToScene(overrides: Partial<FitPolicy> = {}): void {
+    this.reframeScene({ ...this.fitPolicy, ...overrides }, true);
+  }
+
+  /**
+   * Frame whatever is in the scene right now. One traversal for both the
+   * pieces and the box around them, so the two can never describe different
+   * moments of a scene that is still being built.
+   */
+  private reframeScene(policy: FitPolicy, transition: boolean): void {
+    const parts = this.sceneGeometryParts();
+    if (!parts) {
+      return;
     }
+    const box = unionBox(parts);
+    if (box.isEmpty()) {
+      return;
+    }
+    this.frameScene(box, policy, transition, parts);
+    this.lastFitBox = box.clone();
   }
 
   private findShapeById(shapeId: string): SceneObjectPart | undefined {

@@ -24,6 +24,13 @@ export type ScreenshotView =
   | { kind: 'current' }
   | { kind: 'named'; name: NamedView }
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  /**
+   * A named view for an angle that has no name: the same construction — look
+   * at the scene centre from this direction, standing off by the scene's own
+   * size — with the direction given rather than chosen from the fourteen.
+   * Only the direction matters; its length is ignored.
+   */
+  | { kind: 'direction'; direction: [number, number, number] }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
 /**
@@ -67,10 +74,28 @@ export function eyeTargetForNamedView(
   center: Vector3,
   distance: number,
 ): EyeTarget {
-  const dir = NAMED_VIEW_DIRECTIONS[name];
+  // Never null: every named direction is a unit vector by construction.
+  return eyeTargetForDirection(NAMED_VIEW_DIRECTIONS[name], center, distance)!;
+}
+
+/**
+ * The same, for a direction given rather than named. The direction is
+ * normalized here, so a caller may pass whatever vector describes the angle
+ * it wants without also having to decide how far away to stand — that is what
+ * `distance` (the scene's own size) is for. A zero-length direction has no
+ * angle in it and resolves to nothing.
+ */
+export function eyeTargetForDirection(
+  direction: Vector3,
+  center: Vector3,
+  distance: number,
+): EyeTarget | null {
+  if (direction.lengthSq() === 0) {
+    return null;
+  }
   const safeDistance = Math.max(distance, 1);
   return {
-    eye: center.clone().add(dir.clone().multiplyScalar(safeDistance)),
+    eye: center.clone().add(direction.clone().normalize().multiplyScalar(safeDistance)),
     target: center.clone(),
   };
 }
@@ -125,6 +150,8 @@ export function resolveView(
       return null;
     case 'named':
       return eyeTargetForNamedView(view.name, sceneCenter, sceneDiameter);
+    case 'direction':
+      return eyeTargetForDirection(new Vector3(...view.direction), sceneCenter, sceneDiameter);
     case 'orbit-from-current':
       return eyeTargetForOrbit(currentEye, currentTarget, view.azimuthDeg, view.elevationDeg);
     case 'look-from': {

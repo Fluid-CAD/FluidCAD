@@ -23,6 +23,7 @@ import {
 import CameraControls from 'camera-controls';
 import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
+import { computeTightFraming, type FitLens, type FitOptions, type FitViewport } from './camera-fit';
 import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 import { runFrameHooks } from '../meshes/frame-hooks';
@@ -114,6 +115,8 @@ export class SceneContext {
    * when the camera is swapped, so a switch keeps the fit's depth range. */
   private lastFitRadius = 0;
   private cameraChangeListeners = new Set<() => void>();
+  private viewportResizeListeners = new Set<() => void>();
+  private userCameraInputListeners = new Set<() => void>();
 
   constructor(private container: HTMLElement) {
     Object3D.DEFAULT_UP = Z_UP.clone();
@@ -187,7 +190,10 @@ export class SceneContext {
     // loop too: the click-to-snap animation is stepped inside gizmo.render(),
     // so it only advances while frames are being rendered.
     this.gizmo.addEventListener('change', () => this.requestRender());
-    this.gizmo.addEventListener('start', () => this.requestRender());
+    this.gizmo.addEventListener('start', () => {
+      this.requestRender();
+      this.notifyUserCameraInput();
+    });
 
     // ResizeObserver for container size changes
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -254,6 +260,42 @@ export class SceneContext {
     return () => {
       this.cameraChangeListeners.delete(fn);
     };
+  }
+
+  /**
+   * Fires when the canvas itself changes size — distinct from
+   * {@link subscribeCameraChange}, which also fires on every orbit and zoom.
+   * A host that keeps the scene framed re-fits from here; doing it off a
+   * camera change would re-fit in response to its own fit.
+   */
+  subscribeViewportResize(fn: () => void): () => void {
+    this.viewportResizeListeners.add(fn);
+    return () => {
+      this.viewportResizeListeners.delete(fn);
+    };
+  }
+
+  /**
+   * Fires the first moment of each camera gesture the visitor makes — a drag,
+   * a wheel, a pinch, a gizmo click. Registered against the controls this
+   * class rebuilds on a camera swap (see {@link switchCamera}), so a
+   * subscriber does not silently stop hearing about gestures after one.
+   *
+   * What it is for: a viewport that keeps re-framing the scene has to stop
+   * doing that once the camera is the visitor's, or their first orbit is
+   * undone by the next render.
+   */
+  subscribeUserCameraInput(fn: () => void): () => void {
+    this.userCameraInputListeners.add(fn);
+    return () => {
+      this.userCameraInputListeners.delete(fn);
+    };
+  }
+
+  private notifyUserCameraInput(): void {
+    for (const fn of this.userCameraInputListeners) {
+      fn();
+    }
   }
 
   private notifyCameraChange(): void {
@@ -373,13 +415,23 @@ export class SceneContext {
     this.wake();
   }
 
-  /** Fit the camera to a bounding box while preserving the current viewing angle. */
-  fitToBox(box: Box3, enableTransition: boolean): void {
+  /**
+   * Fit the camera to a bounding box while preserving the current viewing
+   * angle. {@link FitMode} decides how much of the frame the box is allowed
+   * to take; `padding` how much air is left around it.
+   */
+  fitToBox(box: Box3, enableTransition: boolean, options: FitOptions = {}): void {
     const center = box.getCenter(new Vector3());
     const radius = box.getSize(new Vector3()).length() / 2;
     if (radius === 0) return;
+    const padding = options.padding ?? FIT_PADDING;
 
-    const sphere = new Sphere(center, radius * FIT_PADDING);
+    if ((options.mode ?? 'sphere') === 'tight'
+      && this.fitTightly(options.parts ?? [box], box, enableTransition, padding)) {
+      return;
+    }
+
+    const sphere = new Sphere(center, radius * padding);
     this._cc.fitToSphere(sphere, enableTransition);
     // Clip planes for the fitted view. Perspective fits move the eye to the
     // sphere-fitting distance (known up front, even mid-transition); an
@@ -391,6 +443,58 @@ export class SceneContext {
     // The instant form dispatches no transitionstart — wake so the next
     // update() applies and renders it.
     this.wake();
+  }
+
+  /**
+   * The `tight` fit: frame the box as it projects onto this canvas from the
+   * angle the camera is already heading for. Reports whether it could — an
+   * unmeasurable canvas or a degenerate camera falls back to the sphere fit
+   * rather than leaving the scene unframed.
+   *
+   * The end state of the camera is what is solved against, not the live one:
+   * a fit issued in the same tick as a `setLookAt` transition has to frame
+   * the angle that transition is going to, or the two fight and the model
+   * settles off-centre.
+   */
+  private fitTightly(parts: readonly Box3[], bounds: Box3, enableTransition: boolean, padding: number): boolean {
+    const eye = this._cc.getPosition(new Vector3());
+    const target = this._cc.getTarget(new Vector3());
+    const framing = computeTightFraming(parts, eye, target, this.camera.up, this.fitLens(), this.fitViewport(), padding);
+    if (!framing) {
+      return false;
+    }
+    this._cc.moveTo(framing.target.x, framing.target.y, framing.target.z, enableTransition);
+    if (this.activeCamera === 'perspective') {
+      this._cc.dollyTo(framing.distance, enableTransition);
+    } else {
+      this._cc.zoomTo(framing.zoom, enableTransition);
+    }
+    // A fit owns the whole frame; camera-controls' own fits clear the focal
+    // offset for the same reason, and leaving a stale one behind would slide
+    // the model the fit just centred back off centre.
+    this._cc.setFocalOffset(0, 0, 0, enableTransition);
+    // The depth range still comes off the bounding sphere: the near/far pair
+    // has to clear the model from every angle, not only this one.
+    this.applyClipPlanes(framing.distance, bounds.getSize(new Vector3()).length() / 2 * padding);
+    this.wake();
+    return true;
+  }
+
+  /** The lens a fit is solved for — see {@link FitLens}. */
+  private fitLens(): FitLens {
+    return this.activeCamera === 'perspective'
+      ? { kind: 'perspective', fovDeg: this.perspCamera.fov }
+      : { kind: 'orthographic', frustumHeight: this.orthoCamera.top - this.orthoCamera.bottom };
+  }
+
+  /** The canvas a fit is solved against, view shift included. */
+  private fitViewport(): FitViewport {
+    return {
+      width: this.container.clientWidth || window.innerWidth,
+      height: this.container.clientHeight || window.innerHeight,
+      shiftX: this.viewShiftX,
+      shiftY: this.viewShiftY,
+    };
   }
 
   /**
@@ -520,6 +624,7 @@ export class SceneContext {
     cc.smoothTime = 0.1;
     cc.draggingSmoothTime = 0.05;
     cc.addEventListener('controlstart', this.wakeListener);
+    cc.addEventListener('controlstart', this.userInputListener);
     cc.addEventListener('control', this.wakeListener);
     cc.addEventListener('transitionstart', this.wakeListener);
     // 'update' fires inside cc.update() — before this tick's render, so a
@@ -529,6 +634,7 @@ export class SceneContext {
   }
 
   private wakeListener = (): void => this.wake();
+  private userInputListener = (): void => this.notifyUserCameraInput();
   private cameraChangeListener = (): void => this.notifyCameraChange();
 
   /** Restart the animation loop if it went to sleep. */
@@ -616,6 +722,9 @@ export class SceneContext {
     this.requestRender();
     // Pixels per world unit changed with the canvas height.
     this.notifyCameraChange();
+    for (const fn of this.viewportResizeListeners) {
+      fn();
+    }
   }
 
   private updateLightPositions(): void {

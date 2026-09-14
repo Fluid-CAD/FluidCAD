@@ -408,13 +408,24 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isDraggableSketchObject(obj) || this.isSolvedEntity(obj);
+      const objInteractive = isDraggableSketchObject(obj) || this.isSolvedEntity(obj);
       const color = this.edgeColorFor(obj);
-      const target = interactive
-        ? bucketFor(color, VERTEX_PX_RADIUS, 1)
-        : bucketFor(color, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_VERTEX_OPACITY);
+      // Derived-op duplicates (2D copy instances, mirror images) are free
+      // solver entities of their own — pickable, constrainable, dragging
+      // their source — so their endpoints get the full interactive dot even
+      // though the owning statement is not itself an entity. Decided per
+      // shape through the same shapeIndex join the picks use; the op's
+      // non-solver shapes (an offset result it duplicated) stay subtle.
+      const duplicateShapes = this.solverBackedShapeIndices(obj);
+      const bucketForShape = (shapeIndex: number): Vector3[] => {
+        const interactive = objInteractive || duplicateShapes.has(shapeIndex);
+        return interactive
+          ? bucketFor(color, VERTEX_PX_RADIUS, 1)
+          : bucketFor(color, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_VERTEX_OPACITY);
+      };
 
-      for (const shape of obj.sceneShapes) {
+      for (const [shapeIndex, shape] of obj.sceneShapes.entries()) {
+        const target = bucketForShape(shapeIndex);
         // Meta point vertices (circle/arc/ellipse centers, text anchors)
         // before the guide skip: guiding an entity marks every shape it
         // owns, but its center stays a solver point — draggable and
@@ -494,6 +505,28 @@ export class SketchMesh extends Group {
     return this.solvedModel !== null
       && typeof obj.object?.entityId === 'number'
       && this.solvedModel.entities.has(obj.object.entityId);
+  }
+
+  /** Indices into `obj.sceneShapes` of the shapes that stand for a FREE
+   * solver entity of a derived op (copy duplicates, mirror images — the
+   * `entities[]` payload's shapeIndex join). Fixed references address by
+   * edgeIndex and stay out: they are pick-only geometry. */
+  private solverBackedShapeIndices(obj: SceneObjectRender): Set<number> {
+    const out = new Set<number>();
+    const model = this.solvedModel;
+    if (!model || !Array.isArray(obj.object?.entities)) {
+      return out;
+    }
+    for (const record of obj.object.entities as { entityId?: unknown; shapeIndex?: unknown }[]) {
+      if (typeof record.shapeIndex !== 'number' || typeof record.entityId !== 'number') {
+        continue;
+      }
+      const view = model.entities.get(record.entityId);
+      if (view && view.reference === undefined) {
+        out.add(record.shapeIndex);
+      }
+    }
+    return out;
   }
 
   /** Edge (and endpoint-dot) color: solved entities carry the diagnostic
@@ -593,6 +626,7 @@ export class SketchMesh extends Group {
       const dotGroup = new Group();
       dotGroup.renderOrder = 2;
       dotGroup.userData.isVertexDot = true;
+      dotGroup.userData.pxRadius = targetPixels;
       dotGroup.add(dot);
       dotGroup.position.copy(pos);
 

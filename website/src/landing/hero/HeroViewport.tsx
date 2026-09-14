@@ -43,7 +43,10 @@ function connectionLooksCapable(): boolean {
 export default function HeroViewport({model, className}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
-  const {fluidcadViewerUrl} = siteConfig.customFields as {fluidcadViewerUrl: string};
+  const {fluidcadViewerUrl, fluidcadVersion} = siteConfig.customFields as {
+    fluidcadViewerUrl: string;
+    fluidcadVersion: string;
+  };
 
   const frameRef = useRef<HTMLIFrameElement>(null);
   const embedRef = useRef<ViewerEmbed | null>(null);
@@ -112,7 +115,7 @@ export default function HeroViewport({model, className}: Props) {
     if (readyEpoch === 0) {
       return;
     }
-    embedRef.current?.load({files: {[model.entry]: model.source}, entry: model.entry});
+    embedRef.current?.load({files: model.files, entry: model.entry});
   }, [model, readyEpoch]);
 
   useEffect(() => {
@@ -125,9 +128,18 @@ export default function HeroViewport({model, className}: Props) {
   // change goes over the channel. Putting it in `src` reactively would
   // navigate the frame and throw the warm engine away.
   const bootTheme = useRef(colorMode === 'dark' ? 'dark' : 'light').current;
-  // No furniture at all. The hero already rules its own ground, and the
-  // viewer's perspective grid crossing the page's flat one reads as noise.
-  const src = `${fluidcadViewerUrl}/#chrome=none&theme=${bootTheme}&grid=0&axes=0`;
+  // No furniture at all: no ground grid (the hero rules its own, and the
+  // viewer's perspective one crossing it reads as noise), no world axes, and
+  // no connector gizmos — an assembly's mates are built on connectors, and
+  // drawn they cover the geometry the hero is here to show.
+  //
+  // `v` is the engine, and it has to be here rather than on the model: the
+  // frame boots an empty scene and resolves its engine once, so a model that
+  // arrives later over the channel gets whatever was resolved at boot. Left
+  // off, that is `/engine/dev/` — a different build from the one every other
+  // viewer link on this site pins, and one whose mate solver placed this
+  // assembly's parts by their fallback transforms instead of their mates.
+  const src = `${fluidcadViewerUrl}/#v=${fluidcadVersion}&chrome=none&theme=${bootTheme}&grid=0&axes=0&connectors=0`;
 
   return (
     <div className={`${styles.stage} ${className ?? ''}`}>

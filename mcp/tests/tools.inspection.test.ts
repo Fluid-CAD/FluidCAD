@@ -212,7 +212,14 @@ describe('inspection tools (unit)', () => {
             }],
             count: 1,
             scope: request.scope ? { kind: 'part', partId: 'obj-1', part: 'base' } : { kind: 'root' },
+            ...(request.before !== undefined ? { before: request.before } : {}),
             unit: 'in',
+            synthesized: {
+              ok: true, expression: '$obj["obj-13"].endFaces()', source: 'e.endFaces()', sameAsInput: false,
+              parts: [{ producer: 'obj-13', accessor: 'endFaces', tier: 0 }],
+              producers: [{ sceneObjectId: 'obj-13', sceneObjectName: 'extrude', featureType: 'extrude', variable: 'e', filePath: '/ws/m.fluid.js', line: 4, column: 0, bound: true }],
+              imports: [], alternatives: [],
+            },
           },
         };
       },
@@ -401,6 +408,41 @@ describe('inspection tools (unit)', () => {
     expect(data.matches[0].summary.form).toBe('plane');
     expect(data.scope).toEqual({ kind: 'part', partId: 'obj-1', part: 'base' });
     expect(data.unit).toBe('in');
+  });
+
+  it('resolve_selection posts picks and the boundary, and returns the synthesized selector', async () => {
+    const result = await resolveSelection({ picks: [{ shapeId: 'sh-2', kind: 'face', index: 5 }], before: 7 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(JSON.parse(lastRequest!.body)).toEqual({ picks: [{ shapeId: 'sh-2', kind: 'face', index: 5 }], before: 7 });
+    const data = result.data as any;
+    expect(data.before).toBe(7);
+    expect(data.synthesized.source).toBe('e.endFaces()');
+    expect(data.synthesized.producers[0].bound).toBe(true);
+  });
+
+  it('resolve_selection rejects both or neither input, malformed picks and a bad boundary before calling the server', async () => {
+    lastRequest = null;
+    const neither = await resolveSelection({});
+    expect(neither.ok).toBe(false);
+    if (!neither.ok) {
+      expect(neither.message).toContain('exactly one of');
+    }
+    const both = await resolveSelection({ expression: 'face()', picks: [{ shapeId: 'sh-2', kind: 'face', index: 5 }] });
+    expect(both.ok).toBe(false);
+    const badPick = await resolveSelection({ picks: [{ shapeId: 'sh-2', kind: 'face', index: -1 }] });
+    expect(badPick.ok).toBe(false);
+    if (!badPick.ok) {
+      expect(badPick.message).toContain('picks[0]');
+    }
+    const badBefore = await resolveSelection({ expression: 'face()', before: 0 });
+    expect(badBefore.ok).toBe(false);
+    if (!badBefore.ok) {
+      expect(badBefore.message).toContain('before');
+    }
+    expect(lastRequest).toBeNull();
   });
 
   it('resolve_selection omits the scope key when none is given', async () => {

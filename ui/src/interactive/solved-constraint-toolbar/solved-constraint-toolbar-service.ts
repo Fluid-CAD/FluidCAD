@@ -11,7 +11,7 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SceneContext } from '../../scene/scene-context';
 import { SceneObjectRender, SourceLocation } from '../../types';
-import { applySketchConstraint, removeFeature } from '../../api';
+import { applySketchConstraint, insertSolvedGeometry, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
 import { localToWorld, projectToSketch, sketchToClient } from '../sketch-plane-utils';
@@ -23,7 +23,7 @@ import {
 } from '../../meshes/containers/solved-constraint-meshes';
 import { buildDimensionArrows } from '../../meshes/containers/dimension-arrows';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
-import type { ArrowEnds } from '../../sketch-solver-client';
+import type { ArrowEnds, SolvedConstraintView } from '../../sketch-solver-client';
 import { angleLabelPlacement } from '../../sketch-solver-client';
 import type { AngleLabelPlacement } from '../../sketch-solver-client';
 import {
@@ -44,7 +44,10 @@ import {
   axisDimensionPicks,
   axisFromCursor,
   candidateSpec,
+  coincidentRingIds,
+  coincidentsAtPicks,
   constraintOptions,
+  describeCoincidentRemoval,
   dimensionFormFor,
   dimensionPreviewLayout,
   distancePlacementMoot,
@@ -106,6 +109,10 @@ export class SolvedConstraintToolbarService {
   private busy = false;
   private dimensionArmed = false;
   private pickedConstraint: { objId?: string; sourceLocation?: SourceLocation } | null = null;
+  /** Point–point coincidents the current vertex pick stands for — their
+   * ring is not a pick target, so Delete reaches them through the vertex. */
+  private vertexCoincidents: SolvedConstraintView[] = [];
+  private handler: SketchHoverSelectHandler | null = null;
   private ghostGroup: Group | null = null;
   /** The dimension the open value input is creating — drives the preview
    * leader line and survives re-renders (picks are entityId:role keyed).
@@ -202,6 +209,9 @@ export class SolvedConstraintToolbarService {
     this.cancelDistancePlacement();
     this.dimensionArmed = false;
     this.pickedConstraint = null;
+    this.vertexCoincidents = [];
+    this.handler?.setPinnedBadges([]);
+    this.handler = null;
     this.picks = [];
     this.model = null;
     this.sketchInfo = null;
@@ -303,10 +313,12 @@ export class SolvedConstraintToolbarService {
 
   /** The shared selection changed — recompute the pick list and options. */
   selectionChanged(handler: SketchHoverSelectHandler | null): void {
+    this.handler = handler;
     this.picks = handler?.getSolvedPicks() ?? [];
     this.clearGhost();
     this.view.setOptions(constraintOptions(this.picks));
-    this.view.setDeleteEnabled(this.pickedConstraint !== null);
+    this.vertexCoincidents = this.model ? coincidentsAtPicks(this.model, this.picks) : [];
+    this.refreshDelete();
     // The armed dimension tool fires as soon as the picks form a legal
     // dimension — the second pick opens the value input (locked plan §0.4).
     // A further pick while the input is open RE-TARGETS it (a lone line's
@@ -368,7 +380,23 @@ export class SolvedConstraintToolbarService {
   /** A constraint badge was clicked — remember it for delete. */
   noteConstraintPick(pick: { objId?: string; sourceLocation?: SourceLocation }): void {
     this.pickedConstraint = pick;
-    this.view.setDeleteEnabled(true);
+    this.refreshDelete();
+  }
+
+  /** What Delete targets right now: a picked badge first, else the
+   * coincidents behind the vertex pick — the ring tints so the target
+   * is visible. */
+  private refreshDelete(): void {
+    if (this.pickedConstraint) {
+      this.view.setDeleteEnabled(true);
+      this.handler?.setPinnedBadges([]);
+      return;
+    }
+    const label = this.model ? describeCoincidentRemoval(this.model, this.vertexCoincidents) : null;
+    this.view.setDeleteEnabled(label !== null, label ?? undefined);
+    this.handler?.setPinnedBadges(
+      this.model && label !== null ? coincidentRingIds(this.model, this.vertexCoincidents) : [],
+    );
   }
 
   /** While the two-pick dimension tool is armed, plain clicks must
@@ -416,7 +444,7 @@ export class SolvedConstraintToolbarService {
       }
       return;
     }
-    if (this.pickedConstraint) {
+    if (this.pickedConstraint || this.vertexCoincidents.length > 0) {
       e.preventDefault();
       this.deletePicked();
     }
@@ -1041,14 +1069,47 @@ export class SolvedConstraintToolbarService {
 
   private deletePicked(): void {
     const loc = this.pickedConstraint?.sourceLocation;
-    if (!loc) {
+    if (loc) {
+      // Constraint removal is a statement deletion, never a geometry rewrite
+      // (locked plan §0.1) — the timeline's remove rail does exactly that.
+      removeFeature(loc);
+      this.pickedConstraint = null;
+      this.refreshDelete();
       return;
     }
-    // Constraint removal is a statement deletion, never a geometry rewrite
-    // (locked plan §0.1) — the timeline's remove rail does exactly that.
-    removeFeature(loc);
-    this.pickedConstraint = null;
-    this.view.setDeleteEnabled(false);
+    void this.deleteVertexCoincidents();
+  }
+
+  /** Remove every coincident the vertex pick stands for in ONE edit — the
+   * insert-solved rail's removals (one statement per remove-feature message
+   * would race each other's line shifts). */
+  private async deleteVertexCoincidents(): Promise<void> {
+    const info = this.sketchInfo;
+    const targets = this.vertexCoincidents;
+    if (this.busy || !info || targets.length === 0) {
+      return;
+    }
+    const lines = targets
+      .map(c => c.obj.sourceLocation?.line)
+      .filter((line): line is number => typeof line === 'number');
+    if (lines.length !== targets.length) {
+      this.showMessage('The coincident has no source statement');
+      return;
+    }
+    this.busy = true;
+    this.view.setBusy(true);
+    const result = await insertSolvedGeometry({
+      sketchLine: info.line,
+      filePath: info.filePath,
+      geometry: [],
+      constraints: [],
+      removals: [...new Set(lines)].map(line => ({ line })),
+    });
+    this.busy = false;
+    this.view.setBusy(false);
+    if (!result.success) {
+      this.showMessage(result.reason ?? 'Could not remove the coincident');
+    }
   }
 
   // -- live ghost -----------------------------------------------------------

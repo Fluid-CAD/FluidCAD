@@ -86,6 +86,16 @@ export function readWorkspaceAssetBytes(relPath: string): Uint8Array | null {
   return fs.readFileSync(filePath);
 }
 
+/**
+ * The workspace's `imports/` folder, created on first use. A fresh project
+ * has no such folder, and every import writer below lands its cache there.
+ */
+function ensureImportsDir(workspacePath: string): string {
+  const dir = join(workspacePath, 'imports');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 export class FileImport {
   static deserializeShapes(fileName: string): Solid[] {
     if (!fileName.endsWith(('.brep'))) {
@@ -109,7 +119,7 @@ export class FileImport {
 
     console.log(`Writing file ${fileName} to actual filesystem at ${workspacePath}`);
     fs.writeFileSync(
-      join(workspacePath, 'imports', fileName.replace(/.(step|stp)$/i, '.brep')),
+      join(ensureImportsDir(workspacePath), fileName.replace(/\.(step|stp)$/i, '.brep')),
       file);
   }
 
@@ -139,13 +149,14 @@ export class FileImport {
     }
 
     // Serialize all solids as compound .brep
+    const importsDir = ensureImportsDir(workspacePath);
     const brepFileName = fileName.replace(/\.(step|stp)$/i, '.brep');
     const brepContent = OcIO.writeSolidsAsBRep(solids, brepFileName);
-    fs.writeFileSync(join(workspacePath, 'imports', brepFileName), brepContent);
+    fs.writeFileSync(join(importsDir, brepFileName), brepContent);
 
     // Write color metadata as JSON sidecar
     const jsonFileName = fileName.replace(/\.(step|stp)$/i, '.colors.json');
-    const jsonPath = join(workspacePath, 'imports', jsonFileName);
+    const jsonPath = join(importsDir, jsonFileName);
     fs.writeFileSync(jsonPath, JSON.stringify(colorData, null, 2));
     console.log(`Written color metadata to ${jsonPath}`);
 
@@ -157,7 +168,7 @@ export class FileImport {
       sourceUnits,
       importedAt: new Date().toISOString(),
     };
-    const metaPath = join(workspacePath, 'imports', fileName.replace(/\.(step|stp)$/i, '.import.json'));
+    const metaPath = join(importsDir, fileName.replace(/\.(step|stp)$/i, '.import.json'));
     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
 
     cleanup();

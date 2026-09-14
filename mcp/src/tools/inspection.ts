@@ -221,17 +221,70 @@ class SelectionInputs {
   }
 }
 
-export type ResolveSelectionInput = WorkspaceArg & { expression: string; scope?: SelectionScopeInput };
+/** A face/edge ref the way `measure` and `hit_test` address entities. */
+export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
+
+export type ResolveSelectionInput = WorkspaceArg & {
+  expression?: string;
+  picks?: SelectionPickInput[];
+  scope?: SelectionScopeInput;
+  before?: number;
+};
+
+/**
+ * Input checks for the pick and boundary forms of `resolve_selection`: the
+ * server validates again, but a malformed ref is cheaper to refuse here
+ * with the exact field named.
+ */
+class ResolveSelectionInputs {
+  static readonly MAX_PICKS = 500;
+
+  static error(input: ResolveSelectionInput | undefined): string | null {
+    const hasExpression = input?.expression !== undefined;
+    const hasPicks = input?.picks !== undefined;
+    if (hasExpression === hasPicks) {
+      return 'Pass exactly one of `expression` (filter syntax) or `picks` ({ shapeId, kind, index } refs).';
+    }
+    if (hasExpression) {
+      const expressionError = SelectionInputs.expressionError(input!.expression);
+      if (expressionError) {
+        return expressionError;
+      }
+    } else {
+      const picks = input!.picks;
+      if (!Array.isArray(picks) || picks.length === 0 || picks.length > ResolveSelectionInputs.MAX_PICKS) {
+        return `\`picks\` must be an array of 1-${ResolveSelectionInputs.MAX_PICKS} { shapeId, kind, index } refs.`;
+      }
+      for (let i = 0; i < picks.length; i++) {
+        const pick = picks[i];
+        const validKind = pick?.kind === 'face' || pick?.kind === 'edge';
+        const validIndex = Number.isInteger(pick?.index) && pick.index >= 0;
+        if (!pick || typeof pick.shapeId !== 'string' || pick.shapeId.length === 0 || !validKind || !validIndex) {
+          return `\`picks[${i}]\` needs a shapeId, a kind (face | edge) and a non-negative index.`;
+        }
+      }
+    }
+    const scopeError = SelectionInputs.scopeError(input?.scope);
+    if (scopeError) {
+      return scopeError;
+    }
+    if (input?.before !== undefined && (!Number.isInteger(input.before) || input.before < 1)) {
+      return '`before` must be a positive integer: the scene-object index (from get_scene_summary) of the statement the selection is written before.';
+    }
+    return null;
+  }
+}
+
 export async function resolveSelection(input: ResolveSelectionInput) {
-  const expressionError = SelectionInputs.expressionError(input?.expression);
-  if (expressionError) {
-    return err('invalid-input', expressionError);
+  const problem = ResolveSelectionInputs.error(input);
+  if (problem) {
+    return err('invalid-input', problem);
   }
-  const scopeError = SelectionInputs.scopeError(input?.scope);
-  if (scopeError) {
-    return err('invalid-input', scopeError);
-  }
-  const body = { expression: input.expression, ...(input.scope ? { scope: input.scope } : {}) };
+  const body = {
+    ...(input.expression !== undefined ? { expression: input.expression } : { picks: input.picks }),
+    ...(input.scope ? { scope: input.scope } : {}),
+    ...(input.before !== undefined ? { before: input.before } : {}),
+  };
   return callWithClient(input, (client) => client.postJson<unknown>('/api/resolve-selection', body));
 }
 

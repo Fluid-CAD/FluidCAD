@@ -306,11 +306,14 @@ class SceneManager {
   }
 
   /**
-   * Evaluate a filter expression against the scene with the candidate set a
-   * `select()` statement sees at the given scope — see SelectionResolver.
+   * Evaluate a filter expression (or explicit picks) against the scene with
+   * the candidate set a `select()` statement sees at the given scope and
+   * statement boundary — see SelectionResolver. With synthesis options the
+   * result also carries the selector the language would write for the
+   * matches (SelectionSynthesizer).
    */
-  resolveSelection(scene: Scene, request: ResolveSelectionRequest): ResolveSelectionResult {
-    return SelectionResolver.resolve(scene, request);
+  resolveSelection(scene: Scene, request: ResolveSelectionRequest, synthesis?: SynthesizeOptions): ResolveSelectionResult {
+    return SelectionResolver.resolve(scene, request, synthesis);
   }
 
   /**

@@ -355,28 +355,66 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       'for the variable that holds that feature. Plain JavaScript otherwise: no module, host or scene-manager access.',
     );
 
+  const pickArg = z.object({
+    shapeId: z.string().min(1).describe('Solid id from list_shapes / get_scene_summary / hit_test.'),
+    kind: z.enum(['face', 'edge']),
+    index: z.number().int().nonnegative().describe('The face/edge index in that solid — the index hit_test, measure and resolve_selection matches report.'),
+  });
+
   server.registerTool(
     'resolve_selection',
     {
-      title: 'Resolve a filter expression to the faces/edges it selects',
+      title: 'Resolve a selection and synthesize the selector to write for it',
       description:
-        'Evaluates a filter expression against the live scene with exactly the candidate set a select() statement would see at the ' +
-        'given scope, and returns every matched face/edge with its shapeId/kind/index (usable in measure and hit_test), owning ' +
+        'Two inputs, one of them: `expression` — a filter expression evaluated with exactly the candidate set a select() statement ' +
+        'would see at the given scope; or `picks` — explicit face/edge refs (from hit_test, a screenshot highlight, or an earlier ' +
+        'match). Returns every matched face/edge with its shapeId/kind/index (usable in measure and hit_test), owning ' +
         'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
         'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Zero matches is a normal result with count 0 — check it before ' +
-        'writing a fillet/chamfer/color on that filter, which would silently do nothing. A `warning` names selected shapes no solid ' +
-        'in the final model carries (a later feature consumed them): re-select on the final geometry. Verify the expression here, then write the ' +
-        'same expression into the source: indices renumber after every feature, filters survive edits. An expression that fails to ' +
-        'evaluate, an unknown scope, or a part name shared by several variants is an error naming the problem.',
+        'writing a fillet/chamfer/color on that filter, which would silently do nothing.\n\n' +
+        '`synthesized` is the selector the language itself would write for exactly those matches — the same ranked, verified ' +
+        'synthesis the UI runs on a pick: a feature accessor on a bound variable (`e.endEdges()`, `c.sideFaces(2)`) beats a filter ' +
+        'that bakes geometry constants (`edge().circle(5)`), and every candidate is verified to resolve to exactly the matches. ' +
+        'Read `synthesized.source` and write THAT into the file — it uses the file\'s real variable names; each entry in ' +
+        '`synthesized.producers` says which statement a name refers to and whether it is already `bound` (bound: false means ' +
+        'add `const <variable> = ` in front of that statement first). `synthesized.expression` is the same selector in this ' +
+        'tool\'s `$obj["<id>"]` form, so you can resolve it again to double-check; `sameAsInput` tells you whether synthesis kept ' +
+        'your expression or found a better form; `alternatives` are verified runner-ups (source + expression) if the winner ' +
+        'reads badly in context; `imports` lists symbols the source form needs (select, edge, face, plane). A `synthesized.ok: false` ' +
+        'names why no selector could be verified (geometry from a loop or helper call site, picks across part scopes) — the matches ' +
+        'are still valid, use a filter you verify by count.\n\n' +
+        '`before` is the statement boundary: the scene-object `index` (get_scene_summary) of the statement the selection is written ' +
+        'before — the statement you are editing, or the one a new statement is inserted in front of. Only objects strictly before it ' +
+        'exist then (the world rollback_to(before - 1) renders), so the selector resolves and synthesizes against the geometry that ' +
+        'statement actually sees, with picks addressed on that world\'s solids. Omit it for a statement appended at the end. ' +
+        'A `warning` names selected shapes no solid in the visible world carries (a later feature consumed them): re-select on the ' +
+        'visible geometry. An expression that fails to evaluate, an unknown scope, a part name shared by several variants, an ' +
+        'out-of-range boundary or a pick that does not exist in that world is an error naming the problem.',
       inputSchema: {
         ...workspaceArg,
-        expression: expressionArg,
+        expression: expressionArg.optional(),
+        picks: z
+          .array(pickArg)
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Explicit face/edge refs to synthesize a selector for, instead of an expression. Exactly one of expression / picks.'),
         scope: selectionScopeArg,
+        before: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            'Statement boundary: the scene-object index of the statement the selection is written before (an edited statement, or the ' +
+            'insertion point of a new one). Objects strictly before it are visible — the same world as rollback_to(before - 1). ' +
+            'Omit when the statement goes at the end of the file.',
+          ),
       },
     },
-    async ({ workspace, expression, scope }) =>
-      toMcp(await resolveSelection({ workspace, expression, scope: scope as any })),
+    async ({ workspace, expression, picks, scope, before }) =>
+      toMcp(await resolveSelection({ workspace, expression, picks, scope: scope as any, before })),
   );
 
   server.registerTool(

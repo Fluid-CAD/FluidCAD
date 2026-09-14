@@ -1,6 +1,10 @@
 import type { SelectionScopeInput } from '../../../lib/dist/index.js';
 
 const MAX_EXPRESSION_LENGTH = 4000;
+const MAX_PICKS = 500;
+
+/** A face/edge ref on the wire — the addressing `measure` and `hit_test` use. */
+export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
 
 /**
  * Body validation for the requests that carry a filter expression —
@@ -53,11 +57,56 @@ export class SelectionRequests {
     return scope as SelectionScopeInput;
   }
 
+  /**
+   * The error naming what is wrong with `picks`, or null when it is absent
+   * or a non-empty list of `{ shapeId, kind, index }` refs.
+   */
+  static picksError(picks: unknown, label = 'picks'): string | null {
+    if (picks === undefined) {
+      return null;
+    }
+    if (!Array.isArray(picks) || picks.length === 0 || picks.length > MAX_PICKS) {
+      return `${label} must be a non-empty array of at most ${MAX_PICKS} { shapeId, kind, index } refs`;
+    }
+    for (let i = 0; i < picks.length; i++) {
+      const pick = picks[i];
+      const validKind = pick?.kind === 'face' || pick?.kind === 'edge';
+      const validIndex = Number.isInteger(pick?.index) && pick.index >= 0;
+      if (!pick || typeof pick.shapeId !== 'string' || !pick.shapeId || !validKind || !validIndex) {
+        return `${label}[${i}] needs a shapeId, a kind (face|edge) and a non-negative index`;
+      }
+    }
+    return null;
+  }
+
+  /** The lib's pick refs for validated wire picks. */
+  static asPicks(picks: unknown): { shapeId: string; sub: { type: 'face' | 'edge'; index: number } }[] | undefined {
+    if (picks === undefined) {
+      return undefined;
+    }
+    return (picks as SelectionPickInput[]).map(p => ({ shapeId: p.shapeId, sub: { type: p.kind, index: p.index } }));
+  }
+
+  /** The error naming what is wrong with `before`, or null when it is absent or a positive integer. */
+  static beforeError(before: unknown, label = 'before'): string | null {
+    if (before === undefined) {
+      return null;
+    }
+    if (!Number.isInteger(before) || (before as number) < 1) {
+      return `${label} must be a positive integer: the scene-object index of the statement the selection is written before`;
+    }
+    return null;
+  }
+
   /** HTTP status for a resolver refusal: the caller named something that does not exist, is ambiguous, or does not evaluate. */
   static statusFor(code: string): number {
     switch (code) {
+      case 'invalid-request':
+      case 'invalid-boundary':
+        return 400;
       case 'no-scene':
       case 'unknown-scope':
+      case 'unresolved-pick':
       case 'no-match':
         return 404;
       case 'ambiguous-scope':

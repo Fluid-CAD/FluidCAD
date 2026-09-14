@@ -211,6 +211,26 @@ describe('/api/sketch/insert-solved', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('accepts a removals-only body (the constraint bar deleting a coincident behind a vertex pick)', async () => {
+    const { status, body } = await post({
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 6 }],
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.geometryLines).toEqual([]);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.sketchEmission.removals).toEqual([{ line: 6 }]);
+
+    // Nothing to insert AND nothing to remove is still malformed.
+    relayed = [];
+    const empty = await post({ sketchLine: 4, geometry: [], constraints: [], removals: [] });
+    expect(empty.status).toBe(400);
+    expect(relayed).toHaveLength(0);
+  });
+
   it('carries the guide flag and newVariables through', async () => {
     const { status, body } = await post({
       sketchLine: 4,

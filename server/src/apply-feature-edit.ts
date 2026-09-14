@@ -2711,6 +2711,24 @@ export async function makeProducerBindable(
 }
 
 /**
+ * Whether a producer's statement is already bound to a variable (`const e =
+ * extrude(10)`), for the resolve-selection response: a selector the agent
+ * writes against an unbound statement also needs the binding added. False
+ * for a statement the transform could not bind at all.
+ */
+export async function makeProducerBoundProbe(
+  code: string,
+): Promise<(producer: { line: number; featureType?: string }) => boolean> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  return producer => {
+    const resolved = resolveBindableStatementAt(tree, lines, producer);
+    return resolved !== null && !resolved.needsBinding && !!resolved.varName;
+  };
+}
+
+/**
  * The variable names statements of `callee` are bound to, for dialog labels:
  * `const spine = sketch(…)` at one of `lines` resolves to `'spine'`; a bare
  * statement, a different callee at the line, or an unparsable one resolves to

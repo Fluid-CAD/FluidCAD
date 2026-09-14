@@ -3,7 +3,10 @@ import {
   axisDimensionPicks,
   axisFromCursor,
   candidateSpec,
+  coincidentRingIds,
+  coincidentsAtPicks,
   constraintOptions,
+  describeCoincidentRemoval,
   dimensionFormFor,
   dimensionPreviewLayout,
   distancePlacementMoot,
@@ -14,7 +17,7 @@ import {
 } from '../src/interactive/solved-constraint-toolbar/legality';
 import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
-import type { SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
+import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
 
 const loc = (line: number) => ({ filePath: '/ws/m.fluid.js', line, column: 3 });
 
@@ -557,5 +560,98 @@ describe('orderMidpointPicks', () => {
     expect(orderMidpointPicks(model, [startA, endA, endB])).toEqual([endA, startA, endB]);
     expect(orderMidpointPicks(model, [endA, lineB])).toEqual([endA, lineB]);
     expect(orderMidpointPicks(model, [startA, endA, lineB])).toEqual([startA, endA, lineB]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Coincident removal from a vertex pick: the ring is not a pick target, the
+// vertex stands in for it.
+
+function constraintView(id: string, line: number, spec: SolvedConstraintView['spec']): SolvedConstraintView {
+  return { obj: { id, sourceLocation: loc(line) } as any, kind: spec.kind, spec, status: 'ok' };
+}
+
+describe('coincidentsAtPicks', () => {
+  // A chain: line 0 → line 1 → arc 3, the 0/1 corner held by two coincidents
+  // (a junction of three segments: line 5 also ends there), plus a
+  // point-on coincident (badge form) and a tangent that must never count.
+  const junctionModel: SolvedSketchModel = {
+    ...model,
+    entities: new Map([
+      [0, entityView(0, { kind: 'line', start: [0, 0], end: [10, 0] })],
+      [1, entityView(1, { kind: 'line', start: [10, 0], end: [10, 8] })],
+      [3, entityView(3, { kind: 'arc', start: [10, 8], end: [14, 12], center: [14, 8], radius: 4 })],
+      [5, entityView(5, { kind: 'line', start: [10, 0], end: [20, -5] })],
+      [2, entityView(2, { kind: 'circle', center: [30, 0], radius: 5 })],
+    ] as [number, SolvedEntityView][]),
+    constraints: [
+      constraintView('c-corner', 20, { kind: 'coincident', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' } }),
+      constraintView('c-third', 21, { kind: 'coincident', a: { entity: 5, point: 'start' }, b: { entity: 0, point: 'end' } }),
+      constraintView('c-arc', 22, { kind: 'coincident', a: { entity: 1, point: 'end' }, b: { entity: 3, point: 'start' } }),
+      constraintView('c-on', 23, { kind: 'coincident', a: { entity: 5, point: 'end' }, b: { entity: 2 } }),
+      constraintView('t', 24, { kind: 'tangent', a: { entity: 1 }, b: { entity: 3 } }),
+    ],
+  };
+  const endB: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
+  const startArc: SolvedPick = { entityId: 3, kind: 'arc', role: 'start', sourceLocation: loc(8) };
+  const endFifth: SolvedPick = { entityId: 5, kind: 'line', role: 'end', sourceLocation: loc(10) };
+
+  it('one vertex pick names every ring coincident bound to that point', () => {
+    expect(coincidentsAtPicks(junctionModel, [endA]).map(c => c.obj.id)).toEqual(['c-corner', 'c-third']);
+    expect(coincidentsAtPicks(junctionModel, [startB]).map(c => c.obj.id)).toEqual(['c-corner']);
+    expect(coincidentsAtPicks(junctionModel, [startArc]).map(c => c.obj.id)).toEqual(['c-arc']);
+  });
+
+  it('two vertex picks name exactly the coincident binding those two, in either order', () => {
+    expect(coincidentsAtPicks(junctionModel, [endA, startB]).map(c => c.obj.id)).toEqual(['c-corner']);
+    expect(coincidentsAtPicks(junctionModel, [startB, endA]).map(c => c.obj.id)).toEqual(['c-corner']);
+    expect(coincidentsAtPicks(junctionModel, [startArc, endB]).map(c => c.obj.id)).toEqual(['c-arc']);
+    // Two points of the same junction that no statement binds directly.
+    const startFifth: SolvedPick = { entityId: 5, kind: 'line', role: 'start', sourceLocation: loc(10) };
+    expect(coincidentsAtPicks(junctionModel, [startB, startFifth])).toEqual([]);
+  });
+
+  it('the point-on form keeps its own badge — a vertex pick never claims it', () => {
+    expect(coincidentsAtPicks(junctionModel, [endFifth])).toEqual([]);
+  });
+
+  it('edge picks, three points, and an empty pick set name nothing', () => {
+    expect(coincidentsAtPicks(junctionModel, [lineA])).toEqual([]);
+    expect(coincidentsAtPicks(junctionModel, [lineA, startB])).toEqual([]);
+    expect(coincidentsAtPicks(junctionModel, [endA, startB, startArc])).toEqual([]);
+    expect(coincidentsAtPicks(junctionModel, [])).toEqual([]);
+  });
+
+  it('ring ids cover every statement drawn as the same dot', () => {
+    // The glyph layout collapses c-corner and c-third into one ring at
+    // (10, 0); tinting either must light that ring whichever owns it.
+    const [third] = coincidentsAtPicks(junctionModel, [endA]).slice(1);
+    expect(coincidentRingIds(junctionModel, [third])).toEqual(['c-corner', 'c-third']);
+    expect(coincidentRingIds(junctionModel, coincidentsAtPicks(junctionModel, [startArc]))).toEqual(['c-arc']);
+    expect(coincidentRingIds(junctionModel, [])).toEqual([]);
+  });
+
+  it('describes the removal by entity kinds and roles, or by count at a junction', () => {
+    expect(describeCoincidentRemoval(junctionModel, coincidentsAtPicks(junctionModel, [startArc])))
+      .toBe('Delete coincident (line end · arc start)');
+    expect(describeCoincidentRemoval(junctionModel, coincidentsAtPicks(junctionModel, [endA])))
+      .toBe('Delete 2 coincidents at this point');
+    expect(describeCoincidentRemoval(junctionModel, [])).toBeNull();
+  });
+
+  it('a coincident onto the origin datum reads as origin', () => {
+    const datumModel: SolvedSketchModel = {
+      ...junctionModel,
+      hasDatums: true,
+      constraints: [
+        constraintView('c-origin', 30, { kind: 'coincident', a: { entity: 0, point: 'start' }, b: { entity: -1 } }),
+      ],
+    };
+    const startA: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
+    const origin: SolvedPick = { entityId: -1, kind: 'point', datum: 'origin' };
+    expect(coincidentsAtPicks(datumModel, [startA]).map(c => c.obj.id)).toEqual(['c-origin']);
+    expect(coincidentsAtPicks(datumModel, [origin]).map(c => c.obj.id)).toEqual(['c-origin']);
+    expect(describeCoincidentRemoval(datumModel, coincidentsAtPicks(datumModel, [startA])))
+      .toBe('Delete coincident (line start · origin)');
   });
 });

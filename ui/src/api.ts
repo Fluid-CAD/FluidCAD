@@ -188,6 +188,8 @@ export interface UserPreferences {
   gridFixedSpacing?: Partial<Record<LengthUnit, number>>;
   /** Fixed grid: major line every N minor cells. Default 10. */
   gridMajorEvery?: number;
+  /** Tangent (G1) edges drawn dimmed toward the face colour. Default false. */
+  dimTangentEdges?: boolean;
   /** Code-editor pane open at startup. Default false. */
   editorOpen?: boolean;
   /** Code-editor pane width, in px. */

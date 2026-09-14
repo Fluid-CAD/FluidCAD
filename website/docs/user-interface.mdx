@@ -74,7 +74,7 @@ The **Parameters** panel shows one control per `param()` in the file: a number f
 The viewport draws the edges of the model as lines. Two kinds of B-rep edge are not model edges and are treated accordingly:
 
 - **Seams** — the line where a cylinder, cone or sphere's surface closes on itself — are never drawn. They are not selectable either: `select(edge())`, the feature accessors such as `sideEdges()`, and `edgeCount()` never return or count one, so a boss looks and behaves the same whichever way its sketch plane happened to orient the seam.
-- **Tangent edges** — where two faces meet smoothly, as at a fillet's boundary or where a flat flank runs into a cylinder — are drawn dimmed, pulled toward the face colour. They remain selectable.
+- **Tangent edges** — where two faces meet smoothly, as at a fillet's boundary or where a flat flank runs into a cylinder — are drawn like every other edge and remain selectable. Setting `dimTangentEdges` to `true` in the preferences file draws them dimmed, pulled toward the face colour, so only real creases read as lines.
 
 ## Measuring
 

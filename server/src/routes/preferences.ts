@@ -58,6 +58,9 @@ export function createPreferencesRouter(): Router {
         if (typeof body.showBuildTimings === 'boolean') {
           current.showBuildTimings = body.showBuildTimings;
         }
+        if (typeof body.dimTangentEdges === 'boolean') {
+          current.dimTangentEdges = body.dimTangentEdges;
+        }
         if (MEASURE_LENGTH_UNITS.includes(body.measureLengthUnit)) {
           current.measureLengthUnit = body.measureLengthUnit;
         }

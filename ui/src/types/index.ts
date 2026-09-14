@@ -146,7 +146,7 @@ export type SceneObjectMesh = {
   color?: string;
   faceMapping?: number[];
   edgeIndex?: number;
-  /** solid-edges only — a tangent (G1) junction between two faces, drawn dimmed. */
+  /** solid-edges only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on). */
   smooth?: boolean;
 };
 

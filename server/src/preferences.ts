@@ -26,6 +26,9 @@ export interface Preferences {
   gridFixedSpacing: GridFixedSpacing;
   /** Fixed grid: a major line every N minor cells. */
   gridMajorEvery: number;
+  /** Draw tangent (G1) edges dimmed toward the face colour instead of as
+   *  regular edges. Default false: every model edge is a full line. */
+  dimTangentEdges: boolean;
   /** Code-editor pane open at startup. Default false — the scene is the product. */
   editorOpen: boolean;
   /** Code-editor pane width, in px. */
@@ -43,6 +46,7 @@ const DEFAULTS: Preferences = {
   gridMinCellPx: 20,
   gridFixedSpacing: { mm: 10, cm: 1, m: 0.1, in: 0.5, ft: 0.25 },
   gridMajorEvery: 10,
+  dimTangentEdges: false,
   editorOpen: false,
   editorWidth: 420,
 };

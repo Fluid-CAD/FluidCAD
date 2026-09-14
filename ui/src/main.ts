@@ -65,7 +65,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import type { ConnectorData, SceneObjectRender } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
-import { applyPreferences } from './scene/viewer-settings';
+import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -189,6 +189,16 @@ const engineClient = new HttpEngineClient();
 const viewer = new Viewer('fluidcad-viewer', engineClient);
 
 onThemeChange(() => viewer.rebuildSceneMesh());
+
+// Edge materials read the tangent-edge style when they are built, so a
+// change to the setting re-meshes the scene the way a theme change does.
+let dimTangentEdges = viewerSettings.current.dimTangentEdges;
+viewerSettings.subscribe((s) => {
+  if (s.dimTangentEdges !== dimTangentEdges) {
+    dimTangentEdges = s.dimTangentEdges;
+    viewer.rebuildSceneMesh();
+  }
+});
 
 // The editor pane's remembered geometry, read before the surface is loaded so
 // a session that had it open comes back with it open.

@@ -54,8 +54,9 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
           edgeIndex: edgeIdx,
         };
         // A junction where the two faces are tangent (a fillet's boundary, a
-        // profile line running into its arc) marks no crease: the UI draws
-        // it dimmed. Non-manifold edges (three or more faces) stay plain.
+        // profile line running into its arc) marks no crease: the UI can draw
+        // it dimmed (the dimTangentEdges preference). Non-manifold edges
+        // (three or more faces) stay unflagged.
         if (parents.Size() === 2 && !parents.First().IsSame(parents.Last())
           && EdgeConvexityOps.classifyRaw(oc.TopoDS.Edge(edgeShape), parents.First(), parents.Last()) === 'smooth') {
           mesh.smooth = true;

@@ -32,6 +32,9 @@ export interface ViewerSettings {
   gridFixedSpacing: Record<LengthUnit, number>;
   /** Fixed grid: a major line every N minor cells. */
   gridMajorEvery: number;
+  /** Tangent (G1) edges drawn dimmed toward the face colour. Off: they draw
+   *  like every other model edge. The `dimTangentEdges` preference. */
+  dimTangentEdges: boolean;
 }
 
 type Listener = (settings: ViewerSettings) => void;
@@ -50,6 +53,7 @@ const defaults: ViewerSettings = {
   gridMinCellPx: DEFAULT_GRID_MIN_CELL_PX,
   gridFixedSpacing: { ...DEFAULT_GRID_FIXED_SPACING },
   gridMajorEvery: DEFAULT_GRID_MAJOR_EVERY,
+  dimTangentEdges: false,
 };
 
 class ViewerSettingsStore {
@@ -81,5 +85,6 @@ export function applyPreferences(prefs: UserPreferences): void {
     // so every unit always has a pitch.
     ...(prefs.gridFixedSpacing ? { gridFixedSpacing: { ...DEFAULT_GRID_FIXED_SPACING, ...prefs.gridFixedSpacing } } : {}),
     ...(typeof prefs.gridMajorEvery === 'number' ? { gridMajorEvery: prefs.gridMajorEvery } : {}),
+    ...(typeof prefs.dimTangentEdges === 'boolean' ? { dimTangentEdges: prefs.dimTangentEdges } : {}),
   });
 }

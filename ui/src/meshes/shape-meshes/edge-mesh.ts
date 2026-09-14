@@ -4,6 +4,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { EdgeMeshOptions, SceneObjectPart } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
+import { viewerSettings } from '../../scene/viewer-settings';
 import { LineResolutionRegistry } from './line-resolution';
 
 /**
@@ -57,14 +58,14 @@ export class EdgeMesh extends Group {
   /**
    * The resting color of one edge line. An explicit color option (selection
    * highlights, ghosts, sketch wires) always wins; otherwise a tangent (G1)
-   * junction the engine flagged `smooth` is dimmed toward the face color so
-   * only real creases read as lines.
+   * junction the engine flagged `smooth` draws like any other edge unless
+   * the `dimTangentEdges` setting pulls it toward the face color.
    */
   static lineColor(smooth: boolean, explicit: string): number {
     if (explicit) {
       return new Color(explicit).getHex();
     }
-    if (smooth) {
+    if (smooth && viewerSettings.current.dimTangentEdges) {
       return themeColors.edgeColor.clone().lerp(themeColors.faceColor, SMOOTH_EDGE_BLEND).getHex();
     }
     return themeColors.edgeColor.getHex();

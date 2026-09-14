@@ -110,7 +110,7 @@ describe("rank filters: farthest / nearest / nth", () => {
   it("chain order is evaluation order: a class filter before farthest() ranks only that class", () => {
     boxWithBoss();
     const bossRim = select(edge().farthest("z")) as SelectSceneObject;
-    const seam = select(edge().line().farthest("z")) as SelectSceneObject;
+    const topLines = select(edge().line().farthest("z")) as SelectSceneObject;
     const boxRim = select(edge().line().parallelTo("xy").farthest("z")) as SelectSceneObject;
     const circleFirst = select(edge().farthest("z").line()) as SelectSceneObject;
     render();
@@ -119,10 +119,13 @@ describe("rank filters: farthest / nearest / nth", () => {
     expect(rim).toHaveLength(1);
     expect(midZ(rim[0])).toBeCloseTo(40, 6);
 
-    // Among lines, the topmost center is the boss seam above the box (z 30..40).
-    const seamEdges = seam.getShapes() as Edge[];
-    expect(seamEdges).toHaveLength(1);
-    expect(midZ(seamEdges[0])).toBeCloseTo(35, 6);
+    // Among lines, the topmost centers are the box's top rim (z 30): the
+    // boss seam above it (z 30..40) is hidden and never a candidate.
+    const topLineEdges = topLines.getShapes() as Edge[];
+    expect(topLineEdges).toHaveLength(4);
+    for (const e of topLineEdges) {
+      expect(midZ(e)).toBeCloseTo(30, 6);
+    }
 
     const lines = boxRim.getShapes() as Edge[];
     expect(lines).toHaveLength(4);

@@ -1,7 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
-import { Explorer } from "../oc/explorer.js";
 import { CleanShapeLineage, ShapeOps } from "../oc/shape-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
@@ -44,7 +43,8 @@ export class Chamfer extends SceneObject {
         if (shape.isEdge()) {
           edges.push(shape as Edge);
         } else {
-          edges.push(...Explorer.findEdgesWrapped(shape));
+          // A whole shape contributes its model edges only — no seams (see HiddenEdges).
+          edges.push(...(shape.getSubShapes("edge") as Edge[]));
         }
       }
     }

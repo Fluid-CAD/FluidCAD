@@ -1,5 +1,7 @@
 import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
 import { Explorer } from "../oc/explorer.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { BoundingBox } from "../helpers/types.js";
@@ -41,13 +43,28 @@ export class Face extends Shape<TopoDS_Face> {
     return [];
   }
 
+  /**
+   * The face's model edges. Its seam (an edge the wires traverse twice) and
+   * degenerated edges are left out — see `HiddenEdges`.
+   */
   getEdges(): Edge[] {
     if (this.edges) {
       return this.edges;
     }
 
     const wires = this.getWires();
-    this.edges = wires.flatMap(w => w.getEdges());
+    const all = wires.flatMap(w => w.getEdges());
+    const hidden = HiddenEdges.ofFace(this.getShape());
+    if (hidden.length === 0) {
+      this.edges = all;
+      return this.edges;
+    }
+    const hiddenSet = TopologyIndex.buildShapeSet(hidden);
+    try {
+      this.edges = all.filter(e => !hiddenSet.Contains(e.getShape()));
+    } finally {
+      hiddenSet.delete();
+    }
     return this.edges;
   }
 

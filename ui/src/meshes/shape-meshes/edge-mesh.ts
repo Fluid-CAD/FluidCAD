@@ -1,10 +1,16 @@
-import { DoubleSide, Group } from 'three';
+import { Color, DoubleSide, Group } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { EdgeMeshOptions, SceneObjectPart } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
 import { LineResolutionRegistry } from './line-resolution';
+
+/**
+ * How far a tangent-junction edge's color is pulled from the edge color
+ * toward the face color: 1 would hide it, 0 would draw it as a crease.
+ */
+const SMOOTH_EDGE_BLEND = 0.75;
 
 const DEFAULTS: Required<EdgeMeshOptions> = {
   color: '',
@@ -26,7 +32,7 @@ export class EdgeMesh extends Group {
       geometry.setPositions(positions);
 
       const material = new LineMaterial({
-        color: opts.color || themeColors.edgeColor.getHex(),
+        color: EdgeMesh.lineColor(meshData.smooth === true, opts.color),
         linewidth: opts.lineWidth,
         transparent: opts.transparent || opts.opacity < 1,
         opacity: opts.opacity,
@@ -41,8 +47,27 @@ export class EdgeMesh extends Group {
       if (meshData.edgeIndex !== undefined) {
         ls.userData.edgeIndex = meshData.edgeIndex;
       }
+      if (meshData.smooth) {
+        ls.userData.smoothEdge = true;
+      }
       this.add(ls);
     }
+  }
+
+  /**
+   * The resting color of one edge line. An explicit color option (selection
+   * highlights, ghosts, sketch wires) always wins; otherwise a tangent (G1)
+   * junction the engine flagged `smooth` is dimmed toward the face color so
+   * only real creases read as lines.
+   */
+  static lineColor(smooth: boolean, explicit: string): number {
+    if (explicit) {
+      return new Color(explicit).getHex();
+    }
+    if (smooth) {
+      return themeColors.edgeColor.clone().lerp(themeColors.faceColor, SMOOTH_EDGE_BLEND).getHex();
+    }
+    return themeColors.edgeColor.getHex();
   }
 
   /**

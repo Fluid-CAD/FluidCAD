@@ -69,6 +69,13 @@ The scale icon at the bottom right opens **Shape properties**. Select a solid, p
 
 The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. **+** declares a new parameter through a dialog, and the arrow resets every value to its default. See [Param](/docs/part/param).
 
+## Edges in the viewport
+
+The viewport draws the edges of the model as lines. Two kinds of B-rep edge are not model edges and are treated accordingly:
+
+- **Seams** — the line where a cylinder, cone or sphere's surface closes on itself — are never drawn. They are not selectable either: `select(edge())`, the feature accessors such as `sideEdges()`, and `edgeCount()` never return or count one, so a boss looks and behaves the same whichever way its sketch plane happened to orient the seam.
+- **Tangent edges** — where two faces meet smoothly, as at a fillet's boundary or where a flat flank runs into a cylinder — are drawn dimmed, pulled toward the face colour. They remain selectable.
+
 ## Measuring
 
 There is no measure tool to arm. Click a face, edge or vertex in the viewport and a status bar appears with its type and its measurement (area for a face, length for an edge). <kbd>Ctrl</kbd>+click or <kbd>Shift</kbd>+click adds entities: two faces give the minimum and maximum distance between them, two parallel faces the parallel distance, two cylinders the axis distance, two edges an angle.

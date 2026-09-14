@@ -146,6 +146,8 @@ export type SceneObjectMesh = {
   color?: string;
   faceMapping?: number[];
   edgeIndex?: number;
+  /** solid-edges only — a tangent (G1) junction between two faces, drawn dimmed. */
+  smooth?: boolean;
 };
 
 export type SubSelection =

@@ -14,6 +14,7 @@ export type SceneObjectMesh = {
   color?: string;
   faceMapping?: number[];  // faceMapping[triangleIdx] = OCC face index (solid-faces meshes only)
   edgeIndex?: number;      // solid-edges meshes only
+  smooth?: boolean;        // solid-edges meshes only — a tangent (G1) junction between two faces, drawn dimmed
 }
 
 export type RenderedShape = {

@@ -277,7 +277,9 @@ Excludes faces that intersect with the given plane.
 .edgeCount(count: number): this
 ```
 
-Selects faces with exactly the given number of edges.
+Selects faces with exactly the given number of edges. Only model edges
+count: a cylinder's seam and the degenerate apex of a cone or pole of a
+sphere are neither drawn nor counted, so a cylinder's side face has 2.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

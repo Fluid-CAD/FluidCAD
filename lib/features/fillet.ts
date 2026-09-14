@@ -3,7 +3,6 @@ import { Edge, Shape, Solid } from "../common/shapes.js";
 import { SelectSceneObject } from "./select.js";
 import { FusionScope } from "./extrude-options.js";
 import { FilletOps } from "../oc/fillet-ops.js";
-import { Explorer } from "../oc/explorer.js";
 import { requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 
@@ -61,7 +60,8 @@ export class Fillet extends SceneObject {
         if (shape.isEdge()) {
           edges.push(shape as Edge);
         } else {
-          edges.push(...Explorer.findEdgesWrapped(shape));
+          // A whole shape contributes its model edges only — no seams (see HiddenEdges).
+          edges.push(...(shape.getSubShapes("edge") as Edge[]));
         }
       }
     }

@@ -1090,26 +1090,26 @@ describe("select", () => {
     it("should select edges belonging to cylindrical faces", () => {
       cylinder(30, 50);
 
-      // The cylindrical side face has 3 edges: 2 circular (top/bottom) + 1 seam edge
+      // The cylindrical side face has 2 model edges (top/bottom rims); its
+      // seam is hidden — never drawn, never selected.
       const sel = select(edge().belongsToFace(face().cylinder())) as SelectSceneObject;
 
       render();
 
-      expect(sel.getShapes()).toHaveLength(3);
+      expect(sel.getShapes()).toHaveLength(2);
     });
 
     it("should exclude edges with notBelongsToFace", () => {
       cylinder(30, 50);
 
-      // Exclude edges belonging to circular faces → only edges on the cylindrical face that aren't shared with discs
-      // Cylinder has 3 total edges: 2 circles + 1 seam. The 2 circles belong to circular faces.
-      // The seam edge only belongs to the cylindrical face.
+      // Exclude edges belonging to circular faces. A cylinder's only model
+      // edges are its two rims, and both belong to a disc; the seam, which
+      // belongs to the side face alone, is hidden and never selected.
       const sel = select(edge().notBelongsToFace(face().circle())) as SelectSceneObject;
 
       render();
 
-      // Only the seam edge doesn't belong to any circular face
-      expect(sel.getShapes()).toHaveLength(1);
+      expect(sel.getShapes()).toHaveLength(0);
     });
 
     it("should have complementary results between belongsToFace and notBelongsToFace", () => {
@@ -1141,8 +1141,8 @@ describe("select", () => {
 
       render();
 
-      // Cylinder has 3 edges total, all belong to the cylindrical face
-      expect(belongs.getShapes().length + notBelongs.getShapes().length).toBe(3);
+      // A cylinder has 2 model edges (the seam is hidden), both on the cylindrical face
+      expect(belongs.getShapes().length + notBelongs.getShapes().length).toBe(2);
       // No overlap
       for (const s of belongs.getShapes()) {
         expect(notBelongs.getShapes().some(ns => ns.isSame(s))).toBe(false);
@@ -1202,8 +1202,8 @@ describe("select", () => {
 
       render();
 
-      // Cylinder has 3 edges; 2 belong to circle faces, so 1 remains (the seam)
-      expect(sel.getShapes()).toHaveLength(1);
+      // A cylinder's 2 model edges both belong to circle faces; the seam is hidden
+      expect(sel.getShapes()).toHaveLength(0);
     });
   });
 
@@ -1327,8 +1327,8 @@ describe("select", () => {
 
       render();
 
-      // A cylinder has 3 edges (top circle, bottom circle, seam)
-      expect(sel!.getShapes()).toHaveLength(3);
+      // A cylinder has 2 model edges (top circle, bottom circle); the seam is hidden
+      expect(sel!.getShapes()).toHaveLength(2);
     });
 
     it("should narrow cross-part edge selection by additional filters", () => {

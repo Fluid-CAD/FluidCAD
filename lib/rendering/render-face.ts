@@ -1,6 +1,8 @@
 import type { TopoDS_Face } from "ocjs-fluidcad";
 import { Shape } from "../common/shape.js";
 import { Explorer } from "../oc/explorer.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { Mesh } from "../oc/mesh.js";
 import type { MeshConfig } from "../oc/mesh.js";
 import { SceneObjectMesh } from "./scene.js";
@@ -30,14 +32,21 @@ export function renderFacePatch(faceObj: Shape, meshConfig?: MeshConfig): SceneO
   meshes.push({ ...triangulation, label: 'solid-faces' });
 
   const edges = Explorer.findEdgesWrapped(faceObj);
+  // The face's seam and degenerated edges are not drawn; `index` still
+  // counts them so it matches the explorer-ordered lookups.
+  const hidden = TopologyIndex.buildShapeSet(HiddenEdges.ofFace(face as TopoDS_Face));
   try {
     edges.forEach((edge, index) => {
+      if (hidden.Contains(edge.getShape())) {
+        return;
+      }
       const discretized = Mesh.discretizeEdgeOnFace(edge.getShape(), face as TopoDS_Face);
       if (discretized) {
         meshes.push({ ...discretized, label: 'solid-edges', edgeIndex: index });
       }
     });
   } finally {
+    hidden.delete();
     for (const edge of edges) {
       edge.dispose();
     }

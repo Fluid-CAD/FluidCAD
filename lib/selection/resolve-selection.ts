@@ -4,6 +4,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
+import { Solid } from "../common/solid.js";
 import { Part } from "../features/part.js";
 import { SelectSceneObject } from "../features/select.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -363,7 +364,7 @@ export class SelectionResolver {
           : `the world before statement index ${before} (ids come from the rolled-back scene, rollback_to(${before - 1}))`;
         return { ok: false, code: 'unresolved-pick', reason: `No solid "${pick.shapeId}" in ${where}.`, pick };
       }
-      const subShapes = entry.solid.getSubShapes(pick.sub.type);
+      const subShapes = SelectionResolver.indexedShapes(entry.solid, pick.sub.type);
       const shape = subShapes[pick.sub.index];
       if (!shape) {
         return {
@@ -548,7 +549,7 @@ export class SelectionResolver {
     return shapes.map(shape => {
       const kind = SelectionResolver.kindOf(shape);
       for (const { object, solid } of solids) {
-        const subShapes = solid.getSubShapes(kind);
+        const subShapes = SelectionResolver.indexedShapes(solid, kind);
         let index = subShapes.indexOf(shape);
         if (index < 0) {
           index = subShapes.findIndex(s => s.isSame(shape));
@@ -559,6 +560,15 @@ export class SelectionResolver {
       }
       return null;
     });
+  }
+
+  /**
+   * The list a face/edge index counts along: explorer order with hidden
+   * edges still in their slots (Solid.getIndexedShapes), so an index from
+   * hit_test, measure or a highlight always names the same entity.
+   */
+  private static indexedShapes(solid: Shape, kind: MeasureEntityKind): Shape[] {
+    return solid instanceof Solid ? solid.getIndexedShapes(kind) : solid.getSubShapes(kind);
   }
 
   private static kindOf(shape: Shape): MeasureEntityKind {

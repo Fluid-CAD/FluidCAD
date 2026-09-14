@@ -1,10 +1,13 @@
 import type {
   TopoDS_Edge,
   TopoDS_Face,
+  TopoDS_Shape,
   TopoDS_Solid,
   TopTools_IndexedDataMapOfShapeListOfShape,
+  TopTools_MapOfShape,
 } from "ocjs-fluidcad";
 import { Explorer } from "../oc/explorer.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
@@ -14,7 +17,10 @@ import { Edge } from "./edge.js";
 export class Solid extends Shape<TopoDS_Solid> {
   private faces: Face[] = null;
   private edges: Edge[] = null;
+  /** Every edge in explorer order, hidden ones included — the index space of picks, measure and highlight. */
+  private allEdges: Edge[] = null;
   private edgeToFacesIndex: TopTools_IndexedDataMapOfShapeListOfShape | null = null;
+  private hiddenEdgeSet: TopTools_MapOfShape | null = null;
 
   constructor(solid: TopoDS_Solid) {
     super(solid);
@@ -39,13 +45,48 @@ export class Solid extends Shape<TopoDS_Solid> {
     return [];
   }
 
+  /**
+   * The solid's model edges: every edge except the hidden ones (seams and
+   * degenerated edges, see `HiddenEdges`). This list does not preserve the
+   * explorer numbering — index-based lookups go through
+   * {@link getIndexedShapes}.
+   */
   getEdges() {
     if (this.edges) {
       return this.edges;
     }
 
-    this.edges = Explorer.findEdgesWrapped(this);
+    const hidden = this.getHiddenEdgeSet();
+    this.edges = (this.getIndexedShapes('edge') as Edge[]).filter(e => !hidden.Contains(e.getShape()));
     return this.edges;
+  }
+
+  /**
+   * The face or edge list whose POSITION is the index picks, `measure`,
+   * `hit_test` and highlights carry: explorer order, hidden edges included,
+   * so a seam still occupies its slot and no index shifts when it is left
+   * out of {@link getEdges}.
+   */
+  getIndexedShapes(kind: 'face' | 'edge'): Shape[] {
+    if (kind === 'face') {
+      return this.getFaces();
+    }
+    if (!this.allEdges) {
+      this.allEdges = Explorer.findEdgesWrapped(this);
+    }
+    return this.allEdges;
+  }
+
+  /** Whether `edge` is a seam or degenerated edge of this solid — never drawn, never selectable. */
+  isHiddenEdge(edge: TopoDS_Shape): boolean {
+    return this.getHiddenEdgeSet().Contains(edge);
+  }
+
+  private getHiddenEdgeSet(): TopTools_MapOfShape {
+    if (!this.hiddenEdgeSet) {
+      this.hiddenEdgeSet = HiddenEdges.collect(this.getShape());
+    }
+    return this.hiddenEdgeSet;
   }
 
   getFaces() {
@@ -95,6 +136,8 @@ export class Solid extends Shape<TopoDS_Solid> {
   override dispose() {
     this.edgeToFacesIndex?.delete();
     this.edgeToFacesIndex = null;
+    this.hiddenEdgeSet?.delete();
+    this.hiddenEdgeSet = null;
     super.dispose();
   }
 
@@ -103,8 +146,8 @@ export class Solid extends Shape<TopoDS_Solid> {
     if (this.faces) {
       linked.push(...this.faces);
     }
-    if (this.edges) {
-      linked.push(...this.edges);
+    if (this.allEdges) {
+      linked.push(...this.allEdges);
     }
     return linked;
   }
@@ -115,8 +158,11 @@ export class Solid extends Shape<TopoDS_Solid> {
     }
     this.edgeToFacesIndex?.delete();
     this.edgeToFacesIndex = null;
+    this.hiddenEdgeSet?.delete();
+    this.hiddenEdgeSet = null;
     this.faces = null;
     this.edges = null;
+    this.allEdges = null;
     super.release(retainedRaw, deletedRaw);
   }
 

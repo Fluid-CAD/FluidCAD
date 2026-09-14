@@ -1,3 +1,4 @@
+import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { Explorer } from "../oc/explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
@@ -5,6 +6,8 @@ import { SceneObjectMesh } from "./scene.js";
 import { Mesh } from "../oc/mesh.js";
 import type { MeshConfig } from "../oc/mesh.js";
 import { getOC } from "../oc/init.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
+import { EdgeConvexityOps } from "../oc/edge-convexity.js";
 
 export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
   Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
@@ -21,27 +24,47 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
 
   const edgeToFaces = (shapeObj as Solid).getEdgeToFacesIndex();
 
+  // Seams and degenerated edges are never drawn; `edgeIdx` still counts
+  // them so the index matches every explorer-ordered lookup.
+  const hidden = shapeObj instanceof Solid ? null : HiddenEdges.collect(shapeObj.getShape());
+  const isHidden = (edge: TopoDS_Shape) => (shapeObj instanceof Solid ? shapeObj.isHiddenEdge(edge) : hidden!.Contains(edge));
+
   const edges = Explorer.findEdgesWrapped(shapeObj);
 
-  for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
-    const edgeShape = edges[edgeIdx].getShape();
+  try {
+    for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
+      const edgeShape = edges[edgeIdx].getShape();
+      if (isHidden(edgeShape)) {
+        continue;
+      }
 
-    const parents = edgeToFaces.Seek(edgeShape);
-    if (!parents || parents.Size() === 0) {
-      continue;
+      const parents = edgeToFaces.Seek(edgeShape);
+      if (!parents || parents.Size() === 0) {
+        continue;
+      }
+
+      const parentFace = oc.TopoDS.Face(parents.First());
+      const edgeResult = Mesh.discretizeEdgeOnFace(edgeShape, parentFace);
+      parentFace.delete();
+
+      if (edgeResult) {
+        const mesh: SceneObjectMesh = {
+          ...edgeResult,
+          label: 'solid-edges',
+          edgeIndex: edgeIdx,
+        };
+        // A junction where the two faces are tangent (a fillet's boundary, a
+        // profile line running into its arc) marks no crease: the UI draws
+        // it dimmed. Non-manifold edges (three or more faces) stay plain.
+        if (parents.Size() === 2 && !parents.First().IsSame(parents.Last())
+          && EdgeConvexityOps.classifyRaw(oc.TopoDS.Edge(edgeShape), parents.First(), parents.Last()) === 'smooth') {
+          mesh.smooth = true;
+        }
+        result.push(mesh);
+      }
     }
-
-    const parentFace = oc.TopoDS.Face(parents.First());
-    const edgeResult = Mesh.discretizeEdgeOnFace(edgeShape, parentFace);
-    parentFace.delete();
-
-    if (edgeResult) {
-      result.push({
-        ...edgeResult,
-        label: 'solid-edges',
-        edgeIndex: edgeIdx,
-      });
-    }
+  } finally {
+    hidden?.delete();
   }
 
   return result;

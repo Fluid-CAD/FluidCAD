@@ -376,7 +376,9 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces with exactly the given number of edges.
+   * Selects faces with exactly the given number of edges. Only model edges
+   * count: a cylinder's seam and the degenerate apex of a cone or pole of a
+   * sphere are neither drawn nor counted, so a cylinder's side face has 2.
    * @param count - The exact number of edges to match.
    */
   edgeCount(count: number) {

@@ -112,6 +112,9 @@ function build(context: SceneParserContext): MirrorFunction {
         const axis = resolveAxis(arguments[0], context);
         const mirror = new MirrorShape2D(axis);
         context.addSceneObject(mirror);
+        // Statement time, before any constraint can name an image —
+        // solver-backed sources get tied image entities.
+        mirror.registerSolverImages(activeSketch);
         return mirror;
       }
 
@@ -129,6 +132,9 @@ function build(context: SceneParserContext): MirrorFunction {
         const targetObjects = args.slice(1) as GeometrySceneObject[];
         const mirror = new MirrorShape2D(axis, targetObjects);
         context.addSceneObject(mirror);
+        // Statement time, before any constraint can name an image —
+        // solver-backed sources get tied image entities.
+        mirror.registerSolverImages(activeSketch);
         return mirror;
       }
 

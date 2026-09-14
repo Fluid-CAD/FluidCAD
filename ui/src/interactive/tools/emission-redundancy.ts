@@ -152,7 +152,11 @@ export function pendingEmissionOf(
 }
 
 /** Does a rendered entity view answer to an emission target's address? */
-function viewMatchesTarget(view: SolvedEntityView, t: SolvedEmissionTargetParam): boolean {
+function viewMatchesTarget(
+  model: SolvedSketchModel,
+  view: SolvedEntityView,
+  t: SolvedEmissionTargetParam,
+): boolean {
   const loc = view.obj?.sourceLocation;
   if (!loc || loc.line !== t.line || loc.occurrence !== t.occurrence) {
     return false;
@@ -163,13 +167,23 @@ function viewMatchesTarget(view: SolvedEntityView, t: SolvedEmissionTargetParam)
   if (t.instanceIndex !== undefined) {
     return view.copyInstance !== undefined && view.copyInstance.slot === t.instanceIndex;
   }
+  if (t.featureType === 'mirror') {
+    // A mirror image answers when its SOURCE view answers the nested
+    // source target (recursively — a mirror of a copy instance, …).
+    if (view.mirrorInstance === undefined || t.source === undefined) {
+      return false;
+    }
+    const source = model.entities.get(view.mirrorInstance.sourceEntityId);
+    return source !== undefined && viewMatchesTarget(model, source, t.source);
+  }
   if (t.featureType === 'bezier') {
     return view.anchor?.owner === 'bezier' && view.anchor.pointIndex === t.pointIndex;
   }
   if (t.featureType === 'ellipse' || t.featureType === 'text') {
     return view.anchor?.owner === t.featureType;
   }
-  return view.reference === undefined && view.copyInstance === undefined && view.anchor === undefined;
+  return view.reference === undefined && view.copyInstance === undefined
+    && view.anchor === undefined && view.mirrorInstance === undefined;
 }
 
 function pointRef(entity: number, role: SolvedEmissionTargetParam['role']): SolverRef {
@@ -204,13 +218,13 @@ function resolveTarget(
     return null;
   }
   for (const view of model.entities.values()) {
-    if (viewMatchesTarget(view, t)) {
+    if (viewMatchesTarget(model, view, t)) {
       return pointRef(view.entityId, t.role);
     }
   }
   // Not rendered yet: a plain entity statement from the pending bookkeeping.
   if (t.refIndex === undefined && t.instanceIndex === undefined && t.pointIndex === undefined
-    && t.occurrence === undefined) {
+    && t.source === undefined && t.featureType !== 'mirror' && t.occurrence === undefined) {
     const id = trial.pendingIds.get(t.line);
     if (id !== undefined) {
       return pointRef(id, t.role);

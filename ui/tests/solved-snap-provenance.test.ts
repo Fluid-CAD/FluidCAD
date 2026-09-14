@@ -223,6 +223,53 @@ describe('solved snap provenance', () => {
     });
   });
 
+  it('a 2D mirror image vertex snaps as a mirror instance with the source nested, even through a copy', () => {
+    nextId = 0;
+    const solver = {
+      entities: [
+        { id: 0, kind: 'line', fixed: false, paramOffset: 0 },
+        { id: 5, kind: 'line', fixed: false, paramOffset: 4 },
+        { id: 8, kind: 'line', fixed: false, paramOffset: 8 },
+        { id: 9, kind: 'line', fixed: false, paramOffset: 12 },
+      ],
+      constraints: [],
+      params: [10, 0, 30, 0, 10, 20, 30, 20, -10, 0, -30, 0, -10, 20, -30, 20],
+      outcome: 'solved', dof: 8, conflicting: [], redundant: [], underconstrainedEntities: [],
+    };
+    const sketch = {
+      id: 'sketch-1', type: 'sketch', uniqueType: 'sketch',
+      object: { plane: PLANE, solvedMode: true, solver },
+      sceneShapes: [], ownShapes: [],
+    } as SceneObjectRender;
+    const original = child('solved-line', { entityId: 0, start: { x: 10, y: 0 }, end: { x: 30, y: 0 } });
+    const copy = child('copy-linear-2d', {
+      sourceEntities: [0],
+      sourcesSolved: true,
+      entities: [{ entityId: 5, kind: 'line', slot: 1, shapeIndex: 0 }],
+    });
+    const mirror = child('mirror-shape-2d', {
+      sourceEntities: [0, 5],
+      sourcesSolved: true,
+      entities: [
+        { entityId: 8, kind: 'line', shapeIndex: 0, sourceEntityId: 0 },
+        { entityId: 9, kind: 'line', shapeIndex: 1, sourceEntityId: 5 },
+      ],
+    });
+    const mgr = SnapManager.fromSceneObjects([sketch, original, copy, mirror], 'sketch-1', PLANE as any);
+
+    const image = mgr.snap([-29.9, 0.1], PLANE as any);
+    expect(image.ref).toEqual({
+      line: mirror.sourceLocation!.line, role: 'end', featureType: 'mirror',
+      source: { line: original.sourceLocation!.line, featureType: 'line' },
+    });
+
+    const imageOfDup = mgr.snap([-10.1, 19.9], PLANE as any);
+    expect(imageOfDup.ref).toEqual({
+      line: mirror.sourceLocation!.line, role: 'start', featureType: 'mirror',
+      source: { line: copy.sourceLocation!.line, featureType: 'copy', instanceIndex: 1 },
+    });
+  });
+
   it('grid/none snaps carry no ref', () => {
     const { objects } = scene();
     const mgr = SnapManager.fromSceneObjects(objects, 'sketch-1', PLANE as any);

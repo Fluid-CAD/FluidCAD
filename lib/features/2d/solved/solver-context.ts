@@ -14,6 +14,7 @@ import type {
   SketchDiagnostics,
   SketchSolverSystem,
   SolveResult,
+  SolverRef,
 } from "../../../sketch-solver/index.js";
 import { SceneObject } from "../../../common/scene-object.js";
 import { callSiteKey } from "../../../common/call-site.js";
@@ -80,6 +81,19 @@ export class SketchSolverContext {
     matrix: [number, number, number, number, number, number],
   ): number {
     return this.system.addTransformTie(source, target, matrix);
+  }
+
+  /**
+   * INTERNAL reflection tie for derived duplicates (2D mirror images) —
+   * the same statement-less, diagnose-invisible contract as the affine
+   * tie; `axis` is a solver line entity or a constant sketch-local line.
+   */
+  addMirrorTie(
+    source: number,
+    target: number,
+    axis: SolverRef | [number, number, number, number],
+  ): number {
+    return this.system.addMirrorTie(source, target, axis);
   }
 
   /** Throws on resolution/validation errors — callers stash the message as

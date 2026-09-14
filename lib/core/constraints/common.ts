@@ -19,6 +19,8 @@ import { MacroShapeBase } from "../../features/2d/solved/macros/base.js";
 import { MacroEdgeRef, MacroPointRef } from "../../features/2d/solved/macros/refs.js";
 import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Copy2DInstance, Copy2DInstancePointRef } from "../../features/copy2d-instance-ref.js";
+import { MirrorShape2D } from "../../features/mirror-shape2d.js";
+import { Mirror2DInstance, Mirror2DInstancePointRef } from "../../features/mirror2d-instance-ref.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { IReferenceEntity, ISceneObject } from "../interfaces.js";
@@ -144,13 +146,21 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
   if (arg instanceof Copy2DInstance) {
     return arg.solverRef(what);
   }
+  // 2D mirror images: the source's tied image entity across the mirror
+  // line — same statement-speak error contract as copy instances.
+  if (arg instanceof Mirror2DInstancePointRef) {
+    return arg.instance.solverRef(what, arg.role);
+  }
+  if (arg instanceof Mirror2DInstance) {
+    return arg.solverRef(what);
+  }
   if (arg instanceof SceneObject && isReferenceProducer(arg)) {
     // Single-entity sugar: `tangent(bore, l)` — resolution errors with the
     // count when the projection yielded more than one constrainable edge.
     return pendingRef(arg, null);
   }
   throw new Error(
-    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, an anchor point (el.center(), t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), or a projected reference (p, p.ref(i))`,
+    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, an anchor point (el.center(), t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), a copy or mirror instance (cp.instance(k), m.instance(l)), or a projected reference (p, p.ref(i))`,
   );
 }
 
@@ -186,12 +196,19 @@ function macroOwnerOf(arg: ConstraintTarget | undefined): MacroShapeBase | null 
   return null;
 }
 
-function copyOwnerOf(arg: ConstraintTarget | undefined): Copy2DBase | null {
+/** The derived-op statement (2D copy / mirror) behind an instance target. */
+function derivedOwnerOf(arg: ConstraintTarget | undefined): Copy2DBase | MirrorShape2D | null {
   if (arg instanceof Copy2DInstancePointRef) {
     return arg.instance.copyOwner;
   }
   if (arg instanceof Copy2DInstance) {
     return arg.copyOwner;
+  }
+  if (arg instanceof Mirror2DInstancePointRef) {
+    return arg.instance.mirrorOwner;
+  }
+  if (arg instanceof Mirror2DInstance) {
+    return arg.mirrorOwner;
   }
   return null;
 }
@@ -234,7 +251,7 @@ export function emitConstraint(
 
   const deps: SceneObject[] = [];
   for (const arg of args) {
-    const owner = ownerOf(arg) ?? referenceOwnerOf(arg) ?? copyOwnerOf(arg);
+    const owner = ownerOf(arg) ?? referenceOwnerOf(arg) ?? derivedOwnerOf(arg);
     if (owner && !deps.includes(owner)) {
       deps.push(owner);
     }
@@ -257,8 +274,8 @@ export function emitConstraint(
       if (dep instanceof GeometrySceneObject && dep.sketch !== sketch) {
         throw new Error(`${kind}: references geometry from another sketch — cross-sketch constraints are not supported`);
       }
-      if (dep instanceof Copy2DBase && dep.sketch !== sketch) {
-        throw new Error(`${kind}: references a copy from another sketch — cross-sketch constraints are not supported`);
+      if ((dep instanceof Copy2DBase || dep instanceof MirrorShape2D) && dep.sketch !== sketch) {
+        throw new Error(`${kind}: references a ${dep.getType()} from another sketch — cross-sketch constraints are not supported`);
       }
       if (isReferenceProducer(dep)
         && (dep as unknown as { sketch: Sketch | null }).sketch !== sketch) {

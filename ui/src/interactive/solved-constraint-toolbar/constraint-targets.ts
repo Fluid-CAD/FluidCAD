@@ -10,8 +10,9 @@ import type { SolvedPick } from '../sketch-hover-select-handler';
 
 /** A pick as an add-constraint wire target: datum picks by name, reference
  * picks (P6) by producer statement + refIndex, copy-duplicate picks by the
- * copy statement + instance slot, entity picks by statement —
- * line-addressed forms carry the pick's loop occurrence when it has one. */
+ * copy statement + instance slot, mirror-image picks by the mirror statement
+ * + the nested source target, entity picks by statement — line-addressed
+ * forms carry the pick's loop occurrence when it has one. */
 export function constraintTargetFor(p: SolvedPick): SketchConstraintTargetParam {
   if (p.datum !== undefined) {
     // Datum picks (origin/axes) have no source statement — the server
@@ -23,6 +24,20 @@ export function constraintTargetFor(p: SolvedPick): SketchConstraintTargetParam 
     return {
       datum: p.datum,
       ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
+    };
+  }
+  if (p.mirrorInstance !== undefined) {
+    // Mirror-image picks address their mirror() statement plus the mirrored
+    // statement as a nested target (its own address, never a role); the
+    // server renders `m.instance(<source>)` and hoists both as needed.
+    const { role: _role, ...source } = constraintTargetFor(p.mirrorInstance.source);
+    return {
+      line: p.sourceLocation?.line ?? -1,
+      ...(p.sourceLocation?.occurrence !== undefined
+        ? { occurrence: p.sourceLocation.occurrence } : {}),
+      ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
+      featureType: 'mirror',
+      source,
     };
   }
   if (p.copyInstance !== undefined) {

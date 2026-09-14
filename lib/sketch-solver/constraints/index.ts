@@ -20,6 +20,7 @@ import { compilePerpendicular } from './perpendicular.js';
 import { compileSymmetric } from './symmetric.js';
 import { compileTangent } from './tangent.js';
 import { compileTransformTie } from './transform-tie.js';
+import { compileMirrorTie } from './mirror-tie.js';
 import { compileVertical } from './vertical.js';
 
 export type { CompiledRow, CompileCtx } from './types.js';
@@ -64,6 +65,8 @@ export function compileConstraint(record: ConstraintRecord, ctx: CompileCtx): Co
         return compileArcConsistency(spec, ctx);
       case 'transform-tie':
         return compileTransformTie(spec, ctx);
+      case 'mirror-tie':
+        return compileMirrorTie(spec, ctx);
       default: {
         const never: never = spec;
         throw new Error(`unknown constraint kind ${(never as { kind: string }).kind}`);

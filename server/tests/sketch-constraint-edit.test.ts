@@ -844,3 +844,163 @@ describe('applyDistanceTangency', () => {
     expect(result.newCode).toBe(DIMMED);
   });
 });
+
+// Mirror-instance constraint targeting: a 2D mirror() image is a solver
+// entity reached through the source-keyed accessor — targets carry
+// `featureType: 'mirror'` plus a nested `source` target (the mirrored
+// statement, rendered through the same rail: hoists, loop collectors, copy
+// instances) and render `m.instance(<source>)`; roles compose on top. The
+// mirror sits in the derived-ops tail, so the constraint lands after it.
+describe('applySketchConstraint (mirror instances)', () => {
+  const MIRROR_SKETCH = [
+    `import { sketch, line, mirror, yAxis } from "fluidcad/core";`,
+    `import { horizontal } from "fluidcad/constraints";`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const a = line([10, 0], [100, 0]);`,
+    `  line([100, 0], [100, 50]);`,
+    `  horizontal(a);`,
+    `  mirror(yAxis(), a);`,
+    `  fillet(5);`,
+    `});`,
+  ].join('\n');
+
+  it('hoists an unbound mirror to `m` and renders m.instance(<bound source>) AFTER the mirror row', async () => {
+    const result = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'parallel',
+      targets: [
+        { line: 8, featureType: 'mirror', source: { line: 5, featureType: 'line' } },
+        { line: 6, featureType: 'line' },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const l1 = line([100, 0], [100, 50]);`);
+    expect(result.newCode).toContain([
+      `  const m1 = mirror(yAxis(), a);`,
+      `  parallel(m1.instance(a), l1);`,
+      `  fillet(5);`,
+    ].join('\n'));
+  });
+
+  it('hoists an UNBOUND source inside the accessor and reuses an existing mirror binding', async () => {
+    const bound = MIRROR_SKETCH
+      .replace(`  mirror(`, `  const mir = mirror(`)
+      .replace(`  const a = line([10, 0], [100, 0]);`, `  line([10, 0], [100, 0]);`)
+      .replace(`  horizontal(a);\n`, ``)
+      .replace(`mirror(yAxis(), a)`, `mirror(yAxis())`);
+    const result = await applySketchConstraint(bound, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [
+        { line: 7, featureType: 'mirror', role: 'start', source: { line: 5, featureType: 'line' } },
+        { line: 6, featureType: 'line', role: 'end' },
+      ],
+      valueExpr: '25',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const l1 = line([10, 0], [100, 0]);`);
+    expect(result.newCode).toContain(`const l2 = line([100, 0], [100, 50]);`);
+    expect(result.newCode).toContain(`distance(mir.instance(l1).start(), l2.end(), 25);`);
+    expect(result.newCode).not.toContain('const m1');
+  });
+
+  it('a mirror of a copy instance nests the copy accessor: m.instance(cp.instance(k))', async () => {
+    const nested = [
+      `import { sketch, line, copy, mirror, yAxis } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([10, 0], [100, 0]);`,
+      `  line([100, 0], [100, 50]);`,
+      `  copy('linear', 'y', { count: 2, offset: 20 }, a);`,
+      `  mirror(yAxis(), a);`,
+      `});`,
+    ].join('\n');
+    const result = await applySketchConstraint(nested, {
+      sketchLine: 3,
+      kind: 'horizontal',
+      targets: [
+        {
+          line: 7, featureType: 'mirror',
+          source: { line: 6, featureType: 'copy', instanceIndex: 1 },
+        },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const cp1 = copy('linear', 'y', { count: 2, offset: 20 }, a);`,
+      `  const m1 = mirror(yAxis(), a);`,
+      `  horizontal(m1.instance(cp1.instance(1)));`,
+    ].join('\n'));
+  });
+
+  it('a mirror inside a user loop rides the collector rail with a looped source', async () => {
+    const loop = [
+      `import { sketch, line, mirror, yAxis } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const b = line([0, 60], [40, 60]);`,
+      `  for (let i = 0; i < 2; i++) {`,
+      `    const a = line([10, i * 10], [40, i * 10]);`,
+      `    mirror(yAxis(), a);`,
+      `  }`,
+      `});`,
+    ].join('\n');
+    const result = await applySketchConstraint(loop, {
+      sketchLine: 3,
+      kind: 'parallel',
+      targets: [
+        { line: 7, featureType: 'mirror', occurrence: 1, source: { line: 6, featureType: 'line', occurrence: 1 } },
+        { line: 4, featureType: 'line' },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const lines = [];`,
+      `  const mirrors = [];`,
+      `  for (let i = 0; i < 2; i++) {`,
+      `    const a = line([10, i * 10], [40, i * 10]);`,
+      `    lines.push(a);`,
+      `    mirrors.push(mirror(yAxis(), a));`,
+      `  }`,
+      `  parallel(mirrors[1].instance(lines[1]), b);`,
+    ].join('\n'));
+  });
+
+  it('refuses malformed mirror targets honestly', async () => {
+    const noSource = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'horizontal',
+      targets: [{ line: 8, featureType: 'mirror' }],
+    });
+    expect(noSource.error).toMatch(/needs a source/);
+
+    const sourceRole = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'horizontal',
+      targets: [{ line: 8, featureType: 'mirror', source: { line: 5, featureType: 'line', role: 'start' } }],
+    });
+    expect(sourceRole.error).toMatch(/mirror instance source: .*not one of its points/);
+
+    const sourceDatum = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'horizontal',
+      targets: [{ line: 8, featureType: 'mirror', source: { datum: 'x-axis' } }],
+    });
+    expect(sourceDatum.error).toMatch(/mirror instance source: /);
+
+    const strayCopy = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'horizontal',
+      targets: [{ line: 8, featureType: 'copy', instanceIndex: 1 }],
+    });
+    expect(strayCopy.error).toMatch(/line 8 is not a 2D copy\(\) statement/);
+
+    const notMirror = await applySketchConstraint(MIRROR_SKETCH, {
+      sketchLine: 4,
+      kind: 'horizontal',
+      targets: [{ line: 5, featureType: 'mirror', source: { line: 6, featureType: 'line' } }],
+    });
+    expect(notMirror.error).toMatch(/line 5 is not a 2D mirror\(\) statement/);
+  });
+});

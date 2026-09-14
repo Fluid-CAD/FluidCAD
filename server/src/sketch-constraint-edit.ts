@@ -29,8 +29,13 @@ export type SketchConstraintTarget = {
    * source changed under the picks and refuses the edit. References (P6)
    * name their producer callee; copy-instance targets name theirs;
    * anchor-point targets (P8) name 'ellipse' | 'text' | 'bezier'. */
-  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy'
+  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy' | 'mirror'
     | 'ellipse' | 'text' | 'bezier';
+  /** Mirror-image targets: the mirrored statement whose image on the 2D
+   * mirror() statement at `line` is picked — a nested line-addressed target
+   * (entity statement, copy instance, another mirror's instance; no role),
+   * rendered as `m.instance(<source>)`. Requires `featureType: 'mirror'`. */
+  source?: SketchConstraintTarget;
   /** Fixed reference targets (P6): the `.ref(i)` edge index; null renders
    * the terse single-entity form. Presence marks the target as a reference. */
   refIndex?: number | null;

@@ -23,7 +23,11 @@ export type SolvedVertexRef = {
    * copy-duplicate snaps name 'copy' — the statement at `line` is NOT an
    * entity call, and the server refuses a plain entity target on it. */
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier'
-    | 'project' | 'intersect' | 'copy';
+    | 'project' | 'intersect' | 'copy' | 'mirror';
+  /** Mirror-image snaps: the mirrored statement's own ref (line + its
+   * address, no role) — rides `featureType: 'mirror'`; the server renders
+   * `m.instance(<source>)`. */
+  source?: SolvedVertexRef;
   /** Reference snaps (P6): the `.ref(i)` edge index on the project()/
    * intersect() statement at `line`; null = the terse single-entity form.
    * Presence marks the snap as landing on fixed reference geometry. */

@@ -243,4 +243,35 @@ describe('/api/sketch/insert-solved', () => {
     expect(relayed[0].spec.sketchEmission.geometry[0].guide).toBe(true);
     expect(relayed[0].spec.sketchEmission.newVariables).toEqual([{ name: 'd', initializer: '20' }]);
   });
+
+  it('accepts a mirror-instance target with a nested source and rejects a newIndex source', async () => {
+    // The transform (not the route) refuses when the line is no mirror():
+    // proof the nested `source` passed the shape check.
+    const accepted = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 0], [1, 1])' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          { newIndex: 0, role: 'start' },
+          { line: 5, role: 'end', featureType: 'mirror', source: { line: 5, featureType: 'line' } },
+        ],
+      }],
+    });
+    expect(accepted.status).toBe(422);
+    expect(accepted.body.reason).toContain('is not a 2D mirror() statement');
+
+    const rejected = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 0], [1, 1])' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          { newIndex: 0, role: 'start' },
+          { line: 5, featureType: 'mirror', source: { newIndex: 0 } },
+        ],
+      }],
+    });
+    expect(rejected.status).toBe(400);
+  });
 });

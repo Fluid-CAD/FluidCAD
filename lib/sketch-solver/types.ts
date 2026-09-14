@@ -147,12 +147,29 @@ export type ConstraintSpec =
       source: number;
       target: number;
       matrix: [number, number, number, number, number, number];
+    }
+  /**
+   * Internal reflection tie for derived entities (2D mirror images):
+   * `target` is the mirror image of `source` (same kind) across `axis`
+   * — a solver LINE entity (a sketched mirror line or a datum axis; the
+   * rows then carry the line's params, so a moving mirror line moves
+   * its images) or a constant line [sx, sy, ex, ey] in sketch
+   * coordinates (a world axis). One row per target param (point 2,
+   * line 4, circle 3, arc 7): net-zero DOF, bidirectional coupling.
+   * Added via SketchSystem.addMirrorTie — never user-authored; negative
+   * id, and diagnose never names it (like transform-tie).
+   */
+  | {
+      kind: 'mirror-tie';
+      source: number;
+      target: number;
+      axis: SolverRef | [number, number, number, number];
     };
 
 export type ConstraintKind = ConstraintSpec['kind'];
 
 /** A constraint as stored/serialized: spec plus identity. Internal
- * records (arc-consistency, transform-tie) carry negative
+ * records (arc-consistency, transform-tie, mirror-tie) carry negative
  * auto-assigned ids; user ids are ≥ 0. */
 export type ConstraintRecord = {
   id: number;
@@ -248,8 +265,8 @@ export type SketchDiagnostics = {
   dof: number;
   /** Ids of constraints with a residual above conflictTol. Internal
    * (negative) ids can appear — the statement layer maps them to the
-   * owning entity — except transform-tie records, which are never
-   * named here (nor in `redundant`): a conflicted tie's residual is
+   * owning entity — except transform-tie/mirror-tie records, which are
+   * never named here (nor in `redundant`): a conflicted tie's residual is
    * least-squares spread, and the user rows in the same component
    * carry the verdict. */
   conflicting: number[];

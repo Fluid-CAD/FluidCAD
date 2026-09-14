@@ -119,4 +119,49 @@ describe('/api/sketch/add-constraint', () => {
     expect(body.reason).toContain('two or more targets');
     expect(relayed).toHaveLength(0);
   });
+
+  // Mirror-instance targets: `featureType: 'mirror'` + a nested `source`.
+    it('passes a well-formed mirror target with its nested source through to the transform', async () => {
+      // CODE has no mirror() statement, so the transform (not the route)
+      // refuses — proof the shape check accepted the nested `source`.
+      const { status, body } = await post({
+        sketchLine: 3,
+        kind: 'parallel',
+        targets: [
+          { line: 4, featureType: 'mirror', source: { line: 5, featureType: 'line' } },
+          { line: 6, featureType: 'line' },
+        ],
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('is not a 2D mirror() statement');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('rejects malformed mirror sources at the route', async () => {
+      for (const source of [
+        { datum: 'origin' },
+        { newIndex: 0 },
+        { line: 5, role: 'start' },
+        { line: 5, featureType: 'mirror', source: { line: 5, refIndex: 0, instanceIndex: 1 } },
+        'l1',
+      ]) {
+        const { status } = await post({
+          sketchLine: 3,
+          kind: 'horizontal',
+          targets: [{ line: 4, featureType: 'mirror', source }],
+        });
+        expect(status).toBe(400);
+      }
+      // A source without the mirror featureType, and a copy/reference
+      // addressing riding on a mirror target, are shape errors too.
+      expect((await post({
+        sketchLine: 3, kind: 'horizontal',
+        targets: [{ line: 4, featureType: 'line', source: { line: 5 } }],
+      })).status).toBe(400);
+      expect((await post({
+        sketchLine: 3, kind: 'horizontal',
+        targets: [{ line: 4, featureType: 'mirror', instanceIndex: 1, source: { line: 5 } }],
+      })).status).toBe(400);
+      expect(relayed).toHaveLength(0);
+    });
 });

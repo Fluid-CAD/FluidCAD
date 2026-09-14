@@ -339,6 +339,9 @@ export function buildFilletEmission(opts: {
     if (pick.copyInstance !== undefined) {
       return fail('copy instances mirror their source rigidly — fillet the source edges instead');
     }
+    if (pick.mirrorInstance !== undefined) {
+      return fail('mirror images follow their source rigidly — fillet the source edges instead');
+    }
     if (pick.anchor !== undefined) {
       return fail(`a ${pick.anchor.owner} has no corner to fillet — pick lines or arcs`);
     }

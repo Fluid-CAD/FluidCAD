@@ -258,10 +258,36 @@ export class SketchSystem {
     target: number,
     matrix: [number, number, number, number, number, number],
   ): number {
+    return this.addDerivedTie(target, { kind: 'transform-tie', source, target, matrix: [...matrix] });
+  }
+
+  /**
+   * INTERNAL reflection tie: rigidly derive `target` as the mirror image
+   * of `source` (same kind) across `axis` — a solver LINE entity (a
+   * sketched mirror line or a datum axis: the rows carry its params, so
+   * the images follow a moving mirror line) or a constant line
+   * [sx, sy, ex, ey] in sketch coordinates (a world axis). The engine-side
+   * registration for 2D mirror images; the same net-zero-DOF,
+   * bidirectional, diagnose-invisible contract as addTransformTie,
+   * including the tied arc's dropped consistency record and the replay
+   * requirement on snapshot rebuilds. Returns the tie's (negative) id.
+   */
+  addMirrorTie(
+    source: number,
+    target: number,
+    axis: SolverRef | [number, number, number, number],
+  ): number {
+    const spec: ConstraintSpec = Array.isArray(axis)
+      ? { kind: 'mirror-tie', source, target, axis: [...axis] as [number, number, number, number] }
+      : { kind: 'mirror-tie', source, target, axis: { ...axis } };
+    return this.addDerivedTie(target, spec);
+  }
+
+  private addDerivedTie(target: number, spec: ConstraintSpec): number {
     const record: ConstraintRecord = {
       id: this.nextInternalId--,
       internal: true,
-      spec: { kind: 'transform-tie', source, target, matrix: [...matrix] },
+      spec,
     };
     compileConstraint(record, this.compileCtx()); // validate eagerly, discard rows
     if (this.entity(target).kind === 'arc') {

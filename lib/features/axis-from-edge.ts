@@ -8,13 +8,19 @@ import { requireShapes } from "../common/operand-check.js";
 
 export class AxisFromEdge extends AxisObjectBase {
 
-  constructor(private sourceObject: SceneObject, private options?: AxisTransformOptions) {
+  constructor(private sourceObject: SceneObject, private options_?: AxisTransformOptions) {
     super();
   }
 
   /** The wrapped edge/axis source (read-only — derived-op source tracking). */
   get source(): SceneObject {
     return this.sourceObject;
+  }
+
+  /** The chained transform options, if any — an offset/rotated axis is no
+   * longer the source line itself. */
+  get options(): AxisTransformOptions | undefined {
+    return this.options_;
   }
 
   override validate() {
@@ -73,8 +79,8 @@ export class AxisFromEdge extends AxisObjectBase {
       axis = EdgeOps.edgeToAxis(shape);
     }
 
-    if (this.options) {
-      axis = axis.transform(this.options);
+    if (this.options_) {
+      axis = axis.transform(this.options_);
     }
 
     this.setState('axis', axis);
@@ -97,7 +103,7 @@ export class AxisFromEdge extends AxisObjectBase {
       return false;
     }
 
-    if (JSON.stringify(this.options) !== JSON.stringify(other.options)) {
+    if (JSON.stringify(this.options_) !== JSON.stringify(other.options_)) {
       return false;
     }
 
@@ -111,7 +117,7 @@ export class AxisFromEdge extends AxisObjectBase {
   serialize() {
     return {
       selection: this.sourceObject.serialize(),
-      options: this.options,
+      options: this.options_,
     }
   }
 }

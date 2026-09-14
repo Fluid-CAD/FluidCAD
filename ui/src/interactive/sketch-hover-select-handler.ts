@@ -24,7 +24,7 @@ import {
   datumHitTest,
   solvedHitTest,
 } from '../sketch-solver-client';
-import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind } from '../sketch-solver-client';
+import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView } from '../sketch-solver-client';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
 /** Grab radius for solved entity vertices. Deliberately equal to the edge
@@ -58,11 +58,49 @@ export type SolvedPick = {
    * addresses the copy statement plus the duplicate's instance() slot —
    * `sourceLocation` is the copy() line. Not fixed, unlike references. */
   copyInstance?: { slot: number };
+  /** Mirror-image picks: a 2D mirror()'s solver-backed image. Emission
+   * addresses the mirror statement (`sourceLocation` is the mirror() line)
+   * plus the mirrored statement as a nested pick — `source` carries that
+   * statement's own address (entity, copy instance, another mirror's
+   * image) and no role. */
+  mirrorInstance?: { source: SolvedPick };
   /** Anchor-point picks (P8): an ellipse center, text anchor, or bezier
    * literal control point. Emission addresses the owning statement and
    * renders `.center()` / `.anchor()` / `.point(i)`. */
   anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
 };
+
+/**
+ * The address fields a rendered entity view contributes to a pick made on
+ * it: reference / copy-instance / anchor / mirror-image. A mirror image
+ * nests the pick of its SOURCE view — recursively, so a mirror of a copy
+ * instance (or of another mirror's image) addresses all the way down.
+ */
+function pickAddress(
+  model: SolvedSketchModel,
+  e: SolvedEntityView,
+): Pick<SolvedPick, 'reference' | 'copyInstance' | 'anchor' | 'mirrorInstance'> {
+  const source = e.mirrorInstance !== undefined
+    ? model.entities.get(e.mirrorInstance.sourceEntityId)
+    : undefined;
+  return {
+    ...(e.reference ? { reference: e.reference } : {}),
+    ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
+    ...(e.anchor ? { anchor: e.anchor } : {}),
+    ...(source && source.obj
+      ? {
+        mirrorInstance: {
+          source: {
+            entityId: source.entityId,
+            kind: source.kind,
+            sourceLocation: source.obj.sourceLocation,
+            ...pickAddress(model, source),
+          },
+        },
+      }
+      : {}),
+  };
+}
 
 type SelectedVertexPick = {
   entityId: number;
@@ -386,9 +424,7 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             role: pick.role,
             sourceLocation: e.obj.sourceLocation,
-            ...(e.reference ? { reference: e.reference } : {}),
-            ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
-            ...(e.anchor ? { anchor: e.anchor } : {}),
+            ...pickAddress(model, e),
           });
         }
       } else {
@@ -402,13 +438,11 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             sourceLocation: e.obj.sourceLocation,
             ...(at ? { at } : {}),
-            ...(e.reference ? { reference: e.reference } : {}),
-            ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
             // An anchor statement's edges (text glyphs, the ellipse
             // perimeter) resolve to its anchor POINT — the only solver
             // entity it has, so an edge click means "constrain its
             // position" (P8).
-            ...(e.anchor ? { anchor: e.anchor } : {}),
+            ...pickAddress(model, e),
           });
         }
       }

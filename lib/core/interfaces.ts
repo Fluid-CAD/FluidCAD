@@ -1158,14 +1158,37 @@ export interface IMirror extends IBooleanOperation {
   exclude(...objects: ISceneObject[]): this;
 }
 
+export interface IMirrorInstance extends ISceneObject {
+  /**
+   * The image's start point as a constraint target
+   * (e.g. `coincident(m.instance(l).start(), p)`).
+   */
+  start(): LazyVertex;
+
+  /** The image's end point as a constraint target. */
+  end(): LazyVertex;
+
+  /** The image's center point (circles and arcs) as a constraint target. */
+  center(): LazyVertex;
+}
+
 export interface IMirror2D extends IGeometry {
   /**
-   * Excludes the given sketch geometries from the mirror operation. Useful
-   * when mirroring "everything" but a few specific geometries should be
-   * skipped, or when narrowing an explicit target list.
-   * @param objects - The sketch geometries to exclude from mirroring.
+   * The mirror image of one mirrored statement — a whole-geometry operand
+   * (`offset(2, m.instance(l))`) and a constraint target: the image of a
+   * line/arc/circle/point statement is a solver entity rigidly tied to its
+   * source across the mirror line, so `parallel(m.instance(l), k)` drives
+   * the source (and, for a sketched mirror line, can move the line) through
+   * the tie. Its `.start()`/`.end()`/`.center()` points are targets too.
+   * The source is the statement itself (`m.instance(l)`, never one of its
+   * points), a copy instance (`m.instance(cp.instance(2))`), or another
+   * mirror's instance. Geometry the mirror does not stamp — later in the
+   * sketch, not among explicit targets — and sources without solver
+   * identity (an offset result) error as constraint targets. The mirror
+   * line itself has no image: constrain it directly.
+   * @param source - The mirrored statement (or copy/mirror instance).
    */
-  exclude(...objects: ISceneObject[]): this;
+  instance(source: ISceneObject): IMirrorInstance;
 }
 
 export interface ITranslate extends ISceneObject {

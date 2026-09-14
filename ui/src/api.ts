@@ -1603,9 +1603,17 @@ export type SketchConstraintTargetParam = {
    * statements and datum targets. */
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy' | 'mirror'
     | 'ellipse' | 'text' | 'bezier';
   datum?: 'origin' | 'x-axis' | 'y-axis';
+  /**
+   * Mirror-image targets: the mirrored statement whose image on the 2D
+   * mirror() statement at `line` was picked — a nested line-addressed
+   * target with no role (an entity statement, a copy instance, another
+   * mirror's instance); the server renders `m.instance(<source>)`. Rides
+   * `featureType: 'mirror'`.
+   */
+  source?: SketchConstraintTargetParam;
   /**
    * Fixed reference targets (P6): the `.ref(i)` edge index of a
    * project()/intersect() statement — null for the terse single-entity form.
@@ -1697,9 +1705,13 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'ellipse' | 'text' | 'bezier'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier'
     | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
+  /** Mirror-image targets: the mirrored statement (a nested line-addressed
+   * target, no role) whose image on the 2D mirror() statement at `line` is
+   * addressed — rides `featureType: 'mirror'`. */
+  source?: SolvedEmissionTargetParam;
   /** Fixed reference targets (P6): the `.ref(i)` edge index on the
    * project()/intersect() statement at `line`; null = the terse
    * single-entity form. Rides `featureType: 'project' | 'intersect'`. */

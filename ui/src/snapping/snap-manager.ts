@@ -6,6 +6,7 @@ import { GridSnapper } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneContext } from '../scene/scene-context';
 import { buildSolvedSketchModel, isSolvedSketch } from '../sketch-solver-client/model';
+import type { SolvedEntityView, SolvedSketchModel } from '../sketch-solver-client/model';
 import { worldUnitsPerPixel } from '../meshes/screen-scale';
 import { resolveGridSpacing } from '../grid/grid-spacing';
 import { currentGridPrefs } from '../grid/grid-prefs';
@@ -13,6 +14,42 @@ import { sceneUnit } from '../units/scene-unit';
 import { worldFromMm } from '../units/scene-scale';
 
 const DEFAULT_SNAP_THRESHOLD_PX = 15;
+
+/**
+ * The wire address of a rendered entity view's OWNER statement: the entity
+ * callee, or the producer / copy / mirror statement plus its accessor
+ * fields. Mirror images nest their source view's address recursively (a
+ * mirror of a copy instance, a mirror of a mirror). Null when a mirror
+ * image's source is not in the model — no honest address exists.
+ */
+function entityAddress(
+  model: SolvedSketchModel,
+  e: SolvedEntityView,
+): Pick<SolvedVertexRef, 'featureType' | 'refIndex' | 'instanceIndex' | 'source'> | null {
+  if (e.reference) {
+    return { featureType: e.reference.producer, refIndex: e.reference.refIndex };
+  }
+  if (e.copyInstance) {
+    return { featureType: 'copy', instanceIndex: e.copyInstance.slot };
+  }
+  if (e.mirrorInstance) {
+    const sourceView = model.entities.get(e.mirrorInstance.sourceEntityId);
+    const loc = sourceView?.obj?.sourceLocation;
+    const address = sourceView ? entityAddress(model, sourceView) : null;
+    if (!sourceView || !loc?.line || address === null) {
+      return null;
+    }
+    return {
+      featureType: 'mirror',
+      source: {
+        line: loc.line,
+        ...(loc.occurrence !== undefined ? { occurrence: loc.occurrence } : {}),
+        ...address,
+      },
+    };
+  }
+  return { featureType: e.kind };
+}
 
 export class SnapManager {
   private snappers: Snapper[] = [];
@@ -142,11 +179,10 @@ export class SnapManager {
         // project()/intersect()/copy() statement, not an entity call — the
         // ref names that producer plus its `.ref(i)` / `.instance(k)`
         // address so the emitted coincident targets the right edge.
-        const owner = e.reference
-          ? { featureType: e.reference.producer, refIndex: e.reference.refIndex }
-          : e.copyInstance
-            ? { featureType: 'copy' as const, instanceIndex: e.copyInstance.slot }
-            : { featureType: e.kind };
+        const owner = entityAddress(model!, e);
+        if (owner === null) {
+          continue;
+        }
         const roles: ('start' | 'end' | 'center')[] =
           e.kind === 'line' ? ['start', 'end']
             : e.kind === 'arc' ? ['start', 'end', 'center']

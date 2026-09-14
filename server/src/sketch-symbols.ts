@@ -25,7 +25,7 @@ export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', '
  * `const t1 = text(…)`, `const bz1 = bezier(…)`. */
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', ellipse: 'el', text: 't', bezier: 'bz',
+  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz',
 };
 
 /**
@@ -42,15 +42,18 @@ export const DERIVED_OP_CALLEES = new Set<string>([
 ]);
 
 /**
- * The 2D-copy subset of the derived ops — the ONLY derived-op statements a
- * constraint target may address as a whole. A copy() duplicate is a solver
- * entity reachable through the slot-indexed accessor (`cp.instance(k)` —
- * the original occupies its own slot, duplicates fill the others, `skip`
- * leaves holes); offset/fillet/mirror/rotate stay untargetable. `text` (and
- * the geometry-region `ellipse`/`bezier`) are targetable through their
- * anchor POINTS only (P8): `t.anchor()`, `el.center()`, `bz.point(i)`.
+ * The derived-op statements a constraint target may address as a whole —
+ * the 2D copy and the 2D mirror. A copy() duplicate is a solver entity
+ * reachable through the slot-indexed accessor (`cp.instance(k)` — the
+ * original occupies its own slot, duplicates fill the others, `skip` leaves
+ * holes); a mirror() image through the source-keyed accessor
+ * (`m.instance(l)`, `m.instance(cp.instance(k))`). offset/fillet/rotate stay
+ * untargetable. `text` (and the geometry-region `ellipse`/`bezier`) are
+ * targetable through their anchor POINTS only (P8): `t.anchor()`,
+ * `el.center()`, `bz.point(i)`.
  */
 export const COPY_CALLEES = new Set<string>(['copy']);
+export const MIRROR_CALLEES = new Set<string>(['mirror']);
 
 /**
  * Anchor-point statements (P8): not solver entities themselves, but their

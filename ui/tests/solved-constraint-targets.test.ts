@@ -92,6 +92,36 @@ describe('constraintTargetFor', () => {
       .toEqual({ line: 12, role: 'end', featureType: 'copy', instanceIndex: 1 });
   });
 
+  it('maps a mirror-image pick to the mirror statement + a nested source target', () => {
+    const MIRROR_LOC = { line: 20, column: 3 };
+    const pick: SolvedPick = {
+      entityId: 9, kind: 'line', role: 'end', sourceLocation: MIRROR_LOC,
+      mirrorInstance: { source: { entityId: 5, kind: 'line', sourceLocation: LOC } },
+    };
+    expect(constraintTargetFor(pick)).toEqual({
+      line: 20, role: 'end', featureType: 'mirror',
+      source: { line: 12, featureType: 'line' },
+    });
+  });
+
+  it('nests a copy-instance source under a mirror-image target, occurrences on both', () => {
+    const pick: SolvedPick = {
+      entityId: 9, kind: 'circle',
+      sourceLocation: { line: 20, column: 3, occurrence: 2 },
+      mirrorInstance: {
+        source: {
+          entityId: 6, kind: 'circle',
+          sourceLocation: { ...LOC, occurrence: 1 },
+          copyInstance: { slot: 3 },
+        },
+      },
+    };
+    expect(constraintTargetFor(pick)).toEqual({
+      line: 20, occurrence: 2, featureType: 'mirror',
+      source: { line: 12, occurrence: 1, featureType: 'copy', instanceIndex: 3 },
+    });
+  });
+
   it('carries occurrence on copy-duplicate targets (copy inside a loop)', () => {
     const pick: SolvedPick = {
       entityId: 6, kind: 'circle',

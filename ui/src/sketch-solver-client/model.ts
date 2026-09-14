@@ -55,6 +55,13 @@ export type SolvedEntityView = {
    */
   copyInstance?: { slot: number };
   /**
+   * A 2D mirror() image: solver-backed (free, NOT fixed), addressed by the
+   * mirror statement plus the SOURCE entity it images — `obj` is the
+   * mirror statement; emission renders `m.instance(<source>)` with the
+   * source view's own address nested inside.
+   */
+  mirrorInstance?: { sourceEntityId: number };
+  /**
    * An anchor point of a non-entity statement (P8): the ellipse center,
    * the text anchor, or one of a bezier's literal control points. `obj` is
    * the owning statement; emission renders `.center()` / `.anchor()` /
@@ -142,6 +149,7 @@ const REFERENCE_TYPES = new Set(['projection', 'intersect']);
 /** 2D copy producers: their payload's `entities` array joins each
  * solver-backed duplicate shape to its solver entity and instance slot. */
 const COPY_TYPES = new Set(['copy-linear-2d', 'copy-circular-2d']);
+const MIRROR_TYPES = new Set(['mirror-shape-2d']);
 
 /** A producer-joined entity's geometry comes from the snapshot's param
  * table — the producer's payload only carries the join, never coordinates.
@@ -378,6 +386,22 @@ export function buildSolvedSketchModel(
         const view = snapshotEntityView(solver, obj, record.entityId, record.kind);
         if (view) {
           view.copyInstance = { slot: record.slot };
+          entities.set(record.entityId, view);
+        }
+      }
+    }
+
+    // 2D mirror images: like copy duplicates, joined via the snapshot's
+    // params and addressed by the mirror statement plus the source entity
+    // each image reflects. Falls through to the derived tint join.
+    if (MIRROR_TYPES.has(obj.uniqueType ?? '') && Array.isArray(obj.object?.entities) && solver) {
+      const records = obj.object.entities as {
+        entityId: number; kind: SolvedEntityKind; shapeIndex: number; sourceEntityId: number;
+      }[];
+      for (const record of records) {
+        const view = snapshotEntityView(solver, obj, record.entityId, record.kind);
+        if (view) {
+          view.mirrorInstance = { sourceEntityId: record.sourceEntityId };
           entities.set(record.entityId, view);
         }
       }

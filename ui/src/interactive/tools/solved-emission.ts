@@ -116,6 +116,8 @@ export function refTarget(ref: SolvedVertexRef): SolvedEmissionTargetParam {
     // duplicates their `.instance(k)` slot.
     ...(ref.refIndex !== undefined ? { refIndex: ref.refIndex } : {}),
     ...(ref.instanceIndex !== undefined ? { instanceIndex: ref.instanceIndex } : {}),
+    // Mirror images nest their source's address (`m.instance(<source>)`).
+    ...(ref.source !== undefined ? { source: refTarget(ref.source) } : {}),
   };
 }
 
@@ -221,7 +223,17 @@ export function sameVertexRef(a: SolvedVertexRef, b: SolvedVertexRef): boolean {
   }
   return a.line === b.line && a.occurrence === b.occurrence
     && a.role === b.role && a.pointIndex === b.pointIndex
-    && a.refIndex === b.refIndex && a.instanceIndex === b.instanceIndex;
+    && a.refIndex === b.refIndex && a.instanceIndex === b.instanceIndex
+    && sameSourceRef(a.source, b.source);
+}
+
+/** Nested mirror-source refs match when both are absent or address the
+ * same statement instance (recursively). */
+function sameSourceRef(a: SolvedVertexRef | undefined, b: SolvedVertexRef | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return sameVertexRef(a, b);
 }
 
 /** A dimension's value expression from a possibly-signed commit: numeric

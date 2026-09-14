@@ -37,6 +37,39 @@ export function localAffineFromWorldMatrix(matrix: Matrix4, plane: Plane): TieMa
   return [u.x - o.x, v.x - o.x, u.y - o.y, v.y - o.y, o.x, o.y];
 }
 
+/**
+ * The sketch-local affine of a reflection across the line a→b (sketch
+ * coordinates): p' = a + R·(p − a) with R = 2·n·nᵀ − I for the unit
+ * direction n. The guess-side twin of the solver's mirror-tie rows — used
+ * to place a mirror image's guess params exactly on the tie.
+ */
+export function reflectionAffine(axis: [number, number, number, number]): TieMatrix {
+  const [ax, ay, bx, by] = axis;
+  const len = Math.hypot(bx - ax, by - ay);
+  if (len < 1e-12) {
+    throw new Error('reflectionAffine: degenerate (zero-length) axis line');
+  }
+  const nx = (bx - ax) / len;
+  const ny = (by - ay) / len;
+  const a = 2 * nx * nx - 1;
+  const b = 2 * nx * ny;
+  const c = b;
+  const d = 2 * ny * ny - 1;
+  return [a, b, c, d, ax - (a * ax + b * ay), ay - (c * ax + d * ay)];
+}
+
+/** Role validity per entity kind — point instances answer every accessor
+ * with themselves, mirroring SolvedPoint.start()/end(). Shared by the
+ * copy-instance and mirror-image accessors. */
+export function validateInstanceRole(kind: EntityKind, role: PointRole, what: string): void {
+  if (kind === 'line' && role === 'center') {
+    throw new Error(`${what}: a line instance has no center() point`);
+  }
+  if (kind === 'circle' && role !== 'center') {
+    throw new Error(`${what}: a circle instance only has a center() point`);
+  }
+}
+
 /** Apply a tie matrix to one 2D point. */
 function applyAffine(affine: TieMatrix, x: number, y: number): Point2D {
   const [a, b, c, d, tx, ty] = affine;

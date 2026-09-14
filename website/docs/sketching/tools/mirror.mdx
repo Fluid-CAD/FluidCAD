@@ -42,6 +42,20 @@ Any sketched line can be the mirror line, including a [guide](/docs/sketching/to
 The tool writes the datum form, `mirror(yAxis(), base, side, top)`. On the XY plane the world axis `"y"` is the same line, which is what this hand-written example uses.
 </ExplainedCode>
 
+## Mirrored geometry and constraints
+
+The mirrored copies are solver entities in their own right, rigidly tied to their sources across the mirror line: they move when the source moves, and constraining a copy drives the source. When the mirror line is a sketched line, the tie follows it too — constraining a copy can move the line. In the viewport, pick a mirrored edge or one of its vertices exactly like drawn geometry; the constraint bar and the drawing tools' snaps write the statement for you.
+
+By hand, address a copy with `m.instance(source)` — the mirrored statement, never one of its points:
+
+```js
+const m = mirror(yAxis(), l, c)
+coincident(m.instance(l).start(), p)        // the copy's vertex, tied back to l
+radius(m.instance(c), 8)                    // dimensions the source circle too
+```
+
+`m.instance(cp.instance(2))` addresses the mirror image of a [copy](/docs/sketching/tools/copy#copies-and-constraints) instance, and `m.instance(l)` is also a whole-geometry operand (`offset(2, m.instance(l))`). The mirror line itself has no image: constrain it directly. Geometry the mirror does not stamp — written after it, or not among its targets — and geometry without solver identity (an offset result) error as targets.
+
 ## Sketch axes and world axes
 
 Bare axis strings like `"x"` and `"y"` always mean **world** axes. On the XY plane that is also the sketch's own X and Y, but on other planes it is not:

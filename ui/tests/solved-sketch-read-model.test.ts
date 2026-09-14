@@ -209,6 +209,38 @@ describe('solved sketch read model', () => {
     expect(model.derivedProducers.get(copy.id!)).toEqual([0]);
   });
 
+  it('joins mirror images via the snapshot params, flagged mirrorInstance with the source entity', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'line', fixed: false, paramOffset: 0 },
+        { id: 7, kind: 'line', fixed: false, paramOffset: 4 },
+      ],
+      params: [10, 0, 30, 0, -10, 0, -30, 0],
+      dof: 4,
+    });
+    const mirror = child('mirror-shape-2d', {
+      sourceEntities: [0],
+      sourcesSolved: true,
+      entities: [{ entityId: 7, kind: 'line', shapeIndex: 0, sourceEntityId: 0 }],
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      line(0, [10, 0], [30, 0]),
+      mirror,
+    ])!;
+
+    const image = model.entities.get(7)!;
+    expect(image.kind).toBe('line');
+    expect(image.start).toEqual([-10, 0]);
+    expect(image.end).toEqual([-30, 0]);
+    expect(image.mirrorInstance).toEqual({ sourceEntityId: 0 });
+    expect(image.reference).toBeUndefined();
+    expect(image.copyInstance).toBeUndefined();
+    // The view carries the mirror STATEMENT — its sourceLocation rides picks.
+    expect(image.obj).toBe(mirror);
+    // The whole-object derived tint join keeps working alongside.
+    expect(model.derivedProducers.get(mirror.id!)).toEqual([0]);
+  });
+
   it('joins derived-op duplicates to their source entities', () => {
     const copy = child('copy-linear-2d', { sourceEntities: [0, 1], sourcesSolved: true });
     const unvouched = child('mirror-shape-2d', { sourceEntities: [0], sourcesSolved: false });

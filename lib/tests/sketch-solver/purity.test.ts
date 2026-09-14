@@ -39,6 +39,7 @@ describe("sketch-solver purity", () => {
       "constraints/horizontal.ts",
       "constraints/index.ts",
       "constraints/midpoint.ts",
+      "constraints/mirror-tie.ts",
       "constraints/parallel.ts",
       "constraints/perpendicular.ts",
       "constraints/radius.ts",

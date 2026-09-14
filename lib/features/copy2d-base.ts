@@ -15,7 +15,9 @@ import {
   entityPointFromParams,
   localAffineFromWorldMatrix,
   registerDuplicateEntity,
+  validateInstanceRole,
 } from "./2d/solved/copy-entities.js";
+import type { SolverEntityRecord } from "./2d/solved/derived-entities.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { Plane } from "../math/plane.js";
 import type { Sketch } from "./2d/sketch.js";
@@ -121,10 +123,18 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     return `${slot}:${sourceEntityId}`;
   }
 
+  /** Stamped shape → its duplicate solver entity id — the join a derived
+   * op downstream (a mirror of this copy) reads to give the shape's own
+   * image a solver identity. State, like the other build-derived maps. */
+  private get entityByShape(): Map<Shape, number> | undefined {
+    return this.getState('copy-shape-entities');
+  }
+
   /** Build-derived state — every build() starts from empty maps. */
   protected resetInstances(): void {
     this.setState('copy-instances', new Map<Shape, number>());
     this.setState('copy-entity-shapes', new Map<string, number>());
+    this.setState('copy-shape-entities', new Map<Shape, number>());
   }
 
   /** Stamp `shape` as part of grid slot `index` (build-time only). */
@@ -245,6 +255,8 @@ export abstract class Copy2DBase extends GeometrySceneObject {
    */
   protected stampDuplicates(objects: SceneObject[], duplicates: SlotTransform[]): void {
     const shapeIndexByKey = this.shapeIndexByKey!;
+    const entityByShape = this.entityByShape!;
+    const registration = this._registration;
     let shapeIndex = 0;
     for (const { slot, matrix } of duplicates) {
       for (const obj of objects) {
@@ -261,11 +273,36 @@ export abstract class Copy2DBase extends GeometrySceneObject {
           this.recordInstanceShape(transformed, slot);
           if (sourceEntityId !== null) {
             shapeIndexByKey.set(Copy2DBase.instanceShapeKey(slot, sourceEntityId), shapeIndex);
+            const record = registration?.duplicates.find(
+              d => d.slot === slot && d.source.entityId === sourceEntityId,
+            );
+            if (record) {
+              entityByShape.set(transformed, record.dupId);
+            }
           }
           shapeIndex++;
         }
       }
     }
+  }
+
+  // -- derived-entity exposure (for ops downstream of this copy) -----------
+
+  /** Every registered duplicate entity (slot order, source order within a
+   * slot) — a mirror of this copy images each of them. Empty when the copy
+   * degraded (no static transform). */
+  solverDuplicates(): SolverEntityRecord[] {
+    const registration = this._registration;
+    if (!registration) {
+      return [];
+    }
+    return registration.duplicates.map(d => ({ entityId: d.dupId, kind: d.kind }));
+  }
+
+  /** The duplicate solver entity a stamped shape stands for, or null for
+   * shapes of non-solver sources. Build-derived (state). */
+  duplicateEntityForShape(shape: Shape): number | null {
+    return this.entityByShape?.get(shape) ?? null;
   }
 
   // -- payload --------------------------------------------------------------
@@ -345,24 +382,13 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     return { entityId: record.dupId, kind: record.kind };
   }
 
-  /** Role validity per entity kind — point instances answer every accessor
-   * with themselves, mirroring SolvedPoint.start()/end(). */
-  private static validateInstanceRole(kind: EntityKind, role: PointRole, what: string): void {
-    if (kind === 'line' && role === 'center') {
-      throw new Error(`${what}: a line instance has no center() point`);
-    }
-    if (kind === 'circle' && role !== 'center') {
-      throw new Error(`${what}: a circle instance only has a center() point`);
-    }
-  }
-
   /** Solver ref for `cp.instance(slot)` (optionally one of its points). */
   instanceSolverRef(slot: number, what: string, role?: PointRole): SolverRef {
     const { entityId, kind } = this.resolveInstanceEntity(slot, what);
     if (role === undefined || kind === 'point') {
       return { entity: entityId };
     }
-    Copy2DBase.validateInstanceRole(kind, role, what);
+    validateInstanceRole(kind, role, what);
     return { entity: entityId, point: role };
   }
 
@@ -372,7 +398,7 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     const what = `instance ${role}`;
     const { entityId, kind } = this.resolveInstanceEntity(slot, what);
     if (kind !== 'point') {
-      Copy2DBase.validateInstanceRole(kind, role, what);
+      validateInstanceRole(kind, role, what);
     }
     const ctx = this.sketch?.solver();
     if (!ctx) {

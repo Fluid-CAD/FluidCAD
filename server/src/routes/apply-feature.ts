@@ -38,6 +38,7 @@ import { detectKind } from '../file-kind.ts';
 import {
   applySolvedEmission,
   constraintTargetCountValid,
+  sanitizeEmissionTarget,
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
   type SolvedGeometryEmission,
@@ -7148,71 +7149,17 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: nvResult.error });
       return;
     }
-    const validRoles = new Set(['start', 'end', 'center', 'mid']);
-    // 'copy' rides the entity domain so a stray copy pick with no
-    // instanceIndex reaches the transform's honest refusal instead of a 400.
-    // The anchor-point statements (P8) ride it too — the transform derives
-    // their accessor (`.center()`/`.anchor()`/`.point(i)`) from the type.
-    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'copy', 'ellipse', 'text', 'bezier']);
-    // Reference targets (P6) address a project()/intersect() statement.
-    const validReferenceTypes = new Set(['project', 'intersect']);
-    // Copy-instance targets address a 2D copy() statement's duplicate slot.
-    const validCopyTypes = new Set(['copy']);
-    const validDatums = new Set(['origin', 'x-axis', 'y-axis']);
-    const cleanTargets: { line?: number; occurrence?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null; instanceIndex?: number; pointIndex?: number }[] = [];
+    // Target shapes are the emission transform's wire contract — one
+    // sanitizer for both routes (add-constraint / insert-solved), recursive
+    // for a mirror instance's `source`.
+    const cleanTargets: SolvedEmissionTarget[] = [];
     for (const t of targets) {
-      if (typeof t !== 'object' || t === null) {
+      const cleaned = sanitizeEmissionTarget(t, { allowNew: false });
+      if (cleaned === null) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
       }
-      // A datum target (origin/axes) has no source statement — it is the
-      // accessor call, exclusive with line/occurrence/role/featureType/
-      // instanceIndex.
-      if (t.datum !== undefined) {
-        if (!validDatums.has(t.datum) || t.line !== undefined || t.role !== undefined
-          || t.featureType !== undefined || t.occurrence !== undefined
-          || t.instanceIndex !== undefined) {
-          res.status(400).json({ error: 'Invalid request body' });
-          return;
-        }
-        cleanTargets.push({ datum: t.datum });
-        continue;
-      }
-      const isReference = t.refIndex !== undefined;
-      // Copy-instance targeting: the slot index of the picked duplicate on
-      // the copy() statement at `line` — integer ≥ 0, never with refIndex
-      // (v1), and a sent featureType must be 'copy'.
-      const isCopyInstance = t.instanceIndex !== undefined;
-      if (typeof t.line !== 'number'
-        // Loop-instance targeting: the 0-based execution index of the picked
-        // instance when the statement at `line` ran more than once.
-        || (t.occurrence !== undefined
-          && (!Number.isInteger(t.occurrence) || t.occurrence < 0))
-        || (t.role !== undefined && !validRoles.has(t.role))
-        || (isReference && t.refIndex !== null && !Number.isInteger(t.refIndex))
-        || (isCopyInstance
-          && (!Number.isInteger(t.instanceIndex) || t.instanceIndex < 0 || isReference))
-        || (t.featureType !== undefined
-          && !(isReference ? validReferenceTypes
-            : isCopyInstance ? validCopyTypes
-            : validTypes).has(t.featureType))
-        // Anchor-point targeting (P8): the bezier control-point index —
-        // integer ≥ 0, only meaningful with featureType 'bezier' (the
-        // transform enforces the pairing).
-        || (t.pointIndex !== undefined
-          && (!Number.isInteger(t.pointIndex) || t.pointIndex < 0))) {
-        res.status(400).json({ error: 'Invalid request body' });
-        return;
-      }
-      cleanTargets.push({
-        line: t.line,
-        ...(t.occurrence !== undefined ? { occurrence: t.occurrence } : {}),
-        ...(t.role !== undefined ? { role: t.role } : {}),
-        ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
-        ...(isReference ? { refIndex: t.refIndex } : {}),
-        ...(isCopyInstance ? { instanceIndex: t.instanceIndex } : {}),
-        ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
-      });
+      cleanTargets.push(cleaned);
     }
     const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
     if (!targetFile) {
@@ -7307,16 +7254,6 @@ export function createApplyFeatureRouter(
         ...(g.guide !== undefined ? { guide: g.guide } : {}),
       });
     }
-    const validRoles = new Set(['start', 'end', 'center', 'mid']);
-    // Anchor-point statements (P8) ride the entity domain — the transform
-    // derives their accessor (`.center()`/`.anchor()`/`.point(i)`).
-    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'ellipse', 'text', 'bezier']);
-    // Reference targets (P6) address a project()/intersect() statement by
-    // `.ref(i)`; copy-instance targets a 2D copy() statement's duplicate
-    // slot — a drawing tool snapping onto projected/copied geometry emits
-    // them (the add-constraint route accepts the same shapes).
-    const validReferenceTypes = new Set(['project', 'intersect']);
-    const validCopyTypes = new Set(['copy']);
     const cleanConstraints: SolvedConstraintEmission[] = [];
     for (const c of constraints) {
       if (typeof c !== 'object' || c === null || !SOLVED_CONSTRAINT_KINDS.has(c.kind)
@@ -7328,55 +7265,12 @@ export function createApplyFeatureRouter(
       }
       const cleanTargets: SolvedEmissionTarget[] = [];
       for (const t of c.targets) {
-        if (typeof t !== 'object' || t === null) {
+        const cleaned = sanitizeEmissionTarget(t, { allowNew: true });
+        if (cleaned === null) {
           res.status(400).json({ error: 'Invalid request body' });
           return;
         }
-        // Datum target (origin/axes): no statement line, role or type.
-        if (t.datum !== undefined) {
-          if (!['origin', 'x-axis', 'y-axis'].includes(t.datum)
-            || t.line !== undefined || t.newIndex !== undefined
-            || t.role !== undefined || t.featureType !== undefined) {
-            res.status(400).json({ error: 'Invalid request body' });
-            return;
-          }
-          cleanTargets.push({ datum: t.datum });
-          continue;
-        }
-        const byLine = typeof t.line === 'number';
-        const byNew = typeof t.newIndex === 'number';
-        const isReference = t.refIndex !== undefined;
-        const isCopyInstance = t.instanceIndex !== undefined;
-        if (byLine === byNew
-          || (t.role !== undefined && !validRoles.has(t.role))
-          // Reference/copy-instance addressing composes with `line` only,
-          // never with each other.
-          || ((isReference || isCopyInstance) && !byLine)
-          || (isReference && t.refIndex !== null && !Number.isInteger(t.refIndex))
-          || (isCopyInstance
-            && (!Number.isInteger(t.instanceIndex) || t.instanceIndex < 0 || isReference))
-          || (t.featureType !== undefined
-            && !(isReference ? validReferenceTypes
-              : isCopyInstance ? validCopyTypes
-              : validTypes).has(t.featureType))
-          // Anchor-point targeting (P8): the bezier control-point index —
-          // integer ≥ 0 (the transform enforces the featureType pairing).
-          || (t.pointIndex !== undefined
-            && (!Number.isInteger(t.pointIndex) || t.pointIndex < 0))
-          || (t.occurrence !== undefined
-            && (!Number.isInteger(t.occurrence) || t.occurrence < 0))) {
-          res.status(400).json({ error: 'Invalid request body' });
-          return;
-        }
-        cleanTargets.push({
-          ...(byLine ? { line: t.line } : { newIndex: t.newIndex }),
-          ...(byLine && t.occurrence !== undefined ? { occurrence: t.occurrence } : {}),
-          ...(t.role !== undefined ? { role: t.role } : {}),
-          ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
-          ...(isReference ? { refIndex: t.refIndex } : {}),
-          ...(isCopyInstance ? { instanceIndex: t.instanceIndex } : {}),
-          ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
-        });
+        cleanTargets.push(cleaned);
       }
       cleanConstraints.push({
         kind: c.kind, targets: cleanTargets,

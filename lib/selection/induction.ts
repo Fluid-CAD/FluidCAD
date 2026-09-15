@@ -4,9 +4,19 @@ import { Atom } from "./atoms.js";
  * Oracle for contextual (set-level) atoms: the keys a conjunction extended
  * by `atom` resolves to over the universe. Called during induction because a
  * contextual atom's match set depends on the candidates the conjunction has
- * already narrowed the universe to.
+ * already narrowed the universe to. `survivors` is exactly that narrowed set
+ * — the keys every stage of `conjunction` kept, in order — so the oracle
+ * runs the one new stage over those survivors instead of replaying the
+ * whole chain from the universe. Per-shape stages are pure predicates and a
+ * set-level stage only ever reads the set it is handed, so the two agree
+ * stage for stage; the caller's final oracle pass over the composed chain
+ * still guards the emitted code.
  */
-export type ContextualEvaluator<B> = (conjunction: Atom<B>[], atom: Atom<B>) => Set<number>;
+export type ContextualEvaluator<B> = (
+  conjunction: Atom<B>[],
+  atom: Atom<B>,
+  survivors: Set<number>,
+) => Set<number>;
 
 /**
  * Greedy set-cover induction of a short filter conjunction (design §3.2):
@@ -164,7 +174,7 @@ class InductionSearch<B> {
       if (best === null) {
         return null;
       }
-      const match = this.matchOf(best, conjunction)!;
+      const match = this.matchOf(best, conjunction, survivors)!;
       conjunction.push(best);
       survivors = new Set([...survivors].filter(key => match.has(key)));
     }
@@ -198,7 +208,7 @@ class InductionSearch<B> {
       if (atom.contextual && (atom.minDepth ?? 0) > conjunction.length) {
         continue;
       }
-      const match = this.matchOf(atom, conjunction);
+      const match = this.matchOf(atom, conjunction, survivors);
       if (match === null) {
         continue;
       }
@@ -237,9 +247,11 @@ class InductionSearch<B> {
   /**
    * The atom's match set in the current context: precomputed for per-shape
    * atoms; for contextual atoms, evaluated (and memoized) against the
-   * conjunction so far, and null when the result would drop a target.
+   * conjunction so far — over `survivors`, the keys that conjunction kept —
+   * and null when the result would drop a target. The memo is keyed on the
+   * conjunction alone: its survivors are a function of it.
    */
-  private matchOf(atom: Atom<B>, conjunction: Atom<B>[]): Set<number> | null {
+  private matchOf(atom: Atom<B>, conjunction: Atom<B>[], survivors: Set<number>): Set<number> | null {
     if (!atom.contextual) {
       return this.matches.get(atom) ?? null;
     }
@@ -247,7 +259,7 @@ class InductionSearch<B> {
     if (this.contextualCache.has(key)) {
       return this.contextualCache.get(key)!;
     }
-    let match: Set<number> | null = this.evaluateContextual!(conjunction, atom);
+    let match: Set<number> | null = this.evaluateContextual!(conjunction, atom, survivors);
     for (const target of this.targets) {
       if (!match.has(target)) {
         match = null;

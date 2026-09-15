@@ -27,9 +27,15 @@ import { probeEdge, probeFace } from "./probe.js";
  */
 export type InductionContext = {
   universeKeys: number[];
+  /** The universe's shapes, positionally aligned with `universeKeys`. */
+  universe: Shape[];
   kindFn: 'edge' | 'face';
-  /** Runs builders over the universe exactly as the emitted code would. */
-  evaluate: (builders: FilterBuilderBase<Shape>[]) => Shape[];
+  /**
+   * Runs builders exactly as the emitted code would — over the whole
+   * universe, or over `shapes` (a subset of it, in universe order) when a
+   * contextual stage is evaluated against the survivors of a prefix.
+   */
+  evaluate: (builders: FilterBuilderBase<Shape>[], shapes?: Shape[]) => Shape[];
   /** Instantiates candidate atoms from the given picks' geometry. */
   instantiate: (attrs: PickAttribution[]) => Atom<FilterBuilderBase<Shape>>[];
   /** Allow degrading to one filter arg per pick (OR across args). */
@@ -59,10 +65,11 @@ export function bucketContext(
 ): InductionContext {
   return {
     universeKeys: bucket.memberKeys,
+    universe: bucket.members,
     kindFn: bucket.def.kind,
     // Exactly what the accessor runs: scope-aware filters see the feature's
     // as-built solid, so convexity atoms are valid at the bucket tiers too.
-    evaluate: builders => applyBucketFilters(bucket.members, builders, bucket.feature),
+    evaluate: (builders, shapes = bucket.members) => applyBucketFilters(shapes, builders, bucket.feature),
     instantiate: attrs => bucket.def.kind === 'edge'
       ? instantiateEdgeAtoms(
         attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
@@ -139,11 +146,12 @@ export function globalContext(
 
   return {
     universeKeys,
+    universe,
     kindFn: kind,
-    evaluate: builders => {
+    evaluate: (builders, shapes = universe) => {
       const hasher = injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
       try {
-        return new ShapeFilter(universe, ...builders).apply();
+        return new ShapeFilter(shapes, ...builders).apply();
       } finally {
         if (hasher) {
           hasher.delete();
@@ -222,17 +230,21 @@ export function induceFilterCandidates(
     return matches;
   };
   // A contextual atom is evaluated as the closing stage of the conjunction
-  // built so far — the same chain the emitted code would run.
+  // built so far: the one new stage runs over the survivors induction has
+  // already narrowed the universe to — the exact set the emitted chain would
+  // hand that stage — rather than replaying every earlier stage (each an
+  // OCCT probe per candidate) from the full universe. Induction evaluates
+  // dozens of rank atoms at every step, so this replay was the synthesizer's
+  // whole cost on scene-wide picks.
   const evaluateContextual = (
-    conjunction: Atom<FilterBuilderBase<Shape>>[],
+    _conjunction: Atom<FilterBuilderBase<Shape>>[],
     atom: Atom<FilterBuilderBase<Shape>>,
+    survivors: Set<number>,
   ) => {
     const builder = newBuilder(ctx.kindFn);
-    for (const a of conjunction) {
-      a.addTo(builder);
-    }
     atom.addTo(builder);
-    return keysOf(ctx.evaluate([builder]));
+    const shapes = ctx.universe.filter((_, i) => survivors.has(ctx.universeKeys[i]));
+    return keysOf(ctx.evaluate([builder], shapes));
   };
 
   const atoms = ctx.instantiate(attrs);

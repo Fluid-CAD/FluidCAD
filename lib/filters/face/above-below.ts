@@ -1,5 +1,7 @@
+import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Plane } from "../../math/plane.js";
+import { Point } from "../../math/point.js";
 import { Face } from "../../common/shapes.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { FilterBase } from "../filter-base.js";
@@ -7,11 +9,26 @@ import { EdgeOps } from "../../oc/edge-ops.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
-function getBoundaryPoints(face: Face) {
-  return face.getEdges().flatMap(edge => [
-    EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(edge)),
-    EdgeOps.getVertexPoint(EdgeOps.getLastVertex(edge)),
-  ]);
+// Geometry is immutable per wrapper and the synthesizer runs half-space
+// predicates over the same candidates many times per pick, so the boundary
+// points are read once per face (raw vertex access — no throwaway Vertex
+// wrappers) and memoized for the wrapper's lifetime.
+const boundaryPoints = new WeakMap<Face, Point[]>();
+
+function getBoundaryPoints(face: Face): Point[] {
+  const cached = boundaryPoints.get(face);
+  if (cached) {
+    return cached;
+  }
+  const points = face.getEdges().flatMap(edge => {
+    const raw = edge.getShape() as TopoDS_Edge;
+    return [
+      EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw)),
+      EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw)),
+    ];
+  });
+  boundaryPoints.set(face, points);
+  return points;
 }
 
 /**

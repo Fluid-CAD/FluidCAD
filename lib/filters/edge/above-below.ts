@@ -1,3 +1,4 @@
+import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Plane } from "../../math/plane.js";
 import { Edge } from "../../common/shapes.js";
@@ -32,8 +33,9 @@ abstract class HalfSpaceEdgeFilter extends FilterBase<Edge> {
 
   match(shape: Edge): boolean {
     const plane = this.resolvedPlane();
-    const firstPoint = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(shape));
-    const lastPoint = EdgeOps.getVertexPoint(EdgeOps.getLastVertex(shape));
+    const raw = shape.getShape() as TopoDS_Edge;
+    const firstPoint = EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw));
+    const lastPoint = EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw));
     const first = this.onSide(plane.signedDistanceToPoint(firstPoint));
     const last = this.onSide(plane.signedDistanceToPoint(lastPoint));
     if (this.partial) {

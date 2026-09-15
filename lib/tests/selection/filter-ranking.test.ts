@@ -408,4 +408,29 @@ describe("constant-free induction pass", () => {
     expect(conjunction).not.toBeNull();
     expect(conjunction!.map(a => a.code)).toEqual([".onPlane('xz', -34.64)"]);
   });
+
+  it("hands a contextual atom the prefix's survivors instead of the universe", () => {
+    // `.line()` keeps {1,2,3}; the rank stage must then be asked about
+    // exactly those three — replaying the whole chain from the universe for
+    // every rank atom at every step was the synthesizer's entire cost on
+    // scene-wide picks (hundreds of OCCT probes per candidate per pick).
+    const line = atom('.line()', 30, 0);
+    const farthest: Atom<object> = {
+      code: ".farthest('z')", addTo: () => {}, weight: 19, constants: 0, needsScope: false, contextual: true,
+    };
+    const targets = new Set([1, 2]);
+    const universe = new Set([1, 2, 3, 4, 5]);
+    const matches = new Map([[line, new Set([1, 2, 3])]]);
+    const handed: Set<number>[] = [];
+    const evaluateContextual = (conjunction: Atom<object>[], _atom: Atom<object>, survivors: Set<number>) => {
+      handed.push(new Set(survivors));
+      // The top layer among the survivors: {1,2} once `.line()` dropped 4 and 5.
+      return conjunction.length === 0 ? new Set([4, 5]) : new Set([1, 2]);
+    };
+
+    const conjunction = induceConjunction([line, farthest], matches, targets, universe, 4, evaluateContextual);
+    expect(conjunction!.map(a => a.code)).toEqual(['.line()', ".farthest('z')"]);
+    // Opener step: asked over the universe; closing step: over `.line()`'s survivors only.
+    expect(handed.map(s => [...s].sort())).toEqual([[1, 2, 3, 4, 5], [1, 2, 3]]);
+  });
 });

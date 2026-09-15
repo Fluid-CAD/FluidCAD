@@ -383,6 +383,13 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    // Plane() raises Standard_NoSuchObject on any other surface — a wasm
+    // exception per cylinder per evaluation. A non-planar face is not
+    // parallel to a plane; say so without asking the adaptor for one.
+    if (faceAdaptor.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+      faceAdaptor.delete();
+      return false;
+    }
 
     const facePlane = faceAdaptor.Plane();
     const faceAxis = facePlane.Axis();

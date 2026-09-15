@@ -160,8 +160,14 @@ function discoverExamples(docsDir) {
     // Parse view annotation, e.g. "// @screenshot view iso-ftr". Captures from
     // a fixed named view (front, top, iso-ftr, ...) instead of the UI client's
     // current camera, making the shot reproducible without manual framing.
-    const viewMatch = firstLines.match(/\/\/ @screenshot.*view\s+([a-z-]+)/);
-    const view = viewMatch ? viewMatch[1] : null;
+    // "view from 260,110,80" looks at the origin from that world-space eye —
+    // for a picture no named view frames (a plate deep inside a tube).
+    const viewMatch = firstLines.match(/\/\/ @screenshot.*view\s+(from\s+[-\d.]+,[-\d.]+,[-\d.]+|[a-z-]+)/);
+    const view = viewMatch
+      ? (viewMatch[1].startsWith('from')
+        ? { kind: 'look-from', eye: viewMatch[1].slice(4).trim().split(',').map(Number), target: [0, 0, 0] }
+        : { kind: 'named', name: viewMatch[1] })
+      : null;
 
     // Compute output path
     const outputPath = examplePathToImagePath(filePath, docsDir);
@@ -490,7 +496,7 @@ async function main() {
           ...(hidePositional ? { showPositional: false } : {}),
           ...(framePlanes ? { framePlanes: true } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
-          ...(view ? { view: { kind: 'named', name: view } } : {}),
+          ...(view ? { view } : {}),
           ...arSize,
         };
         const png = await takeScreenshot(PORT, options);

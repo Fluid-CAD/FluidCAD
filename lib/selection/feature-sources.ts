@@ -30,6 +30,7 @@ import { Rib } from "../features/rib.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
+import { Intersect } from "../features/2d/intersect.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
 } from "./types.js";
@@ -67,8 +68,11 @@ export type FeatureSources =
   /** The single source: an axis statement (axis mode) or a face (face mode). */
   | { feature: 'helix'; source: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlot }
-  /** The projected 3D sources, as entities on the pre-statement solids. */
-  | { feature: 'projection'; selection: SourceSlot }
+  /**
+   * The projected (or, for `intersect()`, sectioned) 3D sources, as entities
+   * on the pre-statement solids — the two statements share one dialog.
+   */
+  | { feature: 'projection' | 'intersect'; selection: SourceSlot }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -140,6 +144,9 @@ export function resolveFeatureSources(
     }
     if (feature instanceof Projection) {
       return { ok: true, feature: 'projection', selection: resolver.entitiesSlot(feature.sources) };
+    }
+    if (feature instanceof Intersect) {
+      return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources) };
     }
     // A top-level (face-target) offset: its targets are face selections, the
     // same shape as shell's. In-sketch offsets never reach here — their edit

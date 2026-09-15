@@ -1150,16 +1150,26 @@ export async function applyFeature(
 }
 
 /**
+ * The two sketch-reference statements the projection dialog writes:
+ * `project()` flattens its sources along the sketch normal, `intersect()`
+ * cuts the sketch plane through them. Same picks, same dialog.
+ */
+export type ProjectionOp = 'project' | 'intersect';
+
+/**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a
- * `project(<sources>)` statement inside the body of the sketch at `sketch`.
- * The picks are ordinary 3D edges and faces — the same synthesis the modify
- * tools use — but the emitted call lands in the sketch, not beside the
- * features it names.
+ * `project(<sources>)` — or, under `op: 'intersect'`, an
+ * `intersect(<sources>)` — statement inside the body of the sketch at
+ * `sketch`. The picks are ordinary 3D edges and faces — the same synthesis
+ * the modify tools use — but the emitted call lands in the sketch, not beside
+ * the features it names.
  */
 export async function applyProject(
   entities: ApplyFeatureEntity[],
   sketch: SketchSourceRef,
   options: {
+    /** The statement's callee; defaults to `project`. */
+    op?: ProjectionOp;
     chains?: ApplyFeatureChain[];
     selectorOverride?: string;
     /**
@@ -1176,6 +1186,7 @@ export async function applyProject(
     feature: 'project',
     entities,
     sketch,
+    op: options.op,
     chains: options.chains,
     selectorOverride: options.selectorOverride,
     confirmForeign: options.confirmForeign,
@@ -1310,7 +1321,7 @@ export type ProjectEditOptions = EditSessionFields & {
   signal?: AbortSignal;
 };
 
-/** Rewrite the `project()` statement at `edit` in place. */
+/** Rewrite the `project()` / `intersect()` statement at `edit` in place (the callee is kept). */
 export async function applyProjectEdit(
   edit: FeatureEditTarget,
   options: ProjectEditOptions,
@@ -2490,7 +2501,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
-  | { ok: true; feature: 'projection'; selection: SourceSlotRef }
+  | { ok: true; feature: 'projection' | 'intersect'; selection: SourceSlotRef }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -2702,6 +2713,8 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'project';
+      /** Which callee the statement uses — `project()` or `intersect()`. */
+      op: ProjectionOp;
       /** The projected source argument list, verbatim (`''` when absent). */
       argsText: string;
     }

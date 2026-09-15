@@ -1294,9 +1294,11 @@ const EDITABLE_ROW_TYPES = new Set([
   // 2D: an offset/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (Slot rows are deliberately absent — the slot
   // edit dialog was removed; a slot statement is edited in code or redrawn.)
+  // An intersect row parses as the project feature and shares its dialog.
   'offset',
   'fillet2d',
   'projection',
+  'intersect',
 ]);
 
 /**
@@ -1448,7 +1450,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     pauseBeforeSketchStatement(obj, index);
     sketchService.enterFilletEdit(target, parsed, result.statement);
   } else if (parsed.feature === 'project') {
-    // A projection lives inside a sketch body but reads the 3D scene before
+    // A projection (or an intersection — same feature, `parsed.op` tells)
+    // lives inside a sketch body but reads the 3D scene before
     // it: its edit session rolls the viewport back to just before its row
     // (the fillet/chamfer edit pattern) — the projected edges absent, the
     // statement's sources highlighted and re-pickable in the free 3D view.

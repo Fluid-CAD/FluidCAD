@@ -5324,6 +5324,40 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    it('previews and relays intersect() under op', async () => {
+      currentSynthesis = projectSynthesis;
+      const previewed = await post({
+        feature: 'project', entities: [PICK], sketch: SKETCH, op: 'intersect', preview: true,
+      });
+      expect(previewed.status).toBe(200);
+      expect(previewed.body).toMatchObject({ success: true, preview: 'intersect(e.endFaces(0))', args: 'e.endFaces(0)' });
+      expect(relayed).toHaveLength(0);
+
+      const { status, body } = await post({ feature: 'project', entities: [PICK], sketch: SKETCH, op: 'intersect' });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true, preview: 'intersect(e.endFaces(0))' });
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'project',
+        project: { sketch: { line: 9, column: 0 }, op: 'intersect' },
+      });
+    });
+
+    it('leaves op off the spec for a plain project()', async () => {
+      currentSynthesis = projectSynthesis;
+      await post({ feature: 'project', entities: [PICK], sketch: SKETCH, op: 'project' });
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec.project).toEqual({ sketch: { line: 9, column: 0 } });
+    });
+
+    it('400s an unknown op', async () => {
+      currentSynthesis = projectSynthesis;
+      const { status, body } = await post({ feature: 'project', entities: [PICK], sketch: SKETCH, op: 'section' });
+      expect(status).toBe(400);
+      expect(body.error).toBe('op must be "project" or "intersect"');
+      expect(relayed).toHaveLength(0);
+    });
+
     it('carries an edited argument list as rawArgs', async () => {
       currentSynthesis = projectSynthesis;
       await post({

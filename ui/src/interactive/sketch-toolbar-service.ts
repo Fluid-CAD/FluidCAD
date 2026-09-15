@@ -1,5 +1,6 @@
 import { SketchToolbar } from '../ui/sketch-toolbar';
 import { SketchTool, ToolId } from './sketch-tool';
+import type { ProjectionOp } from '../api';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { EllipseTool } from './tools/ellipse-tool';
@@ -379,8 +380,13 @@ export class SketchToolbarService {
     }
   }
 
+  /** The toolbar ids the projection service serves. */
+  private static isProjectionTool(toolId: ToolId | null): toolId is ProjectionOp {
+    return toolId === 'project' || toolId === 'intersect';
+  }
+
   /**
-   * Open the projection dialog over the `project()` statement at `target`
+   * Open the projection dialog over the `project()` / `intersect()` statement at `target`
    * (timeline double-click). The projection service's edit session rolls the
    * viewport back to just before that row (the fillet/chamfer edit pattern);
    * while it runs, sketch editing stays suspended and this service receives
@@ -401,7 +407,8 @@ export class SketchToolbarService {
     // drag/hover handlers a sketch-mode entry left active would fight it
     // (create mode tears them down in handleToolSelect the same way).
     this.deactivateDragHandler();
-    this.toolbar.setActiveTool('project');
+    // The statement's callee picks the toolbar button (Project or Intersect).
+    this.toolbar.setActiveTool(parsed.op);
     this.projectionService.enterEdit(target, parsed, info);
   }
 
@@ -914,7 +921,9 @@ export class SketchToolbarService {
       this.activeDrawingTool = null;
     }
 
-    if (this.toolbar.activeTool === 'project' && toolId !== 'project') {
+    // Project and Intersect share the projection service; switching between
+    // them re-arms it under the other op.
+    if (SketchToolbarService.isProjectionTool(this.toolbar.activeTool) && toolId !== this.toolbar.activeTool) {
       this.projectionService.exit();
     }
     const previousOp = this.toolbar.activeTool ? this.opServices[this.toolbar.activeTool] : undefined;
@@ -942,11 +951,11 @@ export class SketchToolbarService {
 
     this.deactivateDragHandler();
 
-    // Project picks solid edges and faces, so it leaves sketch editing (the
-    // camera unlocks from the sketch normal) while keeping this sketch as the
-    // statement's destination.
-    if (toolId === 'project') {
-      this.projectionService.enter(this.activeSketchInfo.sourceLocation);
+    // Project and Intersect pick solid edges and faces, so they leave sketch
+    // editing (the camera unlocks from the sketch normal) while keeping this
+    // sketch as the statement's destination.
+    if (SketchToolbarService.isProjectionTool(toolId)) {
+      this.projectionService.enter(this.activeSketchInfo.sourceLocation, toolId);
       return;
     }
 

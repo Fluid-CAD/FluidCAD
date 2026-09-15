@@ -1,16 +1,17 @@
+import type { ProjectionOp } from '../api';
 import { FeaturePanel } from './create-feature/feature-panel';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
-
-/** The picker's standing instruction — edges and faces both project. */
-const PICK_PROMPT = 'Pick edges or faces';
+import { PROJECTION_OP_SPECS, ProjectionOpSpec } from './projection-op';
 
 /**
  * The projection dialog: one multi-pick slot for the 3D edges and faces to
  * flatten onto the active sketch plane, Apply / Cancel, and the
  * expression-transparency row carrying the synthesized `project(…)` arguments
- * with their verified alternatives. Pure DOM + form state — the service owns
- * the pick set, the synthesis round-trips and the apply call.
+ * with their verified alternatives. The same dialog serves `intersect()` —
+ * {@link setOp} swaps the title, icon, prompts and expression prefix. Pure
+ * DOM + form state — the service owns the pick set, the synthesis
+ * round-trips and the apply call.
  */
 export class ProjectionPanel extends FeaturePanel {
   /** The chip at `index` asked to be removed. */
@@ -26,12 +27,14 @@ export class ProjectionPanel extends FeaturePanel {
   private readonly foreignRow: HTMLDivElement;
   private readonly foreignText: HTMLParagraphElement;
   private readonly foreignConfirm: HTMLButtonElement;
+  /** The statement the dialog currently writes; everything op-specific reads off it. */
+  private spec: ProjectionOpSpec = PROJECTION_OP_SPECS.project;
 
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-projection-panel',
-      title: 'Project',
-      icon: '/icons/projection.png',
+      title: PROJECTION_OP_SPECS.project.title,
+      icon: PROJECTION_OP_SPECS.project.icon,
       exitLabel: 'Cancel',
       bodyHtml: `
         <div data-role="sources"></div>
@@ -53,7 +56,7 @@ export class ProjectionPanel extends FeaturePanel {
     // Picking is live the whole time the tool is armed, and the slot keeps
     // inviting more picks — it always wears the pick-target styling.
     this.slot.setArmed(true);
-    this.slot.setPrompt(PICK_PROMPT);
+    this.slot.setPrompt(this.spec.pickPrompt);
     this.slot.onRemove = (index) => this.onRemoveChip?.(index);
     this.slot.onChipHover = (index) => this.onChipHover?.(index);
 
@@ -74,6 +77,18 @@ export class ProjectionPanel extends FeaturePanel {
         this.onExit?.();
       }
     };
+  }
+
+  /**
+   * Dress the dialog for `op` — call before {@link show}. Title, icon, slot
+   * prompt, the cross-part button's label and the expression row's callee
+   * prefix all follow the statement being written.
+   */
+  setOp(op: ProjectionOp): void {
+    this.spec = PROJECTION_OP_SPECS[op];
+    this.shell.setIcon(this.spec.icon);
+    this.foreignConfirm.textContent = this.spec.confirmLabel;
+    this.expression.setPrefix(`${op}(`);
   }
 
   show(): void {
@@ -100,14 +115,14 @@ export class ProjectionPanel extends FeaturePanel {
     this.foreignRow.classList.remove('hidden');
   }
 
-  /** Retitle the dialog ("Edit projection"); null restores "Project". */
+  /** Retitle the dialog ("Edit projection"); null restores the op's own title. */
   setTitle(title: string | null): void {
-    this.shell.setTitle(title);
+    this.shell.setTitle(title ?? this.spec.title);
   }
 
-  /** Override the slot prompt (the edit mode's re-pick invitation); null restores the default. */
+  /** Override the slot prompt (the edit mode's re-pick invitation); null restores the op's default. */
   setPrompt(text: string | null): void {
-    this.slot.setPrompt(text ?? PICK_PROMPT);
+    this.slot.setPrompt(text ?? this.spec.pickPrompt);
   }
 
   override hide(): void {

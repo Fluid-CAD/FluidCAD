@@ -1,0 +1,57 @@
+---
+sidebar_position: 4
+title: "Intersect"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolIntersectBasic from '!!raw-loader!../_examples/tool-intersect-basic.js';
+
+# Intersect
+
+Intersect cuts the sketch plane through 3D faces and brings the section curves into the sketch. Like a [projection](/docs/sketching/tools/project), the result is **fixed reference geometry**: the solver never moves it, it renders as locked (green) geometry, and your sketch geometry can be constrained against it. Where Project flattens what you would see of a face from the sketch plane, Intersect gives you the true outline where the plane passes through it — the wall of a bore, the profile of a curved cavity, the section of a rib.
+
+## In the viewport
+
+1. Click **Intersect** on the sketch toolbar. The Intersect dialog opens with one **Selection** slot.
+2. Click the 3D faces to section. Each pick becomes a chip; a right-click offers the same multi-select groups the modify tools do. Only faces can be picked — a plane meets an edge in a point, which is no sketch geometry.
+3. **Apply** writes the `intersect(…)` statement at the top of the sketch body, where the references it creates are available to every constraint after it.
+
+![A divider plate spanning a tube's bore, drawn against the sectioned inner wall](/img/docs/sketching/tool-intersect-basic.png)
+
+<ExplainedCode code={toolIntersectBasic} fileName="divider.part.js" />
+
+Double-click the intersection's row in the timeline to re-source it: the viewport rolls back to just before the statement and the dialog reopens with its faces highlighted.
+
+## From another part
+
+Inside a part you can section the faces of a part declared **before** it, exactly as with Project: the dialog names the owning part, and Apply waits for **Expose and intersect**, which writes an `expose()` into that part for each picked face and references it as `<part>.features.<name>` in your sketch.
+
+## By hand
+
+```js
+intersect(tube.internalFaces())    // a bore's wall → its circle at the plane
+intersect(body)                    // a whole solid → its full section outline
+intersect(face1, face2)            // several sources at once
+```
+
+Sections usually carry `.guide()` so the reference stays out of the profile and only the geometry drawn against it is extruded or cut.
+
+## Constraining against a section
+
+A section is a first-class constraint target, with the same forms as a projection: a single sectioned entity is used directly, and a multi-edge section is addressed with `.ref(i)`:
+
+```js
+sketch("yz", () => {
+    const wall = intersect(tube.internalFaces()).guide()   // one circle
+    coincident(b.start(), wall)                              // a corner on the wall
+    concentric(c, wall)                                      // a hole concentric with it
+})
+```
+
+```js
+const outline = intersect(body).guide()          // several edges
+coincident(p, outline.ref(0).start())
+tangent(outline.ref(2), l)
+```
+
+Because references are fixed, a sketch made only of sections reports **Fully constrained** by itself — the geometry you add is what brings degrees of freedom.

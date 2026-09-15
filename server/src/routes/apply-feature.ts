@@ -19,6 +19,7 @@ import {
   renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
   resolvePartBindingIdent,
+  PROJECTION_OPS, type ProjectionOp,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
   type OffsetEditOptions,
@@ -4098,7 +4099,7 @@ export function createApplyFeatureRouter(
             res.status(422).json({
               success: false,
               reason: `the re-picked geometry belongs to another part (${names}) — an existing projection keeps `
-                + 'its own part\'s sources; add a new Project for geometry from another part',
+                + 'its own part\'s sources; add a new Project or Intersect for geometry from another part',
               pick: owners.foreign[0].pick,
             });
             return;
@@ -6106,6 +6107,14 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketch must be {filePath, line, column} of the sketch receiving the projection' });
         return;
       }
+      // The callee: `project()` flattens along the sketch normal (the
+      // default), `intersect()` sections the sources with the sketch plane.
+      // Everything else — picks, synthesis, landing spot — is shared.
+      const op: ProjectionOp = req.body?.op ?? 'project';
+      if (!PROJECTION_OPS.includes(op)) {
+        res.status(400).json({ error: 'op must be "project" or "intersect"' });
+        return;
+      }
       if (selectorOverride !== undefined
         && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
         res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
@@ -6177,7 +6186,7 @@ export function createApplyFeatureRouter(
         // ARE the statement, and composing keeps the preview identical to what
         // the transform writes even against a workspace kernel that predates
         // the project feature kind (it would render the valued form).
-        const statementPreview = `project(${args})`;
+        const statementPreview = `${op}(${args})`;
         if (preview === true) {
           res.json({
             success: true,
@@ -6209,6 +6218,7 @@ export function createApplyFeatureRouter(
           value: undefined,
           project: {
             sketch: { line: sketchLoc.line, column: sketchLoc.column },
+            ...(op !== 'project' ? { op } : {}),
             ...(resolution.refs.length > 0 ? { foreign: resolution.refs } : {}),
           },
         };

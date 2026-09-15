@@ -959,6 +959,10 @@ export type WrapEditOptions = {
   sketch: { producer: number };
 };
 
+/** The two sketch-reference statements the projection dialog writes. */
+export type ProjectionOp = 'project' | 'intersect';
+export const PROJECTION_OPS: readonly ProjectionOp[] = ['project', 'intersect'];
+
 /**
  * Projection payload. Unlike every other 3D-pick feature, the statement does
  * not land in the producers' own scope: `project()` reads the sketch it is
@@ -969,6 +973,13 @@ export type WrapEditOptions = {
 export type ProjectEditOptions = {
   /** Call site of the `sketch()` statement whose body receives the call. */
   sketch: { line: number; column: number };
+  /**
+   * The statement written: `project()` flattens the sources along the sketch
+   * normal, `intersect()` cuts the sketch plane through them. Same picks,
+   * same landing spot, same edit dialog — only the callee differs. Defaults
+   * to `project`.
+   */
+  op?: ProjectionOp;
   /**
    * Sources another part owns, each rendered as one `<ident>.features.<name>`
    * argument after the selector parts (the find-or-create rail the cross-part
@@ -1950,6 +1961,7 @@ async function applyCreateEdit(
       && spec.producers.length === 0 && spec.parts.length === 0;
     const valid = pj !== undefined
       && Number.isInteger(pj.sketch?.line) && Number.isInteger(pj.sketch?.column)
+      && (pj.op === undefined || PROJECTION_OPS.includes(pj.op))
       && ((spec.producers.length > 0 && spec.parts.length > 0) || foreignOnly);
     if (!valid) {
       return { newCode: code, error: 'malformed project edit spec' };
@@ -3429,7 +3441,15 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'boolean') {
     return spec.boolean!.kind;
   }
+  if (spec.feature === 'project') {
+    return projectionCallee(spec);
+  }
   return spec.feature;
+}
+
+/** The projection payload's callee — `project` unless the spec asks for `intersect`. */
+function projectionCallee(spec: ApplyFeatureEditSpec): ProjectionOp {
+  return spec.project?.op ?? 'project';
 }
 
 /** The `.thin(…)` / `.remove()` / `.new()` chains shared by sweep and loft. */
@@ -4270,9 +4290,10 @@ function buildStatement(
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
   // Project carries no numeric parameter — the args ARE the statement
-  // (`project(e.face('top'))`).
+  // (`project(e.face('top')`), and `intersect(…)` is the same statement
+  // under its sibling callee.
   if (spec.feature === 'project') {
-    return `${spec.feature}(${args})`;
+    return `${projectionCallee(spec)}(${args})`;
   }
   if (spec.feature === 'offset') {
     return renderOffsetStatement(spec.value, args, spec.offset);
@@ -4879,6 +4900,8 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'project';
+    /** Which callee the statement uses — `project()` or `intersect()`. */
+    op: ProjectionOp;
     /** The projected source argument list, verbatim (`''` when absent). */
     argsText: string;
   }
@@ -5105,7 +5128,10 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   helix: 'helix',
   plane: 'plane',
   offset: 'offset',
+  // Both sketch-reference callees open the projection dialog; the parse
+  // reports which one under `op` so the rewrite keeps the callee.
   project: 'project',
+  intersect: 'project',
   connector: 'connector',
 };
 
@@ -5502,11 +5528,13 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   if (feature === 'project') {
     // The whole argument list is the dialog-editable surface — the projected
-    // sources, kept verbatim unless re-picked. No value slot, no chains.
+    // sources, kept verbatim unless re-picked. No value slot, no chains. The
+    // callee itself (`project` or `intersect`) is the one thing the dialog
+    // never changes, so the rewrite reads it back from here.
     const argsText = args.length > 0
       ? code.slice(args[0].startIndex, args[args.length - 1].endIndex)
       : '';
-    return { parsed: { feature, argsText }, start, end };
+    return { parsed: { feature, op: chain.root.name as ProjectionOp, argsText }, start, end };
   }
 
   if (feature === 'connector') {
@@ -8499,8 +8527,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'project') {
     // No value slot: the args are the whole statement — the edited expression
-    // row, the re-picked selector parts, or the statement's own list.
-    return { statement: `project(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
+    // row, the re-picked selector parts, or the statement's own list — under
+    // the statement's own callee.
+    return { statement: `${parsed.op}(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
   }
   if (parsed.feature === 'connector') {
     const opts = spec.edit?.connector;
@@ -8667,10 +8696,10 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   // from inside the sketch callback it resolves against the sketch's own
   // scope and the projection silently drops. Lift each to a declaration
   // before the sketch, exactly like the create path.
-  if (spec.feature === 'project') {
+  if (chain.parsed.feature === 'project') {
     const sketchStatement = enclosingSketchStatement(call);
     if (!sketchStatement) {
-      return { newCode: code, error: `the project() at line ${edit.line} is not inside a sketch body` };
+      return { newCode: code, error: `the ${chain.parsed.op}() at line ${edit.line} is not inside a sketch body` };
     }
     const useSemicolon = (enclosingStatement(call) ?? call).text.trimEnd().endsWith(';');
     const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
@@ -8726,7 +8755,9 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
     ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
     : spec.feature === 'boolean'
       ? edit.boolean!.kind
-      : spec.feature;
+      : chain.parsed.feature === 'project'
+        ? chain.parsed.op
+        : spec.feature;
   result = await ensureSymbolImport(result, callee);
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {

@@ -8,6 +8,12 @@ import type { ForeignPick } from '../../api';
  * again; picks the sketch's own part owns never do. Pure state, no DOM.
  */
 export class ForeignConfirmation {
+  /**
+   * How the notice names what Apply does with the references — the
+   * projection dialog "projects" them, its intersect mode "intersects" them.
+   */
+  wording: { verb: string; gerund: string } = { verb: 'projects', gerund: 'Projecting' };
+
   private picks: ForeignPick[] = [];
   private confirmedSignature: string | null = null;
 
@@ -66,17 +72,17 @@ export class ForeignConfirmation {
     const existing = this.picks.filter(p => p.existing);
     if (existing.length === this.picks.length) {
       const names = [...new Set(existing.map(p => p.exposeName))].join(', ');
-      return `${what}, already exposed as ${names}. Apply projects ${references} here.`;
+      return `${what}, already exposed as ${names}. Apply ${this.wording.verb} ${references} here.`;
     }
     const parts = this.partNames();
     const where = parts.length > 1 ? 'in each' : 'there';
     const verb = existing.length > 0 ? `exposes what isn't yet ${where}` : `adds expose() ${where}`;
-    return `${what}. Apply ${verb} and projects ${references} here.`;
+    return `${what}. Apply ${verb} and ${this.wording.verb} ${references} here.`;
   }
 
   /** The compact line shown once confirmed. */
   summary(): string | null {
-    return this.present ? `Projecting from ${this.partList()} through expose().` : null;
+    return this.present ? `${this.wording.gerund} from ${this.partList()} through expose().` : null;
   }
 
   private signature(): string {

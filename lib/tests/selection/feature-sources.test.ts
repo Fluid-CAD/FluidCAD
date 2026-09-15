@@ -16,7 +16,7 @@ import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rotate from "../../core/rotate.js";
 import rib from "../../core/rib.js";
-import { circle, offset, project, line } from "../../core/2d/index.js";
+import { circle, offset, project, intersect, line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
@@ -350,6 +350,41 @@ describe("feature sources (edit-dialog seeding)", () => {
         expect(result.path.entities[0].sub.type).toBe("edge");
         const verticalEdges = edgeRefsWhere(box, m => Math.abs(m.z - 20) < 1e-6);
         expect(verticalEdges.map(r => r.sub.index)).toContain(result.path.entities[0].sub.index);
+      }
+    }
+  });
+
+  it("resolves an intersection's sources onto the pre-statement solid", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30) as Extrude;
+    setLocation(e, 4);
+    sketch("xz", () => {
+      testRect(20, 10);
+      const i = intersect(e.sideFaces());
+      setLocation(i as any, 8);
+    });
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "intersect", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "intersect") {
+      expect(result.selection.kind).toBe("entities");
+      if (result.selection.kind === "entities") {
+        // A side face's edges straddle both end planes, so it is every face
+        // that is not an end face (whose edges all sit on one end plane).
+        const endIndices = faceRefsWhere(box, m => Math.abs(m.z) < 1e-6 || Math.abs(m.z - 30) < 1e-6)
+          .map(r => r.sub.index);
+        const sideFaces = faceRefsWhere(box, () => true).filter(r => !endIndices.includes(r.sub.index));
+        expect(result.selection.entities.length).toBeGreaterThan(0);
+        for (const ref of result.selection.entities) {
+          expect(ref.shapeId).toBe(box.id);
+          expect(ref.sub.type).toBe("face");
+          expect(sideFaces.map(r => r.sub.index)).toContain(ref.sub.index);
+        }
       }
     }
   });

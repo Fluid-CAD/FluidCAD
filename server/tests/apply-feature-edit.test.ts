@@ -6240,6 +6240,22 @@ describe('project into a sketch body', () => {
     ].join('\n'));
   });
 
+  it('writes intersect() under the op and imports it', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      project: { sketch: { line: 5, column: 0 }, op: 'intersect' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { intersect, sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`sketch('xz', () => {\n  circle(4)\n  intersect(e.endFaces(0))\n})`);
+  });
+
+  it('refuses an unknown op', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      project: { sketch: { line: 5, column: 0 }, op: 'section' as any },
+    }));
+    expect(result.error).toBe('malformed project edit spec');
+  });
+
   it('opens an empty sketch body at one indent level in', async () => {
     const code = [
       `import { sketch, ellipse, extrude, project } from 'fluidcad/core'`,
@@ -6639,8 +6655,26 @@ describe('parseFeatureStatement — project', () => {
     const result = await parseFeatureStatement(code, 5);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'project', argsText: `e.sideFaces(0), select(face().planar())` },
+      parsed: { feature: 'project', op: 'project', argsText: `e.sideFaces(0), select(face().planar())` },
       statement: `project(e.sideFaces(0), select(face().planar()))`,
+    });
+  });
+
+  it('parses intersect() as the project feature under its own op', async () => {
+    const code = [
+      `import { sketch, extrude, intersect } from 'fluidcad/core'`,
+      ``,
+      `const e = extrude(30)`,
+      `sketch('xz', () => {`,
+      `  intersect(e.sideFaces())`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'project', op: 'intersect', argsText: `e.sideFaces()` },
+      statement: `intersect(e.sideFaces())`,
     });
   });
 });
@@ -6664,6 +6698,20 @@ describe('applyFeatureEdit (project in-place statement edit)', () => {
     );
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  project(e.sideFaces(1))\n`);
+  });
+
+  it('keeps the intersect() callee through a re-source', async () => {
+    const code = codeWith(`intersect(e.sideFaces(0))`).replace(', project }', ', intersect }');
+    const result = await applyFeatureEdit(
+      code,
+      editSpec('project', { line: 6, column: 2 }, {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' }],
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  intersect(e.endFaces(0))\n`);
+    expect(result.newCode).not.toContain('project');
   });
 
   it('renders re-picked sources from a producer in the enclosing scope', async () => {

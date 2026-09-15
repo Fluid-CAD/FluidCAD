@@ -34,6 +34,17 @@ describe('ForeignConfirmation', () => {
     expect(gate.summary()).toBe('Projecting from "Bracket" through expose().');
   });
 
+  it('words the notice for the intersect statement when told to', () => {
+    const gate = new ForeignConfirmation();
+    gate.wording = { verb: 'intersects', gerund: 'Intersecting' };
+    gate.update([face(0)]);
+    expect(gate.message()).toBe(
+      '1 face belongs to part "Bracket". Apply adds expose() there and intersects the reference here.',
+    );
+    gate.confirm();
+    expect(gate.summary()).toBe('Intersecting from "Bracket" through expose().');
+  });
+
   it('keeps a confirmation across an unchanged set and drops it when the set changes', () => {
     const gate = new ForeignConfirmation();
     gate.update([face(0), edge(3)]);

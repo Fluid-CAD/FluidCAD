@@ -119,6 +119,11 @@ export class Intersect extends ExtrudableGeometryBase {
     }
   }
 
+  /** The sectioned source selections, for edit-dialog seeding. */
+  get sources(): SceneObject[] {
+    return this.sourceObjects;
+  }
+
   override getDependencies(): SceneObject[] {
     return [...this.sourceObjects];
   }

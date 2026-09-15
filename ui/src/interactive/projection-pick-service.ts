@@ -1,6 +1,6 @@
 import {
   applyProject, applyProjectEdit, fetchFeatureSources, ApplyFeatureEntity, FeatureEditTarget,
-  ParsedFeatureStatement, SelectionGroupKind, SketchSourceRef,
+  ParsedFeatureStatement, ProjectionOp, SelectionGroupKind, SketchSourceRef,
 } from '../api';
 import { mergeUniqueEntities } from '../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../types';
@@ -11,6 +11,7 @@ import { keepChip } from './create-feature/sketch-profiles';
 import { SketchUISuspender } from './create-feature/sketch-suspender';
 import { EditSession, EditSessionInfo } from './edit-session';
 import { PickSelection } from './pick-selection';
+import { PROJECTION_OP_SPECS, ProjectionOpSpec } from './projection-op';
 import { ProjectionPanel } from './projection-panel';
 import { SelectionContextMenu } from './selection-menu';
 
@@ -21,12 +22,16 @@ import { SelectionContextMenu } from './selection-menu';
  */
 type ProjectRequest = { entities: ApplyFeatureEntity[]; sketch: SketchSourceRef | null };
 
-/** A `project()` statement as the parse route reads it. */
+/** A `project()` / `intersect()` statement as the parse route reads it. */
 type ParsedProject = Extract<ParsedFeatureStatement, { feature: 'project' }>;
 
 /**
  * The Project sketch tool: flatten 3D edges and faces onto the plane of the
- * sketch being edited. Arming it leaves sketch editing (the camera unlocks
+ * sketch being edited. The Intersect tool is the same service under
+ * `op: 'intersect'` — it sections the picked faces with the sketch plane
+ * instead, and everything op-specific (title, prompts, which picks count,
+ * the callee written) reads off {@link PROJECTION_OP_SPECS}. Arming it
+ * leaves sketch editing (the camera unlocks
  * from the sketch normal and clicks reach the solids again), then every click
  * toggles an edge or a face into the pick set. Right-click opens the shared
  * multi-select menu — tangent chain, classified bucket, same-type and equal
@@ -63,6 +68,8 @@ export class ProjectionPickService {
   private readonly foreign = new ForeignConfirmation();
   /** The sketch receiving the projection, or null while disarmed. */
   private sketch: SketchSourceRef | null = null;
+  /** The statement being written — set on every enter, before the panel shows. */
+  private op: ProjectionOp = 'project';
 
   /**
    * The in-place edit's view state (timeline double-click): the session rolls
@@ -129,6 +136,7 @@ export class ProjectionPickService {
           });
         }
         return applyProject(request.entities, request.sketch!, {
+          op: this.op,
           chains: this.selection.apiChains(),
           selectorOverride: this.selectorOverride(),
           confirmForeign: this.foreign.confirmed,
@@ -154,7 +162,7 @@ export class ProjectionPickService {
         this.editApplied = true;
         this.onDone?.({ resume: 'lazy' });
       },
-      failMessage: () => 'Could not apply the projection.',
+      failMessage: () => this.spec.failMessage,
       onPreviewSuccess: (result) => {
         this.panel.setMessage(null);
         // An edit that re-picked nothing synthesizes no args — the
@@ -167,6 +175,11 @@ export class ProjectionPickService {
         this.syncForeignNotice();
       },
     });
+  }
+
+  /** The presentation and pick rules of the statement being written. */
+  private get spec(): ProjectionOpSpec {
+    return PROJECTION_OP_SPECS[this.op];
   }
 
   /** Armed and consuming viewport clicks. */
@@ -189,20 +202,30 @@ export class ProjectionPickService {
    * looking at the solids, not down the sketch plane, so sketch editing is
    * suspended right away — Cancel resumes it, an Apply's re-render takes over.
    */
-  enter(sketch: SketchSourceRef): void {
+  enter(sketch: SketchSourceRef, op: ProjectionOp = 'project'): void {
     if (this.isPicking) {
       return;
     }
     this.sketch = sketch;
     this.selection.clear();
     this.sketchUI.suspend();
-    // Both kinds project, and sketch wires stay out of it — the sources are
-    // the solids around the sketch, not the sketch's own geometry.
-    this.viewer.pickFilter = 'all';
-    this.viewer.pickSketchWires = false;
+    this.dress(op);
     this.viewer.clearHighlight();
     this.panel.show();
     this.onVisibilityChange?.(true);
+  }
+
+  /**
+   * Put the service, the panel, the cross-part gate and the viewer's pick
+   * filter into `op`'s terms. Sketch wires stay out of it either way — the
+   * sources are the solids around the sketch, not its own geometry.
+   */
+  private dress(op: ProjectionOp): void {
+    this.op = op;
+    this.foreign.wording = this.spec.foreign;
+    this.panel.setOp(op);
+    this.viewer.pickFilter = this.spec.pickFilter;
+    this.viewer.pickSketchWires = false;
   }
 
   /**
@@ -228,11 +251,11 @@ export class ProjectionPickService {
     // The session owns the view: free 3D camera over the rolled-back scene.
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
-    this.viewer.pickFilter = 'all';
-    this.viewer.pickSketchWires = false;
+    // The statement's own callee decides the mode — an edit never changes it.
+    this.dress(parsed.op);
     this.viewer.clearHighlight();
     this.panel.show();
-    this.panel.setTitle('Edit projection');
+    this.panel.setTitle(this.spec.editTitle);
     this.panel.showExpression(parsed.argsText, []);
     this.refresh();
     void this.loadEditSources();
@@ -256,7 +279,8 @@ export class ProjectionPickService {
     if (!this.session.active || this.session.boundary?.index !== boundary.index || this.picksDirty()) {
       return;
     }
-    if (result.ok && result.feature === 'projection' && result.selection.kind === 'entities') {
+    if (result.ok && (result.feature === 'projection' || result.feature === 'intersect')
+      && result.selection.kind === 'entities') {
       this.selection.entities = result.selection.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
       this.selection.chains = [];
       this.seedSignature = this.selection.signature();
@@ -385,9 +409,14 @@ export class ProjectionPickService {
     this.refresh();
   }
 
+  /** True when the statement takes this kind of pick (faces only, for intersect). */
+  private accepts(sub: SubSelection | null): sub is Extract<SubSelection, { type: 'edge' | 'face' }> {
+    return !!sub && (this.spec.picks as readonly string[]).includes(sub.type);
+  }
+
   /** A viewport click while armed: the pick toggles into the source set. */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.isPicking || !shapeId || !sub || (sub.type !== 'edge' && sub.type !== 'face')) {
+    if (!this.isPicking || !shapeId || !this.accepts(sub)) {
       return;
     }
     this.panel.setMessage(null);
@@ -401,7 +430,7 @@ export class ProjectionPickService {
       return;
     }
     this.selectionMenu.hide();
-    if (!shapeId || !sub || (sub.type !== 'edge' && sub.type !== 'face')) {
+    if (!shapeId || !this.accepts(sub)) {
       return;
     }
     // The hover tint would otherwise be stashed as an "original" color by the
@@ -449,10 +478,10 @@ export class ProjectionPickService {
       return { entities: this.selection.entities, sketch: null };
     }
     if (!this.sketch) {
-      return { error: 'No sketch to project into.' };
+      return { error: 'No sketch to write into.' };
     }
     if (this.selection.isEmpty) {
-      return { error: 'Pick the edges or faces to project.' };
+      return { error: this.spec.emptyMessage };
     }
     return { entities: this.selection.entities, sketch: this.sketch };
   }
@@ -490,7 +519,7 @@ export class ProjectionPickService {
       // all removed) shows the statement's own argument text as the keep
       // chip — it stands until something is picked.
       this.panel.setChips([keepChip(this.editArgsText)]);
-      this.panel.setPrompt('Pick edges or faces to re-source');
+      this.panel.setPrompt(this.spec.repickPrompt);
     } else {
       this.panel.setChips(rows.map(row => ({
         label: row.label,

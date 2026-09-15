@@ -308,6 +308,7 @@ export class PanelShell {
   private preview: HTMLDivElement;
   private message: HTMLDivElement;
   private titleText: HTMLSpanElement;
+  private iconImg: HTMLImageElement;
   private readonly defaultTitle: string;
 
   constructor(container: HTMLElement, id: string, title: string, iconSrc: string) {
@@ -318,7 +319,7 @@ export class PanelShell {
     this.root.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
         ${PanelShell.frameHtml({
-          header: `<img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+          header: `<img data-role="icon" src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
             <span data-role="title" class="font-medium text-sm">${title}</span>`,
         })}
         <div data-role="preview" class="hidden max-sm:hidden sm:max-w-[380px] whitespace-pre-wrap bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
@@ -334,6 +335,7 @@ export class PanelShell {
     this.preview = this.root.querySelector('[data-role="preview"]')!;
     this.message = this.root.querySelector('[data-role="message"]')!;
     this.titleText = this.root.querySelector('[data-role="title"]')!;
+    this.iconImg = this.root.querySelector('[data-role="icon"]')!;
 
     // Escape closes the dialog only from inside it — in sketch mode the
     // drawing tools own the global Escape.
@@ -401,6 +403,11 @@ export class PanelShell {
   /** Retitle the dialog ("Edit extrude"); null restores the create title. */
   setTitle(title: string | null): void {
     this.titleText.textContent = title ?? this.defaultTitle;
+  }
+
+  /** Swap the header icon — a dialog serving two statements wears the active one's. */
+  setIcon(src: string): void {
+    this.iconImg.src = src;
   }
 
   show(): void {

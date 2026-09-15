@@ -7,6 +7,7 @@ import {
   lineText,
   arcText,
   circleText,
+  ellipseText,
   pointText,
   solvedPointText,
   rectEmission,
@@ -32,6 +33,7 @@ describe('statement text formatters', () => {
     expect(arcText([0, 0], [10, 10], [10, 0], true)).toBe('arc([0, 0], [10, 10], [10, 0]).cw()');
     expect(circleText([1, 2], 30)).toBe('circle([1, 2], 30)');
     expect(circleText([1, 2], 'd')).toBe('circle([1, 2], d)');
+    expect(ellipseText([1, 2], 30.004, 'ry')).toBe('ellipse([1, 2], 30, ry)');
     expect(pointText([3, 4])).toBe('point([3, 4])');
   });
 

@@ -358,3 +358,66 @@ describe('parseEmittedGeometry', () => {
     expect(parseEmittedGeometry('circle', 'circle([0, 0], -3)')).toBeNull();
   });
 });
+
+describe('ellipse emissions (P8 anchor statement)', () => {
+  // The Ellipse tool's coincident targets the centre through the `center`
+  // role; the trial models the statement as that one point — the radii
+  // are literals the solver never sees.
+  it('parseEmittedGeometry reads the centre point of a literal ellipse', () => {
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20)')).toEqual([1, 2]);
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20).guide()')).toEqual([1, 2]);
+    // A typed radius or a degenerate literal leaves the statement out.
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], rx, 20)')).toBeNull();
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 0, 20)')).toBeNull();
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30)')).toBeNull();
+  });
+
+  it('pendingEmissionOf keeps the centre as a point and re-addresses it as the anchor target', () => {
+    const pending = pendingEmissionOf({
+      geometry: [{ kind: 'ellipse', text: 'ellipse([1, 2], 30, 20)' }],
+      constraints: [inferred(coincident(newTarget(0, 'center'), { datum: 'origin' }))],
+    }, [21]);
+    expect(pending.geometry).toEqual([{ line: 21, kind: 'point', params: [1, 2] }]);
+    expect(pending.constraints[0].targets).toEqual([{ line: 21, featureType: 'ellipse' }, { datum: 'origin' }]);
+  });
+
+  it('keeps a fresh centre snap and drops a second pin the first already implies', () => {
+    const { sys, ids } = rectangle();
+    // The rectangle's bottom-left corner is fixed at the origin: pinning
+    // the centre onto the corner AND onto the origin is one pin too many.
+    const request: SolvedEmissionRequest = {
+      geometry: [{ kind: 'ellipse', text: 'ellipse([0, 0], 30, 20)' }],
+      constraints: [
+        inferred(coincident(newTarget(0, 'center'), lineRef(10, 'start'))),
+        inferred(coincident(newTarget(0, 'center'), { datum: 'origin' })),
+      ],
+    };
+    const { constraints, dropped } = pruneRedundantInferred(modelOf(sys, RECT_LINES(ids)), request);
+    expect(constraints).toEqual([{
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'center' }, lineRef(10, 'start')],
+    }]);
+    expect(dropped).toHaveLength(1);
+  });
+
+  it('a pending ellipse resolves its centre for the next emission', () => {
+    const { sys, ids } = rectangle();
+    const previous: PendingEmission = pendingEmissionOf({
+      geometry: [{ kind: 'ellipse', text: 'ellipse([0, 0], 30, 20)' }],
+      constraints: [coincident(newTarget(0, 'center'), { datum: 'origin' })],
+    }, [21]);
+    // A new line snapped from that centre: its start already sits on the
+    // origin through the pending coincident, so a second origin pin on the
+    // same vertex is redundant — but the centre pin itself is not.
+    const request: SolvedEmissionRequest = {
+      geometry: [{ kind: 'line', text: 'line([0, 0], [40, 40])' }],
+      constraints: [
+        inferred(coincident(newTarget(0, 'start'), { line: 21, featureType: 'ellipse' })),
+        inferred(coincident(newTarget(0, 'start'), { datum: 'origin' })),
+      ],
+    };
+    const { constraints, dropped } = pruneRedundantInferred(modelOf(sys, RECT_LINES(ids)), request, [previous]);
+    expect(constraints.map(c => c.targets[1])).toEqual([{ line: 21, featureType: 'ellipse' }]);
+    expect(dropped).toHaveLength(1);
+  });
+});

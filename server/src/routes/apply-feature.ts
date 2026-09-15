@@ -45,7 +45,7 @@ import {
   type SolvedEmissionTarget,
   type SolvedGeometryEmission,
 } from '../sketch-solved-edit.ts';
-import { SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_CALLEES } from '../sketch-symbols.ts';
+import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../sketch-symbols.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
@@ -7237,7 +7237,7 @@ export function createApplyFeatureRouter(
     }
     const cleanGeometry: SolvedGeometryEmission[] = [];
     for (const g of geometry) {
-      if (typeof g !== 'object' || g === null || !SOLVED_ENTITY_CALLEES.has(g.kind)
+      if (typeof g !== 'object' || g === null || !SOLVED_GEOMETRY_CALLEES.has(g.kind)
         || typeof g.text !== 'string' || (g.guide !== undefined && typeof g.guide !== 'boolean')) {
         res.status(400).json({ error: 'Invalid request body' });
         return;

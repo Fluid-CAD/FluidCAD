@@ -2,6 +2,7 @@ import { SketchToolbar } from '../ui/sketch-toolbar';
 import { SketchTool, ToolId } from './sketch-tool';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
+import { EllipseTool } from './tools/ellipse-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { RectTool } from './tools/rect-tool';
@@ -714,6 +715,8 @@ export class SketchToolbarService {
       }
       case 'circle':
         return applySolvedContext(new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
+      case 'ellipse':
+        return applySolvedContext(new EllipseTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'polygon':
         return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.polygonModeChecked));
       case 'arc2':

@@ -41,13 +41,17 @@ import {
   SOLVED_CONSTRAINT_KINDS,
   SOLVED_ENTITY_CALLEES,
   SOLVED_ENTITY_NAME_HINTS,
+  SOLVED_GEOMETRY_CALLEES,
   type SolvedEntityKind,
+  type SolvedGeometryKind,
 } from './sketch-symbols.ts';
 
 export type SolvedEmissionRole = 'start' | 'end' | 'center' | 'mid';
 
 export type SolvedGeometryEmission = {
-  kind: SolvedEntityKind;
+  /** An entity statement, or the ellipse (P8) — targetable through its
+   * `center` role only. */
+  kind: SolvedGeometryKind;
   /** Rendered call text without binding or `;` — `line([0, 0], [40.5, 0])`.
    * Chained modifiers (`.cw()`) are part of the text. */
   text: string;
@@ -489,7 +493,7 @@ const VALID_ROLES = new Set<string>(['start', 'end', 'center', 'mid']);
  * Recursive for a mirror instance's `source` (`nested`: the mirrored
  * statement, which must be line-addressed and carries no role).
  */
-function targetError(t: SolvedEmissionTarget, geometryCount: number, nested: boolean): string | null {
+function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[], nested: boolean): string | null {
     const byLine = typeof t.line === 'number';
     const byNew = typeof t.newIndex === 'number';
     const byDatum = t.datum !== undefined;
@@ -502,8 +506,14 @@ function targetError(t: SolvedEmissionTarget, geometryCount: number, nested: boo
     if (byDatum && t.role !== undefined) {
       return ('a datum target takes no point role');
     }
-    if (byNew && (t.newIndex! < 0 || t.newIndex! >= geometryCount)) {
+    if (byNew && (t.newIndex! < 0 || t.newIndex! >= geometry.length)) {
       return (`constraint target newIndex ${t.newIndex} is out of range`);
+    }
+    // A same-emission ellipse (P8) is no solver entity: only its center is,
+    // so the target must compose the `center` role — a bare `el1` would
+    // render, then fail in the kernel as an unknown constraint target.
+    if (byNew && geometry[t.newIndex!].kind === 'ellipse' && t.role !== 'center') {
+      return ('an ellipse takes constraints on its center only — target role \'center\'');
     }
     if (t.role !== undefined && !VALID_ROLES.has(t.role)) {
       return (`invalid target role '${t.role}'`);
@@ -572,7 +582,7 @@ function targetError(t: SolvedEmissionTarget, geometryCount: number, nested: boo
     if (t.refIndex !== undefined || t.instanceIndex !== undefined || t.pointIndex !== undefined) {
       return 'a mirror instance target takes no refIndex/instanceIndex/pointIndex';
     }
-    const sourceError = targetError(t.source, geometryCount, true);
+    const sourceError = targetError(t.source, geometry, true);
     if (sourceError !== null) {
       return `mirror instance source: ${sourceError}`;
     }
@@ -599,7 +609,7 @@ export async function applySolvedEmission(
     return refuse(code, 'nothing to emit');
   }
   for (const g of spec.geometry) {
-    if (!SOLVED_ENTITY_CALLEES.has(g.kind)) {
+    if (!SOLVED_GEOMETRY_CALLEES.has(g.kind)) {
       return refuse(code, `unknown entity kind '${g.kind}'`);
     }
     if (!isExpressionText(g.text) || g.text.includes('\n') || g.text.includes(';')
@@ -626,7 +636,7 @@ export async function applySolvedEmission(
       return refuse(code, 'invalid value expression');
     }
     for (const t of c.targets) {
-      const error = targetError(t, spec.geometry.length, false);
+      const error = targetError(t, spec.geometry, false);
       if (error !== null) {
         return refuse(code, error);
       }

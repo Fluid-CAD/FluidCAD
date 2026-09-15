@@ -69,6 +69,13 @@ export type SolvedEntityView = {
    * `pointIndex`.
    */
   anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
+  /**
+   * An ellipse anchor's semi-radii along the plane's X and Y axes — the
+   * statement's literal `rx`/`ry`, which the solver never touches. Carried
+   * so the live drag can redraw the perimeter around the moving center
+   * (tessellate.ts) instead of parking it until the commit re-render.
+   */
+  radii?: [number, number];
 };
 
 export type ConstraintStatus = 'ok' | 'redundant' | 'conflicting';
@@ -347,6 +354,13 @@ export function buildSolvedSketchModel(
         const pair = toPair(obj.object.guess?.center ?? obj.object.guess?.anchor);
         if (pair) {
           view.guess = { point: pair };
+        }
+        if (anchorOwner === 'ellipse') {
+          const rx = obj.object.rx;
+          const ry = obj.object.ry;
+          if (typeof rx === 'number' && typeof ry === 'number' && rx > 0 && ry > 0) {
+            view.radii = [rx, ry];
+          }
         }
         entities.set(obj.object.entityId, view);
       }

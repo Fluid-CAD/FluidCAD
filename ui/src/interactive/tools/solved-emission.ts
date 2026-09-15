@@ -94,6 +94,18 @@ export function circleText(
   return `circle(${solvedPointText(center)}, ${dia})`;
 }
 
+/** `ellipse(center, rx, ry)` — the semi-radii are literals (or typed
+ * expressions) the solver never resizes; only the center is an entity. */
+export function ellipseText(
+  center: [number, number] | PickedPoint,
+  rxExpr: string | number,
+  ryExpr: string | number,
+): string {
+  const rx = typeof rxExpr === 'number' ? fmt(rxExpr) : rxExpr;
+  const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
+  return `ellipse(${solvedPointText(center)}, ${rx}, ${ry})`;
+}
+
 export function pointText(p: [number, number] | PickedPoint): string {
   return `point(${solvedPointText(p)})`;
 }

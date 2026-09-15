@@ -63,6 +63,16 @@ export type PendingEmission = {
 
 const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
 
+/**
+ * The solver entity an emitted statement stands for in the trial. The
+ * ellipse (P8) is no entity itself: its center is a free point the tool's
+ * coincident targets through the `center` role, so the trial models it as
+ * a point — the radii are literals the solver never sees.
+ */
+export function solverEntityKind(kind: SolvedGeometryParam['kind']): EntityKind {
+  return kind === 'ellipse' ? 'point' : kind;
+}
+
 function isPair(v: unknown): v is [number, number] {
   return Array.isArray(v) && v.length === 2
     && typeof v[0] === 'number' && Number.isFinite(v[0])
@@ -72,10 +82,11 @@ function isPair(v: unknown): v is [number, number] {
 /**
  * The solver-layout params of an emitted statement, read back from its
  * rendered text — `line([0, 0], [40, 0])`, `arc(s, e, c).cw()`,
- * `circle([1, 2], 30)`, `point([3, 4])`. Null when any argument is not a
- * plain numeric literal (a typed expression such as `[w / 2, 10]`): the
- * trial has no value for it, so the entity stays out and every constraint
- * on it is kept unverified.
+ * `circle([1, 2], 30)`, `point([3, 4])`, and the center point of
+ * `ellipse([1, 2], 30, 20)` (see solverEntityKind). Null when any argument
+ * is not a plain numeric literal (a typed expression such as `[w / 2, 10]`):
+ * the trial has no value for it, so the entity stays out and every
+ * constraint on it is kept unverified.
  */
 export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: string): number[] | null {
   const m = /^([a-z]+)\((.*?)\)((?:\.[A-Za-z]+\(\))*)$/s.exec(text.trim());
@@ -113,6 +124,15 @@ export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: st
       const [p] = args;
       return args.length === 1 && isPair(p) ? [p[0], p[1]] : null;
     }
+    case 'ellipse': {
+      // Only the center is solver state; the radii must still be positive
+      // literals for the statement to be one the trial can vouch for.
+      const [c, rx, ry] = args;
+      return args.length === 3 && isPair(c)
+        && typeof rx === 'number' && Number.isFinite(rx) && rx > 0
+        && typeof ry === 'number' && Number.isFinite(ry) && ry > 0
+        ? [c[0], c[1]] : null;
+    }
   }
 }
 
@@ -131,7 +151,7 @@ export function pendingEmissionOf(
     const line = geometryLines[i];
     const params = parseEmittedGeometry(g.kind, g.text);
     if (line !== undefined && params) {
-      geometry.push({ line, kind: g.kind, params });
+      geometry.push({ line, kind: solverEntityKind(g.kind), params });
     }
   });
   const constraints = request.constraints.map(c => ({
@@ -144,6 +164,11 @@ export function pendingEmissionOf(
       const line = geometryLines[t.newIndex];
       if (kind === undefined || line === undefined) {
         return t;
+      }
+      // An ellipse's center is its anchor point: the line-addressed form is
+      // the anchor target (featureType-derived accessor, no role).
+      if (kind === 'ellipse') {
+        return { line, featureType: 'ellipse' };
       }
       return { line, featureType: kind, ...(t.role !== undefined ? { role: t.role } : {}) };
     }),
@@ -195,6 +220,9 @@ function pointRef(entity: number, role: SolvedEmissionTargetParam['role']): Solv
 type Trial = {
   live: LiveSolvedSystem;
   newIds: (number | null)[];
+  /** The emitted statement kind per `newIds` slot — an ellipse's slot is
+   * its center point, so its `center` role resolves to the point itself. */
+  newKinds: SolvedGeometryParam['kind'][];
   pendingIds: Map<number, number>;
 };
 
@@ -212,7 +240,10 @@ function resolveTarget(
   }
   if (t.newIndex !== undefined) {
     const id = trial.newIds[t.newIndex];
-    return id === null || id === undefined ? null : pointRef(id, t.role);
+    if (id === null || id === undefined) {
+      return null;
+    }
+    return trial.newKinds[t.newIndex] === 'ellipse' ? { entity: id } : pointRef(id, t.role);
   }
   if (t.line === undefined) {
     return null;
@@ -356,7 +387,9 @@ export function pruneRedundantInferred(
     if (!live) {
       return null;
     }
-    const trial: Trial = { live, newIds: [], pendingIds: new Map() };
+    const trial: Trial = {
+      live, newIds: [], newKinds: request.geometry.map(g => g.kind), pendingIds: new Map(),
+    };
     const tryConstrain = (c: SolvedConstraintParam): boolean => {
       const spec = emissionSpec(model, trial, c);
       if (!spec) {
@@ -383,7 +416,7 @@ export function pruneRedundantInferred(
     }
     for (const g of request.geometry) {
       const params = parseEmittedGeometry(g.kind, g.text);
-      trial.newIds.push(params ? live.addEntity(g.kind, params) : null);
+      trial.newIds.push(params ? live.addEntity(solverEntityKind(g.kind), params) : null);
     }
     for (const c of explicit) {
       tryConstrain(c);

@@ -18,6 +18,16 @@ export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point';
 /** The solved-sketch entity statement callees (fluidcad/core). */
 export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point']);
 
+/**
+ * What the emission rail may write as geometry: the entity statements plus
+ * the ellipse — an anchor-point statement (P8) the Ellipse tool draws. It
+ * is no solver entity itself, so a same-emission target on it composes the
+ * `center` role only (`el1.center()`); its radii stay literals.
+ */
+export type SolvedGeometryKind = SolvedEntityKind | 'ellipse';
+
+export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES, 'ellipse']);
+
 /** Binding-name hints per entity kind — `const l1 = line(…)`. Reference
  * producers (P6) hoist too: `const prj1 = project(…)`, and so do 2D copy
  * statements whose duplicates are constraint targets (`const cp1 = copy(…)`)

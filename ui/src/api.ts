@@ -1750,7 +1750,9 @@ export type SolvedEmissionTargetParam = {
 };
 
 export type SolvedGeometryParam = {
-  kind: 'line' | 'arc' | 'circle' | 'point';
+  /** An entity statement, or the ellipse (P8 anchor statement) — a
+   * same-emission target on an ellipse composes the `center` role only. */
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;

@@ -8,9 +8,15 @@ import primitiveEllipse from '!!raw-loader!../_examples/primitive-ellipse.js';
 
 # Ellipse
 
-An ellipse with its axes aligned to the sketch plane.
+An ellipse with its axes aligned to the sketch plane: cams, oval bosses, and the elongated holes a slot is too square for.
 
-There is no Ellipse button on the sketch toolbar: an ellipse is written in the code editor. Once it is in the file it behaves like any other sketch entity — its centre shows as a draggable point and takes constraints.
+## In the viewport
+
+1. Click **Ellipse** on the sketch toolbar (shortcut `el`).
+2. Click the centre. The **X / Y** pill places it exactly; a centre that snaps onto a vertex or the origin gets a coincident written for it.
+3. Move the cursor out: its horizontal offset from the centre is **RX**, its vertical offset **RY**. Click or press Enter to take the RX pill, then again for RY — or type either value (a number, a variable, or an expression).
+
+The radii land in the statement as written; they are not dimensions the solver can drive, so there is no dimension row to double-click afterwards. Retype the number, or bind it to a [`param()`](/docs/part/param), to resize.
 
 ## By hand
 
@@ -30,7 +36,7 @@ ellipse(center, rx, ry)
 |---|---|
 | `e.center()` | The centre point — the only solver entity an ellipse registers |
 
-The radii stay fixed literals: the solver positions the ellipse through its centre but never resizes it. To change the size, change the numbers or bind them to a [`param()`](/docs/part/param).
+The centre takes every point constraint (`coincident`, `distance`, `midpoint`, `symmetric`, `fix`, a `horizontal`/`vertical` pair with another point) and shows as a draggable point in the viewport. The radii stay fixed literals: the solver positions the ellipse through its centre but never resizes it. To change the size, change the numbers or bind them to a [`param()`](/docs/part/param).
 
 ## Modifiers
 

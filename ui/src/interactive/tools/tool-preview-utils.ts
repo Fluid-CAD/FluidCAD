@@ -164,6 +164,32 @@ export function addDashedCircle(
   addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
+/** An axis-aligned ellipse outline: `rx`/`ry` are the semi-radii along the
+ * plane's X and Y axes — the shape `ellipse(center, rx, ry)` builds. */
+export function addDashedEllipse(
+  previewGroup: Group,
+  center: [number, number],
+  rx: number,
+  ry: number,
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const verts = new Float32Array((CIRCLE_SEGMENTS + 1) * 3);
+  for (let i = 0; i <= CIRCLE_SEGMENTS; i++) {
+    const angle = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
+    const pt: [number, number] = [
+      center[0] + Math.cos(angle) * rx,
+      center[1] + Math.sin(angle) * ry,
+    ];
+    const w = localToWorld(pt, plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
+
+  addDashedPolyline(previewGroup, verts, renderOrder);
+}
+
 export function addDashedRect(
   previewGroup: Group,
   corner1: [number, number],

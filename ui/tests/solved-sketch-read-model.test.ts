@@ -796,6 +796,9 @@ describe('anchor-point entities (P8)', () => {
     expect(center.anchor).toEqual({ owner: 'ellipse', pointIndex: 0 });
     expect(center.guess).toEqual({ point: [3, 4] });
     expect(center.obj).toBe(ellipseObj);
+    // The literal radii ride the view so the live drag can redraw the
+    // perimeter around the moving center.
+    expect(center.radii).toEqual([20, 10]);
 
     const anchor = model.entities.get(1)!;
     expect(anchor.point).toEqual([5, 7]);

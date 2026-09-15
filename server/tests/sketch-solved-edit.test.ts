@@ -596,3 +596,50 @@ describe('applySolvedEmission removals-only', () => {
     expect(result.error).toContain('nothing to emit');
   });
 });
+
+describe('applySolvedEmission: ellipse (P8 anchor statement) geometry', () => {
+  // The Ellipse tool emits `ellipse(center, rx, ry)` through the same rail
+  // as the entity tools. The ellipse is no solver entity — only its center
+  // is — so a same-emission target must name the `center` role, which
+  // renders as the anchor accessor `el1.center()`.
+  it('binds the ellipse and renders a center-role target as el1.center()', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'ellipse', text: 'ellipse([10, 10], 20, 12)' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [{ newIndex: 0, role: 'center' }, { datum: 'origin' }],
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const el1 = ellipse([10, 10], 20, 12);');
+    expect(result.newCode).toContain('coincident(el1.center(), origin());');
+    expect(result.newCode).toContain('ellipse');
+    expect(result.newCode.split('\n')[0]).toMatch(/import \{[^}]*\bellipse\b[^}]*\} from "fluidcad\/core";/);
+    expect(result.names).toEqual(['el1']);
+  });
+
+  it('refuses a same-emission ellipse target without the center role', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'ellipse', text: 'ellipse([10, 10], 20, 12)' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [{ newIndex: 0 }, { datum: 'origin' }],
+      }],
+    });
+    expect(result.error).toContain('center');
+    expect(result.newCode).toBe(SKETCH);
+  });
+
+  it('lands an unreferenced ellipse unbound, with .guide() when asked', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'ellipse', text: 'ellipse([10, 10], rx, 12)', guide: true }],
+      constraints: [],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  ellipse([10, 10], rx, 12).guide();\n  horizontal(a);`);
+    expect(result.names).toEqual([null]);
+  });
+});

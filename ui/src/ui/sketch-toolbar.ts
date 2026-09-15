@@ -27,6 +27,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
   { tools: [
     { id: 'circle', label: 'Circle', iconPng: 'circle' },
+    { id: 'ellipse', label: 'Ellipse', iconPng: 'ellipse' },
     { id: 'polygon', label: 'Polygon', iconPng: 'polygon' },
   ]},
   { tools: [
@@ -55,6 +56,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
 
 export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   circle: 'c',
+  ellipse: 'el',
   rect: 'r',
   line: 'l',
   polygon: 'p',

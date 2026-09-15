@@ -30,8 +30,10 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
 
 /**
  * Polyline through the entity's current geometry, in sketch-plane 2D.
- * Null for point entities (they render as dots, not edges) and for
- * incomplete views.
+ * Null for point entities (they render as dots, not edges) — except an
+ * ellipse's center anchor (P8), whose statement owns the perimeter edge:
+ * that redraws as the axis-aligned ellipse of the view's `radii` around
+ * the live center. Null too for incomplete views.
  *
  * `segments` pins the polyline's segment count — the in-place mesh update
  * must feed `LineSegmentsGeometry.setPositions` exactly as many segments as
@@ -41,7 +43,7 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
 export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): Vec2[] | null {
   switch (e.kind) {
     case 'point':
-      return null;
+      return e.radii && e.point ? tessellateEllipse(e.point, e.radii, segments ?? CIRCLE_SEGMENTS) : null;
     case 'line': {
       if (!e.start || !e.end) {
         return null;
@@ -96,4 +98,18 @@ export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): 
       return points;
     }
   }
+}
+
+/** `ellipse(center, rx, ry)`: semi-radii along the plane's X and Y axes,
+ * closed with the seam vertex repeated (segments + 1 points). */
+function tessellateEllipse(center: Vec2, [rx, ry]: [number, number], n: number): Vec2[] {
+  const points: Vec2[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    points.push([
+      center[0] + Math.cos(a) * rx,
+      center[1] + Math.sin(a) * ry,
+    ]);
+  }
+  return points;
 }

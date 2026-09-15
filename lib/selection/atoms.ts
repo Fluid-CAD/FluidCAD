@@ -7,6 +7,7 @@ import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
+import { FaceProperties } from "../oc/face-props.js";
 import { mmTol } from "../units/tolerance.js";
 import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
@@ -279,11 +280,22 @@ export function instantiateFaceAtoms(
     atoms.push({ code: '.planar()', addTo: b => b.planar(), weight: 30, constants: 0, needsScope: false });
   }
   if (surfaceClass === 'cylinder') {
-    atoms.push({ code: '.cylinder()', addTo: b => b.cylinder(), weight: 30, constants: 0, needsScope: false });
-    const radius = sharedNumber(probes.map(p => p.props.radius));
-    if (radius !== null) {
-      const c = linkedConstant(radius * 2, params);
-      atoms.push({ code: `.cylinder(${c.text})`, addTo: b => b.cylinder(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
+    // A full wrap answers to `cylinder()`, a partial one (rounded corner,
+    // fillet, slotted bore) to `cylinderCurve()` — the atom must be the
+    // filter that admits the picks, or verification drops it. A pick set
+    // mixing the two has no positive class and keeps only what it is not.
+    const name = sharedString(probes.map(p => cylinderFilterName(p.props)));
+    if (name !== null) {
+      atoms.push({ code: `.${name}()`, addTo: b => b[name](), weight: 30, constants: 0, needsScope: false });
+      const radius = sharedNumber(probes.map(p => p.props.radius));
+      if (radius !== null) {
+        const c = linkedConstant(radius * 2, params);
+        atoms.push({ code: `.${name}(${c.text})`, addTo: b => b[name](c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
+      }
+    }
+    else {
+      atoms.push({ code: '.notPlanar()', addTo: b => b.notPlanar(), weight: 28, constants: 0, needsScope: false });
+      atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
     }
   }
   if (surfaceClass === 'circle') {
@@ -391,23 +403,29 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
     return atoms;
   }
 
-  if (probes.every(p => p.adjacentFaces.some(f => f.surfaceType === 'cylinder'))) {
+  // Full and partial cylinders are different filters; an edge between a bore
+  // and a fillet satisfies both, so each is offered on its own evidence.
+  for (const name of CYLINDER_FILTERS) {
+    const adjacent = (p: EdgeProbe) => p.adjacentFaces.filter(f => cylinderFilterName(f) === name);
+    if (!probes.every(p => adjacent(p).length > 0)) {
+      continue;
+    }
     atoms.push({
-      code: '.belongsToFace(face().cylinder())',
-      addTo: b => b.belongsToFace(new FaceFilterBuilder().cylinder()),
+      code: `.belongsToFace(face().${name}())`,
+      addTo: b => b.belongsToFace(new FaceFilterBuilder()[name]()),
       weight: 18, constants: 0, needsScope: true,
     });
     const diameterSets = probes.map(p => new Set(
-      p.adjacentFaces
-        .filter(f => f.surfaceType === 'cylinder' && f.radius !== undefined)
+      adjacent(p)
+        .filter(f => f.radius !== undefined)
         .map(f => formatConstant(f.radius! * 2).text),
     ));
     for (const text of sharedMembers(diameterSets).slice(0, 2)) {
       const value = Number(text);
       const c = linkedConstant(value, params);
       atoms.push({
-        code: `.belongsToFace(face().cylinder(${c.text}))`,
-        addTo: b => b.belongsToFace(new FaceFilterBuilder().cylinder(value)),
+        code: `.belongsToFace(face().${name}(${c.text}))`,
+        addTo: b => b.belongsToFace(new FaceFilterBuilder()[name](value)),
         weight: 14, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: true,
       });
     }
@@ -767,6 +785,21 @@ export function niceValueInGap(lo: number, hi: number): number | null {
     }
   }
   return mid;
+}
+
+type CylinderFilterName = typeof CYLINDER_FILTERS[number];
+const CYLINDER_FILTERS = ['cylinder', 'cylinderCurve'] as const;
+
+/**
+ * The cylinder filter that admits a face: `cylinder()` for a full wrap
+ * (closed circular rim), `cylinderCurve()` for a partial one. Undefined for
+ * every other surface.
+ */
+function cylinderFilterName(props: FaceProperties): CylinderFilterName | undefined {
+  if (props.surfaceType !== 'cylinder') {
+    return undefined;
+  }
+  return props.closed ? 'cylinder' : 'cylinderCurve';
 }
 
 function sharedString<T extends string>(values: (T | undefined)[]): T | null {

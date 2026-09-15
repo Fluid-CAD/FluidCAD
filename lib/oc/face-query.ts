@@ -269,77 +269,72 @@ export class FaceQuery {
     return type === oc.GeomAbs_SurfaceType.GeomAbs_Cone;
   }
 
-  static isCylinderFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+  /**
+   * Whether a cylindrical face wraps all the way around its axis: it then
+   * carries at least one closed circular edge (a rim). Partial wraps — a
+   * fillet, a rounded pad corner, a bore cut open by a slot — have none;
+   * their bounding edges are lines, arcs, ellipses or B-splines depending
+   * on the adjacent geometry. This is the one rule that splits
+   * `face().cylinder()` from `face().cylinderCurve()`, and what the
+   * selection probes read so synthesis offers the filter that admits the pick.
+   */
+  static hasClosedCircularRimRaw(face: TopoDS_Shape): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    const type = faceAdaptor.GetType();
-    faceAdaptor.delete();
-
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
-      return false;
-    }
-
     const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-
     for (const edge of edges) {
       const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
-      const curveType = curveAdaptor.GetType();
-      if (curveAdaptor.IsClosed() && curveType === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-        if (diameter === undefined) {
-          curveAdaptor.delete();
-          return true;
-        }
-
-        const circle = curveAdaptor.Circle();
-        const r = circle.Radius();
-        circle.delete();
-        curveAdaptor.delete();
-        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
-      }
-
+      const isClosedCircle = curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
       curveAdaptor.delete();
+      if (isClosedCircle) {
+        return true;
+      }
     }
-
     return false;
   }
 
-  static isCylinderCurveFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+  /**
+   * The radius of a cylindrical face's surface, or null when the face is not
+   * a cylinder. Reads the surface itself, so a partial wrap with no circular
+   * rim still reports its radius.
+   */
+  static cylinderRadiusRaw(face: TopoDS_Shape): number | null {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
     const type = faceAdaptor.GetType();
-
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
       faceAdaptor.delete();
-      return false;
+      return null;
     }
-
     const cylinder = faceAdaptor.Cylinder();
     const radius = cylinder.Radius();
     cylinder.delete();
     faceAdaptor.delete();
+    return radius;
+  }
 
-    if (diameter !== undefined && Math.abs(radius - diameter / 2) > oc.Precision.Confusion()) {
+  private static cylinderRadiusMatches(radius: number, diameter?: number): boolean {
+    const oc = getOC();
+    return diameter === undefined || Math.abs(radius - diameter / 2) <= oc.Precision.Confusion();
+  }
+
+  /** A full cylindrical face (see {@link hasClosedCircularRimRaw}), optionally of the given diameter. */
+  static isCylinderFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+    const radius = FaceQuery.cylinderRadiusRaw(face);
+    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
       return false;
     }
+    return FaceQuery.hasClosedCircularRimRaw(face);
+  }
 
-    // A "cylinder curve" is a partial cylinder: it does not wrap fully around its axis.
-    // A full cylinder has at least one closed circular edge (the rim); a fillet/partial
-    // cylinder does not. Bounding edges may be lines, arcs, ellipses, or B-splines
-    // depending on adjacent geometry (e.g. drafted faces produce ellipse boundaries).
-    const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-    for (const edge of edges) {
-      const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
-      const curveType = curveAdaptor.GetType();
-      const isClosedCircle = curveType === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
-      curveAdaptor.delete();
-      if (isClosedCircle) {
-        return false;
-      }
+  /** A partial cylindrical face (see {@link hasClosedCircularRimRaw}), optionally of the given diameter. */
+  static isCylinderCurveFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+    const radius = FaceQuery.cylinderRadiusRaw(face);
+    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+      return false;
     }
-
-    return true;
+    return !FaceQuery.hasClosedCircularRimRaw(face);
   }
 
   static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {

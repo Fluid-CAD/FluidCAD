@@ -1,11 +1,19 @@
 import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
+import { FaceQuery } from "./face-query.js";
 
 export interface FaceProperties {
   surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
   areaMm2?: number;
   radius?: number;
+  /**
+   * Cylinders only: whether the face wraps fully around its axis and so
+   * carries a closed circular rim. `true` is what `face().cylinder()`
+   * admits (a bore, a boss wall); `false` is a `face().cylinderCurve()`
+   * (a fillet, a rounded corner, a bore opened by a slot).
+   */
+  closed?: boolean;
   majorRadius?: number;
   minorRadius?: number;
   halfAngleDeg?: number;
@@ -65,7 +73,7 @@ export class FaceProps {
       const radius = cylinder.Radius();
       cylinder.delete();
       adaptor.delete();
-      return { surfaceType: 'cylinder', radius };
+      return { surfaceType: 'cylinder', radius, closed: FaceQuery.hasClosedCircularRimRaw(ocFace) };
     }
 
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {

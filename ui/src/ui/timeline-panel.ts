@@ -369,6 +369,7 @@ export class TimelinePanel {
     this.selectionAnchor = null;
     this.dragIndices = null;
     this.carryRowStateOver(sceneObjects);
+    this.focusNewParts(sceneObjects);
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
@@ -377,6 +378,49 @@ export class TimelinePanel {
     this.renderTimeline(true);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * A part that just appeared gets the timeline to itself: every other part
+   * row collapses so the new one is the only open container. "New" means no
+   * part in the previous scene re-adopts it by source identity
+   * (findMatchingRow) — a part whose body merely changed keeps its state.
+   * The first load and scenes with no new part leave collapse state alone.
+   */
+  private focusNewParts(next: SceneObjectRender[]): void {
+    if (!this.loaded) {
+      return;
+    }
+    const survivors = new Set<string>();
+    for (const prev of this.sceneObjects) {
+      if (prev.type === 'part') {
+        const match = findMatchingRow(prev, next);
+        if (match?.id != null) {
+          survivors.add(match.id);
+        }
+      }
+    }
+    const fresh = next.filter((o) => o.type === 'part' && o.id != null && !survivors.has(o.id));
+    if (fresh.length === 0) {
+      return;
+    }
+    const keepOpen = new Set<string>();
+    for (const part of fresh) {
+      let cur: SceneObjectRender | undefined = part;
+      while (cur?.id != null && !keepOpen.has(cur.id)) {
+        keepOpen.add(cur.id);
+        cur = cur.parentId != null ? next.find((o) => o.id === cur!.parentId) : undefined;
+      }
+    }
+    for (const obj of next) {
+      if (obj.type === 'part' && obj.id != null) {
+        if (keepOpen.has(obj.id)) {
+          this.collapsedIds.delete(obj.id);
+        } else {
+          this.collapsedIds.add(obj.id);
+        }
+      }
+    }
   }
 
   /**

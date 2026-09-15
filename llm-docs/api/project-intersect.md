@@ -40,9 +40,14 @@ the input to a new 2D operation.
 ## Example
 
 ```fluid.js
-import { circle, extrude, intersect, sketch } from "fluidcad/core";
+import { circle, extrude, intersect, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xz", () => circle([0, 0], 40));
+sketch("xz", () => {
+  const c = circle([0, 0], 40);
+  coincident(c.center(), origin());
+  diameter(c, 40);
+});
 const cyl = extrude(80).symmetric();
 
 sketch("xy", () => {

@@ -21,9 +21,14 @@ Removes objects from the scene. The common pattern is cleaning up a
 ## Example
 
 ```fluid.js
-import { circle, extrude, remove, sketch } from "fluidcad/core";
+import { circle, extrude, origin, remove, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-const profile = sketch("xy", () => circle([0, 0], 40)).reusable();
+const profile = sketch("xy", () => {
+  const c = circle([0, 0], 40);
+  coincident(c.center(), origin());
+  diameter(c, 40);
+}).reusable();
 extrude(20);
 extrude(40);
 remove(profile);                                 // clean up the profile

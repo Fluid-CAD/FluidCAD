@@ -30,18 +30,33 @@ plane(p1: Plane, p2: Plane, options?)
 ## Example
 
 ```fluid.js
-import { circle, extrude, line, plane, sketch } from "fluidcad/core";
+import { circle, extrude, line, origin, plane, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, diameter, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
 sketch("xy", () => {
-  line([-50, -30], [50, -30]);
-  line([50, -30], [50, 30]);
-  line([50, 30], [-50, 30]);
-  line([-50, 30], [-50, -30]);
+  const b = line([-50, -30], [50, -30]);
+  const r = line([50, -30], [50, 30]);
+  const t = line([50, 30], [-50, 30]);
+  const l = line([-50, 30], [-50, -30]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 100);
+  distance(r.start(), r.end(), 60);
 });
 extrude(20);
 
 const top = plane("xy", 80);                        // XY shifted up 80
-sketch(top, () => circle([0, 0], 20));
+sketch(top, () => {
+  const c = circle([0, 0], 20);
+  coincident(c.center(), origin());
+  diameter(c, 20);
+});
 extrude(10);
 ```
 

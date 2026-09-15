@@ -42,9 +42,11 @@ sketch("xy", () => {
   tangent(l, a);
   horizontal(l);
   vertical(left);
+  horizontal(back);
   fix(l.start());
   radius(a, 20);
   distance(l.start(), l.end(), 50);
+  distance(left.start(), left.end(), 25);
 });
 extrude(5);
 ```

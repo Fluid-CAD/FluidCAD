@@ -64,12 +64,25 @@ export const unionAliases: Record<string, UnionAliasContent> = {
         link: 'api/types/scene-object',
       },
     ],
-    example: `import { sketch, circle, extrude, plane } from "fluidcad/core";
+    example: `import { sketch, circle, extrude, plane, origin } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 50));            // string form
+sketch("xy", () => {                                // string form
+  const base = circle([0, 0], 50);
+  coincident(base.center(), origin());
+  diameter(base, 50);
+});
 const e = extrude(20);
-sketch(plane("xy", 30), () => circle([0, 0], 30)); // Plane form
-sketch(e.endFaces(), () => circle([0, 0], 10));    // face form
+sketch(plane("xy", 30), () => {                     // Plane form
+  const mid = circle([0, 0], 30);
+  coincident(mid.center(), origin());
+  diameter(mid, 30);
+});
+sketch(e.endFaces(), () => {                        // face form
+  const top = circle([0, 0], 10);
+  coincident(top.center(), origin());
+  diameter(top, 10);
+});
 extrude(5);
 `,
   },
@@ -97,12 +110,23 @@ extrude(5);
         description: "The sketch's own X / Y axis (see `api/constraints`) — for `mirror()` and `copy(\"linear\", …)` inside a sketch, where a bare string means the world axis.",
       },
     ],
-    example: `import { sketch, circle, revolve, axis } from "fluidcad/core";
+    example: `import { sketch, circle, revolve, axis, origin } from "fluidcad/core";
+import { diameter, distance, horizontal } from "fluidcad/constraints";
 
-sketch("xz", () => circle([25, 0], 10));
+sketch("xz", () => {
+  const c = circle([25, 0], 10);
+  horizontal(origin(), c.center());
+  distance(origin(), c.center(), 25);
+  diameter(c, 10);
+});
 revolve("z", 360);             // string form
 
-sketch("xz", () => circle([45, 0], 6));
+sketch("xz", () => {
+  const c = circle([45, 0], 6);
+  horizontal(origin(), c.center());
+  distance(origin(), c.center(), 45);
+  diameter(c, 6);
+});
 revolve(axis("z"), 180);       // Axis form
 `,
   },

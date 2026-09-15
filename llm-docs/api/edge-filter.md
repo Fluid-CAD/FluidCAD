@@ -51,14 +51,25 @@ circular (an ellipse's arcs, a free-form spline) matches none of the three.
 ## Example
 
 ```fluid.js
-import { extrude, fillet, line, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, origin, select, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 import { edge } from "fluidcad/filters";
 
 sketch("xy", () => {
-  line([-30, -30], [30, -30]);
-  line([30, -30], [30, 30]);
-  line([30, 30], [-30, 30]);
-  line([-30, 30], [-30, -30]);
+  const b = line([-30, -30], [30, -30]);
+  const r = line([30, -30], [30, 30]);
+  const t = line([30, 30], [-30, 30]);
+  const l = line([-30, 30], [-30, -30]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 60);
+  distance(r.start(), r.end(), 60);
 });
 const e = extrude(20);
 select(edge().verticalTo("xy"));        // the 4 vertical corner edges

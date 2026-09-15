@@ -18,15 +18,20 @@ ellipse(center: Point2D, rx, ry)
 `rx` and `ry` are **semi-radii** — half-widths along the plane's X and Y
 axes. (Compare `circle`, which takes a diameter.) The center is
 required and explicit. Returns `ExtrudableGeometry` — a fixed-shape
-entity: it renders and extrudes, but is not yet a constrainable solver
-entity.
+entity: the semi-radii are literals, but the center is a solver point,
+so constrain it (`coincident(e.center(), origin())`, `concentric`,
+`distance`) like any other point.
 
 ## Example
 
 ```fluid.js
-import { ellipse, extrude, sketch } from "fluidcad/core";
+import { ellipse, extrude, origin, sketch } from "fluidcad/core";
+import { coincident } from "fluidcad/constraints";
 
-sketch("xy", () => ellipse([0, 0], 60, 30));
+sketch("xy", () => {
+  const e = ellipse([0, 0], 60, 30);
+  coincident(e.center(), origin());   // the center is the ellipse's solver point
+});
 extrude(8);
 ```
 

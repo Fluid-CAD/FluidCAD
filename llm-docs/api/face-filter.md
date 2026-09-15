@@ -54,14 +54,25 @@ bore — pick by whether the face closes on itself, not by its radius.
 ## Example
 
 ```fluid.js
-import { extrude, fillet, line, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, origin, select, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 import { face } from "fluidcad/filters";
 
 sketch("xy", () => {
-  line([-50, -40], [50, -40]);
-  line([50, -40], [50, 40]);
-  line([50, 40], [-50, 40]);
-  line([-50, 40], [-50, -40]);
+  const b = line([-50, -40], [50, -40]);
+  const r = line([50, -40], [50, 40]);
+  const t = line([50, 40], [-50, 40]);
+  const l = line([-50, 40], [-50, -40]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 100);
+  distance(r.start(), r.end(), 80);
 });
 const e = extrude(30);
 select(face().planar().onPlane("xy", 30));   // top face only

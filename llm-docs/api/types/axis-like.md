@@ -23,11 +23,22 @@ An axis reference used by `revolve()` and other axis-based operations. Any of th
 ## Example
 
 ```fluid.js
-import { sketch, circle, revolve, axis } from "fluidcad/core";
+import { sketch, circle, revolve, axis, origin } from "fluidcad/core";
+import { diameter, distance, horizontal } from "fluidcad/constraints";
 
-sketch("xz", () => circle([25, 0], 10));
+sketch("xz", () => {
+  const c = circle([25, 0], 10);
+  horizontal(origin(), c.center());
+  distance(origin(), c.center(), 25);
+  diameter(c, 10);
+});
 revolve("z", 360);             // string form
 
-sketch("xz", () => circle([45, 0], 6));
+sketch("xz", () => {
+  const c = circle([45, 0], 6);
+  horizontal(origin(), c.center());
+  distance(origin(), c.center(), 45);
+  diameter(c, 6);
+});
 revolve(axis("z"), 180);       // Axis form
 ```

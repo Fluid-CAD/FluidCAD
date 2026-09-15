@@ -38,17 +38,32 @@ spacing or the span.
 ## Examples
 
 ```fluid.js
-import { circle, cut, extrude, line, repeat, sketch } from "fluidcad/core";
+import { circle, cut, extrude, line, origin, repeat, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, diameter, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
 // Cut one pocket, then repeat the cut across a 4×2 grid → one solid with 8 pockets
 sketch("xy", () => {
-  line([-100, -50], [100, -50]);
-  line([100, -50], [100, 50]);
-  line([100, 50], [-100, 50]);
-  line([-100, 50], [-100, -50]);
+  const b = line([-100, -50], [100, -50]);
+  const r = line([100, -50], [100, 50]);
+  const t = line([100, 50], [-100, 50]);
+  const l = line([-100, 50], [-100, -50]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 200);
+  distance(r.start(), r.end(), 100);
 });
 extrude(20);
-sketch("xy", () => circle([0, 0], 5));
+sketch("xy", () => {
+  const c = circle([0, 0], 5);
+  coincident(c.center(), origin());
+  diameter(c, 5);
+});
 const pocket = cut(10);
 repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket);
 ```

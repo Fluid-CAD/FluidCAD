@@ -35,20 +35,33 @@ feature needs `.reusable()` to still be there to publish).
 ## Example
 
 ```fluid.js
-import { part, sketch, circle, extrude, cut, plane, select, expose } from "fluidcad/core";
+import { part, sketch, circle, extrude, cut, plane, select, expose, origin } from "fluidcad/core";
+import { coincident, diameter, distance, horizontal, vertical } from "fluidcad/constraints";
 import { face } from "fluidcad/filters";
 
 const flange = part("Flange", () => {
   sketch("xy", () => {
-    circle([0, 0], 60);
+    const c = circle([0, 0], 60);
+    coincident(c.center(), origin());
+    diameter(c, 60);
   });
   extrude(6);
   const holes = sketch("xy", () => {
-    circle([0, 0], 20);
-    circle([22, 0], 6);
-    circle([0, 22], 6);
-    circle([-22, 0], 6);
-    circle([0, -22], 6);
+    const bore = circle([0, 0], 20);
+    coincident(bore.center(), origin());
+    diameter(bore, 20);
+    const east = circle([22, 0], 6);
+    const north = circle([0, 22], 6);
+    const west = circle([-22, 0], 6);
+    const south = circle([0, -22], 6);
+    horizontal(origin(), east.center());
+    horizontal(origin(), west.center());
+    vertical(origin(), north.center());
+    vertical(origin(), south.center());
+    for (const bolt of [east, north, west, south]) {
+      distance(origin(), bolt.center(), 22);
+      diameter(bolt, 6);
+    }
   }).reusable();
   cut(-6, holes);
 
@@ -59,7 +72,9 @@ const flange = part("Flange", () => {
 // Another part cuts the flange's own hole pattern: a gasket 6 mm below it.
 const gasket = part("Gasket", () => {
   sketch(plane("xy", { offset: -6 }), () => {
-    circle([0, 0], 60);
+    const c = circle([0, 0], 60);
+    coincident(c.center(), origin());
+    diameter(c, 60);
   });
   extrude(-2);
   cut(8, flange.features.holes);   // the sketch is on the flange's plane, 6 above

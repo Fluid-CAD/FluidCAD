@@ -45,12 +45,14 @@ matching `*Edges` variants.
 ```fluid.js
 import { cylinder, plane, select, sketch, text, wrap } from "fluidcad/core";
 import { face } from "fluidcad/filters";
+import { fix } from "fluidcad/constraints";
 
 cylinder(25, 60);
 const target = select(face().cylinder());
 
 const decal = sketch(plane("front", 25), () => {
-    text("FLUID").size(12).at([0, 24]);
+    const label = text("FLUID").size(12).at([0, 24]);
+    fix(label.anchor(), [0, 24]);   // pin the anchor (a solver point)
 });
 
 wrap(1, decal, target);

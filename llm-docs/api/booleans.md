@@ -33,16 +33,31 @@ subtraction). Reach for these when:
 ## Example
 
 ```fluid.js
-import { circle, extrude, line, sketch, subtract } from "fluidcad/core";
+import { circle, extrude, line, origin, sketch, subtract, xAxis, yAxis } from "fluidcad/core";
+import { coincident, diameter, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
 sketch("xy", () => {
-  line([-30, -30], [30, -30]);
-  line([30, -30], [30, 30]);
-  line([30, 30], [-30, 30]);
-  line([-30, 30], [-30, -30]);
+  const b = line([-30, -30], [30, -30]);
+  const r = line([30, -30], [30, 30]);
+  const t = line([30, 30], [-30, 30]);
+  const l = line([-30, 30], [-30, -30]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 60);
+  distance(r.start(), r.end(), 60);
 });
 const a = extrude(20).new();
-sketch("xy", () => circle([0, 0], 35));
+sketch("xy", () => {
+  const c = circle([0, 0], 35);
+  coincident(c.center(), origin());
+  diameter(c, 35);
+});
 const b = extrude(20).new();
 subtract(a, b);
 ```

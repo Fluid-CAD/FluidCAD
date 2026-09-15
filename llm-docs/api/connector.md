@@ -49,16 +49,21 @@ axes at the point; it is a mate side in its own right (root scope only).
 ## Example
 
 ```fluid.js
-import { part, sketch, circle, extrude, chamfer, select, connector } from "fluidcad/core";
+import { part, sketch, circle, extrude, chamfer, select, connector, origin } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 import { face } from "fluidcad/filters";
 
 const pin = part("Pivot pin", () => {
   sketch("xy", () => {
-    circle([0, 0], 8);
+    const c = circle([0, 0], 8);
+    coincident(c.center(), origin());
+    diameter(c, 8);
   });
   const shaft = extrude(-18);
   sketch("xy", () => {
-    circle([0, 0], 12);
+    const c = circle([0, 0], 12);
+    coincident(c.center(), origin());
+    diameter(c, 12);
   });
   extrude(3);
   chamfer(1, shaft.endEdges());

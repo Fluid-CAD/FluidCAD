@@ -28,12 +28,26 @@ arguments in between are control points.
 
 ```fluid.js
 import { bezier, extrude, line, sketch } from "fluidcad/core";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
 sketch("xy", () => {
-  line([0, 0], [0, 40]);
-  bezier([0, 40], [20, 80], [80, 80], [100, 40]);   // cubic bezier
-  line([100, 40], [100, 0]);
-  line([100, 0], [0, 0]);
+  const l = line([0, 0], [0, 40]);
+  const top = bezier([0, 40], [20, 80], [80, 80], [100, 40]);   // cubic bezier
+  const r = line([100, 40], [100, 0]);
+  const b = line([100, 0], [0, 0]);
+  coincident(l.end(), top.start());
+  coincident(top.end(), r.start());
+  coincident(r.end(), b.start());
+  coincident(b.end(), l.start());
+  fix(top.point(1), [20, 80]);       // control points are solver points too
+  fix(top.point(2), [80, 80]);
+  vertical(l);
+  vertical(r);
+  horizontal(b);
+  fix(l.start(), [0, 0]);
+  distance(l.start(), l.end(), 40);
+  distance(r.start(), r.end(), 40);
+  distance(b.start(), b.end(), 100);
 });
 extrude(4);
 ```

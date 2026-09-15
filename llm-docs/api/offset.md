@@ -31,10 +31,13 @@ contribute to the profile, mark the source geometry `.guide()`
 (construction geometry stays out of profiles).
 
 ```fluid.js
-import { circle, extrude, offset, sketch } from "fluidcad/core";
+import { circle, extrude, offset, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
 sketch("xy", () => {
   const c = circle([0, 0], 40);
+  coincident(c.center(), origin());
+  diameter(c, 40);
   offset(5, c);               // source + offset → a ring profile (washer)
 });
 extrude(4);
@@ -52,9 +55,14 @@ top-level `select(...)` is used. `.close()` is not valid for face
 targets. The result is extrudable like any sketch.
 
 ```fluid.js
-import { circle, extrude, offset, sketch } from "fluidcad/core";
+import { circle, extrude, offset, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 60));
+sketch("xy", () => {
+  const c = circle([0, 0], 60);
+  coincident(c.center(), origin());
+  diameter(c, 60);
+});
 const body = extrude(20);
 
 const rim = offset(3, body.endFaces());  // outline 3mm outside the top face
@@ -64,13 +72,24 @@ extrude(5, rim);                          // extrude it like a sketch
 ## Example
 
 ```fluid.js
-import { extrude, line, offset, sketch } from "fluidcad/core";
+import { extrude, line, offset, origin, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
 sketch("xy", () => {
-  line([-30, -20], [30, -20]);
-  line([30, -20], [30, 20]);
-  line([30, 20], [-30, 20]);
-  line([-30, 20], [-30, -20]);
+  const b = line([-30, -20], [30, -20]);
+  const r = line([30, -20], [30, 20]);
+  const t = line([30, 20], [-30, 20]);
+  const l = line([-30, 20], [-30, -20]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+  symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+  distance(b.start(), b.end(), 60);
+  distance(r.start(), r.end(), 40);
   offset(5);                  // 5mm outward offset of the whole sketch
 });
 extrude(4);

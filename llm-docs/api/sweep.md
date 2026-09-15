@@ -28,14 +28,26 @@ on a plane perpendicular to the path's start tangent.
 ## Example
 
 ```fluid.js
-import { arc, circle, line, sketch, sweep } from "fluidcad/core";
+import { arc, circle, line, origin, sketch, sweep } from "fluidcad/core";
+import { coincident, diameter, distance, fix, horizontal, radius, tangent } from "fluidcad/constraints";
 
 const path = sketch("xy", () => {
-  line([0, 0], [100, 0]);
-  arc([100, 0], [200, 100], [100, 100]);  // tangent continuation of the line
+  const run = line([0, 0], [100, 0]);
+  const bend = arc([100, 0], [200, 100], [100, 100]);  // tangent continuation of the line
+  fix(run.start(), [0, 0]);
+  horizontal(run);
+  distance(run.start(), run.end(), 100);
+  coincident(run.end(), bend.start());
+  tangent(run, bend);
+  radius(bend, 100);
+  horizontal(bend.center(), bend.end());   // a quarter turn
 }).reusable();
 
-sketch("yz", () => circle([0, 0], 8));
+sketch("yz", () => {
+  const c = circle([0, 0], 8);
+  coincident(c.center(), origin());
+  diameter(c, 8);
+});
 sweep(path);
 ```
 

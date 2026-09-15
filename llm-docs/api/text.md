@@ -27,6 +27,9 @@ Chain methods:
 
 - `.at([x, y])` — anchor position in sketch coordinates (default the
   plane origin).
+- `.anchor()` — the anchor as a solver point: constrain it
+  (`coincident(t.anchor(), origin())`, `fix`, `distance`) like any
+  other point so the text is fully constrained.
 
 - `.size(height)` — cap height in mm (default 10).
 - `.font(name)` / `.weight(400 | "bold")` / `.bold()` / `.italic()` —
@@ -44,10 +47,12 @@ Chain methods:
 ## Example
 
 ```fluid.js
-import { extrude, sketch, text } from "fluidcad/core";
+import { extrude, origin, sketch, text } from "fluidcad/core";
+import { coincident } from "fluidcad/constraints";
 
 sketch("xz", () => {
-    text("FluidCAD").size(14).bold();
+    const label = text("FluidCAD").size(14).bold();
+    coincident(label.anchor(), origin());   // the anchor is the text's solver point
 });
 extrude(4);
 ```

@@ -42,12 +42,15 @@ Rules of thumb:
 In the real file the definition is exported (`export const extrusion = part(...)`) so an assembly can insert it.
 
 ```fluid.js
-import { part, param, sketch, circle, extrude, connector } from "fluidcad/core";
+import { part, param, sketch, circle, extrude, connector, origin } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
 const extrusion = part("Extrusion", () => {
   const length = param("Length", 150, "number", { min: 20 });
   sketch("xy", () => {
-    circle([0, 0], 20);
+    const c = circle([0, 0], 20);
+    coincident(c.center(), origin());
+    diameter(c, 20);
   });
   const e = extrude(length);
   connector("start", e.startFaces());
@@ -58,14 +61,25 @@ const extrusion = part("Extrusion", () => {
 Two separate solids in one file:
 
 ```fluid.js
-import { cylinder, extrude, line, part, sketch } from "fluidcad/core";
+import { cylinder, extrude, line, origin, part, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
 part("base", () => {
   sketch("xy", () => {
-    line([-60, -40], [60, -40]);
-    line([60, -40], [60, 40]);
-    line([60, 40], [-60, 40]);
-    line([-60, 40], [-60, -40]);
+    const b = line([-60, -40], [60, -40]);
+    const r = line([60, -40], [60, 40]);
+    const t = line([60, 40], [-60, 40]);
+    const l = line([-60, 40], [-60, -40]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(t);
+    vertical(l);
+    symmetric(b.start(), b.end(), yAxis());   // bottom side centred on Y (and horizontal)
+    symmetric(r.start(), r.end(), xAxis());   // right side centred on X (and vertical)
+    distance(b.start(), b.end(), 120);
+    distance(r.start(), r.end(), 80);
   });
   extrude(20);
 });

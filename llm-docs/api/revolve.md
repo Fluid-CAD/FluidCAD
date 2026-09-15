@@ -26,12 +26,24 @@ sketch on `"xz"` or `"yz"`.
 
 ```fluid.js
 import { line, revolve, sketch } from "fluidcad/core";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
 sketch("xz", () => {
-  line([20, 0], [30, 0]);
-  line([30, 0], [30, 30]);
-  line([30, 30], [20, 30]);
-  line([20, 30], [20, 0]);
+  const b = line([20, 0], [30, 0]);
+  const r = line([30, 0], [30, 30]);
+  const t = line([30, 30], [20, 30]);
+  const l = line([20, 30], [20, 0]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
+  horizontal(t);
+  vertical(l);
+  fix(b.start(), [20, 0]);
+  distance(b.start(), b.end(), 10);
+  distance(r.start(), r.end(), 30);
 });
 revolve("z");                                          // ring
 ```

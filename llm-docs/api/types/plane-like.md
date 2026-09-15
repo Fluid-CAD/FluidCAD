@@ -25,11 +25,24 @@ A plane reference used by `sketch()`, filters, and other operations. Any of the 
 ## Example
 
 ```fluid.js
-import { sketch, circle, extrude, plane } from "fluidcad/core";
+import { sketch, circle, extrude, plane, origin } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 50));            // string form
+sketch("xy", () => {                                // string form
+  const base = circle([0, 0], 50);
+  coincident(base.center(), origin());
+  diameter(base, 50);
+});
 const e = extrude(20);
-sketch(plane("xy", 30), () => circle([0, 0], 30)); // Plane form
-sketch(e.endFaces(), () => circle([0, 0], 10));    // face form
+sketch(plane("xy", 30), () => {                     // Plane form
+  const mid = circle([0, 0], 30);
+  coincident(mid.center(), origin());
+  diameter(mid, 30);
+});
+sketch(e.endFaces(), () => {                        // face form
+  const top = circle([0, 0], 10);
+  coincident(top.center(), origin());
+  diameter(top, 10);
+});
 extrude(5);
 ```

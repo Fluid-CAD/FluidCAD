@@ -53,8 +53,8 @@ them. Labels are unique within a part.
 ## Example
 
 ```fluid.js
-import { part, param, sketch, line, circle, extrude, fillet } from "fluidcad/core";
-import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
+import { part, param, sketch, line, circle, extrude, fillet, origin } from "fluidcad/core";
+import { coincident, diameter, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
 const extrusion = part("Extrusion", () => {
   const size = param("Series", 20, "select", {
@@ -88,7 +88,9 @@ const extrusion = part("Extrusion", () => {
     if (rounded) {
       fillet(2, b, r, t, l);
     }
-    circle([0, 0], bore);
+    const hole = circle([0, 0], bore);
+    coincident(hole.center(), origin());
+    diameter(hole, bore);
   });
   extrude(length);
 });

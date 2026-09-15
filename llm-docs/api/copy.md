@@ -56,9 +56,14 @@ position re-runs the original op) use [[api/repeat]].
 ## Example
 
 ```fluid.js
-import { circle, copy, extrude, sketch } from "fluidcad/core";
+import { circle, copy, extrude, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 8));
+sketch("xy", () => {
+  const c = circle([0, 0], 8);
+  coincident(c.center(), origin());
+  diameter(c, 8);
+});
 const pin = extrude(20).new();
 copy("linear", "x", { count: 4, offset: 25 }, pin);
 ```

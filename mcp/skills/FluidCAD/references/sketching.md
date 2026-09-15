@@ -1,13 +1,12 @@
 # Sketching: guesses versus constrained geometry
 
-Read before the first constrained sketch, or when a sketch solved somewhere you did not draw it.
+Read before the first sketch, or when a sketch solved somewhere you did not draw it.
 
-## Two ways to write a sketch, both valid
+## Every sketch is fully constrained
 
-- **Exact coordinates.** A loop of lines whose endpoints already touch forms a closed profile with no constraints at all. Use this for a profile whose numbers come straight from a datum at the origin and will not be driven by relationships later.
-- **Constrained.** Primitives are drawn at rough guess positions; constraints state the relationships; the solver moves the geometry until every relationship holds exactly. Use this when the sketch should be driven by intent (a circle concentric with a bore, a tangent line between two arcs, a slot centered on a face) or when a face plane's origin cannot be trusted (see below).
+`sketch(plane, cb)` takes two arguments: the plane (or face) and the callback. There is no mode flag and no second kind of sketch. Inside the callback, primitives are drawn at rough **guess** positions; constraints state the relationships; the solver moves the geometry until every relationship holds exactly. That is the only way to write a sketch here, whether the numbers come from a datum at the origin or from a relationship to earlier geometry.
 
-Under-constrained geometry simply stays at its guesses. That is the trap: a `circle([20, 0], 8)` with no constraint on its center sits at exactly `[20, 0]`, which is fine when that coordinate is the design, and wrong when the design was "centered on the boss" and the boss later moves.
+A coordinate literal is a guess, never the design. A loop of lines whose endpoints already touch looks like a finished profile, but nothing holds it: `circle([20, 0], 8)` with no constraint on its center sits at `[20, 0]` only until a neighbouring entity, a parameter or a face plane origin moves it. So every sketch gets the full treatment: `coincident` at each corner, `horizontal` / `vertical` / `parallel` / `tangent` for the directions, `fix` or a datum (`origin()`, `xAxis()`, `yAxis()`) or a projected reference to pin it to the plane, and a `distance` / `radius` / `diameter` / `angle` for every size, until the solver reports it fully constrained (the viewport badge turns green). Leaving a sketch under-constrained is a defect, not a shortcut.
 
 ## The datums
 

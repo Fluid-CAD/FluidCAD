@@ -1,6 +1,6 @@
 ---
 id: api/sketch
-title: sketch(plane | face, sketcher, true)
+title: sketch(plane | face, sketcher)
 summary: Opens a 2D sketching context on a plane or a face. Geometry is drawn at guess positions and solved against constraints. The active sketch is the implicit input to extrude/cut/revolve/sweep/loft.
 tags: [api, 2d, primitive]
 symbols: [sketch, origin, xAxis, yAxis]
@@ -12,25 +12,33 @@ seeAlso: [api/extrude, api/constraints, concepts/last-selection, concepts/scene-
 Imported from `fluidcad/core`.
 
 ```ts
-sketch(plane: PlaneLike, sketcher: () => T, true): SceneObject
-sketch(face: SceneObject, sketcher: () => T, true): SceneObject
+sketch(plane: PlaneLike, sketcher: () => T): SceneObject
+sketch(face: SceneObject, sketcher: () => T): SceneObject
 ```
 
-Opens a sketch context. Write the trailing `true` — it marks the sketch
-as a constraint (solved) sketch, which is the documented form (every
-sketch is solved; the flag is kept for source compatibility). The
+Opens a sketch context; it takes exactly two arguments, the plane (or
+face) and the sketcher callback. Every sketch is a solved sketch: the
 callback draws 2D geometry at **guess** positions and states
 [[api/constraints]]; the solver moves the geometry until every
-relationship holds. Whatever the callback returns is attached as
-`.regions` on the resulting `SceneObject`, so named references can be
-carried out:
+relationship holds. **Always fully constrain the sketch.** A coordinate
+literal is only a guess for the solver, never the design: pin every
+entity to the datums (`origin()`, `xAxis()`, `yAxis()`), to a projected
+reference, or to other entities, and dimension every size, until the
+solver reports the sketch fully constrained. Whatever the callback
+returns is attached as `.regions` on the resulting `SceneObject`, so
+named references can be carried out:
 
 ```fluid.js
-import { circle, extrude, sketch } from "fluidcad/core";
+import { circle, extrude, origin, sketch } from "fluidcad/core";
+import { coincident, concentric, diameter } from "fluidcad/constraints";
 
 const s = sketch("xy", () => {
     const outer = circle([0, 0], 60);
     const inner = circle([0, 0], 20);
+    coincident(outer.center(), origin());
+    concentric(inner, outer);
+    diameter(outer, 60);
+    diameter(inner, 20);
     return { outer, inner };
 });
 extrude(10);
@@ -54,9 +62,14 @@ The sketch becomes the **last sketch**. The next 3D feature (`extrude`,
 `cut`, `revolve`, `sweep`, `loft`, `rib`) consumes it automatically:
 
 ```fluid.js
-import { circle, extrude, sketch } from "fluidcad/core";
+import { circle, extrude, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 50));
+sketch("xy", () => {
+  const c = circle([0, 0], 50);
+  coincident(c.center(), origin());
+  diameter(c, 50);
+});
 extrude(20);  // consumes the sketch above
 ```
 
@@ -64,9 +77,14 @@ A consumed sketch is gone. To reuse a sketch across multiple operations,
 mark it `.reusable()`:
 
 ```fluid.js
-import { circle, extrude, sketch } from "fluidcad/core";
+import { circle, extrude, origin, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-const profile = sketch("xy", () => circle([0, 0], 40)).reusable();
+const profile = sketch("xy", () => {
+  const c = circle([0, 0], 40);
+  coincident(c.center(), origin());
+  diameter(c, 40);
+}).reusable();
 extrude(30, profile);
 extrude(-10, profile);  // still available
 ```
@@ -80,9 +98,14 @@ face centroid — anchor geometry to a projected reference instead of raw
 coordinates:
 
 ```fluid.js
-import { circle, cut, extrude, offset, project, sketch } from "fluidcad/core";
+import { circle, cut, extrude, offset, origin, project, sketch } from "fluidcad/core";
+import { coincident, diameter } from "fluidcad/constraints";
 
-sketch("xy", () => circle([0, 0], 80));
+sketch("xy", () => {
+  const c = circle([0, 0], 80);
+  coincident(c.center(), origin());
+  diameter(c, 80);
+});
 const e = extrude(30);
 sketch(e.endFaces(), () => {
   const outline = project(e.endFaces()).guide();  // fixed reference outline

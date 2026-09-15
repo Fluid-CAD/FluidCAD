@@ -87,7 +87,7 @@ The default sequence: base stock (the envelope, usually the primary outline thro
 
 - **Model the way the part is made** where sensible: start from stock and remove material.
 - **Capture design intent, not just geometry.** The hole centered on the boss, the wall driven by one dimension. Geometry that merely looks right breaks the first time a dimension changes.
-- **Keep sketches simple and fully constrained.** Complexity belongs in the feature tree, not in one giant sketch.
+- **Every sketch is fully constrained, always.** `sketch(plane, cb)` takes two arguments and every sketch is solved; coordinate literals are guesses for the solver, never the design. Pin every entity (to `origin()` / `xAxis()` / `yAxis()`, a projected reference, or another entity) and dimension every size until the solver reports fully constrained. An under-constrained sketch is a defect. Keep sketches simple: complexity belongs in the feature tree, not in one giant sketch.
 - **Reference things that move.** Sketch on datum planes and on faces of earlier features, never on an offset that duplicates a dimension stated elsewhere.
 - **One feature, one idea.** Dress features are separate features and come last; they are the most likely to change and to fail.
 - **Patterns over copies, mirrors over duplicate modeling.** A pattern carries count and spacing as parameters.
@@ -224,7 +224,7 @@ Load only what the task needs, from this skill's `references/` folder:
 - `references/repair-loop.md`: read the moment `render.state` is not `rendered`. Failure classes keyed by the actual `compileError` and `objectErrors` messages, with the smallest fix and what to rerun.
 - `references/verification.md`: read before declaring any feature or part done. Screenshot skip list, the visual-concern-to-deterministic-check table, the mandatory `interfere` and section gates and how to read a section, what never to claim, the final report template.
 - `references/modifying.md`: read when the task starts from an existing file rather than a blank one.
-- `references/sketching.md`: read before the first constrained sketch, or when a sketch solves somewhere you did not draw it.
+- `references/sketching.md`: read before the first sketch, or when a sketch solves somewhere you did not draw it.
 - `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
 
 Assemblies (parts, inserts, mates, connectors) are covered by the separate **FluidCAD-assembly** skill; modeling from a drawing by **FluidCAD-from-drawing**.

@@ -10,6 +10,7 @@ import { Face } from "../common/face.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
 import { mmTol, mmTol3 } from "../units/tolerance.js";
+import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -26,6 +27,64 @@ export class BooleanOps {
     return mmTol(1e-4);
   }
 
+  /**
+   * Boolean inputs that hold two coincident periodic surfaces of opposite
+   * handedness (a clockwise-arc ear and the boss sharing its rounded top, a
+   * mirrored boss on its twin) are normalized to direct frames before the
+   * builder sees them: the face merge the builders run afterwards corrupts
+   * such a pair, and it cannot be fed a normalized result — see DirectFaces.
+   * Inputs without such a pair pass through untouched, so their face and
+   * edge enumeration stays exactly what the caller built.
+   */
+  private static normalizeMixedInputs(raws: TopoDS_Shape[]): { raws: TopoDS_Shape[]; direct: DirectFacesResult | null } {
+    if (raws.length === 0) {
+      return { raws, direct: null };
+    }
+    const compound = ShapeOps.makeCompoundRaw(raws);
+    if (!DirectFaces.hasMixedHandedness(compound)) {
+      return { raws, direct: null };
+    }
+    const direct = DirectFaces.applyRaw(compound);
+    return { raws: raws.map(r => direct.modified(r)), direct };
+  }
+
+  /**
+   * The builder's lineage queries, addressed by the pre-normalization inputs
+   * the caller holds: each query first follows the input through the
+   * rebuild. An input the rebuild copied but the boolean left alone still
+   * reports its rebuilt copy as its image, since that copy is what the result
+   * contains.
+   */
+  private static adaptMaker(builder: any, direct: DirectFacesResult): any {
+    const oc = getOC();
+    const through = (s: TopoDS_Shape): TopoDS_Shape => direct.modifiedOrNull(s) ?? s;
+    const listOf = (items: TopoDS_Shape[]) => {
+      const list = new oc.TopTools_ListOfShape();
+      for (const item of items) {
+        list.Append(item);
+      }
+      return list;
+    };
+    return {
+      Shape: () => builder.Shape(),
+      IsDone: () => builder.IsDone(),
+      HasErrors: () => builder.HasErrors(),
+      HasWarnings: () => builder.HasWarnings(),
+      History: () => builder.History(),
+      Modified: (s: TopoDS_Shape) => {
+        const rebuilt = through(s);
+        if (rebuilt.IsSame(s)) {
+          return builder.Modified(s);
+        }
+        const images = ShapeOps.shapeListToArray(builder.Modified(rebuilt));
+        return listOf(images.length > 0 || builder.IsDeleted(rebuilt) ? images : [rebuilt]);
+      },
+      Generated: (s: TopoDS_Shape) => builder.Generated(through(s)),
+      IsDeleted: (s: TopoDS_Shape) => builder.IsDeleted(through(s)),
+      delete: () => builder.delete(),
+    };
+  }
+
   static cutShapes(shape: Shape, tool: Shape): Shape {
     const result = BooleanOps.cutShapesRaw(shape.getShape(), tool.getShape());
     return ShapeFactory.fromShape(result);
@@ -33,48 +92,56 @@ export class BooleanOps {
 
   static cutShapesRaw(shape: TopoDS_Shape, tool: TopoDS_Shape): TopoDS_Shape {
     const oc = getOC();
+    const inputs = BooleanOps.normalizeMixedInputs([shape, tool]);
     const progress = new oc.Message_ProgressRange();
     let cutter: BRepAlgoAPI_Cut;
     try {
-      cutter = new oc.BRepAlgoAPI_Cut(shape, tool, progress);
+      cutter = new oc.BRepAlgoAPI_Cut(inputs.raws[0], inputs.raws[1], progress);
       cutter.Build(progress);
     } catch {
       progress.delete();
+      inputs.direct?.dispose();
       throw new Error("Cut failed");
     }
 
     if (!cutter.IsDone() || cutter.HasErrors()) {
       cutter.delete();
       progress.delete();
+      inputs.direct?.dispose();
       throw new Error("Cut failed");
     }
 
     const result = cutter.Shape();
     cutter.delete();
     progress.delete();
+    inputs.direct?.dispose();
     return result;
   }
 
   static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0) {
     const oc = getOC();
+    const inputs = BooleanOps.normalizeMixedInputs([...stocks, ...tools].map(s => s.getShape()));
+    const stockRaws = inputs.raws.slice(0, stocks.length);
+    const toolRaws = inputs.raws.slice(stocks.length);
     const stockList = new oc.TopTools_ListOfShape();
-    for (const s of stocks) {
-      stockList.Append(s.getShape());
+    for (const raw of stockRaws) {
+      stockList.Append(raw);
     }
 
     const toolList = new oc.TopTools_ListOfShape();
-    for (const t of tools) {
-      toolList.Append(t.getShape());
+    for (const raw of toolRaws) {
+      toolList.Append(raw);
     }
 
     const progress = new oc.Message_ProgressRange();
-    const cutMaker = new oc.BRepAlgoAPI_Cut();
-    cutMaker.SetArguments(stockList);
-    cutMaker.SetTools(toolList);
-    cutMaker.SetNonDestructive(true);
-    cutMaker.SetRunParallel(true);
-    cutMaker.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
-    cutMaker.Build(progress);
+    const builder = new oc.BRepAlgoAPI_Cut();
+    const cutMaker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
+    builder.SetArguments(stockList);
+    builder.SetTools(toolList);
+    builder.SetNonDestructive(true);
+    builder.SetRunParallel(true);
+    builder.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
+    builder.Build(progress);
 
     // An unchecked failure here does not surface as a failure: the result is
     // still a shape, just an invalid one, and the ShapeFix pass downstream then
@@ -84,6 +151,7 @@ export class BooleanOps {
       progress.delete();
       stockList.delete();
       toolList.delete();
+      inputs.direct?.dispose();
       throw new Error("Cut failed: the boolean operation reported an error.");
     }
     if (cutMaker.HasWarnings()) {
@@ -103,8 +171,8 @@ export class BooleanOps {
     // Any result edge/face not in these maps is new, created by the cut.
     const stockEdgeMap = new oc.TopTools_MapOfShape();
     const stockFaceMap = new oc.TopTools_MapOfShape();
-    for (const stock of stocks) {
-      const rawEdges = Explorer.findShapes(stock.getShape(), Explorer.getOcShapeType("edge"));
+    for (const stockRaw of stockRaws) {
+      const rawEdges = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("edge"));
       for (const rawEdge of rawEdges) {
         stockEdgeMap.Add(rawEdge);
         // Also track modified versions of this edge so we don't misidentify them as new.
@@ -116,7 +184,7 @@ export class BooleanOps {
         modifiedList.delete();
       }
 
-      const rawFaces = Explorer.findShapes(stock.getShape(), Explorer.getOcShapeType("face"));
+      const rawFaces = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("face"));
       for (const rawFace of rawFaces) {
         stockFaceMap.Add(rawFace);
         const modifiedList = cutMaker.Modified(rawFace);
@@ -180,6 +248,7 @@ export class BooleanOps {
       disposed = true;
       cutMaker.delete();
       progress.delete();
+      inputs.direct?.dispose();
     };
 
     return {
@@ -243,6 +312,9 @@ export class BooleanOps {
     dispose: () => void;
   } {
     const oc = getOC();
+    const inputs = BooleanOps.normalizeMixedInputs([...stock, ...tools].map(s => s.getShape()));
+    const stockRaws = inputs.raws.slice(0, stock.length);
+    const toolRaws = inputs.raws.slice(stock.length);
     const builder = new oc.BRepAlgoAPI_Fuse();
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
@@ -260,13 +332,13 @@ export class BooleanOps {
     // the tool doesn't touch them. Bundling them under one TopoDS_Compound
     // keeps stock-to-stock relationships out of the result; only stock↔tool
     // interactions are computed.
-    const stockCompound = ShapeOps.makeCompoundRaw(stock.map(s => s.getShape()));
+    const stockCompound = ShapeOps.makeCompoundRaw(stockRaws);
     const stockList = new oc.TopTools_ListOfShape();
     stockList.Append(stockCompound);
 
     const toolList = new oc.TopTools_ListOfShape();
-    for (const t of tools) {
-      toolList.Append(t.getShape());
+    for (const raw of toolRaws) {
+      toolList.Append(raw);
     }
 
     builder.SetArguments(stockList);
@@ -284,15 +356,15 @@ export class BooleanOps {
 
     const allInputs = [...stock, ...tools];
     const modifiedShapes: Shape[] = [];
-    for (const shape of allInputs) {
-      if (builder.IsDeleted(shape.getShape())) {
+    allInputs.forEach((shape, index) => {
+      if (builder.IsDeleted(inputs.raws[index])) {
         modifiedShapes.push(shape);
       }
-    }
+    });
 
     const newShapes: Shape[] = [];
     for (const s of result) {
-      const existsInArgs = allInputs.some(arg => arg.getShape().IsPartner(s.getShape()));
+      const existsInArgs = inputs.raws.some(raw => raw.IsPartner(s.getShape()));
       if (!existsInArgs) {
         newShapes.push(s);
       }
@@ -306,9 +378,11 @@ export class BooleanOps {
       disposed = true;
       builder.delete();
       progress.delete();
+      inputs.direct?.dispose();
     };
 
-    return { result, newShapes, modifiedShapes, maker: builder, dispose };
+    const maker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
+    return { result, newShapes, modifiedShapes, maker, dispose };
   }
 
   static fuse(args: Shape[], opts?: { glue?: 'full' | 'shift' }): {
@@ -329,9 +403,10 @@ export class BooleanOps {
       builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueShift);
     }
 
+    const inputs = BooleanOps.normalizeMixedInputs(args.map(a => a.getShape()));
     const argsList = new oc.TopTools_ListOfShape();
-    for (const arg of args) {
-      argsList.Append(arg.getShape());
+    for (const raw of inputs.raws) {
+      argsList.Append(raw);
     }
 
     const empty = ShapeOps.makeCompoundRaw([])
@@ -352,7 +427,7 @@ export class BooleanOps {
     const tUnify = performance.now();
     const resultShape = BooleanOps.unifyEdgesSplitByBoolean(
       builder,
-      args.map(a => a.getShape()),
+      inputs.raws,
       builder.Shape(),
     );
     console.log(`[perf] BooleanOps.fuse.unifyEdgesSplitByBoolean: ${(performance.now() - tUnify).toFixed(1)} ms`);
@@ -363,17 +438,17 @@ export class BooleanOps {
     const result = rawShapes.map(s => ShapeFactory.fromShape(s));
 
     const modifiedShapes: Shape[] = [];
-    for (const shape of args) {
-      if (builder.IsDeleted(shape.getShape())) {
+    args.forEach((shape, index) => {
+      if (builder.IsDeleted(inputs.raws[index])) {
         modifiedShapes.push(shape);
       }
-    }
+    });
 
     const newShapes: Shape[] = [];
 
     const tPartner = performance.now();
     for (const s of result) {
-      const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
+      const existsInArgs = inputs.raws.some(raw => raw.IsPartner(s.getShape()));
 
       if (!existsInArgs) {
         newShapes.push(s);
@@ -389,9 +464,11 @@ export class BooleanOps {
       disposed = true;
       builder.delete();
       progress.delete();
+      inputs.direct?.dispose();
     };
 
-    return { result, newShapes, modifiedShapes, maker: builder, dispose };
+    const maker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
+    return { result, newShapes, modifiedShapes, maker, dispose };
   }
 
   /**
@@ -617,9 +694,10 @@ export class BooleanOps {
   } {
     const oc = getOC();
 
+    const inputs = BooleanOps.normalizeMixedInputs(args.map(a => a.getShape()));
     const argsList = new oc.TopTools_ListOfShape();
-    for (const arg of args) {
-      argsList.Append(arg.getShape());
+    for (const raw of inputs.raws) {
+      argsList.Append(raw);
     }
 
     const empty = ShapeOps.makeCompoundRaw([])
@@ -659,25 +737,26 @@ export class BooleanOps {
 
     const modifiedShapes: Shape[] = [];
 
-    for (const shape of args) {
-      if (builder.IsDeleted(shape.getShape())) {
+    args.forEach((shape, index) => {
+      if (builder.IsDeleted(inputs.raws[index])) {
         modifiedShapes.push(shape);
       }
       else {
-        const modified = builder.Modified(shape.getShape());
+        const modified = builder.Modified(inputs.raws[index]);
         if (modified.Size() > 0) {
           modifiedShapes.push(shape);
         }
       }
-    }
+    });
 
     builder.delete();
     progress.delete();
+    inputs.direct?.dispose();
 
     const newShapes: Shape[] = [];
 
     for (const s of result) {
-      const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
+      const existsInArgs = inputs.raws.some(raw => raw.IsPartner(s.getShape()));
 
       if (!existsInArgs) {
         newShapes.push(s);

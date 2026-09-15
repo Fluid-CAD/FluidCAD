@@ -16,6 +16,7 @@ import { OrientedFaces } from "./oriented-faces.js";
 import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
+import { DirectFaces } from "./direct-faces.js";
 
 /**
  * A cleanShape result that preserves UnifySameDomain lineage so callers can
@@ -147,6 +148,16 @@ export class ShapeOps {
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
+    // Two coincident cylinders of opposite handedness corrupt the face merge:
+    // rebuild the left-handed ones first, and route every remap through the
+    // rebuild so callers' pre-clean faces still resolve — see DirectFaces.
+    const inputRaw = shape.getShape();
+    const direct = DirectFaces.hasMixedHandedness(inputRaw) ? DirectFaces.applyRaw(inputRaw) : null;
+    const through = (raw: TopoDS_Shape): TopoDS_Shape | null => (direct ? direct.modifiedOrNull(raw) : raw);
+    if (direct) {
+      shape = ShapeFactory.fromShape(direct.shape);
+    }
+
     // skipSimplify: pass unifyFaces=false to avoid the slow face-merging step
     // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
     // It also disables edge unification — delicate tangent geometry opted out
@@ -165,10 +176,10 @@ export class ShapeOps {
     // "saw but didn't modify" (return [original]).
     const knownFaces = new oc.TopTools_MapOfShape();
     const knownEdges = new oc.TopTools_MapOfShape();
-    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
+    for (const raw of Explorer.findShapes(inputRaw, FACE)) {
       knownFaces.Add(raw);
     }
-    for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
+    for (const raw of Explorer.findShapes(inputRaw, EDGE)) {
       knownEdges.Add(raw);
     }
 
@@ -199,13 +210,22 @@ export class ShapeOps {
         fixedFaces.delete();
         knownFaces.delete();
         knownEdges.delete();
+        direct?.dispose();
       };
       return {
         shape: wrapped,
-        remapFace: (face) => (knownFaces.Contains(face.getShape())
-          ? [Face.fromTopoDSFace(Explorer.toFace(fixedFaces.orient(face.getShape())))]
-          : null),
-        remapEdge: (edge) => (knownEdges.Contains(edge.getShape()) ? [edge] : null),
+        remapFace: (face) => {
+          const raw = through(face.getShape());
+          return raw && knownFaces.Contains(face.getShape())
+            ? [Face.fromTopoDSFace(Explorer.toFace(fixedFaces.orient(raw)))]
+            : null;
+        },
+        remapEdge: (edge) => {
+          const raw = through(edge.getShape());
+          return raw && knownEdges.Contains(edge.getShape())
+            ? [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))]
+            : null;
+        },
         dispose,
       };
     }
@@ -226,13 +246,17 @@ export class ShapeOps {
       unify.delete();
       knownFaces.delete();
       knownEdges.delete();
+      direct?.dispose();
     };
 
     return {
       shape: ShapeFactory.fromShape(cleanedRaw),
       remapFace: (face) => {
-        const raw = face.getShape();
-        if (!knownFaces.Contains(raw)) {
+        if (!knownFaces.Contains(face.getShape())) {
+          return null;
+        }
+        const raw = through(face.getShape());
+        if (!raw) {
           return null;
         }
         if (history.IsRemoved(raw)) {
@@ -244,8 +268,11 @@ export class ShapeOps {
         return images.map(r => Face.fromTopoDSFace(Explorer.toFace(cleanedFaces.orient(r))));
       },
       remapEdge: (edge) => {
-        const raw = edge.getShape();
-        if (!knownEdges.Contains(raw)) {
+        if (!knownEdges.Contains(edge.getShape())) {
+          return null;
+        }
+        const raw = through(edge.getShape());
+        if (!raw) {
           return null;
         }
         if (history.IsRemoved(raw)) {
@@ -254,7 +281,7 @@ export class ShapeOps {
         const list = ShapeOps.shapeListToArray(history.Modified(raw))
           .filter(s => s.ShapeType() === EDGE);
         if (list.length === 0) {
-          return [edge];
+          return [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))];
         }
         return list.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
       },
@@ -340,6 +367,12 @@ export class ShapeOps {
 
   static cleanShapeRaw(shape: TopoDS_Shape) {
     const oc = getOC();
+
+    // Two coincident cylinders of opposite handedness corrupt the face merge:
+    // rebuild the left-handed ones first — see DirectFaces.
+    if (DirectFaces.hasMixedHandedness(shape)) {
+      shape = DirectFaces.normalizeRaw(shape);
+    }
 
     // Full unification: merge redundant edges AND co-surface faces.
     // UnifySameDomain can throw on shapes with subtle topology issues

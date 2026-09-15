@@ -1,6 +1,8 @@
 import type {
-    gp_Pln,
+  TopAbs_ShapeEnum,
+  TopoDS_Edge,
   TopoDS_Face,
+  TopoDS_Shape,
   TopoDS_Wire,
 } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
@@ -12,21 +14,19 @@ import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
 import { FaceQuery } from "./face-query.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { WireOps } from "./wire-ops.js";
 import { Edge } from "../common/edge.js";
+import { HiddenEdges } from "./hidden-edges.js";
+import { Explorer } from "./explorer.js";
+import { AnalyticEdgeProjection } from "./projection/analytic-projection.js";
+import { SilhouetteOps } from "./projection/silhouette.js";
 
 export class ProjectionOps {
 
-  static projectEdgeOntoPlane(targetPlane: Plane, edge: Edge): Wire[] {
-    const wire = WireOps.makeWireFromEdges([edge]);
-    const projected = ProjectionOps.projectWireOntoPlane(targetPlane, wire);
-
-    wire.getShape().delete();
-
-    return projected;
+  static projectEdgeOntoPlane(targetPlane: Plane, edge: Edge): Edge[] {
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, [edge]);
   }
 
-  static projectWireOntoPlane(targetPlane: Plane, wire: Wire): Wire[] {
+  static projectWireOntoPlane(targetPlane: Plane, wire: Wire): Edge[] {
     const oc = getOC();
     const topDSWire  = wire.getShape() as TopoDS_Wire;
     const wirePlaneFinder = new oc.BRepBuilderAPI_FindPlane(topDSWire, oc.Precision.Confusion());
@@ -50,23 +50,19 @@ export class ProjectionOps {
       const translation = targetPlane.normal.multiply(-signedDist);
       const matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
       const transformed = ShapeOps.transform(wire, matrix) as Wire;
-      return [transformed];
+      return transformed.getEdges();
     }
 
-    const [pln, disposePln] = Convert.toGpPln(targetPlane);
-    const planeFace = FaceOps.makeFaceFromPlane(pln);
-
-    const projectedWires: Wire[] = [];
-    const projected = ProjectionOps.normalProjectWire(wire.getShape(), planeFace);
-    for (let projectedWire of projected) {
-      projectedWires.push(Wire.fromTopoDSWire(projectedWire));
-    }
-
-    disposePln();
-    return projectedWires;
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, wire.getEdges());
   }
 
-  static projectFaceOntoPlane(targetPlane: Plane, face: Face): Wire[] {
+  /**
+   * A face projects as its boundary edges plus, for a curved face, its
+   * outline edges against the sketch normal — a side-on cylinder is a
+   * rectangle, not its two end circles. Seams and degenerate edges are not
+   * geometry the face shows (see HiddenEdges) and are left out.
+   */
+  static projectFaceOntoPlane(targetPlane: Plane, face: Face): Edge[] {
     let facePlane: Plane | null = null;
     try {
       facePlane = face.getPlane();
@@ -83,51 +79,76 @@ export class ProjectionOps {
         const signedDist = targetPlane.signedDistanceToPoint(facePlane.origin);
         const translation = targetPlane.normal.multiply(-signedDist);
         let matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
-        const transformedWires = wires.map(wire => {
-          const transformed = ShapeOps.transform(wire, matrix) as Wire;
-          return transformed;
-        });
-        return transformedWires;
+        return wires.flatMap(wire => (ShapeOps.transform(wire, matrix) as Wire).getEdges());
       }
     }
 
-    const [pln, disposePln] = Convert.toGpPln(targetPlane);
-    const planeFace = FaceOps.makeFaceFromPlane(pln);
+    const rawFace = face.getShape() as TopoDS_Face;
+    const hidden = HiddenEdges.ofFace(rawFace);
+    const boundary = face.getWires()
+      .flatMap(wire => wire.getEdges())
+      .filter(edge => !hidden.some(h => h.IsSame(edge.getShape())));
+    const outlines = facePlane
+      ? []
+      : SilhouetteOps.outlineEdgesRaw(rawFace, targetPlane.normal).map(e => Edge.fromTopoDSEdge(e));
 
-    const wires = face.getWires();
-    const projectedWires: Wire[] = [];
-    for (const wire of wires) {
-      const projected = ProjectionOps.normalProjectWire(wire.getShape(), planeFace);
-      for (const projectedWire of projected) {
-        projectedWires.push(Wire.fromTopoDSWire(projectedWire));
-      }
-    }
-
-    disposePln();
-    return projectedWires;
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, [...boundary, ...outlines]);
   }
 
-  private static normalProjectWire(wire: TopoDS_Wire, targetFace: TopoDS_Face): TopoDS_Wire[] {
-    const oc = getOC();
-    const results: TopoDS_Wire[] = [];
-    try {
-      const projector = new oc.BRepAlgo_NormalProjection(targetFace);
-      projector.SetLimit(false);
-      projector.Add(wire);
-      projector.Build();
-      if (projector.IsDone()) {
-        const list = new oc.TopTools_ListOfShape();
-        projector.BuildWire(list);
-        const wires = ShapeOps.shapeListToArray(list).map(s => oc.TopoDS.Wire(s));
-        for (const projectedWire of wires) {
-          results.push(projectedWire);
-        }
+  /**
+   * Edge by edge: lines and circles project exactly (see
+   * AnalyticEdgeProjection), everything else goes through the normal
+   * projection in one batch.
+   */
+  private static projectEdgesOntoPlane(targetPlane: Plane, edges: Edge[]): Edge[] {
+    const projected: Edge[] = [];
+    const general: TopoDS_Edge[] = [];
+    for (const edge of edges) {
+      const raw = edge.getShape() as TopoDS_Edge;
+      const analytic = AnalyticEdgeProjection.projectRaw(raw, targetPlane);
+      if (analytic?.kind === 'edge') {
+        projected.push(Edge.fromTopoDSEdge(analytic.edge));
+      } else if (!analytic) {
+        general.push(raw);
       }
-      projector.delete();
-      return results;
+    }
+
+    if (general.length > 0) {
+      const [pln, disposePln] = Convert.toGpPln(targetPlane);
+      const planeFace = FaceOps.makeFaceFromPlane(pln);
+      for (const raw of ProjectionOps.normalProject(general, planeFace)) {
+        projected.push(Edge.fromTopoDSEdge(raw));
+      }
+      disposePln();
+    }
+    return projected;
+  }
+
+  /**
+   * The projected edges of `shapes`, read from the projector's result
+   * compound. Not BuildWire(): it chains the results into wires and answers
+   * nothing at all for a batch of disjoint edges (two outline generatrices,
+   * say), while the compound always carries every projected edge.
+   */
+  private static normalProject(shapes: TopoDS_Shape[], targetFace: TopoDS_Face): TopoDS_Edge[] {
+    const oc = getOC();
+    const projector = new oc.BRepAlgo_NormalProjection(targetFace);
+    try {
+      projector.SetLimit(false);
+      for (const shape of shapes) {
+        projector.Add(shape);
+      }
+      projector.Build();
+      if (!projector.IsDone()) {
+        return [];
+      }
+      const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+      return Explorer.findShapes<TopoDS_Edge>(projector.Projection(), EDGE).map(e => oc.TopoDS.Edge(e));
     } catch (e) {
-      console.error('Normal projection failed for wire:', e);
-      return results;
+      console.error('Normal projection failed:', e);
+      return [];
+    } finally {
+      projector.delete();
     }
   }
 }

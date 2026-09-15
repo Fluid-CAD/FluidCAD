@@ -49,25 +49,21 @@ export class Projection extends ExtrudableGeometryBase {
       }
       const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
 
-      // Project every source first; collect all resulting wires before any
+      // Project every source first; collect all resulting edges before any
       // dedup. We need the full set up-front so the General Fuse in
       // unifyCoincident can detect overlaps across sources, not just within
       // one.
-      const allWires: Wire[] = [];
+      const allEdges: Edge[] = [];
       for (const shape of shapes) {
-        let wires: Wire[] = [];
         if (shape instanceof Face) {
-          wires = ProjectionOps.projectFaceOntoPlane(plane, shape as Face);
+          allEdges.push(...ProjectionOps.projectFaceOntoPlane(plane, shape as Face));
         } else if (shape instanceof Wire) {
           const firstEdge = shape.getEdges()[0];
-          wires = ProjectionOps.projectEdgeOntoPlane(plane, firstEdge);
+          allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, firstEdge));
         } else if (shape instanceof Edge) {
-          wires = ProjectionOps.projectEdgeOntoPlane(plane, shape);
+          allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, shape));
         }
-        allWires.push(...wires);
       }
-
-      const allEdges: Edge[] = allWires.flatMap(w => w.getEdges());
 
       // Normal projection emits approximated B-splines even for straight
       // results (and the fuse may keep that representation of a coincident

@@ -1,4 +1,5 @@
 import type {
+  Bnd_Box,
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
@@ -7,6 +8,7 @@ import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Face } from "../common/face.js";
@@ -78,26 +80,91 @@ export class ShapeOps {
     return ShapeOps.getBoundingBoxRaw(raw);
   }
 
+  // Sizing box: BRepBndLib.Add reads the stored triangulation when the
+  // shape has one and pads the box by that mesh's deflection, so the same
+  // shape answers a bigger box after it has been rendered than before.
+  // Fine for "big enough" callers (tool lengths, camera fits, mesh size
+  // buckets). Anything that treats the box as geometry — a clipping slab,
+  // a cap that must sit flush with the model's outer wall — must use
+  // `getExactBoundingBox`, or its result depends on render state.
   static getBoundingBoxRaw(shape: TopoDS_Shape): BoundingBox {
     const oc = getOC();
     const bbox = new oc.Bnd_Box();
     oc.BRepBndLib.Add(shape, bbox, true);
+    const out = ShapeOps.boundingBoxFromBnd(bbox);
+    bbox.delete();
+    return out;
+  }
 
+  // Exact bounds of the shape's geometry: triangulation is ignored and no
+  // tolerance gap is added, so a planar face at y = -25 bounds at exactly
+  // -25 whether or not the shape has been meshed. Use this wherever the box
+  // becomes geometry (see `getBoundingBoxRaw`).
+  static getExactBoundingBox(shape: Shape | TopoDS_Shape): BoundingBox {
+    const raw = shape instanceof Shape ? shape.getShape() : shape;
+    return ShapeOps.getExactBoundingBoxRaw(raw);
+  }
+
+  static getExactBoundingBoxRaw(shape: TopoDS_Shape): BoundingBox {
+    const oc = getOC();
+    const bbox = new oc.Bnd_Box();
+    oc.BRepBndLib.AddOptimal(shape, bbox, false, false);
+    if (bbox.IsVoid()) {
+      bbox.delete();
+      throw new Error("Cannot bound a shape with no geometry");
+    }
+    const out = ShapeOps.boundingBoxFromBnd(bbox);
+    bbox.delete();
+    return out;
+  }
+
+  // The smallest box enclosing every box given. Throws on an empty list —
+  // there is no meaningful "empty" bounding box.
+  static unionBoundingBoxes(boxes: BoundingBox[]): BoundingBox {
+    if (boxes.length === 0) {
+      throw new Error("Cannot union an empty list of bounding boxes");
+    }
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const b of boxes) {
+      minX = Math.min(minX, b.minX); minY = Math.min(minY, b.minY); minZ = Math.min(minZ, b.minZ);
+      maxX = Math.max(maxX, b.maxX); maxY = Math.max(maxY, b.maxY); maxZ = Math.max(maxZ, b.maxZ);
+    }
+    return ShapeOps.boundingBoxFromExtents(minX, minY, minZ, maxX, maxY, maxZ);
+  }
+
+  // The eight corners of a bounding box, for extent-along-a-direction tests.
+  static boundingBoxCorners(bb: BoundingBox): Point[] {
+    return [
+      new Point(bb.minX, bb.minY, bb.minZ),
+      new Point(bb.maxX, bb.minY, bb.minZ),
+      new Point(bb.minX, bb.maxY, bb.minZ),
+      new Point(bb.maxX, bb.maxY, bb.minZ),
+      new Point(bb.minX, bb.minY, bb.maxZ),
+      new Point(bb.maxX, bb.minY, bb.maxZ),
+      new Point(bb.minX, bb.maxY, bb.maxZ),
+      new Point(bb.maxX, bb.maxY, bb.maxZ),
+    ];
+  }
+
+  private static boundingBoxFromBnd(bbox: Bnd_Box): BoundingBox {
     const minPnt = bbox.CornerMin();
     const maxPnt = bbox.CornerMax();
+    return ShapeOps.boundingBoxFromExtents(
+      minPnt.X(), minPnt.Y(), minPnt.Z(),
+      maxPnt.X(), maxPnt.Y(), maxPnt.Z(),
+    );
+  }
 
-    bbox.delete();
-
+  private static boundingBoxFromExtents(
+    minX: number, minY: number, minZ: number,
+    maxX: number, maxY: number, maxZ: number,
+  ): BoundingBox {
     return {
-      minX: minPnt.X(),
-      minY: minPnt.Y(),
-      minZ: minPnt.Z(),
-      maxX: maxPnt.X(),
-      maxY: maxPnt.Y(),
-      maxZ: maxPnt.Z(),
-      centerX: (minPnt.X() + maxPnt.X()) / 2,
-      centerY: (minPnt.Y() + maxPnt.Y()) / 2,
-      centerZ: (minPnt.Z() + maxPnt.Z()) / 2,
+      minX, minY, minZ, maxX, maxY, maxZ,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+      centerZ: (minZ + maxZ) / 2,
     };
   }
 

@@ -190,6 +190,42 @@ describe("rib", () => {
       }
     });
 
+    // A parallel+extend rib whose spine starts exactly on a body edge (the
+    // cylinder's end face meeting its wall). The over-extended prism
+    // survives outside the model only inside the clipping slabs, so the
+    // slabs must sit on the model's exact bounds. With the sizing box
+    // (padded by the mesh deflection once the body has been rendered) a
+    // deflection-thin plate stayed attached to the rib, running up the end
+    // face and over the top of the cylinder. Two renders on purpose: the
+    // first meshes the body the way an edit-and-recompute leaves it.
+    it("extended rib starting on a body edge stays inside a meshed body", () => {
+      sketch("xz", () => {
+        circle([0, 0], 44);
+      });
+      extrude(50).symmetric();
+      sketch("xz", () => {
+        testRect(20, 80, { at: [-10, -80] });
+      });
+      const body = extrude(16).symmetric() as unknown as SceneObject;
+      render();
+
+      sketch("yz", () => {
+        line([-25, -22], [-8, -80]);
+      });
+      const r = rib(-8).parallel().extend().new().scope(body) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBe(1);
+      const bb = ShapeOps.getExactBoundingBox(shapes[0]);
+      // Flush with the cylinder's end face, never past it.
+      expect(bb.minY).toBeCloseTo(-25, 4);
+      expect(bb.maxY).toBeCloseTo(-8, 4);
+      // A gusset under the cylinder: it must not climb the end face.
+      expect(bb.maxZ).toBeLessThan(-21);
+      expect(bb.minZ).toBeCloseTo(-80, 4);
+    });
+
     it("extended rib with .add() should fuse correctly", () => {
       const s = makeBox();
 

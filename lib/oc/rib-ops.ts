@@ -18,6 +18,7 @@ import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
 import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { mmTol } from "../units/tolerance.js";
+import { BoundingBox } from "../helpers/types.js";
 
 export interface RibConformResult {
   solids: Shape[];
@@ -193,6 +194,20 @@ export class RibOps {
     return plane.normal.cross(spineDir).normalize();
   }
 
+  // Exact bounds of the scope solids. Every rib measurement that becomes
+  // geometry — the clipping slabs, the extension length, the extrude
+  // distance — is taken from this box, never from the sizing box
+  // (`ShapeOps.getBoundingBox`): that one grows by the mesh deflection once
+  // the scope has been rendered, and the over-extended prism would then
+  // survive in a deflection-thin skin between the box and the model's
+  // real faces, attached to the rib wherever the spine touches an edge.
+  static scopeBounds(scopeShapes: Shape[]): BoundingBox {
+    if (scopeShapes.length === 0) {
+      throw new Error("Rib requires at least one scope solid");
+    }
+    return ShapeOps.unionBoundingBoxes(scopeShapes.map(s => ShapeOps.getExactBoundingBox(s)));
+  }
+
   // Over-extends the spine endpoints along their tangents by 2× the scope bbox
   // diagonal. The downstream BRepAlgoAPI_Cut against the scope is what actually
   // carves the rib to the cavity; this just guarantees the pre-cut profile fully
@@ -203,18 +218,8 @@ export class RibOps {
       return spineWire;
     }
 
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const s of scopeShapes) {
-      const bb = ShapeOps.getBoundingBox(s);
-      if (bb.minX < minX) { minX = bb.minX; }
-      if (bb.minY < minY) { minY = bb.minY; }
-      if (bb.minZ < minZ) { minZ = bb.minZ; }
-      if (bb.maxX > maxX) { maxX = bb.maxX; }
-      if (bb.maxY > maxY) { maxY = bb.maxY; }
-      if (bb.maxZ > maxZ) { maxZ = bb.maxZ; }
-    }
-    const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+    const bb = RibOps.scopeBounds(scopeShapes);
+    const dx = bb.maxX - bb.minX, dy = bb.maxY - bb.minY, dz = bb.maxZ - bb.minZ;
     const diag = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (!isFinite(diag) || diag <= 0) {
       return spineWire;
@@ -226,62 +231,22 @@ export class RibOps {
     return extended;
   }
 
+  // How far a prism from `origin` must run along `direction` to pass every
+  // corner of the scope: the slabs and the scope cut trim it back to the
+  // cavity afterwards.
   static computeExtrudeDistanceAlongDirection(direction: Vector3d, origin: Point, scopeShapes: Shape[]): number {
     let maxDist = 0;
-
-    for (const shape of scopeShapes) {
-      const bbox = ShapeOps.getBoundingBox(shape);
-      const corners = [
-        new Point(bbox.minX, bbox.minY, bbox.minZ),
-        new Point(bbox.maxX, bbox.minY, bbox.minZ),
-        new Point(bbox.minX, bbox.maxY, bbox.minZ),
-        new Point(bbox.maxX, bbox.maxY, bbox.minZ),
-        new Point(bbox.minX, bbox.minY, bbox.maxZ),
-        new Point(bbox.maxX, bbox.minY, bbox.maxZ),
-        new Point(bbox.minX, bbox.maxY, bbox.maxZ),
-        new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
-      ];
-
-      for (const corner of corners) {
-        const offset = origin.vectorTo(corner);
-        const dist = Math.abs(offset.dot(direction));
-        if (dist > maxDist) {
-          maxDist = dist;
-        }
+    for (const corner of ShapeOps.boundingBoxCorners(RibOps.scopeBounds(scopeShapes))) {
+      const dist = Math.abs(origin.vectorTo(corner).dot(direction));
+      if (dist > maxDist) {
+        maxDist = dist;
       }
     }
-
     return maxDist + mmTol(1e-3);
   }
 
   static computeExtrudeDistance(plane: Plane, scopeShapes: Shape[]): number {
-    let maxDist = 0;
-    const origin = plane.origin;
-    const normal = plane.normal;
-
-    for (const shape of scopeShapes) {
-      const bbox = ShapeOps.getBoundingBox(shape);
-      const corners = [
-        new Point(bbox.minX, bbox.minY, bbox.minZ),
-        new Point(bbox.maxX, bbox.minY, bbox.minZ),
-        new Point(bbox.minX, bbox.maxY, bbox.minZ),
-        new Point(bbox.maxX, bbox.maxY, bbox.minZ),
-        new Point(bbox.minX, bbox.minY, bbox.maxZ),
-        new Point(bbox.maxX, bbox.minY, bbox.maxZ),
-        new Point(bbox.minX, bbox.maxY, bbox.maxZ),
-        new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
-      ];
-
-      for (const corner of corners) {
-        const offset = origin.vectorTo(corner);
-        const dist = Math.abs(offset.dot(normal));
-        if (dist > maxDist) {
-          maxDist = dist;
-        }
-      }
-    }
-
-    return maxDist + mmTol(1e-3);
+    return RibOps.computeExtrudeDistanceAlongDirection(plane.normal, plane.origin, scopeShapes);
   }
 
   // Conforms a (possibly over-extended) prismatic rib to the cavity defined by
@@ -302,7 +267,8 @@ export class RibOps {
   ): RibConformResult {
     const oc = getOC();
 
-    // Phase 1: clip protrusion through openings using axis-aligned bbox slabs.
+    // Phase 1: clip protrusion through openings using axis-aligned slabs on
+    // the scope's exact bounds (see `scopeBounds`).
     // Sequential cuts here — multi-tool cuts with very large slabs trigger BOP
     // failures in some configurations.
     let trimmed = ribSolid;
@@ -591,14 +557,11 @@ export class RibOps {
     }
   }
 
+  // Six half-spaces outside the scope's exact bounds. They cap the rib flush
+  // with the model's outer extent where the prism pokes out through an
+  // opening (an open-topped shell, a cavity wall the spine runs past).
   private static buildBoundingBoxSlabs(scopeShapes: Shape[]): Shape[] {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const s of scopeShapes) {
-      const bbox = ShapeOps.getBoundingBox(s);
-      minX = Math.min(minX, bbox.minX); minY = Math.min(minY, bbox.minY); minZ = Math.min(minZ, bbox.minZ);
-      maxX = Math.max(maxX, bbox.maxX); maxY = Math.max(maxY, bbox.maxY); maxZ = Math.max(maxZ, bbox.maxZ);
-    }
+    const { minX, minY, minZ, maxX, maxY, maxZ } = RibOps.scopeBounds(scopeShapes);
 
     const BIG = 10000;
     return [

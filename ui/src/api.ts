@@ -1055,6 +1055,18 @@ export type ApplyFeatureChain = {
   members: ApplyFeatureEntity[];
 };
 
+/**
+ * A pick owned by a part other than the one the statement lands in. Apply
+ * publishes it from its owner with `expose()` (unless `existing`) and
+ * references it as `<owner>.features.<exposeName>`.
+ */
+export type ForeignPick = ApplyFeatureEntity & {
+  partName: string;
+  exposeName: string;
+  /** True when the owner already exposes the geometry — nothing is written there. */
+  existing: boolean;
+};
+
 export type ApplyFeatureResponse = {
   success: boolean;
   preview?: string;
@@ -1063,6 +1075,11 @@ export type ApplyFeatureResponse = {
   /** Verified alternative renderings of the argument list (preview requests). */
   alternatives?: string[];
   reason?: string;
+  /**
+   * Picks belonging to other parts (a projection's cross-part sources) —
+   * on a preview, and on an apply refused for want of `confirmForeign`.
+   */
+  foreign?: { picks: ForeignPick[] };
 };
 
 /** How a shell's inner-wall offset closes corners; 'arc' is the default. */
@@ -1145,6 +1162,12 @@ export async function applyProject(
   options: {
     chains?: ApplyFeatureChain[];
     selectorOverride?: string;
+    /**
+     * The user confirmed the cross-part sources the preview reported: Apply
+     * may write `expose()` into their owners. Without it an apply carrying
+     * such sources is refused (its response repeats them under `foreign`).
+     */
+    confirmForeign?: boolean;
     preview?: boolean;
     signal?: AbortSignal;
   } = {},
@@ -1155,6 +1178,7 @@ export async function applyProject(
     sketch,
     chains: options.chains,
     selectorOverride: options.selectorOverride,
+    confirmForeign: options.confirmForeign,
     preview: options.preview,
   }, options.signal);
 }

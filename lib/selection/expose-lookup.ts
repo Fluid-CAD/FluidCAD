@@ -14,11 +14,7 @@ import { PickRef, SelectionScene } from "./types.js";
 export type PickExposureResolution =
   | {
     ok: true;
-    donor: {
-      partName: string;
-      filePath: string;
-      line: number;
-      column: number;
+    donor: PartSite & {
       /** Exposure name whose source already serves the picked shape, or null. */
       matched: string | null;
       /** Every exposure name the donor already registers. */
@@ -26,6 +22,65 @@ export type PickExposureResolution =
     } | null;
   }
   | { ok: false; reason: string };
+
+/**
+ * A `part()` statement as the scene captured it — the identity every
+ * cross-part decision compares (the donor of a pick against the consumer a
+ * statement lives in). Both sides come from the scene's own source-location
+ * capture, so the comparison is exact without any column convention.
+ */
+export type PartSite = {
+  partName: string;
+  filePath: string;
+  line: number;
+  column: number;
+};
+
+/** A statement's source location as the scene captured it. */
+export type StatementLoc = { filePath: string; line: number; column?: number };
+
+/**
+ * The part whose body contains the statement at `loc` — the consumer side
+ * of a cross-part reference (the sketch a projection lands in). Null when no
+ * rendered object carries that location or it lies outside every part.
+ * Matching is by file and line, plus the column when the caller has one:
+ * the location comes from the scene rows the UI holds, so it round-trips.
+ */
+export function resolveStatementPart(scene: SelectionScene, loc: StatementLoc): PartSite | null {
+  const target = normalizePath(loc.filePath);
+  for (const obj of scene.getAllSceneObjects()) {
+    const at = obj.getSourceLocation();
+    if (!at || at.line !== loc.line || normalizePath(at.filePath) !== target) {
+      continue;
+    }
+    if (loc.column !== undefined && at.column !== loc.column) {
+      continue;
+    }
+    const enclosing = scene.findEnclosingPart(obj);
+    return enclosing instanceof Part ? partSite(enclosing) : null;
+  }
+  return null;
+}
+
+/** Whether two statement sites name the same `part()` call. */
+export function samePartSite(a: PartSite, b: StatementLoc): boolean {
+  return a.line === b.line && (b.column === undefined || a.column === b.column)
+    && normalizePath(a.filePath) === normalizePath(b.filePath);
+}
+
+/** The part's call site, or null when the render captured none. */
+function partSite(part: Part): PartSite | null {
+  const loc = part.getSourceLocation();
+  if (!loc) {
+    return null;
+  }
+  return { partName: part.partName, filePath: loc.filePath, line: loc.line, column: loc.column };
+}
+
+/** Forward slashes, so a Windows-captured path compares with a POSIX one. */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
 
 /**
  * Resolve a single face/edge pick to its enclosing part and that part's
@@ -53,8 +108,8 @@ export function resolvePickExposure(scene: SelectionScene, ref: PickRef): PickEx
   if (!(enclosing instanceof Part)) {
     return { ok: true, donor: null };
   }
-  const loc = enclosing.getSourceLocation();
-  if (!loc) {
+  const site = partSite(enclosing);
+  if (!site) {
     return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
   }
 
@@ -69,10 +124,7 @@ export function resolvePickExposure(scene: SelectionScene, ref: PickRef): PickEx
   return {
     ok: true,
     donor: {
-      partName: enclosing.partName,
-      filePath: loc.filePath,
-      line: loc.line,
-      column: loc.column,
+      ...site,
       matched,
       existingNames: Object.keys(enclosing.getNamedExposures()),
     },

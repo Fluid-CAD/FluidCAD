@@ -53,7 +53,9 @@ import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
-import { PickExposureResolution, resolvePickExposure } from "./selection/expose-lookup.js";
+import {
+  PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
+} from "./selection/expose-lookup.js";
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
@@ -423,6 +425,19 @@ class SceneManager {
       };
     }
     return resolvePickExposure(scene, ref);
+  }
+
+  /**
+   * The consumer side of a cross-part reference: the part whose body holds
+   * the statement at `loc` (the sketch a projection lands in). Assembly
+   * scenes have no authoring-frame consumer, so they resolve to null and
+   * the caller keeps the ordinary same-part flow.
+   */
+  resolveStatementPart(scene: Scene, loc: StatementLoc): PartSite | null {
+    if (scene instanceof AssemblyScene) {
+      return null;
+    }
+    return resolveStatementPart(scene, loc);
   }
 
   /**

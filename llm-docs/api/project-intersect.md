@@ -37,6 +37,32 @@ reference out of extruded profiles.
 Pair either with `extrude` / `cut` / `offset` to re-use 3D geometry as
 the input to a new 2D operation.
 
+## Sources from another part
+
+A projection may read geometry another `part()` publishes with
+`expose()`: reference it as `<donor>.features.<name>`. The donor must be
+declared before the consumer, and the exposure lives in the donor's body.
+
+```js
+const lid = part("Lid", () => {
+  // ...
+  const body = extrude(6);
+  expose("rim", body.endFaces(0));
+});
+
+const gasket = part("Gasket", () => {
+  sketch("xy", () => {
+    project(lid.features.rim).guide();   // the lid's outline, fixed
+    // ...
+  });
+});
+```
+
+In the viewport the Project tool does this for you: picking a face or an
+edge of another part shows a notice naming that part; confirming it writes
+the `expose()` into the donor (unless one already publishes the pick) and
+projects the reference in your sketch.
+
 ## Example
 
 ```fluid.js

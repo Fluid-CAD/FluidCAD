@@ -19,7 +19,7 @@ The outbound half of a part's interface: `param()` takes values in,
 `connector()` hands mate frames out, `expose()` hands geometry out.
 
 - **Another part** builds on it as `def.features.<name>`:
-  `cut(2, flange.features.holes)`.
+  `cut(2, flange.features.holes)`, `project(flange.features.rim)`.
 - **A tangent mate** touches it as `instance.features.<name>`:
   `mate('tangent', wheel.features.tread, deck.features.deck)`.
 

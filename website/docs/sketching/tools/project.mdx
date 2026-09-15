@@ -20,6 +20,28 @@ Project flattens 3D edges and faces onto the sketch plane. The projected curves 
 
 <ExplainedCode code={toolProjectBasic} fileName="plate.part.js" />
 
+## From another part
+
+Inside a part you can project the faces and edges of a part declared **before** it. Pick them like any other source: the dialog shows a notice naming the part they belong to, and Apply stays put until you press **Expose and project**.
+
+Confirming does two things in one edit: it writes an `expose()` for each picked face or edge into that part's body (a face or edge it already exposes is reused as is), and it projects the references in your sketch:
+
+```js
+export const lid = part("Lid", () => {
+    // ...
+    const body = extrude(6)
+    expose('g1', body.endFaces(0))          // written into the lid for you
+})
+
+export const gasket = part("Gasket", () => {
+    sketch("xy", () => {
+        project(lid.features.g1)             // your sketch reads the exposure
+    })
+})
+```
+
+Picks from your own part stay ordinary selectors, so a mixed selection reads `project(b.endFaces(0), lid.features.g1)`. Removing a cross-part pick, or adding another one, asks for the confirmation again. The lid's part statement must be bound to a `const` (exported if it lives in another file) so the reference has a name to use.
+
 ## By hand
 
 ```js

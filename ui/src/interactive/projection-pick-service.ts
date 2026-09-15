@@ -6,6 +6,7 @@ import { mergeUniqueEntities } from '../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
 import { ApplyRunner } from './create-feature/apply-runner';
+import { ForeignConfirmation } from './create-feature/foreign-confirmation';
 import { keepChip } from './create-feature/sketch-profiles';
 import { SketchUISuspender } from './create-feature/sketch-suspender';
 import { EditSession, EditSessionInfo } from './edit-session';
@@ -34,6 +35,11 @@ type ParsedProject = Extract<ParsedFeatureStatement, { feature: 'project' }>;
  * the winning `project(…)` arguments and its verified alternatives, editable
  * in place. Apply writes the statement into the sketch's own body; Cancel
  * touches no code and hands the viewport back to the sketch.
+ *
+ * Sources another part owns are allowed: the preview reports them, the
+ * dialog raises a notice (Apply publishes them from their owner with
+ * `expose()` and projects `<owner>.features.<name>`), and Apply waits for
+ * the user's go-ahead — sent as the request's `confirmForeign`.
  */
 export class ProjectionPickService {
   /**
@@ -53,6 +59,8 @@ export class ProjectionPickService {
   private readonly selection = new PickSelection();
   private readonly selectionMenu: SelectionContextMenu;
   private readonly runner: ApplyRunner<ProjectRequest>;
+  /** The cross-part gate: the preview's foreign picks and their confirmation. */
+  private readonly foreign = new ForeignConfirmation();
   /** The sketch receiving the projection, or null while disarmed. */
   private sketch: SketchSourceRef | null = null;
 
@@ -83,6 +91,11 @@ export class ProjectionPickService {
     this.panel.onExit = () => this.onDone?.();
     this.panel.onRemoveChip = (index) => this.removeChip(index);
     this.panel.onChipHover = (index) => this.previewChip(index);
+    this.panel.onConfirmForeign = () => {
+      this.foreign.confirm();
+      this.panel.setMessage(null);
+      this.syncForeignNotice();
+    };
 
     // Right-click menu for the projected sources: the same multi-select groups
     // the modify tools offer (a projection picks edges and faces alike), so a
@@ -118,8 +131,22 @@ export class ProjectionPickService {
         return applyProject(request.entities, request.sketch!, {
           chains: this.selection.apiChains(),
           selectorOverride: this.selectorOverride(),
+          confirmForeign: this.foreign.confirmed,
           ...extras,
+        }).then(result => {
+          // An apply refused for want of the go-ahead (the click outran the
+          // preview that would have raised the notice) reports the picks
+          // too — raise it from here so the next Apply can go through.
+          if (!extras.preview && !result.success && result.foreign) {
+            this.foreign.update(result.foreign.picks);
+            this.syncForeignNotice();
+          }
+          return result;
         });
+      },
+      validateApply: () => {
+        const reason = this.foreign.blockReason();
+        return reason ? { error: reason } : null;
       },
       onApplied: () => {
         // The rewrite strips the double-click's breakpoint atomically with
@@ -136,6 +163,8 @@ export class ProjectionPickService {
           result.args ?? (this.session.active ? this.editArgsText : ''),
           result.alternatives ?? [],
         );
+        this.foreign.update(result.foreign?.picks);
+        this.syncForeignNotice();
       },
     });
   }
@@ -284,6 +313,7 @@ export class ProjectionPickService {
     this.editSceneStale = false;
     this.editApplied = false;
     this.selection.clear();
+    this.foreign.reset();
     this.selectionMenu.hide();
     this.runner.cancelPreview();
     this.panel.hide();
@@ -347,6 +377,8 @@ export class ProjectionPickService {
       return;
     }
     this.selection.clear();
+    this.foreign.reset();
+    this.syncForeignNotice();
     this.selectionMenu.hide();
     this.viewer.clearHighlight();
     this.panel.setMessage('The code changed — the picked geometry was reset.');
@@ -472,9 +504,24 @@ export class ProjectionPickService {
       // Nothing to synthesize — fold the row now instead of after a debounce.
       this.runner.cancelPreview();
       this.panel.hideExpression();
+      this.foreign.reset();
+      this.syncForeignNotice();
       return;
     }
     this.runner.schedulePreview();
+  }
+
+  /** Mirror the cross-part gate into the panel's notice row. */
+  private syncForeignNotice(): void {
+    if (!this.foreign.present) {
+      this.panel.setForeignNotice(null);
+      return;
+    }
+    const confirmed = this.foreign.confirmed;
+    this.panel.setForeignNotice({
+      text: (confirmed ? this.foreign.summary() : this.foreign.message()) ?? '',
+      confirmed,
+    });
   }
 
   private highlight(entities: SelectedEntity[]): void {

@@ -198,6 +198,11 @@ type SceneManager = {
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
+  // Optional: may predate the projection tool's cross-part references.
+  resolveStatementPart?(
+    scene: any,
+    loc: { filePath: string; line: number; column?: number },
+  ): any;
   // Optional: may predate the tangent mate's contact classification.
   resolveContactPick?(
     scene: any,
@@ -1840,6 +1845,26 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.resolvePickExposure(scene, ref);
+  }
+
+  /**
+   * The part whose body holds the statement at `loc` — the consumer side of
+   * a cross-part reference (the sketch a projection lands in), in the same
+   * scene-captured terms as a pick's donor. Null when there is no scene, the
+   * statement lies outside every part, or the workspace kernel predates the
+   * query — callers fall back to the ordinary same-part flow.
+   */
+  resolveStatementPart(
+    loc: { filePath: string; line: number; column?: number },
+  ): { partName: string; filePath: string; line: number; column: number } | null {
+    if (!this.sceneManager || !this.sceneManager.resolveStatementPart) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveStatementPart(scene, loc) ?? null;
   }
 
   /**

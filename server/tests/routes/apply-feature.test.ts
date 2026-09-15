@@ -55,8 +55,14 @@ let currentSketchTargets: any;
 
 /** Picks forwarded to the consumer-side exposure resolver. */
 let exposureCalls: unknown[];
-/** Per-test result for the exposure resolver; null keeps the normal flow. */
+/** Per-test result for the exposure resolver (or a per-pick function); null keeps the normal flow. */
 let currentExposureResolution: any;
+/** Statement locations forwarded to the consumer-part lookup. */
+let statementPartCalls: unknown[];
+/** Per-test result for the consumer-part lookup; null keeps every pick local. */
+let currentStatementPart: any;
+/** Picks and chains forwarded to synthesizeApplyFeature, per call. */
+let synthesizeInputs: { picks: unknown; chains: unknown }[];
 
 const fakeServer = {
   getCurrentCode: () => currentCode,
@@ -64,7 +70,13 @@ const fakeServer = {
   getParamDefinitions: () => [],
   resolvePickExposure: (pick: unknown) => {
     exposureCalls.push(pick);
-    return currentExposureResolution;
+    return typeof currentExposureResolution === 'function'
+      ? currentExposureResolution(pick)
+      : currentExposureResolution;
+  },
+  resolveStatementPart: (loc: unknown) => {
+    statementPartCalls.push(loc);
+    return currentStatementPart;
   },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
@@ -81,10 +93,11 @@ const fakeServer = {
     return currentSketchTargets;
   },
   synthesizeApplyFeature: (
-    _picks: unknown, feature: string, value: number | undefined,
-    _chains?: unknown, options?: unknown, before?: unknown,
+    picks: unknown, feature: string, value: number | undefined,
+    chains?: unknown, options?: unknown, before?: unknown,
   ) => {
     synthesizeCalls.push({ feature, value });
+    synthesizeInputs.push({ picks, chains });
     synthesizeBoundaries.push(before);
     synthesizeOptions.push(options);
     if (Array.isArray(currentSynthesis)) {
@@ -169,6 +182,9 @@ describe('apply-feature route validation', () => {
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
     exposureCalls = [];
     currentExposureResolution = null;
+    statementPartCalls = [];
+    currentStatementPart = null;
+    synthesizeInputs = [];
   });
 
   it('rejects an unknown feature', async () => {
@@ -5354,6 +5370,252 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(422);
       expect(body.reason).toContain('different file than the sketch');
       expect(relayed).toEqual([]);
+    });
+
+    describe('cross-part sources', () => {
+      const FILE = '/ws/m.fluid.js';
+      const TWO_PART_CODE = [
+        `import { sketch, circle, extrude, part, expose } from 'fluidcad/core'`,
+        ``,
+        `export const p1 = part('Donor', () => {`,
+        `  sketch('xy', () => { circle([0, 0], 100) })`,
+        `  const e = extrude(30)`,
+        `  expose('endFace', e.endFaces(0))`,
+        `})`,
+        ``,
+        `export const p2 = part('Consumer', () => {`,
+        `  extrude(5)`,
+        `  sketch('xy', () => {`,
+        `    circle([0, 0], 10)`,
+        `  })`,
+        `})`,
+        ``,
+      ].join('\n');
+      const CONSUMER = { partName: 'Consumer', filePath: FILE, line: 9, column: 18 };
+      const CONSUMER_SKETCH = { filePath: FILE, line: 11, column: 2 };
+      const LOCAL_PICK = { shapeId: 'shape-2', sub: { type: 'edge', index: 1 } };
+      const donorResolution = (matched: string | null, existingNames: string[]) => ({
+        ok: true,
+        donor: { partName: 'Donor', filePath: FILE, line: 3, column: 18, matched, existingNames },
+      });
+      const consumerResolution = { ok: true, donor: { ...CONSUMER, matched: null, existingNames: [] } };
+      const exposeSpec = {
+        feature: 'expose', filePath: FILE,
+        expose: { name: 'g2', part: { line: 3, column: 18 } },
+        producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      };
+      const exposeSynthesis = {
+        ok: true, spec: exposeSpec, preview: `expose('g2', e.endFaces(0))`, args: 'e.endFaces(0)', alternatives: [],
+      };
+
+      beforeEach(() => {
+        currentCode = TWO_PART_CODE;
+        currentFileName = FILE;
+        currentStatementPart = CONSUMER;
+      });
+
+      it('previews a matched exposure as the reference alone, with the foreign notice payload', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          success: true,
+          preview: 'project(p1.features.endFace)',
+          args: 'p1.features.endFace',
+          alternatives: [],
+          foreign: { picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }] },
+        });
+        // The consumer is the sketch's own part, looked up by the sketch location.
+        expect(statementPartCalls).toEqual([CONSUMER_SKETCH]);
+        // Nothing local to synthesize, nothing to create.
+        expect(synthesizeCalls).toEqual([]);
+        expect(relayed).toEqual([]);
+      });
+
+      it('refuses to apply without the explicit go-ahead, echoing the foreign picks', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { status, body } = await post({ feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH });
+        expect(status).toBe(422);
+        expect(body).toMatchObject({
+          success: false,
+          foreign: { picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }] },
+        });
+        expect(body.reason).toContain('confirm');
+        expect(relayed).toEqual([]);
+      });
+
+      it('relays a foreign-only spec carrying the reference, no producers and no parts', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ success: true, preview: 'project(p1.features.endFace)' });
+        expect(relayed).toHaveLength(1);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'project',
+          filePath: FILE,
+          producers: [],
+          parts: [],
+          project: {
+            sketch: { line: 11, column: 2 },
+            foreign: [{ exposeName: 'endFace', donor: { line: 3, column: 18 } }],
+          },
+        });
+        expect(relayed[0].spec.project.foreign[0].create).toBeUndefined();
+        expect(relayed[0].spec.rawArgs).toBeUndefined();
+      });
+
+      it('allocates a fresh name and embeds the expose create for an unmatched pick', async () => {
+        currentExposureResolution = donorResolution(null, ['g1']);
+        currentSynthesis = exposeSynthesis;
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('project(p1.features.g2)');
+        // Both passes of the donor-side expose rail ran with the allocated name.
+        expect(synthesizeCalls.length).toBeGreaterThan(0);
+        expect(synthesizeCalls.every(c => c.feature === 'expose' && c.value === 'g2')).toBe(true);
+        expect(relayed[0].spec.project.foreign).toEqual([
+          { exposeName: 'g2', donor: { line: 3, column: 18 }, create: exposeSpec },
+        ]);
+      });
+
+      it('mixes the sketch\'s own picks with the references, appended to every alternative', async () => {
+        currentExposureResolution = (pick: any) =>
+          pick.shapeId === PICK.shapeId ? donorResolution(null, ['g1']) : consumerResolution;
+        currentSynthesis = [exposeSynthesis, exposeSynthesis, projectSynthesis];
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK, LOCAL_PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          preview: 'project(e.endFaces(0), p1.features.g2)',
+          args: 'e.endFaces(0), p1.features.g2',
+          alternatives: ['e.face(2), p1.features.g2'],
+          foreign: { picks: [{ ...PICK, partName: 'Donor', exposeName: 'g2', existing: false }] },
+        });
+        // The local synthesis saw only the sketch's own pick.
+        const local = synthesizeInputs[synthesizeCalls.findIndex(c => c.feature === 'project')];
+        expect(local.picks).toEqual([LOCAL_PICK]);
+
+        relayed = [];
+        synthesizeCalls = [];
+        synthesizeInputs = [];
+        await post({
+          feature: 'project', entities: [PICK, LOCAL_PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+          selectorOverride: 'e.endFaces(0), p1.features.g2.guide()',
+        });
+        expect(relayed).toHaveLength(1);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'project',
+          producers: projectSynthesis.spec.producers,
+          parts: projectSynthesis.spec.parts,
+          rawArgs: 'e.endFaces(0), p1.features.g2.guide()',
+          project: {
+            sketch: { line: 11, column: 2 },
+            foreign: [{ exposeName: 'g2', donor: { line: 3, column: 18 }, create: exposeSpec }],
+          },
+        });
+      });
+
+      it('references one exposure once when two picks share it', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { body } = await post({
+          feature: 'project', entities: [PICK, { shapeId: 'shape-1', sub: { type: 'edge', index: 3 } }],
+          sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(body.args).toBe('p1.features.endFace');
+        expect(body.foreign.picks).toHaveLength(2);
+      });
+
+      it('dissolves a tangent chain that touches another part into plain picks', async () => {
+        currentExposureResolution = (pick: any) =>
+          pick.shapeId === PICK.shapeId ? donorResolution('endFace', ['endFace']) : consumerResolution;
+        currentSynthesis = projectSynthesis;
+        const { status } = await post({
+          feature: 'project', entities: [PICK, LOCAL_PICK], sketch: CONSUMER_SKETCH, preview: true,
+          chains: [{ seed: PICK, members: [PICK, LOCAL_PICK] }],
+        });
+        expect(status).toBe(200);
+        expect(synthesizeInputs).toEqual([{ picks: [LOCAL_PICK], chains: [] }]);
+      });
+
+      it('keeps the normal flow when every pick is the sketch\'s own part', async () => {
+        currentExposureResolution = consumerResolution;
+        currentSynthesis = projectSynthesis;
+        const { body } = await post({ feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true });
+        expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
+        expect(body.foreign).toBeUndefined();
+        expect(body.args).toBe('e.endFaces(0)');
+      });
+
+      it('keeps the normal flow when the sketch has no part (or the kernel predates the lookup)', async () => {
+        currentStatementPart = null;
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        currentSynthesis = projectSynthesis;
+        await post({ feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true });
+        expect(exposureCalls).toEqual([]);
+        expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
+      });
+
+      it('surfaces the resolver refusal (assembly scenes)', async () => {
+        currentExposureResolution = { ok: false, reason: 'cross-part geometry references are authored in the part file' };
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('part file');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('refuses a donor that is not bound to a const', async () => {
+        currentCode = TWO_PART_CODE.replace(`export const p1 = part('Donor'`, `part('Donor'`);
+        currentExposureResolution = {
+          ok: true,
+          donor: { partName: 'Donor', filePath: FILE, line: 3, column: 0, matched: 'endFace', existingNames: ['endFace'] },
+        };
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('not bound to a const');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('refuses re-sourcing an existing projection from another part with a pointed reason', async () => {
+        currentCode = [
+          `import { sketch, circle, extrude, part, project } from 'fluidcad/core'`,
+          ``,
+          `export const p1 = part('Donor', () => {`,
+          `  sketch('xy', () => { circle([0, 0], 100) })`,
+          `  extrude(30)`,
+          `})`,
+          ``,
+          `export const p2 = part('Consumer', () => {`,
+          `  const b = extrude(5)`,
+          `  sketch('xy', () => {`,
+          `    project(b.sideFaces(0))`,
+          `  })`,
+          `})`,
+          ``,
+        ].join('\n');
+        currentStatementPart = { partName: 'Consumer', filePath: FILE, line: 8, column: 18 };
+        currentExposureResolution = donorResolution(null, []);
+        const { status, body } = await post({
+          feature: 'project', edit: { filePath: FILE, line: 11, column: 4 }, entities: [PICK], preview: true,
+          before: { index: 4, type: 'projection', line: 11, column: 4 },
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part ("Donor")');
+        expect(body.reason).toContain('add a new Project');
+        expect(synthesizeCalls).toEqual([]);
+      });
     });
   });
 

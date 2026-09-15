@@ -32,8 +32,10 @@ import {
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { readFile } from 'fs/promises';
-import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
+import { ForeignPickResolver, allocateExposeName, type ForeignPickSummary } from './foreign-exposure.ts';
+
+export { allocateExposeName };
 import { detectKind } from '../file-kind.ts';
 import {
   applySolvedEmission,
@@ -46,17 +48,6 @@ import {
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_CALLEES } from '../sketch-symbols.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
-
-/** First `g<n>` not taken by an existing exposure — the tool's default names. */
-export function allocateExposeName(taken: string[]): string {
-  const set = new Set(taken);
-  for (let i = 1; ; i++) {
-    const candidate = `g${i}`;
-    if (!set.has(candidate)) {
-      return candidate;
-    }
-  }
-}
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
 
@@ -3654,6 +3645,27 @@ export function createApplyFeatureRouter(
     ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
 
   const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer);
+  const foreignPicks = new ForeignPickResolver(fluidCadServer, synthesisOptionsForFile);
+
+  /**
+   * Land the cross-file half of a find-or-create before the consumer
+   * statement: each donor-file `expose()` rides its own dispatch. Answers the
+   * request itself on failure and reports whether the caller may go on.
+   */
+  const dispatchCrossFileCreates = async (res: Response, creates: ApplyFeatureEditSpec[]): Promise<boolean> => {
+    for (const create of creates) {
+      const sent = await dispatcher.send(create);
+      if (sent.error) {
+        res.status(422).json({ success: false, reason: sent.error });
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /** A foreign pick list as the apply-feature response carries it. */
+  const foreignBody = (picks: ForeignPickSummary[]): { foreign?: { picks: ForeignPickSummary[] } } =>
+    picks.length > 0 ? { foreign: { picks } } : {};
 
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.
@@ -4068,6 +4080,28 @@ export function createApplyFeatureRouter(
             }
             foldSynthesis(synthesis);
             edit.sketch!.target = { kind: 'selector' };
+          }
+        }
+        if (request.picks && request.feature === 'project') {
+          // Re-sourcing keeps the statement in place, so its arguments must
+          // stay the statement's own part's geometry: another part's pick
+          // would need the find-or-create reference rail the create path
+          // runs, which the in-place rewrite does not carry.
+          const consumer = fluidCadServer.resolveStatementPart?.(request.target) ?? null;
+          const owners = consumer ? await foreignPicks.classify(request.picks, consumer) : { ok: true as const, foreign: [] };
+          if (owners.ok === false) {
+            res.status(422).json({ success: false, reason: owners.reason, pick: owners.pick });
+            return;
+          }
+          if (owners.foreign.length > 0) {
+            const names = [...new Set(owners.foreign.map(f => f.donor.partName))].map(n => `"${n}"`).join(', ');
+            res.status(422).json({
+              success: false,
+              reason: `the re-picked geometry belongs to another part (${names}) — an existing projection keeps `
+                + 'its own part\'s sources; add a new Project for geometry from another part',
+              pick: owners.foreign[0].pick,
+            });
+            return;
           }
         }
         if (request.picks) {
@@ -6078,57 +6112,107 @@ export function createApplyFeatureRouter(
         return;
       }
       try {
-        const code = fluidCadServer.getCurrentCode();
-        const options = code
-          ? {
-            namer: await makeProducerNamer(code),
-            params: resolveParamValues(
-              await extractNumericParams(code),
-              fluidCadServer.getParamDefinitions(),
-            ),
-          }
-          : undefined;
-        const synthesis = fluidCadServer.synthesizeApplyFeature(
-          picks, 'project', undefined, chains, options,
-        );
-        if (!synthesis) {
-          res.status(404).json({ success: false, reason: 'No rendered scene' });
-          return;
-        }
-        if (!synthesis.ok) {
-          res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
-          return;
-        }
-        // The sources and the sketch must share a file: the statement binds
-        // their variables from inside the sketch body.
-        if (normalizePath(synthesis.spec.filePath) !== normalizePath(sketchLoc.filePath)) {
-          res.status(422).json({
-            success: false,
-            reason: 'the picked geometry lives in a different file than the sketch',
+        // Consumer-side cross-part sources: a pick owned by a part OTHER than
+        // the one the sketch lives in is published from its donor
+        // (find-or-create an expose()) and referenced as
+        // `<donor>.features.<name>` — the sketch-on-face rail, one reference
+        // per pick. The consumer is the sketch's own part, read off the
+        // scene; without one (a top-level sketch, an assembly scene, a
+        // kernel predating the lookup) every pick is local as before.
+        const consumer = fluidCadServer.resolveStatementPart?.(sketchLoc) ?? null;
+        const resolution = consumer
+          ? await foreignPicks.resolve(picks, chains, consumer)
+          : { ok: true as const, local: picks, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
+        if (resolution.ok === false) {
+          res.status(resolution.status).json({
+            success: false, reason: resolution.reason, ...(resolution.pick ? { pick: resolution.pick } : {}),
           });
           return;
         }
+
+        let localSpec: ApplyFeatureEditSpec | null = null;
+        let localArgs = '';
+        let localAlternatives: string[] = [];
+        if (resolution.local.length > 0) {
+          const code = fluidCadServer.getCurrentCode();
+          const options = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            resolution.local, 'project', undefined, resolution.chains, options,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          // The sources and the sketch must share a file: the statement binds
+          // their variables from inside the sketch body.
+          if (normalizePath(synthesis.spec.filePath) !== normalizePath(sketchLoc.filePath)) {
+            res.status(422).json({
+              success: false,
+              reason: 'the picked geometry lives in a different file than the sketch',
+            });
+            return;
+          }
+          localSpec = synthesis.spec;
+          localArgs = synthesis.args;
+          localAlternatives = synthesis.alternatives ?? [];
+        }
+        // The references append after the sketch's own selectors — in the
+        // synthesized list and in each verified alternative alike.
+        const withReferences = (own: string): string =>
+          [own, ...resolution.expressions].filter(arg => arg !== '').join(', ');
+        const args = withReferences(localArgs);
         // Composed here rather than taken from `synthesis.preview`: the args
         // ARE the statement, and composing keeps the preview identical to what
         // the transform writes even against a workspace kernel that predates
         // the project feature kind (it would render the valued form).
-        const statementPreview = `project(${synthesis.args})`;
+        const statementPreview = `project(${args})`;
         if (preview === true) {
           res.json({
             success: true,
             preview: statementPreview,
-            args: synthesis.args,
-            alternatives: synthesis.alternatives,
+            args,
+            alternatives: localAlternatives.map(withReferences),
+            ...foreignBody(resolution.picks),
           });
           return;
         }
+        // Publishing another part's geometry is a visible edit to THAT part,
+        // so the apply carries the user's explicit go-ahead; a refusal echoes
+        // the picks so the dialog can raise its notice even when the click
+        // outran the preview.
+        if (resolution.picks.length > 0 && req.body?.confirmForeign !== true) {
+          res.status(422).json({
+            success: false,
+            reason: 'the picked geometry belongs to another part — confirm the cross-part references before applying',
+            ...foreignBody(resolution.picks),
+          });
+          return;
+        }
+        if (!(await dispatchCrossFileCreates(res, resolution.crossFileCreates))) {
+          return;
+        }
         let spec: ApplyFeatureEditSpec = {
-          ...synthesis.spec,
+          ...(localSpec ?? { filePath: sketchLoc.filePath, producers: [], parts: [], imports: [] }),
           feature: 'project',
           value: undefined,
-          project: { sketch: { line: sketchLoc.line, column: sketchLoc.column } },
+          project: {
+            sketch: { line: sketchLoc.line, column: sketchLoc.column },
+            ...(resolution.refs.length > 0 ? { foreign: resolution.refs } : {}),
+          },
         };
-        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
+        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== args) {
           spec = { ...spec, rawArgs: selectorOverride.trim() };
         }
         await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
@@ -6656,106 +6740,23 @@ export function createApplyFeatureRouter(
     // and sketch on the exposure reference inside the ACTIVE part's body.
     if (feature === 'sketch' && activePartLoc && picks.length === 1
       && chains.length === 0 && picks[0].sub.type === 'face') {
-      const resolution = fluidCadServer.resolvePickExposure?.(picks[0]);
-      if (resolution && resolution.ok === false) {
-        res.status(422).json({ success: false, reason: resolution.reason });
+      const resolution = await foreignPicks.resolve(picks, [], activePartLoc);
+      if (resolution.ok === false) {
+        res.status(resolution.status).json({ success: false, reason: resolution.reason });
         return;
       }
-      const donor = resolution?.ok === true ? resolution.donor : null;
-      const foreign = donor != null
-        && !(normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath)
-          && donor.line === activePartLoc.line && donor.column === activePartLoc.column);
-      if (foreign) {
+      if (resolution.refs.length > 0) {
         try {
-          const sameFile = normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath);
-          const name: string = donor.matched ?? allocateExposeName(donor.existingNames ?? []);
-
-          // Find-or-create: no exposure serves the picked face yet — run the
-          // donor-side expose synthesis (the Phase-B rail) with the same
-          // two-pass namer/params the expose arm uses.
-          let createSpec: ApplyFeatureEditSpec | null = null;
-          if (!donor.matched) {
-            const probe = fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, []);
-            if (!probe) {
-              res.status(404).json({ success: false, reason: 'No rendered scene' });
-              return;
-            }
-            if (!probe.ok) {
-              res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
-              return;
-            }
-            const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
-            const synth = fileOptions
-              ? fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, [], fileOptions)
-              : probe;
-            if (!synth || !synth.ok) {
-              res.status(422).json({
-                success: false,
-                reason: synth && !synth.ok ? synth.reason : 'No rendered scene',
-              });
-              return;
-            }
-            createSpec = synth.spec;
-          }
-
-          // The identifier the reference renders: the donor's module-level
-          // binding (same file) or its export identifier plus an import
-          // (cross-file, resolved from the donor file on disk).
-          let ident: string;
-          let importFrom: string | null = null;
-          if (sameFile) {
-            const code = fluidCadServer.getCurrentCode();
-            const binding = code !== null
-              ? await resolvePartBindingIdent(code, donor.line)
-              : { error: 'No live code buffer' as const };
-            if ('error' in binding) {
-              res.status(422).json({ success: false, reason: binding.error });
-              return;
-            }
-            ident = binding.ident;
-          } else {
-            let donorCode: string;
-            try {
-              donorCode = await readFile(donor.filePath, 'utf8');
-            } catch {
-              res.status(422).json({
-                success: false,
-                reason: `could not read the donor part's file (${donor.filePath})`,
-              });
-              return;
-            }
-            const binding = await resolvePartBindingIdent(donorCode, donor.line);
-            if ('error' in binding) {
-              res.status(422).json({ success: false, reason: binding.error });
-              return;
-            }
-            if (!binding.exported) {
-              res.status(422).json({
-                success: false,
-                reason: `the part "${donor.partName}" is not exported from its file — export the binding `
-                  + `(export const ${binding.ident} = part(...)) so it can be imported here`,
-              });
-              return;
-            }
-            ident = binding.ident;
-            importFrom = relativeSpecifier(activePartLoc.filePath, donor.filePath);
-          }
-
-          const statementPreview = `sketch(${ident}.features.${name}, () => { ... })`;
+          const statementPreview = `sketch(${resolution.expressions[0]}, () => { ... })`;
           if (preview === true) {
-            res.json({ success: true, preview: statementPreview, args: '' });
+            res.json({ success: true, preview: statementPreview, args: '', ...foreignBody(resolution.picks) });
             return;
           }
-
           // A cross-file exposure can't ride the consumer transform — create
           // it in the donor file first, then land the reference. A same-file
           // create rides the spec and stays atomic in one transform.
-          if (createSpec && !sameFile) {
-            const sent = await dispatcher.send(createSpec);
-            if (sent.error) {
-              res.status(422).json({ success: false, reason: sent.error });
-              return;
-            }
+          if (!(await dispatchCrossFileCreates(res, resolution.crossFileCreates))) {
+            return;
           }
           const spec: ApplyFeatureEditSpec = {
             feature: 'sketch',
@@ -6764,15 +6765,7 @@ export function createApplyFeatureRouter(
             parts: [],
             imports: [],
             activePart: { line: activePartLoc.line, column: activePartLoc.column },
-            sketchForeign: {
-              exposeName: name,
-              ...(sameFile
-                ? {
-                  donor: { line: donor.line, column: donor.column },
-                  ...(createSpec ? { create: createSpec } : {}),
-                }
-                : { ident, importFrom: importFrom! }),
-            },
+            sketchForeign: resolution.refs[0],
           };
           await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
         } catch (err: any) {

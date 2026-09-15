@@ -133,7 +133,7 @@ export type ApplyFeatureEditSpec = {
    */
   expose?: ExposeEditOptions;
   /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
-  sketchForeign?: SketchForeignOptions;
+  sketchForeign?: ForeignExposureRef;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around
    * the single `parts` entry (the path's bare variable). In-place edits ride
@@ -382,10 +382,11 @@ export type ExposeEditOptions = {
 };
 
 /**
- * Consumer-side cross-part sketch payload: the statement rendered is
- * `sketch(<ident>.features.<exposeName>, () => {})`, inserted into the ACTIVE
- * part's callback body (`spec.activePart`) rather than the picked geometry's
- * own part. Exactly one addressing mode:
+ * One consumer-side cross-part reference: geometry another part publishes
+ * (or will publish) with `expose()`, rendered as `<ident>.features.<exposeName>`
+ * inside the consumer's own statement — a sketch on the donor's face
+ * (`sketchForeign`) or a projection of the donor's faces and edges
+ * (`project.foreign`). Exactly one addressing mode:
  *
  *   - `donor` (same-file): the donor `part(...)` call site — the transform
  *     resolves the module-level `const` its definition is bound to and
@@ -394,11 +395,12 @@ export type ExposeEditOptions = {
  *     the module specifier to import it from.
  *
  * `create` (same-file only) is a full `'expose'` spec applied FIRST in the
- * same transform — find-or-create stays atomic, and the part call sites are
- * relocated across the intermediate edit before the sketch statement lands.
- * Cross-file creation rides its own dispatch to the donor file instead.
+ * same transform — find-or-create stays atomic, and every call site the
+ * consumer statement still needs is relocated across the intermediate edit
+ * before it lands. Cross-file creation rides its own dispatch to the donor
+ * file instead.
  */
-export type SketchForeignOptions = {
+export type ForeignExposureRef = {
   exposeName: string;
   /** Same-file donor: its `part(...)` call site. */
   donor?: { line: number; column: number };
@@ -967,6 +969,12 @@ export type WrapEditOptions = {
 export type ProjectEditOptions = {
   /** Call site of the `sketch()` statement whose body receives the call. */
   sketch: { line: number; column: number };
+  /**
+   * Sources another part owns, each rendered as one `<ident>.features.<name>`
+   * argument after the selector parts (the find-or-create rail the cross-part
+   * sketch uses). A projection may be foreign-only — no producers, no parts.
+   */
+  foreign?: ForeignExposureRef[];
 };
 
 /**
@@ -1526,9 +1534,27 @@ export async function applyFeatureEdit(
   if (spec.feature === 'sketch' && spec.sketchForeign) {
     return applySketchForeign(code, spec);
   }
+  if (spec.feature === 'project' && spec.project?.foreign?.length) {
+    return applyProjectForeign(code, spec);
+  }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
   }
+  return applyCreateEdit(code, spec);
+}
+
+/**
+ * The generic create path: validate the spec's shape for its feature, bind
+ * the producers, render the statement and land it at its insertion point.
+ * `extras.foreignArgs` are pre-rendered argument expressions appended after
+ * the selector parts (the cross-part projection's `<ident>.features.<name>`
+ * references, resolved by {@link applyProjectForeign} before it gets here).
+ */
+async function applyCreateEdit(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+  extras: { foreignArgs?: string[] } = {},
+): Promise<ApplyFeatureEditResult> {
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
     // producers[0]. A picked-face target carries exactly one selector part —
@@ -1916,11 +1942,15 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'project') {
     // The selector parts are ordinary 3D picks; what the payload adds is the
-    // sketch call site whose body receives the statement.
+    // sketch call site whose body receives the statement. A foreign-only
+    // projection carries no picks of its own — its arguments are the
+    // resolved cross-part references alone.
     const pj = spec.project;
+    const foreignOnly = (pj?.foreign?.length ?? 0) > 0
+      && spec.producers.length === 0 && spec.parts.length === 0;
     const valid = pj !== undefined
       && Number.isInteger(pj.sketch?.line) && Number.isInteger(pj.sketch?.column)
-      && spec.producers.length > 0 && spec.parts.length > 0;
+      && ((spec.producers.length > 0 && spec.parts.length > 0) || foreignOnly);
     if (!valid) {
       return { newCode: code, error: 'malformed project edit spec' };
     }
@@ -1978,7 +2008,9 @@ export async function applyFeatureEdit(
     return { newCode: code, error: resolved.error };
   }
   const bindings = resolved.bindings;
-  const scope = bindings[0].scope;
+  // A foreign-only projection binds nothing; its insertion is the sketch
+  // body, which never reads the scope.
+  const scope = bindings.length > 0 ? bindings[0].scope : tree.rootNode;
 
   allocateNames(tree.rootNode, bindings, spec);
 
@@ -1986,8 +2018,8 @@ export async function applyFeatureEdit(
   if ('error' in insertion) {
     return { newCode: code, error: insertion.error };
   }
-  let statementText = buildStatement(spec, bindings, insertion.indent);
-  const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
+  let statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+  let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };
   const hoistEdits: Edit[] = [];
@@ -2004,6 +2036,10 @@ export async function applyFeatureEdit(
       };
     }
     const sketchStatement = enclosingStatement(sketchCall) ?? sketchCall;
+    if (bindings.length === 0) {
+      // Nothing bound to read the style off — follow the sketch statement.
+      useSemicolon = sketchStatement.text.trimEnd().endsWith(';');
+    }
     const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
     if ('error' in hoisted) {
       return { newCode: code, error: hoisted.error };
@@ -2206,90 +2242,274 @@ async function applyPlaneSketch(
 }
 
 /**
+ * The consumer-side cross-part reference rail the sketch-on-face and the
+ * projection creates share. A reference renders as
+ * `<ident>.features.<exposeName>`; a same-file `create` (the donor's
+ * `expose()` statement) is applied FIRST in the same transform, and every
+ * call site the consumer statement still needs — its own anchors, the
+ * donors, the later creates' producers — is relocated across that edit by
+ * callee ordinal: an exposure edit adds an `expose(...)` call and binds a
+ * producer in place, so the k-th `part(...)` / `extrude(...)` / `sketch(...)`
+ * call before it is the k-th one after it.
+ */
+class ForeignExposures {
+  /** Shape check for one reference — exactly one addressing mode, a same-file-only create. */
+  static valid(ref: ForeignExposureRef | undefined): ref is ForeignExposureRef {
+    if (!ref || typeof ref !== 'object') {
+      return false;
+    }
+    const sameFile = ref.donor !== undefined;
+    return typeof ref.exposeName === 'string' && CONNECTOR_NAME.test(ref.exposeName)
+      && (sameFile !== (typeof ref.ident === 'string'))
+      && (!sameFile || (Number.isInteger(ref.donor!.line) && Number.isInteger(ref.donor!.column)))
+      && (ref.ident === undefined || CONNECTOR_NAME.test(ref.ident))
+      && (ref.importFrom === undefined || (typeof ref.importFrom === 'string' && !sameFile))
+      && (ref.create === undefined
+        || (sameFile && ref.create.feature === 'expose'
+          && ref.create.sketchForeign === undefined && ref.create.project === undefined));
+  }
+
+  /** The expression a resolved reference renders. */
+  static reference(ident: string, ref: ForeignExposureRef): string {
+    return `${ident}.features.${ref.exposeName}`;
+  }
+
+  /**
+   * Apply every same-file `create` in order. `anchors` are the caller's own
+   * 1-based call-site lines (the active part, the target sketch, the local
+   * producers); they come back relocated alongside the refs, whose donor
+   * sites and pending creates are relocated the same way. Fails without
+   * touching anything when a create refuses or a site cannot be followed.
+   */
+  static async applyCreates(
+    code: string,
+    refs: ForeignExposureRef[],
+    anchors: number[],
+  ): Promise<{ code: string; refs: ForeignExposureRef[]; anchors: number[] } | { error: string }> {
+    let working = code;
+    let pending = refs.map(ref => ({ ...ref }));
+    let lines = anchors.slice();
+    for (let k = 0; k < pending.length; k++) {
+      const create = pending[k].create;
+      if (!create) {
+        continue;
+      }
+      const applied = await applyFeatureEdit(working, create);
+      if (applied.error) {
+        return { error: applied.error };
+      }
+      const tracked = [
+        ...lines,
+        ...pending.flatMap(ref => (ref.donor ? [ref.donor.line] : [])),
+        ...pending.slice(k + 1).flatMap(ref => (ref.create ? ForeignExposures.createSiteLines(ref.create) : [])),
+      ];
+      const map = await ForeignExposures.relocateCallLines(working, applied.newCode, tracked);
+      if (!map) {
+        return {
+          error: 'could not relocate the part statements after the exposure edit — is the file in sync with the last render?',
+        };
+      }
+      working = applied.newCode;
+      lines = lines.map(line => map.get(line)!);
+      pending = pending.map((ref, j) => ({
+        ...ref,
+        ...(ref.donor ? { donor: { ...ref.donor, line: map.get(ref.donor.line)! } } : {}),
+        ...(j > k && ref.create ? { create: ForeignExposures.relocateCreate(ref.create, map) } : {}),
+      }));
+    }
+    return { code: working, refs: pending, anchors: lines };
+  }
+
+  /**
+   * The identifier a reference renders against `code`: the donor's
+   * module-level binding (same file) or what its import binds here
+   * (cross-file — the export may already be aliased, or shadowed).
+   */
+  static async resolveIdent(
+    code: string,
+    ref: ForeignExposureRef,
+  ): Promise<{ ident: string } | { error: string }> {
+    if (ref.donor) {
+      const resolved = await resolvePartBindingIdent(code, ref.donor.line);
+      return 'error' in resolved ? resolved : { ident: resolved.ident };
+    }
+    const ident = ref.importFrom ? await importLocalName(code, ref.ident!, ref.importFrom) : ref.ident!;
+    return { ident };
+  }
+
+  /** Import every cross-file donor under the local name its reference rendered. */
+  static async ensureImports(code: string, refs: ForeignExposureRef[], idents: string[]): Promise<string> {
+    let out = code;
+    for (const [i, ref] of refs.entries()) {
+      if (ref.importFrom) {
+        out = await ensureSymbolImport(out, ref.ident!, ref.importFrom, idents[i]);
+      }
+    }
+    return out;
+  }
+
+  /** The call-site lines an expose create spec addresses. */
+  private static createSiteLines(create: ApplyFeatureEditSpec): number[] {
+    return [
+      ...(create.expose?.part ? [create.expose.part.line] : []),
+      ...create.producers.map(p => p.line),
+    ];
+  }
+
+  private static relocateCreate(create: ApplyFeatureEditSpec, map: Map<number, number>): ApplyFeatureEditSpec {
+    return {
+      ...create,
+      ...(create.expose?.part
+        ? { expose: { ...create.expose, part: { ...create.expose.part, line: map.get(create.expose.part.line)! } } }
+        : {}),
+      producers: create.producers.map(p => ({ ...p, line: map.get(p.line)! })),
+    };
+  }
+
+  /**
+   * Follow call-site lines across an edit that neither adds nor removes
+   * calls of THEIR callees: each line's root call is identified by callee
+   * name and document ordinal before the edit and looked up by the same
+   * ordinal after it. Null when a line holds no identifier-rooted call or
+   * the callee's call count changed.
+   */
+  static async relocateCallLines(
+    before: string,
+    after: string,
+    lines: number[],
+  ): Promise<Map<number, number> | null> {
+    const parser = await getJavaScriptParser();
+    const treeBefore = parser.parse(before);
+    const linesBefore = splitLines(before);
+    const callsBefore = ForeignExposures.rootCallsByCallee(treeBefore);
+    const callsAfter = ForeignExposures.rootCallsByCallee(parser.parse(after));
+    const map = new Map<number, number>();
+    for (const line of new Set(lines)) {
+      const call = findEditableCallAt(treeBefore, linesBefore, line);
+      const root = call ? chainRootCall(call) : null;
+      const callee = root?.childForFieldName('function')?.text ?? null;
+      if (!root || callee === null) {
+        return null;
+      }
+      const ordinal = callsBefore.get(callee)!.findIndex(c => c.startIndex === root.startIndex);
+      const candidates = callsAfter.get(callee) ?? [];
+      if (ordinal < 0 || candidates.length !== callsBefore.get(callee)!.length) {
+        return null;
+      }
+      map.set(line, candidates[ordinal].startPosition.row + 1);
+    }
+    return map;
+  }
+
+  /** Identifier-rooted calls grouped by callee, each list in document order. */
+  private static rootCallsByCallee(tree: TSTree): Map<string, TSNode[]> {
+    const out = new Map<string, TSNode[]>();
+    for (const node of walkTree(tree.rootNode)) {
+      if (node.type !== 'call_expression') {
+        continue;
+      }
+      const fn = node.childForFieldName('function');
+      if (fn?.type !== 'identifier') {
+        continue;
+      }
+      const list = out.get(fn.text) ?? [];
+      list.push(node);
+      out.set(fn.text, list);
+    }
+    for (const list of out.values()) {
+      list.sort((a, b) => a.startIndex - b.startIndex);
+    }
+    return out;
+  }
+}
+
+/**
  * The consumer-side cross-part sketch: render
  * `sketch(<ident>.features.<exposeName>, () => {})` into the ACTIVE part's
  * body. With a same-file `create` spec the exposure statement is applied
- * first in the same transform — the part call sites are relocated across the
- * intermediate edit by ordinal (the exposure edit never adds or removes
- * `part()` calls), so both stages stay atomic in one editor round trip.
+ * first in the same transform, the active part's call site relocated
+ * across it, so both stages stay atomic in one editor round trip.
  */
 async function applySketchForeign(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
-  const sf = spec.sketchForeign!;
-  const sameFile = sf.donor !== undefined;
-  const valid = typeof sf.exposeName === 'string' && CONNECTOR_NAME.test(sf.exposeName)
+  const sf = spec.sketchForeign;
+  const valid = ForeignExposures.valid(sf)
     && Number.isInteger(spec.activePart?.line) && Number.isInteger(spec.activePart?.column)
-    // Exactly one addressing mode: a same-file donor call site, or a
-    // cross-file identifier (with its import specifier).
-    && (sameFile !== (typeof sf.ident === 'string'))
-    && (!sameFile || (Number.isInteger(sf.donor!.line) && Number.isInteger(sf.donor!.column)))
-    && (sf.ident === undefined || CONNECTOR_NAME.test(sf.ident))
-    && (sf.importFrom === undefined || (typeof sf.importFrom === 'string' && !sameFile))
-    && (sf.create === undefined
-      || (sameFile && sf.create.feature === 'expose' && sf.create.sketchForeign === undefined))
     && spec.producers.length === 0 && spec.parts.length === 0;
   if (!valid) {
     return { newCode: code, error: 'malformed foreign sketch spec' };
   }
 
-  let working = code;
-  let activeLine = spec.activePart!.line;
-  let donorLine = sf.donor?.line;
-  if (sf.create) {
-    const created = await applyFeatureEdit(working, sf.create);
-    if (created.error) {
-      return { newCode: code, error: created.error };
-    }
-    const before = await partCallLines(working);
-    const after = await partCallLines(created.newCode);
-    const relocate = (line: number): number | null => {
-      const k = before.indexOf(line);
-      return k >= 0 && before.length === after.length ? after[k] : null;
-    };
-    const newActive = relocate(activeLine);
-    const newDonor = donorLine !== undefined ? relocate(donorLine) : undefined;
-    if (newActive === null || newDonor === null) {
-      return {
-        newCode: code,
-        error: 'could not relocate the part statements after the exposure edit — is the file in sync with the last render?',
-      };
-    }
-    working = created.newCode;
-    activeLine = newActive;
-    donorLine = newDonor;
+  const staged = await ForeignExposures.applyCreates(code, [sf], [spec.activePart!.line]);
+  if ('error' in staged) {
+    return { newCode: code, error: staged.error };
   }
-
-  let ident: string;
-  if (sameFile) {
-    const resolved = await resolvePartBindingIdent(working, donorLine!);
-    if ('error' in resolved) {
-      return { newCode: code, error: resolved.error };
-    }
-    ident = resolved.ident;
-  } else {
-    // The donor's export may already be bound here under another name, or
-    // its name may be taken by a local declaration — the statement must
-    // reference what the import actually binds.
-    ident = sf.importFrom ? await importLocalName(working, sf.ident!, sf.importFrom) : sf.ident!;
+  const ref = staged.refs[0];
+  const ident = await ForeignExposures.resolveIdent(staged.code, ref);
+  if ('error' in ident) {
+    return { newCode: code, error: ident.error };
   }
 
   const result = await appendTopLevelStatement(
-    working,
-    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}})`,
+    staged.code,
+    indent => `sketch(${ForeignExposures.reference(ident.ident, ref)}, () => {\n\n${indent}})`,
     'sketch',
     spec.newVariables,
-    { line: activeLine, column: spec.activePart!.column },
+    { line: staged.anchors[0], column: spec.activePart!.column },
   );
   if (result.error) {
     return { newCode: code, error: result.error };
   }
-  let out = result.newCode;
-  if (sf.importFrom) {
-    out = await ensureSymbolImport(out, sf.ident!, sf.importFrom, ident);
+  return { newCode: await ForeignExposures.ensureImports(result.newCode, [ref], [ident.ident]) };
+}
+
+/**
+ * The cross-part projection: `project(<own selectors>, <ident>.features.<name>, …)`
+ * into the sketch body, the donors' same-file `expose()` creates applied
+ * first with the sketch call site and the local producers relocated across
+ * them — one atomic transform. The references append after the selector
+ * parts; a verbatim `rawArgs` override stands as typed.
+ */
+async function applyProjectForeign(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const pj = spec.project!;
+  const refs = pj.foreign!;
+  const valid = Array.isArray(refs) && refs.every(ref => ForeignExposures.valid(ref))
+    && Number.isInteger(pj.sketch?.line) && Number.isInteger(pj.sketch?.column);
+  if (!valid) {
+    return { newCode: code, error: 'malformed foreign project spec' };
   }
-  return { newCode: out };
+
+  const anchors = [pj.sketch.line, ...spec.producers.map(p => p.line)];
+  const staged = await ForeignExposures.applyCreates(code, refs, anchors);
+  if ('error' in staged) {
+    return { newCode: code, error: staged.error };
+  }
+  const idents: string[] = [];
+  for (const ref of staged.refs) {
+    const ident = await ForeignExposures.resolveIdent(staged.code, ref);
+    if ('error' in ident) {
+      return { newCode: code, error: ident.error };
+    }
+    idents.push(ident.ident);
+  }
+
+  const relocated: ApplyFeatureEditSpec = {
+    ...spec,
+    producers: spec.producers.map((p, i) => ({ ...p, line: staged.anchors[i + 1] })),
+    project: { ...pj, sketch: { ...pj.sketch, line: staged.anchors[0] }, foreign: staged.refs },
+  };
+  const result = await applyCreateEdit(staged.code, relocated, {
+    foreignArgs: staged.refs.map((ref, i) => ForeignExposures.reference(idents[i], ref)),
+  });
+  if (result.error) {
+    return { newCode: code, error: result.error };
+  }
+  return { newCode: await ForeignExposures.ensureImports(result.newCode, staged.refs, idents) };
 }
 
 /**
@@ -2379,23 +2599,6 @@ async function callLines(code: string, callee: string): Promise<number[]> {
     }
     const fn = node.childForFieldName('function');
     if (fn?.type === 'identifier' && fn.text === callee) {
-      out.push(node.startPosition.row + 1);
-    }
-  }
-  return out;
-}
-
-/** Start lines (1-based) of every root `part(...)` call, in document order. */
-async function partCallLines(code: string): Promise<number[]> {
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(code);
-  const out: number[] = [];
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type !== 'call_expression') {
-      continue;
-    }
-    const fn = node.childForFieldName('function');
-    if (fn?.type === 'identifier' && fn.text === 'part') {
       out.push(node.startPosition.row + 1);
     }
   }
@@ -3940,7 +4143,12 @@ export function renderPlaneBaseExprs(
  * from its options — `extrude(25)` / `cut()` (through-all) / a bound profile
  * variable as the trailing argument — plus `.thin(…)` and `.new()` chains.
  */
-function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[], indent: string): string {
+function buildStatement(
+  spec: ApplyFeatureEditSpec,
+  bindings: ProducerBinding[],
+  indent: string,
+  foreignArgs: string[] = [],
+): string {
   /** The bound variable names of a create spec's `.scope(…)` producers. */
   const scopeVarNames = (scope: number[] | undefined): string[] =>
     (scope ?? []).map(p => bindings[p].varName!);
@@ -4042,7 +4250,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     return `sketch(${bindings[0].varName}, () => {\n\n${indent}})`;
   }
-  const args = renderSelectorArgs(spec, bindings);
+  const args = renderSelectorArgs(spec, bindings, foreignArgs);
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
@@ -4091,11 +4299,25 @@ export function renderOffsetStatement(
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
-function renderSelectorArgs(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
+/**
+ * The statement's argument list: the user's verbatim override when one is
+ * set, else the rendered selector parts followed by `extraArgs` (a
+ * projection's resolved cross-part references).
+ */
+function renderSelectorArgs(
+  spec: ApplyFeatureEditSpec,
+  bindings: ProducerBinding[],
+  extraArgs: string[] = [],
+): string {
   const rawArgs = spec.rawArgs?.trim();
-  return rawArgs ?? spec.parts
-    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName))
-    .join(', ');
+  if (rawArgs) {
+    return rawArgs;
+  }
+  return [
+    ...spec.parts.map(part =>
+      renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName)),
+    ...extraArgs,
+  ].join(', ');
 }
 
 const MODULE_FOR_IMPORT: Record<string, string> = {

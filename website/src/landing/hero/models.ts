@@ -8,11 +8,11 @@ import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
 // under the name its importer uses.
 import engineInit from '!!raw-loader!../models/engine/init.js';
 import engineMain from '!!raw-loader!../models/engine/main.assembly.js';
-import engineCrank from '!!raw-loader!../models/engine/crank-shaft.fluid.js';
+import engineCrank from '!!raw-loader!../models/engine/crank-shaft.part.js';
 import enginePistonAssembly from '!!raw-loader!../models/engine/piston.assembly.js';
 import enginePiston from '!!raw-loader!../models/engine/piston.part.js';
 import engineRod from '!!raw-loader!../models/engine/connecting-rod.part.js';
-import enginePin from '!!raw-loader!../models/engine/pin.part.js';
+import enginePin from '!!raw-loader!../models/engine/piston-pin.part.js';
 import engineRing from '!!raw-loader!../models/engine/piston-ring.part.js';
 
 export type HeroModel = {
@@ -55,11 +55,11 @@ export const HERO_MODELS: HeroModel[] = [
     files: {
       'init.js': engineInit,
       'main.assembly.js': engineMain,
-      'crank-shaft.fluid.js': engineCrank,
+      'crank-shaft.part.js': engineCrank,
       'piston.assembly.js': enginePistonAssembly,
       'piston.part.js': enginePiston,
       'connecting-rod.part.js': engineRod,
-      'pin.part.js': enginePin,
+      'piston-pin.part.js': enginePin,
       'piston-ring.part.js': engineRing,
     },
     thumbnail: '/img/landing/thumb-engine.png',

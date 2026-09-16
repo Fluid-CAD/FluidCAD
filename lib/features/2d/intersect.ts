@@ -35,6 +35,20 @@ export class Intersect extends ExtrudableGeometryBase {
     if (this._prepared || this._prepareError) {
       return;
     }
+    // Clone rule (P2): a clone never recomputes. repeat/mirror statements
+    // clone at module-eval time, before the source's pre-pass has run, so
+    // createCopy had nothing to carry — take it from the source now (the
+    // source sketch is a dependency of every clone, so it has built). A
+    // recompute here would build the CLONED lazy sources with no consumer:
+    // the clone's own build slot is renderer-skipped, so the raw selected
+    // face/edges leaked into every read of the cloned sketch (a mirrored
+    // rib's spine wire picked up the projected face's outline).
+    const source = this.getCloneSource();
+    if (source instanceof Intersect) {
+      source.prepareReferences();
+      this.carryPreparedFrom(source);
+      return;
+    }
     try {
       const plane = this.sketch.getPlane();
       // The pre-pass runs before the render loop reaches lazy accessor
@@ -131,13 +145,19 @@ export class Intersect extends ExtrudableGeometryBase {
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const objects = this.sourceObjects.map(obj => remap.get(obj) || obj);
     const copy = new Intersect(objects);
-    // Clones of a solved sketch never re-solve — carry the prepared compute
-    // and the registered fixed-entity records (P2 clone rule).
-    copy._prepared = this._prepared;
-    copy._prepareError = this._prepareError;
-    copy.setState('reference-entities', this.referenceEntities());
-    copy.setState('reference-edge-count', this.referenceEdgeCount());
+    copy.carryPreparedFrom(this);
     return copy;
+  }
+
+  /** Clones of a solved sketch never re-solve — carry the prepared compute
+   * and the registered fixed-entity records (P2 clone rule). Runs at copy
+   * time and again from the clone's prepare, for eval-time clones whose
+   * source had not prepared yet when it was copied. */
+  private carryPreparedFrom(source: Intersect): void {
+    this._prepared = source._prepared;
+    this._prepareError = source._prepareError;
+    this.setState('reference-entities', source.referenceEntities());
+    this.setState('reference-edge-count', source.referenceEdgeCount());
   }
 
   compareTo(other: Intersect): boolean {

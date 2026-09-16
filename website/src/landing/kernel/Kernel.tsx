@@ -74,7 +74,7 @@ export default function Kernel() {
       <p className={styles.formats}>
         STEP and STL in and out, PNG straight from the viewport, and a sketch solver that will hold
         a line tangent to two arcs while you move them.{' '}
-        <Link to="/docs/guides/export">Read about export</Link>.
+        <Link to="/docs/import-export/export">Read about export</Link>.
       </p>
     </Section>
   );

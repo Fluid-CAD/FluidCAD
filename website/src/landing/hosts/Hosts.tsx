@@ -59,7 +59,7 @@ const HOSTS: Host[] = [
       </>
     ),
     command: ':FluidCadOpenBrowser',
-    href: '/docs/getting-started/editor-setup',
+    href: '/docs/installation#editor-setup',
     hrefLabel: 'Editor setup',
   },
   {
@@ -67,7 +67,7 @@ const HOSTS: Host[] = [
     name: 'Any other editor',
     line: <>Run the server yourself and keep the viewport in a browser tab. It rebuilds on save.</>,
     command: 'npx fluidcad serve',
-    href: '/docs/guides/cli',
+    href: '/docs/cli',
     hrefLabel: 'CLI reference',
   },
   {
@@ -80,7 +80,7 @@ const HOSTS: Host[] = [
       </>
     ),
     command: 'npx fluidcad export step',
-    href: '/docs/guides/export',
+    href: '/docs/import-export/export',
     hrefLabel: 'Export',
   },
   {
@@ -95,7 +95,7 @@ const HOSTS: Host[] = [
       </>
     ),
     command: 'npx fluidcad mcp',
-    href: '/docs/guides/cli#fluidcad-mcp',
+    href: '/docs/cli#fluidcad-mcp',
     hrefLabel: 'MCP setup',
     wide: true,
   },

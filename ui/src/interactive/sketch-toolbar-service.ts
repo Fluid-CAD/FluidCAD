@@ -38,7 +38,10 @@ import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
 import { SketchDofStatus } from '../ui/sketch-dof-status';
-import { buildSolvedSketchModel, computeSketchDofState, isSolvedSketch } from '../sketch-solver-client';
+import {
+  buildSolvedSketchModel, computeSketchDofState, findStatementDimension, isSolvedSketch,
+} from '../sketch-solver-client';
+import type { StatementDimensionRef } from '../sketch-solver-client';
 import { SolvedDimensionEditor } from './solved-dimension-editor';
 import { SolvedConstraintToolbarService } from './solved-constraint-toolbar';
 
@@ -766,13 +769,29 @@ export class SketchToolbarService {
   }
 
   /** A dimension glyph was double-clicked: resolve the constraint statement
-   * in the current model and open its value input (P4). */
-  private openSolvedDimensionEditor(pick: { objId?: string; clientX: number; clientY: number }): void {
+   * — or the statement-owned scalar (an ellipse's RX/RY) — in the current
+   * model and open its value input (P4). */
+  private openSolvedDimensionEditor(pick: {
+    objId?: string;
+    dimension?: StatementDimensionRef;
+    clientX: number;
+    clientY: number;
+  }): void {
     if (!this.activeSketchInfo || !pick.objId) {
       return;
     }
     const model = buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects);
-    const constraint = model?.constraints.find(c => c.obj.id === pick.objId);
+    if (!model) {
+      return;
+    }
+    if (pick.dimension) {
+      const dimension = findStatementDimension(model, pick.objId, pick.dimension);
+      if (dimension) {
+        this.solvedDimensionEditor.showStatementDimension(dimension, pick.clientX, pick.clientY);
+      }
+      return;
+    }
+    const constraint = model.constraints.find(c => c.obj.id === pick.objId);
     if (constraint && SolvedDimensionEditor.isDimensional(constraint)) {
       this.solvedDimensionEditor.show(constraint, pick.clientX, pick.clientY);
     }
@@ -820,7 +839,12 @@ export class SketchToolbarService {
       if (pick.sourceLocation) {
         gotoSource(pick.sourceLocation, { revealEditor: false });
       }
-      this.solvedToolbar.noteConstraintPick(pick);
+      // A statement-owned dimension (an ellipse's RX/RY) picks its GEOMETRY
+      // statement: the timeline row flashes and the source is revealed, but
+      // the constraint toolbar's Delete never arms against the ellipse.
+      if (!pick.dimension) {
+        this.solvedToolbar.noteConstraintPick(pick);
+      }
       this.onConstraintPick?.(pick);
     };
     this.activeHoverSelectHandler.onConstraintDoubleClick = (pick) => {

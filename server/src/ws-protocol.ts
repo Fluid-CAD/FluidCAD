@@ -392,7 +392,11 @@ export type UpdateDimensionExpressionMessage = {
   type: 'update-dimension-expression';
   expression: string;
   sourceLocation: { line: number; column: number };
+  /** Non-array args from the END of the call (0 = the last scalar). */
   dimensionOffset?: number;
+  /** Callee owning the scalar (`ellipse`, `distance`); null takes the first
+   * call in the chain with a matching argument. */
+  dimensionCall?: string | null;
 };
 
 /**

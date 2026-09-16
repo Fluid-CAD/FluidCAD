@@ -17,6 +17,7 @@ import { themeColors } from '../scene/theme-colors';
 import { applyConstantPixelSize } from '../meshes/screen-scale';
 import { worldFromMm } from '../units/scene-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
+import type { StatementDimensionRef } from '../sketch-solver-client';
 import { insideGlyphBox } from '../meshes/containers/glyph-box';
 import {
   SolvedSketchModel,
@@ -130,14 +131,22 @@ export class SketchHoverSelectHandler {
 
   /** Fired when a solved-sketch constraint badge/dimension is clicked —
    * selecting the constraint statement (timeline flash, passive goto-source
-   * that never pops the in-page editor open). */
-  onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
+   * that never pops the in-page editor open). `dimension` is set when the
+   * glyph is a statement-owned dimension (an ellipse's RX/RY): the pick
+   * then names a geometry statement, not a constraint. */
+  onConstraintPick?: (pick: {
+    objId?: string;
+    sourceLocation?: SourceLocation;
+    dimension?: StatementDimensionRef;
+  }) => void;
 
   /** Fired when a badge/dimension glyph is double-clicked — the dimensional
-   * constraints open their value input from here (P4). */
+   * constraints and the statement-owned dimensions open their value input
+   * from here (P4). */
   onConstraintDoubleClick?: (pick: {
     objId?: string;
     sourceLocation?: SourceLocation;
+    dimension?: StatementDimensionRef;
     clientX: number;
     clientY: number;
   }) => void;
@@ -612,6 +621,7 @@ export class SketchHoverSelectHandler {
       this.onConstraintPick?.({
         objId: this.hoveredBadge.objId,
         sourceLocation: this.hoveredBadge.sourceLocation,
+        dimension: this.hoveredBadge.dimension,
       });
       return;
     }
@@ -1106,6 +1116,7 @@ export class SketchHoverSelectHandler {
       this.onConstraintDoubleClick?.({
         objId: badge.objId,
         sourceLocation: badge.sourceLocation,
+        dimension: badge.dimension,
         clientX: e.clientX,
         clientY: e.clientY,
       });

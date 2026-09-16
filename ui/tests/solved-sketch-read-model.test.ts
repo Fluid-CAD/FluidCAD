@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSolvedSketchModel,
   computeSketchDofState,
+  findStatementDimension,
   isSolvedSketch,
   layoutConstraintGlyphs,
+  statementDimensions,
 } from '../src/sketch-solver-client';
 import type { SceneObjectRender } from '../src/types';
 
@@ -813,6 +815,67 @@ describe('anchor-point entities (P8)', () => {
     expect(cp2.guess).toEqual({ point: [100, 0] });
     // All statements share the bezier object so its sourceLocation rides picks.
     expect(cp0.obj).toBe(bezierObj);
+  });
+
+  // The radii are the ellipse statement's own arguments — no constraint
+  // row backs them — so they show as statement-owned dimensions: one
+  // radius-style glyph per semi-axis, addressed by callee + arg offset
+  // from the end (`ellipse(center, rx, ry)`: rx is 1, ry is 0), against the
+  // ellipse's render object. That is what the double-click editor rewrites.
+  it('lays an ellipse\'s RX/RY as statement-owned radius dimensions on the ellipse statement', () => {
+    const solver = snapshot({
+      entities: [{ id: 0, kind: 'point', fixed: false, paramOffset: 0 }],
+      params: [40, 25],
+      dof: 2,
+      underconstrainedEntities: [0],
+    });
+    const ellipseObj = child('ellipse', {
+      rx: 20, ry: 10, center: { x: 40, y: 25 },
+      entityId: 0, guess: { center: { x: 40, y: 25 } },
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [sketchObj(solver), ellipseObj])!;
+
+    const dims = statementDimensions(model);
+    expect(dims.map(d => [d.label, d.call, d.offset, d.value])).toEqual([
+      ['RX', 'ellipse', 1, 20],
+      ['RY', 'ellipse', 0, 10],
+    ]);
+    expect(dims[0].obj).toBe(ellipseObj);
+    expect(findStatementDimension(model, ellipseObj.id!, { call: 'ellipse', offset: 0 })).toEqual(dims[1]);
+    expect(findStatementDimension(model, ellipseObj.id!, { call: 'ellipse', offset: 2 })).toBeNull();
+    expect(findStatementDimension(model, 'other', { call: 'ellipse', offset: 0 })).toBeNull();
+
+    const glyphs = layoutConstraintGlyphs(model);
+    // No constraint statements: every glyph is a statement dimension.
+    expect(glyphs.every(g => g.dimension !== undefined)).toBe(true);
+    expect(glyphs.some(g => g.type === 'badge')).toBe(false);
+    const texts = glyphs.filter(g => g.type === 'text') as any[];
+    const leaders = glyphs.filter(g => g.type === 'leader') as any[];
+    expect(texts.map(t => t.label)).toEqual(['RX 20 mm', 'RY 10 mm']);
+    expect(texts.map(t => t.dimension)).toEqual([
+      { call: 'ellipse', offset: 1 },
+      { call: 'ellipse', offset: 0 },
+    ]);
+    // Center → rim along each axis, the rim end alone arrowed (a radius).
+    expect(leaders.map(l => [l.from, l.to, l.arrows])).toEqual([
+      [[40, 25], [60, 25], 'end'],
+      [[40, 25], [40, 35], 'end'],
+    ]);
+    for (const t of texts) {
+      expect(t.objId).toBe(ellipseObj.id);
+      expect(t.sourceLocation).toBe(ellipseObj.sourceLocation);
+      expect(t.refEntityIds).toEqual([0]);
+      expect(t.style).toBe('aligned');
+      expect(t.color).toBe('normal');
+    }
+    // The readout rides its own leader, halfway along it.
+    expect(texts[0].at).toEqual([50, 25]);
+    expect(texts[0].alongDir).toEqual([1, 0]);
+    expect(texts[0].slideRange).toBe(10);
+    expect(texts[0].leader).toEqual([[40, 25], [60, 25]]);
+    expect(texts[1].at).toEqual([40, 30]);
+    expect(texts[1].alongDir).toEqual([0, 1]);
+    expect(texts[1].slideRange).toBe(5);
   });
 
   it('joins the bezier curve and path text into the derived tint (sourcesSolved)', () => {

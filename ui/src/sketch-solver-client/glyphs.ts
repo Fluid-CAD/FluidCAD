@@ -11,6 +11,8 @@ import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
 import { diameterChord } from './diameter-chord';
+import { statementDimensions } from './statement-dimensions';
+import type { StatementDimensionRef } from './statement-dimensions';
 import {
   Vec2,
   alongDirAt,
@@ -48,6 +50,11 @@ type GlyphBase = {
   sourceLocation?: SourceLocation;
   /** Entities the constraint references — hover highlights these. */
   refEntityIds: number[];
+  /** Set on a statement-owned dimension (an ellipse's RX/RY): which scalar
+   * of the geometry statement the glyph shows. The pick carries it to the
+   * editor, and it marks the glyph as geometry rather than a constraint —
+   * a click on it never arms Delete against the statement. */
+  dimension?: StatementDimensionRef;
 };
 
 /** Which ends of a dimension leader carry an arrowhead: `both` for a
@@ -495,6 +502,37 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         break;
       }
     }
+  }
+
+  // Statement-owned dimensions (an ellipse's RX/RY, P8): laid like a
+  // radius — a leader out of the anchor, the readout riding it — against
+  // the geometry statement itself. No constraint row backs them, so there
+  // is no redundant/conflicting status to tint.
+  for (const d of statementDimensions(model)) {
+    const span = dist(d.from, d.to);
+    if (span < 1e-9 || !d.obj.id) {
+      continue;
+    }
+    const base: GlyphBase = {
+      color: 'normal',
+      objId: d.obj.id,
+      sourceLocation: d.obj.sourceLocation,
+      refEntityIds: d.refEntityIds,
+      dimension: { call: d.call, offset: d.offset },
+    };
+    const dir = normalize(sub(d.to, d.from));
+    glyphs.push({ ...base, type: 'leader', from: d.from, to: d.to, arrows: 'end' });
+    glyphs.push({
+      ...base,
+      type: 'text',
+      label: `${d.label} ${formatLengthLabel(d.value)}`,
+      at: mid(d.from, d.to),
+      offsetDir: perp(dir),
+      alongDir: dir,
+      style: 'aligned',
+      slideRange: span / 2,
+      leader: [d.from, d.to],
+    });
   }
 
   return glyphs;

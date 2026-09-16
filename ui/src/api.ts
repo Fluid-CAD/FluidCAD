@@ -952,12 +952,21 @@ export async function updateSketchPositions(
   }
 }
 
+/**
+ * Rewrite one scalar of the statement at `sourceLocation`: the
+ * `dimensionOffset`-th non-array argument from the END of the call
+ * `dimensionCall` names (a constraint's value, an ellipse's radius). The
+ * callee filter is what the read (`getDimensionExpression`) applies, so a
+ * chained statement rewrites the argument the user saw, never the outer
+ * call's.
+ */
 export function updateDimensionExpression(
   expression: string,
   sourceLocation: SourceLocationParam,
   sketchSourceLine: number | null,
   newVariable?: { name: string; initializer: string } | null,
   dimensionOffset?: number,
+  dimensionCall?: string | null,
 ): void {
   postFireAndForget('/api/update-dimension-expression', {
     expression,
@@ -965,6 +974,7 @@ export function updateDimensionExpression(
     sketchSourceLine,
     newVariable: newVariable ?? null,
     dimensionOffset: dimensionOffset ?? 0,
+    dimensionCall: dimensionCall ?? null,
   });
 }
 

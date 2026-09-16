@@ -389,6 +389,7 @@ export async function handleUpdateDimensionExpression(
     sketchSourceLine?: number | null;
     newVariable?: { name: string; initializer: string } | null;
     dimensionOffset?: number;
+    dimensionCall?: string | null;
   },
 ) {
   const editor = findEditorForCurrentFile(client);
@@ -401,6 +402,7 @@ export async function handleUpdateDimensionExpression(
     msg.sketchSourceLine ?? null,
     msg.newVariable ?? null,
     msg.dimensionOffset ?? 0,
+    msg.dimensionCall ?? null,
   );
   if (!result) {
     return;

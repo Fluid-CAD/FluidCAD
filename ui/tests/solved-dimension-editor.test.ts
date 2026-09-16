@@ -67,7 +67,7 @@ describe('SolvedDimensionEditor', () => {
     expect(paramBtn().classList.contains('hidden')).toBe(true);
 
     enter();
-    expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith('wall', LOC, 4, undefined, 0);
+    expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith('wall', LOC, 4, undefined, 0, 'distance');
   });
 
   it('pushes the scope read into the open input, so a just-declared name counts as known', async () => {
@@ -85,7 +85,7 @@ describe('SolvedDimensionEditor', () => {
     input().dispatchEvent(new Event('input'));
     expect(paramBtn().classList.contains('hidden')).toBe(true);
     enter();
-    expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith('wall', LOC, 4, undefined, 0);
+    expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith('wall', LOC, 4, undefined, 0, 'distance');
   });
 
   it('still declares a genuinely new name typed over the seed', async () => {
@@ -100,7 +100,47 @@ describe('SolvedDimensionEditor', () => {
     input().dispatchEvent(new Event('input'));
     enter();
     expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith(
-      'lip', LOC, 4, { name: 'lip', initializer: 'param("lip", 3)' }, 0,
+      'lip', LOC, 4, { name: 'lip', initializer: 'param("lip", 3)' }, 0, 'distance',
     );
+  });
+
+  // A statement-owned dimension (an ellipse's RX/RY) has no constraint row:
+  // the input opens on the geometry statement's own argument, addressed by
+  // the callee plus the arg offset from the end, and the read and the
+  // rewrite both filter on that callee — so `ellipse(...).name('cam')`
+  // edits the radius, never the name.
+  it('opens a statement-owned dimension on its callee + offset and rewrites through the same filter', async () => {
+    vi.mocked(getDimensionExpression).mockResolvedValue({ expression: 'w / 2' });
+    const variables = deferred<VariableInfo[]>();
+    const { editor, input, enter } = mount(variables);
+    const rx = {
+      obj: { id: 'el1', sourceLocation: LOC },
+      call: 'ellipse',
+      offset: 1,
+      label: 'RX',
+      value: 20,
+      from: [0, 0],
+      to: [20, 0],
+      refEntityIds: [0],
+    } as never;
+    expect(editor.showStatementDimension(rx, 0, 0)).toBe(true);
+    expect(input().value).toBe('20');
+    expect(vi.mocked(getDimensionExpression)).toHaveBeenCalledWith(LOC.line, 1, 'ellipse');
+    await flush();
+    expect(input().value).toBe('w / 2');
+
+    enter();
+    expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith('w / 2', LOC, 4, undefined, 1, 'ellipse');
+  });
+
+  it('refuses a statement-owned dimension whose statement has no source location', () => {
+    const variables = deferred<VariableInfo[]>();
+    const { editor } = mount(variables);
+    const ry = {
+      obj: { id: 'el1' }, call: 'ellipse', offset: 0, label: 'RY', value: 10,
+      from: [0, 0], to: [0, 10], refEntityIds: [0],
+    } as never;
+    expect(editor.showStatementDimension(ry, 0, 0)).toBe(false);
+    expect(editor.isVisible).toBe(false);
   });
 });

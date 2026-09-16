@@ -31,7 +31,9 @@ import {
   Vector3,
 } from 'three';
 import type { PlaneData, SourceLocation, Vec3Data } from '../../types';
-import type { ConstraintGlyph, GlyphColorRole, SolvedSketchModel } from '../../sketch-solver-client';
+import type {
+  ConstraintGlyph, GlyphColorRole, SolvedSketchModel, StatementDimensionRef,
+} from '../../sketch-solver-client';
 import { angleLabelPlacement } from '../../sketch-solver-client';
 import type { Placement } from '../../sketch-solver-client/declutter';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
@@ -70,6 +72,9 @@ export type BadgeHitTarget = {
   objId?: string;
   sourceLocation?: SourceLocation;
   refEntityIds: number[];
+  /** A statement-owned dimension's address (an ellipse's RX/RY) — the pick
+   * hands it to the editor; absent on constraint glyphs. */
+  dimension?: StatementDimensionRef;
   /** World position of the glyph's sketch anchor. */
   anchorWorld: Vector3;
   /** Live screen-pixel offset from that anchor. Owned by the layout pass —
@@ -435,6 +440,7 @@ export function buildSolvedConstraintMeshes(
           objId: glyph.objId,
           sourceLocation: glyph.sourceLocation,
           refEntityIds: glyph.refEntityIds,
+          ...(glyph.dimension ? { dimension: glyph.dimension } : {}),
           anchorWorld: position,
           placement,
           halfWidthPx: (pxSize * texture.aspect) / 2,

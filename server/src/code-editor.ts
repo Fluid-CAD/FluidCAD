@@ -1919,17 +1919,26 @@ export async function getDimensionExpression(
   return null;
 }
 
+/**
+ * Rewrite the scalar `dimensionOffset` non-array args from the end of the
+ * call at `sourceLine`. `dimensionCall` names the callee that owns the
+ * scalar — the same filter the read (`getDimensionExpression`) applies, so
+ * a chained statement (`ellipse(c, 20, 10).name('cam')`) rewrites the
+ * ellipse's radius, never the outer call's argument. Null takes the first
+ * call in the chain that has a matching argument.
+ */
 export function updateDimensionExpression(
   code: string,
   sourceLine: number,
   expression: string,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
     while (current && current.type === 'call_expression') {
       const args = getArgumentsNode(current);
-      if (args) {
+      if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
         if (target) {
           return spliceCode(code, target.startIndex, target.endIndex, expression);
@@ -2291,9 +2300,10 @@ export function updateDimensionExpressionWithVariable(
   sketchSourceLine: number,
   newVariable: NewVariableDecl | NewVariableDecl[] | null,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
 }
 
 export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };

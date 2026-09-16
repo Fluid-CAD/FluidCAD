@@ -785,6 +785,18 @@ describe('updateDimensionExpression with dimensionOffset', () => {
     const result = await updateDimensionExpression(code, 1, 'w', 1);
     expect(result.newCode).toBe(`ellipse(w, 20).guide()\n`);
   });
+
+  it('dimensionCall rewrites the base scalar past a chained call with its own argument', async () => {
+    const code = `ellipse([5, 10], 30, 20).name('cam')\n`;
+    const result = await updateDimensionExpression(code, 1, 'h', 0, 'ellipse');
+    expect(result.newCode).toBe(`ellipse([5, 10], 30, h).name('cam')\n`);
+  });
+
+  it('dimensionCall rewrites the chained call scalar when it names that call', async () => {
+    const code = `ellipse(30, 20).rotated(tilt)\n`;
+    const result = await updateDimensionExpression(code, 1, 'a', 0, 'rotated');
+    expect(result.newCode).toBe(`ellipse(30, 20).rotated(a)\n`);
+  });
 });
 
 describe('getDimensionExpression with dimensionOffset', () => {

@@ -4,13 +4,32 @@
 // update-dimension-expression rail — the scalar-last-arg convention holds
 // for every dimensional constraint command; an axis'd distance keeps its
 // trailing 'x'/'y' string, so the scalar sits one non-array arg earlier.
+// A statement-owned dimension (an ellipse's RX/RY, P8) rides the same rail
+// against its geometry statement: the callee plus the arg offset from the
+// end address the scalar, exactly as for a constraint.
 
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
 import { roundToUnitDecimals } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
 import { getDimensionExpression, updateDimensionExpression } from '../api';
-import type { SolvedConstraintView } from '../sketch-solver-client';
+import type { SolvedConstraintView, StatementDimension } from '../sketch-solver-client';
+import type { SourceLocation } from '../types';
 import type { FetchVariablesFn } from './sketch-tool';
+
+/** One editable scalar: where it lives and how the input presents it. */
+export type DimensionTarget = {
+  /** Input pill prefix (`D`, `R`, `⌀`, `∠`, `RX`, `RY`). */
+  label: string;
+  /** Opening value, in display units. */
+  value: number;
+  sourceLocation: SourceLocation;
+  /** Non-array args from the END of the call — the rail's convention. */
+  dimOffset: number;
+  /** The callee owning the scalar (`distance`, `ellipse`) — read and write
+   * both filter on it, so a chained statement edits the argument the user
+   * saw. */
+  dimCall: string;
+};
 
 const DIM_LABELS: Record<string, string> = {
   distance: 'D',
@@ -48,6 +67,30 @@ export class SolvedDimensionEditor {
     return DIM_LABELS[c.kind] !== undefined && typeof c.value === 'number';
   }
 
+  /** The scalar a dimensional constraint statement edits; null when the
+   * constraint has none (or no source to rewrite). */
+  static constraintTarget(c: SolvedConstraintView): DimensionTarget | null {
+    const label = DIM_LABELS[c.kind];
+    const loc = c.obj.sourceLocation;
+    if (!label || typeof c.value !== 'number' || !loc) {
+      return null;
+    }
+    // distance(a, b, value, 'x') — the axis string is the last non-array
+    // argument, so the scalar sits one earlier.
+    const dimOffset = c.spec.kind === 'distance' && c.spec.axis !== undefined ? 1 : 0;
+    return { label, value: c.value, sourceLocation: loc, dimOffset, dimCall: c.kind };
+  }
+
+  /** The scalar a statement-owned dimension edits (an ellipse's RX/RY);
+   * null when the statement has no source to rewrite. */
+  static statementTarget(d: StatementDimension): DimensionTarget | null {
+    const loc = d.obj.sourceLocation;
+    if (!loc) {
+      return null;
+    }
+    return { label: d.label, value: d.value, sourceLocation: loc, dimOffset: d.offset, dimCall: d.call };
+  }
+
   /**
    * Re-read the sketch's scope. The input on screen takes the list the
    * moment it lands — the dimension may name a parameter declared since the
@@ -66,15 +109,27 @@ export class SolvedDimensionEditor {
   /** Open the value input for a dimensional constraint statement. Returns
    * false when the constraint has no editable scalar. */
   show(c: SolvedConstraintView, clientX: number, clientY: number): boolean {
-    const label = DIM_LABELS[c.kind];
-    const loc = c.obj.sourceLocation;
-    if (!label || typeof c.value !== 'number' || !loc) {
+    const target = SolvedDimensionEditor.constraintTarget(c);
+    if (!target) {
       return false;
     }
-    // distance(a, b, value, 'x') — the axis string is the last non-array
-    // argument, so the scalar sits one earlier.
-    const dimOffset = c.spec.kind === 'distance' && c.spec.axis !== undefined ? 1 : 0;
-    const dimCall = c.kind;
+    this.open(target, clientX, clientY);
+    return true;
+  }
+
+  /** Open the value input for a statement-owned dimension (an ellipse's
+   * RX/RY). Returns false when the statement has no source to rewrite. */
+  showStatementDimension(d: StatementDimension, clientX: number, clientY: number): boolean {
+    const target = SolvedDimensionEditor.statementTarget(d);
+    if (!target) {
+      return false;
+    }
+    this.open(target, clientX, clientY);
+    return true;
+  }
+
+  private open(target: DimensionTarget, clientX: number, clientY: number): void {
+    const { label, sourceLocation: loc, dimOffset, dimCall } = target;
     this.openToken++;
     const token = this.openToken;
 
@@ -82,7 +137,7 @@ export class SolvedDimensionEditor {
       label,
       // Seed rounded to the document unit's display decimals; what the user
       // types is never re-rounded except the historical mm 2-decimal tidy-up.
-      value: String(roundToUnitDecimals(c.value, sceneUnit.current)),
+      value: String(roundToUnitDecimals(target.value, sceneUnit.current)),
       clientX,
       clientY,
       variables: this.cachedVariables,
@@ -96,6 +151,7 @@ export class SolvedDimensionEditor {
           this.getSketchSourceLine(),
           newVariable,
           dimOffset,
+          dimCall,
         );
         this.hide();
       },
@@ -111,7 +167,6 @@ export class SolvedDimensionEditor {
     });
     // The opening list is last read's; the fresh one replaces it in place.
     this.refreshVariables();
-    return true;
   }
 
   hide(): void {

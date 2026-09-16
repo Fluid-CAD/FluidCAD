@@ -35,7 +35,9 @@ type ExpressionPhase = 'rx' | 'ry';
  * committing the pill in hand. A snapped centre becomes a coincident on the
  * ellipse's centre point — the only solver entity an ellipse registers; the
  * radii are literals (or typed expressions) the solver never resizes, so no
- * dimension constraint is emitted for them.
+ * dimension constraint is emitted for them. Once drawn, the RX/RY readouts
+ * on the ellipse edit the statement's own arguments on double-click
+ * (statement-owned dimensions).
  */
 export class EllipseTool extends SketchTool {
   readonly id = 'ellipse' as const;

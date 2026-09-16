@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
-import { Object3D, PerspectiveCamera, Vector3 } from 'three';
+import { describe, it, expect, vi } from 'vitest';
+import { Object3D, PerspectiveCamera, Texture, Vector3 } from 'three';
+
+// The ellipse's RX/RY readouts are text glyphs, and jsdom has no canvas 2D
+// context to rasterize a label with — this test is about the perimeter's
+// live redraw, so the label textures are stubbed.
+vi.mock('../src/meshes/containers/badge-textures', () => {
+  const stub = () => ({ texture: new Texture(), aspect: 1 });
+  return { CANVAS_SIZE: 64, getIconTexture: stub, getTextTexture: stub, createTextTexture: stub };
+});
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SketchMesh } from '../src/meshes/containers/sketch-mesh';

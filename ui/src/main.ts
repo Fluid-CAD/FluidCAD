@@ -783,6 +783,17 @@ const historyToolbar = new HistoryToolbar(navbar, {
   onRedo: () => runEditorHistory('redo'),
 });
 
+// The Part tool appends an empty part() statement — constructed right after
+// the history toolbar so its group registers (and therefore renders) between
+// Undo/Redo and the create group, leaving the Part button fenced off from
+// both: `Undo Redo | Part | Sketch Extrude …`. The fresh part becomes the
+// active part on the render that carries it, so the next sketch/plane lands
+// inside its callback body.
+const partTool = new PartToolButton(navbar, {
+  onCreated: () => activePartTracker.activateLastOnNextRender(),
+  onRefused: (reason) => showToast(reason),
+});
+
 /**
  * Shortcuts that hold in every mode and both workbenches. Letter chords stay
  * on the sketch-mode manager (sketch-toolbar-service) — this one carries
@@ -1997,16 +2008,6 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
-});
-
-// The Part tool appends an empty part() statement — constructed after the
-// connector service so that group already exists (and sits last on the bar),
-// and its button prepends ahead of Connector. The fresh part becomes the
-// active part on the render that carries it, so the next sketch/plane lands
-// inside its callback body.
-const partTool = new PartToolButton(navbar, {
-  onCreated: () => activePartTracker.activateLastOnNextRender(),
-  onRefused: (reason) => showToast(reason),
 });
 
 // While a sketch is active, the create-feature buttons collapse into a single

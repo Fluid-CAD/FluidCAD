@@ -1141,7 +1141,7 @@ export class TimelinePanel {
     const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
-    const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    const iconSrc = obj.type === 'part' ? '/icons/box-blue.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
     let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
     const indent = TimelinePanel.indentClass(depth);

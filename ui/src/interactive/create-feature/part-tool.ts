@@ -8,11 +8,11 @@ import { FeatureButton } from './feature-button';
  * panel — the render that follows carries the new part, and the caller
  * activates it so subsequent statements land inside its callback body.
  *
- * It shares the trailing connector group and prepends ahead of the Connector
- * button (…, | Boolean, | Offset, | Part, Connector): both are structure tools
- * rather than modelling ones. Unlike the Connector button it needs no solid to
- * work on, so it votes the group visible under its own slot — an empty file
- * still shows the group, with only the Part button inside it.
+ * It owns a group of its own, registered between the history group and the
+ * create group so the bar reads `Undo Redo | Part | Sketch Extrude …`: a part
+ * is the container every modelling tool fills, so it comes before them and is
+ * fenced off from both neighbours by a divider. The group needs no solid to be
+ * useful, so it starts visible — an empty file still offers the Part button.
  */
 export class PartToolButton {
   readonly button: FeatureButton;
@@ -24,16 +24,13 @@ export class PartToolButton {
     /** A refusal (assembly file open, no scene) to surface as a toast. */
     onRefused: (reason: string) => void;
   }) {
-    const group = navbar.getGroup('connector')
-      ?? navbar.addGroup('connector', { visible: false, mode: 'part' });
-    navbar.setGroupVisible('connector', true, 'part');
+    const group = navbar.getGroup('part') ?? navbar.addGroup('part', { mode: 'part' });
     this.button = new FeatureButton(group, {
-      icon: '/icons/box.png',
+      icon: '/icons/box-blue.png',
       label: 'Part',
       tip: 'Create a new part',
       ariaLabel: 'Create a new part',
       datasetTool: 'part',
-      prepend: true,
     });
     this.button.onClick = () => void this.create();
   }

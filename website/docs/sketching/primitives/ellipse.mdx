@@ -8,7 +8,7 @@ import primitiveEllipse from '!!raw-loader!../_examples/primitive-ellipse.js';
 
 # Ellipse
 
-An ellipse with its axes aligned to the sketch plane: cams, oval bosses, and the elongated holes a slot is too square for.
+An ellipse: cams, oval bosses, and the elongated holes a slot is too square for. It is a solver entity like a circle — centre, rotation and both semi-radii are guesses the constraints drive.
 
 ## In the viewport
 
@@ -16,27 +16,40 @@ An ellipse with its axes aligned to the sketch plane: cams, oval bosses, and the
 2. Click the centre. The **X / Y** pill places it exactly; a centre that snaps onto a vertex or the origin gets a coincident written for it.
 3. Move the cursor out: its horizontal offset from the centre is **RX**, its vertical offset **RY**. Click or press Enter to take the RX pill, then again for RY — or type either value (a number, a variable, or an expression).
 
-The radii land in the statement as written: the drawn ellipse shows an **RX** and an **RY** readout along its axes, and double-clicking one opens the value input on that argument — a number, a variable, or an expression, exactly like a circle's diameter. They are not constraints the solver can drive; the edit rewrites the `ellipse()` statement itself.
+The drawn ellipse is as free as a drawn circle: its centre snaps and pins like any point, but nothing else is inferred. Pick the ellipse and click **Horizontal** or **Vertical** to orient its RX axis — or let a `tangent` or a point on the outline turn it. An ellipse has one orientation, so Horizontal and Vertical swap rather than stack.
+
+The semi-radii are dimensions you add when you want them, exactly like a circle's diameter: pick the ellipse and click **Dimension** — near the end of the RX axis it writes `radius(e, …, 'x')` with an **RX** pill, near the end of the RY axis `radius(e, …, 'y')` with an **RY** pill. A value typed into the RX or RY pill while drawing writes that dimension straight away; a cursor-sized one stays a free guess. Double-click the RX/RY readout to change the value later.
 
 ## By hand
 
 ```js
 ellipse(center, rx, ry)
+ellipse(center, rx, ry, rotation)
 ```
 
-`rx` and `ry` are the **semi-radii** (half the width and half the height) along the plane's X and Y axes.
+`rx` and `ry` are the **semi-radii** (half the width and half the height) along the ellipse's own RX and RY axes; `rotation` (degrees) is the angle of the RX axis from the sketch's X axis, `0` when omitted. All of them are guesses like the centre literal: the solver resizes and turns the ellipse as the constraints require, and a drag writes the solved values back into the statement.
 
 ![An elliptical cam with its shaft bore](/img/docs/sketching/primitive-ellipse.png)
 
 <ExplainedCode code={primitiveEllipse} fileName="plate.part.js" />
 
-## Accessors
+## Constraints
 
-| Accessor | Meaning |
+The ellipse statement itself is a constraint target, and so is its centre:
+
+| Statement | Meaning |
 |---|---|
-| `e.center()` | The centre point — the only solver entity an ellipse registers |
+| `radius(e, v, 'x')` | Dimensions the RX semi-radius (1 DOF); `'y'` dimensions RY |
+| `equal(e, f)` | Two ellipses share their shape — both semi-radii (2 DOF) |
+| `horizontal(e)` | The RX axis runs along the sketch's X axis (1 DOF) |
+| `vertical(e)` | The RX axis runs along the sketch's Y axis (1 DOF) |
+| `concentric(e, c)` | Shares its centre with a circle, arc or another ellipse (2 DOF) |
+| `tangent(e, l)` | Touches a line — anywhere along it, or at a line end placed on the outline with `coincident` |
+| `tangent(e, c)` | Touches a circle, an arc, or another ellipse, from outside or inside (the guess decides) |
+| `coincident(p, e)` | Puts a point on the outline (1 DOF) |
+| `e.center()` | The centre point — every point constraint (`coincident`, `distance`, `midpoint`, `symmetric`, `fix`, a `horizontal`/`vertical` pair with another point) |
 
-The centre takes every point constraint (`coincident`, `distance`, `midpoint`, `symmetric`, `fix`, a `horizontal`/`vertical` pair with another point) and shows as a draggable point in the viewport. The radii stay fixed literals: the solver positions the ellipse through its centre but never resizes it. To change the size, double-click the RX or RY readout in the viewport, change the numbers, or bind them to a [`param()`](/docs/part/param).
+A fully constrained ellipse has its centre pinned, its RX axis oriented and both semi-radii dimensioned — five degrees of freedom, like a circle's three: `coincident(e.center(), origin())`, `horizontal(e)`, `radius(e, 50, 'x')`, `radius(e, 30, 'y')`. `diameter` refuses an ellipse (there is no single diameter to name).
 
 ## Modifiers
 

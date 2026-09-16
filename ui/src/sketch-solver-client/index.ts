@@ -21,8 +21,6 @@ export {
 } from './glyphs';
 export type { ArrowEnds, ConstraintGlyph, DistanceLeaderLayout, GlyphColorRole } from './glyphs';
 export { diameterChord } from './diameter-chord';
-export { statementDimensions, findStatementDimension } from './statement-dimensions';
-export type { StatementDimension, StatementDimensionRef } from './statement-dimensions';
 export { angleLabelPlacement } from './angle-label';
 export type { AngleLabelPlacement } from './angle-label';
 export { computeSketchDofState } from './dof-state';

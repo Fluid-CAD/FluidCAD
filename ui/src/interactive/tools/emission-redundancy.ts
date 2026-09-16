@@ -25,7 +25,7 @@
 // bookkeeping, a typed expression in the geometry text, a `.mid()` target —
 // leaves the constraint in place.
 
-import { DATUM_ENTITY_IDS } from '../../../../lib/sketch-solver/index.js';
+import { DATUM_ENTITY_IDS, PARAM_COUNT } from '../../../../lib/sketch-solver/index.js';
 import type {
   ConstraintSpec,
   EntityKind,
@@ -61,16 +61,9 @@ export type PendingEmission = {
   constraints: SolvedConstraintParam[];
 };
 
-const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
-
-/**
- * The solver entity an emitted statement stands for in the trial. The
- * ellipse (P8) is no entity itself: its center is a free point the tool's
- * coincident targets through the `center` role, so the trial models it as
- * a point — the radii are literals the solver never sees.
- */
+/** Every emitted statement kind is a solver entity of the same name. */
 export function solverEntityKind(kind: SolvedGeometryParam['kind']): EntityKind {
-  return kind === 'ellipse' ? 'point' : kind;
+  return kind;
 }
 
 function isPair(v: unknown): v is [number, number] {
@@ -82,9 +75,9 @@ function isPair(v: unknown): v is [number, number] {
 /**
  * The solver-layout params of an emitted statement, read back from its
  * rendered text — `line([0, 0], [40, 0])`, `arc(s, e, c).cw()`,
- * `circle([1, 2], 30)`, `point([3, 4])`, and the center point of
- * `ellipse([1, 2], 30, 20)` (see solverEntityKind). Null when any argument
- * is not a plain numeric literal (a typed expression such as `[w / 2, 10]`):
+ * `circle([1, 2], 30)`, `point([3, 4])`, `ellipse([1, 2], 30, 20[, rot])`
+ * (rotation in degrees, radians in the layout). Null when any argument is
+ * not a plain numeric literal (a typed expression such as `[w / 2, 10]`):
  * the trial has no value for it, so the entity stays out and every
  * constraint on it is kept unverified.
  */
@@ -125,13 +118,15 @@ export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: st
       return args.length === 1 && isPair(p) ? [p[0], p[1]] : null;
     }
     case 'ellipse': {
-      // Only the center is solver state; the radii must still be positive
-      // literals for the statement to be one the trial can vouch for.
-      const [c, rx, ry] = args;
-      return args.length === 3 && isPair(c)
-        && typeof rx === 'number' && Number.isFinite(rx) && rx > 0
-        && typeof ry === 'number' && Number.isFinite(ry) && ry > 0
-        ? [c[0], c[1]] : null;
+      const [c, rx, ry, rotation] = args;
+      const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+      if ((args.length !== 3 && args.length !== 4) || !isPair(c)
+        || !finite(rx) || rx <= 0 || !finite(ry) || ry <= 0
+        || (args.length === 4 && !finite(rotation))) {
+        return null;
+      }
+      const theta = args.length === 4 ? ((rotation as number) * Math.PI) / 180 : 0;
+      return [c[0], c[1], rx, ry, theta];
     }
   }
 }
@@ -164,11 +159,6 @@ export function pendingEmissionOf(
       const line = geometryLines[t.newIndex];
       if (kind === undefined || line === undefined) {
         return t;
-      }
-      // An ellipse's center is its anchor point: the line-addressed form is
-      // the anchor target (featureType-derived accessor, no role).
-      if (kind === 'ellipse') {
-        return { line, featureType: 'ellipse' };
       }
       return { line, featureType: kind, ...(t.role !== undefined ? { role: t.role } : {}) };
     }),
@@ -204,8 +194,8 @@ function viewMatchesTarget(
   if (t.featureType === 'bezier') {
     return view.anchor?.owner === 'bezier' && view.anchor.pointIndex === t.pointIndex;
   }
-  if (t.featureType === 'ellipse' || t.featureType === 'text') {
-    return view.anchor?.owner === t.featureType;
+  if (t.featureType === 'text') {
+    return view.anchor?.owner === 'text';
   }
   return view.reference === undefined && view.copyInstance === undefined
     && view.anchor === undefined && view.mirrorInstance === undefined;
@@ -220,8 +210,7 @@ function pointRef(entity: number, role: SolvedEmissionTargetParam['role']): Solv
 type Trial = {
   live: LiveSolvedSystem;
   newIds: (number | null)[];
-  /** The emitted statement kind per `newIds` slot — an ellipse's slot is
-   * its center point, so its `center` role resolves to the point itself. */
+  /** The emitted statement kind per `newIds` slot. */
   newKinds: SolvedGeometryParam['kind'][];
   pendingIds: Map<number, number>;
 };
@@ -243,7 +232,7 @@ function resolveTarget(
     if (id === null || id === undefined) {
       return null;
     }
-    return trial.newKinds[t.newIndex] === 'ellipse' ? { entity: id } : pointRef(id, t.role);
+    return pointRef(id, t.role);
   }
   if (t.line === undefined) {
     return null;

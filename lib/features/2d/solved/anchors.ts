@@ -1,10 +1,10 @@
 // Solver participation for statements that are not solver entities
-// themselves (ellipse, bezier, text): their POSITION params — the ellipse
-// center, each literal bezier control point, the text anchor — register as
-// plain solver POINT entities owned by the statement, so constraints can
-// target them, the solve moves them, and the build reads the solved
-// positions. Shape params (radii, glyph outlines, curve degree) stay
-// literals outside the solve.
+// themselves (bezier, text): their POSITION params — each literal bezier
+// control point, the text anchor — register as plain solver POINT entities
+// owned by the statement, so constraints can target them, the solve moves
+// them, and the build reads the solved positions. Shape params (glyph
+// outlines, curve degree) stay literals outside the solve. (The ellipse
+// was the third anchor statement until it became an entity of its own.)
 
 import { LazyVertex } from "../../lazy-vertex.js";
 import { Vertex } from "../../../common/vertex.js";
@@ -15,7 +15,7 @@ import type { SketchSolverContext } from "./solver-context.js";
 
 /**
  * A constrainable anchor point of a non-entity statement
- * (`el.center()`, `bz.point(i)`, `t.anchor()`): LazyVertex-compatible
+ * (`bz.point(i)`, `t.anchor()`): LazyVertex-compatible
  * anywhere a point is accepted (reading the *current* solver params —
  * guesses during module evaluation, solved values after the build's
  * solve), and resolving to its own solver point entity in constraints.

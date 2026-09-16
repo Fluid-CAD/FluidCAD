@@ -18,7 +18,8 @@ export type SolvedVertexRef = {
   /** Point accessor rendered as `.role()`; absent = the entity IS a point. */
   role?: 'start' | 'end' | 'center';
   /** Anchor-point statements (P8) name their own callee — the server
-   * renders `.center()` / `.anchor()` / `.point(i)` instead of a role.
+   * renders `.anchor()` / `.point(i)` instead of a role (an ellipse's
+   * center is a plain `center` role on its 'ellipse' statement).
    * Reference snaps (P6) name their producer ('project' | 'intersect') and
    * copy-duplicate snaps name 'copy' — the statement at `line` is NOT an
    * entity call, and the server refuses a plain entity target on it. */

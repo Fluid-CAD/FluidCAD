@@ -1,11 +1,13 @@
 // coincident — point–point (2 rows) or point-on-entity (1 row).
 // Point-on-line is the infinite line; point-on-circle/arc is the full
 // circle (arc endpoints are first-class points, so trimming semantics
-// stay out of the solver).
+// stay out of the solver); point-on-ellipse is the ellipse's implicit
+// residual F/|∇F| (ellipse-geom.ts).
 
 import type { ConstraintSpec, SolverRef } from '../types.js';
 import type { CompiledRow, CompileCtx } from './types.js';
 import { linePointSignedDist, makeLinePointDeriv, makePointDistDeriv, pointDist } from './util.js';
+import { ellipsePointResidual, makeEllipsePointDeriv } from './ellipse-geom.js';
 
 type Spec = Extract<ConstraintSpec, { kind: 'coincident' }>;
 
@@ -58,6 +60,29 @@ export function compileCoincident(spec: Spec, ctx: CompileCtx): CompiledRow[] {
           out[3] = d.dEy;
           out[4] = d.dWx;
           out[5] = d.dWy;
+        },
+      },
+    ];
+  }
+  if (ctx.isEllipse(eRef)) {
+    const e = ctx.ellipse(eRef, 'coincident ellipse');
+    const d = makeEllipsePointDeriv();
+    return [
+      {
+        params: [pt.ix, pt.iy, e.cx, e.cy, e.th, e.rx, e.ry],
+        eval: (p) => {
+          ellipsePointResidual(p, e, p[pt.ix], p[pt.iy], d);
+          return d.r;
+        },
+        jac: (p, out) => {
+          ellipsePointResidual(p, e, p[pt.ix], p[pt.iy], d);
+          out[0] = d.dPx;
+          out[1] = d.dPy;
+          out[2] = -d.dPx;
+          out[3] = -d.dPy;
+          out[4] = d.dTh;
+          out[5] = d.dRx;
+          out[6] = d.dRy;
         },
       },
     ];

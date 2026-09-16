@@ -1,4 +1,5 @@
-// equal — equal line lengths or equal radii, over two or more entities.
+// equal — equal line lengths, equal radii, or equal ellipse shapes (both
+// semi-radii), over two or more entities.
 // Every entity after the first is equated to the first: one residual row
 // per pair, so diagnose can flag an individual redundant/conflicting link
 // without dragging the whole chain down.
@@ -57,5 +58,24 @@ export function compileEqual(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     }
     return rows;
   }
-  throw new Error('equal needs all lines or all circle-like entities');
+  if (refs.every(r => ctx.isEllipse(r))) {
+    // Same shape: both semi-radii equated, one row each.
+    const first = ctx.ellipse(refs[0], 'equal first ellipse');
+    const rows: CompiledRow[] = [];
+    for (let i = 1; i < refs.length; i++) {
+      const other = ctx.ellipse(refs[i], `equal ${ordinal(i)} ellipse`);
+      for (const [fa, oa] of [[first.rx, other.rx], [first.ry, other.ry]]) {
+        rows.push({
+          params: [fa, oa],
+          eval: (p) => p[fa] - p[oa],
+          jac: (_p, out) => {
+            out[0] = 1;
+            out[1] = -1;
+          },
+        });
+      }
+    }
+    return rows;
+  }
+  throw new Error('equal needs all lines, all circles/arcs, or all ellipses');
 }

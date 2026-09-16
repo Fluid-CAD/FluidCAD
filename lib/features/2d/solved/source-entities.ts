@@ -65,9 +65,9 @@ export function collectSourceEntities(
       }
       continue;
     }
-    // Anchor-point statements (P8): ellipse / bezier / anchored text are
-    // rigid functions of their position points (shape params are
-    // literals), so they vouch through those entities.
+    // Anchor-point statements (P8): bezier / anchored text are rigid
+    // functions of their position points (shape params are literals), so
+    // they vouch through those entities.
     const anchored = (obj as {
       anchorSourceEntities?: () => SourceEntitiesRecord | undefined;
     }).anchorSourceEntities?.();

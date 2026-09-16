@@ -128,6 +128,10 @@ export type SketchPositionEditPayload = {
   sourceLine: number;
   points?: { pointIndex: number; position: [number, number]; expected?: [number, number] }[];
   scalar?: { value: number; expected?: number };
+  /** An ellipse's semi-radii: its 2nd / 3rd arguments. */
+  radii?: { rx?: { value: number; expected?: number }; ry?: { value: number; expected?: number } };
+  /** An ellipse's rotation (degrees): its trailing 4th argument. */
+  rotation?: { value: number; expected?: number };
 };
 
 /** Unlike the other transforms this one can refuse (drift guard) — the

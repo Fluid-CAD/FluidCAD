@@ -28,8 +28,8 @@ import type { ConstraintSpec, SolverRef } from "../../sketch-solver/index.js";
 
 /**
  * What a constraint statement may reference: a solved entity statement
- * (line/arc/circle/point), one of its point accessors
- * (`l.start()`, `l.end()`, `c.center()`), a sketch datum
+ * (line/arc/circle/ellipse/point), one of its point accessors
+ * (`l.start()`, `l.end()`, `c.center()`, `el.center()`), a sketch datum
  * (`origin()`, `xAxis()`, `yAxis()`), or a fixed reference — a
  * project()/intersect() statement, its `.ref(i)` handle, or one of their
  * point accessors (P6).
@@ -102,8 +102,8 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     }
     return { entity: arg.owner.entityId, point: arg.role };
   }
-  // Anchor points of non-entity statements (ellipse center, bezier
-  // control points, text anchor): each is its own solver point entity.
+  // Anchor points of non-entity statements (bezier control points, text
+  // anchor): each is its own solver point entity.
   if (arg instanceof AnchorPointRef) {
     try {
       return { entity: arg.entityId };
@@ -160,7 +160,7 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     return pendingRef(arg, null);
   }
   throw new Error(
-    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, an anchor point (el.center(), t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), a copy or mirror instance (cp.instance(k), m.instance(l)), or a projected reference (p, p.ref(i))`,
+    `${what}: expected solved sketch geometry — a line/arc/circle/ellipse/point statement, a .start()/.end()/.center() accessor, an anchor point (t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), a copy or mirror instance (cp.instance(k), m.instance(l)), or a projected reference (p, p.ref(i))`,
   );
 }
 
@@ -270,7 +270,7 @@ export function emitConstraint(
       }
     }
     for (const dep of deps) {
-      // Covers solved entities AND anchor-point owners (ellipse/bezier/text).
+      // Covers solved entities AND anchor-point owners (bezier/text).
       if (dep instanceof GeometrySceneObject && dep.sketch !== sketch) {
         throw new Error(`${kind}: references geometry from another sketch — cross-sketch constraints are not supported`);
       }

@@ -80,10 +80,10 @@ export type SolvedEmissionTarget = {
    * mismatch means the source changed under the picks and refuses the edit.
    * References (P6) name their producer callee: 'project' | 'intersect';
    * copy-instance targets name theirs: 'copy'; anchor-point targets (P8)
-   * name theirs: 'ellipse' | 'text' | 'bezier' — rendered as the anchor
-   * accessor (`el.center()`, `t.anchor()`, `bz.point(i)`). */
+   * name theirs: 'text' | 'bezier' — rendered as the anchor accessor
+   * (`t.anchor()`, `bz.point(i)`). */
   featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier';
+    | 'text' | 'bezier';
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
    * mirror() statement at `line` is picked — itself a line-addressed
@@ -113,8 +113,8 @@ export type SolvedEmissionTarget = {
   /**
    * Anchor-point targets (P8): a bezier literal control point's 0-based
    * index on the bezier statement at `line` — renders `bz.point(i)`.
-   * Requires `featureType: 'bezier'`; the `ellipse`/`text` anchor targets
-   * carry no index (their accessor is fixed: `.center()` / `.anchor()`).
+   * Requires `featureType: 'bezier'`; the `text` anchor target carries no
+   * index (its accessor is fixed: `.anchor()`).
    * Composes with `line` and `occurrence` only — never `datum`/`newIndex`/
    * `role`/`refIndex`/`instanceIndex`.
    */
@@ -129,7 +129,7 @@ const WIRE_DATUMS = new Set(['origin', 'x-axis', 'y-axis']);
 // 'copy' and 'mirror' ride the entity domain so a stray pick with no
 // instanceIndex/source reaches the transform's honest refusal instead of a
 // 400. The anchor-point statements (P8) ride it too — the transform derives
-// their accessor (`.center()`/`.anchor()`/`.point(i)`) from the type.
+// their accessor (`.anchor()`/`.point(i)`) from the type.
 const WIRE_TYPES = new Set(['line', 'arc', 'circle', 'point', 'copy', 'mirror', 'ellipse', 'text', 'bezier']);
 const WIRE_REFERENCE_TYPES = new Set(['project', 'intersect']);
 const WIRE_COPY_TYPES = new Set(['copy']);
@@ -213,7 +213,7 @@ export function sanitizeEmissionTarget(
 
 /** Anchor-point statement callees (P8) and the accessor each renders. */
 const ANCHOR_ACCESSORS: Record<string, string> = {
-  ellipse: 'center', text: 'anchor', bezier: 'point',
+  text: 'anchor', bezier: 'point',
 };
 
 /** Kinds whose statement takes any number of targets (value = minimum) —
@@ -250,7 +250,8 @@ export type SolvedConstraintEmission = {
   targets: SolvedEmissionTarget[];
   /** Rendered value expression (display units — degrees for angle). */
   valueExpr?: string;
-  /** distance only: measure along one axis. */
+  /** distance: measure along one axis; radius: which semi-radius of an
+   * ellipse ('x' = RX, 'y' = RY). Rendered as a trailing `'x'`/`'y'`. */
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
@@ -509,12 +510,6 @@ function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[]
     if (byNew && (t.newIndex! < 0 || t.newIndex! >= geometry.length)) {
       return (`constraint target newIndex ${t.newIndex} is out of range`);
     }
-    // A same-emission ellipse (P8) is no solver entity: only its center is,
-    // so the target must compose the `center` role — a bare `el1` would
-    // render, then fail in the kernel as an unknown constraint target.
-    if (byNew && geometry[t.newIndex!].kind === 'ellipse' && t.role !== 'center') {
-      return ('an ellipse takes constraints on its center only — target role \'center\'');
-    }
     if (t.role !== undefined && !VALID_ROLES.has(t.role)) {
       return (`invalid target role '${t.role}'`);
     }
@@ -549,7 +544,7 @@ function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[]
     }
     // Anchor-point targets (P8): the accessor is derived from the
     // featureType, so a role never composes; bezier targets need the
-    // control-point index, ellipse/text refuse one.
+    // control-point index, text refuses one.
     if (t.featureType !== undefined && ANCHOR_ACCESSORS[t.featureType] !== undefined) {
       if (!byLine) {
         return (`a ${t.featureType} anchor target names an existing statement line`);
@@ -893,8 +888,8 @@ export async function applySolvedEmission(
           name = `${name}.instance(${target.instanceIndex})`;
         }
         if (isAnchor) {
-          // The anchor-point accessor: `el1.center()`, `t1.anchor()`,
-          // `bz1.point(i)` — no role ever composes (validated above).
+          // The anchor-point accessor: `t1.anchor()`, `bz1.point(i)` — no
+          // role ever composes (validated above).
           const accessor = ANCHOR_ACCESSORS[target.featureType!];
           name = target.featureType === 'bezier'
             ? `${name}.${accessor}(${target.pointIndex})`

@@ -186,7 +186,7 @@ export class SnapManager {
         const roles: ('start' | 'end' | 'center')[] =
           e.kind === 'line' ? ['start', 'end']
             : e.kind === 'arc' ? ['start', 'end', 'center']
-              : e.kind === 'circle' ? ['center'] : [];
+              : e.kind === 'circle' || e.kind === 'ellipse' ? ['center'] : [];
         for (const role of roles) {
           const p = e[role];
           if (p) {
@@ -195,8 +195,8 @@ export class SnapManager {
         }
         if (e.kind === 'point' && e.point) {
           // Anchor points (P8) name their owning statement's callee, so an
-          // emitted coincident renders the anchor accessor (`el.center()`,
-          // `t.anchor()`, `bz.point(i)`) instead of a bogus point() target.
+          // emitted coincident renders the anchor accessor (`t.anchor()`,
+          // `bz.point(i)`) instead of a bogus point() target.
           const ref = e.anchor
             ? {
               ...provenance,

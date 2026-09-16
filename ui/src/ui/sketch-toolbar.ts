@@ -46,6 +46,8 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
+  ]},
+  { tools: [
     { id: 'project', label: 'Project', iconPng: 'projection' },
     { id: 'intersect', label: 'Intersect', iconPng: 'intersect' },
   ]},

@@ -2,10 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSolvedSketchModel,
   computeSketchDofState,
-  findStatementDimension,
   isSolvedSketch,
   layoutConstraintGlyphs,
-  statementDimensions,
 } from '../src/sketch-solver-client';
 import type { SceneObjectRender } from '../src/types';
 
@@ -760,22 +758,22 @@ describe('fixed reference entities (P6)', () => {
   });
 });
 
-describe('anchor-point entities (P8)', () => {
-  it('joins ellipse/text anchors via entityId and bezier control points via anchors[]', () => {
+describe('anchor-point entities (P8) and the ellipse entity', () => {
+  it('joins the ellipse as an entity, the text anchor via entityId and bezier control points via anchors[]', () => {
     const solver = snapshot({
       entities: [
-        { id: 0, kind: 'point', fixed: false, paramOffset: 0 },  // ellipse center
-        { id: 1, kind: 'point', fixed: false, paramOffset: 2 },  // text anchor
-        { id: 2, kind: 'point', fixed: false, paramOffset: 4 },  // bezier cp 0
-        { id: 3, kind: 'point', fixed: false, paramOffset: 6 },  // bezier cp 2
+        { id: 0, kind: 'ellipse', fixed: false, paramOffset: 0 },  // ellipse
+        { id: 1, kind: 'point', fixed: false, paramOffset: 5 },    // text anchor
+        { id: 2, kind: 'point', fixed: false, paramOffset: 7 },    // bezier cp 0
+        { id: 3, kind: 'point', fixed: false, paramOffset: 9 },    // bezier cp 2
       ],
-      params: [40, 25, 5, 7, 0, 0, 100, 0],
-      dof: 8,
+      params: [40, 25, 20, 10, Math.PI / 6, 5, 7, 0, 0, 100, 0],
+      dof: 9,
       underconstrainedEntities: [0, 1, 2, 3],
     });
-    const ellipseObj = child('ellipse', {
-      rx: 20, ry: 10, center: { x: 40, y: 25 },
-      entityId: 0, guess: { center: { x: 3, y: 4 } },
+    const ellipseObj = child('solved-ellipse', {
+      rx: 20, ry: 10, center: { x: 40, y: 25 }, rotation: 30,
+      entityId: 0, guess: { center: { x: 3, y: 4 }, rotation: 12 },
     });
     const textObj = child('text', {
       text: 'Hi', entityId: 1,
@@ -792,15 +790,17 @@ describe('anchor-point entities (P8)', () => {
       sketchObj(solver), ellipseObj, textObj, bezierObj,
     ])!;
 
-    const center = model.entities.get(0)!;
-    expect(center.kind).toBe('point');
-    expect(center.point).toEqual([40, 25]);
-    expect(center.anchor).toEqual({ owner: 'ellipse', pointIndex: 0 });
-    expect(center.guess).toEqual({ point: [3, 4] });
-    expect(center.obj).toBe(ellipseObj);
+    const el = model.entities.get(0)!;
+    expect(el.kind).toBe('ellipse');
+    expect(el.center).toEqual([40, 25]);
+    expect(el.anchor).toBeUndefined();
+    // Payload degrees → view radians; the guess keeps the statement's degrees.
+    expect(el.theta).toBeCloseTo(Math.PI / 6, 12);
+    expect(el.guess).toEqual({ center: [3, 4], rotation: 12 });
+    expect(el.obj).toBe(ellipseObj);
     // The literal radii ride the view so the live drag can redraw the
-    // perimeter around the moving center.
-    expect(center.radii).toEqual([20, 10]);
+    // perimeter around the moving pose.
+    expect(el.radii).toEqual([20, 10]);
 
     const anchor = model.entities.get(1)!;
     expect(anchor.point).toEqual([5, 7]);
@@ -817,65 +817,42 @@ describe('anchor-point entities (P8)', () => {
     expect(cp0.obj).toBe(bezierObj);
   });
 
-  // The radii are the ellipse statement's own arguments — no constraint
-  // row backs them — so they show as statement-owned dimensions: one
-  // radius-style glyph per semi-axis, addressed by callee + arg offset
-  // from the end (`ellipse(center, rx, ry)`: rx is 1, ry is 0), against the
-  // ellipse's render object. That is what the double-click editor rewrites.
-  it('lays an ellipse\'s RX/RY as statement-owned radius dimensions on the ellipse statement', () => {
+  // An ellipse's semi-radii are dimensioned like a circle's radius, one
+  // axis at a time: `radius(el, v, 'x' | 'y')` lays a leader from the
+  // center to the end of that axis — following the ellipse's rotation —
+  // with an RX / RY readout riding it.
+  it('lays radius(el, v, axis) along the dimensioned semi-axis of a rotated ellipse', () => {
     const solver = snapshot({
-      entities: [{ id: 0, kind: 'point', fixed: false, paramOffset: 0 }],
-      params: [40, 25],
-      dof: 2,
+      entities: [{ id: 0, kind: 'ellipse', fixed: false, paramOffset: 0 }],
+      params: [0, 0, 20, 10, Math.PI / 2],
+      constraints: [
+        { id: 0, internal: false, spec: { kind: 'radius', a: { entity: 0 }, value: 20, axis: 'x' } },
+        { id: 1, internal: false, spec: { kind: 'radius', a: { entity: 0 }, value: 10, axis: 'y' } },
+      ],
+      dof: 3,
       underconstrainedEntities: [0],
     });
-    const ellipseObj = child('ellipse', {
-      rx: 20, ry: 10, center: { x: 40, y: 25 },
-      entityId: 0, guess: { center: { x: 40, y: 25 } },
+    const ellipseObj = child('solved-ellipse', {
+      rx: 20, ry: 10, center: { x: 0, y: 0 }, rotation: 90,
+      entityId: 0, guess: { center: { x: 0, y: 0 }, rx: 20, ry: 10, rotation: 90 },
     });
-    const model = buildSolvedSketchModel(sketchObj(solver), [sketchObj(solver), ellipseObj])!;
+    const rx = constraint('radius', 0, { kind: 'radius', a: { entity: 0 }, value: 20, axis: 'x' }, 20);
+    const ry = constraint('radius', 1, { kind: 'radius', a: { entity: 0 }, value: 10, axis: 'y' }, 10);
+    const { model, glyphs } = glyphsOf([ellipseObj, rx, ry], solver);
+    expect(model.entities.get(0)!.guess).toEqual({ center: [0, 0], rx: 20, ry: 10, rotation: 90 });
 
-    const dims = statementDimensions(model);
-    expect(dims.map(d => [d.label, d.call, d.offset, d.value])).toEqual([
-      ['RX', 'ellipse', 1, 20],
-      ['RY', 'ellipse', 0, 10],
-    ]);
-    expect(dims[0].obj).toBe(ellipseObj);
-    expect(findStatementDimension(model, ellipseObj.id!, { call: 'ellipse', offset: 0 })).toEqual(dims[1]);
-    expect(findStatementDimension(model, ellipseObj.id!, { call: 'ellipse', offset: 2 })).toBeNull();
-    expect(findStatementDimension(model, 'other', { call: 'ellipse', offset: 0 })).toBeNull();
-
-    const glyphs = layoutConstraintGlyphs(model);
-    // No constraint statements: every glyph is a statement dimension.
-    expect(glyphs.every(g => g.dimension !== undefined)).toBe(true);
-    expect(glyphs.some(g => g.type === 'badge')).toBe(false);
     const texts = glyphs.filter(g => g.type === 'text') as any[];
     const leaders = glyphs.filter(g => g.type === 'leader') as any[];
-    expect(texts.map(t => t.label)).toEqual(['RX 20 mm', 'RY 10 mm']);
-    expect(texts.map(t => t.dimension)).toEqual([
-      { call: 'ellipse', offset: 1 },
-      { call: 'ellipse', offset: 0 },
-    ]);
-    // Center → rim along each axis, the rim end alone arrowed (a radius).
-    expect(leaders.map(l => [l.from, l.to, l.arrows])).toEqual([
-      [[40, 25], [60, 25], 'end'],
-      [[40, 25], [40, 35], 'end'],
-    ]);
-    for (const t of texts) {
-      expect(t.objId).toBe(ellipseObj.id);
-      expect(t.sourceLocation).toBe(ellipseObj.sourceLocation);
-      expect(t.refEntityIds).toEqual([0]);
-      expect(t.style).toBe('aligned');
-      expect(t.color).toBe('normal');
-    }
-    // The readout rides its own leader, halfway along it.
-    expect(texts[0].at).toEqual([50, 25]);
-    expect(texts[0].alongDir).toEqual([1, 0]);
-    expect(texts[0].slideRange).toBe(10);
-    expect(texts[0].leader).toEqual([[40, 25], [60, 25]]);
-    expect(texts[1].at).toEqual([40, 30]);
-    expect(texts[1].alongDir).toEqual([0, 1]);
-    expect(texts[1].slideRange).toBe(5);
+    expect(texts.map(t => t.label)).toEqual(['RX20 mm', 'RY10 mm']);
+    // RX runs along +y at 90°; RY along −x. Rim end alone arrowed.
+    expect(leaders[0].from).toEqual([0, 0]);
+    expect(leaders[0].to[0]).toBeCloseTo(0, 9);
+    expect(leaders[0].to[1]).toBeCloseTo(20, 9);
+    expect(leaders[1].to[0]).toBeCloseTo(-10, 9);
+    expect(leaders[1].to[1]).toBeCloseTo(0, 9);
+    expect(leaders.map(l => l.arrows)).toEqual(['end', 'end']);
+    expect(texts.map(t => t.objId)).toEqual([rx.id, ry.id]);
+    expect(texts.every(t => t.refEntityIds.includes(0))).toBe(true);
   });
 
   it('joins the bezier curve and path text into the derived tint (sourcesSolved)', () => {
@@ -913,7 +890,7 @@ describe('anchor-point entities (P8)', () => {
     const model = buildSolvedSketchModel(sketchObj(solver), [
       sketchObj(solver),
       child('text', { text: 'Hi' }),          // path form: no entityId
-      child('ellipse', { rx: 5, ry: 3 }),     // legacy: no entityId
+      child('solved-ellipse', { rx: 5, ry: 3 }),     // legacy: no entityId
       child('bezier-2', { startPoint: [0, 0], resolvedPoints: [[1, 1]] }),
     ])!;
     expect(model.entities.size).toBe(0);

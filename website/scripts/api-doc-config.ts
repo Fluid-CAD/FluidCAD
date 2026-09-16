@@ -239,9 +239,10 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'tangent', sourceFile: 'core/constraints/tangent.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains a line–circle/arc or circle–circle pair to be tangent (1 dim). '
-        + 'The tangency side (internal vs external) is locked from the guess positions. '
-        + 'Also accepts a fixed reference: `tangent(bore, l)` with a single-edge `project()` result.',
+      description: 'Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse, '
+        + 'or any two of circle/arc/ellipse. The tangency side (internal vs external) is locked '
+        + 'from the guess positions. Also accepts a fixed reference: `tangent(bore, l)` with a '
+        + 'single-edge `project()` result.',
       params: constraintTargetPair,
       returnType: 'ISceneObject',
     },
@@ -258,7 +259,7 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'concentric', sourceFile: 'core/constraints/concentric.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains two circles/arcs to share a center (2 dims).',
+      description: 'Constrains two circles/arcs/ellipses to share a center (2 dims).',
       params: constraintTargetPair,
       returnType: 'ISceneObject',
     },

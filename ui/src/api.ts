@@ -923,6 +923,13 @@ export type SketchPositionEditParam = {
   }[];
   /** Scalar dimension of the base call (circle diameter). */
   scalar?: { value: number; expected?: number };
+  /** An ellipse's solved semi-radii: its 2nd / 3rd arguments (`expected`
+   * guards each). */
+  radii?: { rx?: { value: number; expected?: number }; ry?: { value: number; expected?: number } };
+  /** An ellipse's solved rotation (degrees): its trailing 4th argument,
+   * rewritten when present (`expected` guards it) and appended when the
+   * statement carries only the three. */
+  rotation?: { value: number; expected?: number };
 };
 
 /**
@@ -1765,14 +1772,14 @@ export type SolvedEmissionTargetParam = {
    * statement's duplicate — rides `featureType: 'copy'`. */
   instanceIndex?: number;
   /** Anchor-point targets (P8): a bezier literal control point's 0-based
-   * index — rides `featureType: 'bezier'`; ellipse/text anchors carry
-   * none (their accessor is fixed). */
+   * index — rides `featureType: 'bezier'`; the text anchor carries none
+   * (its accessor is fixed). */
   pointIndex?: number;
 };
 
 export type SolvedGeometryParam = {
-  /** An entity statement, or the ellipse (P8 anchor statement) — a
-   * same-emission target on an ellipse composes the `center` role only. */
+  /** An entity statement — the ellipse included: a solver entity whose
+   * `center` role is its one point accessor. */
   kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;

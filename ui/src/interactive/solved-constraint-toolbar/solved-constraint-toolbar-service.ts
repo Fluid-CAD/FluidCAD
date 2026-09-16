@@ -57,6 +57,8 @@ import {
   measureDimension,
   orderMidpointPicks,
   pickRef,
+  orientationReplacement,
+  ellipseRadiusAxis,
 } from './legality';
 import {
   AngleSector,
@@ -813,6 +815,11 @@ export class SolvedConstraintToolbarService {
     }
     // A lone line dimensions its own length — the endpoint-pair distance.
     const picks = id === 'dimension' ? expandDimensionPicks(dimPicks) : [...dimPicks];
+    // A lone ellipse dimensions ONE semi-radius: the axis its touch is
+    // nearer to (RX at the ends of the RX axis, RY at the ends of RY).
+    if (form.kind === 'radius' && picks.length === 1 && picks[0].kind === 'ellipse' && axis === undefined) {
+      axis = ellipseRadiusAxis(model, picks[0]);
+    }
     // An angle dimensions a SECTOR — the placement-locked one, or the
     // default between the start→end directions.
     const angleSector = id === 'angle'
@@ -838,7 +845,7 @@ export class SolvedConstraintToolbarService {
     const { clientX, clientY } = this.inputPosition(model, layout);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠'
-        : form.kind === 'radius' ? 'R'
+        : form.kind === 'radius' ? (picks[0]?.kind === 'ellipse' ? (axis === 'y' ? 'RY' : 'RX') : 'R')
           : form.kind === 'diameter' ? '⌀'
             : axis === 'x' ? 'H' : axis === 'y' ? 'V' : 'D',
       value: String(measured),
@@ -1054,6 +1061,36 @@ export class SolvedConstraintToolbarService {
       this.showMessage('The picked geometry has no source statement');
       return;
     }
+    // A lone line/ellipse has ONE orientation: a repeated H/V is a no-op,
+    // the other kind replaces what is there in the same edit (never a
+    // second statement the solver can only report as a conflict).
+    const orientation = (kind === 'horizontal' || kind === 'vertical') && this.model
+      ? orientationReplacement(this.model, kind, picks)
+      : null;
+    if (orientation && orientation.alreadyApplied.length > 0) {
+      this.showMessage(`Already ${kind}`);
+      return;
+    }
+    const removalLines = (orientation?.replaced ?? [])
+      .map(c => c.obj.sourceLocation?.line)
+      .filter((line): line is number => typeof line === 'number');
+    if (orientation && removalLines.length === orientation.replaced.length && removalLines.length > 0) {
+      this.busy = true;
+      this.view.setBusy(true);
+      const swapped = await insertSolvedGeometry({
+        sketchLine: info.line,
+        filePath: info.filePath,
+        geometry: [],
+        constraints: [{ kind, targets }],
+        removals: [...new Set(removalLines)].map(line => ({ line })),
+      });
+      this.busy = false;
+      this.view.setBusy(false);
+      if (!swapped.success) {
+        this.showMessage(swapped.reason ?? `Could not add the ${kind} constraint`);
+      }
+      return;
+    }
     this.busy = true;
     this.view.setBusy(true);
     const result = await applySketchConstraint({
@@ -1143,7 +1180,17 @@ export class SolvedConstraintToolbarService {
     if (!spec) {
       return;
     }
-    const live = LiveSolvedSystem.fromSnapshot(model.solver);
+    // The ghost previews what the click WRITES: an H/V that replaces the
+    // entity's other orientation solves without the replaced statement.
+    const orientation = id === 'horizontal' || id === 'vertical'
+      ? orientationReplacement(model, id, this.picks)
+      : null;
+    let snapshot = model.solver;
+    if (orientation && orientation.replaced.length > 0) {
+      const dropped = new Set(orientation.replaced.map(c => c.obj.object?.constraintId as number | undefined));
+      snapshot = { ...snapshot, constraints: snapshot.constraints.filter(c => !dropped.has(c.id)) };
+    }
+    const live = LiveSolvedSystem.fromSnapshot(snapshot);
     if (!live) {
       return;
     }

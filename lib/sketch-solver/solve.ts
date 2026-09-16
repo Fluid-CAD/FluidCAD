@@ -131,13 +131,28 @@ function collapsedEntities(sys: SketchSystem, pinned: SizePin[], lengthScale: nu
   const guesses = sys.guesses;
   const COLLAPSED_SIZE = COLLAPSED_SIZE_MM / lengthScale;
   const HEALTHY_GUESS_SIZE = HEALTHY_GUESS_SIZE_MM / lengthScale;
-  const done = new Set(pinned.map((pin) => pin.entity));
+  // Pinned SIZES, not entities: an ellipse has two radii that collapse
+  // independently, and a second one may unmask only after the first is
+  // pinned.
+  const done = new Set(pinned.map((pin) => (pin.kind === 'radius' ? pin.ir : pin.sx)));
   const out: SizePin[] = [];
   for (const e of sys.entities()) {
-    if (e.fixed || e.kind === 'point' || done.has(e.id)) {
+    if (e.fixed || e.kind === 'point') {
       continue;
     }
     const o = e.paramOffset;
+    if (e.kind === 'ellipse') {
+      for (const ir of [o + 2, o + 3]) {
+        const guessR = Math.abs(guesses[ir]);
+        if (!done.has(ir) && guessR >= HEALTHY_GUESS_SIZE && values[ir] < COLLAPSED_SIZE) {
+          out.push({ entity: e.id, kind: 'radius', ir, target: guessR });
+        }
+      }
+      continue;
+    }
+    if (done.has(e.kind === 'line' ? o : o + 2)) {
+      continue;
+    }
     if (e.kind === 'line') {
       const guessLen = Math.hypot(guesses[o + 2] - guesses[o], guesses[o + 3] - guesses[o + 1]);
       const len = Math.hypot(values[o + 2] - values[o], values[o + 3] - values[o + 1]);

@@ -140,4 +140,20 @@ describe('buildPositionWriteBack', () => {
       { sourceLine: 4, points: [{ pointIndex: 2, position: [104, 2], expected: [100, 0] }] },
     ]);
   });
+
+  it('writes an ellipse\'s drifted semi-radii and rotation, appending a missing rotation argument', () => {
+    const model = modelWith([
+      view(3, 'ellipse', {
+        center: [0, 0], radii: [20, 10], theta: 0,
+        guess: { center: [0, 0], rx: 20, ry: 10 },
+      }, 12),
+    ]);
+    const live: LiveEntityGeometry = { kind: 'ellipse', center: [0, 0], radii: [25, 10.001], theta: Math.PI / 6 };
+    const { edits } = buildPositionWriteBack(model, () => live);
+    expect(edits).toEqual([{
+      sourceLine: 12,
+      radii: { rx: { value: 25, expected: 20 } },
+      rotation: { value: 30 },
+    }]);
+  });
 });

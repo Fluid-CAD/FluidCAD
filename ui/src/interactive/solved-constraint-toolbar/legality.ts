@@ -107,6 +107,18 @@ function isRound(p: SolvedPick): boolean {
   return isEntityPick(p, 'circle', 'arc');
 }
 
+/** An ellipse entity pick: a curve with a center and a rotation, but no
+ * single radius — so never `isRound` (the radius/diameter/distance forms
+ * and equal have nothing to size on it). */
+function isEllipse(p: SolvedPick): boolean {
+  return isEntityPick(p, 'ellipse');
+}
+
+/** Any curve a point can sit on or a tangent can touch. */
+function isCurve(p: SolvedPick): boolean {
+  return isLine(p) || isRound(p) || isEllipse(p);
+}
+
 function isLine(p: SolvedPick): boolean {
   return isEntityPick(p, 'line');
 }
@@ -198,18 +210,18 @@ export function distancePlacementMoot(rawPicks: SolvedPick[], a: Vec2, b: Vec2):
 
 const NEED = {
   coincident: 'pick two points, or a point and an entity',
-  horizontal: 'pick a line, or two or more points',
-  vertical: 'pick a line, or two or more points',
+  horizontal: 'pick a line, an ellipse, or two or more points',
+  vertical: 'pick a line, an ellipse, or two or more points',
   parallel: 'pick two or more lines',
   perpendicular: 'pick two lines',
-  tangent: 'pick a line and a circle/arc, or two circles/arcs',
+  tangent: 'pick a line and a circle/arc/ellipse, or two circles/arcs/ellipses',
   equal: 'pick two or more lines, or two or more circles/arcs',
-  concentric: 'pick two circles/arcs',
+  concentric: 'pick two circles/arcs/ellipses',
   collinear: 'pick two lines',
   midpoint: 'pick a point and a line, or three points',
   symmetric: 'pick two points, or two lines/arcs/circles of one kind, then their mirror line',
   fix: 'pick one point',
-  dimension: 'pick two points/entities, one line, or one circle/arc',
+  dimension: 'pick two points/entities, one line, one circle/arc, or one ellipse',
   angle: 'pick two lines',
 } as const;
 
@@ -230,15 +242,16 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       // Point-on-entity is degenerate when the point belongs to that entity
       // (a line's own endpoint is on the line by construction).
       return (pa && pb)
-        || (pa && (isLine(b) || isRound(b)) && a.entityId !== b.entityId)
-        || (pb && (isLine(a) || isRound(a)) && a.entityId !== b.entityId);
+        || (pa && isCurve(b) && a.entityId !== b.entityId)
+        || (pb && isCurve(a) && a.entityId !== b.entityId);
     }
     case 'horizontal':
     case 'vertical':
       // An axis is already exactly horizontal or vertical — pointless
-      // either way (redundant or a guaranteed conflict). The point form
-      // takes any number ≥ 2, all aligned to the first.
-      return (picks.length === 1 && isLine(a) && !isAxisPick(a))
+      // either way (redundant or a guaranteed conflict). A lone ellipse
+      // orients its RX axis. The point form takes any number ≥ 2, all
+      // aligned to the first.
+      return (picks.length === 1 && (isLine(a) || isEllipse(a)) && !isAxisPick(a))
         || (picks.length >= 2 && picks.every(isPointPick));
     case 'parallel':
       // Any number of lines parallel to the first, all distinct.
@@ -250,8 +263,9 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
     case 'angle':
       return picks.length === 2 && isLine(a) && isLine(b) && a.entityId !== b.entityId;
     case 'tangent':
+      // Any two curves except two lines (collinear owns that).
       return picks.length === 2 && a.entityId !== b.entityId
-        && ((isLine(a) && isRound(b)) || (isRound(a) && isLine(b)) || (isRound(a) && isRound(b)));
+        && isCurve(a) && isCurve(b) && !(isLine(a) && isLine(b));
     case 'equal':
       // Any number of entities equate to the first — all lines or all
       // circles/arcs, all distinct. A datum axis is infinite — it has no
@@ -261,7 +275,8 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
         && picks.every(p => !isAxisPick(p))
         && (picks.every(isLine) || picks.every(isRound));
     case 'concentric':
-      return picks.length === 2 && isRound(a) && isRound(b) && a.entityId !== b.entityId;
+      return picks.length === 2 && a.entityId !== b.entityId
+        && (isRound(a) || isEllipse(a)) && (isRound(b) || isEllipse(b));
     case 'midpoint': {
       // Point-pair form: three distinct points, the first (after the
       // geometric reorder, see orderMidpointPicks) sits halfway between
@@ -307,6 +322,59 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
   }
 }
 
+/**
+ * Which semi-radius a lone ellipse pick dimensions: the axis its touch lies
+ * closer to in the ellipse's own frame (|x'|/rx vs |y'|/ry) — a click near
+ * the end of the RX axis dimensions RX. Picks without a touch (vertex,
+ * programmatic) read RX.
+ */
+export function ellipseRadiusAxis(model: SolvedSketchModel, pick: SolvedPick): 'x' | 'y' {
+  const e = entityFor(model, pickRef(pick));
+  if (!pick.at || !e || e.kind !== 'ellipse' || !e.center || !e.radii) {
+    return 'x';
+  }
+  const c = Math.cos(e.theta ?? 0);
+  const s = Math.sin(e.theta ?? 0);
+  const dx = pick.at[0] - e.center[0];
+  const dy = pick.at[1] - e.center[1];
+  const xp = dx * c + dy * s;
+  const yp = -dx * s + dy * c;
+  return Math.abs(xp) / e.radii[0] >= Math.abs(yp) / e.radii[1] ? 'x' : 'y';
+}
+
+/**
+ * The orientation an entity already carries: the single-entity
+ * `horizontal(e)` / `vertical(e)` statements on a lone line or ellipse
+ * pick. An entity has exactly one orientation, so a new H/V on it can
+ * never stack — it either repeats what is there (`alreadyApplied`) or must
+ * REPLACE the other kind (`replaced`), the way a drawn ellipse's inferred
+ * `horizontal` gives way to a Vertical click instead of conflicting with
+ * it. Null when the picks are not the single-entity form.
+ */
+export function orientationReplacement(
+  model: SolvedSketchModel,
+  id: 'horizontal' | 'vertical',
+  picks: SolvedPick[],
+): { alreadyApplied: SolvedConstraintView[]; replaced: SolvedConstraintView[] } | null {
+  if (picks.length !== 1 || !(isLine(picks[0]) || isEllipse(picks[0])) || isFixedPick(picks[0])) {
+    return null;
+  }
+  const entityId = picks[0].entityId;
+  const alreadyApplied: SolvedConstraintView[] = [];
+  const replaced: SolvedConstraintView[] = [];
+  for (const c of model.constraints) {
+    const spec = c.spec;
+    if ((spec.kind !== 'horizontal' && spec.kind !== 'vertical') || spec.b !== undefined) {
+      continue;
+    }
+    if (spec.a.entity !== entityId || spec.a.point !== undefined) {
+      continue;
+    }
+    (spec.kind === id ? alreadyApplied : replaced).push(c);
+  }
+  return { alreadyApplied, replaced };
+}
+
 export function constraintOptions(picks: SolvedPick[]): ConstraintOption[] {
   return (Object.keys(NEED) as ConstraintButtonId[]).map((id) => {
     const enabled = pairEnabled(id, picks);
@@ -329,6 +397,10 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
     const p = picks[0];
     if (isRound(p)) {
       return { kind: p.kind === 'circle' ? 'diameter' : 'radius', axisChoice: false, tangencyChoice: false };
+    }
+    if (isEllipse(p)) {
+      // One semi-radius — which one the touch decides (ellipseRadiusAxis).
+      return { kind: 'radius', axisChoice: false, tangencyChoice: false };
     }
     return null;
   }
@@ -438,6 +510,9 @@ export function measureDimension(
 
   if (form.kind === 'radius' || form.kind === 'diameter') {
     const e = entityFor(model, pickRef(picks[0]));
+    if (e?.kind === 'ellipse' && e.radii) {
+      return round2(axis === 'y' ? e.radii[1] : e.radii[0]);
+    }
     if (!e || e.radius === undefined) {
       return null;
     }
@@ -573,7 +648,9 @@ export function candidateSpec(
         return null;
       }
       if (form.kind === 'radius') {
-        return { kind: 'radius', a: pickRef(a), value };
+        return isEllipse(a)
+          ? { kind: 'radius', a: pickRef(a), value, axis: axis ?? 'x' }
+          : { kind: 'radius', a: pickRef(a), value };
       }
       if (form.kind === 'diameter') {
         return { kind: 'diameter', a: pickRef(a), value };
@@ -632,6 +709,15 @@ export function dimensionPreviewLayout(
     const e = entityFor(model, pickRef(picks[0]));
     if (!e || !e.center) {
       return null;
+    }
+    if (e.kind === 'ellipse' && e.radii) {
+      // Center → the end of the dimensioned semi-axis, riding the line.
+      const c = Math.cos(e.theta ?? 0);
+      const s = Math.sin(e.theta ?? 0);
+      const end: Vec2 = axis === 'y'
+        ? [e.center[0] - e.radii[1] * s, e.center[1] + e.radii[1] * c]
+        : [e.center[0] + e.radii[0] * c, e.center[1] + e.radii[0] * s];
+      return { line: [e.center, end], at: mid(e.center, end), arrows: 'end' };
     }
     if (form.kind === 'diameter') {
       // Rim to rim through the center — the chord the committed glyph will

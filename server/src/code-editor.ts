@@ -1735,7 +1735,18 @@ export type SketchPositionEdit = {
   points?: SketchPositionPointEdit[];
   /** Scalar dimension of the base call (circle diameter), same guard. */
   scalar?: { value: number; expected?: number };
+  /** An ellipse's semi-radii — the 2nd / 3rd arguments of
+   * `ellipse(center, rx, ry[, rotation])`, same drift guard each. */
+  radii?: { rx?: { value: number; expected?: number }; ry?: { value: number; expected?: number } };
+  /** An ellipse's rotation (degrees) — the trailing 4th argument of
+   * `ellipse(center, rx, ry[, rotation])`: rewritten when present (same
+   * drift guard), appended when the statement carries only the three. */
+  rotation?: { value: number; expected?: number };
 };
+
+/** Non-array arguments of an ellipse() base call beyond which the trailing
+ * one is its rotation. */
+const ELLIPSE_SCALAR_ARGS = 2;
 
 export type SketchPositionsResult = { newCode: string; error?: string };
 
@@ -1823,6 +1834,89 @@ export async function updateSketchPositions(
           start: target.startIndex,
           end: target.endIndex,
           text: String(roundCoord(edit.scalar.value)),
+        });
+      }
+    }
+
+    if (edit.radii) {
+      const base = chainBaseCall(call);
+      const baseArgs = getArgumentsNode(base);
+      if (callFunctionName(base) !== 'ellipse' || !baseArgs) {
+        return {
+          newCode: code,
+          error: `line ${edit.sourceLine} is not an ellipse() statement — the source changed since this drag started`,
+        };
+      }
+      const scalars = baseArgs.namedChildren.filter(n => n.type !== 'array');
+      const slots: [number, { value: number; expected?: number } | undefined, string][] = [
+        [0, edit.radii.rx, 'rx'],
+        [1, edit.radii.ry, 'ry'],
+      ];
+      for (const [index, change, name] of slots) {
+        if (!change) {
+          continue;
+        }
+        const target = scalars[index];
+        const current = target ? numericLiteralValue(target) : null;
+        if (!target || current === null) {
+          // An expression or variable (`rx / 2`, `w`) is solver-derived —
+          // left alone, like a non-literal point slot.
+          continue;
+        }
+        if (change.expected !== undefined && Math.abs(current - change.expected) > POSITION_DRIFT_TOL) {
+          return {
+            newCode: code,
+            error: `line ${edit.sourceLine} changed since this drag started`
+              + ` — expected ${name} ${change.expected}, found ${current}`,
+          };
+        }
+        splices.push({ start: target.startIndex, end: target.endIndex, text: String(roundCoord(change.value)) });
+      }
+    }
+
+    if (edit.rotation) {
+      const base = chainBaseCall(call);
+      const baseArgs = getArgumentsNode(base);
+      if (callFunctionName(base) !== 'ellipse' || !baseArgs) {
+        return {
+          newCode: code,
+          error: `line ${edit.sourceLine} is not an ellipse() statement — the source changed since this drag started`,
+        };
+      }
+      const scalars = baseArgs.namedChildren.filter(n => n.type !== 'array');
+      if (scalars.length > ELLIPSE_SCALAR_ARGS) {
+        // Rewrite the existing rotation argument, drift-guarded like the
+        // circle's diameter. A non-literal (expression, variable) is left
+        // alone — the re-solve re-derives the pose from it.
+        const target = scalars[scalars.length - 1];
+        const current = numericLiteralValue(target);
+        if (current !== null) {
+          if (edit.rotation.expected !== undefined
+            && Math.abs(current - edit.rotation.expected) > POSITION_DRIFT_TOL) {
+            return {
+              newCode: code,
+              error: `line ${edit.sourceLine} changed since this drag started`
+                + ` — expected rotation ${edit.rotation.expected}, found ${current}`,
+            };
+          }
+          splices.push({
+            start: target.startIndex,
+            end: target.endIndex,
+            text: String(roundCoord(edit.rotation.value)),
+          });
+        }
+      } else if (scalars.length === ELLIPSE_SCALAR_ARGS) {
+        if (edit.rotation.expected !== undefined) {
+          return {
+            newCode: code,
+            error: `line ${edit.sourceLine} changed since this drag started — its rotation argument is gone`,
+          };
+        }
+        const last = baseArgs.namedChildren[baseArgs.namedChildren.length - 1];
+        splices.push({
+          start: last.endIndex,
+          end: last.endIndex,
+          text: `, ${roundCoord(edit.rotation.value)}`,
         });
       }
     }

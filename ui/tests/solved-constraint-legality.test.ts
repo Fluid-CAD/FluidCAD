@@ -14,6 +14,8 @@ import {
   inferTangency,
   measureDimension,
   orderMidpointPicks,
+  orientationReplacement,
+  ellipseRadiusAxis,
 } from '../src/interactive/solved-constraint-toolbar/legality';
 import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
@@ -668,5 +670,94 @@ describe('coincidentsAtPicks', () => {
     expect(coincidentsAtPicks(datumModel, [origin]).map(c => c.obj.id)).toEqual(['c-origin']);
     expect(describeCoincidentRemoval(datumModel, coincidentsAtPicks(datumModel, [startA])))
       .toBe('Delete coincident (line start · origin)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One orientation per entity: H/V on a lone line or ellipse replaces the
+// other kind (the drawn ellipse's inferred horizontal gives way to a
+// Vertical click) and repeats nothing.
+
+describe('orientationReplacement', () => {
+  const ellipseE: SolvedPick = { entityId: 6, kind: 'ellipse', sourceLocation: loc(11) };
+  const orientedModel: SolvedSketchModel = {
+    ...model,
+    entities: new Map([
+      ...model.entities,
+      [6, entityView(6, { kind: 'ellipse', center: [50, 50], radii: [20, 10], theta: 0 })],
+    ] as [number, SolvedEntityView][]),
+    constraints: [
+      constraintView('h-ellipse', 30, { kind: 'horizontal', a: { entity: 6 } }),
+      constraintView('h-line', 31, { kind: 'horizontal', a: { entity: 0 } }),
+      // Point forms never count as an orientation, whichever entity they name.
+      constraintView('h-points', 32, { kind: 'horizontal', a: { entity: 6, point: 'center' }, b: { entity: 0, point: 'end' } }),
+      constraintView('t', 33, { kind: 'tangent', a: { entity: 0 }, b: { entity: 6 } }),
+    ],
+  };
+
+  it('a Vertical click on the drawn (horizontal) ellipse replaces its horizontal', () => {
+    const r = orientationReplacement(orientedModel, 'vertical', [ellipseE])!;
+    expect(r.replaced.map(c => c.obj.id)).toEqual(['h-ellipse']);
+    expect(r.alreadyApplied).toEqual([]);
+  });
+
+  it('a Horizontal click on it is already applied', () => {
+    const r = orientationReplacement(orientedModel, 'horizontal', [ellipseE])!;
+    expect(r.alreadyApplied.map(c => c.obj.id)).toEqual(['h-ellipse']);
+    expect(r.replaced).toEqual([]);
+  });
+
+  it('lines take the same rule; an unconstrained entity replaces nothing', () => {
+    expect(orientationReplacement(orientedModel, 'vertical', [lineA])!.replaced.map(c => c.obj.id)).toEqual(['h-line']);
+    const r = orientationReplacement(orientedModel, 'vertical', [lineB])!;
+    expect(r.replaced).toEqual([]);
+    expect(r.alreadyApplied).toEqual([]);
+  });
+
+  it('only the single-entity form takes part', () => {
+    expect(orientationReplacement(orientedModel, 'horizontal', [endA, startB])).toBeNull();
+    expect(orientationReplacement(orientedModel, 'horizontal', [circleC])).toBeNull();
+    expect(orientationReplacement(orientedModel, 'horizontal', [lineA, lineB])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An ellipse dimensions one semi-radius at a time: the Dimension tool offers
+// `radius`, the touch picks the axis, and the spec carries it.
+
+describe('ellipse radius dimension', () => {
+  const ellipseModel: SolvedSketchModel = {
+    ...model,
+    entities: new Map([
+      ...model.entities,
+      // RX = 20 along +y (rotated 90°), RY = 10 along −x.
+      [6, entityView(6, { kind: 'ellipse', center: [50, 50], radii: [20, 10], theta: Math.PI / 2 })],
+    ] as [number, SolvedEntityView][]),
+  };
+  const nearRxEnd: SolvedPick = { entityId: 6, kind: 'ellipse', sourceLocation: loc(11), at: [50.5, 69] };
+  const nearRyEnd: SolvedPick = { entityId: 6, kind: 'ellipse', sourceLocation: loc(11), at: [40.5, 51] };
+  const noTouch: SolvedPick = { entityId: 6, kind: 'ellipse', sourceLocation: loc(11) };
+
+  it('a lone ellipse takes the radius form', () => {
+    expect(dimensionFormFor([noTouch])).toEqual({ kind: 'radius', axisChoice: false, tangencyChoice: false });
+    expect(enabledIds([noTouch])).toEqual(['dimension', 'horizontal', 'vertical']);
+  });
+
+  it('the touch picks the axis in the ellipse frame; no touch reads RX', () => {
+    expect(ellipseRadiusAxis(ellipseModel, nearRxEnd)).toBe('x');
+    expect(ellipseRadiusAxis(ellipseModel, nearRyEnd)).toBe('y');
+    expect(ellipseRadiusAxis(ellipseModel, noTouch)).toBe('x');
+  });
+
+  it('measures and specs the dimensioned semi-radius', () => {
+    const form = dimensionFormFor([nearRyEnd])!;
+    expect(measureDimension(ellipseModel, [nearRyEnd], form, 'y')).toBe(10);
+    expect(measureDimension(ellipseModel, [nearRxEnd], form, 'x')).toBe(20);
+    expect(candidateSpec('dimension', [nearRyEnd], 10, 'y')).toEqual({ kind: 'radius', a: { entity: 6 }, value: 10, axis: 'y' });
+    const layout = dimensionPreviewLayout(ellipseModel, [nearRxEnd], form, 'x')!;
+    expect(layout.line![0]).toEqual([50, 50]);
+    expect(layout.line![1][0]).toBeCloseTo(50, 9);
+    expect(layout.line![1][1]).toBeCloseTo(70, 9);
+    expect(layout.arrows).toBe('end');
   });
 });

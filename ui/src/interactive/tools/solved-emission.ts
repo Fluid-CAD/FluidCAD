@@ -95,7 +95,8 @@ export function circleText(
 }
 
 /** `ellipse(center, rx, ry)` — the semi-radii are literals (or typed
- * expressions) the solver never resizes; only the center is an entity. */
+ * expressions) the solver never resizes; the center and rotation solve
+ * (the tool draws axis-aligned, so no rotation argument is written). */
 export function ellipseText(
   center: [number, number] | PickedPoint,
   rxExpr: string | number,

@@ -144,4 +144,38 @@ describe('updateSketchPositions', () => {
     ]);
     expect(result.error).toContain('line 7 changed since this drag started');
   });
+
+  it('rewrites an ellipse\'s literal semi-radii and appends its rotation', async () => {
+    const code = [
+      `import { sketch, ellipse } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const e = ellipse([0, 0], 20, 10);`,
+      `  const f = ellipse([50, 0], w, 10, 15).name('cam');`,
+      `});`,
+    ].join('\n');
+    const result = await updateSketchPositions(code, [
+      { sourceLine: 4, radii: { rx: { value: 25.004, expected: 20 } }, rotation: { value: 30 } },
+      // A non-literal rx is left alone; ry and the existing rotation rewrite.
+      { sourceLine: 5, radii: { rx: { value: 9, expected: 1 }, ry: { value: 12, expected: 10 } }, rotation: { value: 45, expected: 15 } },
+    ]);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = ellipse([0, 0], 25, 10, 30);`);
+    expect(result.newCode).toContain(`const f = ellipse([50, 0], w, 12, 45).name('cam');`);
+  });
+
+  it('refuses a drifted ellipse radius', async () => {
+    const code = [
+      `import { sketch, ellipse } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const e = ellipse([0, 0], 20, 10);`,
+      `});`,
+    ].join('\n');
+    const result = await updateSketchPositions(code, [
+      { sourceLine: 4, radii: { ry: { value: 12, expected: 11 } } },
+    ]);
+    expect(result.error).toMatch(/expected ry 11, found 10/);
+    expect(result.newCode).toBe(code);
+  });
 });

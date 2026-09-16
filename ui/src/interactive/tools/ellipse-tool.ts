@@ -27,17 +27,20 @@ import type { SolvedVertexRef } from '../../snapping/types';
 type ExpressionPhase = 'rx' | 'ry';
 
 /**
- * Ellipse — `ellipse(center, rx, ry)`, axes aligned to the sketch plane.
+ * Ellipse — `ellipse(center, rx, ry)`, drawn with its axes along the sketch
+ * plane's.
  *
  * The gesture mirrors the centered rectangle: the first click (or the X/Y
  * pill) lands the centre; the cursor then stretches the semi-radii along
  * the plane's X and Y axes, one pill each (RX, then RY), a click or Enter
- * committing the pill in hand. A snapped centre becomes a coincident on the
- * ellipse's centre point — the only solver entity an ellipse registers; the
- * radii are literals (or typed expressions) the solver never resizes, so no
- * dimension constraint is emitted for them. Once drawn, the RX/RY readouts
- * on the ellipse edit the statement's own arguments on double-click
- * (statement-owned dimensions).
+ * committing the pill in hand. The ellipse is a solver entity whose centre
+ * and rotation solve: a snapped centre becomes a coincident on `.center()`,
+ * while the rotation is left FREE on purpose (the Onshape convention) — the
+ * user orients the ellipse afterwards with Horizontal, Vertical, a tangent
+ * or a point on the outline. The radii are guesses like a circle's
+ * diameter: a TYPED RX or RY lands as a `radius(el, v, 'x' | 'y')`
+ * dimension (the way a typed circle diameter lands as `diameter`), a
+ * cursor-sized one stays a free literal for the Dimension tool.
  */
 export class EllipseTool extends SketchTool {
   readonly id = 'ellipse' as const;
@@ -57,6 +60,8 @@ export class EllipseTool extends SketchTool {
 
   private expressionPhase: ExpressionPhase = 'rx';
   private rxExpression: CommitResult | null = null;
+  /** Whether the RX pill was committed with a typed value (→ a dimension). */
+  private rxTyped = false;
   /** The committed RX as a magnitude for the preview while RY is set. */
   private lockedRx: number | null = null;
 
@@ -135,6 +140,7 @@ export class EllipseTool extends SketchTool {
     this.mousePoint = null;
     this.expressionPhase = 'rx';
     this.rxExpression = null;
+    this.rxTyped = false;
     this.lockedRx = null;
     this.expressionInput.hide();
   }
@@ -259,10 +265,12 @@ export class EllipseTool extends SketchTool {
       variables: this.cachedVariables,
       validate: EllipseTool.radiusRefusal,
       onCommit: (result) => {
+        // Read before the pill hides: a typed value becomes a dimension.
+        const typed = this.expressionInput.isTyping;
         if (phase === 'rx') {
-          this.onRxCommit(result);
+          this.onRxCommit(result, typed);
         } else {
-          this.onRyCommit(result);
+          this.onRyCommit(result, typed);
         }
       },
     });
@@ -288,8 +296,9 @@ export class EllipseTool extends SketchTool {
     }
   }
 
-  private onRxCommit(result: CommitResult): void {
+  private onRxCommit(result: CommitResult, typed: boolean): void {
     this.rxExpression = result;
+    this.rxTyped = typed;
     this.lockedRx = this.previewMagnitude(result);
     this.expressionPhase = 'ry';
 
@@ -304,11 +313,11 @@ export class EllipseTool extends SketchTool {
     });
   }
 
-  private onRyCommit(result: CommitResult): void {
+  private onRyCommit(result: CommitResult, typed: boolean): void {
     if (!this.centerPick || !this.rxExpression) {
       return;
     }
-    this.commitEllipse(this.centerPick, this.rxExpression, result);
+    this.commitEllipse(this.centerPick, this.rxExpression, result, this.rxTyped, typed);
     this.finishGesture();
   }
 
@@ -325,7 +334,7 @@ export class EllipseTool extends SketchTool {
     if (ry <= 0) {
       return;
     }
-    this.commitEllipse(this.centerPick, rxResult, { expression: String(ry) });
+    this.commitEllipse(this.centerPick, rxResult, { expression: String(ry) }, this.rxTyped, false);
     this.finishGesture();
   }
 
@@ -336,6 +345,7 @@ export class EllipseTool extends SketchTool {
     this.centerSnapRef = null;
     this.expressionPhase = 'rx';
     this.rxExpression = null;
+    this.rxTyped = false;
     this.lockedRx = null;
     this.syncPointInput();
     this.rebuildPreview();
@@ -355,18 +365,32 @@ export class EllipseTool extends SketchTool {
     return null;
   }
 
-  protected commitEllipse(center: PickedPoint, rxResult: CommitResult, ryResult: CommitResult): void {
+  protected commitEllipse(
+    center: PickedPoint,
+    rxResult: CommitResult,
+    ryResult: CommitResult,
+    rxTyped = false,
+    ryTyped = false,
+  ): void {
     const newVariables = [rxResult.newVariable, ryResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
 
     if (this.solvedCtx) {
       const constraints: SolvedConstraintParam[] = [];
       // Snap provenance → a coincident on the centre point (the Auto-
-      // constraints toggle gates the inference). The radii are literals
-      // the solver never resizes, so a typed RX/RY is the statement's own
-      // argument, never a dimension row.
+      // constraints toggle gates the inference). The rotation is never
+      // inferred: an ellipse always draws axis-aligned, so inferring
+      // `horizontal` would make every Vertical click a conflict.
       if (this.centerSnapRef && this.autoConstraintsEnabled()) {
         constraints.push(inferred(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef))));
+      }
+      // A typed semi-radius is a dimension the user specified, like a typed
+      // circle diameter; a cursor-sized one is a free guess.
+      if (rxTyped) {
+        constraints.push({ kind: 'radius', targets: [newTarget(0)], valueExpr: dimMagnitude(rxResult.expression), axis: 'x' });
+      }
+      if (ryTyped) {
+        constraints.push({ kind: 'radius', targets: [newTarget(0)], valueExpr: dimMagnitude(ryResult.expression), axis: 'y' });
       }
       const variables = [...center.newVariables, ...newVariables];
       void this.solvedCtx.emit({

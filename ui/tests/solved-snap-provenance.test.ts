@@ -118,18 +118,18 @@ describe('solved snap provenance', () => {
         solvedMode: true,
         solver: {
           entities: [
-            { id: 0, kind: 'point', fixed: false, paramOffset: 0 },
-            { id: 1, kind: 'point', fixed: false, paramOffset: 2 },
+            { id: 0, kind: 'ellipse', fixed: false, paramOffset: 0 },
+            { id: 1, kind: 'point', fixed: false, paramOffset: 5 },
           ],
-          constraints: [], params: [5, 7, 80, 30], outcome: 'solved',
-          dof: 4, conflicting: [], redundant: [], underconstrainedEntities: [0, 1],
+          constraints: [], params: [5, 7, 3, 2, 0, 80, 30], outcome: 'solved',
+          dof: 5, conflicting: [], redundant: [], underconstrainedEntities: [0, 1],
         },
       },
       sceneShapes: [],
       ownShapes: [],
     } as SceneObjectRender;
-    const el = child('ellipse', {
-      rx: 3, ry: 2, center: { x: 5, y: 7 },
+    const el = child('solved-ellipse', {
+      rx: 3, ry: 2, center: { x: 5, y: 7 }, rotation: 0,
       entityId: 0, guess: { center: { x: 5, y: 7 } },
     });
     const bz = child('bezier-3', {
@@ -137,8 +137,10 @@ describe('solved snap provenance', () => {
       anchors: [{ pointIndex: 2, entityId: 1, guess: { x: 80, y: 30 } }],
     });
     const mgr = SnapManager.fromSceneObjects([sketch, el, bz], 'sketch-1', PLANE as any);
+    // The ellipse is an entity: its centre snaps like a circle's, as the
+    // `center` role on the ellipse statement.
     const centerSnap = mgr.snap([5.2, 6.9], PLANE as any);
-    expect(centerSnap.ref).toEqual({ line: el.sourceLocation!.line, featureType: 'ellipse' });
+    expect(centerSnap.ref).toEqual({ line: el.sourceLocation!.line, featureType: 'ellipse', role: 'center' });
     const cpSnap = mgr.snap([79.8, 30.1], PLANE as any);
     expect(cpSnap.ref).toEqual({
       line: bz.sourceLocation!.line, featureType: 'bezier', pointIndex: 2,

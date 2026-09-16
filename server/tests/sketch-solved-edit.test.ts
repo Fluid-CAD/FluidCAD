@@ -597,11 +597,11 @@ describe('applySolvedEmission removals-only', () => {
   });
 });
 
-describe('applySolvedEmission: ellipse (P8 anchor statement) geometry', () => {
+describe('applySolvedEmission: ellipse geometry', () => {
   // The Ellipse tool emits `ellipse(center, rx, ry)` through the same rail
-  // as the entity tools. The ellipse is no solver entity — only its center
-  // is — so a same-emission target must name the `center` role, which
-  // renders as the anchor accessor `el1.center()`.
+  // as the entity tools. The ellipse is a solver entity: a same-emission
+  // target names its `center` role (`el1.center()`) for point constraints,
+  // or the bare statement (`el1`) for horizontal/vertical/concentric/tangent.
   it('binds the ellipse and renders a center-role target as el1.center()', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,
@@ -619,17 +619,18 @@ describe('applySolvedEmission: ellipse (P8 anchor statement) geometry', () => {
     expect(result.names).toEqual(['el1']);
   });
 
-  it('refuses a same-emission ellipse target without the center role', async () => {
+  it('renders a bare same-emission ellipse target for the entity constraints', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,
       geometry: [{ kind: 'ellipse', text: 'ellipse([10, 10], 20, 12)' }],
       constraints: [{
-        kind: 'coincident',
-        targets: [{ newIndex: 0 }, { datum: 'origin' }],
+        kind: 'horizontal',
+        targets: [{ newIndex: 0 }],
       }],
     });
-    expect(result.error).toContain('center');
-    expect(result.newCode).toBe(SKETCH);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const el1 = ellipse([10, 10], 20, 12);');
+    expect(result.newCode).toContain('horizontal(el1);');
   });
 
   it('lands an unreferenced ellipse unbound, with .guide() when asked', async () => {

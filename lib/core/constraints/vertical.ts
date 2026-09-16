@@ -4,9 +4,10 @@ import { ConstraintTarget, emitConstraint, toRef } from "./common.js";
 import type { ConstraintSpec } from "../../sketch-solver/index.js";
 
 /**
- * Constrains a line to be vertical, or two or more points to share an
- * x value. Every point after the first is aligned to the first.
- * @param a - A line, or the first point
+ * Constrains a line to be vertical, an ellipse's RX axis to run along
+ * the sketch Y direction, or two or more points to share an x value.
+ * Every point after the first is aligned to the first.
+ * @param a - A line, an ellipse, or the first point
  * @param b - The second point (point form)
  * @param rest - Further points to align to the first
  */

@@ -56,7 +56,7 @@ export type SketchConstraintEditSpec = {
   targets: SketchConstraintTarget[];
   /** Rendered value expression (already in display units — degrees for angle). */
   valueExpr?: string;
-  /** distance only: measure along one axis. */
+  /** distance: measure along one axis; radius: an ellipse's semi-radius. */
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';

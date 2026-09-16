@@ -10,11 +10,11 @@ import constraintConcentric from '!!raw-loader!../../_examples/constraint-concen
 
 # Concentric
 
-`concentric` gives two circles or arcs the same center — a bore and its counterbore, a rim around a hub, a washer.
+`concentric` gives two circles, arcs or ellipses the same center — a bore and its counterbore, a rim around a hub, a washer, an oval boss around its bore.
 
 ## In the viewport
 
-1. Click two circles / arcs.
+1. Click two circles / arcs / ellipses.
 2. Click **Concentric**. Both get a `◎` badge at the shared center.
 
 <UiFigure
@@ -37,6 +37,7 @@ The bore sits on the origin; the outer circle is drawn off-center. `concentric(o
 
 ```js
 concentric(a, b)                 // shared center: 2 DOF
+concentric(e, c)                 // an ellipse around a circle (or arc, or ellipse)
 concentric(c, rim)               // against a projected circular edge
 ```
 

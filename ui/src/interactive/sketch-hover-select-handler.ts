@@ -17,7 +17,6 @@ import { themeColors } from '../scene/theme-colors';
 import { applyConstantPixelSize } from '../meshes/screen-scale';
 import { worldFromMm } from '../units/scene-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
-import type { StatementDimensionRef } from '../sketch-solver-client';
 import { insideGlyphBox } from '../meshes/containers/glyph-box';
 import {
   SolvedSketchModel,
@@ -68,10 +67,10 @@ export type SolvedPick = {
    * statement's own address (entity, copy instance, another mirror's
    * image) and no role. */
   mirrorInstance?: { source: SolvedPick };
-  /** Anchor-point picks (P8): an ellipse center, text anchor, or bezier
-   * literal control point. Emission addresses the owning statement and
-   * renders `.center()` / `.anchor()` / `.point(i)`. */
-  anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
+  /** Anchor-point picks (P8): a text anchor or a bezier literal control
+   * point. Emission addresses the owning statement and renders
+   * `.anchor()` / `.point(i)`. */
+  anchor?: { owner: 'text' | 'bezier'; pointIndex: number };
 };
 
 /**
@@ -131,22 +130,17 @@ export class SketchHoverSelectHandler {
 
   /** Fired when a solved-sketch constraint badge/dimension is clicked —
    * selecting the constraint statement (timeline flash, passive goto-source
-   * that never pops the in-page editor open). `dimension` is set when the
-   * glyph is a statement-owned dimension (an ellipse's RX/RY): the pick
-   * then names a geometry statement, not a constraint. */
+   * that never pops the in-page editor open). */
   onConstraintPick?: (pick: {
     objId?: string;
     sourceLocation?: SourceLocation;
-    dimension?: StatementDimensionRef;
   }) => void;
 
   /** Fired when a badge/dimension glyph is double-clicked — the dimensional
-   * constraints and the statement-owned dimensions open their value input
-   * from here (P4). */
+   * constraints open their value input from here (P4). */
   onConstraintDoubleClick?: (pick: {
     objId?: string;
     sourceLocation?: SourceLocation;
-    dimension?: StatementDimensionRef;
     clientX: number;
     clientY: number;
   }) => void;
@@ -451,10 +445,9 @@ export class SketchHoverSelectHandler {
             sourceLocation: e.obj.sourceLocation,
             shapeId,
             ...(at ? { at } : {}),
-            // An anchor statement's edges (text glyphs, the ellipse
-            // perimeter) resolve to its anchor POINT — the only solver
-            // entity it has, so an edge click means "constrain its
-            // position" (P8).
+            // An anchor statement's edges (text glyphs) resolve to its
+            // anchor POINT — the only solver entity it has, so an edge click
+            // means "constrain its position" (P8).
             ...pickAddress(model, e),
           });
         }
@@ -621,7 +614,6 @@ export class SketchHoverSelectHandler {
       this.onConstraintPick?.({
         objId: this.hoveredBadge.objId,
         sourceLocation: this.hoveredBadge.sourceLocation,
-        dimension: this.hoveredBadge.dimension,
       });
       return;
     }
@@ -1116,7 +1108,6 @@ export class SketchHoverSelectHandler {
       this.onConstraintDoubleClick?.({
         objId: badge.objId,
         sourceLocation: badge.sourceLocation,
-        dimension: badge.dimension,
         clientX: e.clientX,
         clientY: e.clientY,
       });

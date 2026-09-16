@@ -16,11 +16,9 @@ import { tessellateSolvedEntity } from '../src/sketch-solver-client/tessellate';
 import type { SceneObjectRender } from '../src/types';
 
 // ---------------------------------------------------------------------------
-// Live drag (P4) of an ellipse's center (P8 anchor point). The perimeter
-// edge is registered under the center's entity id, but the center is a
-// POINT entity — which tessellates to nothing — so the edge used to sit
-// still until the commit re-render while only the center dot moved. The
-// view now carries the statement's radii and the edge redraws per frame.
+// Live drag (P4) of an ellipse: a solver entity [cx, cy, rx, ry, θ] whose
+// perimeter redraws every frame from the live pose (center + rotation)
+// around its locked radii, and whose center dot rides along.
 // ---------------------------------------------------------------------------
 
 const PLANE = {
@@ -35,6 +33,7 @@ const CENTER: [number, number] = [5, 7];
 const RX = 4;
 const RY = 2;
 const SEGMENTS = 16;
+const DEG = Math.PI / 180;
 
 function ellipseMesh(center: [number, number]) {
   const vertices: number[] = [];
@@ -49,10 +48,10 @@ function ellipseMesh(center: [number, number]) {
 
 function solvedEllipsePayload(): SceneObjectRender[] {
   const solver = {
-    entities: [{ id: 0, kind: 'point', fixed: false, paramOffset: 0 }],
-    params: [CENTER[0], CENTER[1]],
+    entities: [{ id: 0, kind: 'ellipse', fixed: false, paramOffset: 0 }],
+    params: [CENTER[0], CENTER[1], RX, RY, 0],
     constraints: [],
-    dof: 2,
+    dof: 3,
     outcome: 'solved',
     underconstrainedEntities: [0],
   };
@@ -68,9 +67,9 @@ function solvedEllipsePayload(): SceneObjectRender[] {
     id: 'el1',
     parentId: 'sk',
     type: 'ellipse',
-    uniqueType: 'ellipse',
+    uniqueType: 'solved-ellipse',
     object: {
-      rx: RX, ry: RY, center: { x: CENTER[0], y: CENTER[1] },
+      rx: RX, ry: RY, center: { x: CENTER[0], y: CENTER[1] }, rotation: 0,
       entityId: 0, guess: { center: { x: CENTER[0], y: CENTER[1] } },
     },
     sceneShapes: [
@@ -92,41 +91,55 @@ function findEdgeLine(mesh: SketchMesh): LineSegments2 | null {
   return found;
 }
 
-/** Every segment endpoint sits on the ellipse `((x-cx)/rx)² + ((y-cy)/ry)² = 1`. */
-function expectOnEllipse(geometry: LineSegmentsGeometry, center: [number, number]): void {
+/** Every segment endpoint sits on the ellipse of pose (center, θ):
+ * `(x'/rx)² + (y'/ry)² = 1` in the rotated frame. */
+function expectOnEllipse(geometry: LineSegmentsGeometry, center: [number, number], theta = 0): void {
   const starts = geometry.attributes.instanceStart;
   expect(starts.count).toBe(SEGMENTS);
   for (let i = 0; i < starts.count; i++) {
-    const u = (starts.getX(i) - center[0]) / RX;
-    const v = (starts.getY(i) - center[1]) / RY;
+    const dx = starts.getX(i) - center[0];
+    const dy = starts.getY(i) - center[1];
+    const u = (dx * Math.cos(theta) + dy * Math.sin(theta)) / RX;
+    const v = (-dx * Math.sin(theta) + dy * Math.cos(theta)) / RY;
     expect(u * u + v * v).toBeCloseTo(1, 6);
   }
 }
 
-describe('ellipse center live drag', () => {
-  it('tessellates an ellipse anchor view around its live center', () => {
-    const points = tessellateSolvedEntity({ entityId: 0, kind: 'point', point: [1, 2], radii: [3, 1] }, 8);
+describe('ellipse live drag', () => {
+  it('tessellates an ellipse view from its live pose', () => {
+    const points = tessellateSolvedEntity({ entityId: 0, kind: 'ellipse', center: [1, 2], radii: [3, 1] }, 8);
     expect(points).toHaveLength(9);
     expect(points![0]).toEqual([4, 2]);
     expect(points![2][0]).toBeCloseTo(1, 9);
     expect(points![2][1]).toBeCloseTo(3, 9);
-    // A plain point (no radii) still draws no edge.
+    // Rotated a quarter turn: RX now runs along y.
+    const turned = tessellateSolvedEntity(
+      { entityId: 0, kind: 'ellipse', center: [1, 2], radii: [3, 1], theta: 90 * DEG }, 8,
+    )!;
+    expect(turned[0][0]).toBeCloseTo(1, 9);
+    expect(turned[0][1]).toBeCloseTo(5, 9);
+    // A plain point draws no edge; an ellipse without radii neither.
     expect(tessellateSolvedEntity({ entityId: 0, kind: 'point', point: [1, 2] }, 8)).toBeNull();
+    expect(tessellateSolvedEntity({ entityId: 0, kind: 'ellipse', center: [1, 2] }, 8)).toBeNull();
   });
 
-  it('redraws the perimeter edge on a live geometry update', () => {
+  it('redraws the perimeter edge on a live geometry update, rotation included', () => {
     const [sketch, ellipse] = solvedEllipsePayload();
     const mesh = new SketchMesh(sketch, [sketch, ellipse], null, new PerspectiveCamera());
-    expect(mesh.solved?.entities.get(0)?.radii).toEqual([RX, RY]);
+    const view = mesh.solved?.entities.get(0);
+    expect(view?.kind).toBe('ellipse');
+    expect(view?.radii).toEqual([RX, RY]);
+    expect(view?.theta).toBe(0);
 
     const line = findEdgeLine(mesh);
     expect(line).not.toBeNull();
     expectOnEllipse(line!.geometry as LineSegmentsGeometry, CENTER);
 
     const moved: [number, number] = [12, -3];
-    mesh.updateSolvedGeometry(() => ({ kind: 'point', point: moved }));
+    const theta = 30 * DEG;
+    mesh.updateSolvedGeometry(() => ({ kind: 'ellipse', center: moved, radii: [RX, RY], theta }));
 
-    expectOnEllipse(line!.geometry as LineSegmentsGeometry, moved);
+    expectOnEllipse(line!.geometry as LineSegmentsGeometry, moved, theta);
   });
 
   it('moves the center dot with the live update', () => {
@@ -134,7 +147,7 @@ describe('ellipse center live drag', () => {
     const mesh = new SketchMesh(sketch, [sketch, ellipse], null, new PerspectiveCamera());
 
     const moved: [number, number] = [12, -3];
-    mesh.updateSolvedGeometry(() => ({ kind: 'point', point: moved }));
+    mesh.updateSolvedGeometry(() => ({ kind: 'ellipse', center: moved, radii: [RX, RY], theta: 0 }));
 
     const dots: Vector3[] = [];
     for (const child of mesh.children) {

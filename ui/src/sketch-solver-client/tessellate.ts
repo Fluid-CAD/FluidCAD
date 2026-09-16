@@ -30,10 +30,9 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
 
 /**
  * Polyline through the entity's current geometry, in sketch-plane 2D.
- * Null for point entities (they render as dots, not edges) — except an
- * ellipse's center anchor (P8), whose statement owns the perimeter edge:
- * that redraws as the axis-aligned ellipse of the view's `radii` around
- * the live center. Null too for incomplete views.
+ * Null for point entities (they render as dots, not edges) and for
+ * incomplete views. An ellipse redraws from its live pose — center and
+ * RX-axis rotation — around its locked semi-radii.
  *
  * `segments` pins the polyline's segment count — the in-place mesh update
  * must feed `LineSegmentsGeometry.setPositions` exactly as many segments as
@@ -43,7 +42,11 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
 export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): Vec2[] | null {
   switch (e.kind) {
     case 'point':
-      return e.radii && e.point ? tessellateEllipse(e.point, e.radii, segments ?? CIRCLE_SEGMENTS) : null;
+      return null;
+    case 'ellipse':
+      return e.center && e.radii
+        ? tessellateEllipse(e.center, e.radii, e.theta ?? 0, segments ?? CIRCLE_SEGMENTS)
+        : null;
     case 'line': {
       if (!e.start || !e.end) {
         return null;
@@ -100,15 +103,20 @@ export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): 
   }
 }
 
-/** `ellipse(center, rx, ry)`: semi-radii along the plane's X and Y axes,
- * closed with the seam vertex repeated (segments + 1 points). */
-function tessellateEllipse(center: Vec2, [rx, ry]: [number, number], n: number): Vec2[] {
+/** `ellipse(center, rx, ry, rotation)`: semi-radii along the ellipse's own
+ * axes, u = (cos θ, sin θ) carrying rx; closed with the seam vertex
+ * repeated (segments + 1 points). */
+function tessellateEllipse(center: Vec2, [rx, ry]: [number, number], theta: number, n: number): Vec2[] {
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
   const points: Vec2[] = [];
   for (let i = 0; i <= n; i++) {
     const a = (i / n) * 2 * Math.PI;
+    const x = Math.cos(a) * rx;
+    const y = Math.sin(a) * ry;
     points.push([
-      center[0] + Math.cos(a) * rx,
-      center[1] + Math.sin(a) * ry,
+      center[0] + x * c - y * s,
+      center[1] + x * s + y * c,
     ]);
   }
   return points;

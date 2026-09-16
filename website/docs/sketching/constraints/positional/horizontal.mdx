@@ -10,14 +10,14 @@ import constraintHorizontal from '!!raw-loader!../../_examples/constraint-horizo
 
 # Horizontal
 
-`horizontal` aligns with the sketch's X axis: a line becomes horizontal, or two or more points are brought to the same height.
+`horizontal` aligns with the sketch's X axis: a line becomes horizontal, an ellipse's RX axis runs along X, or two or more points are brought to the same height.
 
 ## In the viewport
 
-1. Click one line — or click two or more points.
-2. Click **Horizontal**. A line gets an `H` badge; in the point form every point after the first moves to the first one's y and each pair gets a badge.
+1. Click one line or one ellipse — or click two or more points.
+2. Click **Horizontal**. A line or ellipse gets an `H` badge; in the point form every point after the first moves to the first one's y and each pair gets a badge.
 
-Drawing a line close to horizontal with **Infer while drawing** on writes this constraint automatically.
+Drawing a line close to horizontal with **Infer while drawing** on writes this constraint automatically. A drawn ellipse gets no inferred orientation — its rotation stays free until you click Horizontal or Vertical on it. On a single line or ellipse, Horizontal replaces an existing `vertical` (and Vertical an existing `horizontal`): an entity has one orientation, so the two never stack into a conflict.
 
 <UiFigure
   src="/img/docs/ui/constraint-bar-horizontal.png"
@@ -39,6 +39,7 @@ Drawing a line close to horizontal with **Infer while drawing** on writes this c
 
 ```js
 horizontal(l)                    // the line is horizontal: 1 DOF
+horizontal(e)                    // the ellipse's RX axis runs along X: 1 DOF
 horizontal(p1, p2)               // p2 takes p1's y: 1 DOF
 horizontal(p1, p2, p3, ...)      // every point after the first: 1 DOF each
 ```

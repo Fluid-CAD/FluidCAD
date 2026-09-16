@@ -3,9 +3,11 @@ import { describe, it, expect } from 'vitest';
 import { EllipseTool } from '../src/interactive/tools/ellipse-tool';
 
 // The Ellipse tool emits `ellipse(center, rx, ry)` through the solved rail.
-// The centre is the only solver entity an ellipse registers, so a snapped
-// centre becomes a coincident on `newTarget(0, 'center')`; the radii are
-// literals (or typed expressions) and never a dimension row.
+// The ellipse is a solver entity whose centre and rotation solve: a snapped
+// centre becomes a coincident on `newTarget(0, 'center')`, the rotation
+// stays free (Onshape convention — Horizontal/Vertical orient it later),
+// and the radii are guesses like a circle's diameter: cursor-sized ones stay
+// free, TYPED ones land as radius(el, v, 'x' | 'y') dimensions.
 
 type Emitted = { geometry: { kind: string; text: string }[]; constraints: any[]; newVariables?: any[] };
 
@@ -46,6 +48,7 @@ describe('ellipse tool emission', () => {
 
     expect(emitted).toHaveLength(1);
     expect(emitted[0].geometry).toEqual([{ kind: 'ellipse', text: 'ellipse([10, 5], 20, 12.5)' }]);
+    // The rotation is left free: no inferred orientation, nothing else.
     expect(emitted[0].constraints).toEqual([]);
     expect(emitted[0].newVariables).toBeUndefined();
   });
@@ -99,11 +102,17 @@ describe('ellipse tool emission', () => {
       tool.centerPick,
       { expression: 'rx', newVariable: { name: 'rx', initializer: '20' } },
       { expression: 'rx / 2' },
+      true,
+      true,
     );
 
     expect(emitted[0].geometry).toEqual([{ kind: 'ellipse', text: 'ellipse([cx, 0], rx, rx / 2)' }]);
-    // No dimension row: the radii are not solver parameters.
-    expect(emitted[0].constraints).toEqual([]);
+    // Typed semi-radii are dimensions the user specified — one radius()
+    // per axis, like a typed circle diameter lands as diameter().
+    expect(emitted[0].constraints).toEqual([
+      { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: 'rx', axis: 'x' },
+      { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: 'rx / 2', axis: 'y' },
+    ]);
     expect(emitted[0].newVariables).toEqual([
       { name: 'cx', initializer: '0' },
       { name: 'rx', initializer: '20' },
@@ -117,6 +126,17 @@ describe('ellipse tool emission', () => {
     tool.commitEllipse(tool.centerPick, { expression: '-20' }, { expression: '-12' });
 
     expect(emitted[0].geometry[0].text).toBe('ellipse([10, 5], 20, 12)');
+  });
+
+  it('a typed RX with a cursor-sized RY dimensions RX only', () => {
+    const emitted: Emitted[] = [];
+    const tool = makeTool(emitted);
+
+    tool.commitEllipse(tool.centerPick, { expression: '25' }, { expression: '12' }, true, false);
+
+    expect(emitted[0].constraints).toEqual([
+      { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: '25', axis: 'x' },
+    ]);
   });
 
   it('a click with no pill in hand takes both semi-radii off the cursor', () => {

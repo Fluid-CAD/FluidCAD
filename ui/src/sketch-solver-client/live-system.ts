@@ -6,7 +6,7 @@
 // write-back rounds to 2dp anyway (see phase1.md's cross-engine float
 // caveat).
 
-import { SketchSystem, diagnose, solve } from '../../../lib/sketch-solver/index.js';
+import { PARAM_COUNT, SketchSystem, diagnose, solve } from '../../../lib/sketch-solver/index.js';
 import { MM_PER_UNIT } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
 import type {
@@ -19,8 +19,6 @@ import type {
   SolverRef,
 } from '../../../lib/sketch-solver/types.js';
 
-const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
-
 /** Solved 2D geometry of one entity, in the read model's field shapes. */
 export type LiveEntityGeometry = {
   kind: EntityKind;
@@ -29,6 +27,10 @@ export type LiveEntityGeometry = {
   end?: [number, number];
   center?: [number, number];
   radius?: number;
+  /** Ellipse semi-radii (locked literals, carried for the redraw). */
+  radii?: [number, number];
+  /** Ellipse RX-axis rotation, radians. */
+  theta?: number;
 };
 
 export class LiveSolvedSystem {
@@ -87,6 +89,9 @@ export class LiveSolvedSystem {
             // solved radius.
             system.arc(p[o], p[o + 1], p[o + 3], p[o + 4], p[o + 5], p[o + 6], opts);
             break;
+          case 'ellipse':
+            system.ellipse(p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], opts);
+            break;
         }
         kinds.set(e.id, e.kind);
       }
@@ -110,6 +115,11 @@ export class LiveSolvedSystem {
       // Branch signs must lock from the solved values, not the guesses the
       // entities were re-added with.
       system.invalidateCompile();
+      // Constraint-owned aux params (an ellipse tangency's contact point)
+      // start where the kernel's solve left them, not at the geometric guess.
+      if (snapshot.aux) {
+        system.seedAux(snapshot.aux);
+      }
       return new LiveSolvedSystem(system, kinds);
     } catch {
       return null;
@@ -145,8 +155,9 @@ export class LiveSolvedSystem {
    * Add a free entity to THIS instance — an emission's not-yet-written
    * geometry, for the redundancy trial that runs before the statement lands.
    * `params` use the solver layout (point [x,y]; line [sx,sy,ex,ey]; circle
-   * [cx,cy,r]; arc [cx,cy,r,sx,sy,ex,ey]). Existing solved values are kept;
-   * the new slots start at the given params. Returns the entity id.
+   * [cx,cy,r]; arc [cx,cy,r,sx,sy,ex,ey]; ellipse [cx,cy,rx,ry,θ]). Existing
+   * solved values are kept; the new slots start at the given params.
+   * Returns the entity id.
    */
   addEntity(kind: EntityKind, params: number[]): number {
     if (params.length !== PARAM_COUNT[kind]) {
@@ -166,6 +177,9 @@ export class LiveSolvedSystem {
       case 'arc':
         id = this.system.arc(params[0], params[1], params[3], params[4], params[5], params[6]);
         break;
+      case 'ellipse':
+        id = this.system.ellipse(params[0], params[1], params[2], params[3], params[4]);
+        break;
     }
     this.kinds.set(id, kind);
     this.system.invalidateCompile();
@@ -178,10 +192,15 @@ export class LiveSolvedSystem {
     return diagnose(this.system, { lengthScale: this.lengthScale() });
   }
 
-  /** Reset every param back to the snapshot's solved values. */
+  /** Reset every param back to the snapshot's solved values (aux slots
+   * included: the invalidation drops the drag's contact points and the
+   * seed puts the kernel's back). */
   reset(snapshot: SketchSolverSystem): void {
     this.system.values.set(snapshot.params);
     this.system.invalidateCompile();
+    if (snapshot.aux) {
+      this.system.seedAux(snapshot.aux);
+    }
   }
 
   entityIds(): number[] {
@@ -226,6 +245,8 @@ export class LiveSolvedSystem {
           start: [p[3], p[4]],
           end: [p[5], p[6]],
         };
+      case 'ellipse':
+        return { kind, center: [p[0], p[1]], radii: [p[2], p[3]], theta: p[4] };
     }
   }
 

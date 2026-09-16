@@ -1,14 +1,18 @@
 ---
 sidebar_position: 4
 title: "ellipse"
-description: "Draws an ellipse at a given center. The center is a solver point — `.center()` references it in constraints, so the solve positions the ellipse; the radii stay fixed literals."
+description: "Draws an ellipse at a given center. The ellipse is a solver entity like a circle: every literal is a guess the constraints drive — the center (`coincident`, `concentric`, …), the rotation of its RX axis (`horizontal`/`vertical`, `tangent`) and the two semi-radii (`radius(el, v, 'x')` for RX, `radius(el, v, 'y')` for RY). `rx` runs along the ellipse's own RX axis, which starts along the plane's X direction."
 ---
 
 # ellipse()
 
-Draws an ellipse at a given center. The center is a solver point —
-`.center()` references it in constraints, so the solve positions the
-ellipse; the radii stay fixed literals.
+Draws an ellipse at a given center. The ellipse is a solver entity like
+a circle: every literal is a guess the constraints drive — the center
+(`coincident`, `concentric`, …), the rotation of its RX axis
+(`horizontal`/`vertical`, `tangent`) and the two semi-radii
+(`radius(el, v, 'x')` for RX, `radius(el, v, 'y')` for RY). `rx` runs
+along the ellipse's own RX axis, which starts along the plane's X
+direction.
 
 **Returns**: [**`Ellipse`**](/docs/api/types/ellipse)
 
@@ -19,15 +23,20 @@ See the [guide](/docs/sketching/primitives/line) for detailed usage examples.
 ## Signatures
 
 ```ts
-ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam): Ellipse
+ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam, rotation?: NumberParam): Ellipse
 ```
 
-Draws an ellipse at a given center. The center is a solver point —
-`.center()` references it in constraints, so the solve positions the
-ellipse; the radii stay fixed literals.
+Draws an ellipse at a given center. The ellipse is a solver entity like
+a circle: every literal is a guess the constraints drive — the center
+(`coincident`, `concentric`, …), the rotation of its RX axis
+(`horizontal`/`vertical`, `tangent`) and the two semi-radii
+(`radius(el, v, 'x')` for RX, `radius(el, v, 'y')` for RY). `rx` runs
+along the ellipse's own RX axis, which starts along the plane's X
+direction.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
-| `rx` | NumberParam | Semi-radius along the plane's X axis |
-| `ry` | NumberParam | Semi-radius along the plane's Y axis |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point (a guess, like every literal) |
+| `rx` | NumberParam | Semi-radius guess along the ellipse's RX axis |
+| `ry` | NumberParam | Semi-radius guess along the ellipse's RY axis |
+| `rotation` | NumberParam | Guess for the RX axis's angle from the plane's X direction, degrees (default 0) *(optional)* |

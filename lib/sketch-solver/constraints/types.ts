@@ -25,6 +25,9 @@ export type ResolvedPoint = { ix: number; iy: number };
 export type ResolvedLine = { sx: number; sy: number; ex: number; ey: number };
 /** Param indices of a circle-like entity (circle or arc). */
 export type ResolvedCircle = { cx: number; cy: number; r: number };
+/** Param indices of an ellipse: center, the two (locked) semi-radii and
+ * the rotation θ of its RX axis from the sketch x direction. */
+export type ResolvedEllipse = { cx: number; cy: number; rx: number; ry: number; th: number };
 
 /**
  * Resolution + guess access handed to constraint modules by the
@@ -38,12 +41,24 @@ export type CompileCtx = {
   point(ref: SolverRef, what: string): ResolvedPoint;
   line(ref: SolverRef, what: string): ResolvedLine;
   circle(ref: SolverRef, what: string): ResolvedCircle;
+  ellipse(ref: SolverRef, what: string): ResolvedEllipse;
   /** Does the ref resolve to a point (point entity or a role)? */
   isPoint(ref: SolverRef): boolean;
   /** Entity ref (no role) to a line? */
   isLine(ref: SolverRef): boolean;
   /** Entity ref (no role) to a circle or arc? */
   isCircle(ref: SolverRef): boolean;
+  /** Entity ref (no role) to an ellipse? */
+  isEllipse(ref: SolverRef): boolean;
+  /**
+   * Allocate `init.length` scratch params owned by the constraint being
+   * compiled (a tangency's contact point) and return their global param
+   * indices. The system appends them after the entity params, frees them
+   * in the solve, and carries their values across recompiles by
+   * (constraint id, slot) — `init` only seeds a slot the system has never
+   * seen. Allocation order within a constraint is the slot order.
+   */
+  aux(init: number[]): number[];
   /**
    * Are two resolved points linked by a user point–point coincident
    * statement (directly)? Tangency compiles to the well-conditioned

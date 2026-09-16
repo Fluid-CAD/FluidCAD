@@ -1,13 +1,15 @@
-// P8 entity-coverage regressions: ellipse centers, bezier control points
-// and text anchors are solver POINT entities — constraints target them,
-// the solve moves them, and the build reflects the solved positions.
+// P8 entity-coverage regressions: bezier control points and text anchors
+// are solver POINT entities — constraints target them, the solve moves
+// them, and the build reflects the solved positions. The ellipse is an
+// entity of its own ([cx, cy, rx, ry, θ]); its center rides the same
+// accessor shape, so the center cases stay here.
 
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import { line, circle, ellipse, bezier, text } from "../../../core/2d/index.js";
-import { coincident, horizontal, vertical, fix, distance } from "../../../core/constraints/index.js";
+import { coincident, horizontal, vertical, fix, distance, radius } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { SceneObject } from "../../../common/scene-object.js";
@@ -19,7 +21,7 @@ function payloadOf(scene: Scene, obj: unknown) {
   return scene.getRenderedObject(obj as SceneObject).object;
 }
 
-describe("anchor entities (ellipse / bezier / text in the solver)", () => {
+describe("anchor entities (bezier / text in the solver) and the ellipse center", () => {
   setupOC();
 
   describe("ellipse center", () => {
@@ -52,6 +54,9 @@ describe("anchor entities (ellipse / bezier / text in the solver)", () => {
         const e = ellipse([3, 4], 20, 10);
         el = e;
         fix(e.center(), [40, 25]);
+        horizontal(e);
+        radius(e, 20, 'x');
+        radius(e, 10, 'y');
       }) as unknown as Sketch;
       const scene = render();
 
@@ -61,11 +66,13 @@ describe("anchor entities (ellipse / bezier / text in the solver)", () => {
 
       const sketchPayload = payloadOf(scene, s);
       expect(sketchPayload.solver.outcome).toBe('solved');
+      // Center pinned, RX axis oriented, both semi-radii dimensioned:
+      // nothing left to move.
       expect(sketchPayload.solver.dof).toBe(0);
-      // Exactly one statement entity: the center point.
+      // Exactly one statement entity: the ellipse itself.
       const statementEntities = sketchPayload.solver.entities.filter((e: any) => e.id >= 0);
       expect(statementEntities).toHaveLength(1);
-      expect(statementEntities[0].kind).toBe('point');
+      expect(statementEntities[0].kind).toBe('ellipse');
     });
 
     it("serializes the solver join fields (entityId + statement-time guess)", () => {
@@ -77,9 +84,12 @@ describe("anchor entities (ellipse / bezier / text in the solver)", () => {
 
       const payload = payloadOf(scene, el);
       expect(payload.entityId).toBeGreaterThanOrEqual(0);
-      expect(payload.guess).toEqual({ center: { x: 3, y: 4 } });
-      // Unconstrained: the center stays at its literal.
+      // No 4th argument: the guess carries no rotation (the write-back
+      // appends one when a drag turns the ellipse).
+      expect(payload.guess).toEqual({ center: { x: 3, y: 4 }, rx: 20, ry: 10 });
+      // Unconstrained: the pose stays at its literals.
       expect(payload.center).toEqual({ x: 3, y: 4 });
+      expect(payload.rotation).toBe(0);
     });
 
     it("attributes conflicting constraints on the center to their statements", () => {

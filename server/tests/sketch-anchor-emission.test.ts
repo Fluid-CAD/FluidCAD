@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { applySolvedEmission } from '../src/sketch-solved-edit.ts';
 
-// Anchor-point constraint targets (sketch-rewrite P8): ellipse centers,
-// text anchors and bezier control points address their owning statement
-// and render the featureType-derived accessor — `el.center()`,
-// `t.anchor()`, `bz.point(i)` — hoisting unbound statements like any
-// entity statement.
+// Anchor-point constraint targets (sketch-rewrite P8): text anchors and
+// bezier control points address their owning statement and render the
+// featureType-derived accessor — `t.anchor()`, `bz.point(i)` — hoisting
+// unbound statements like any entity statement. The ellipse is an entity
+// statement of its own: its center is the `center` role, its bare name a
+// horizontal/vertical/concentric/tangent target.
 
 describe('applySolvedEmission — anchor-point targets', () => {
-  it('hoists an unbound ellipse and renders .center()', async () => {
+  it('hoists an unbound ellipse and renders its center role and bare name', async () => {
     const code = [
       `import { sketch, line, ellipse } from "fluidcad/core";`,
       ``,
@@ -23,14 +24,22 @@ describe('applySolvedEmission — anchor-point targets', () => {
       constraints: [{
         kind: 'coincident',
         targets: [
-          { line: 5, featureType: 'ellipse' },
+          { line: 5, featureType: 'ellipse', role: 'center' },
           { line: 4, role: 'end', featureType: 'line' },
         ],
+      }, {
+        kind: 'horizontal',
+        targets: [{ line: 5, featureType: 'ellipse' }],
+      }, {
+        kind: 'tangent',
+        targets: [{ line: 4, featureType: 'line' }, { line: 5, featureType: 'ellipse' }],
       }],
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain('const el1 = ellipse([20, 10], 30, 15);');
     expect(result.newCode).toContain('coincident(el1.center(), a.end());');
+    expect(result.newCode).toContain('horizontal(el1);');
+    expect(result.newCode).toContain('tangent(a, el1);');
   });
 
   it('hoists an unbound chained text, renders .anchor(), and places the constraint after the derived-ops-tail statement', async () => {
@@ -102,18 +111,18 @@ describe('applySolvedEmission — anchor-point targets', () => {
       geometry: [],
       constraints: [{
         kind: 'fix',
-        targets: [{ line: 4, featureType: 'ellipse' }],
+        targets: [{ line: 4, featureType: 'text' }],
       }],
     });
-    expect(result.error).toMatch(/not a ellipse\(\) statement/);
+    expect(result.error).toMatch(/not a text\(\) statement/);
   });
 
   it('refuses a role on an anchor target and a pointIndex outside bezier', async () => {
     const code = [
-      `import { sketch, ellipse } from "fluidcad/core";`,
+      `import { sketch, text } from "fluidcad/core";`,
       ``,
       `sketch('xy', () => {`,
-      `  ellipse([20, 10], 30, 15);`,
+      `  text('Hi');`,
       `});`,
     ].join('\n');
     const withRole = await applySolvedEmission(code, {
@@ -121,7 +130,7 @@ describe('applySolvedEmission — anchor-point targets', () => {
       geometry: [],
       constraints: [{
         kind: 'fix',
-        targets: [{ line: 4, featureType: 'ellipse', role: 'center' }],
+        targets: [{ line: 4, featureType: 'text', role: 'center' }],
       }],
     });
     expect(withRole.error).toMatch(/takes no point role/);
@@ -131,7 +140,7 @@ describe('applySolvedEmission — anchor-point targets', () => {
       geometry: [],
       constraints: [{
         kind: 'fix',
-        targets: [{ line: 4, featureType: 'ellipse', pointIndex: 0 }],
+        targets: [{ line: 4, featureType: 'text', pointIndex: 0 }],
       }],
     });
     expect(withIndex.error).toMatch(/takes no pointIndex/);
@@ -156,6 +165,28 @@ describe('applySolvedEmission — anchor-point targets', () => {
     expect(result.error).toMatch(/needs a non-negative pointIndex/);
   });
 
+  it('swaps an ellipse orientation: removes horizontal(el1) and adds vertical(el1) in one edit', async () => {
+    const code = [
+      `import { sketch, ellipse } from "fluidcad/core";`,
+      `import { horizontal } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const el1 = ellipse([20, 10], 30, 15);`,
+      `  horizontal(el1);`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [{ kind: 'vertical', targets: [{ line: 5, featureType: 'ellipse' }] }],
+      removals: [{ line: 6 }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('vertical(el1);');
+    expect(result.newCode).not.toContain('horizontal(el1)');
+    expect(result.newCode.split('\n')[1]).toMatch(/import \{[^}]*\bvertical\b[^}]*\} from "fluidcad\/constraints";/);
+  });
+
   it('rides the loop-collector rail for an ellipse in a for loop', async () => {
     const code = [
       `import { sketch, ellipse } from "fluidcad/core";`,
@@ -171,7 +202,7 @@ describe('applySolvedEmission — anchor-point targets', () => {
       geometry: [],
       constraints: [{
         kind: 'fix',
-        targets: [{ line: 5, occurrence: 1, featureType: 'ellipse' }],
+        targets: [{ line: 5, occurrence: 1, featureType: 'ellipse', role: 'center' }],
       }],
     });
     expect(result.error).toBeUndefined();

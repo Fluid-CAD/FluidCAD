@@ -179,7 +179,36 @@ export function entityAnchor(e: SolvedEntityView): Vec2 | null {
       const d = Math.SQRT1_2 * e.radius;
       return [e.center[0] + d, e.center[1] + d];
     }
+    case 'ellipse': {
+      if (!e.center || !e.radii) {
+        return e.center ?? null;
+      }
+      // The 45° parametric point, in the ellipse's own frame.
+      const x = Math.SQRT1_2 * e.radii[0];
+      const y = Math.SQRT1_2 * e.radii[1];
+      const c = Math.cos(e.theta ?? 0);
+      const s = Math.sin(e.theta ?? 0);
+      return [e.center[0] + x * c - y * s, e.center[1] + x * s + y * c];
+    }
   }
+}
+
+/** Outward unit normal of an ellipse at (or near) `at`: the implicit
+ * gradient (x'/rx², y'/ry²) in the ellipse frame, rotated back. */
+function ellipseNormalAt(e: SolvedEntityView, at: Vec2): Vec2 | null {
+  if (!e.center || !e.radii) {
+    return null;
+  }
+  const c = Math.cos(e.theta ?? 0);
+  const s = Math.sin(e.theta ?? 0);
+  const dx = at[0] - e.center[0];
+  const dy = at[1] - e.center[1];
+  const xp = dx * c + dy * s;
+  const yp = -dx * s + dy * c;
+  const gx = xp / (e.radii[0] * e.radii[0]);
+  const gy = yp / (e.radii[1] * e.radii[1]);
+  const n: Vec2 = [gx * c - gy * s, gx * s + gy * c];
+  return norm(n) > 1e-12 ? normalize(n) : null;
 }
 
 /** Anchor for a ref: its point when named, the entity's anchor otherwise. */
@@ -221,6 +250,9 @@ export function offsetDirAt(
     const radial = sub(at, e.center);
     return norm(radial) > 1e-9 ? normalize(radial) : [0, 1];
   }
+  if (e.kind === 'ellipse') {
+    return ellipseNormalAt(e, at) ?? [0, 1];
+  }
   return [0, 1];
 }
 
@@ -236,6 +268,10 @@ export function alongDirAt(e: SolvedEntityView | undefined, at: Vec2): Vec2 {
   if ((e.kind === 'circle' || e.kind === 'arc') && e.center) {
     const radial = sub(at, e.center);
     return norm(radial) > 1e-9 ? perp(normalize(radial)) : [1, 0];
+  }
+  if (e.kind === 'ellipse') {
+    const n = ellipseNormalAt(e, at);
+    return n ? perp(n) : [1, 0];
   }
   return [1, 0];
 }
@@ -256,6 +292,9 @@ export function entitySpan(e: SolvedEntityView | undefined): number {
   }
   if (e.kind === 'circle' || e.kind === 'arc') {
     return e.radius ?? 0;
+  }
+  if (e.kind === 'ellipse') {
+    return e.radii ? Math.min(e.radii[0], e.radii[1]) : 0;
   }
   return 0;
 }
@@ -308,8 +347,24 @@ export function pointOnCircumference(e: SolvedEntityView, p: Vec2): Vec2 | null 
 export function tangencyPoint(a: SolvedEntityView, b: SolvedEntityView): Vec2 | null {
   const line = a.kind === 'line' ? a : b.kind === 'line' ? b : null;
   const round = a.kind === 'line' ? b : a;
+  if (line && round.kind === 'ellipse' && round.center) {
+    // The ellipse's support point toward the line: where a line with that
+    // normal touches it — exact for the distance form of the constraint.
+    const foot = footOnLine(line, round.center);
+    const toLine = sub(foot, round.center);
+    return norm(toLine) > 1e-9 ? ellipseSupportPoint(round, normalize(toLine)) : foot;
+  }
   if (line && round.center) {
     return footOnLine(line, round.center);
+  }
+  if (a.kind === 'ellipse' && a.center && b.center) {
+    // Ellipse against a circle/arc/ellipse: the ellipse's boundary point on
+    // the ray toward the other center — the contact for a circle-like
+    // partner within badge accuracy.
+    return ellipseRayPoint(a, sub(b.center, a.center));
+  }
+  if (b.kind === 'ellipse' && a.center && b.center) {
+    return ellipseRayPoint(b, sub(a.center, b.center));
   }
   if (a.center && b.center && a.radius !== undefined) {
     return pointOnCircumference(a, b.center);
@@ -317,6 +372,44 @@ export function tangencyPoint(a: SolvedEntityView, b: SolvedEntityView): Vec2 | 
   const anchorA = entityAnchor(a);
   const anchorB = entityAnchor(b);
   return anchorA && anchorB ? mid(anchorA, anchorB) : anchorA ?? anchorB;
+}
+
+/** The point of an ellipse where a line with outward unit normal `n`
+ * touches it: c + (rx²(n·u)u + ry²(n·v)v)/h, h the support half-width. */
+function ellipseSupportPoint(e: SolvedEntityView, n: Vec2): Vec2 | null {
+  if (!e.center || !e.radii) {
+    return e.center ?? null;
+  }
+  const [rx, ry] = e.radii;
+  const c = Math.cos(e.theta ?? 0);
+  const s = Math.sin(e.theta ?? 0);
+  const u: Vec2 = [c, s];
+  const v: Vec2 = [-s, c];
+  const nu = n[0] * u[0] + n[1] * u[1];
+  const nv = n[0] * v[0] + n[1] * v[1];
+  const h = Math.hypot(rx * nu, ry * nv);
+  if (h < 1e-12) {
+    return e.center;
+  }
+  return add(e.center, scale(add(scale(u, rx * rx * nu), scale(v, ry * ry * nv)), 1 / h));
+}
+
+/** The point where the ray from the ellipse's center along `dir` leaves
+ * the ellipse. */
+function ellipseRayPoint(e: SolvedEntityView, dir: Vec2): Vec2 | null {
+  if (!e.center || !e.radii) {
+    return e.center ?? null;
+  }
+  if (norm(dir) < 1e-9) {
+    return e.center;
+  }
+  const d = normalize(dir);
+  const c = Math.cos(e.theta ?? 0);
+  const s = Math.sin(e.theta ?? 0);
+  const along = d[0] * c + d[1] * s;
+  const across = -d[0] * s + d[1] * c;
+  const k = 1 / Math.max(1e-12, Math.hypot(along / e.radii[0], across / e.radii[1]));
+  return add(e.center, scale(d, k));
 }
 
 /** Intersection of the infinite lines of two line entities. */

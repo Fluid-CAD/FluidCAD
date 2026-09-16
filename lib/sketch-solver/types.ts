@@ -7,7 +7,7 @@
 // this file is JSON-serializable — it is the shape that rides the
 // render payload to the UI.
 
-export type EntityKind = 'point' | 'line' | 'circle' | 'arc';
+export type EntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse';
 
 export type PointRole = 'start' | 'end' | 'center';
 
@@ -49,7 +49,7 @@ export function datumNameOf(entityId: number): DatumName | null {
  * Reference to an entity or one of its points. Without `point` it
  * names the entity itself (a point entity doubles as its own point);
  * with `point` it names a vertex: line start/end, circle center, arc
- * center/start/end.
+ * center/start/end, ellipse center.
  */
 export type SolverRef = { entity: number; point?: PointRole };
 
@@ -67,11 +67,13 @@ export const entityRef = (entity: number): SolverRef => ({ entity });
  * compile time, so warm-started re-solves can never flip branches.
  */
 export type ConstraintSpec =
-  /** Point–point (2) or point-on-line / point-on-circle-or-arc (1),
-   * chosen by what the refs resolve to. Point-on-line means the
-   * infinite line; point-on-circle means the full circle. */
+  /** Point–point (2) or point-on-line / point-on-circle-or-arc /
+   * point-on-ellipse (1), chosen by what the refs resolve to.
+   * Point-on-line means the infinite line; point-on-circle means the
+   * full circle. */
   | { kind: 'coincident'; a: SolverRef; b: SolverRef }
-  /** One line (1), or two or more points sharing the axis value
+  /** One line (1), one ellipse (1 — its RX axis runs along the sketch
+   * x / y direction), or two or more points sharing the axis value
    * (1 per pair — `others` extends the POINT form only; every point
    * after the first is aligned to the first). */
   | { kind: 'horizontal'; a: SolverRef; b?: SolverRef; others?: SolverRef[] }
@@ -86,7 +88,11 @@ export type ConstraintSpec =
    * sectors at the lines' intersection are all expressible with a
    * positive value. */
   | { kind: 'angle'; a: SolverRef; b: SolverRef; value: number }
-  /** Line–circle/arc (1) or circle–circle (1); branch from guesses. */
+  /**
+   * Line–circle/arc (1), circle–circle (1), line–ellipse (1), or
+   * ellipse–circle/arc/ellipse (1 net: the contact point rides along as
+   * two compile-time aux params under three rows); branch from guesses.
+   */
   | { kind: 'tangent'; a: SolverRef; b: SolverRef }
   /**
    * Distance dimension (1). Forms by resolution: point–point
@@ -103,13 +109,16 @@ export type ConstraintSpec =
    * 'min' is the near side. Requires a circle/arc reference.
    */
   | { kind: 'distance'; a: SolverRef; b: SolverRef; value: number; axis?: 'x' | 'y'; tangency?: 'min' | 'max' }
-  | { kind: 'radius'; a: SolverRef; value: number }
+  /** Circle/arc radius (1), or one semi-radius of an ellipse — `axis`
+   * names which ('x' = RX, 'y' = RY) and is required there, refused on a
+   * circle/arc. */
+  | { kind: 'radius'; a: SolverRef; value: number; axis?: 'x' | 'y' }
   | { kind: 'diameter'; a: SolverRef; value: number }
-  /** Equal line lengths or equal radii (1 per pair). `others` extends the
-   * equality to further entities of the same family — each is equated to
-   * `a`, one residual row apiece. */
+  /** Equal line lengths, equal radii (1 per pair) or equal ellipse shapes
+   * (2 per pair: both semi-radii). `others` extends the equality to
+   * further entities of the same family — each is equated to `a`. */
   | { kind: 'equal'; a: SolverRef; b: SolverRef; others?: SolverRef[] }
-  /** Circle/arc centers coincide (2). */
+  /** Circle/arc/ellipse centers coincide (2). */
   | { kind: 'concentric'; a: SolverRef; b: SolverRef }
   /** Both endpoints of line b on the infinite line of a (2). */
   | { kind: 'collinear'; a: SolverRef; b: SolverRef }
@@ -135,9 +144,10 @@ export type ConstraintSpec =
    * Internal affine tie for derived entities (2D copy instances):
    * `target` is rigidly derived from `source` (same kind) through
    * p' = [[a,b],[c,d]]·p + [tx,ty] with matrix = [a, b, c, d, tx, ty].
-   * One LINEAR row per target param (point 2, line 4, circle 3,
-   * arc 7), so a tied entity adds zero net DOF and constraining
-   * either side moves both. Added via SketchSystem.addTransformTie —
+   * One LINEAR row per free target param (point 2, line 4, circle 3,
+   * arc 7, ellipse 5 — center and radii linear, the rotation through
+   * one angular row), so a tied entity adds zero net DOF and
+   * constraining either side moves both. Added via SketchSystem.addTransformTie —
    * never user-authored; carries a negative id, and diagnose never
    * names it in conflicting/redundant (conflicts surface on the user
    * constraints in the same component).
@@ -155,7 +165,8 @@ export type ConstraintSpec =
    * rows then carry the line's params, so a moving mirror line moves
    * its images) or a constant line [sx, sy, ex, ey] in sketch
    * coordinates (a world axis). One row per target param (point 2,
-   * line 4, circle 3, arc 7): net-zero DOF, bidirectional coupling.
+   * line 4, circle 3, arc 7, ellipse 5): net-zero DOF, bidirectional
+   * coupling.
    * Added via SketchSystem.addMirrorTie — never user-authored; negative
    * id, and diagnose never names it (like transform-tie).
    */
@@ -185,9 +196,20 @@ export type EntityRecord = {
   fixed: boolean;
   /** Offset of this entity's params in the flat param table.
    * Layouts: point [x,y]; line [sx,sy,ex,ey]; circle [cx,cy,r];
-   * arc [cx,cy,r,sx,sy,ex,ey]. */
+   * arc [cx,cy,r,sx,sy,ex,ey]; ellipse [cx,cy,rx,ry,theta] — semi-radii
+   * along the ellipse's own axes plus the rotation of its RX axis from
+   * the sketch x direction (radians). */
   paramOffset: number;
 };
+
+/**
+ * A compile-time scratch param owned by a constraint's rows (the
+ * contact point of an ellipse tangency): allocated after the entity
+ * params when the rows compile, keyed by (constraint id, slot) so a
+ * recompile carries the last value over — a warm re-solve never
+ * restarts the contact search from the geometric guess.
+ */
+export type AuxParamRecord = { constraint: number; slot: number; value: number };
 
 export type SolveOutcome = 'solved' | 'didnt-converge' | 'singular';
 
@@ -295,7 +317,12 @@ export type SketchDiagnostics = {
 export type SketchSolverSystem = {
   entities: EntityRecord[];
   constraints: ConstraintRecord[];
+  /** Entity params only (aux slots ride separately in `aux`). */
   params: number[];
+  /** Constraint-owned aux params at the snapshot — a rebuild from the
+   * snapshot seeds them (SketchSystem.seedAux) so its first solve starts
+   * where the kernel's ended. Absent when nothing allocated any. */
+  aux?: AuxParamRecord[];
   outcome: SolveOutcome | null;
   dof: number | null;
   conflicting: number[];

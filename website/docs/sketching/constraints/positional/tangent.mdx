@@ -12,11 +12,11 @@ import constraintBelt from '!!raw-loader!../../_examples/constraint-belt.js';
 
 # Tangent
 
-`tangent` makes a line and a circle/arc, or two circles/arcs, touch smoothly — no corner where they meet. Together with `coincident` at the junction it produces the kink-free outlines of rounded profiles, belts and cams.
+`tangent` makes two curves touch smoothly — no corner where they meet: a line and a circle, arc or ellipse, or any two of circles, arcs and ellipses. Together with `coincident` at the junction it produces the kink-free outlines of rounded profiles, belts and cams.
 
 ## In the viewport
 
-1. Click a line and an arc / circle, or two arcs / circles.
+1. Click a line and an arc / circle / ellipse, or two arcs / circles / ellipses.
 2. Click **Tangent**. The pair gets a `T` badge at the touching point.
 
 The 2D [Fillet](/docs/sketching/tools/fillet) tool writes `coincident` + `tangent` pairs for you when it rounds a corner.
@@ -62,10 +62,14 @@ A circle tangent to a line can rest above or below it. Both circles here carry i
 ```js
 tangent(l, a)                    // line ↔ arc or circle: 1 DOF
 tangent(c1, c2)                  // circle/arc ↔ circle/arc: 1 DOF
+tangent(l, e)                    // line ↔ ellipse: 1 DOF
+tangent(e, c)                    // ellipse ↔ circle, arc or ellipse: 1 DOF
 tangent(l, ref)                  // against a projected reference edge
 ```
 
 Order does not matter. Two lines cannot be tangent — use [`collinear`](/docs/sketching/constraints/positional/collinear).
+
+An ellipse touches a line wherever the line's direction matches its outline — pin the touch with `coincident(l.end(), e)` when the line should end there. Against a circle, an arc or another ellipse the contact point is found by the solver; whether the curves touch from outside or nest inside is decided by how they are drawn, like the circle–circle case. An arc that ends on the ellipse (`coincident(a.start(), e)`) is made tangent right at that end.
 
 ## See also
 

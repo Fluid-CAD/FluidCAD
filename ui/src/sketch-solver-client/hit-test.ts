@@ -98,6 +98,8 @@ function vertexSlots(e: SolvedEntityView): VertexSlot[] {
         { role: 'end', at: e.end },
         { role: 'center', at: e.center },
       ];
+    case 'ellipse':
+      return [{ role: 'center', at: e.center }];
   }
 }
 
@@ -170,7 +172,37 @@ function edgeDistSq(e: SolvedEntityView, p: Vec2): number | null {
       // Off the drawn sweep: nearest endpoint.
       return Math.min(norm(sub(p, e.start)) ** 2, norm(sub(p, e.end)) ** 2);
     }
+    case 'ellipse': {
+      if (!e.center || !e.radii) {
+        return null;
+      }
+      const d = ellipseOutlineDistance(p, e.center, e.radii, e.theta ?? 0);
+      return d * d;
+    }
   }
+}
+
+/**
+ * First-order distance from a point to an ellipse outline: F/|∇F| for the
+ * implicit F = (x'/rx)² + (y'/ry)² − 1 in the ellipse frame — exact on the
+ * curve and within a few percent at hover range, which is all a hit test
+ * needs (the nearest point of an ellipse has no closed form).
+ */
+export function ellipseOutlineDistance(
+  p: Vec2,
+  center: Vec2,
+  [rx, ry]: [number, number],
+  theta: number,
+): number {
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  const dx = p[0] - center[0];
+  const dy = p[1] - center[1];
+  const xp = dx * c + dy * s;
+  const yp = -dx * s + dy * c;
+  const f = (xp * xp) / (rx * rx) + (yp * yp) / (ry * ry) - 1;
+  const g = Math.hypot((2 * xp) / (rx * rx), (2 * yp) / (ry * ry));
+  return g > 1e-12 ? Math.abs(f) / g : Math.min(rx, ry);
 }
 
 export function refFor(entityId: number, role: PointRole | null): SolverRef {

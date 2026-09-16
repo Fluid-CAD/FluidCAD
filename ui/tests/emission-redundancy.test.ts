@@ -359,26 +359,50 @@ describe('parseEmittedGeometry', () => {
   });
 });
 
-describe('ellipse emissions (P8 anchor statement)', () => {
-  // The Ellipse tool's coincident targets the centre through the `center`
-  // role; the trial models the statement as that one point — the radii
-  // are literals the solver never sees.
-  it('parseEmittedGeometry reads the centre point of a literal ellipse', () => {
-    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20)')).toEqual([1, 2]);
-    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20).guide()')).toEqual([1, 2]);
+describe('ellipse emissions', () => {
+  // The ellipse is a solver entity [cx, cy, rx, ry, θ]: the trial reads the
+  // whole layout back (rotation in degrees → radians, 0 when absent); the
+  // radii are locked in the solve but must still be positive literals.
+  it('parseEmittedGeometry reads the solver layout of a literal ellipse', () => {
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20)')).toEqual([1, 2, 30, 20, 0]);
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20).guide()')).toEqual([1, 2, 30, 20, 0]);
+    const rotated = parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20, 90)')!;
+    expect(rotated.slice(0, 4)).toEqual([1, 2, 30, 20]);
+    expect(rotated[4]).toBeCloseTo(Math.PI / 2, 12);
     // A typed radius or a degenerate literal leaves the statement out.
     expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], rx, 20)')).toBeNull();
     expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 0, 20)')).toBeNull();
     expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30)')).toBeNull();
+    expect(parseEmittedGeometry('ellipse', 'ellipse([1, 2], 30, 20, a)')).toBeNull();
   });
 
-  it('pendingEmissionOf keeps the centre as a point and re-addresses it as the anchor target', () => {
+  it('pendingEmissionOf keeps the ellipse as an entity and re-addresses its centre role', () => {
     const pending = pendingEmissionOf({
       geometry: [{ kind: 'ellipse', text: 'ellipse([1, 2], 30, 20)' }],
-      constraints: [inferred(coincident(newTarget(0, 'center'), { datum: 'origin' }))],
+      constraints: [
+        inferred({ kind: 'horizontal', targets: [newTarget(0)] }),
+        inferred(coincident(newTarget(0, 'center'), { datum: 'origin' })),
+      ],
     }, [21]);
-    expect(pending.geometry).toEqual([{ line: 21, kind: 'point', params: [1, 2] }]);
-    expect(pending.constraints[0].targets).toEqual([{ line: 21, featureType: 'ellipse' }, { datum: 'origin' }]);
+    expect(pending.geometry).toEqual([{ line: 21, kind: 'ellipse', params: [1, 2, 30, 20, 0] }]);
+    expect(pending.constraints[0].targets).toEqual([{ line: 21, featureType: 'ellipse' }]);
+    expect(pending.constraints[1].targets).toEqual([
+      { line: 21, featureType: 'ellipse', role: 'center' }, { datum: 'origin' },
+    ]);
+  });
+
+  it('prunes an inferred horizontal the ellipse already has', () => {
+    const { sys, ids } = rectangle();
+    const request: SolvedEmissionRequest = {
+      geometry: [{ kind: 'ellipse', text: 'ellipse([50, 50], 30, 20)' }],
+      constraints: [
+        inferred({ kind: 'horizontal', targets: [newTarget(0)] }),
+        inferred({ kind: 'horizontal', targets: [newTarget(0)] }),
+      ],
+    };
+    const { constraints, dropped } = pruneRedundantInferred(modelOf(sys, RECT_LINES(ids)), request);
+    expect(constraints).toEqual([{ kind: 'horizontal', targets: [{ newIndex: 0 }] }]);
+    expect(dropped).toHaveLength(1);
   });
 
   it('keeps a fresh centre snap and drops a second pin the first already implies', () => {
@@ -412,12 +436,12 @@ describe('ellipse emissions (P8 anchor statement)', () => {
     const request: SolvedEmissionRequest = {
       geometry: [{ kind: 'line', text: 'line([0, 0], [40, 40])' }],
       constraints: [
-        inferred(coincident(newTarget(0, 'start'), { line: 21, featureType: 'ellipse' })),
+        inferred(coincident(newTarget(0, 'start'), { line: 21, featureType: 'ellipse', role: 'center' })),
         inferred(coincident(newTarget(0, 'start'), { datum: 'origin' })),
       ],
     };
     const { constraints, dropped } = pruneRedundantInferred(modelOf(sys, RECT_LINES(ids)), request, [previous]);
-    expect(constraints.map(c => c.targets[1])).toEqual([{ line: 21, featureType: 'ellipse' }]);
+    expect(constraints.map(c => c.targets[1])).toEqual([{ line: 21, featureType: 'ellipse', role: 'center' }]);
     expect(dropped).toHaveLength(1);
   });
 });

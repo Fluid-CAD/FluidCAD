@@ -4,12 +4,11 @@
 // diagnose of the render pass. Diagnostics are translated back into
 // statement-keyed errors (file:line speak, never solver ids).
 
-import { SketchSystem, solve, diagnose } from "../../../sketch-solver/index.js";
+import { SketchSystem, PARAM_COUNT, solve, diagnose } from "../../../sketch-solver/index.js";
 import { MM_PER_UNIT } from "../../../units/units.js";
 import { getActiveUnit } from "../../../units/registry.js";
 import type {
   ConstraintSpec,
-  EntityKind,
   EntityOptions,
   SketchDiagnostics,
   SketchSolverSystem,
@@ -18,8 +17,6 @@ import type {
 } from "../../../sketch-solver/index.js";
 import { SceneObject } from "../../../common/scene-object.js";
 import { callSiteKey } from "../../../common/call-site.js";
-
-const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
 
 export type SolveSummary = {
   snapshot: SketchSolverSystem;
@@ -66,6 +63,14 @@ export class SketchSolverContext {
 
   addArc(owner: SceneObject, cx: number, cy: number, sx: number, sy: number, ex: number, ey: number, opts?: EntityOptions): number {
     const id = this.system.arc(cx, cy, sx, sy, ex, ey, opts);
+    this.entityStatements.set(id, owner);
+    return id;
+  }
+
+  /** Ellipse [cx, cy, rx, ry, θ]: the radii are locked literals, θ (radians)
+   * the rotation guess of the RX axis. */
+  addEllipse(owner: SceneObject, cx: number, cy: number, rx: number, ry: number, theta: number, opts?: EntityOptions): number {
+    const id = this.system.ellipse(cx, cy, rx, ry, theta, opts);
     this.entityStatements.set(id, owner);
     return id;
   }

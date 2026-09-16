@@ -34,6 +34,7 @@ describe("sketch-solver purity", () => {
       "constraints/collinear.ts",
       "constraints/concentric.ts",
       "constraints/distance.ts",
+      "constraints/ellipse-geom.ts",
       "constraints/equal.ts",
       "constraints/fix.ts",
       "constraints/horizontal.ts",

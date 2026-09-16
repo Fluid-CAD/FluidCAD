@@ -18,9 +18,13 @@
 //                                   pointwise; the solver arc carries no
 //                                   sweep param, so the reflected sweep
 //                                   is a display choice of the statement)
+//   ellipse [cx,cy,rx,ry,θ]      → 5 rows: center reflected + both radii
+//                                   equal + the RX axis direction reflected
+//                                   (cross(u_t, reflect(u_s)) = 0,
+//                                   π-periodic like the ellipse)
 
 import type { ConstraintSpec } from '../types.js';
-import type { CompiledRow, CompileCtx, ResolvedLine, ResolvedPoint } from './types.js';
+import type { CompiledRow, CompileCtx, ResolvedEllipse, ResolvedLine, ResolvedPoint } from './types.js';
 import { center, end, start } from '../types.js';
 import { floorDist, linePointSignedDist, makeLinePointDeriv } from './util.js';
 
@@ -52,6 +56,19 @@ export function compileMirrorTie(spec: Spec, ctx: CompileCtx): CompiledRow[] {
         ctx.point({ entity: spec.source }, 'mirror-tie source'),
         ctx.point({ entity: spec.target }, 'mirror-tie target'),
       );
+    case 'ellipse': {
+      const es = ctx.ellipse({ entity: spec.source }, 'mirror-tie source');
+      const et = ctx.ellipse({ entity: spec.target }, 'mirror-tie target');
+      return [
+        ...pointRows(
+          ctx.point(center(spec.source), 'mirror-tie source center'),
+          ctx.point(center(spec.target), 'mirror-tie target center'),
+        ),
+        equalRow(et.rx, es.rx),
+        equalRow(et.ry, es.ry),
+        ellipseAxisRow(es, et, Array.isArray(spec.axis) ? spec.axis : ctx.line(spec.axis, 'mirror-tie axis')),
+      ];
+    }
     case 'line':
       return [
         ...pointRows(
@@ -100,6 +117,18 @@ export function compileMirrorTie(spec: Spec, ctx: CompileCtx): CompiledRow[] {
 }
 
 type PointPairRows = (s: ResolvedPoint, q: ResolvedPoint) => CompiledRow[];
+
+/** target = source — a reflection is an isometry, radii ride along. */
+function equalRow(target: number, source: number): CompiledRow {
+  return {
+    params: [target, source],
+    eval: (p) => p[target] - p[source],
+    jac: (_p, out) => {
+      out[0] = 1;
+      out[1] = -1;
+    },
+  };
+}
 
 /**
  * The two rows reflecting q from s across a solver LINE entity — the
@@ -197,4 +226,73 @@ function fixedAxisRows(axis: FixedAxisLine): PointPairRows {
       },
     },
   ];
+}
+
+/**
+ * The target's RX axis u_t is the source axis reflected across the mirror
+ * line's direction â: r = 2(u_s·â)â − u_s, residual cross(u_t, r) = 0
+ * (dimensionless; r is a unit vector, and parallel / anti-parallel both
+ * name the same ellipse). Across a solver line the row also carries the
+ * line's params through â = (e−s)/|e−s|.
+ */
+function ellipseAxisRow(
+  s: ResolvedEllipse,
+  t: ResolvedEllipse,
+  axis: ResolvedLine | FixedAxisLine,
+): CompiledRow {
+  const fixed = Array.isArray(axis);
+  const params = fixed
+    ? [t.th, s.th]
+    : [t.th, s.th, axis.sx, axis.sy, axis.ex, axis.ey];
+  const dir = (p: Float64Array): { ax: number; ay: number; len: number } => {
+    const lx = fixed ? axis[2] - axis[0] : p[axis.ex] - p[axis.sx];
+    const ly = fixed ? axis[3] - axis[1] : p[axis.ey] - p[axis.sy];
+    const len = floorDist(Math.hypot(lx, ly));
+    return { ax: lx / len, ay: ly / len, len };
+  };
+  return {
+    params,
+    eval: (p) => {
+      const { ax, ay } = dir(p);
+      const usx = Math.cos(p[s.th]);
+      const usy = Math.sin(p[s.th]);
+      const dot = usx * ax + usy * ay;
+      const rxv = 2 * dot * ax - usx;
+      const ryv = 2 * dot * ay - usy;
+      const utx = Math.cos(p[t.th]);
+      const uty = Math.sin(p[t.th]);
+      return utx * ryv - uty * rxv;
+    },
+    jac: (p, out) => {
+      const { ax, ay, len } = dir(p);
+      const usx = Math.cos(p[s.th]);
+      const usy = Math.sin(p[s.th]);
+      const dot = usx * ax + usy * ay;
+      const rxv = 2 * dot * ax - usx;
+      const ryv = 2 * dot * ay - usy;
+      const utx = Math.cos(p[t.th]);
+      const uty = Math.sin(p[t.th]);
+      // ∂/∂θ_t through u_t' = (−uty, utx).
+      out[0] = -uty * ryv - utx * rxv;
+      // ∂h/∂r = (−uty, utx); ∂r/∂θ_s = 2(v_s·â)â − v_s, v_s = (−usy, usx).
+      const hrx = -uty;
+      const hry = utx;
+      const vdot = -usy * ax + usx * ay;
+      out[1] = hrx * (2 * vdot * ax + usy) + hry * (2 * vdot * ay - usx);
+      if (!fixed) {
+        // ∂r_i/∂â_j = 2·u_j·â_i + 2·(u·â)·δ_ij, chained through
+        // ∂â/∂L = (I − â âᵀ)/|L|; ∂/∂e = ∂/∂L, ∂/∂s = −∂/∂L.
+        const hr_a = hrx * ax + hry * ay;
+        const qx = 2 * usx * hr_a + 2 * dot * hrx;
+        const qy = 2 * usy * hr_a + 2 * dot * hry;
+        const qa = qx * ax + qy * ay;
+        const lx = (qx - qa * ax) / len;
+        const ly = (qy - qa * ay) / len;
+        out[2] = -lx;
+        out[3] = -ly;
+        out[4] = lx;
+        out[5] = ly;
+      }
+    },
+  };
 }

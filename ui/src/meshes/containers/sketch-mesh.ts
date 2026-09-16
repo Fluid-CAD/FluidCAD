@@ -126,6 +126,12 @@ export class SketchMesh extends Group {
       if (g.radius !== undefined) {
         view.radius = g.radius;
       }
+      if (g.radii) {
+        view.radii = g.radii;
+      }
+      if (g.theta !== undefined) {
+        view.theta = g.theta;
+      }
     }
 
     for (const [entityId, meshes] of this.solvedEdgeMeshes) {

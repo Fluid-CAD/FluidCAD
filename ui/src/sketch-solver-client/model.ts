@@ -14,7 +14,7 @@ import type {
   SolveOutcome,
 } from '../../../lib/sketch-solver/types.js';
 
-export type SolvedEntityKind = 'point' | 'line' | 'circle' | 'arc';
+export type SolvedEntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse';
 
 /** Statement-time argument values (the source literals, when the args are
  * literals) — the drag write-back drift-guards its splices against these. */
@@ -24,6 +24,12 @@ export type SolvedEntityGuess = {
   end?: [number, number];
   center?: [number, number];
   diameter?: number;
+  /** An ellipse's semi-radius literals. */
+  rx?: number;
+  ry?: number;
+  /** An ellipse's 4th argument in DEGREES — present only when the statement
+   * carries it (its absence means the write-back appends one). */
+  rotation?: number;
 };
 
 export type SolvedEntityView = {
@@ -39,6 +45,9 @@ export type SolvedEntityView = {
   center?: [number, number];
   radius?: number;
   cw?: boolean;
+  /** An ellipse's rotation of its RX axis from the sketch x direction,
+   * RADIANS (the solver's param). */
+  theta?: number;
   guess?: SolvedEntityGuess;
   /**
    * Fixed reference geometry (P6): a project()/intersect() output. Pick-only
@@ -62,18 +71,17 @@ export type SolvedEntityView = {
    */
   mirrorInstance?: { sourceEntityId: number };
   /**
-   * An anchor point of a non-entity statement (P8): the ellipse center,
-   * the text anchor, or one of a bezier's literal control points. `obj` is
-   * the owning statement; emission renders `.center()` / `.anchor()` /
-   * `.point(i)` against it, and the write-back splices chain point arg
-   * `pointIndex`.
+   * An anchor point of a non-entity statement (P8): the text anchor or one
+   * of a bezier's literal control points. `obj` is the owning statement;
+   * emission renders `.anchor()` / `.point(i)` against it, and the
+   * write-back splices chain point arg `pointIndex`.
    */
-  anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
+  anchor?: { owner: 'text' | 'bezier'; pointIndex: number };
   /**
-   * An ellipse anchor's semi-radii along the plane's X and Y axes — the
-   * statement's literal `rx`/`ry`, which the solver never touches. Carried
-   * so the live drag can redraw the perimeter around the moving center
-   * (tessellate.ts) instead of parking it until the commit re-render.
+   * An ellipse's solved semi-radii along its own RX/RY axes — free params
+   * like a circle's radius, dimensioned with radius(el, v, 'x' | 'y').
+   * With `center` and `theta` they are the whole outline the live drag
+   * redraws (tessellate.ts).
    */
   radii?: [number, number];
 };
@@ -147,6 +155,7 @@ const ENTITY_KINDS: Record<string, SolvedEntityKind> = {
   'solved-line': 'line',
   'solved-circle': 'circle',
   'solved-arc': 'arc',
+  'solved-ellipse': 'ellipse',
 };
 
 /** Reference producers (P6): their payload's `entities` array joins each
@@ -185,6 +194,10 @@ function snapshotEntityView(
     view.radius = p[o + 2];
     view.start = [p[o + 3], p[o + 4]];
     view.end = [p[o + 5], p[o + 6]];
+  } else if (kind === 'ellipse') {
+    view.center = [p[o], p[o + 1]];
+    view.radii = [p[o + 2], p[o + 3]];
+    view.theta = p[o + 4];
   } else {
     view.point = [p[o], p[o + 1]];
   }
@@ -233,6 +246,13 @@ function parseGuess(payload: any): SolvedEntityGuess | undefined {
   if (typeof raw.diameter === 'number') {
     guess.diameter = raw.diameter;
   }
+  if (typeof raw.rotation === 'number') {
+    guess.rotation = raw.rotation;
+  }
+  if (typeof raw.rx === 'number' && typeof raw.ry === 'number') {
+    guess.rx = raw.rx;
+    guess.ry = raw.ry;
+  }
   return guess;
 }
 
@@ -263,6 +283,15 @@ function entityView(obj: SceneObjectRender, kind: SolvedEntityKind): SolvedEntit
         view.radius = payload.radius;
       }
       view.cw = payload.cw === true;
+      break;
+    case 'ellipse':
+      view.center = toPair(payload.center);
+      if (typeof payload.rx === 'number' && typeof payload.ry === 'number') {
+        view.radii = [payload.rx, payload.ry];
+      }
+      // The payload's rotation is degrees (the statement's unit); the view
+      // keeps the solver's radians.
+      view.theta = typeof payload.rotation === 'number' ? (payload.rotation * Math.PI) / 180 : 0;
       break;
   }
   return view;
@@ -314,13 +343,12 @@ export function buildSolvedSketchModel(
       continue;
     }
 
-    // Anchor-point statements (P8): the ellipse center and text anchor
-    // join via the single `entityId` field, a bezier's literal control
-    // points via its `anchors` array. Each is a free solver point owned
-    // by the statement; geometry comes from the snapshot's params.
-    const anchorOwner = obj.uniqueType === 'ellipse' ? 'ellipse' as const
-      : obj.uniqueType === 'text' ? 'text' as const
-        : obj.uniqueType?.startsWith('bezier-') ? 'bezier' as const : null;
+    // Anchor-point statements (P8): the text anchor joins via the single
+    // `entityId` field, a bezier's literal control points via its
+    // `anchors` array. Each is a free solver point owned by the statement;
+    // geometry comes from the snapshot's params.
+    const anchorOwner = obj.uniqueType === 'text' ? 'text' as const
+      : obj.uniqueType?.startsWith('bezier-') ? 'bezier' as const : null;
     if (anchorOwner === 'bezier' && Array.isArray(obj.object?.anchors) && solver) {
       const records = obj.object.anchors as {
         pointIndex: number; entityId: number; guess?: { x: number; y: number };
@@ -346,21 +374,14 @@ export function buildSolvedSketchModel(
       }
       continue;
     }
-    if ((anchorOwner === 'ellipse' || anchorOwner === 'text') && solver
+    if (anchorOwner === 'text' && solver
       && typeof obj.object?.entityId === 'number' && obj.object.entityId >= 0) {
       const view = snapshotEntityView(solver, obj, obj.object.entityId, 'point');
       if (view) {
         view.anchor = { owner: anchorOwner, pointIndex: 0 };
-        const pair = toPair(obj.object.guess?.center ?? obj.object.guess?.anchor);
+        const pair = toPair(obj.object.guess?.anchor);
         if (pair) {
           view.guess = { point: pair };
-        }
-        if (anchorOwner === 'ellipse') {
-          const rx = obj.object.rx;
-          const ry = obj.object.ry;
-          if (typeof rx === 'number' && typeof ry === 'number' && rx > 0 && ry > 0) {
-            view.radii = [rx, ry];
-          }
         }
         entities.set(obj.object.entityId, view);
       }

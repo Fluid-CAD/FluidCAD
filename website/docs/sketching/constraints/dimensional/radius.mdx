@@ -11,12 +11,12 @@ import dimensionRadial from '!!raw-loader!../../_examples/dimension-radial.js';
 
 # Radius
 
-`radius` sizes an arc — a rounded corner, a fillet in the profile, a cam lobe. It is the dimension that completes a [tangent](/docs/sketching/constraints/positional/tangent) arc.
+`radius` sizes an arc — a rounded corner, a fillet in the profile, a cam lobe. It is the dimension that completes a [tangent](/docs/sketching/constraints/positional/tangent) arc. On an ellipse it sizes one semi-axis at a time.
 
 ## In the viewport
 
-1. Click one arc.
-2. Click **Dimension**. A leader from the center to the rim appears with an R prefix; type the value and press <kbd>Enter</kbd>.
+1. Click one arc — or one ellipse.
+2. Click **Dimension**. A leader from the center to the rim appears with an R prefix; type the value and press <kbd>Enter</kbd>. On an ellipse the leader runs along the axis you clicked nearest to, with an **RX** or **RY** prefix.
 
 Double-clicking an arc opens its radius directly.
 
@@ -47,7 +47,11 @@ Circles are normally dimensioned by [diameter](/docs/sketching/constraints/dimen
 ```js
 radius(a, 25)                    // 1 DOF
 radius(c, 30)                    // a circle can take a radius too
+radius(e, 50, 'x')               // an ellipse's RX semi-radius
+radius(e, 30, 'y')               // … and its RY semi-radius
 ```
+
+The axis argument names which semi-radius of an [ellipse](/docs/sketching/primitives/ellipse) the dimension sets; it is required there and not accepted on arcs or circles.
 
 ## See also
 

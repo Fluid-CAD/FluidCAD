@@ -3,13 +3,19 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
-// The docs live inside the FluidCAD repo: pin viewer links to the version of
-// the code they were written against. Until that version's engine bundle is in
-// R2 (first tagged release after the browser host), the viewer falls back to
-// its dev engine.
+// The released version: download links and the version badge on the landing
+// page. This is the tag that exists, not the one being written towards.
 const fluidcadVersion: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version;
+
+// The engine bundle every embedded viewer asks for. The docs live inside the
+// FluidCAD repo, so their models are written against the release being built
+// towards rather than the last one tagged — this runs ahead of
+// `fluidcadVersion` and only catches up when that release ships. Until its
+// bundle is in R2 the viewer answers the probe with a 404 and falls back to
+// the engine it was deployed with, which is the build the shell shipped from.
+const fluidcadEngineVersion: string = process.env.FLUIDCAD_ENGINE_VERSION ?? '0.0.44';
 
 // `docusaurus build` is the only command that should carry analytics.
 const isBuild = process.argv.includes('build');
@@ -21,6 +27,7 @@ const config: Config = {
 
   customFields: {
     fluidcadVersion,
+    fluidcadEngineVersion,
     fluidcadViewerUrl: process.env.FLUIDCAD_VIEWER_URL ?? 'https://viewer.fluidcad.io',
   },
 

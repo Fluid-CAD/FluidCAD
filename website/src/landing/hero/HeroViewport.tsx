@@ -49,9 +49,9 @@ function connectionLooksCapable(): boolean {
 export default function HeroViewport({model, className}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
-  const {fluidcadViewerUrl, fluidcadVersion} = siteConfig.customFields as {
+  const {fluidcadViewerUrl, fluidcadEngineVersion} = siteConfig.customFields as {
     fluidcadViewerUrl: string;
-    fluidcadVersion: string;
+    fluidcadEngineVersion: string;
   };
 
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -159,7 +159,7 @@ export default function HeroViewport({model, className}: Props) {
   // page is resized, right up until the visitor turns it, after which the view
   // is theirs. The boot view is the first model's, so the opening picture is
   // already the right one; every switch after it goes over the channel.
-  const src = `${fluidcadViewerUrl}/#v=${fluidcadVersion}&chrome=none&theme=${bootTheme}&grid=0&axes=0&connectors=0`
+  const src = `${fluidcadViewerUrl}/#v=${fluidcadEngineVersion}&chrome=none&theme=${bootTheme}&grid=0&axes=0&connectors=0`
     + `&view=${bootView}&fit=tight&fit-padding=${FIT_PADDING}&refit=auto`;
 
   return (

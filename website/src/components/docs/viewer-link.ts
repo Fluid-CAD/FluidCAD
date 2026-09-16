@@ -44,8 +44,8 @@ export function useViewerLink(code: string | ViewerFiles, entry?: string): strin
       return undefined;
     }
     let cancelled = false;
-    const {fluidcadVersion, fluidcadViewerUrl} = siteConfig.customFields as {
-      fluidcadVersion: string;
+    const {fluidcadEngineVersion, fluidcadViewerUrl} = siteConfig.customFields as {
+      fluidcadEngineVersion: string;
       fluidcadViewerUrl: string;
     };
     let payload: Promise<[string, string]>;
@@ -63,7 +63,7 @@ export function useViewerLink(code: string | ViewerFiles, entry?: string): strin
         return;
       }
       const params = new URLSearchParams();
-      params.set('v', fluidcadVersion);
+      params.set('v', fluidcadEngineVersion);
       if (entry && entry !== 'model.fluid.js') {
         params.set('entry', entry);
       }

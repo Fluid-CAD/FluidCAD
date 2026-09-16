@@ -18,6 +18,7 @@ export default defineConfig({
       "mcp/tests/**/*.test.ts",
       "ui/tests/**/*.test.ts",
       "scripts/tests/**/*.test.ts",
+      "shell/tests/**/*.test.ts",
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

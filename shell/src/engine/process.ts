@@ -40,6 +40,17 @@ export type StartedEngine = {
   engine: ResolvedEngine;
 };
 
+/**
+ * The address the engine binds (`server/src/index.ts`): loopback unless the
+ * environment exposes it deliberately. Duplicated rather than imported because
+ * the shell must not depend on engine code.
+ */
+const ENGINE_DEFAULT_HOST = '127.0.0.1';
+
+export function engineHost(env: NodeJS.ProcessEnv = process.env): string {
+  return env.FLUIDCAD_SERVER_HOST || ENGINE_DEFAULT_HOST;
+}
+
 export async function findFreePort(start = FIRST_PORT, attempts = 200): Promise<number> {
   for (let port = start; port < start + attempts; port += 1) {
     if (await isPortFree(port)) {
@@ -50,17 +61,33 @@ export async function findFreePort(start = FIRST_PORT, attempts = 200): Promise<
 }
 
 /**
- * Probed on the wildcard address, the way the engine itself listens. A probe
- * on `127.0.0.1` alone passes on macOS while another engine holds `[::]:port`
- * (BSD lets a specific address bind next to a wildcard with SO_REUSEADDR), and
- * the second engine then dies with EADDRINUSE.
+ * A port is free only when *both* the engine's own host and the wildcard bind
+ * on it. BSD (macOS) lets a specific address bind next to a wildcard and a
+ * wildcard next to a specific address, so a single probe on either passes
+ * while the other is held: probing the wildcard alone said 3100 was free
+ * while a `fluidcad serve` held `127.0.0.1:3100`, and the forked engine then
+ * died with EADDRINUSE — "exited with code 1 before it was ready". Probing
+ * loopback alone has the mirror problem against a process on `[::]:port`.
  */
-function isPortFree(port: number): Promise<boolean> {
+export async function isPortFree(port: number, host = engineHost()): Promise<boolean> {
+  for (const candidate of [host, undefined]) {
+    if (!(await canBind(port, candidate))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function canBind(port: number, host: string | undefined): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => resolve(false));
     server.once('listening', () => server.close(() => resolve(true)));
-    server.listen(port);
+    if (host === undefined) {
+      server.listen(port);
+    } else {
+      server.listen(port, host);
+    }
   });
 }
 

@@ -12,183 +12,183 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={draftedBoxFinal} entry="drafted-box.fluid.js" />
 
-In this tutorial, you'll build a shelled box with a drafted central pipe and four drafted ribs, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=ZyuUBp34C90). It covers drafted extrudes, plane offsets, shelling with face filters, drafted cuts, the `rib()` feature, and circular patterns.
+Build a shelled box with a tapered central pipe and four support ribs, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=ZyuUBp34C90). You'll use the workspace tools throughout: a centered Rectangle, offset planes, drafted extrusions and a cut, two fillets, Shell, and a circular Repeat. The [full code](#full-code) at the end keeps the tool-generated operations with tidier names.
 
-Create a new file called `drafted-box.fluid.js` in your project.
+## Before you start
 
-## Setup
+Open a workspace and click **+** in the top bar to create `drafted-box.fluid.js`. Click the **unit chip** at the bottom right and choose **in** (inches) before drawing. All lengths below are in inches; angles are in degrees. The file declares `unit('in')`, so it also opens correctly in a millimeter project.
 
-Start with the imports. This model uses core operations together with edge and face filters.
+- **Ctrl+click** adds to a selection. **Right-click** opens the available edge or face groups.
+- The sketch's **DOF pill** reads *Fully constrained* when nothing is free to move.
+- Each dialog previews the statement it will write. **Apply** or <kbd>Enter</kbd> commits it; **Exit** / <kbd>Escape</kbd> cancels it.
+- Use **Fit to view** to frame the model. In a sketch, <kbd>N</kbd> looks straight down its plane.
 
-```js
-import { circle, cut, extrude, fillet, plane, repeat, rib, select, shell, sketch, line } from "fluidcad/core";
-import { edge, face } from "fluidcad/filters";
-import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
-```
+## Step 1: Draft and round the base
 
-- **`fluidcad/core`** — modeling operations (sketch, extrude, cut, shell, fillet, rib, repeat, etc.) and sketch primitives
-- **`fluidcad/filters`** — `edge` and `face` selection filters used to pick faces and edges by plane
-- **`fluidcad/constraints`** — constraint statements (`coincident`, `horizontal`, `distance`, …) that tell the sketch solver how the drawn geometry relates
+### Put the footprint at the rim height
 
-## Step 1: Drafted base box
+Click **Plane**. Leave **Type** on **Offset**, select the **XY** datum plane, and enter `1.5` for **Offset**. Leave all rotations at `0`. The preview is parallel to XY, 1.5 inches above it; the statement reads `plane('xy', 1.5)`.
 
-### Sketch the footprint on an offset plane
+![Offset plane at the box rim height](/img/docs/tutorials/drafted-box-ui-01-rim-plane.png)
 
-The base footprint sits on a plane offset 1.5 above the top plane — that way the body extrudes downward through the origin instead of starting at it.
+Click **Apply**, then **Sketch** and select the new plane in **History**.
 
-```js
-sketch(plane("top", 1.50), () => {
-    const sg1 = line([-3.5, -2.5], [3.5, -2.5]);
-    const sg2 = line([3.5, -2.5], [3.5, 2.5]);
-    const sg3 = line([3.5, 2.5], [-3.5, 2.5]);
-    const sg4 = line([-3.5, 2.5], [-3.5, -2.5]);
-    coincident(sg1.end(), sg2.start());
-    coincident(sg2.end(), sg3.start());
-    coincident(sg3.end(), sg4.start());
-    coincident(sg4.end(), sg1.start());
-    horizontal(sg1);
-    vertical(sg2);
-    horizontal(sg3);
-    vertical(sg4);
-    fix(sg1.start(), [-3.5, -2.5]);
-    distance(sg1.start(), sg1.end(), 7);
-    distance(sg2.start(), sg2.end(), 5);
-  });
-```
+### Draw a centered rectangle
 
-`plane("top", 1.50)` builds a plane parallel to `"top"` and offset 1.5 along its normal. The `true` after the callback makes this a constraint sketch: the four `line()` statements draw a 7×5 rectangle centered on the origin, and the constraints pin it down — `coincident` joins the corners, `horizontal`/`vertical` square the sides, `fix` anchors one corner, and the two `distance` dimensions set the width and height. With those in place the rectangle is fully constrained: the solver reports zero remaining degrees of freedom, and editing either `distance` value resizes the whole footprint.
+Choose **Rectangle**. Enable **Centered** and leave **Rounded** off: the corners will be rounded after drafting the solid.
 
-![Base footprint sketch](/img/docs/tutorials/drafted-box-step1-sketch.png)
+![The centered Rectangle option](/img/docs/tutorials/drafted-box-ui-02-rectangle-tool.png)
 
-### Extrude with draft and round the edges
+Click the **origin** for the center, then move up and right. Type `7` for **W**, press <kbd>Enter</kbd>, then `5` for **H** and <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to leave the tool.
 
-```js
-const base = extrude(-1.5).draft(-8);
+The Rectangle tool writes the horizontal, vertical, corner-coincidence, width, height, and center constraints. The pill should read *Fully constrained*.
 
-fillet(.750, base.sideEdges())
-fillet(.50, select(edge().onPlane("top")))
-```
+![Fully constrained 7 by 5 inch footprint](/img/docs/tutorials/drafted-box-ui-03-profile.png)
 
-`extrude(-1.5)` pushes the rectangle 1.5 units downward (along the negative plane normal). `.draft(-8)` tapers the side walls inward at 8° — a negative draft narrows the body as the extrude advances, giving the box its trapezoidal silhouette.
+### Extrude downward with draft
 
-`fillet(.750, base.sideEdges())` rounds the four vertical corners of the box with a 0.75 radius. `select(edge().onPlane("top"))` picks every edge that lies on the top plane (the top rim of the now-trapezoidal box, since its top face sits exactly on `"top"`), and `fillet(.50)` rounds those with a 0.5 radius.
+Choose **Finish Sketch ▾ → Extrude**. Leave **Add** and **One direction** selected. Enter `-1.5` for **Distance** and `-8` for **Draft angle (°)**. Leave **Thin walls** off.
 
-![Drafted base box with fillets](/img/docs/tutorials/drafted-box-step1.png)
+The green preview extends from the rim plane down to XY. Its lower footprint is smaller than the 7 × 5 inch top. The statement reads `extrude(-1.5).draft(-8)`.
 
-## Step 2: Shell the top
+![Drafted base extrusion preview](/img/docs/tutorials/drafted-box-ui-04-extrude-ghost.png)
 
-```js
-shell(-.250, select(face().onPlane("top", 1.5)))
-```
+Click **Apply**.
 
-`select(face().onPlane("top", 1.5))` picks the face that sits on the offset plane used in step 1 — the top face of the box. `shell(-.250)` hollows the body inward with a 0.25 wall thickness, removing the selected face so the box opens upward.
+### Round the four corners
 
-![Shelled body](/img/docs/tutorials/drafted-box-step2.png)
+Click **Fillet**, click a sloping corner edge, then double-click that edge to expand to the extrusion's **four side edges**. Check that the dialog lists four **Edge** entries, not faces. Set **Radius** to `0.75`. The statement reads `fillet(0.75, base.sideEdges())`; generated variable names may differ.
 
-## Step 3: Drafted pipe body
+![Fillet preview on the four drafted corner edges](/img/docs/tutorials/drafted-box-ui-05-corners-ghost.png)
 
-### Sketch the pipe footprint
+Click **Apply**.
 
-```js
-sketch(plane("top", 2), () => {
-    circle([0, 0], 2);
-  });
-```
+![Base with rounded corners](/img/docs/tutorials/drafted-box-ui-06-rounded-corners.png)
 
-A new offset plane at `"top" + 2` hosts a circle of diameter 2 centered on the origin — in a constraint sketch the center is spelled out rather than inherited from a cursor. Putting the sketch above the box means the resulting extrude will pass through the open top and seat itself inside the shell.
+### Round the underside rim
 
-![Pipe footprint](/img/docs/tutorials/drafted-box-step3-sketch.png)
+Click **Fillet** again. **Right-click a lower perimeter edge** where the outside wall meets the flat underside, and choose **Tangent Edges (8)**. Set **Radius** to `0.5`.
 
-### Extrude with positive draft
+The highlighted chain must follow the **bottom rim on XY**, not the upper rim at Z = 1.5. It includes the four straight edges and four corner arcs. The statement uses an edge selection ending in `.withTangents()`.
 
-```js
-const pipeBody = extrude(-2).draft(8);
-```
+![Half-inch fillet preview around the underside rim](/img/docs/tutorials/drafted-box-ui-07-bottom-ghost.png)
 
-`extrude(-2)` pushes the circle 2 units downward. `.draft(8)` is a **positive** draft — the opposite of the box. Where negative draft narrows the body in the direction of travel, positive draft widens it, so the pipe flares outward as it descends into the box.
+Click **Apply**.
 
-![Pipe body added](/img/docs/tutorials/drafted-box-step3.png)
+![The drafted and rounded solid base](/img/docs/tutorials/drafted-box-ui-08-base.png)
 
-## Step 4: Drafted pipe hole
+## Step 2: Open the box with Shell
 
-### Sketch the hole on the pipe's top face
+Click **Shell** and select the **large top face**. Enter `-0.25` for **Thickness**, leaving **Join type** on **Arc**. Negative thickness hollows inward; the selected face becomes the opening. The statement reads `shell(-0.25, select(face().onPlane(base.startFaces())))`.
 
-```js
-sketch(pipeBody.startFaces(), () => {
-    circle([0, 0], 1.5);
-  });
-```
+![Shell with the top face selected and quarter-inch inward thickness](/img/docs/tutorials/drafted-box-ui-09-shell-pick.png)
 
-`pipeBody.startFaces()` returns the face the pipe extrude started from — its flat top. A face sketch puts its local origin at the face's center, so `circle([0, 0], 1.5)` places a diameter-1.5 circle exactly on the pipe's axis.
+Click **Apply**. The box retains its outer dimensions, with quarter-inch walls and floor.
 
-![Hole sketch on the pipe top](/img/docs/tutorials/drafted-box-step4-sketch.png)
+![The open shelled box](/img/docs/tutorials/drafted-box-ui-10-shell.png)
 
-### Cut with draft
+## Step 3: Add the drafted pipe
 
-```js
-cut().draft(-8);
-```
+### Make a plane above the box
 
-`cut()` with no depth runs the cut as far as the underlying body allows. `.draft(-8)` tapers the cut walls inward at 8° — the same draft angle as the pipe's outer wall, so the bore narrows as it descends and stays parallel to the pipe's outside surface.
+Click **Plane**, choose the **XY datum plane** as **Base**, and set **Offset** to `2`. Check the base chip: this offset is measured from XY, not from the box rim. The new plane sits half an inch above the opening.
 
-![Pipe with drafted bore](/img/docs/tutorials/drafted-box-step4.png)
+![The pipe plane two inches above XY](/img/docs/tutorials/drafted-box-ui-11-pipe-plane.png)
 
-## Step 5: Add a rib
+Click **Apply**, then **Sketch** and select the new plane in **History**.
 
-### Sketch the rib spine
+### Draw the pipe's outer circle
 
-A single line on the front plane defines where the rib sits between the pipe and the inner box wall.
+Choose **Circle**, click the **origin**, and type `2` for the diameter, then <kbd>Enter</kbd>. Press <kbd>Escape</kbd>. Snapping the center to the origin and typing the diameter fully constrains the circle.
 
-```js
-sketch("front", () => {
-    const sg5 = line([-2, 1.25], [-1.5, 1.25]);
-    horizontal(sg5);
-  });
-```
+![Fully constrained two-inch pipe circle](/img/docs/tutorials/drafted-box-ui-12-pipe-profile.png)
 
-The line from `[-2, 1.25]` to `[-1.5, 1.25]` is a half-unit segment on the front plane — that's the rib's **spine** — and the `horizontal` constraint records that it must stay level. It doesn't need to span the full gap between the pipe and the wall; `.extend()` will take care of that in the next step.
+### Extrude into the floor
 
-![Rib spine sketch](/img/docs/tutorials/drafted-box-step5-sketch.png)
+Choose **Finish Sketch ▾ → Extrude**, leave **Add** selected, and set **Distance** to `-2` and **Draft angle (°)** to `8`. The preview flares outward toward the floor and overlaps it, joining the pipe to the box. The statement reads `extrude(-2).draft(8)`.
 
-### Build the rib
+![Pipe extrusion with positive eight-degree draft](/img/docs/tutorials/drafted-box-ui-13-pipe-ghost.png)
 
-```js
-rib(.25).parallel().extend().draft(-8)
-```
+Click **Apply**.
 
-`rib(.25)` builds a 0.25-thick rib from the spine. The chained calls do the heavy lifting:
+![Solid pipe body joined to the box](/img/docs/tutorials/drafted-box-ui-14-pipe.png)
 
-- **`.parallel()`** — extrudes the rib *in-plane* (perpendicular to the spine within the front plane) instead of normal to the sketch. The result is an upright wall standing inside the box rather than a flat strip lying on the front plane.
-- **`.extend()`** — pushes the spine endpoints outward until they meet the surrounding solids: the inner box wall on one side, the pipe's curved surface on the other. This is why the spine line itself only needs to be a small seed — the rib finds its own length.
-- **`.draft(-8)`** — widens the rib by 8° as it descends, matching the box's inward draft so the rib's outer edges stay flush with the cavity walls.
+## Step 4: Bore the pipe
 
-![Single rib added](/img/docs/tutorials/drafted-box-step5.png)
+Click **Sketch** and select the pipe's **flat top face**. Use **Circle** again: click the **origin**, enter diameter `1.5`, and press <kbd>Enter</kbd>, then <kbd>Escape</kbd>.
 
-## Step 6: Pattern the rib
+![Fully constrained one-and-a-half-inch bore circle](/img/docs/tutorials/drafted-box-ui-15-bore-profile.png)
 
-```js
-repeat("circular", "z", {
-    count: 4,
-    angle: 360
-})
-```
+Choose **Finish Sketch ▾ → Extrude** and select **Remove**. Keep **One direction**, enable **Through all**, and set **Draft angle (°)** to `-8`. The statement reads `cut().draft(-8)`.
 
-`repeat("circular", "z", { count: 4, angle: 360 })` rotates the most recent operation — the rib — around the Z axis four times for a full revolution. Called with no trailing target arguments, `repeat` automatically picks up the last operation in the scene, so a single line completes the four-rib arrangement.
+Inspect the red preview: the bore runs down through the pipe and the box floor, narrowing toward the underside. The outside of the pipe flares outward as it descends, so the pipe wall becomes thicker toward the bottom; the two surfaces are not parallel.
 
-![Finished drafted box](/img/docs/tutorials/drafted-box-step6.png)
+![Through-all drafted bore preview](/img/docs/tutorials/drafted-box-ui-16-bore-ghost.png)
+
+Click **Apply**.
+
+![The hollow pipe with a through bore](/img/docs/tutorials/drafted-box-ui-17-bore.png)
+
+## Step 5: Build one support rib
+
+### Draw a short spine on XZ
+
+Click **Sketch** and choose the **XZ** datum plane. Keep **Section view** on so you can see through the box.
+
+Choose **Line**. Use the start point's **X / Y** coordinate pill to enter `-2` and `1.25`, using <kbd>Tab</kbd> between fields, and confirm the point. In this sketch, Y is the height above the box underside. Move horizontally to the right and type `0.5` for the line's length, then <kbd>Enter</kbd>. Its end is at `[-1.5, 1.25]`.
+
+Press <kbd>Escape</kbd>, select the line's **left endpoint**, and click **Fix** in the constraint bar. The typed length, inferred **Horizontal** relation, and fixed start make the spine fully constrained. If Horizontal was not inferred, select the line and add it from the constraint bar.
+
+![Fully constrained horizontal rib spine inside the sectioned box](/img/docs/tutorials/drafted-box-ui-18-spine.png)
+
+### Extend the rib to the surrounding walls
+
+Choose **Finish Sketch ▾ → Rib**. Leave **Add** selected and set:
+
+- **Thickness:** `0.25`
+- **Parallel to sketch plane:** on
+- **Extend to walls:** on
+- **Draft angle (°):** `-8`
+
+The short spine defines the rib's top. **Parallel to sketch plane** builds the upright wall down toward the floor; **Extend to walls** bridges the remaining gap from the pipe to the box wall. The statement reads `rib(0.25).parallel().extend().draft(-8)`.
+
+![Drafted rib preview extending between the pipe and box wall](/img/docs/tutorials/drafted-box-ui-19-rib-ghost.png)
+
+Click **Apply**.
+
+![One support rib joined to the pipe and box](/img/docs/tutorials/drafted-box-ui-20-rib.png)
+
+## Step 6: Repeat the rib around Z
+
+Click **Repeat** and set **Type** to **Circular**. Click the **Rib** row in **History** to add it to **Features**. Leave **Axis** on **World Z axis**, set **Total Count** to `4`, and **Angle (°)** to **Total** `360`.
+
+The count includes the original, so the preview adds three ribs at 90° intervals. Repeat rebuilds the rib against the surrounding walls at each position; the shorter sides of the rectangular box get shorter ribs.
+
+![Circular repeat preview with four total ribs around World Z](/img/docs/tutorials/drafted-box-ui-21-repeat-ghost.png)
+
+Click **Apply**.
+
+![Finished drafted box with a hollow pipe and four support ribs](/img/docs/tutorials/drafted-box-ui-22-finished.png)
 
 ## Full code
 
-<OpenInViewer code={draftedBoxFinal} entry="drafted-box.fluid.js" />
+The tools write the model into `drafted-box.fluid.js`. Open the code editor with **`</>`** on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to inspect it. This listing uses descriptive names and keeps the inch unit explicit.
 
-<CodeBlock language="js">{draftedBoxFinal}</CodeBlock>
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{draftedBoxFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={draftedBoxFinal} entry="drafted-box.fluid.js" />
 
 ## What you practiced
 
-- **`plane("top", offset)`** — building a sketch plane parallel to a principal plane at a given offset
-- **`extrude().draft(angle)`** — tapering an extrude's side walls; negative draft narrows, positive draft widens
-- **`cut().draft(angle)`** — applying the same taper to a cut for matched-angle bores
-- **`select(face().onPlane(...))`** / **`select(edge().onPlane(...))`** — picking faces or edges by the plane they lie on
-- **`shell(thickness, face)`** — hollowing a body and removing a selected face to open it
-- **`rib(thickness).parallel().extend().draft(...)`** — building a stiffening wall from a short spine line that auto-extends to surrounding solids
-- **`repeat("circular", "z", ...)`** — circular-patterning the previous operation around an axis
+- **Inches** — declare the file's unit before entering dimensions.
+- **Plane** and **Rectangle → Centered** — place and fully constrain the footprint at the rim height.
+- **Extrude / Remove → Draft angle** — taper the box, pipe, and through bore.
+- **Fillet** and **Tangent Edges** — round the corners and collect the underside rim.
+- **Shell** — remove the top face and hollow inward.
+- **Rib → Parallel to sketch plane + Extend to walls** — grow a drafted support from a short constrained spine.
+- **Repeat → Circular** — rebuild that rib at four positions around World Z.

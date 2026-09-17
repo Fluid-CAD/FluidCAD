@@ -40,5 +40,3 @@ sketch('xy', () => {
   radius(a1, 18);
   midpoint(origin(), a4.center(), a2.center());
 });
-
-const e = extrude(23.6);

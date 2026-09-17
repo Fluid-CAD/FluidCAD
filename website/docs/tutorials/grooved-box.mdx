@@ -12,157 +12,178 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={groovedBoxFinal} entry="grooved-box.fluid.js" />
 
-In this tutorial, you'll build a grooved storage box based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=0JJH-FsHuq8). It covers constraint-sketched rounded rectangles, shelling, filleting internal edges, face intersection sketches, thin extrusions, and linear repeat patterns.
+In this tutorial, you'll build a grooved storage box based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=0JJH-FsHuq8). You build it from the FluidCAD workspace: a centered rounded rectangle, an open shell with a smooth interior, and two crossing patterns of shallow grooves. The [full code](#full-code) at the end is the code produced by the tools, with tidier names.
 
-Create a new file called `grooved-box.fluid.js` in your project.
+## Before you start
 
-## Setup
+Open a workspace and click **+** in the top bar to create `grooved-box.fluid.js`. Use **millimeters** for this tutorial. The screenshots use the light theme, available from the sun/moon button at the top right.
 
-Start with the imports for every operation we'll use.
+- **Ctrl+click** adds to a selection. A plain click normally replaces it; the **Intersect** dialog accumulates face picks and clicking a picked face removes it.
+- **Right-click** a face to select a named group or its tangent faces. Hover a menu item to preview the group.
+- The **DOF pill** at the bottom of a sketch reads *Fully constrained* when nothing is left free to move.
+- Each feature dialog shows the statement it will write. **Apply** or <kbd>Enter</kbd> commits it; **Exit** / **Cancel** or <kbd>Escape</kbd> discards it.
+- Use **Fit to view** if the model is outside the viewport. Inside a sketch, <kbd>N</kbd> looks straight down its plane.
 
-```js
-import { sketch, extrude, select, fillet, line, shell, intersect, repeat } from 'fluidcad/core';
-import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
-import { face } from 'fluidcad/filters';
-```
+## Step 1: The rounded base
 
-- **`line`** — draws a sketch line between two guess points
-- **`fluidcad/constraints`** — the constraint statements that pin sketch geometry: `coincident` joins endpoints, `horizontal`/`vertical` align lines with the axes, `fix` anchors a point, `distance` dimensions a length
-- **`shell`** — hollows out a solid body
-- **`intersect`** — creates a sketch profile from the intersection of faces with a plane
-- **`repeat`** — duplicates geometry in a linear pattern
-- **`face`** — filter for selecting faces by geometric criteria
+### Start on the XY plane
 
-## Step 1: Base shape
+Click **Sketch**, then click the **XY** plane in the viewport.
 
-The box starts as a rounded rectangle extruded into a solid block.
+![Sketch waiting for the XY plane](/img/docs/tutorials/grooved-box-ui-01-plane.png)
 
-```js
-sketch("xy", () => {
-    const b = line([-85, -50], [85, -50]);
-    const r = line([85, -50], [85, 50]);
-    const t = line([85, 50], [-85, 50]);
-    const l = line([-85, 50], [-85, -50]);
-    coincident(b.end(), r.start());
-    coincident(r.end(), t.start());
-    coincident(t.end(), l.start());
-    coincident(l.end(), b.start());
-    horizontal(b);
-    vertical(r);
-    horizontal(t);
-    vertical(l);
-    fix(b.start(), [-85, -50]);
-    distance(b.start(), b.end(), 170);
-    distance(r.start(), r.end(), 100);
-    fillet(18, b, r, t, l);
-});
+### Draw one centered, rounded rectangle
 
-const e = extrude(23.6);
-```
+Pick **Rectangle** and enable both **Rounded** and **Centered** in its dropdown.
 
-The third argument `true` on `sketch(...)` makes this a **constraint sketch**: the four `line(...)` statements are guesses, and the constraint statements pin them down exactly. The `coincident` calls join the endpoints into a closed loop, `horizontal`/`vertical` square it up, `fix` anchors the bottom-left corner at `[-85, -50]` so the 170 x 100 rectangle is centered on the origin, and the two `distance` dimensions set its size. With those in place the sketch is fully constrained — every line is pinned to exactly one position. `fillet(18, b, r, t, l)` then rounds all four corners of the loop with an 18-unit radius. `extrude(23.6)` pushes the shape up into a solid block. We store the result in `e` so we can reference its faces later.
+![Rectangle with Rounded and Centered enabled](/img/docs/tutorials/grooved-box-ui-02-rectangle-tool.png)
 
-![Extruded rounded box](/img/docs/tutorials/grooved-box-step1.png)
+Click the **origin** for the center. Move the pointer up and to the right, type `170` for **W**, and press <kbd>Enter</kbd>. Type `100` for **H**, press <kbd>Enter</kbd>, then `18` for **R** and <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to leave the drawing tool and fit the sketch to the view.
 
-## Step 2: Shell and fillet
+The dimensions describe the overall width and height, including the corners. The tool creates four straight sides and four tangent arcs, with equal radii. Clicking the origin in Centered mode anchors their center, so the pill reads *Fully constrained* without adding any more constraints.
 
-Now we hollow out the box and smooth the internal edges.
+![Fully constrained 170 by 100 rounded rectangle with R18 corners](/img/docs/tutorials/grooved-box-ui-03-profile.png)
 
-### Shell
+### Extrude the block
 
-```js
-const s = shell(-5, e.endFaces())
-```
+Click **Finish Sketch ▾ → Extrude**. Leave **Add** and **One direction** selected, and set **Distance** to `23.6`. The green ghost shows the block and the statement reads `extrude(23.6)`.
 
-`shell(-5)` hollows the solid with 5-unit thick walls. The second argument `e.endFaces()` specifies which face to remove — the top face of the extrusion. This creates an open-top container.
+![Extrude preview at 23.6 millimeters](/img/docs/tutorials/grooved-box-ui-04-extrude-ghost.png)
 
-### Fillet internal edges
+Click **Apply**.
 
-```js
-fillet(8, s.internalEdges())
-```
+![The rounded rectangular block](/img/docs/tutorials/grooved-box-ui-05-base.png)
 
-`s.internalEdges()` selects all edges on the inside of the shell. `fillet(8)` rounds them with an 8-unit radius, giving the interior smooth transitions between the walls and the bottom.
+## Step 2: Hollow and round the interior
 
-![Shelled and filleted box](/img/docs/tutorials/grooved-box-step2.png)
+### Remove the top face with Shell
 
-## Step 3: Front grooves
+Click **Shell**, then click the block's **top face**. Set **Thickness** to `-5` and leave **Join type** on **Arc**. Negative thickness offsets inward, preserving the outside dimensions and leaving 5 mm walls and a 5 mm bottom. The selected top face is the opening; the statement reads `shell(-5, e.endFaces())`.
 
-The grooves are created by projecting the box's cross-section onto a reference plane, then cutting thin symmetric slots and repeating them.
+![Shell with the top face selected and thickness minus 5](/img/docs/tutorials/grooved-box-ui-06-shell-pick.png)
 
-### Groove profiles
+Click **Apply**.
 
-We create both groove profiles before cutting anything. This ensures each profile captures the smooth shell shape, unaffected by the other set of grooves.
+![The open box with 5 millimeter walls](/img/docs/tutorials/grooved-box-ui-07-shell.png)
 
-```js
-const facesX = select(face().intersectsWith("front").notOnPlane("xy"))
+### Fillet the internal edges
 
-const s1 = sketch("front", () => {
-    intersect(facesX);
-});
+Click **Fillet**. Click an edge where the **inside floor meets a wall**, then double-click that edge to expand the selection to the shell's **internal edges**. The dialog lists 16 edges, including the tangent seams around the corners. Check that the outside edges and top rim are not selected.
 
-const facesY = select(face().intersectsWith("left").notOnPlane("xy"))
+Set **Radius** to `8`. The statement reads `fillet(8, sh.internalEdges())`, and the green ghost shows the rounded transition from floor to wall.
 
-const s2 = sketch("left", () => {
-    intersect(facesY);
-});
-```
+![Fillet preview on the shell's internal edges](/img/docs/tutorials/grooved-box-ui-08-fillet-ghost.png)
 
-`face().intersectsWith("front")` finds all faces that cross the front reference plane — this captures the box's cross-section at the front. `.notOnPlane("xy")` excludes any faces lying flat on the XY plane (the bottom), since we only want the wall and rim profiles. `intersect(facesX)` inside a `sketch("front", ...)` projects those faces onto the front plane, creating a 2D profile that traces the box's outline.
+Click **Apply**.
 
-The same technique is applied on the `"left"` plane for the side grooves. We store both sketch references (`s1` and `s2`) for use in the next steps.
+![The box with its rounded interior](/img/docs/tutorials/grooved-box-ui-09-rounded-interior.png)
 
-![Groove profile sketches](/img/docs/tutorials/grooved-box-step3-sketch.png)
+## Step 3: Capture both groove profiles
 
-### Cut and repeat
+The grooves follow the outside walls, cross the rim, and run down the inside walls and across the floor. **Intersect** captures that cross-section directly from the box's faces.
 
-```js
-const grooveX = extrude(3, s1).thin(-1).remove().symmetric();
+Make **both sketches before cutting either one**. That keeps the second profile independent of the grooves made from the first.
 
-repeat("linear", "y", {
-    count: 3,
-    offset: 25,
-    centered: true
-}, grooveX);
-```
+### Intersect on the YZ plane
 
-`extrude(3, s1)` extrudes the front profile sketch 3 units outward from the front plane. `.thin(-1)` offsets the profile inward by 1 unit, creating a thin-walled extrusion instead of a solid one — this is what makes the groove narrow. `.remove()` subtracts the extrusion from the box (a cut), and `.symmetric()` mirrors it to cut on both sides of the front plane.
+Click **Sketch** and choose the **YZ** plane. In the Sketch panel, turn off **Section view** and **Lock camera**. Drag in the viewport to look down into the box: you need to see the floor, rim, and an outside wall to pick them.
 
-`repeat("linear", "y", ...)` duplicates the groove along the Y axis. `count: 3` creates 3 total grooves, `offset: 25` spaces them 25 units apart, and `centered: true` distributes them symmetrically about the center.
+Click **Intersect**, then select these surfaces:
 
-![Front grooves cut into the box](/img/docs/tutorials/grooved-box-step3.png)
+1. **Right-click the inside floor** and choose **Tangent Faces (17)**. This includes the floor, the rounded transitions, and the inside walls.
+2. Click the **flat top rim** to add it.
+3. **Right-click an outside wall** and choose **Extrude Side Faces (8)** to add the four straight walls and four rounded corners.
 
-## Step 4: Side grooves
+Leave out the **flat underside**. Including it would close the cross-section across the bottom; this groove needs an open profile following the other surfaces. The dialog shows 10 selection entries: one tangent group, the rim, and eight outside faces. Faces that do not cross the sketch plane contribute no curves.
 
-The side grooves use the same thin extrude and repeat technique, applied to the side profile we already created.
+![Intersect with the interior, rim, and outside walls selected](/img/docs/tutorials/grooved-box-ui-10-intersect-yz.png)
 
-```js
-const grooveY = extrude(3, s2).thin(-1).remove().symmetric();
+Click **Apply**, then press <kbd>N</kbd>. The intersection is fixed reference geometry, so it is already *Fully constrained*. Notice the two open ends at the underside and the rounded path across the inside floor.
 
-repeat("linear", "x", {
-    count: 7,
-    offset: 20,
-    centered: true
-}, grooveY);
-```
+![The YZ groove profile with open ends at the underside](/img/docs/tutorials/grooved-box-ui-11-yz-profile.png)
 
-Same pattern as before: `extrude(3, s2)` uses the side profile, `.thin(-1).remove().symmetric()` creates the thin symmetric cut. This time the repeat runs along the X axis with `count: 7` and `offset: 20` — more grooves with tighter spacing to fill the longer side of the box.
+### Capture the XZ profile as well
 
-![Finished grooved box](/img/docs/tutorials/grooved-box-final.png)
+Click **Finish Sketch ▾ → New Sketch**. Rotate the view if necessary to expose the **XZ** plane, then click it. Keep **Section view** and **Lock camera** off while picking.
+
+Choose **Intersect** and repeat the same three selections: the floor's **Tangent Faces (17)**, the **top rim**, and the outside wall's **Extrude Side Faces (8)**.
+
+![The same surfaces selected for the XZ intersection](/img/docs/tutorials/grooved-box-ui-12-intersect-xz.png)
+
+Click **Apply** and press <kbd>N</kbd>. This profile spans the longer, 170 mm dimension of the box. The earlier YZ sketch remains in History for the second set of grooves.
+
+![The longer XZ groove profile](/img/docs/tutorials/grooved-box-ui-13-xz-profile.png)
+
+## Step 4: Cut and repeat the first grooves
+
+### Make the thin symmetric cut
+
+With the XZ sketch active, click **Finish Sketch ▾ → Extrude**. Select **Remove**, set **Direction** to **Symmetric**, and enter `3` for **Total depth**. Leave **Through all** off.
+
+Enable **Thin walls** and set **Thickness** to `1`; leave **Thickness 2** off. Scroll within the dialog if the thickness field is below the visible area.
+
+Drag in the viewport to orbit back to a view into the box. The 3 mm total depth is the groove's width, split 1.5 mm each side of the sketch plane. The 1 mm thickness makes a narrow strip following the profile into the material. Check the red preview: it should enter the floor and walls, not sit in the empty interior. The statement reads `cut(3).symmetric().thin(1)`.
+
+![The thin symmetric groove cut preview](/img/docs/tutorials/grooved-box-ui-14-cut-ghost.png)
+
+Click **Apply**.
+
+![One groove across the box floor and end walls](/img/docs/tutorials/grooved-box-ui-15-first-groove.png)
+
+### Repeat along Y
+
+Click **Repeat** and leave **Type** on **Linear**. Click the new **Cut** row in **History** to add it to **Features**. Click the **Axis** slot, then the green **Y** axis in the viewport; the chip should read *World Y axis*.
+
+Set **Total Count** to `3`, **Spacing** to **Offset** with a value of `25`, and enable **Centered**. The count includes the original groove, so the two red previews sit at Y = −25 and +25 around the existing cut at Y = 0.
+
+![Three centered grooves with 25 millimeter spacing](/img/docs/tutorials/grooved-box-ui-16-repeat-y-ghost.png)
+
+Click **Apply**.
+
+![The first three grooves](/img/docs/tutorials/grooved-box-ui-17-three-grooves.png)
+
+## Step 5: Add the crossing grooves
+
+### Use the earlier YZ sketch
+
+Click **Extrude** in the toolbar, then click the **YZ Sketch** row in **History** — the first intersection sketch, immediately after the interior fillet and its face selections. Do not create another intersection of the now-grooved box.
+
+Select **Remove**, **Symmetric**, **Total depth** `3`, and **Thin walls** with **Thickness** `1`. Leave **Thickness 2** off. The preview crosses the three existing grooves at right angles; its statement includes the earlier sketch reference, `cut(3, s).symmetric().thin(1)` (the generated name may differ).
+
+![The crossing cut from the saved YZ profile](/img/docs/tutorials/grooved-box-ui-18-side-cut-ghost.png)
+
+Click **Apply**.
+
+### Repeat along X
+
+Click **Repeat**, select the newest **Cut** row in **History**, and choose the red **X** axis through the **Axis** slot. Check that it reads *World X axis*.
+
+Set **Total Count** to `7`, **Spacing** to **Offset** `20`, and enable **Centered**. The grooves span X = −60 to +60, leaving the rounded ends clear.
+
+![Seven centered crossing grooves with 20 millimeter spacing](/img/docs/tutorials/grooved-box-ui-19-repeat-x-ghost.png)
+
+Click **Apply**. The box now has three grooves in one direction and seven in the other, all following the rounded interior and continuing over the rim.
+
+![The finished grooved box](/img/docs/tutorials/grooved-box-ui-20-finished.png)
 
 ## Full code
 
-<OpenInViewer code={groovedBoxFinal} entry="grooved-box.fluid.js" />
+The tools wrote the model into `grooved-box.fluid.js`. Open the code editor with the **`</>`** button on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to inspect it. This listing keeps the same operations with tidier names and comments.
 
-<CodeBlock language="js">{groovedBoxFinal}</CodeBlock>
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{groovedBoxFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={groovedBoxFinal} entry="grooved-box.fluid.js" />
 
 ## What you practiced
 
-- **Constraint sketching** — declaring lines as guesses and pinning them with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` until the sketch is fully constrained
-- **`fillet()` inside a sketch** — rounding the corners of a closed 2D loop
-- **`shell()`** — hollowing a solid by removing a face
-- **`fillet()` with `internalEdges()`** — smoothing all edges inside a shell
-- **`face().intersectsWith().notOnPlane()`** — selecting faces that cross a reference plane while excluding flat faces
-- **`intersect()`** — creating a sketch profile from face/plane intersections
-- **`extrude().thin().remove().symmetric()`** — cutting thin symmetric grooves
-- **`repeat("linear")`** — duplicating geometry along an axis with centered spacing
+- **Rectangle → Rounded + Centered** — a fully constrained outline from a center, width, height, and radius.
+- **Shell** and **Fillet** — remove the top face, then round the internal floor-to-wall transition.
+- **Face groups** — use tangent and feature selections to collect the surfaces for an intersection.
+- **Intersect** — capture two fixed cross-sections before changing the source solid.
+- **Remove + Symmetric + Thin walls** — cut a shallow strip along an open profile.
+- **Repeat → Linear** — pattern each cut with a total count, offset spacing, and centered placement.

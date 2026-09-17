@@ -1,150 +1,110 @@
-/**
- * The build the exchange section replays.
- *
- * One part, six beats. The first five are the mouse's: a gesture in the
- * viewport, and the statement it left in the file. The sixth goes the other
- * way — a number typed into the file, and the geometry that follows it. That
- * round trip is the whole claim of the page, so it is made with one part
- * rather than two half-demonstrations.
- *
- * `body` is what the beat adds to the file, verbatim. The pane concatenates
- * them, so the code on screen is a real file at a real point in its life, not
- * an excerpt arranged to fit. Renders in `static/img/landing/exchange-N.png`
- * were captured from that same file at that same beat — see
- * `../models/README.md` for the recipe.
- */
-
-export type Beat = {
-  id: string;
-  /** What the hand did. Past tense: this already happened, the file records it. */
-  gesture: string;
-  /** The tool the gesture used, named the way the toolbar names it. */
-  tool: string;
-  /** Lines this beat added, or the whole file when it rewrote one. */
-  body: string;
-  /** Set on a beat that edits earlier lines instead of appending to them. */
-  rewrites?: boolean;
-  image: string;
-  alt: string;
-};
+/** One selectable step per sketch or solid feature, in build order. */
+export type FeatureStep = {
+  id: string
+  label: string
+  feature: 'sketch' | 'extrude' | 'cut' | 'fillet'
+  summary: string
+  detail: string
+  body: string
+}
 
 const PREAMBLE = `import {
-    circle, cut, extrude, fillet,
-    move, select, sketch, tArc, tLine,
+  arc, circle, cut, extrude, fillet,
+  line, select, sketch,
 } from "fluidcad/core";
 import { edge } from "fluidcad/filters";
-import { enclosing, outside } from "fluidcad/constraints";
-`;
+const SPAN = 76;
+const ARM_RADIUS = 24;
+const ARM_THICKNESS = 12;
+const HUB_DIAMETER = 32;
+const HUB_HEIGHT = 14;
+const PIVOT_DIAMETER = 20;
+const TIP_HOLE_DIAMETER = 11;
+const FILLET_RADIUS = 4;
+`
 
-const profile = (span: number) => `
-const SPAN = ${span};
-
-sketch("xy", () => {
-    const hub = circle(38).guide();
-    const eye = circle([SPAN, 0], 20).guide();
-
-    const t1 = tLine(outside(hub), outside(eye));
-    const t2 = tLine(enclosing(hub), enclosing(eye));
-    tArc(t1.end(), t2.end(), t1.tangent());
-    move(t1.start());
-    tArc(t2.start(), t1.start(), t1.tangent().reverse());
-});
-`;
-
-const ARM = `
-const arm = extrude(12);
-`;
-
-const HUB = `
-sketch(arm.endFaces(), () => {
-    circle([0, 0], 32);
-});
-
-const boss = extrude(14);
-`;
-
-const BORES = `
-sketch(boss.endFaces(), () => {
-    circle([0, 0], 20);
-    circle([SPAN, 0], 11);
-});
-
-cut();
-`;
-
-const BLEND = `
-select(edge().circle(32));
-
-fillet(4);
-`;
-
-export const BEATS: Beat[] = [
+export const STEPS: FeatureStep[] = [
   {
     id: 'profile',
-    tool: 'Sketch',
-    gesture: 'Dropped two circles as construction, then asked for the lines and arcs tangent to both.',
-    body: PREAMBLE + profile(76),
-    image: '/img/landing/exchange-1.png',
-    alt: 'A sketch of two dash-dot construction circles with solved tangent lines and arcs closing a rocker-arm profile between them.',
+    label: 'Sketch 1',
+    feature: 'sketch',
+    summary: 'Arm profile',
+    detail:
+      'Two straight sides and semicircular ends form the arm profile, with the pivot centers 76 mm apart.',
+    body: `sketch("xy", () => {
+  line([0, -ARM_RADIUS], [SPAN, -ARM_RADIUS]);
+  arc([SPAN, -ARM_RADIUS], [SPAN, ARM_RADIUS], [SPAN, 0]);
+  line([SPAN, ARM_RADIUS], [0, ARM_RADIUS]);
+  arc([0, ARM_RADIUS], [0, -ARM_RADIUS], [0, 0]);
+});`
   },
   {
     id: 'arm',
-    tool: 'Extrude',
-    gesture: 'Grabbed the region inside the profile and pulled it up 12 mm.',
-    body: ARM,
-    image: '/img/landing/exchange-2.png',
-    alt: 'The profile extruded into a flat rocker arm.',
+    label: 'Extrude 1',
+    feature: 'extrude',
+    summary: '12 mm arm',
+    detail: 'Extrude the closed profile 12 mm to form the body of the arm.',
+    body: 'const arm = extrude(ARM_THICKNESS);'
+  },
+  {
+    id: 'hub-sketch',
+    label: 'Sketch 2',
+    feature: 'sketch',
+    summary: 'Hub profile',
+    detail: 'Draw a 32 mm circle on the arm’s top face for the raised pivot hub.',
+    body: `sketch(arm.endFaces(), () => {
+  circle([0, 0], HUB_DIAMETER);
+});`
   },
   {
     id: 'hub',
-    tool: 'Boss',
-    gesture: 'Sketched a circle on the top face and pulled that up too.',
-    body: HUB,
-    image: '/img/landing/exchange-3.png',
-    alt: 'A cylindrical hub standing on the wide end of the arm.',
+    label: 'Extrude 2',
+    feature: 'extrude',
+    summary: '14 mm hub',
+    detail: 'Raise the hub 14 mm above the arm. The extrusion joins the existing body.',
+    body: 'const boss = extrude(HUB_HEIGHT);'
   },
   {
-    id: 'bores',
-    tool: 'Bore',
-    gesture: 'Two circles on the hub face, cut through everything under them.',
-    body: BORES,
-    image: '/img/landing/exchange-4.png',
-    alt: 'The hub and the small end bored through.',
+    id: 'holes-sketch',
+    label: 'Sketch 3',
+    feature: 'sketch',
+    summary: 'Pivot holes',
+    detail: 'Sketch a 20 mm pivot hole and an 11 mm hole at the other end. Nothing is cut yet.',
+    body: `sketch(boss.endFaces(), () => {
+  circle([0, 0], PIVOT_DIAMETER);
+  circle([SPAN, 0], TIP_HOLE_DIAMETER);
+});`
+  },
+  {
+    id: 'holes',
+    label: 'Cut',
+    feature: 'cut',
+    summary: 'Through both ends',
+    detail: 'Cut both circular profiles through the arm and hub.',
+    body: 'cut();'
   },
   {
     id: 'blend',
-    tool: 'Fillet',
-    gesture: 'Clicked the hub where it meets the arm. 4 mm.',
-    body: BLEND,
-    image: '/img/landing/exchange-5.png',
-    alt: 'The hub blended into the arm with a fillet, and its top rim rounded.',
-  },
-  {
-    id: 'span',
-    tool: 'Edit',
-    gesture: 'Typed 104 over the 76. The tangents re-solve, the bore stays on centre.',
-    body: PREAMBLE + profile(104) + ARM + HUB + BORES + BLEND,
-    rewrites: true,
-    image: '/img/landing/exchange-6.png',
-    alt: 'The same arm, reaching further, with the tangency between the two ends preserved.',
-  },
-];
-
-/** The file as it stands at `index`, and the lines that beat is responsible for. */
-export function fileAt(index: number): {code: string; from: number; to: number} {
-  const beat = BEATS[index];
-  if (beat.rewrites) {
-    const code = beat.body.trimEnd();
-    // The rewrite touches one line — the constant the rest of the file reads.
-    const line = code.split('\n').findIndex((text) => text.startsWith('const SPAN')) + 1;
-    return {code, from: line, to: line};
+    label: 'Fillet',
+    feature: 'fillet',
+    summary: '4 mm edge blend',
+    detail: 'Round the hub’s circular edges with a 4 mm fillet to finish the rocker arm.',
+    body: `select(edge().circle(HUB_DIAMETER));
+fillet(FILLET_RADIUS);`
   }
-  const before = BEATS.slice(0, index)
-    .map((b) => b.body)
-    .join('');
-  const code = (before + beat.body).trimEnd();
-  // Every body but the first ends in a newline, so its own last line is empty
-  // and must not be counted; the first beat opens the file at line 1.
-  const from = before === '' ? 1 : before.replace(/\n$/, '').split('\n').length + 1;
-  return {code, from, to: code.split('\n').length};
+]
+
+export function fileAt(index: number): { code: string; from: number; to: number } {
+  const before =
+    PREAMBLE +
+    '\n' +
+    STEPS.slice(0, index)
+      .map((step) => step.body + '\n\n')
+      .join('')
+  const code = before + STEPS[index].body
+  return {
+    code,
+    from: before.split('\n').length,
+    to: code.split('\n').length
+  }
 }

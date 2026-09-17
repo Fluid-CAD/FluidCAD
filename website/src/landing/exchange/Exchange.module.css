@@ -1,248 +1,168 @@
-/* Three columns in the app's own order: the tree, the model, the file. A CAD
-   user recognises the arrangement before reading a word of it, and that is
-   the point — the section claims the three are one thing, so it shows them
-   as one thing. */
-
-.stage {
-  margin-top: clamp(2.25rem, 4vw, 3.5rem);
-  display: grid;
-  gap: clamp(1.5rem, 3vw, 2.25rem);
-  grid-template-columns: minmax(0, 1fr);
+.workbench {
+  margin-top: 2.5rem;
+  border: 1px solid var(--fc-line-strong);
+  border-radius: var(--fc-radius-lg);
+  overflow: hidden;
+  background: var(--fc-bg);
 }
-
-@media (min-width: 62rem) {
-  .stage {
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-  }
-
-  /* The tree runs across the top of both columns until there is room to
-     stand it up beside them. */
-  .tree {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (min-width: 78rem) {
-  .stage {
-    grid-template-columns: 7.5rem minmax(0, 1fr) minmax(0, 1.1fr);
-    align-items: start;
-  }
-
-  .tree {
-    grid-column: auto;
-  }
-}
-
-/* ===== Feature tree ===== */
-
-.tree {
+.toolbar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 2px 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--fc-line);
+  flex-wrap: wrap;
 }
-
-@media (min-width: 78rem) {
-  .tree {
-    flex-direction: column;
-    /* Optical, not structural: the first row's label sits on the same line as
-       the filename beside it once the row's own padding is discounted. */
-    margin-top: 1.9rem;
-  }
-}
-
-/* The edit is not a feature, so it does not sit in the run of them. The rule
-   follows the rail: across the row while the steps run left to right, and
-   over the last one once they stand up in a column. */
-.apart {
-  margin-left: 0.5rem;
-  padding-left: 0.6rem;
-  border-left: 1px dashed var(--fc-line-strong);
-}
-
-@media (min-width: 78rem) {
-  .apart {
-    margin: 0.5rem 0 0;
-    padding: 0.5rem 0 0;
-    border-left: none;
-    border-top: 1px dashed var(--fc-line-strong);
-  }
-}
-
-.feature {
-  display: flex;
-  align-items: baseline;
-  gap: 0.7ch;
-  width: 100%;
-  padding: 0.3rem 0.5rem;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  font: inherit;
-  font-size: var(--fc-step--1);
-  color: var(--fc-ink-muted);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--fc-quick) var(--fc-ease), color var(--fc-quick) var(--fc-ease);
-}
-
-.feature:hover {
-  background: var(--fc-bg-raised);
+.partName {
+  font-weight: 600;
   color: var(--fc-ink);
 }
-
-.feature[aria-current='step'] {
+.stepCount {
+  font-size: 0.75rem;
+  color: var(--fc-ink-muted);
+}
+.featureIcon {
+  flex: none;
+  object-fit: contain;
+}
+.featureText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.featureLabel {
+  display: block;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.featureSummary {
+  display: block;
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  color: var(--fc-ink-faint);
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 1rem 0.75rem;
+  list-style: none;
+  border-right: 1px solid var(--fc-line);
+}
+.steps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--fc-ink-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.steps button {
+  width: 100%;
+  text-align: left;
+}
+.steps button[aria-current='step'] {
   background: var(--fc-live-wash);
+  border-color: var(--fc-live-edge);
   color: var(--fc-live);
 }
-
-.feature:focus-visible {
+.steps button:hover {
+  background: var(--fc-bg-sunken);
+}
+.steps button:focus-visible {
   outline: 2px solid var(--fc-live);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
-
-.featureIndex {
-  flex: none;
-  width: 1.4ch;
-  font-family: var(--fc-font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--fc-ink-faint);
+.workspace {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1.2fr) minmax(0, 1fr);
 }
-
-.feature[aria-current='step'] .featureIndex {
-  color: inherit;
-}
-
-.featureName {
-  white-space: nowrap;
-}
-
-/* ===== Model ===== */
-
-.frames {
-  position: relative;
-  aspect-ratio: 891 / 560;
-  /* A floor, so the sketch step — which is a thin diagonal band inside its
-     frame — still reads at the sizes where the column is narrow. */
-  min-height: 15rem;
-}
-
-/* Stacked and cross-faded: the geometry stays put between steps, which is
-   what makes the build read as one part changing rather than six pictures. */
-.frame {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  opacity: 0;
-  transition: opacity var(--fc-settle) var(--fc-ease);
-}
-
-.frame[data-shown] {
-  opacity: 1;
-}
-
-.gesture {
-  margin: 0.35rem 0 0;
-  /* Three lines' worth, held whatever this beat's sentence needs. Without it
-     the column changes height as the steps advance, which nudges the page
-     under a reader who is only trying to look at the model. */
-  min-height: 5.4rem;
-  max-width: 44ch;
-  font-size: var(--fc-step-0);
-  line-height: 1.5;
-  color: var(--fc-ink);
-  text-wrap: pretty;
-  animation: settle 420ms var(--fc-ease) both;
-}
-
-/* Which hand did it. The five viewport steps and the one editor step read
-   the same otherwise, and the direction is the whole point of the section. */
-.from {
-  display: block;
-  margin-bottom: 0.3rem;
-  font-family: var(--fc-font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
-  color: var(--fc-ink-faint);
-}
-
-/* ===== File ===== */
-
+.scene,
 .file {
   min-width: 0;
 }
-
-.filename {
+.scene {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin: 0 0 0.6rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--fc-line);
-  font-family: var(--fc-font-mono);
-  font-size: 0.8125rem;
-  color: var(--fc-ink-muted);
+  flex-direction: column;
 }
-
-/* Blue while the replay is writing, grey once a visitor has taken it over —
-   the same thing the colour means everywhere else on the page. */
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--fc-line-strong);
-  transition: background var(--fc-quick) var(--fc-ease);
+.viewer {
+  height: 25rem;
+  flex: 1;
+  min-height: 22rem;
 }
-
-.dot[data-live] {
-  background: var(--fc-live);
-}
-
-.pane {
-  height: clamp(16rem, 32vh, 22rem);
-}
-
-/* ===== Footnote ===== */
-
-.footnote {
-  margin: clamp(2rem, 3.5vw, 3rem) 0 0;
-  max-width: 62ch;
-  font-size: var(--fc-step-0);
+.caption {
+  margin: 0;
+  padding: 1rem 1.5rem 1.5rem;
+  min-height: 5rem;
+  font-size: var(--fc-step--1);
   line-height: 1.6;
   color: var(--fc-ink-muted);
-  text-wrap: pretty;
+  max-width: 65ch;
 }
-
-.footnote code {
+.file {
+  border-left: 1px solid var(--fc-line);
+  background: var(--fc-bg-sunken);
+}
+.filename {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--fc-line);
   font-family: var(--fc-font-mono);
-  font-size: 0.9em;
-  background: var(--fc-bg-raised);
-  border: 1px solid var(--fc-line);
-  border-radius: 4px;
-  padding: 0.05em 0.4em;
+  font-size: 0.75rem;
   color: var(--fc-ink);
 }
-
-@keyframes settle {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
+.filename span {
+  color: var(--fc-ink-muted);
+}
+.code {
+  position: relative;
+  height: 28rem;
+  padding: 1rem 0.5rem;
+}
+.footnote {
+  margin-top: 1.25rem;
+  font-size: var(--fc-step--1);
+  color: var(--fc-ink-muted);
+}
+@media (max-width: 62rem) {
+  .workspace {
+    grid-template-columns: 9rem minmax(0, 1fr);
   }
-  to {
-    opacity: 1;
-    transform: none;
+  .file {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--fc-line);
+  }
+  .code {
+    height: 20rem;
+  }
+  .viewer {
+    min-height: 18rem;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .frame,
-  .gesture {
-    transition: none;
-    animation: none;
+@media (max-width: 30rem) {
+  .workspace {
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+  }
+  .steps {
+    padding-inline: 0.35rem;
+  }
+  .steps button {
+    gap: 0.35rem;
+    padding-inline: 0.5rem;
+  }
+  .caption {
+    padding-inline: 0.75rem;
   }
 }

@@ -2,9 +2,8 @@ import type {ReactNode} from 'react';
 import Layout from '@theme/Layout';
 import Hero from '@site/src/landing/hero/Hero';
 import Exchange from '@site/src/landing/exchange/Exchange';
-import Kernel from '@site/src/landing/kernel/Kernel';
 import Assembly from '@site/src/landing/assembly/Assembly';
-import Hosts from '@site/src/landing/hosts/Hosts';
+import Mcp from '@site/src/landing/mcp/Mcp';
 import Get from '@site/src/landing/get/Get';
 import Gallery from '@site/src/landing/gallery/Gallery';
 import Close from '@site/src/landing/close/Close';
@@ -17,10 +16,9 @@ export default function Home(): ReactNode {
       <main>
         <Hero />
         <Exchange />
-        <Kernel />
         <Assembly />
-        <Hosts />
         <Get />
+        <Mcp />
         <Gallery />
         <Close />
       </main>

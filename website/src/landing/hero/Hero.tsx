@@ -2,7 +2,7 @@ import {useState} from 'react';
 import Link from '@docusaurus/Link';
 import Heading from '@theme/Heading';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import {IconBrandGithub} from '@tabler/icons-react';
+import {IconDownload} from '@tabler/icons-react';
 import {HERO_MODELS} from './models';
 import HeroViewport from './HeroViewport';
 import styles from './Hero.module.css';
@@ -37,18 +37,17 @@ export default function Hero() {
           </span>
         </Heading>
         <p className={styles.sub}>
-          FluidCAD is hybrid CAD. Sketch, extrude, fillet and the rest by clicking, then drop
-          into JavaScript for what a dialog cannot say. One file, on the OpenCascade{' '}
-          <span className={styles.unbroken}>B-Rep</span> kernel.
+          Sketch and shape parts with familiar CAD tools. Every feature becomes editable
+          JavaScript, so you can fine-tune dimensions, reuse designs, and make the model your own.
         </p>
         <div className={styles.actions}>
           <Link className={styles.primary} to="/docs/getting-started">
             Get started
           </Link>
-          <Link className={styles.secondary} href="https://github.com/Fluid-CAD/FluidCAD">
-            <IconBrandGithub size={18} stroke={1.75} aria-hidden />
-            View the source
-          </Link>
+          <a className={styles.secondary} href="#get">
+            <IconDownload size={18} stroke={1.75} aria-hidden />
+            Download
+          </a>
         </div>
       </div>
 

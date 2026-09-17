@@ -89,6 +89,13 @@
   min-width: 0;
 }
 
+.viewer {
+  height: clamp(20rem, 38vw, 32rem);
+  border: 1px solid var(--fc-line);
+  border-radius: var(--fc-radius-lg);
+  background: var(--fc-bg);
+}
+
 .render {
   display: block;
   width: 100%;

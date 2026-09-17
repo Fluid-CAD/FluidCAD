@@ -1,78 +1,56 @@
-import Link from '@docusaurus/Link';
-import {Section, SectionHead} from '../Section';
-import styles from './Gallery.module.css';
+import Link from '@docusaurus/Link'
+import { Section, SectionHead } from '../Section'
+import styles from './Gallery.module.css'
 
-/**
- * Finished parts, each one a tutorial you can follow to the same result.
- *
- * The stills are real viewport captures with the app's grid still under
- * them — transparent, so the grid sits on whichever ground the page is
- * wearing. Sizes vary because the parts do: a lantern is tall, a tray is
- * wide, and cropping them to a uniform tile would be the one decision that
- * made this look like a template.
- */
+/** The five worked examples in the documentation sidebar. */
 type Work = {
-  id: string;
-  title: string;
-  teaches: string;
-  image: string;
-  href: string;
+  id: string
+  title: string
+  teaches: string
+  image: string
+  href: string
   /** Cells that claim extra room because the part in them needs it. */
-  span?: 'tall' | 'wide';
-};
+  span?: 'tall' | 'wide'
+}
 
 const WORK: Work[] = [
   {
     id: 'lantern',
     title: 'Lantern',
-    teaches: 'Polygons, draft, shell, projected geometry, loft and revolve.',
-    image: '/img/docs/tutorials/lantern-final.png',
-    href: '/docs/tutorials/lantern',
+    teaches: 'A hollow body, lofted roof and revolved details.',
+    image: '/img/landing/gallery-lantern.png',
+    href: '/docs/tutorials/lantern'
   },
   {
-    id: 'gear-housing',
-    title: 'Gear housing',
-    teaches: 'Angled chamfers, multi-level extrudes, counterbores, circular patterns.',
-    image: '/img/docs/tutorials/gear-housing-final.png',
-    href: '/docs/tutorials/gear-housing',
+    id: 'upper-alignment-clamp',
+    title: 'Upper alignment clamp',
+    teaches: 'Constrained profiles, mirrored features and a tangent web.',
+    image: '/img/landing/gallery-upper-alignment-clamp.png',
+    href: '/docs/tutorials/upper-alignment-clamp'
   },
   {
-    id: 'cswp',
-    title: 'CSWP sample exam',
-    teaches: 'The certification part, built parametrically and then re-driven from its variables.',
-    image: '/img/docs/tutorials/cswp-sample-exam-final.png',
-    href: '/docs/tutorials/cswp-sample-exam',
-  },
-  {
-    id: 'ice-cube-tray',
-    title: 'Ice cube tray',
-    teaches: 'Draft cuts, internal fillets, a profile swept along a spine.',
-    image: '/img/docs/tutorials/ice-cube-tray-final.png',
-    href: '/docs/tutorials/ice-cube-tray',
-    span: 'wide',
-  },
-  {
-    id: 'fork',
-    title: 'Forked yoke',
-    teaches: 'Offset arc profiles, sketch-local mirror axes, thin annular cuts.',
-    image: '/img/docs/tutorials/fork-final.png',
-    href: '/docs/tutorials/fork',
-  },
-  {
-    id: 'hinge-bracket',
-    title: 'Hinge bracket',
-    teaches: 'Edge and face filters doing the selecting, so the model survives being re-driven.',
-    image: '/img/docs/tutorials/hinge-bracket-final.png',
-    href: '/docs/tutorials/hinge-bracket',
+    id: 'flange-with-notch',
+    title: 'Flange with notch',
+    teaches: 'A dimensioned flange with a central bore and mirrored notches.',
+    image: '/img/landing/gallery-flange-with-notch.png',
+    href: '/docs/tutorials/flange-with-notch'
   },
   {
     id: 'desk-organizer',
     title: 'Desk organizer',
-    teaches: 'A printable part, sized from its own parameters.',
-    image: '/img/docs/tutorials/desk-organizer-final.png',
+    teaches: 'Compartments, repeating features and finishing fillets.',
+    image: '/img/landing/gallery-desk-organizer.png',
     href: '/docs/tutorials/desk-organizer',
+    span: 'wide'
   },
-];
+  {
+    id: 'fork',
+    title: 'Forked yoke',
+    teaches: 'Arc profiles, mirrored geometry and annular cuts.',
+    image: '/img/landing/gallery-fork.png',
+    href: '/docs/tutorials/fork'
+  }
+]
 
 export default function Gallery() {
   return (
@@ -108,5 +86,5 @@ export default function Gallery() {
         <Link to="/docs/tutorials">All tutorials</Link>
       </p>
     </Section>
-  );
+  )
 }

@@ -1,64 +1,47 @@
-import {Section} from '../Section';
-import CodePane from '../CodePane';
-import {useReveal} from '../useReveal';
-import styles from './Assembly.module.css';
+import Link from '@docusaurus/Link'
+import { Section } from '../Section'
+import CodePane from '../CodePane'
+import HeroViewport from '../hero/HeroViewport'
+import { HERO_MODELS } from '../hero/models'
+import styles from './Assembly.module.css'
 
-const SOURCE = `const frame = insert(bracket()).grounded();
-const arm = insert(rocker());
+const hinge = HERO_MODELS.find((model) => model.id === 'hinge')!
+const SOURCE = `const block = insert(base()).grounded();
+const lid = insert(flap());
 
-mate("revolute", frame.connectors.pivot,
-                 arm.connectors.pivot);`;
+mate("revolute",
+  block.connectors.hinge,
+  lid.connectors.hinge,
+).rotate(65).limits(0, 180);`
 
 export default function Assembly() {
-  const [ref, shown] = useReveal<HTMLDivElement>();
-
   return (
-    <Section className={styles.section}>
-      <div ref={ref} className={styles.split} data-shown={shown || undefined}>
+    <Section>
+      <div className={styles.split}>
         <div className={styles.copy}>
-          <h2 className={styles.title}>Parts that know how they fit</h2>
+          <h2 className={styles.title}>Assemble parts. Define how they move.</h2>
           <p className={styles.lead}>
-            A part is a function that returns geometry. Insert it as many times as you need, name a
-            connector on the face or edge that does the locating, and mate the connectors. The
-            solver holds every mate while you move whatever is still free.
+            Insert reusable parts, fix one in place, and join their connectors with mates. Keep a
+            connection rigid, let a hinge rotate, or guide a part along a slide. The assembly solver
+            keeps the connections together.
           </p>
-
-          <CodePane className={styles.pane} code={SOURCE} aria-label="An assembly with one revolute mate" />
-
-          <dl className={styles.facts}>
-            <div>
-              <dt>Degrees of freedom</dt>
-              <dd>
-                <span className={styles.count}>1</span> rotation about the pivot, reported live as
-                you mate.
-              </dd>
-            </div>
-            <div>
-              <dt>Mates</dt>
-              <dd>Fastened, revolute, slider, cylindrical, planar, tangent.</dd>
-            </div>
-          </dl>
-
-          {/* Principle 5: what is ahead is labelled as ahead. */}
-          <p className={styles.ahead}>Driven joint animation is in progress.</p>
-        </div>
-
-        <figure className={styles.stage}>
-          <img
-            className={styles.render}
-            src="/img/landing/assembly-linkage.png"
-            alt="A grounded bracket with a rocker arm seated on its post, free to turn about the pivot."
-            width={1020}
-            height={520}
-            loading="lazy"
-            decoding="async"
+          <CodePane
+            className={styles.pane}
+            code={SOURCE}
+            aria-label="The hinge assembly shown in the viewer"
           />
+          <p className={styles.lead}>
+            <Link to="/docs/assembly">Explore assemblies →</Link>
+          </p>
+        </div>
+        <figure className={styles.stage}>
+          <HeroViewport model={hinge} className={styles.viewer} lazy />
           <figcaption className={styles.pivot}>
             <span className={styles.pivotDot} aria-hidden="true" />
-            revolute · bracket.pivot ↔ rocker.pivot
+            Two parts · one revolute mate · drag to orbit
           </figcaption>
         </figure>
       </div>
     </Section>
-  );
+  )
 }

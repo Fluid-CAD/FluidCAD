@@ -1,123 +1,91 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
-import {Section, SectionHead} from '../Section';
-import CodePane from '../CodePane';
-import {BEATS, fileAt} from './steps';
-import styles from './Exchange.module.css';
+import { useState } from 'react'
+import { Section, SectionHead } from '../Section'
+import CodePane from '../CodePane'
+import HeroViewport from '../hero/HeroViewport'
+import sketchIcon from '../../../../ui/public/icons/sketch.png'
+import extrudeIcon from '../../../../ui/public/icons/extrude.png'
+import cutIcon from '../../../../ui/public/icons/cut.png'
+import filletIcon from '../../../../ui/public/icons/fillet.png'
+import { STEPS, fileAt } from './steps'
+import styles from './Exchange.module.css'
 
-/** Long enough to read the gesture and find the line it wrote. */
-const BEAT_MS = 3600;
+const ICONS = { sketch: sketchIcon, extrude: extrudeIcon, cut: cutIcon, fillet: filletIcon }
+const models = STEPS.map((step, i) => ({
+  id: 'rocker-' + step.id,
+  label: step.label,
+  blurb: step.detail,
+  entry: 'rocker.part.js',
+  files: { 'rocker.part.js': fileAt(i).code },
+  thumbnail: '',
+  // All three sketches lie on XY or a parallel top face.
+  view: step.feature === 'sketch' ? ('top' as const) : ('5,-5,4' as const)
+}))
 
 export default function Exchange() {
-  const [index, setIndex] = useState(0);
-  /** Set the moment a visitor picks a beat: the replay is theirs from then on. */
-  const [held, setHeld] = useState(false);
-  const [running, setRunning] = useState(false);
-  const stageRef = useRef<HTMLDivElement>(null);
-
-  // The replay only runs while the section is on screen. A page that keeps a
-  // timer going three folds above the fold is spending someone's battery to
-  // animate nothing.
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      return undefined;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => setRunning(entries.some((entry) => entry.isIntersecting)),
-      {threshold: 0.3},
-    );
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!running || held) {
-      return undefined;
-    }
-    const timer = setTimeout(() => setIndex((i) => (i + 1) % BEATS.length), BEAT_MS);
-    return () => clearTimeout(timer);
-  }, [running, held, index]);
-
-  const pick = useCallback((next: number) => {
-    setHeld(true);
-    setIndex(next);
-  }, []);
-
-  const beat = BEATS[index];
-  const {code, from, to} = fileAt(index);
-
+  const [active, setActive] = useState(0)
+  const step = STEPS[active]
+  const { code, from, to } = fileAt(active)
   return (
     <Section ground="sunken">
       <SectionHead
-        title="What you do with the mouse lands in the file"
-        lead="Sketch, extrude, cut, fillet: every tool writes one plain JavaScript statement into a file you keep. Nothing goes into a format only this program can open. The last step below runs the other way, from a number you type back to the solid."
+        title="From a sketch to a solid"
+        lead="Build a rocker arm, one feature at a time. Every sketch, extrusion, cut and fillet has its own place in the history, and its own lines in the file."
       />
-
-      <div ref={stageRef} className={styles.stage}>
-        {/* Set like the app's History panel, because that is what it is: the
-            steps of one build, in order, each one selectable. The last row is
-            ruled off — it is not a feature, it is the file being edited. */}
-        <ol className={styles.tree} aria-label="Build steps">
-          {BEATS.map((step, i) => (
-            <li key={step.id} className={step.rewrites ? styles.apart : undefined}>
-              <button
-                type="button"
-                className={styles.feature}
-                aria-current={i === index ? 'step' : undefined}
-                onClick={() => pick(i)}>
-                <span className={styles.featureIndex} aria-hidden="true">
-                  {i + 1}
-                </span>
-                <span className={styles.featureName}>{step.tool}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-
-        <div className={styles.viewport}>
-          <div className={styles.frames}>
-            {BEATS.map((step, i) => (
-              <img
-                key={step.id}
-                src={step.image}
-                alt={i === index ? step.alt : ''}
-                className={styles.frame}
-                data-shown={i === index || undefined}
-                width={891}
-                height={560}
-                loading="lazy"
-                decoding="async"
-              />
-            ))}
-          </div>
-          <p className={styles.gesture} key={beat.id}>
-            <span className={styles.from}>
-              {beat.rewrites ? 'From the editor' : 'From the viewport'}
-            </span>
-            {beat.gesture}
-          </p>
+      <div className={styles.workbench}>
+        <div className={styles.toolbar}>
+          <span className={styles.partName}>Rocker arm</span>
+          <span className={styles.stepCount}>
+            Feature {active + 1} of {STEPS.length}
+          </span>
         </div>
-
-        <div className={styles.file}>
-          <p className={styles.filename}>
-            <span className={styles.dot} data-live={running && !held ? '' : undefined} aria-hidden="true" />
-            rocker.fluid.js
-          </p>
-          <CodePane
-            className={styles.pane}
-            code={code}
-            live={[from, to]}
-            follow
-            aria-label={`rocker.fluid.js after step ${index + 1} of ${BEATS.length}`}
-          />
+        <div className={styles.workspace}>
+          <ol className={styles.steps} aria-label="Modeling features">
+            {STEPS.map(({ id, label, feature, summary }, i) => (
+              <li key={id}>
+                <button
+                  type="button"
+                  onClick={() => setActive(i)}
+                  aria-current={active === i ? 'step' : undefined}
+                >
+                  <img
+                    className={styles.featureIcon}
+                    src={ICONS[feature]}
+                    width={24}
+                    height={24}
+                    alt=""
+                  />
+                  <span className={styles.featureText}>
+                    <span className={styles.featureLabel}>{label}</span>
+                    <span className={styles.featureSummary}>{summary}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <div className={styles.scene}>
+            <HeroViewport model={models[active]} className={styles.viewer} lazy />
+            <p className={styles.caption} aria-live="polite">
+              {step.detail}
+            </p>
+          </div>
+          <div className={styles.file}>
+            <div className={styles.filename}>
+              rocker.part.js <span>JavaScript</span>
+            </div>
+            <CodePane
+              code={code}
+              live={[from, to]}
+              follow
+              className={styles.code}
+              aria-label={step.label + ' source code'}
+            />
+          </div>
         </div>
       </div>
-
       <p className={styles.footnote}>
-        The feature tree is that file read the other way. Click a feature to roll the model back to
-        it, or put the cursor on its line; <code>breakpoint()</code> pins it there while you work on
-        what came before.
+        Choose a feature to see that point in the build. Its lines are highlighted in the file. Drag
+        the model to explore it in 3D.
       </p>
     </Section>
-  );
+  )
 }

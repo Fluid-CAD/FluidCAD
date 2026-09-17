@@ -14,12 +14,10 @@
 
 @media (min-width: 60rem) {
   .grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  /* The tray is twice as wide as it is deep, so it takes two cells rather
-     than being shrunk to match the upright parts beside it. One deliberate
-     break in the grid; seven parts across two rows with no gaps. */
+  /* Give the wide organizer room beside the upright fork. */
   .wide {
     grid-column: span 2;
   }
@@ -43,10 +41,10 @@
    a drawing does not zoom when you look at it. */
 .plate {
   display: flex;
-  flex: 1;
+  flex: none;
   align-items: center;
   justify-content: center;
-  min-height: 13rem;
+  height: 19rem;
   padding: 1rem;
   border: 1px solid var(--fc-line);
   border-radius: var(--fc-radius-lg);

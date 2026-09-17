@@ -22,6 +22,7 @@ const FIT_PADDING = 1.05;
 type Props = {
   model: HeroModel;
   className?: string;
+  lazy?: boolean;
 };
 
 /**
@@ -46,7 +47,7 @@ function connectionLooksCapable(): boolean {
  * once it has — the viewer says "Loading engine…", then "Building model…",
  * then hands over a finished part the visitor can turn.
  */
-export default function HeroViewport({model, className}: Props) {
+export default function HeroViewport({model, className, lazy = false}: Props) {
   const {siteConfig} = useDocusaurusContext();
   const {colorMode} = useColorMode();
   const {fluidcadViewerUrl, fluidcadEngineVersion} = siteConfig.customFields as {
@@ -55,6 +56,7 @@ export default function HeroViewport({model, className}: Props) {
   };
 
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const embedRef = useRef<ViewerEmbed | null>(null);
 
   const [gate, setGate] = useState<Gate>('checking');
@@ -72,8 +74,20 @@ export default function HeroViewport({model, className}: Props) {
       setGate('unsupported');
       return;
     }
-    setGate(connectionLooksCapable() ? 'boot' : 'held');
-  }, []);
+    const boot = () => setGate(connectionLooksCapable() ? 'boot' : 'held');
+    if (!lazy || !stageRef.current) {
+      boot();
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        boot();
+        observer.disconnect();
+      }
+    }, {rootMargin: '200px'});
+    observer.observe(stageRef.current);
+    return () => observer.disconnect();
+  }, [lazy]);
 
   const booted = gate === 'boot';
 
@@ -100,8 +114,8 @@ export default function HeroViewport({model, className}: Props) {
       setReadyEpoch((epoch) => epoch + 1);
     });
     const offScene = embed.on('scene', (event) => {
-      if (event.reason === 'load' && event.compileError) {
-        setFailed(true);
+      if (event.reason === 'load') {
+        setFailed(Boolean(event.compileError || event.objectErrors));
       }
     });
     const offError = embed.on('error', () => setFailed(true));
@@ -163,7 +177,7 @@ export default function HeroViewport({model, className}: Props) {
     + `&view=${bootView}&fit=tight&fit-padding=${FIT_PADDING}&refit=auto`;
 
   return (
-    <div className={`${styles.stage} ${className ?? ''}`}>
+    <div ref={stageRef} className={`${styles.stage} ${className ?? ''}`}>
       {booted && !failed && (
         <iframe
           ref={frameRef}

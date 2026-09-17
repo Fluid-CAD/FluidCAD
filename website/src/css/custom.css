@@ -200,6 +200,12 @@ h1, h2, h3, h4 {
   display: none;
 }
 
+@media (max-width: 996px) {
+  .navbar__items--right .header-social-link {
+    display: none;
+  }
+}
+
 .header-social-link::before {
   content: '';
   flex: 0 0 auto;

@@ -1,0 +1,42 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: center;
+}
+.title {
+  font-size: var(--fc-step-4);
+  line-height: 1.08;
+  letter-spacing: -0.028em;
+  font-weight: 650;
+  margin: 0;
+  color: var(--fc-ink);
+}
+.lead {
+  font-size: var(--fc-step-1);
+  line-height: 1.6;
+  color: var(--fc-ink-muted);
+  margin: 1.25rem 0;
+  max-width: 50ch;
+}
+.command {
+  background: var(--fc-bg-sunken);
+  border: 1px solid var(--fc-line);
+  color: var(--fc-ink);
+  padding: 1rem;
+  font-size: 0.875rem;
+}
+.placeholder {
+  min-height: 24rem;
+  background: var(--fc-bg-sunken);
+  border: 1px solid var(--fc-line);
+  border-radius: var(--fc-radius-lg);
+}
+@media (max-width: 48rem) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .placeholder {
+    min-height: 18rem;
+  }
+}

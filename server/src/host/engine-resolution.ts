@@ -5,53 +5,41 @@ import path from 'path';
  * Lets a workspace with no `node_modules/fluidcad` of its own run against the
  * engine that is executing it.
  *
- * A model's `init.js` imports the kernel as the bare specifier `fluidcad`, and
- * Vite externalizes that (`ssr.external`) so Node loads exactly one copy —
- * Invariant 1. Resolution walks up from the *importer*, which is a file in the
- * user's project, so a project that never ran `npm install` has nothing to walk
- * up to and the model fails with "Cannot find module 'fluidcad'".
+ * A model imports the kernel as the bare specifier `fluidcad`. Vite
+ * externalizes it (`ssr.external`) so Node loads one copy — Invariant 1 — and
+ * resolves it by walking up from the importer, a file in the user's project.
+ * The desktop shell runs engines from `~/.fluidcad/engines/…`, so a project
+ * that never ran `npm install` has nothing to walk up to.
  *
- * That was fine while the only way to start a server was from a project's own
- * install. The desktop shell resolves an engine from `~/.fluidcad/engines/…`
- * instead, and pinning an engine per project is the whole point of Phase 2, so
- * the engine has to be reachable without being installed into the project.
+ * Two jobs follow, kept apart on purpose:
  *
- * The fix is the boring one: **make the path exist.** When the workspace cannot
- * resolve the engine, the server links `node_modules/fluidcad` to its own
- * package root and drops a marker file naming the link as engine-managed. A
- * symlink is the only mechanism that satisfies every resolver that will ever
- * ask — Node ESM, CJS, an editor reading `jsconfig.json`, and above all
- * **Vite's own `tryNodeResolve`**, which dev SSR uses to resolve externalized
- * deps and which consults neither plugins nor Node loader hooks.
+ * - Loading the model never waits on a write into the project:
+ *   `EngineImportResolver` answers the runner's fetch of `fluidcad` with this
+ *   package's files whenever `runtimeUsesThisEngine` says the workspace has no
+ *   usable install of its own.
+ * - Making the path exist is for everything else — tsserver, `npm ls`, a user
+ *   looking in `node_modules`: `ensureEngineLink` plants a marked symlink to
+ *   this package. When the filesystem refuses (exFAT, SMB, read-only — issue
+ *   #66) that is a warning, not a failure.
  *
- * Two cleverer mechanisms were tried first and measured to fail, in ways worth
- * recording because both *looked* like they worked (geometry rendered fine):
+ * Two earlier attempts to make resolution alone do both jobs failed while
+ * *looking* fine: a `resolveId` plugin returning `{ external: true }` for a
+ * file id, which dev SSR ignores and inlines — a second kernel copy, split
+ * singletons, breakpoints reported as compile errors; and a Node loader hook,
+ * which Vite never consults because it resolves externals itself.
  *
- * - a Vite `resolveId` plugin returning `{ id: fileURL, external: true }` —
- *   dev SSR ignores the external flag for non-bare ids and **inlines** the
- *   kernel through its module runner, a second evaluation of every lib module.
- *   The singletons split: `instanceof BreakpointHit` fails, so a breakpoint
- *   reports as the compile error "FluidCAD breakpoint hit", and param
- *   overrides write to a registry nobody reads.
- * - a Node loader hook (`module.register`) answering failed resolutions —
- *   never consulted: Vite resolves externals with its own JS implementation
- *   (`fetchModule` → `tryNodeResolve`) and throws before Node is involved.
- *
- * The link is created only when resolution would otherwise fail *or land on a
- * different copy in an ancestor directory*. A project's own install — real or
- * npm-linked dev checkout — is never touched, and `lib-identity.ts` remains
- * the arbiter of mismatches there. An ancestor's install is different: a
- * project created inside a folder that happens to hold its own
- * `node_modules/fluidcad` (a workspace of test projects, say) would resolve
- * that copy while the server runs another, and Invariant 1 breaks before the
- * first render. Planting the link in the project's own `node_modules` shadows
- * the ancestor for every resolver — unless the ancestor's copy *is* this
- * engine (the CLI or an editor extension started from that install), in
- * which case there is nothing to shadow.
+ * The link is planted when resolution would fail *or land on a different copy
+ * in an ancestor directory*. A project's own install — real or `npm link` —
+ * is never touched; `lib-identity.ts` remains the arbiter there. An
+ * ancestor's copy is shadowed unless it *is* this engine.
  */
 
 /** Where `server/dist/host/engine-resolution.js` sits inside the package. */
-const PACKAGE_ROOT = path.resolve(import.meta.dirname, '../../..');
+export const ENGINE_PACKAGE_ROOT = path.resolve(import.meta.dirname, '../../..');
+const PACKAGE_ROOT = ENGINE_PACKAGE_ROOT;
+
+/** The `skipped` reason of the hub path, which has no workspace to link into. */
+export const NO_WORKSPACE_REASON = 'no workspace';
 
 /**
  * Names the sibling `fluidcad` entry as engine-managed, so the desktop shell's
@@ -106,8 +94,26 @@ function isThisEngine(root: string): boolean {
 
 export type EngineLinkResult =
   | { state: 'linked'; linkPath: string }
-  | { state: 'already-resolvable' }
+  /**
+   * `own`: the workspace's own install stands — a real directory or an
+   * `npm link` the user made, never a managed link or an ancestor's copy.
+   */
+  | { state: 'already-resolvable'; own: boolean }
   | { state: 'skipped'; reason: string };
+
+/**
+ * True when this engine, not a `node_modules` walk, decides what the
+ * workspace's `import 'fluidcad'` loads — every case except a workspace with
+ * a usable install of its own, and the hub path, which loads no workspace.
+ * The link is a courtesy to other tools; this is what keeps the model loading
+ * when the link cannot be made (`EngineImportResolver`).
+ */
+export function runtimeUsesThisEngine(link: EngineLinkResult): boolean {
+  if (link.state === 'skipped' && link.reason === NO_WORKSPACE_REASON) {
+    return false;
+  }
+  return !(link.state === 'already-resolvable' && link.own);
+}
 
 /**
  * Ensure `workspacePath` can resolve the engine, linking this server's own
@@ -117,7 +123,7 @@ export type EngineLinkResult =
  */
 export function ensureEngineLink(workspacePath: string): EngineLinkResult {
   if (!workspacePath) {
-    return { state: 'skipped', reason: 'no workspace' }; // The hub path.
+    return { state: 'skipped', reason: NO_WORKSPACE_REASON }; // The hub path.
   }
 
   const nodeModules = path.join(workspacePath, 'node_modules');
@@ -139,7 +145,7 @@ export function ensureEngineLink(workspacePath: string): EngineLinkResult {
     if (managed) {
       try {
         if (fs.realpathSync(linkPath) === fs.realpathSync(PACKAGE_ROOT)) {
-          return { state: 'already-resolvable' };
+          return { state: 'already-resolvable', own: false };
         }
       } catch {
         // Dangling — replace it below like any other stale link.
@@ -159,7 +165,7 @@ export function ensureEngineLink(workspacePath: string): EngineLinkResult {
   // by the link planted below, in the project's own `node_modules`.
   const resolved = resolveEngineFrom(workspacePath);
   if (resolved && (resolved.own || isThisEngine(resolved.root))) {
-    return { state: 'already-resolvable' };
+    return { state: 'already-resolvable', own: resolved.own };
   }
 
   // Whatever sits there resolves nothing (the check above) — but only replace
@@ -195,8 +201,9 @@ export function ensureEngineLink(workspacePath: string): EngineLinkResult {
     );
     return { state: 'linked', linkPath };
   } catch (err: any) {
-    // A read-only workspace can't be linked into; the model will fail to
-    // import with Node's own error, exactly as it did before this existed.
+    // A read-only workspace, or a filesystem without symlinks (EPERM from
+    // `symlink(2)` on exFAT, FAT32 and SMB — issue #66). The model still
+    // loads through `EngineImportResolver`; only the on-disk courtesy is lost.
     return { state: 'skipped', reason: err?.message ?? String(err) };
   }
 }

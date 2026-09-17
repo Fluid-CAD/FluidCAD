@@ -131,7 +131,6 @@ export async function startEngine(
   events.onSpawn?.(child);
   child.stdout?.on('data', (data) => events.onLog?.(String(data).trimEnd(), 'stdout'));
   child.stderr?.on('data', (data) => events.onLog?.(String(data).trimEnd(), 'stderr'));
-  child.on('exit', (code, signal) => events.onExit?.(code, signal));
 
   const url = await new Promise<string>((resolve, reject) => {
     let readyUrl: string | null = null;
@@ -177,11 +176,15 @@ export async function startEngine(
     child.on('exit', onExit);
   });
 
-  // Only now hand messages to the caller: the handshake above is the shell's
-  // business, everything after it is the window's.
+  // Only now hand messages and the exit to the caller: the handshake above is
+  // the shell's business, everything after it is the window's. An engine that
+  // dies *during* the handshake is reported once, through the rejection —
+  // and the reap on a failed `init-complete` above is the shell's own doing,
+  // not a crash for the window to announce.
   if (events.onMessage) {
     child.on('message', events.onMessage);
   }
+  child.on('exit', (code, signal) => events.onExit?.(code, signal));
 
   return { child, port, url, engine };
 }

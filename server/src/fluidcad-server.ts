@@ -978,7 +978,7 @@ export class FluidCadServer {
     // kernel — the hub path installs its manager via `setSceneManager` and
     // never comes through here. Deliberately fatal: the failure it catches
     // is silent, and a half-working session is worse than a clear stop.
-    const mismatch = findLibIdentityMismatch(workspacePath);
+    const mismatch = findLibIdentityMismatch(workspacePath, this.host.steeredEngineEntry?.() ?? null);
     if (mismatch) {
       throw new Error(mismatch.message);
     }

@@ -4,7 +4,13 @@ import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
-import { ensureEngineLink } from './engine-resolution.ts';
+import {
+  ENGINE_PACKAGE_ROOT,
+  NO_WORKSPACE_REASON,
+  ensureEngineLink,
+  runtimeUsesThisEngine,
+} from './engine-resolution.ts';
+import { EngineImportResolver } from './engine-import-resolver.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -25,17 +31,26 @@ export class LocalSceneHost implements SceneHost {
   server!: ViteDevServer;
   private rootPath: string = '';
   private buffers: Map<string, string> = new Map();
+  /** Set when this engine answers the workspace's `import 'fluidcad'` itself. */
+  private engineImports: EngineImportResolver | null = null;
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
     const that = this;
     // A workspace with no engine install of its own gets a marked
-    // `node_modules/fluidcad` link to this server's copy — see
-    // `engine-resolution.ts`. A no-op for every workspace that has one.
+    // `node_modules/fluidcad` link to this server's copy, for the tools that
+    // read the filesystem — see `engine-resolution.ts`. A no-op for every
+    // workspace that has one. Loading the model does not depend on it: the
+    // resolver installed below answers the import whether or not the link
+    // could be made.
     const link = ensureEngineLink(this.rootPath);
-    if (link.state === 'skipped' && link.reason !== 'no workspace') {
-      console.warn(`FluidCAD: could not link the engine into this workspace: ${link.reason}`);
+    if (link.state === 'skipped' && link.reason !== NO_WORKSPACE_REASON) {
+      console.warn(
+        `FluidCAD: could not link the engine into this workspace (${link.reason}). ` +
+          'Models still load through the running engine.',
+      );
     }
+    this.engineImports = runtimeUsesThisEngine(link) ? new EngineImportResolver(ENGINE_PACKAGE_ROOT) : null;
     this.server = await createServer({
       root: rootPath,
       server: {
@@ -100,6 +115,11 @@ export class LocalSceneHost implements SceneHost {
         }
       ]
     });
+    this.engineImports?.install(this.server.environments.ssr);
+  }
+
+  steeredEngineEntry(): string | null {
+    return this.engineImports?.resolveFile('fluidcad') ?? null;
   }
 
   setBuffer(id: string, code: string) {

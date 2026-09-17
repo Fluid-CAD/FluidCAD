@@ -29,6 +29,13 @@ export interface SceneHost {
    * scan is stale. Best-effort: an empty result disables caching for the file.
    */
   getModuleDependencies?(filePath: string): string[];
+  /**
+   * The kernel entry file the host itself hands to the workspace's
+   * `import 'fluidcad'` (see `EngineImportResolver`), or null when the
+   * workspace's own resolution stands. `lib-identity.ts` compares it with
+   * the copy the server imports.
+   */
+  steeredEngineEntry?(): string | null;
 }
 
 /**

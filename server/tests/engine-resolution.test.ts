@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { ensureEngineLink, ENGINE_LINK_MARKER } from '../src/host/engine-resolution.ts';
+import { vi } from 'vitest';
+import { ensureEngineLink, runtimeUsesThisEngine, ENGINE_LINK_MARKER } from '../src/host/engine-resolution.ts';
 
 /**
  * The rule: link this server's package into the workspace *only* when the
@@ -15,6 +16,11 @@ import { ensureEngineLink, ENGINE_LINK_MARKER } from '../src/host/engine-resolut
  *   (a Vite plugin, Node loader hooks) left Vite's own `tryNodeResolve`
  *   unsatisfied or made it inline a second lib copy — breakpoints then
  *   surfaced as the compile error "FluidCAD breakpoint hit".
+ *
+ * The link is now the courtesy half of the story: `EngineImportResolver`
+ * answers the runtime's import whenever `runtimeUsesThisEngine` says this
+ * engine owns it, so a link that cannot be made (issue #66) costs nothing but
+ * the on-disk path. The policy is pinned at the bottom of this file.
  */
 
 let workspace: string;
@@ -125,5 +131,43 @@ describe('ensureEngineLink', () => {
 
   it('does nothing without a workspace (the hub path)', () => {
     expect(ensureEngineLink('').state).toBe('skipped');
+  });
+});
+
+describe('runtimeUsesThisEngine', () => {
+  it('is the engine\'s call for a workspace that has no install of its own', () => {
+    expect(runtimeUsesThisEngine(ensureEngineLink(workspace))).toBe(true);
+    // Idempotent: the managed link now resolves, and it is still ours.
+    const relinked = ensureEngineLink(workspace);
+    expect(relinked).toEqual({ state: 'already-resolvable', own: false });
+    expect(runtimeUsesThisEngine(relinked)).toBe(true);
+  });
+
+  it('is the workspace\'s call when it installed its own engine', () => {
+    installEngineAt(workspace);
+    const result = ensureEngineLink(workspace);
+    expect(result).toEqual({ state: 'already-resolvable', own: true });
+    expect(runtimeUsesThisEngine(result)).toBe(false);
+  });
+
+  it('is the engine\'s call when the link cannot be made (EPERM on exFAT, issue #66)', () => {
+    const symlink = vi.spyOn(fs, 'symlinkSync').mockImplementation(() => {
+      const err: any = new Error("EPERM: operation not permitted, symlink 'engine' -> 'workspace/node_modules/fluidcad'");
+      err.code = 'EPERM';
+      throw err;
+    });
+    try {
+      const result = ensureEngineLink(workspace);
+      expect(result.state).toBe('skipped');
+      expect((result as { reason: string }).reason).toMatch(/EPERM/);
+      expect(fs.existsSync(linkPath())).toBe(false);
+      expect(runtimeUsesThisEngine(result)).toBe(true);
+    } finally {
+      symlink.mockRestore();
+    }
+  });
+
+  it('is nobody\'s call on the hub path, which loads no workspace', () => {
+    expect(runtimeUsesThisEngine(ensureEngineLink(''))).toBe(false);
   });
 });

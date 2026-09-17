@@ -60,8 +60,17 @@ function packageRootOf(entry: string): string | null {
  * workspace with no `fluidcad` in its own `node_modules` resolves the bare
  * specifier through the same lookup the server would, so there is no second
  * copy to find and nothing to warn about.
+ *
+ * `steeredEntry` is the file the host itself hands to that import when it
+ * answers it in place of a `node_modules` walk (`SceneHost.steeredEngineEntry`).
+ * Then *that* is what the workspace imports, whatever sits on disk — a
+ * different copy in an ancestor directory is never consulted — so it is what
+ * gets compared.
  */
-export function findLibIdentityMismatch(workspacePath: string): LibIdentityMismatch | null {
+export function findLibIdentityMismatch(
+  workspacePath: string,
+  steeredEntry: string | null = null,
+): LibIdentityMismatch | null {
   if (!workspacePath) {
     return null;
   }
@@ -74,12 +83,16 @@ export function findLibIdentityMismatch(workspacePath: string): LibIdentityMisma
   }
 
   let workspaceEntry: string | null = null;
-  try {
-    // Resolve as `init.js` itself would: from the workspace root, walking up.
-    const requireFromWorkspace = createRequire(path.join(workspacePath, 'init.js'));
-    workspaceEntry = realpathOrNull(requireFromWorkspace.resolve('fluidcad'));
-  } catch {
-    return null; // Nothing installed to resolve — see the doc comment above.
+  if (steeredEntry) {
+    workspaceEntry = realpathOrNull(steeredEntry);
+  } else {
+    try {
+      // Resolve as `init.js` itself would: from the workspace root, walking up.
+      const requireFromWorkspace = createRequire(path.join(workspacePath, 'init.js'));
+      workspaceEntry = realpathOrNull(requireFromWorkspace.resolve('fluidcad'));
+    } catch {
+      return null; // Nothing installed to resolve — see the doc comment above.
+    }
   }
   if (!workspaceEntry || workspaceEntry === serverLib) {
     return null;

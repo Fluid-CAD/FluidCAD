@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://fluidcad.io/img/logo.png" alt="FluidCAD Logo" width="120" />
+  <img src="website/static/img/logo.png" alt="FluidCAD Logo" width="120" />
 </p>
 
 <h1 align="center">FluidCAD</h1>

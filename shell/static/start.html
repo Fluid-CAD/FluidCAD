@@ -295,16 +295,15 @@
   <body>
     <header>
       <!-- The FluidCAD logo, inlined from website/static/img/logo.svg. -->
-      <svg class="logo" viewBox="0 0 500 500" aria-hidden="true">
-        <g transform="translate(250, 250)">
-          <text x="-142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">{</text>
-          <text x="142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">}</text>
-          <g transform="translate(0, -35)">
-            <polygon points="0,-110 -95,-55 -95,55 0,110 95,55 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round"/>
-            <polyline points="-95,-55 0,0 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
-            <line x1="0" y1="0" x2="0" y2="110" stroke="#5ba3d9" stroke-width="10" stroke-linecap="round"/>
-          </g>
-        </g>
+      <svg class="logo" viewBox="0 0 200 200" aria-hidden="true">
+        <title>FluidCAD — Split Cube</title>
+        <desc>A separated three-face cube inside two isometric code brackets.</desc>
+        <g id="bracket-left"><path d="M92 24L32 59V141L92 176V148L56 127V73L92 52Z" fill="#3B82F6"/></g>
+        <g id="bracket-right"><path d="M108 24L168 59V141L108 176V148L144 127V73L108 52Z" fill="#2763C4"/></g>
+        <g id="bracket-top-faces"><path d="M92 24L32 59L56 73L92 52ZM108 24L168 59L144 73L108 52Z" fill="#93D2FF"/></g>
+        <g id="cube-top"><polygon points="100.0000,61.0000 131.0000,79.0000 100.0000,97.0000 69.0000,79.0000" fill="#93D2FF"/></g>
+        <g id="cube-left"><polygon points="67.0000,83.5000 98.0000,101.5000 98.0000,137.5000 67.0000,119.5000" fill="#3B82F6"/></g>
+        <g id="cube-right"><polygon points="102.0000,101.5000 133.0000,83.5000 133.0000,119.5000 102.0000,137.5000" fill="#2763C4"/></g>
       </svg>
       <div>
         <div class="mark">FluidCAD</div>

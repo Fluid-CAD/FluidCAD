@@ -50,6 +50,7 @@ export function openStartScreen(): void {
     minWidth: 720,
     minHeight: 480,
     title: 'FluidCAD',
+    icon: path.join(__dirname, '..', 'static', 'icon.png'),
     backgroundColor: '#1c1c1c',
     show: false,
     // The launcher has nothing for File/Edit/View to act on; on Windows and

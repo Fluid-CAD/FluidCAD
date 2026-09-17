@@ -38,7 +38,7 @@ export class TopBar {
     const brand = document.createElement('div');
     brand.className = 'flex items-center gap-1.5 shrink-0';
     brand.innerHTML = `
-      <img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-80" />
+      <img src="/logo.svg" alt="FluidCAD" class="h-8 w-8 shrink-0" />
       <span class="text-[17px] font-bold text-base-content/80 tracking-tight">FluidCAD</span>
     `;
     this.el.appendChild(brand);

@@ -84,6 +84,7 @@ export class ProjectWindow {
       x: bounds?.x,
       y: bounds?.y,
       title: path.basename(workspacePath),
+      icon: path.join(STATIC_DIR, 'icon.png'),
       backgroundColor: '#1c1c1c',
       show: true,
       webPreferences: {

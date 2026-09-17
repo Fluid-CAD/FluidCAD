@@ -102,7 +102,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/social-card.png',
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -110,7 +110,7 @@ const config: Config = {
       title: 'FluidCAD',
       logo: {
         alt: 'FluidCAD Logo',
-        src: 'img/logo.png',
+        src: 'img/logo.svg',
       },
       items: [
         {

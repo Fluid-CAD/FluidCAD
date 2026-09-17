@@ -7,6 +7,7 @@ ROOT_DIR="$EXT_DIR/../.."
 
 # Convert HTML <img> tags to markdown syntax and strip HTML wrapper tags
 sed 's|<img src="\([^"]*\)" alt="\([^"]*\)"[^/]*/> *|![\2](\1)|g
+s|website/static/img/logo.png|resources/logo.png|g
 /<p align="center">/d
 /<\/p>/d
 /<h1 align="center">/d

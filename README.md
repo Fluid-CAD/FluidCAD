@@ -226,7 +226,7 @@ Step-by-step tutorials from simple shapes to exam-level parts. [Browse all tutor
     </td>
     <td align="center" width="33%">
       <a href="https://fluidcad.io/docs/tutorials/grooved-box">
-        <img src="https://fluidcad.io/img/docs/tutorials/grooved-box-final.png" alt="Grooved Box" height="180" /><br />
+        <img src="https://fluidcad.io/img/docs/tutorials/grooved-box-ui-20-finished.png" alt="Grooved Box" height="180" /><br />
         <strong>Grooved Box</strong>
       </a>
     </td>

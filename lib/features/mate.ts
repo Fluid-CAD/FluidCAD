@@ -1,10 +1,23 @@
-import { AssemblyMate, MateType } from "../rendering/assembly-scene.js";
+import { AssemblyMate, MateType, AssemblyScene } from "../rendering/assembly-scene.js";
 import { BoundConnector, Connector } from "./connector.js";
 import { BoundExposure } from "./exposed.js";
 import { SourceLocation } from "../common/scene-object.js";
 
 export class MateBuilder {
-  constructor(private readonly mate: AssemblyMate) {}
+  constructor(private readonly mate: AssemblyMate, private readonly scene?: AssemblyScene) {}
+
+  /** Stable authored name, unique among mates in this assembly occurrence. */
+  name(name: string): this {
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new Error('mate().name(): expected a non-empty string.');
+    }
+    const value = name.trim();
+    if (this.scene?.getMates().some(m => m !== this.mate && m.owner === this.mate.owner && m.name === value)) {
+      throw new Error(`mate().name(): duplicate name "${value}" in this assembly scope.`);
+    }
+    this.mate.name = value;
+    return this;
+  }
 
   flip(): this {
     this.rejectOnTangent('flip()', 'contact side is canonical from the B-rep face orientation, so there is no side to flip');

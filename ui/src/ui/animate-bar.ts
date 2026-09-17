@@ -95,7 +95,8 @@ export class AnimateBar {
     // scene's width so a narrow screen wraps the fields instead of clipping
     // them. Under `lg` the scale bar and unit chips would meet the column
     // in the bottom row, so it sits one row up there.
-    this.bar.className = 'absolute bottom-6 max-lg:bottom-[68px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[115] '
+    // Bare embeds can use the bottom edge when there are no status chips.
+    this.bar.className = 'absolute bottom-[var(--fluidcad-animation-bottom,1.5rem)] max-lg:bottom-[var(--fluidcad-animation-bottom,68px)] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[115] '
       + 'w-max max-w-[calc(100%-var(--fluidcad-scene-left,0px)-1rem)] '
       + 'flex flex-col items-center gap-1.5 text-xs text-base-content/80 select-none cursor-default hidden';
     this.bar.innerHTML = `
@@ -147,8 +148,12 @@ export class AnimateBar {
   }
 
   /** Open (or retarget) the bar for a mate. Stops any running animation first. */
-  open(target: AnimateTarget): void {
+  open(target: AnimateTarget, { preserveSettings = false } = {}): void {
     this.pause();
+    const settings = preserveSettings && this.target?.mateId === target.mateId
+      && this.target.kind === target.kind
+      ? [this.startInput.value, this.endInput.value, this.stepsInput.value, this.playbackSelect.value]
+      : null;
     const current = this.host.getMateDriveState(target.mateId);
     this.target = target;
     this.restValue = current?.value ?? 0;
@@ -170,6 +175,9 @@ export class AnimateBar {
     this.endInput.value = fmt(end);
     this.stepsInput.value = String(DEFAULT_STEPS);
     this.playbackSelect.value = isAngle ? 'loop' : 'single';
+    if (settings) {
+      [this.startInput.value, this.endInput.value, this.stepsInput.value, this.playbackSelect.value] = settings;
+    }
     this.bar.classList.remove('hidden');
     this.renderPlayButton();
   }
@@ -201,8 +209,22 @@ export class AnimateBar {
     this.bar.remove();
   }
 
-  private play(): void {
-    if (!this.target) return;
+  isPlaying(): boolean {
+    return this.timer !== null;
+  }
+
+  /** Discard a scene's target without restoring a pose on its replacement. */
+  clear(): void {
+    if (this.timer !== null) window.cancelAnimationFrame(this.timer);
+    this.timer = null;
+    this.target = null;
+    this.bar.classList.add('hidden');
+    this.renderPlayButton();
+  }
+
+  /** Start or resume playback. Repeated calls do not create extra frame loops. */
+  play(): void {
+    if (!this.target || this.timer !== null) return;
     const steps = this.steps();
     // A sweep that already ran to the end restarts from the start.
     if (this.playback() === 'single' && this.step >= steps) {
@@ -232,7 +254,7 @@ export class AnimateBar {
     this.timer = window.requestAnimationFrame(this.frame);
   };
 
-  private pause(): void {
+  pause(): void {
     if (this.timer !== null) {
       window.cancelAnimationFrame(this.timer);
       this.timer = null;

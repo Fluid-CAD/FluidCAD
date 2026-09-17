@@ -99,6 +99,30 @@ describe('animate bar defaults', () => {
 });
 
 describe('animate bar playback', () => {
+  it('programmatic play is idempotent and clearing a scene cancels without restoring its pose', () => {
+    const { bar, driven, settle, pump } = mount();
+    bar.play();
+    bar.play();
+    expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(bar.isPlaying()).toBe(true);
+    bar.clear();
+    pump(4);
+    expect(driven).toEqual([0]);
+    expect(settle).not.toHaveBeenCalled();
+    expect(bar.mateId()).toBe(null);
+    expect(bar.isOpen()).toBe(false);
+    expect(bar.isPlaying()).toBe(false);
+  });
+
+  it('rebinds a rebuilt mate without resetting edited playback settings', () => {
+    const {bar, el} = mount();
+    bar.open({mateId: 'm1', kind: 'angle'}, {preserveSettings: true});
+    expect((el('end') as HTMLInputElement).value).toBe('90');
+    expect((el('steps') as HTMLInputElement).value).toBe('3');
+    bar.open({mateId: 'm2', kind: 'slide'}, {preserveSettings: true});
+    expect((el('end') as HTMLInputElement).value).toBe('10');
+  });
+
   it('single: sweeps start→end once and stops', () => {
     const { driven, settle, pump, el } = mount();
     el('play').click();

@@ -1,4 +1,4 @@
-import type {ViewerView} from '@site/src/lib/viewer-embed';
+import type {ViewerAnimation, ViewerView} from '@site/src/lib/viewer-embed';
 import cylinderSource from '!!raw-loader!../models/hero-cylinder.part.js';
 import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
 
@@ -38,6 +38,7 @@ export type HeroModel = {
    * there is to fill.
    */
   view?: ViewerView;
+  animation?: ViewerAnimation;
 };
 
 /**
@@ -52,6 +53,7 @@ export const HERO_MODELS: HeroModel[] = [
     label: 'Four-cylinder',
     blurb: 'Pistons on a crank, mated and replicated.',
     entry: 'main.assembly.js',
+    animation: {mate: 'crank-drive', owner: '', autoplay: true},
     files: {
       'init.js': engineInit,
       'main.assembly.js': engineMain,

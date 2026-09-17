@@ -118,7 +118,10 @@ export default function HeroViewport({model, className, lazy = false}: Props) {
         setFailed(Boolean(event.compileError || event.objectErrors));
       }
     });
-    const offError = embed.on('error', () => setFailed(true));
+    const offError = embed.on('error', (event) => {
+      // An unavailable animation target leaves a usable, static model.
+      if (event.stage !== 'animation') setFailed(true);
+    });
 
     return () => {
       offReady();
@@ -139,7 +142,7 @@ export default function HeroViewport({model, className, lazy = false}: Props) {
       return;
     }
     embedRef.current?.setFitPolicy({view: model.view ?? HERO_DEFAULT_VIEW});
-    embedRef.current?.load({files: model.files, entry: model.entry});
+    embedRef.current?.load({files: model.files, entry: model.entry, animation: model.animation});
   }, [model, readyEpoch]);
 
   useEffect(() => {

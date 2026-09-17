@@ -7,6 +7,7 @@ import part from "../core/part.js";
 import connector from "../core/connector.js";
 import insert from "../core/insert.js";
 import mate from "../core/mate.js";
+import assembly from "../core/assembly.js";
 import expose from "../core/expose.js";
 import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
@@ -32,6 +33,39 @@ function startAssembly(): { p: Part; scene: AssemblyScene } {
 }
 
 describe("mate scope and validation", () => {
+  it('preserves authored names in serialized mates and rejects duplicate names within a scope', () => {
+    const { p, scene } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    const first = mate('revolute', a.connectors.top, b.connectors.top).name(' crank-drive ');
+    expect(scene.getSerializedMates()[0].name).toBe('crank-drive');
+    expect(first.name('crank-drive')).toBe(first);
+    const second = mate('revolute', a.connectors.bottom, b.connectors.bottom);
+    expect(() => second.name('crank-drive')).toThrow(/duplicate name/);
+    expect(() => second.name('  ')).toThrow(/non-empty/);
+    expect(() => second.name(null as any)).toThrow(/non-empty/);
+    first.name('renamed');
+    expect(() => second.name('crank-drive')).not.toThrow();
+    // Different occurrences may use the same local name.
+    scene.getMates()[1].owner = 'asm-0';
+    expect(() => first.name('crank-drive')).not.toThrow();
+    expect(scene.getSerializedMates().map(m => m.name)).toEqual(['crank-drive', 'crank-drive']);
+  });
+
+  it('keeps the same local mate name in separately inserted subassemblies', () => {
+    const { p, scene } = startAssembly();
+    const mechanism = assembly('hinge', () => {
+      const a = insert(p);
+      const b = insert(p);
+      mate('revolute', a.connectors.top, b.connectors.top).name('pivot');
+    });
+    insert(mechanism);
+    insert(mechanism);
+    const mates = scene.getSerializedMates();
+    expect(mates.map(m => m.name)).toEqual(['pivot', 'pivot']);
+    expect(new Set(mates.map(m => m.owner)).size).toBe(2);
+  });
+
   beforeEach(() => {
     getSceneManager().startScene();
   });

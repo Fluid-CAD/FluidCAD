@@ -60,6 +60,8 @@ const IMPLEMENTED_TYPES: ReadonlyArray<MateType> = [
  * planar accept Z only), `.limits(min, max)` (revolute in degrees, slider
  * in document units) and `.noPropagate()` (tangent: contact on the picked
  * face only, not its tangent-continuous chain).
+ * `.name('crank-drive')` assigns a stable authored name for viewer animation.
+ * Names must be non-empty and unique within the owning assembly occurrence.
  *
  * Only allowed in `*.assembly.js` files.
  *
@@ -108,7 +110,7 @@ function mate(type: MateType, a: MateSide, b: MateSide): MateBuilder {
       a, b, scene.nextMateId(), scene.currentScopePath(), sourceLocation ?? undefined,
     );
     scene.addMate(record);
-    return new MateBuilder(record);
+    return new MateBuilder(record, scene);
   }
 
   if (a instanceof BoundExposure || b instanceof BoundExposure) {
@@ -164,7 +166,7 @@ function mate(type: MateType, a: MateSide, b: MateSide): MateBuilder {
     sourceLocation ?? undefined,
   );
   scene.addMate(record);
-  return new MateBuilder(record);
+  return new MateBuilder(record, scene);
 }
 
 export default mate;

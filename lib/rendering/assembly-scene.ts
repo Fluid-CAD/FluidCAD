@@ -157,6 +157,8 @@ export type SerializedAssemblyConnector = {
  */
 export type AssemblyMate = {
   mateId: string;
+  /** Optional authored identity within the owning assembly occurrence. */
+  name?: string;
   /** Scope the mate() statement ran in: "" for root, else an occurrence path. */
   owner: string;
   type: MateType;
@@ -231,6 +233,7 @@ export type SerializedOccurrence = {
 
 export type SerializedMate = {
   mateId: string;
+  name?: string;
   owner: string;
   type: MateType;
   /** Connector sides — every mate type except tangent. */
@@ -590,6 +593,7 @@ export class AssemblyScene extends Scene {
     // during parse.
     return this._mates.map(mate => ({
       mateId: mate.mateId,
+      name: mate.name,
       owner: mate.owner,
       type: mate.type,
       connectorA: mate.connectorA && {

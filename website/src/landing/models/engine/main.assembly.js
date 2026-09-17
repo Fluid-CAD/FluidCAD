@@ -14,7 +14,7 @@ const c3 = connector('c3', [0, 156+(114*2), 157.2]);
 
 const c4 = connector('c4', [0, 156+(114*3), 157.2]);
 
-mate('revolute', part11.connectors.c1, origin1);
+mate('revolute', part11.connectors.c1, origin1).name('crank-drive');
 
 const pistonAssembly1 = insert(pistonAssembly);
 

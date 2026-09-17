@@ -8,6 +8,15 @@
 
 const CHANNEL = 'fluidcad-viewer';
 
+export type ViewerAnimation = {
+  /** Authored mate().name(), independent of declaration order. */
+  mate: string;
+  /** Occurrence path; omit when the name is unique across the assembly. */
+  owner?: string;
+  /** Open controls paused by default; true starts playback after load. */
+  autoplay?: boolean;
+};
+
 export type ViewerModel = {
   /** Workspace files by path. One entry is enough for a single-file model. */
   files: Record<string, string>;
@@ -15,6 +24,8 @@ export type ViewerModel = {
   entry: string;
   /** Optional workspace label, shown only by hosts that mount the top bar. */
   name?: string;
+  /** Omission clears animation when switching models. */
+  animation?: ViewerAnimation | null;
 };
 
 export type ViewerReadyEvent = {

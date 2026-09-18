@@ -59,6 +59,14 @@ function partGroupOf(obj: SceneObjectRender): PartGroupKind | undefined {
 }
 
 /** Per-render inputs shared by every renderSubtree call. */
+/** A row's toggle state, held by the row's source identity while a pause hides the row. */
+interface ParkedRowState {
+  row: SceneObjectRender;
+  state: 'collapsed' | 'constraints' | 'group';
+  /** The `:<groupKey>` tail of an expanded group key; empty for the id-keyed states. */
+  suffix: string;
+}
+
 interface RenderContext {
   items: SceneObjectRender[];
   rollbackStop: number;
@@ -212,6 +220,12 @@ export class TimelinePanel {
       && !isHiddenRow(obj) && !isConstraintRow(obj)) ?? null;
   }
   private rollbackStop = -1;
+  /** The displayed scene stopped early on a breakpoint — see update(). */
+  private paused = false;
+  /** The scene the pause interrupted: the rows it cut off are still known from here. */
+  private sceneBeforePause: SceneObjectRender[] = [];
+  /** Toggle state of rows the pause cut off, waiting for them to return — see carryRowStateOver(). */
+  private parkedRowState: ParkedRowState[] = [];
   /**
    * Set while the displayed render is a part-scoped rollback (the server
    * derived it from the clicked row): only that part's rows past the stop
@@ -364,19 +378,41 @@ export class TimelinePanel {
     };
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {
+  /**
+   * `paused` marks a scene the build stopped early on (a breakpoint): the
+   * module threw out at the breakpoint, so every statement after it is
+   * missing from `sceneObjects` rather than deleted from the source.
+   *
+   * The render that leaves the pause brings those rows back. It is not a
+   * scene of new features, so the panel keeps resting on the row it was
+   * paused on instead of following the current row to the tip, returning
+   * parts are not "new" (focusNewParts), and the row state the pause cut
+   * off is re-adopted (carryRowStateOver).
+   */
+  update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null, options: { paused?: boolean } = {}): void {
+    const paused = options.paused === true;
+    const leavingPause = this.paused && !paused;
+    if (paused && !this.paused) {
+      this.sceneBeforePause = this.sceneObjects;
+    }
+    const heldRow = leavingPause ? this.currentRowObject() : undefined;
+    const heldMatch = heldRow ? findMatchingRow(heldRow, sceneObjects) : undefined;
     this.pickedFeatureId = null;
     this.selectedIndices.clear();
     this.selectionAnchor = null;
     this.dragIndices = null;
-    this.carryRowStateOver(sceneObjects);
+    this.carryRowStateOver(sceneObjects, paused);
     this.focusNewParts(sceneObjects);
+    if (!paused) {
+      this.sceneBeforePause = [];
+    }
+    this.paused = paused;
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
     this.syncVisibility();
-    this.renderTimeline(true);
+    this.renderTimeline(true, heldMatch);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
   }
@@ -387,13 +423,15 @@ export class TimelinePanel {
    * part in the previous scene re-adopts it by source identity
    * (findMatchingRow) — a part whose body merely changed keeps its state.
    * The first load and scenes with no new part leave collapse state alone.
+   * A part the pause cut off is known from the scene before it — returning
+   * on Continue doesn't make it new.
    */
   private focusNewParts(next: SceneObjectRender[]): void {
     if (!this.loaded) {
       return;
     }
     const survivors = new Set<string>();
-    for (const prev of this.sceneObjects) {
+    for (const prev of [...this.sceneObjects, ...this.sceneBeforePause]) {
       if (prev.type === 'part') {
         const match = findMatchingRow(prev, next);
         if (match?.id != null) {
@@ -431,11 +469,25 @@ export class TimelinePanel {
    * whose body changed) arrives with a fresh id — and its open constraint
    * group would snap shut. Each remembered row is re-adopted by source
    * identity (findMatchingRow); rows that no longer resolve are dropped.
+   *
+   * Except into a paused scene: a row missing there was cut off by the
+   * breakpoint, not deleted. Its state is parked with the row's source
+   * identity and re-adopted by the first scene that has the row again, so a
+   * part collapsed before the pause is still collapsed after Continue. The
+   * first complete scene discards whatever is still parked — those rows
+   * really are gone.
    */
-  private carryRowStateOver(next: SceneObjectRender[]): void {
-    if (this.collapsedIds.size === 0 && this.expandedConstraintIds.size === 0 && this.expandedGroupKeys.size === 0) {
+  private carryRowStateOver(next: SceneObjectRender[], paused: boolean): void {
+    if (this.collapsedIds.size === 0 && this.expandedConstraintIds.size === 0 && this.expandedGroupKeys.size === 0 && this.parkedRowState.length === 0) {
       return;
     }
+    const stillParked: ParkedRowState[] = [];
+    const park = (id: string, state: ParkedRowState['state'], suffix = ''): void => {
+      const row = SceneIndex.of(this.sceneObjects).byId(id);
+      if (paused && row) {
+        stillParked.push({ row, state, suffix });
+      }
+    };
     const nextIds = new Set<string>();
     for (const obj of next) {
       if (obj.id != null) {
@@ -456,28 +508,51 @@ export class TimelinePanel {
       resolved.set(id, out);
       return out;
     };
-    const remapIds = (ids: Set<string>): Set<string> => {
+    const remapIds = (ids: Set<string>, state: ParkedRowState['state']): Set<string> => {
       const out = new Set<string>();
       for (const id of ids) {
         const to = resolve(id);
         if (to !== null) {
           out.add(to);
+        } else {
+          park(id, state);
         }
       }
       return out;
     };
-    this.collapsedIds = remapIds(this.collapsedIds);
-    this.expandedConstraintIds = remapIds(this.expandedConstraintIds);
+    this.collapsedIds = remapIds(this.collapsedIds, 'collapsed');
+    this.expandedConstraintIds = remapIds(this.expandedConstraintIds, 'constraints');
     const groupKeys = new Set<string>();
     for (const key of this.expandedGroupKeys) {
       // `<partId>:<groupKey>` — ids are UUIDs, so the first colon splits.
       const sep = key.indexOf(':');
-      const to = sep < 0 ? null : resolve(key.slice(0, sep));
+      if (sep < 0) {
+        continue;
+      }
+      const to = resolve(key.slice(0, sep));
       if (to !== null) {
         groupKeys.add(`${to}${key.slice(sep)}`);
+      } else {
+        park(key.slice(0, sep), 'group', key.slice(sep));
       }
     }
     this.expandedGroupKeys = groupKeys;
+
+    for (const parked of this.parkedRowState) {
+      const to = findMatchingRow(parked.row, next)?.id;
+      if (to == null) {
+        if (paused) {
+          stillParked.push(parked);
+        }
+      } else if (parked.state === 'collapsed') {
+        this.collapsedIds.add(to);
+      } else if (parked.state === 'constraints') {
+        this.expandedConstraintIds.add(to);
+      } else {
+        this.expandedGroupKeys.add(`${to}${parked.suffix}`);
+      }
+    }
+    this.parkedRowState = stillParked;
   }
 
   /**
@@ -583,6 +658,29 @@ export class TimelinePanel {
     return SceneIndex.of(this.sceneObjects).ancestors(obj);
   }
 
+  /**
+   * The object behind the current row. A container that rolls back to its
+   * last descendant is current together with the child the stop lands on, so
+   * the deepest current row is the precise one.
+   */
+  private currentRowObject(): SceneObjectRender | undefined {
+    const rows = this.timelineBody.querySelectorAll<HTMLElement>('[data-current="true"]');
+    const el = rows[rows.length - 1];
+    return el ? this.sceneObjects[parseInt(el.dataset.index!, 10)] : undefined;
+  }
+
+  /** The rendered row for `obj`, or for its nearest ancestor when a collapsed group hides it. */
+  private rowElementFor(obj: SceneObjectRender): HTMLElement | null {
+    const index = SceneIndex.of(this.sceneObjects);
+    for (const candidate of [obj, ...index.ancestors(obj)]) {
+      const el = this.timelineBody.querySelector<HTMLElement>(`[data-index="${index.position(candidate)}"]`);
+      if (el) {
+        return el;
+      }
+    }
+    return null;
+  }
+
   private scrollPickedIntoView(): void {
     const el = this.timelineBody.querySelector<HTMLElement>('[data-picked="true"]');
     if (el) {
@@ -655,7 +753,7 @@ export class TimelinePanel {
   // Timeline rendering
   // ---------------------------------------------------------------------------
 
-  private renderTimeline(scrollToCurrent = false): void {
+  private renderTimeline(scrollToCurrent = false, heldRow?: SceneObjectRender): void {
     const items = this.sceneObjects;
     const rollbackStop = this.rollbackStop;
 
@@ -882,9 +980,10 @@ export class TimelinePanel {
     }
 
     if (scrollToCurrent) {
-      const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
-      if (currentEl) {
-        this.revealRow(currentEl, false);
+      const revealEl = (heldRow ? this.rowElementFor(heldRow) : null)
+        ?? this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
+      if (revealEl) {
+        this.revealRow(revealEl, false);
       }
     }
   }

@@ -762,6 +762,10 @@ let currentSceneAbsPath: string | null = null;
 // then: the timeline's rows describe the previous scene, so their line
 // anchors can't be trusted against the broken buffer.
 let activeCompileError = false;
+// The last authoritative breakpoint state — the timeline is told which
+// scenes stopped early, so the render that leaves the pause (Continue, or
+// the breakpoint removed in the editor) isn't read as a scene of new rows.
+let breakpointActive = false;
 /**
  * Armed after a successful move-to-part ack: if the render that follows
  * fails to compile, the move is undone automatically (it applied as exactly
@@ -2923,7 +2927,9 @@ function applySceneRendered(msg: any): void {
     // the Export list filters its parts by it.
     let renderedAssembly: SerializedAssembly | undefined;
     if (rail.kind === 'part') {
-      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
+      // Responses without an authoritative flag (compile errors) serve the
+      // last scene, so the last known state still describes it.
+      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, { paused: msg.breakpointHit ?? breakpointActive });
       assemblyGizmo.handleModeExit();
     } else {
       const assembly = normalizeAssemblyPayload(msg.assembly);
@@ -2972,6 +2978,7 @@ function applySceneRendered(msg: any): void {
     // scene is a rollback still restores the indicator); compile-error
     // responses omit the flag and the last known state persists.
     if (msg.breakpointHit !== undefined) {
+      breakpointActive = msg.breakpointHit;
       breakpointIndicator.setActive(msg.breakpointHit);
     }
 }

@@ -33,6 +33,10 @@ const config: Config = {
 
   future: {
     v4: true,
+    faster: {
+      // Avoid restoring stale Rspack module graphs across server restarts.
+      rspackPersistentCache: false,
+    },
   },
 
   url: 'https://fluidcad.io',
@@ -80,6 +84,21 @@ const config: Config = {
   ],
 
   plugins: [
+    function devHtmlTemplate() {
+      return {
+        name: 'dev-html-template',
+        configureWebpack: () => ({
+          // Docusaurus 3.10 also enables the disk cache through experiments,
+          // independently of rspackPersistentCache. Disable that path too.
+          experiments: {cache: false},
+          module: {
+            // html-webpack-plugin's EJS loader emits CommonJS. Explicitly
+            // preserve that module format when Rspack compiles the dev shell.
+            rules: [{test: /dev\.html\.template\.ejs$/, type: 'javascript/auto'}],
+          },
+        }),
+      };
+    },
     // Reads the desktop builds off the latest GitHub release at build time so
     // the download section can state today's truth. Non-fatal when offline.
     './plugins/desktop-release.ts',

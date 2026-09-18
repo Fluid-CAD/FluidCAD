@@ -145,29 +145,11 @@ const config: Config = {
           label: 'API',
         },
         {
-          type: 'docsVersionDropdown',
-          position: 'right',
-        },
-        {
           href: 'https://github.com/Fluid-CAD/FluidCAD',
           label: 'GitHub',
           position: 'right',
           className: 'header-social-link header-github-link',
           'aria-label': 'FluidCAD on GitHub',
-        },
-        {
-          href: 'https://x.com/fluid_cad',
-          label: 'X',
-          position: 'right',
-          className: 'header-social-link header-x-link',
-          'aria-label': 'FluidCAD on X',
-        },
-        {
-          href: 'https://www.reddit.com/r/FluidCAD/',
-          label: 'Reddit',
-          position: 'right',
-          className: 'header-social-link header-reddit-link',
-          'aria-label': 'FluidCAD on Reddit',
         },
         {
           href: 'https://www.youtube.com/@FluidCAD',

@@ -222,17 +222,6 @@ h1, h2, h3, h4 {
   --fluidcad-social-icon: url('/img/social/github.svg');
 }
 
-.header-x-link {
-  --fluidcad-social-icon: url('/img/social/x.svg');
-  /* The X mark fills its viewBox corner to corner, so it reads larger than the
-     round marks at the same box size — pull it back for optical parity */
-  --fluidcad-social-icon-size: 85%;
-}
-
-.header-reddit-link {
-  --fluidcad-social-icon: url('/img/social/reddit.svg');
-}
-
 .header-youtube-link {
   --fluidcad-social-icon: url('/img/social/youtube.svg');
 }

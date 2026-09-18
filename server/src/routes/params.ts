@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { sceneUnitFields } from '../fluidcad-server.ts';
+import { UI_APPLY_WAIT_MS } from './render.ts';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
@@ -136,6 +137,7 @@ export function createParamsRouter(
   sendToExtension: (msg: any) => void,
   broadcastToUI: (msg: any) => void,
   dispatcher: FeatureEditDispatcher,
+  awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
 ): Router {
   const router = Router();
 
@@ -234,11 +236,15 @@ export function createParamsRouter(
     });
     // A recompute that runs to completion can still leave features broken —
     // report which ones instead of a bare success. See `RenderOutcome`.
+    // `awaitUi: true` (the MCP's recompute): answer once a viewer has the
+    // render on screen — see `RenderOutcome.uiApplied`.
+    const uiApplied = req.body?.awaitUi === true ? await awaitSceneApplied(UI_APPLY_WAIT_MS) : undefined;
     res.json({
       success: true,
       state: data.objectErrors.length > 0 ? 'build-error' : 'rendered',
       objectErrors: data.objectErrors,
       ...(data.changes ? { changes: data.changes } : {}),
+      ...(uiApplied !== undefined ? { uiApplied } : {}),
     });
   });
 

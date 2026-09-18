@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { basename, join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
 import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
@@ -9,7 +9,7 @@ import { findLibIdentityMismatch } from './lib-identity.ts';
 import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
-import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
+import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../lib/dist/index.js';
 import { scanFileForParts } from './part-catalog/scan.ts';
 import type { PartScanResult } from './part-catalog/scan.ts';
 import type {
@@ -20,7 +20,9 @@ import type {
 import { MeasureEntityResolver } from './measure-entities.ts';
 import type { MeasureEntitiesFailure, MeasureEntity } from './measure-entities.ts';
 import type { CompileError } from './ws-protocol.ts';
-import { readProjectConfig } from './project-config.ts';
+import { PROJECT_CONFIG_FILENAME, readProjectConfig } from './project-config.ts';
+import { RenderInputs } from './render-inputs.ts';
+import type { RenderFingerprint } from './render-inputs.ts';
 import type { LengthUnit } from './project-config.ts';
 
 /** One measured face/edge; assembly entities name their instance and may carry its live world pose. */
@@ -898,12 +900,26 @@ export class FluidCadServer {
   // connection UUID. Maps must be cleared via `destroySession` on hub-side
   // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
-  private renderingCache = new Map<string, { result: any[]; unit: LengthUnit; declaredUnit: LengthUnit | null; assembly?: SerializedAssembly }>();
+  // A session's last complete render, served again on `process-file` — but
+  // only while `fingerprint` (every file it was built from + the overrides it
+  // ran with) still matches; see RenderInputs. `registry` is the param
+  // registry that render populated, re-installed on a hit so the params the
+  // server answers with are this file's, not the last rendered file's.
+  private renderingCache = new Map<string, { data: SceneRenderedData; fingerprint: RenderFingerprint; registry: ParamRegistry }>();
   // Records the last successful render per session as `{ paramsHash, data }`.
   // Any subsequent render request short-circuits when the new params hash to
   // the same value — avoids redundant OCC work when desktop producers see the
-  // same code+params, or hub clients re-emit the same param mutation.
-  private lastRendered = new Map<string, { paramsHash: string; data: SceneRenderedData }>();
+  // same code+params, or hub clients re-emit the same param mutation. The
+  // hash covers the entry's own text; `fingerprint` covers everything else
+  // the render was built from.
+  private lastRendered = new Map<string, { paramsHash: string; data: SceneRenderedData; fingerprint: RenderFingerprint }>();
+  // The fingerprint of each session's last successful render, or null when
+  // its inputs could not be enumerated (such a render is never re-served).
+  private renderFingerprints = new Map<string, RenderFingerprint | null>();
+  private renderInputs: RenderInputs;
+  // Live buffers this server seeded from disk (no editor sent them), with the
+  // hashes of what was seeded — a seed follows its file when the disk changes.
+  private diskSeeds = new Map<string, { bufferHash: string; diskHash: string }>();
   private paramOverrides: Map<string, Map<string, any>> = new Map();
   // Per session, the default each `param()` was authored with as of the last
   // render — `label → the literal in the source`. An override is a delta over
@@ -942,6 +958,7 @@ export class FluidCadServer {
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
+    this.renderInputs = new RenderInputs(host);
   }
 
   getCurrentCode(): string | null {
@@ -1037,6 +1054,7 @@ export class FluidCadServer {
     this.previousScenes.delete(sessionId);
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
+    this.renderFingerprints.delete(sessionId);
     this.paramOverrides.delete(sessionId);
     this.lastParamDefaults.delete(sessionId);
     this.sessionFiles.delete(sessionId);
@@ -1133,22 +1151,15 @@ export class FluidCadServer {
 
       if (!ignoreCache) {
         const fromCache = this.renderingCache.get(sessionId);
-        if (fromCache) {
-          this.lastRollbackStop = fromCache.result.length - 1;
+        if (fromCache && this.isFingerprintCurrent(sessionId, fromCache.fingerprint)) {
+          // Everything a render would have left behind: the stop, the
+          // breakpoint state, and this file's params as the live registry.
+          this.lastRollbackStop = fromCache.data.rollbackStop;
           this.lastRollbackScopePartId = null;
+          this.lastBreakpointHit = fromCache.data.breakpointHit === true;
           this.compileError = null;
-          return {
-            absPath: normalizedFileName,
-            sceneKind,
-            unit: fromCache.unit,
-            declaredUnit: fromCache.declaredUnit,
-            projectUnit: this.projectUnitOf(),
-            result: fromCache.result,
-            rollbackStop: fromCache.result.length - 1,
-            breakpointHit: this.lastBreakpointHit,
-            objectErrors: FluidCadServer.collectObjectErrors(fromCache.result),
-            ...(fromCache.assembly ? { assembly: fromCache.assembly } : {}),
-          };
+          setParamRegistry(fromCache.registry);
+          return fromCache.data;
         }
       }
 
@@ -1215,6 +1226,10 @@ export class FluidCadServer {
 
         const params = getParamRegistry().getDefinitions();
         this.settleParamOverrides(sessionId, registry);
+        // After the overrides settled: a render can drop overrides the source
+        // re-declared, and the fingerprint must describe what is in effect.
+        const fingerprint = this.captureFingerprint(sessionId, normalizedFileName);
+        this.renderFingerprints.set(sessionId, fingerprint);
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
@@ -1267,21 +1282,11 @@ export class FluidCadServer {
         const unit = FluidCadServer.sceneUnitOf(scene);
         const declaredUnit = FluidCadServer.sceneDeclaredUnitOf(scene);
 
-        if (!filePath.startsWith('virtual:live-render')) {
-          this.renderingCache.set(sessionId, assembly ? { result, unit, declaredUnit, assembly } : { result, unit, declaredUnit });
-        }
-
-        // This file's fresh content must reach every OTHER session that
-        // imports it — editing a part then switching back to the assembly
-        // would otherwise serve the assembly's cached render (its dedup
-        // hash only sees the assembly's own unchanged code).
-        this.invalidateDependentSessions(sessionId, normalizedFileName);
-
         this.lastRollbackStop = result.length - 1;
         this.lastRollbackScopePartId = null;
         this.compileError = null;
 
-        return {
+        const data: SceneRenderedData = {
           absPath: normalizedFileName,
           sceneKind,
           unit,
@@ -1293,8 +1298,20 @@ export class FluidCadServer {
           params,
           objectErrors: FluidCadServer.collectObjectErrors(result),
           ...(assembly ? { assembly } : {}),
-          ...(renderChanges ? { changes: renderChanges } : {}),
         };
+
+        // No other session's cache is touched: a dependent's cached render
+        // is validated against this file's content when it is next asked
+        // for, so viewing a file costs its dependents nothing and editing
+        // one makes them miss.
+        if (!filePath.startsWith('virtual:live-render') && fingerprint) {
+          this.renderingCache.set(sessionId, { data, fingerprint, registry });
+        } else {
+          this.renderingCache.delete(sessionId);
+        }
+
+        // The change summary describes THIS render only — never the cached copy.
+        return renderChanges ? { ...data, changes: renderChanges } : data;
       }
       catch (error) {
         this.host.invalidateModule();
@@ -1305,30 +1322,33 @@ export class FluidCadServer {
   }
 
   /**
-   * Drop the cached renders of every session whose module graph depends on
-   * the file that just rendered — its content changed (or may have), and a
-   * dependent's dedup hash covers only that dependent's own code. Without
-   * this, editing a part file and switching back to the assembly serves the
-   * assembly's pre-edit cached render, so new part connectors never appear.
-   * The dependency walk reads the dependent's LAST render's module graph
-   * (edges survive invalidation), and the host call is optional — a
-   * workspace fluidcad install may predate it.
+   * Fingerprint the render that just ran for this session: its module graph,
+   * the project config, and whatever files the engine read while building
+   * (optional call — the workspace's fluidcad install may predate it).
    */
-  private invalidateDependentSessions(renderedSessionId: string, renderedFile: string): void {
-    if (!this.host.getModuleDependencies) {
-      return;
+  private captureFingerprint(sessionId: string, entryFile: string): RenderFingerprint | null {
+    const extraFiles: string[] = [];
+    if (this.workspacePath) {
+      extraFiles.push(join(this.workspacePath, PROJECT_CONFIG_FILENAME));
     }
-    const sessions = new Set([...this.renderingCache.keys(), ...this.lastRendered.keys()]);
-    for (const other of sessions) {
-      if (other === renderedSessionId) {
-        continue;
-      }
-      const deps = this.host.getModuleDependencies(this.sessionFiles.get(other) ?? other);
-      if (deps.some(dep => normalizePath(dep) === renderedFile)) {
-        this.renderingCache.delete(other);
-        this.lastRendered.delete(other);
-      }
+    const engineInputs = (this.sceneManager as { getRenderInputs?: () => string[] } | null)?.getRenderInputs?.();
+    if (engineInputs) {
+      extraFiles.push(...engineInputs);
     }
+    return this.renderInputs.capture({ entryFile, extraFiles, params: this.overridesKey(sessionId) });
+  }
+
+  /**
+   * Whether a cached render of this session is still what a render would
+   * produce. Disk-seeded buffers among its inputs are brought up to date
+   * first — the module loader serves the buffer, so a seed left behind its
+   * file would validate (and render) against content nobody holds any more.
+   */
+  private isFingerprintCurrent(sessionId: string, fingerprint: RenderFingerprint): boolean {
+    for (const file of fingerprint.files.keys()) {
+      this.refreshDiskSeed(file);
+    }
+    return this.renderInputs.isCurrent(fingerprint, this.overridesKey(sessionId));
   }
 
   /**
@@ -1383,10 +1403,12 @@ export class FluidCadServer {
    * second try (the breakpoint the first gesture inserted pushed a
    * live-update). Seed the overlay with the disk content this render is
    * about to run; a buffer the editor already sent stays — the module loader
-   * serves it for the raw path too, so disk never masks it.
+   * serves it for the raw path too, so disk never masks it. A seed is not an
+   * editor buffer, though: it follows its file (see `refreshDiskSeed`).
    */
   private async seedLiveBufferFromDisk(fileName: string): Promise<void> {
     if (this.host.getBuffer(fileName) !== null) {
+      this.refreshDiskSeed(fileName);
       return;
     }
     let code: string;
@@ -1396,7 +1418,42 @@ export class FluidCadServer {
       // Unreadable: the render reports that itself.
       return;
     }
+    this.seedBuffer(fileName, code);
+  }
+
+  private seedBuffer(fileName: string, code: string): void {
     this.host.setBuffer(`virtual:live-render:${fileName}`, code);
+    const diskHash = this.renderInputs.diskHash(fileName);
+    if (diskHash !== null) {
+      this.diskSeeds.set(fileName, { bufferHash: RenderInputs.hashOf(code), diskHash });
+    }
+  }
+
+  /**
+   * Re-seed a buffer this server read from disk once the file changed on disk
+   * underneath it (a git checkout, an agent writing files) — otherwise the
+   * seed would mask the new content from every later render. A buffer an
+   * editor has since replaced is the editor's: left alone, and forgotten here.
+   */
+  private refreshDiskSeed(fileName: string): void {
+    const seed = this.diskSeeds.get(fileName);
+    if (!seed) {
+      return;
+    }
+    const buffer = this.host.getBuffer(fileName);
+    if (buffer === null || RenderInputs.hashOf(buffer) !== seed.bufferHash) {
+      this.diskSeeds.delete(fileName);
+      return;
+    }
+    const diskHash = this.renderInputs.diskHash(fileName);
+    if (diskHash === null || diskHash === seed.diskHash) {
+      return;
+    }
+    try {
+      this.seedBuffer(fileName, readFileSync(fileName, 'utf8'));
+    } catch {
+      // Vanished between the stat and the read: the render reports that itself.
+    }
   }
 
   async updateLiveCode(fileName: string, code: string, options?: RenderOptions): Promise<SceneRenderedData | null> {
@@ -1410,14 +1467,18 @@ export class FluidCadServer {
     // current param overrides so a param change invalidates the cache.
     const paramsHash = this.computeParamsHash(fileName, code);
     const cached = this.lastRendered.get(fileName);
-    if (cached && cached.paramsHash === paramsHash) {
-      // Keep the live-render buffer in sync even when the render itself is
-      // deduped. The module loader serves this overlay for the raw file path
-      // too (save-triggered process-file), so skipping the update would leave
-      // a stale overlay from an earlier broken live-update — the next save
-      // would then compile the old broken code and report its error even
-      // though editor and disk both hold valid content.
-      this.host.setBuffer(`virtual:live-render:${fileName}`, code);
+    // The live-render buffer takes the new code whether or not the render is
+    // deduped. The module loader serves this overlay for the raw file path
+    // too (save-triggered process-file), so skipping the update would leave
+    // a stale overlay from an earlier broken live-update — the next save
+    // would then compile the old broken code and report its error even
+    // though editor and disk both hold valid content. It also has to land
+    // before the fingerprint check below, which reads the entry through it.
+    const id = `virtual:live-render:${fileName}`;
+    this.host.setBuffer(id, code);
+    // The hash vouches for the entry's own text; the fingerprint for every
+    // file it imports — an edited part or helper module makes this miss.
+    if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)) {
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -1432,8 +1493,6 @@ export class FluidCadServer {
       return cached.data;
     }
 
-    const id = `virtual:live-render:${fileName}`;
-    this.host.setBuffer(id, code);
     this.renderingCache.delete(fileName);
     this.sessionFiles.set(fileName, fileName);
     const result = await this.processFileInternal(fileName, id, true, changes);
@@ -1445,10 +1504,16 @@ export class FluidCadServer {
       // The change summary describes THIS render; a deduplicated later one
       // built nothing, so the cached data never carries it.
       const { changes: _changes, ...unchanged } = result;
-      this.lastRendered.set(fileName, {
-        paramsHash: this.computeParamsHash(fileName, code),
-        data: result.changes ? unchanged : result,
-      });
+      const fingerprint = this.renderFingerprints.get(fileName);
+      if (fingerprint) {
+        this.lastRendered.set(fileName, {
+          paramsHash: this.computeParamsHash(fileName, code),
+          data: result.changes ? unchanged : result,
+          fingerprint,
+        });
+      } else {
+        this.lastRendered.delete(fileName);
+      }
     }
     return result;
   }
@@ -2306,14 +2371,19 @@ export class FluidCadServer {
    * recompute, even when the code text is byte-identical.
    */
   private computeParamsHash(sessionId: string, codeOrBundle: string): string {
-    const overrides = this.paramOverrides.get(sessionId);
-    const sortedEntries = overrides ? [...overrides.entries()].sort(([a], [b]) => a.localeCompare(b)) : [];
     const normalized = codeOrBundle.replace(/\r\n/g, '\n');
     return createHash('sha1')
       .update(normalized)
       .update('\0')
-      .update(JSON.stringify(sortedEntries))
+      .update(this.overridesKey(sessionId))
       .digest('hex');
+  }
+
+  /** The session's param overrides in a canonical, order-independent form. */
+  private overridesKey(sessionId: string): string {
+    const overrides = this.paramOverrides.get(sessionId);
+    const sortedEntries = overrides ? [...overrides.entries()].sort(([a], [b]) => a.localeCompare(b)) : [];
+    return JSON.stringify(sortedEntries);
   }
 }
 

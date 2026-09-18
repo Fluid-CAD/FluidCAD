@@ -1,4 +1,5 @@
 import { SceneObjectRender, SourceLocation } from '../types';
+import { SceneIndex } from './scene-index';
 
 /**
  * Objects the timeline never lists: a lazy select's reference holder, a lazy
@@ -31,11 +32,7 @@ export function timelineStepIndexes(sceneObjects: SceneObjectRender[]): number[]
 }
 
 export function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
-  if (!obj.parentId) {
-    return true;
-  }
-  const parent = sceneObjects.find(o => o.id === obj.parentId);
-  return parent?.type === 'part';
+  return SceneIndex.of(sceneObjects).isTopLevel(obj);
 }
 
 /**
@@ -94,14 +91,7 @@ export function findEnclosingPartRow(
   obj: SceneObjectRender,
   sceneObjects: SceneObjectRender[],
 ): SceneObjectRender | undefined {
-  let current: SceneObjectRender | undefined = obj;
-  while (current?.parentId != null) {
-    current = sceneObjects.find(o => o.id === current!.parentId);
-    if (current?.type === 'part') {
-      return current;
-    }
-  }
-  return undefined;
+  return SceneIndex.of(sceneObjects).enclosing(obj, 'part');
 }
 
 /**
@@ -111,10 +101,11 @@ export function findEnclosingPartRow(
  */
 export function activeScopeObjects(sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
   const part = findActivePart(sceneObjects);
+  const index = SceneIndex.of(sceneObjects);
   if (part) {
-    return sceneObjects.filter(o => o.parentId === part.id);
+    return [...index.children(part.id)];
   }
-  return sceneObjects.filter(o => isTopLevel(o, sceneObjects));
+  return sceneObjects.filter(o => index.isTopLevel(o));
 }
 
 /**

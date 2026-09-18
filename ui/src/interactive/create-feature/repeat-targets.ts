@@ -1,3 +1,4 @@
+import { SceneIndex } from '../../helpers/scene-index';
 import { SceneObjectRender } from '../../types';
 
 /** A feature statement the repeat dialog can replay, by call site. */
@@ -56,12 +57,8 @@ export function resolveRepeatTargetRow(
   if (!obj.sourceLocation || !obj.type || NON_TARGET_TYPES.has(obj.type)) {
     return undefined;
   }
-  let current: SceneObjectRender | undefined = obj;
-  while (current?.parentId != null) {
-    current = sceneObjects.find(o => o.id === current!.parentId);
-    if (current?.type === 'sketch') {
-      return undefined;
-    }
+  if (SceneIndex.of(sceneObjects).enclosing(obj, 'sketch')) {
+    return undefined;
   }
   return obj;
 }

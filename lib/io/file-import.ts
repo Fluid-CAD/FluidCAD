@@ -177,6 +177,34 @@ export class FileImport {
     return { solids, unit: 'mm', sourceUnits };
   }
 
+  /**
+   * The on-disk identity of an imported asset — the `.brep` cache and its
+   * sidecars, each as mtime + size — and the note to the scene manager that
+   * this render depends on them. A load() compares it, so a re-imported
+   * asset rebuilds instead of matching the previous render's geometry. Null
+   * when assets do not come from the workspace filesystem (a packed bundle,
+   * which never changes under a running scene).
+   */
+  static assetStamp(fileName: string): string | null {
+    const sceneManager = getSceneManager();
+    if (assetProvider || !sceneManager) {
+      return null;
+    }
+    const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
+    const stamps: string[] = [];
+    for (const suffix of ['.brep', '.colors.json', '.import.json']) {
+      const filePath = join(sceneManager.rootPath, 'imports', baseName + suffix);
+      sceneManager.recordRenderInput(filePath);
+      try {
+        const stats = fs.statSync(filePath);
+        stamps.push(`${stats.mtimeMs}:${stats.size}`);
+      } catch {
+        stamps.push('-');
+      }
+    }
+    return stamps.join('|');
+  }
+
   /** The `<name>.import.json` sidecar, or null when the asset has none (or it is unreadable). */
   static readImportMeta(fileName: string): ImportMeta | null {
     const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');

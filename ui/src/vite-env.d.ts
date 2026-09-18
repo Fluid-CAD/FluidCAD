@@ -15,3 +15,13 @@ interface Window {
     getWorker(workerId: string, label: string): Worker;
   };
 }
+
+/** The build-mode flags Vite defines on `import.meta.env`. */
+interface ImportMetaEnv {
+  readonly DEV: boolean;
+  readonly PROD: boolean;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

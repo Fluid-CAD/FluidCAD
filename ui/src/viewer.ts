@@ -27,6 +27,7 @@ import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 import { EntityGeometry } from './meshes/entity-geometry';
+import { SceneIndex } from './helpers/scene-index';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
@@ -2304,7 +2305,7 @@ export class Viewer {
       if (!current.parentId) {
         return null;
       }
-      current = objects.find(o => o.id === current!.parentId);
+      current = SceneIndex.of(objects).parent(current);
     }
     return null;
   }

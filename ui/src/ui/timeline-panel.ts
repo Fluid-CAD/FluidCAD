@@ -1,5 +1,6 @@
 import type { SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
+import { SceneIndex } from '../helpers/scene-index';
 import { findActiveObject, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
@@ -409,7 +410,7 @@ export class TimelinePanel {
       let cur: SceneObjectRender | undefined = part;
       while (cur?.id != null && !keepOpen.has(cur.id)) {
         keepOpen.add(cur.id);
-        cur = cur.parentId != null ? next.find((o) => o.id === cur!.parentId) : undefined;
+        cur = SceneIndex.of(next).parent(cur);
       }
     }
     for (const obj of next) {
@@ -449,7 +450,7 @@ export class TimelinePanel {
       if (resolved.has(id)) {
         return resolved.get(id)!;
       }
-      const prev = this.sceneObjects.find((o) => o.id === id);
+      const prev = SceneIndex.of(this.sceneObjects).byId(id);
       const match = prev ? findMatchingRow(prev, next) : undefined;
       const out = match?.id ?? null;
       resolved.set(id, out);
@@ -500,7 +501,7 @@ export class TimelinePanel {
     }
     const rowId = this.resolvePickedRowId();
     if (rowId !== null) {
-      const row = this.sceneObjects.find((o) => o.id === rowId);
+      const row = SceneIndex.of(this.sceneObjects).byId(rowId);
       if (row?.parentId != null) {
         for (const ancestor of this.ancestorsOf(row)) {
           if (ancestor.id != null) {
@@ -532,7 +533,8 @@ export class TimelinePanel {
     if (this.pickedFeatureId === null) {
       return null;
     }
-    const byId = (id: string) => this.sceneObjects.find((o) => o.id === id);
+    const index = SceneIndex.of(this.sceneObjects);
+    const byId = (id: string) => index.byId(id);
     const visited = new Set<string>();
     let obj = byId(this.pickedFeatureId);
     while (obj && obj.id != null && !visited.has(obj.id)) {
@@ -563,7 +565,7 @@ export class TimelinePanel {
         return null;
       }
       visited.add(cur.parentId);
-      const parent = this.sceneObjects.find((o) => o.id === cur.parentId);
+      const parent = SceneIndex.of(this.sceneObjects).parent(cur);
       if (!parent || isHiddenRow(parent) || parent.hideChildren === true) {
         return null;
       }
@@ -578,19 +580,7 @@ export class TimelinePanel {
 
   /** Every ancestor of `obj` in the scene list, nearest first. */
   private ancestorsOf(obj: SceneObjectRender): SceneObjectRender[] {
-    const out: SceneObjectRender[] = [];
-    const visited = new Set<string>();
-    let cur = obj;
-    while (cur.parentId != null && !visited.has(cur.parentId)) {
-      visited.add(cur.parentId);
-      const parent = this.sceneObjects.find((o) => o.id === cur.parentId);
-      if (!parent) {
-        break;
-      }
-      out.push(parent);
-      cur = parent;
-    }
-    return out;
+    return SceneIndex.of(this.sceneObjects).ancestors(obj);
   }
 
   private scrollPickedIntoView(): void {
@@ -991,10 +981,12 @@ export class TimelinePanel {
     const childDepth = depth + 1;
     const constraintRows: number[] = [];
     const grouped = new Map<string, number[]>();
-    for (let j = 0; j < items.length; j++) {
-      if (isHiddenRow(items[j]) || items[j].parentId !== obj.id) {
+    const sceneIndex = SceneIndex.of(items);
+    for (const child of sceneIndex.children(obj.id)) {
+      if (isHiddenRow(child)) {
         continue;
       }
+      const j = sceneIndex.position(child);
       if (isConstraintRow(items[j])) {
         constraintRows.push(j);
         continue;

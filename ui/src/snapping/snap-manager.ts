@@ -4,6 +4,7 @@ import { VertexSnapper, VertexCandidate } from './vertex-snapper';
 import { AxisSnapper } from './axis-snapper';
 import { GridSnapper } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
+import { SceneIndex } from '../helpers/scene-index';
 import { SceneContext } from '../scene/scene-context';
 import { buildSolvedSketchModel, isSolvedSketch } from '../sketch-solver-client/model';
 import type { SolvedEntityView, SolvedSketchModel } from '../sketch-solver-client/model';
@@ -153,7 +154,7 @@ export class SnapManager {
     // includes interior/closed-loop junctions and guide entities, which the
     // degree-1 mesh scan below can never surface. Pushed first so a
     // position-duplicate mesh endpoint doesn't shadow the ref.
-    const solvedSketchObj = sceneObjects.find(obj => obj.id === sketchId);
+    const solvedSketchObj = SceneIndex.of(sceneObjects).byId(sketchId);
     let hasDatums = false;
     if (isSolvedSketch(solvedSketchObj)) {
       const model = buildSolvedSketchModel(solvedSketchObj!, sceneObjects);

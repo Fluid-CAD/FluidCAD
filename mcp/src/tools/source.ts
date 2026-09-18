@@ -245,9 +245,13 @@ export type RenderChanges = {
  * `build-error` is the "the code ran, the model is wrong" case: a feature's
  * build threw, the renderer recorded it on that object and carried on, so a
  * scene is being served but it's missing whatever that feature produced.
+ *
+ * `uiApplied` separates "built" from "visible": true once a connected viewer
+ * has this render on screen, false when none is connected or it is still
+ * applying the scene. Absent on servers that predate the field.
  */
 export type RenderOutcome =
-  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges }
+  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges; uiApplied?: boolean }
   | {
       state: 'build-error';
       version: number;
@@ -255,6 +259,7 @@ export type RenderOutcome =
       durationMs: number;
       objectErrors: ObjectBuildError[];
       changes?: RenderChanges;
+      uiApplied?: boolean;
     }
   | {
       state: 'compile-error';
@@ -294,6 +299,7 @@ async function triggerRender(
     const outcome = await client.postJson<RenderOutcome>('/api/render', {
       filePath,
       code,
+      awaitUi: true,
       ...(changes ? { changes: true } : {}),
     });
     return outcome;

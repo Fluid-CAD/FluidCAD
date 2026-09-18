@@ -469,6 +469,12 @@ export type UIParamDefinition = {
 
 export type UISceneRenderedMessage = {
   type: 'scene-rendered';
+  /**
+   * Stamped by the server core on every scene it sends (renders and the
+   * scene closing alike). A page that announced `sceneAcks` answers each
+   * with `scene-applied` once that scene is on screen.
+   */
+  sceneVersion?: number;
   result: any[];
   absPath: string;
   sceneKind: 'part' | 'assembly';
@@ -517,6 +523,8 @@ export type UIProcessingFileMessage = {
  */
 export type UISceneClosedMessage = {
   type: 'scene-closed';
+  /** See `UISceneRenderedMessage.sceneVersion`. */
+  sceneVersion?: number;
 };
 
 export type NamedView =
@@ -703,6 +711,26 @@ export type CameraStateMessage = {
   projection: 'orthographic' | 'perspective';
 };
 
+/**
+ * Sent once by a page when its socket opens: what this UI bundle can do.
+ * `sceneAcks` promises a `scene-applied` for every scene it is sent, which
+ * is what lets the server tell "rendered" from "on screen".
+ */
+export type UIHelloMessage = {
+  type: 'ui-hello';
+  sceneAcks: boolean;
+};
+
+/**
+ * The page has applied the scene stamped `sceneVersion` and drawn a frame of
+ * it. Anything that depends on pixels (a screenshot) waits for this rather
+ * than for the render alone.
+ */
+export type UISceneAppliedMessage = {
+  type: 'scene-applied';
+  version: number;
+};
+
 export type ScreenshotResultMessage = {
   type: 'screenshot-result';
   requestId: string;
@@ -762,6 +790,8 @@ export type UIEditAckMessage = {
 
 export type UIToServerMessage =
   | CameraStateMessage
+  | UIHelloMessage
+  | UISceneAppliedMessage
   | ScreenshotResultMessage
   | UISetParamMessage
   | UIResetParamsMessage

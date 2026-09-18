@@ -92,9 +92,30 @@ export type TrackedPartDefinition = {
   materializeInto(scene: Scene): unknown;
 };
 
+/**
+ * Parent / part lookups over the flat object list, derived in one pass. Valid
+ * for one (list version, structure epoch) pair — see Scene.structure.
+ */
+type SceneStructure = {
+  version: number;
+  epoch: number;
+  enclosingPart: Map<SceneObject, Part | null>;
+  /** Each part's members — itself and everything nested in it — in scene order. */
+  partMembers: Map<Part, SceneObject[]>;
+  /** Objects by their parent's id, in scene order. */
+  children: Map<string, SceneObject[]>;
+};
+
+const NO_OBJECTS: SceneObject[] = [];
+
 export class Scene {
 
   private sceneObjects: SceneObject[] = [];
+  /** Each object's position in `sceneObjects` — kept in step with every add and replace. */
+  private order: Map<SceneObject, number> = new Map();
+  /** Bumped by every change to `sceneObjects`. */
+  private version = 0;
+  private structureIndex: SceneStructure | null = null;
   private renderedObjects: Map<SceneObject, SceneObjectRender> = new Map();
   private cached: Set<SceneObject> = new Set();
 
@@ -182,7 +203,7 @@ export class Scene {
   }
 
   addSceneObject(obj: SceneObject): void {
-    if (this.sceneObjects.includes(obj)) {
+    if (this.order.has(obj)) {
       return;
     }
 
@@ -193,8 +214,71 @@ export class Scene {
       activeObj.addChildObject(obj);
     }
 
+    this.order.set(obj, this.sceneObjects.length);
     this.sceneObjects.push(obj);
+    this.version++;
     this.idMap.set(obj.id, obj);
+  }
+
+  /**
+   * The derived lookups, rebuilt in one pass when the list or any object's
+   * parent / id changed since they were built. A render mutates neither, so
+   * its per-object queries share one index instead of each filtering the
+   * whole list — that filter, once per object, was quadratic in scene size.
+   * Part membership is the parent chain, never an index range: a definition
+   * materialized mid-body interleaves with its consumer's children.
+   */
+  private structure(): SceneStructure {
+    const current = this.structureIndex;
+    if (current && current.version === this.version && current.epoch === SceneObject.structureEpoch) {
+      return current;
+    }
+    const enclosingPart = new Map<SceneObject, Part | null>();
+    const partMembers = new Map<Part, SceneObject[]>();
+    const children = new Map<string, SceneObject[]>();
+    for (const obj of this.sceneObjects) {
+      const part = this.walkToEnclosingPart(obj);
+      enclosingPart.set(obj, part);
+      if (part) {
+        const members = partMembers.get(part);
+        if (members) {
+          members.push(obj);
+        } else {
+          partMembers.set(part, [obj]);
+        }
+      }
+      const parentId = obj.parentId;
+      if (parentId) {
+        const siblings = children.get(parentId);
+        if (siblings) {
+          siblings.push(obj);
+        } else {
+          children.set(parentId, [obj]);
+        }
+      }
+    }
+    this.structureIndex = { version: this.version, epoch: SceneObject.structureEpoch, enclosingPart, partMembers, children };
+    return this.structureIndex;
+  }
+
+  /**
+   * How many leading entries of `objects` (in scene order) sit before `obj`.
+   * An object that is not in the scene sits at the last position — what
+   * `slice(0, indexOf(obj))` answers for it.
+   */
+  private countBefore(objects: SceneObject[], obj: SceneObject): number {
+    const limit = this.order.get(obj) ?? this.sceneObjects.length - 1;
+    let low = 0;
+    let high = objects.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (this.order.get(objects[mid])! < limit) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
   }
 
   startProgressiveContainer(obj: SceneObject): void {
@@ -235,6 +319,20 @@ export class Scene {
   }
 
   findEnclosingPart(obj: SceneObject): Part | null {
+    // Answered from the index only while it is current: module evaluation
+    // asks this between adds, and rebuilding the index per question there
+    // would cost far more than the walk.
+    const index = this.structureIndex;
+    if (index && index.version === this.version && index.epoch === SceneObject.structureEpoch) {
+      const known = index.enclosingPart.get(obj);
+      if (known !== undefined) {
+        return known;
+      }
+    }
+    return this.walkToEnclosingPart(obj);
+  }
+
+  private walkToEnclosingPart(obj: SceneObject): Part | null {
     let current = obj.getParent();
     while (current) {
       if (current instanceof Part) {
@@ -250,21 +348,25 @@ export class Scene {
   }
 
   getPartScopedObjectsUpTo(obj: SceneObject): SceneObject[] {
-    const allUpTo = this.getSceneObjectsUpTo(obj);
     const part = this.findEnclosingPart(obj);
     if (!part) {
-      return allUpTo;
+      return this.getSceneObjectsUpTo(obj);
     }
-    return allUpTo.filter(o => this.findEnclosingPart(o) === part);
+    const members = this.membersOf(part);
+    return members.slice(0, this.countBefore(members, obj));
   }
 
   getPartScopedActiveObjectsUpTo(obj: SceneObject): SceneObject[] {
-    const allUpTo = this.getActiveSceneObjectsUpTo(obj);
     const part = this.findEnclosingPart(obj);
     if (!part) {
-      return allUpTo;
+      return this.getActiveSceneObjectsUpTo(obj);
     }
-    return allUpTo.filter(o => this.findEnclosingPart(o) === part);
+    return this.getPartScopedObjectsUpTo(obj).filter(f => f.hasShapes());
+  }
+
+  /** The part and everything nested in it, in scene order. Callers get a copy. */
+  private membersOf(part: Part): SceneObject[] {
+    return this.structure().partMembers.get(part) ?? NO_OBJECTS;
   }
 
   getSceneObjects(): SceneObject[] {
@@ -277,7 +379,7 @@ export class Scene {
     if (!activePart) {
       return this.sceneObjects;
     }
-    return this.sceneObjects.filter(o => this.findEnclosingPart(o) === activePart);
+    return [...this.membersOf(activePart)];
   }
 
   getPartScopedAllObjects(obj: SceneObject): SceneObject[] {
@@ -285,25 +387,20 @@ export class Scene {
     if (!part) {
       return this.sceneObjects;
     }
-    return this.sceneObjects.filter(o => this.findEnclosingPart(o) === part);
+    return [...this.membersOf(part)];
   }
 
   getActiveSceneObjectsUpTo(obj: SceneObject): SceneObject[] {
-    const index = this.sceneObjects.findIndex(f => f === obj);
-    return this.sceneObjects.slice(0, index).filter(f => f.hasShapes());
+    return this.sceneObjects.slice(0, this.indexOf(obj)).filter(f => f.hasShapes());
   }
 
   getSceneObjectsUpTo(obj: SceneObject): SceneObject[] {
-    const index = this.sceneObjects.findIndex(f => f === obj);
-    const objects = this.sceneObjects
-      .slice(0, index)
-
-    return objects;
+    return this.sceneObjects.slice(0, this.indexOf(obj));
   }
 
   getSceneObjectsFromTo(obj: SceneObject, to:SceneObject): SceneObject[] {
-    const fromIndex = this.sceneObjects.findIndex(f => f === obj);
-    const toIndex = this.sceneObjects.findIndex(f => f === to);
+    const fromIndex = this.indexOf(obj);
+    const toIndex = this.indexOf(to);
     const objects = this.sceneObjects
       .slice(fromIndex, toIndex)
 
@@ -373,9 +470,12 @@ export class Scene {
   }
 
   replaceSceneObject(currentSceneObject: SceneObject, newSceneObject: SceneObject): void {
-    const index = this.sceneObjects.findIndex(f => f === currentSceneObject);
+    const index = this.indexOf(currentSceneObject);
     if (index !== -1) {
       this.sceneObjects[index] = newSceneObject;
+      this.order.delete(currentSceneObject);
+      this.order.set(newSceneObject, index);
+      this.version++;
     }
   }
 
@@ -413,7 +513,7 @@ export class Scene {
   }
 
   indexOf(obj: SceneObject): number {
-    return this.sceneObjects.indexOf(obj);
+    return this.order.get(obj) ?? -1;
   }
 
   getSceneObjectAt(index: number): SceneObject {
@@ -425,12 +525,13 @@ export class Scene {
   }
 
   reindexObject(obj: SceneObject, oldId: string): void {
+    this.version++;
     this.idMap.delete(oldId);
     this.idMap.set(obj.id, obj);
   }
 
   getChildren(parent: SceneObject): SceneObject[] {
-    return this.sceneObjects.filter(obj => obj.parentId === parent.id);
+    return [...(this.structure().children.get(parent.id) ?? NO_OBJECTS)];
   }
 
 }

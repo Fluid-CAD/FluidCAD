@@ -1,4 +1,5 @@
 import { fetchSketchNames, gotoSource } from '../../api';
+import { SceneIndex } from '../../helpers/scene-index';
 import { findActiveObject, isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
@@ -197,13 +198,8 @@ export function resolveSketchRow(
   if (obj.type === 'sketch') {
     return obj;
   }
-  if (obj.parentId != null) {
-    const parent = sceneObjects.find(o => o.id === obj.parentId);
-    if (parent?.type === 'sketch') {
-      return parent;
-    }
-  }
-  return undefined;
+  const parent = SceneIndex.of(sceneObjects).parent(obj);
+  return parent?.type === 'sketch' ? parent : undefined;
 }
 
 /**
@@ -297,7 +293,7 @@ function wireShapeParts(
   if (source.type === 'helix' || source.type === 'offset') {
     return drawn(source.sceneShapes);
   }
-  return sceneObjects.flatMap(obj => obj.parentId === source.id ? drawn(obj.sceneShapes) : []);
+  return SceneIndex.of(sceneObjects).children(source.id).flatMap(obj => drawn(obj.sceneShapes));
 }
 
 /**
@@ -345,14 +341,9 @@ function toOption(
 
 /**
  * A sketch's drawn geometry renders on its child objects (each entity — rect,
- * circle, line — is its own scene object under the sketch), so walk the
- * subtree, not just the sketch's own shapes.
+ * circle, line — is its own scene object under the sketch), so the whole
+ * subtree counts, not just the sketch's own shapes.
  */
 function hasRenderedGeometry(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
-  if ((obj.sceneShapes ?? []).some(s => !s.isMetaShape && !s.isGuide && (s.meshes?.length ?? 0) > 0)) {
-    return true;
-  }
-  return sceneObjects.some(child =>
-    child !== obj && child.parentId != null && child.parentId === obj.id
-    && hasRenderedGeometry(child, sceneObjects));
+  return SceneIndex.of(sceneObjects).hasRenderedGeometry(obj);
 }

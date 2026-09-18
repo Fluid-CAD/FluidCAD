@@ -3,8 +3,14 @@ import type { CompileError } from '../ws-protocol.ts';
 import type { ObjectBuildError } from '../fluidcad-server.ts';
 import type { RenderChanges } from '../../../lib/dist/index.js';
 
+/**
+ * How long a caller that asked for `uiApplied` waits for a page to put the
+ * render on screen before the answer is "not yet".
+ */
+export const UI_APPLY_WAIT_MS = 10_000;
+
 export type RenderOutcome =
-  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges }
+  | { state: 'rendered'; version: number; absPath: string; durationMs: number; changes?: RenderChanges; uiApplied?: boolean }
   | {
       state: 'build-error';
       version: number;
@@ -12,6 +18,7 @@ export type RenderOutcome =
       durationMs: number;
       objectErrors: ObjectBuildError[];
       changes?: RenderChanges;
+      uiApplied?: boolean;
     }
   | { state: 'compile-error'; version: number; durationMs: number; compileError: CompileError }
   | { state: 'superseded'; version: number; durationMs: number }
@@ -41,17 +48,24 @@ export type RenderOutcome =
  * MCP's write tools set it; the in-page host never does, and a render
  * without it is byte-for-byte the render it always was.
  *
+ * `awaitUi` (MCP only) holds the response until a connected viewer has the
+ * render on screen, and reports it as `uiApplied` — "built" and "visible"
+ * are different moments, and an agent about to look at the model needs the
+ * second. False when no viewer is connected or it is still applying the
+ * scene after `UI_APPLY_WAIT_MS`.
+ *
  * Whoever invokes this is responsible for the on-disk write — we only run
  * the render. Pairing both in one HTTP round-trip is what lets MCP
  * `write_file` return a synchronous { written, render } to the agent.
  */
 export function createRenderRouter(
   runLiveRender: (fileName: string, code: string, keepCurrent: boolean, changes: boolean) => Promise<RenderOutcome>,
+  awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
 ): Router {
   const router = Router();
 
   router.post('/render', async (req, res) => {
-    const { filePath, code, keepCurrent, changes } = req.body ?? {};
+    const { filePath, code, keepCurrent, changes, awaitUi } = req.body ?? {};
     if (typeof filePath !== 'string' || filePath.length === 0) {
       res.status(400).json({ error: '`filePath` must be a non-empty string.' });
       return;
@@ -63,6 +77,9 @@ export function createRenderRouter(
 
     try {
       const outcome = await runLiveRender(filePath, code, keepCurrent === true, changes === true);
+      if (awaitUi === true && (outcome.state === 'rendered' || outcome.state === 'build-error')) {
+        outcome.uiApplied = await awaitSceneApplied(UI_APPLY_WAIT_MS);
+      }
       res.json(outcome);
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });

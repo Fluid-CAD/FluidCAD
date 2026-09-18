@@ -13,6 +13,8 @@ import { createRenderRouter, type RenderOutcome } from '../../src/routes/render.
 let server: http.Server;
 let baseUrl: string;
 let calls: { fileName: string; code: string; keepCurrent: boolean; changes: boolean }[] = [];
+let uiApplied = true;
+let uiWaits = 0;
 
 async function post(body: unknown): Promise<{ status: number; body: any }> {
   const res = await fetch(`${baseUrl}/api/render`, {
@@ -30,6 +32,9 @@ describe('POST /api/render', () => {
     app.use('/api', createRenderRouter(async (fileName, code, keepCurrent, changes): Promise<RenderOutcome> => {
       calls.push({ fileName, code, keepCurrent, changes });
       return { state: 'rendered', version: 1, absPath: fileName, durationMs: 0 };
+    }, async () => {
+      uiWaits++;
+      return uiApplied;
     }));
     server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -43,6 +48,22 @@ describe('POST /api/render', () => {
 
   beforeEach(() => {
     calls = [];
+    uiApplied = true;
+    uiWaits = 0;
+  });
+
+  // "Built" and "visible" are different moments. Only a caller that asks
+  // (the MCP) waits for the viewer; the page's own live-updates never do.
+  it('reports whether a viewer has the render on screen, when asked', async () => {
+    expect((await post({ filePath: '/ws/arm.part.js', code: '// a', awaitUi: true })).body.uiApplied).toBe(true);
+    uiApplied = false;
+    expect((await post({ filePath: '/ws/arm.part.js', code: '// b', awaitUi: true })).body.uiApplied).toBe(false);
+  });
+
+  it('does not wait for the viewer unless asked', async () => {
+    const { body } = await post({ filePath: '/ws/arm.part.js', code: '// a' });
+    expect(body).not.toHaveProperty('uiApplied');
+    expect(uiWaits).toBe(0);
   });
 
   it('renders the file as the current model by default', async () => {

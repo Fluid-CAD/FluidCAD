@@ -58,7 +58,7 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
         // it dimmed (the dimTangentEdges preference). Non-manifold edges
         // (three or more faces) stay unflagged.
         if (parents.Size() === 2 && !parents.First().IsSame(parents.Last())
-          && EdgeConvexityOps.classifyRaw(oc.TopoDS.Edge(edgeShape), parents.First(), parents.Last()) === 'smooth') {
+          && EdgeConvexityOps.isSmoothRaw(oc.TopoDS.Edge(edgeShape), parents.First(), parents.Last())) {
           mesh.smooth = true;
         }
         result.push(mesh);

@@ -3,6 +3,7 @@ import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point } from "../math/point.js";
 import { Vertex } from "../common/vertex.js";
+import { debug } from "../common/log.js";
 
 export class VertexOps {
   // Wrapper methods (public API for external callers)
@@ -37,7 +38,7 @@ export class VertexOps {
 
   static fromPointRaw(point: Point): TopoDS_Vertex {
     const oc = getOC();
-    console.log("Creating vertex from point:", point);
+    debug("Creating vertex from point:", point);
     const [pnt, disposePnt] = Convert.toGpPnt(point);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(pnt);
     const vertex = vertexMaker.Vertex() as TopoDS_Vertex;

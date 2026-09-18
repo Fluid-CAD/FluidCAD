@@ -4,8 +4,10 @@ import type { SceneHost } from '../src/host/scene-host.ts';
 
 // The per-file render caches (dedup + renderingCache) must not outlive a
 // DEPENDENCY's edit: editing a part file and switching back to the assembly
-// previously served the assembly's cached render — connectors added to the
-// part never appeared in the mate dialog until a manual recompute.
+// must not serve the assembly's cached render — connectors added to the part
+// would never appear in the mate dialog until a manual recompute. Each cached
+// render is validated against the content of everything it imports (see
+// render-cache-validation.test.ts for the disk-backed cases).
 
 const ASSEMBLY = '/ws/rig.assembly.js';
 const PART = '/ws/block.fluid.js';
@@ -36,7 +38,7 @@ class FakeHost implements SceneHost {
   }
 
   getBuffer(fileName: string): string | null {
-    return this.buffers.get(fileName) ?? null;
+    return this.buffers.get(`virtual:live-render:${fileName}`) ?? null;
   }
 
   invalidateModule(): void {}

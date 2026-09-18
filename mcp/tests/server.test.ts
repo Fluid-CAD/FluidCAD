@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import http from 'http';
+import net from 'net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../src/server.ts';
@@ -12,6 +13,8 @@ import type { RegistryEntry } from '../src/types.ts';
 let fakeHome: string;
 let homeSpy: ReturnType<typeof vi.spyOn>;
 let healthServer: http.Server | null = null;
+let silentServer: net.Server | null = null;
+const silentSockets = new Set<net.Socket>();
 
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
@@ -53,6 +56,22 @@ function startFakeHealthServer(): Promise<number> {
   });
 }
 
+// A server whose event loop is held by a render: connections are accepted,
+// nothing is ever answered.
+function startSilentServer(): Promise<number> {
+  return new Promise((resolve) => {
+    silentServer = net.createServer((socket) => {
+      silentSockets.add(socket);
+      socket.on('close', () => silentSockets.delete(socket));
+      socket.on('error', () => {});
+    });
+    silentServer.listen(0, '127.0.0.1', () => {
+      const addr = silentServer!.address();
+      resolve(typeof addr === 'object' && addr ? addr.port : 0);
+    });
+  });
+}
+
 beforeEach(() => {
   fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-mcp-server-test-'));
   homeSpy = vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
@@ -61,6 +80,13 @@ beforeEach(() => {
 afterEach(async () => {
   homeSpy.mockRestore();
   fs.rmSync(fakeHome, { recursive: true, force: true });
+  if (silentServer) {
+    for (const socket of silentSockets) {
+      socket.destroy();
+    }
+    await new Promise<void>((resolve) => silentServer!.close(() => resolve()));
+    silentServer = null;
+  }
   if (healthServer) {
     await new Promise<void>((resolve) => healthServer!.close(() => resolve()));
     healthServer = null;
@@ -128,6 +154,8 @@ describe('MCP server', () => {
     writeRegistry([
       entry({ workspacePath: '/tmp/ws-reachable', port, pid: process.pid }),
       entry({ workspacePath: '/tmp/ws-unreachable', port: 1, pid: process.pid }),
+      // Mid-render: the port accepts connections, nothing answers the probe.
+      entry({ workspacePath: '/tmp/ws-busy', port: await startSilentServer(), pid: process.pid }),
     ]);
 
     const server = buildServer();
@@ -144,7 +172,9 @@ describe('MCP server', () => {
       const payload = JSON.parse(text);
       const byPath = new Map<string, any>(payload.workspaces.map((w: any) => [w.workspacePath, w]));
       expect(byPath.get('/tmp/ws-reachable')?.reachable).toBe(true);
+      expect(byPath.get('/tmp/ws-reachable')?.busy).toBe(false);
       expect(byPath.get('/tmp/ws-unreachable')?.reachable).toBe(false);
+      expect(byPath.get('/tmp/ws-busy')).toMatchObject({ reachable: true, busy: true });
     } finally {
       await client.close();
       await server.close();

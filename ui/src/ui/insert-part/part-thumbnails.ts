@@ -11,6 +11,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { SceneIndex } from '../../helpers/scene-index';
 import { buildObjectMesh } from '../../meshes/mesh-factory';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
@@ -44,7 +45,7 @@ export class PartThumbnailRenderer {
 
   /** A single part: its rendered subtree, camera-framed. */
   render(objects: SceneObjectRender[], rootId: string): string | null {
-    const root = objects.find(o => o.id === rootId);
+    const root = SceneIndex.of(objects).byId(rootId);
     if (!root) {
       return null;
     }
@@ -199,8 +200,8 @@ export class PartThumbnailRenderer {
 /** Connector frames of one part's subtree — same read the assembly view does. */
 function collectConnectorStates(objects: SceneObjectRender[], partId: string): ConnectorState[] {
   const out: ConnectorState[] = [];
-  for (const obj of objects) {
-    if (obj.type !== 'connector' || obj.parentId !== partId || !obj.id) {
+  for (const obj of SceneIndex.of(objects).children(partId)) {
+    if (obj.type !== 'connector' || !obj.id) {
       continue;
     }
     const data = obj.object as ConnectorData | undefined;

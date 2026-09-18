@@ -20,6 +20,7 @@ import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
+import { debug } from "../common/log.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
@@ -128,7 +129,7 @@ export class SceneRenderer {
       if (parent && skippedContainers.has(parent)) {
         skippedContainers.add(object);
       } else {
-        console.log("Rendering object:", object.getUniqueType());
+        debug("Rendering object:", object.getUniqueType());
 
         if (!scene.isCached(object)) {
           const result = this.buildObject(object, scene);
@@ -160,11 +161,20 @@ export class SceneRenderer {
       }
     }
 
+    // One member list per part, shared by every object of that part — asking
+    // the scene per object is a list copy per object.
+    const cleanScopes = new Map<Part | null, SceneObject[]>();
     for (const object of sceneObjects) {
       if (skippedContainers.has(object)) {
         continue;
       }
-      object.clean(scene.getPartScopedAllObjects(object));
+      const part = scene.findEnclosingPart(object);
+      let scope = cleanScopes.get(part);
+      if (!scope) {
+        scope = scene.getPartScopedAllObjects(object);
+        cleanScopes.set(part, scope);
+      }
+      object.clean(scope);
     }
 
     this.batchTriangulate(sceneObjects, skippedContainers);
@@ -338,7 +348,7 @@ export class SceneRenderer {
     try {
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, renderScope);
       if (sceneShapes.length) {
-        console.log(` - Scene shapes: ${sceneShapes.length}`);
+        debug(` - Scene shapes: ${sceneShapes.length}`);
         for (const shape of sceneShapes) {
           renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
         }

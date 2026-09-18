@@ -157,7 +157,7 @@ app.use('/api', createHealthRouter({
   readUnit: projectUnitNow,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher));
+app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createResolveSelectionRouter(fluidCadServer));
@@ -172,7 +172,7 @@ app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadSer
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
-app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes)));
+app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes), core.awaitLatestSceneApplied));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));

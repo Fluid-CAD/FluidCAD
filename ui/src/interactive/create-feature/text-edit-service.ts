@@ -5,6 +5,7 @@ import {
 } from '../../api';
 import { DebouncedTask } from '../../helpers/debounced-task';
 import { PlaneData, SceneObjectRender } from '../../types';
+import { SceneIndex } from '../../helpers/scene-index';
 import { Viewer } from '../../viewer';
 import { pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
 import { buildPathTargetIndex, hitTestPathTargets, PathTargetEntry } from '../sketch-edge-utils';
@@ -225,7 +226,7 @@ export class TextEditService {
     const index = this.session.boundary?.index ?? -1;
     const row = sceneObjects[index];
     const parent = row?.parentId
-      ? sceneObjects.find(o => o.id === row.parentId)
+      ? SceneIndex.of(sceneObjects).parent(row)
       : null;
     const plane: PlaneData | undefined = parent?.object?.plane;
     if (!plane) {

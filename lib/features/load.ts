@@ -12,9 +12,12 @@ export class LoadFile extends SceneObject {
   private _exclude = new Set<number>();
   /** The caller's assertion of the asset's unit; null means "trust the sidecar". */
   private _assetUnit: LengthUnit | null = null;
+  /** The asset files' on-disk identity as of this render — see FileImport.assetStamp. */
+  private _assetStamp: string | null;
 
   constructor(public fileName: string, options?: LoadOptions) {
     super();
+    this._assetStamp = FileImport.assetStamp(fileName);
     if (options?.unit !== undefined) {
       try {
         this._assetUnit = parseLengthUnit(options.unit);
@@ -83,6 +86,11 @@ export class LoadFile extends SceneObject {
     }
 
     if (this._assetUnit !== other._assetUnit) {
+      return false;
+    }
+
+    // The asset was re-imported (or edited) since the other render read it.
+    if (this._assetStamp !== other._assetStamp) {
       return false;
     }
 

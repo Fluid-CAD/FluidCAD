@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import { SketchTool, InsertGeometryFn, FetchVariablesFn, NewVariable, PickedPoint } from '../../sketch-tool';
 import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
+import { SceneIndex } from '../../../helpers/scene-index';
 import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
 import { projectToSketch, roundPoint } from '../../sketch-plane-utils';
@@ -598,7 +599,7 @@ export class PolylineTool extends SketchTool {
 
   /** The solved entity view whose statement starts at `line`, if rendered. */
   private findSolvedEntityByLine(line: number): SolvedEntityView | null {
-    const sketchObj = this.sceneObjects.find(obj => obj.id === this.sketchId);
+    const sketchObj = SceneIndex.of(this.sceneObjects).byId(this.sketchId);
     if (!sketchObj) {
       return null;
     }

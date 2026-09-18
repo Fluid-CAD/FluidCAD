@@ -165,14 +165,14 @@ describe('recompute', () => {
     if (!result.ok) { return; }
     const request = requests.find((r) => r.url === '/api/recompute');
     expect(request?.method).toBe('POST');
-    expect(JSON.parse(request!.body)).toEqual({ changes: true });
+    expect(JSON.parse(request!.body)).toEqual({ awaitUi: true, changes: true });
     expect(result.data.state).toBe('rendered');
   });
 
-  it('includeChanges: false sends the bare request', async () => {
+  it('includeChanges: false leaves the change summary out', async () => {
     const result = await recompute({ includeChanges: false });
     expect(result.ok).toBe(true);
-    expect(JSON.parse(requests.find((r) => r.url === '/api/recompute')!.body)).toEqual({});
+    expect(JSON.parse(requests.find((r) => r.url === '/api/recompute')!.body)).toEqual({ awaitUi: true });
   });
 
   it('surfaces the change summary the server reports', async () => {

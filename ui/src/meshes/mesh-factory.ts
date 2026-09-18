@@ -1,4 +1,5 @@
 import { Camera, Group, Object3D } from 'three';
+import { SceneIndex } from '../helpers/scene-index';
 import { MeshRenderOptions, SceneObjectRender } from '../types';
 import { SketchMesh } from './containers/sketch-mesh';
 import { PlaneMesh } from './containers/plane-mesh';
@@ -89,7 +90,7 @@ export function buildObjectMesh(
   // --- generic objects: resolve options and recurse into children ---
   const isSelect = obj.uniqueType === 'select';
   const options = resolveOptions(obj.uniqueType, inherited);
-  const children = allObjects.filter(o => o.parentId === obj.id);
+  const children = SceneIndex.of(allObjects).children(obj.id);
 
   let result: Object3D;
 

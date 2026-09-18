@@ -14,6 +14,7 @@ import {
 import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import type { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SceneObjectRender } from '../../types';
+import { SceneIndex } from '../../helpers/scene-index';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
@@ -337,8 +338,8 @@ export class SketchMesh extends Group {
   }
 
   private buildEdges(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
-    for (const obj of allObjects) {
-      if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
+    for (const obj of SceneIndex.of(allObjects).children(sceneObject.id)) {
+      if (!obj.sceneShapes.length) {
         continue;
       }
 
@@ -409,8 +410,8 @@ export class SketchMesh extends Group {
       return bucket.positions;
     };
 
-    for (const obj of allObjects) {
-      if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
+    for (const obj of SceneIndex.of(allObjects).children(sceneObject.id)) {
+      if (!obj.sceneShapes.length) {
         continue;
       }
 

@@ -1,6 +1,7 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
+import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
 import { onThemeChange } from './theme-colors';
 import { viewerSettings } from './viewer-settings';
@@ -546,31 +547,7 @@ export class AssemblyController {
    * breaks compare at the part) also counts.
    */
   private partSubtreeWasRebuilt(partId: string): boolean {
-    const childrenByParent = new Map<string, SceneObjectRender[]>();
-    const objById = new Map<string, SceneObjectRender>();
-    for (const obj of this.allObjects) {
-      if (obj.id) objById.set(obj.id, obj);
-      if (!obj.parentId) continue;
-      const list = childrenByParent.get(obj.parentId);
-      if (list) list.push(obj);
-      else childrenByParent.set(obj.parentId, [obj]);
-    }
-    const stack: string[] = [partId];
-    const visited = new Set<string>();
-    while (stack.length > 0) {
-      const id = stack.pop()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      const obj = objById.get(id);
-      if (obj && !obj.fromCache) return true;
-      const children = childrenByParent.get(id);
-      if (children) {
-        for (const c of children) {
-          if (c.id) stack.push(c.id);
-        }
-      }
-    }
-    return false;
+    return SceneIndex.of(this.allObjects).subtreeRebuilt(partId);
   }
 
   /**
@@ -579,8 +556,8 @@ export class AssemblyController {
    */
   private collectConnectorStates(partId: string): ConnectorState[] {
     const out: ConnectorState[] = [];
-    for (const obj of this.allObjects) {
-      if (obj.type !== 'connector' || !obj.id || obj.parentId !== partId) continue;
+    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
+      if (obj.type !== 'connector' || !obj.id) continue;
       const data = obj.object as ConnectorData | undefined;
       if (!data) continue;
       if (!data.origin || !data.xDirection || !data.normal) continue;
@@ -601,8 +578,8 @@ export class AssemblyController {
    */
   private collectExposureStates(partId: string): ContactState[] {
     const out: ContactState[] = [];
-    for (const obj of this.allObjects) {
-      if (obj.type !== 'exposed' || !obj.id || obj.parentId !== partId) continue;
+    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
+      if (obj.type !== 'exposed' || !obj.id) continue;
       const data = obj.object as ExposedData | undefined;
       if (!data?.name) continue;
       out.push({
@@ -1483,13 +1460,12 @@ export class AssemblyController {
 
   /** The connector's registered name (`connector('name', …)`) — null when unknown. */
   getConnectorName(connectorId: string): string | null {
-    for (const obj of this.allObjects) {
-      if (obj.type === 'connector' && obj.id === connectorId) {
-        const data = obj.object as ConnectorData | undefined;
-        return data?.name ?? obj.name ?? null;
-      }
+    const obj = SceneIndex.of(this.allObjects).byId(connectorId);
+    if (obj?.type !== 'connector') {
+      return null;
     }
-    return null;
+    const data = obj.object as ConnectorData | undefined;
+    return data?.name ?? obj.name ?? null;
   }
 
   /**
@@ -1498,12 +1474,11 @@ export class AssemblyController {
    * no source location for it.
    */
   getConnectorSourceLocation(connectorId: string): { filePath: string; line: number } | null {
-    for (const obj of this.allObjects) {
-      if (obj.type === 'connector' && obj.id === connectorId && obj.sourceLocation) {
-        return { filePath: obj.sourceLocation.filePath, line: obj.sourceLocation.line };
-      }
+    const obj = SceneIndex.of(this.allObjects).byId(connectorId);
+    if (obj?.type !== 'connector' || !obj.sourceLocation) {
+      return null;
     }
-    return null;
+    return { filePath: obj.sourceLocation.filePath, line: obj.sourceLocation.line };
   }
 
   /**
@@ -1516,8 +1491,8 @@ export class AssemblyController {
     if (!partId) {
       return null;
     }
-    for (const obj of this.allObjects) {
-      if (obj.type !== 'connector' || !obj.id || obj.parentId !== partId) continue;
+    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
+      if (obj.type !== 'connector' || !obj.id) continue;
       const data = obj.object as ConnectorData | undefined;
       if ((data?.name ?? obj.name) === connectorName) {
         return obj.id;

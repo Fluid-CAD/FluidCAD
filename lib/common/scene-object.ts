@@ -101,12 +101,25 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._parent?.id || null;
   }
 
+  /**
+   * Bumped whenever any object's place in a scene's structure changes — its
+   * parent or its id. A scene's structural index is valid for one epoch, so
+   * nothing has to tell the scene about a change it could not see.
+   */
+  private static _structureEpoch = 0;
+
+  static get structureEpoch(): number {
+    return SceneObject._structureEpoch;
+  }
+
   inheritIdentityFrom(other: SceneObject): void {
     this._id = other._id;
+    SceneObject._structureEpoch++;
   }
 
   private setParent(parent: SceneObject) {
     this._parent = parent;
+    SceneObject._structureEpoch++;
   }
 
   protected setAlwaysVisible() {

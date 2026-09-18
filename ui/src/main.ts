@@ -53,6 +53,7 @@ import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
+import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
@@ -1435,8 +1436,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     const frame = data?.origin && data.xDirection && data.yDirection && data.normal ? data : null;
     connectorService.enterEdit(target, parsed, info, frame);
   } else if (parsed.feature === 'offset') {
-    const parentSketch = viewer.currentSceneObjects.find(o =>
-      o.id != null && o.id === obj.parentId && o.type === 'sketch');
+    const parent = SceneIndex.of(viewer.currentSceneObjects).parent(obj);
+    const parentSketch = parent?.type === 'sketch' ? parent : undefined;
     if (parentSketch) {
       // A 2D op lives inside a sketch body: pausing the build just BEFORE its
       // statement puts the sketch its arguments see on screen — the offset's
@@ -2799,12 +2800,42 @@ function refreshActivePartScope(): void {
 }
 
 /**
+ * Tell the server the scene stamped `version` is on screen: applied, and a
+ * frame of it drawn — two animation frames, since the first callback runs
+ * before its frame paints. A hidden tab gets no animation frames, so a timer
+ * sends the acknowledgement there instead.
+ */
+function acknowledgeSceneApplied(ws: WebSocket, version: unknown): void {
+  if (typeof version !== 'number') {
+    return;
+  }
+  let sent = false;
+  const send = () => {
+    if (sent) {
+      return;
+    }
+    sent = true;
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'scene-applied', version }));
+    }
+  };
+  requestAnimationFrame(() => requestAnimationFrame(send));
+  setTimeout(send, 500);
+}
+
+/**
  * Apply a scene to the page — the viewer, every scene service, the rail, the
  * top bar, the banners. Shared by a real render and by the scene closing:
  * an empty scene goes through exactly the path an empty file's render would,
  * so nothing is left standing that a render would have replaced.
  */
 function applySceneRendered(msg: any): void {
+    // A scene list is never mutated after receipt — SceneIndex keys its
+    // lookups on the array. Dev builds make a violation throw at the write
+    // instead of serving a stale index.
+    if (import.meta.env.DEV && Array.isArray(msg.result)) {
+      Object.freeze(msg.result);
+    }
     // The document's unit — every readout suffixes with it. Missing on
     // older servers, which means mm.
     sceneUnit.set((msg as { unit?: LengthUnit }).unit ?? 'mm');
@@ -2951,6 +2982,9 @@ function connectWebSocket() {
 
   ws.addEventListener('open', () => {
     activeWs = ws;
+    // Promise an acknowledgement for every scene this page is sent — the
+    // server holds screenshots until the scene they follow is on screen.
+    ws.send(JSON.stringify({ type: 'ui-hello', sceneAcks: true }));
     pushCameraState();
     // The server drops its host registration when a socket closes, so the
     // hello has to be re-sent on every reconnect, not just the first.
@@ -2978,7 +3012,13 @@ function connectWebSocket() {
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
-        applySceneRendered(msg);
+        try {
+          applySceneRendered(msg);
+        } finally {
+          // Acknowledged even when applying threw: this page will not get any
+          // further with that scene, and a screenshot must not wait on it.
+          acknowledgeSceneApplied(ws, msg.sceneVersion);
+        }
         break;
       }
       case 'scene-closed': {
@@ -3000,6 +3040,7 @@ function connectWebSocket() {
         currentSceneAbsPath = null;
         editorSceneFile = null;
         editorSurface?.clearSceneFile();
+        acknowledgeSceneApplied(ws, msg.sceneVersion);
         break;
       }
       case 'highlight-shape':

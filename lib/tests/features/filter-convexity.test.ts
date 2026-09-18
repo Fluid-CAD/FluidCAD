@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
+import { getCurrentScene } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
@@ -11,6 +12,10 @@ import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { LazySelectionSceneObject } from "../../features/lazy-scene-object.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { EdgeConvexityOps } from "../../oc/edge-convexity.js";
+import { TopologyIndex } from "../../oc/topology-index.js";
+import { Solid } from "../../common/solid.js";
+import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { testL, testRect } from "../helpers/profiles.js";
 
 function isVertical(e: Edge): boolean {
@@ -21,6 +26,34 @@ function isVertical(e: Edge): boolean {
 
 describe("convexity filters", () => {
   setupOC();
+
+  it("answers the renderer's tangency question exactly like the full classification", () => {
+    sketch("xy", () => {
+        testL();
+      });
+    const e = extrude(30) as Extrude;
+    fillet(3, e.sideEdges());
+    render();
+
+    const tally = { smooth: 0, creased: 0 };
+    const solids = getCurrentScene().getAllSceneObjects().flatMap(o => o.getShapes()).filter(s => s instanceof Solid) as Solid[];
+    expect(solids.length).toBeGreaterThan(0);
+    for (const solid of solids) {
+      for (const candidate of solid.getEdges()) {
+        const raw = candidate.getShape() as TopoDS_Edge;
+        const faces = TopologyIndex.seekShapes(solid.getEdgeToFacesIndex(), raw);
+        if (faces.length !== 2) {
+          continue;
+        }
+        const smooth = EdgeConvexityOps.classifyRaw(raw, faces[0], faces[1]) === 'smooth';
+        expect(EdgeConvexityOps.isSmoothRaw(raw, faces[0], faces[1])).toBe(smooth);
+        tally[smooth ? 'smooth' : 'creased']++;
+      }
+    }
+    // Both answers are exercised: fillet boundaries are tangent, the caps' rims are not.
+    expect(tally.smooth).toBeGreaterThan(0);
+    expect(tally.creased).toBeGreaterThan(0);
+  });
 
   it("separates the inner corner of an L extrusion from its outer corners", () => {
     sketch("xy", () => {

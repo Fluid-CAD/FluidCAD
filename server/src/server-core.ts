@@ -23,9 +23,16 @@ import type { CameraStateMessage, ServerToUIMessage } from './ws-protocol.ts';
 export interface UIClient {
   ws: WebSocket;
   sessionId: string;
+  /** The page announced (`ui-hello`) that it acknowledges every scene it applies. */
+  acksScenes: boolean;
+  /** The newest scene version this page reported on screen (`scene-applied`). */
+  appliedVersion: number;
 }
 
+/** How long one capture may take, from the moment a page is asked for it. */
 const SCREENSHOT_TIMEOUT_MS = 10_000;
+/** How long a screenshot waits for a page to finish applying the latest scene. */
+const SCENE_APPLY_TIMEOUT_MS = 60_000;
 
 export interface ServerCore {
   wss: WebSocketServer;
@@ -34,8 +41,24 @@ export interface ServerCore {
   broadcastToUI(msg: ServerToUIMessage): void;
   /** Send to the single UI client with the matching sessionId. No-op if absent. */
   sendToSession(sessionId: string, msg: ServerToUIMessage): void;
-  /** Trigger a screenshot via the first connected UI client; resolves with PNG bytes. */
+  /**
+   * Capture the latest scene as PNG bytes. Waits until a page has that scene
+   * on screen, then asks that one page — so a capture never shows the scene
+   * before the render it followed, and its timeout measures the capture only.
+   */
   requestScreenshot(options: Record<string, unknown>): Promise<Buffer>;
+  /**
+   * Whether some connected page has the latest broadcast scene on screen.
+   * False with no page connected, and while every page is still applying it.
+   */
+  isLatestSceneApplied(): boolean;
+  /**
+   * Resolves true once some page has the latest broadcast scene on screen —
+   * what lets a caller report "visible", not just "built". False at once
+   * when no connected page acknowledges scenes (none open, or an older UI
+   * bundle), and false when `timeoutMs` passes first.
+   */
+  awaitLatestSceneApplied(timeoutMs: number): Promise<boolean>;
   /** Latest camera-state observed from any UI client. */
   getLastCameraState(): CameraStateMessage | null;
   /**
@@ -69,6 +92,10 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
   const uiClients = new Set<UIClient>();
 
   let lastSceneMessage: string | null = null;
+  /** Version of the newest scene sent to the pages — 0 before the first one. */
+  let sceneVersion = 0;
+  /** Woken whenever which page shows what may have changed: an ack, a hello, a disconnect. */
+  const sceneApplyWaiters = new Set<() => void>();
   let initCompleteMessage: string | null = null;
   /**
    * A render was announced (`processing-file`) and has not landed yet. A page
@@ -89,6 +116,11 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
   }>();
 
   function broadcastToUI(msg: ServerToUIMessage) {
+    // Every scene a page is handed — a render, or the scene closing — gets
+    // the next version, so "is the latest scene on screen" has an answer.
+    if (msg.type === 'scene-rendered' || msg.type === 'scene-closed') {
+      msg = { ...msg, sceneVersion: ++sceneVersion };
+    }
     const data = JSON.stringify(msg);
     if (msg.type === 'scene-rendered') {
       lastSceneMessage = data;
@@ -120,12 +152,98 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
     }
   }
 
-  function requestScreenshot(options: Record<string, unknown>): Promise<Buffer> {
+  function openClients(): UIClient[] {
+    return [...uiClients].filter(client => client.ws.readyState === WebSocket.OPEN);
+  }
+
+  /** A page that acknowledges scenes and has the latest one on screen. */
+  function clientShowingLatestScene(): UIClient | undefined {
+    return openClients().find(client => client.acksScenes && client.appliedVersion === sceneVersion);
+  }
+
+  function wakeSceneApplyWaiters(): void {
+    for (const wake of [...sceneApplyWaiters]) {
+      wake();
+    }
+  }
+
+  /**
+   * The page to capture from: one showing the latest scene, waited for while
+   * pages that acknowledge scenes are still applying it. Null when no
+   * connected page acknowledges scenes (an older UI bundle) — the caller
+   * then asks every page, as it always did.
+   */
+  function awaitClientShowingLatestScene(): Promise<UIClient | null> {
     return new Promise((resolve, reject) => {
-      if (uiClients.size === 0) {
-        reject(new Error('No UI client connected.'));
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const settle = (): boolean => {
+        const clients = openClients();
+        if (clients.length === 0) {
+          finish();
+          reject(new Error('No UI client connected.'));
+          return true;
+        }
+        if (!clients.some(client => client.acksScenes)) {
+          finish();
+          resolve(null);
+          return true;
+        }
+        const ready = clientShowingLatestScene();
+        if (ready) {
+          finish();
+          resolve(ready);
+          return true;
+        }
+        return false;
+      };
+      const finish = () => {
+        sceneApplyWaiters.delete(settle);
+        if (timer) {
+          clearTimeout(timer);
+        }
+      };
+      if (settle()) {
         return;
       }
+      sceneApplyWaiters.add(settle);
+      timer = setTimeout(() => {
+        finish();
+        reject(new Error(`The viewer is still applying render v${sceneVersion}.`));
+      }, SCENE_APPLY_TIMEOUT_MS);
+    });
+  }
+
+  function awaitLatestSceneApplied(timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (applied: boolean) => {
+        sceneApplyWaiters.delete(settle);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        resolve(applied);
+      };
+      const settle = (): void => {
+        if (clientShowingLatestScene()) {
+          finish(true);
+        } else if (!openClients().some(client => client.acksScenes)) {
+          finish(false);
+        }
+      };
+      sceneApplyWaiters.add(settle);
+      timer = setTimeout(() => finish(false), timeoutMs);
+      settle();
+    });
+  }
+
+  async function requestScreenshot(options: Record<string, unknown>): Promise<Buffer> {
+    const target = await awaitClientShowingLatestScene();
+    return captureFrom(target, options);
+  }
+
+  /** Ask one page (or, with none to single out, every page) for a capture. */
+  function captureFrom(target: UIClient | null, options: Record<string, unknown>): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
       const timeout = setTimeout(() => {
         pendingScreenshots.delete(requestId);
@@ -143,11 +261,28 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
           reject(err);
         },
       });
-      broadcastToUI({ type: 'take-screenshot', requestId, options });
+      const request: ServerToUIMessage = { type: 'take-screenshot', requestId, options };
+      if (target) {
+        target.ws.send(JSON.stringify(request));
+      } else {
+        broadcastToUI(request);
+      }
     });
   }
 
-  function handleCoreMessage(_sessionId: string, msg: any, _ws: WebSocket): boolean {
+  function handleCoreMessage(client: UIClient, msg: any): boolean {
+    if (msg.type === 'ui-hello') {
+      client.acksScenes = msg.sceneAcks === true;
+      wakeSceneApplyWaiters();
+      return true;
+    }
+    if (msg.type === 'scene-applied') {
+      if (typeof msg.version === 'number' && msg.version > client.appliedVersion) {
+        client.appliedVersion = msg.version;
+        wakeSceneApplyWaiters();
+      }
+      return true;
+    }
     if (msg.type === 'screenshot-result' && msg.requestId) {
       const pending = pendingScreenshots.get(msg.requestId);
       if (!pending) { return true; }
@@ -179,7 +314,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
 
   wss.on('connection', (ws) => {
     const sessionId = crypto.randomUUID();
-    const client: UIClient = { ws, sessionId };
+    const client: UIClient = { ws, sessionId, acksScenes: false, appliedVersion: 0 };
     uiClients.add(client);
 
     if (initCompleteMessage) {
@@ -205,7 +340,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
       } catch {
         return;
       }
-      if (handleCoreMessage(sessionId, msg, ws)) {
+      if (handleCoreMessage(client, msg)) {
         return;
       }
       if (messageHandler) {
@@ -217,6 +352,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
 
     ws.on('close', () => {
       uiClients.delete(client);
+      wakeSceneApplyWaiters();
       if (disconnectHandler) {
         try {
           disconnectHandler(sessionId);
@@ -233,6 +369,8 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
     broadcastToUI,
     sendToSession,
     requestScreenshot,
+    isLatestSceneApplied: () => clientShowingLatestScene() !== undefined,
+    awaitLatestSceneApplied,
     getLastCameraState: () => lastCameraState,
     setMessageHandler(handler) { messageHandler = handler; },
     setConnectionHandler(handler) { connectionHandler = handler; },

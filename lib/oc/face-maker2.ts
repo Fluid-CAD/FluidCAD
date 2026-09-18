@@ -9,6 +9,7 @@ import { Convert } from "./convert.js";
 import { FaceOps } from "./face-ops.js";
 import { Face } from "../common/face.js";
 import { ShapeOps } from "./shape-ops.js";
+import { debug } from '../common/log.js';
 
 export class FaceMaker2 {
 
@@ -177,11 +178,11 @@ export class FaceMaker2 {
 
   private static getSplitEdges(shapes: Array<Wire | Edge>) {
     const oc = getOC();
-    console.log('Getting split edges for shapes:', shapes.length);
+    debug('Getting split edges for shapes:', shapes.length);
 
     if (shapes.length === 1) {
       if (shapes[0] instanceof Edge) {
-        console.log('Single edge shape, using directly as split edge');
+        debug('Single edge shape, using directly as split edge');
         return [shapes[0] as Edge];
       }
     }

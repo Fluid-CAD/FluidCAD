@@ -20,6 +20,8 @@ import type { ObjectBuildError, RenderChanges } from './source.ts';
 type RenderReport = {
   state?: 'rendered' | 'build-error';
   objectErrors?: ObjectBuildError[];
+  /** A connected viewer has this render on screen — see `RenderOutcome.uiApplied`. */
+  uiApplied?: boolean;
 };
 
 async function callWithClient<T>(
@@ -58,7 +60,7 @@ export type RecomputeInput = WorkspaceArg & {
 export type RecomputeOutput = { success: boolean; changes?: RenderChanges } & RenderReport;
 
 export async function recompute(input: RecomputeInput): Promise<ToolResult<RecomputeOutput>> {
-  const body = input?.includeChanges === false ? {} : { changes: true };
+  const body = { awaitUi: true, ...(input?.includeChanges === false ? {} : { changes: true }) };
   return callWithClient(input, (client) => client.postJson<RecomputeOutput>('/api/recompute', body));
 }
 

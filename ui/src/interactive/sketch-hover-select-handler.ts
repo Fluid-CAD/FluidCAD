@@ -11,6 +11,7 @@ import {
 } from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData, SceneObjectRender, SourceLocation } from '../types';
+import { SceneIndex } from '../helpers/scene-index';
 import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-plane-utils';
 import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
@@ -307,7 +308,7 @@ export class SketchHoverSelectHandler {
     // role) is stable across renders, so selected vertices survive — they
     // just re-anchor to the fresh solve's positions (or drop if the entity
     // is gone).
-    const sketchObj = sceneObjects.find(o => o.id === sketchId) ?? null;
+    const sketchObj = SceneIndex.of(sceneObjects).byId(sketchId) ?? null;
     this.solvedModel = sketchObj ? buildSolvedSketchModel(sketchObj, sceneObjects) : null;
     this.clearVertexHover();
     this.clearDatumHover();

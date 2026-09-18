@@ -86,6 +86,12 @@ class SceneManager {
    * here; the next startScene() picks it up.
    */
   projectUnit: LengthUnit;
+  /**
+   * Workspace files the current render read that no module import shows — a
+   * load()'s imported asset. A host that re-serves a finished render checks
+   * these along with the module graph before trusting it.
+   */
+  renderInputs = new Set<string>();
 
   constructor(public rootPath: string, public readonly meshQuality: MeshQuality, projectUnit: LengthUnit) {
     this.renderer = new SceneRenderer(meshQuality);
@@ -107,8 +113,19 @@ class SceneManager {
     });
   }
 
+  /** Note a file the render being evaluated depends on (absolute path). */
+  recordRenderInput(filePath: string): void {
+    this.renderInputs.add(filePath);
+  }
+
+  /** The files recorded since the current scene started. */
+  getRenderInputs(): string[] {
+    return [...this.renderInputs];
+  }
+
   startScene() {
     this.startUnitRegistry();
+    this.renderInputs = new Set();
     this.currentScene = new Scene();
     console.log("Starting new scene");
     return this.currentScene;
@@ -116,6 +133,7 @@ class SceneManager {
 
   startAssemblyScene(): AssemblyScene {
     this.startUnitRegistry();
+    this.renderInputs = new Set();
     const scene = new AssemblyScene();
     this.currentScene = scene;
     console.log("Starting new assembly scene");

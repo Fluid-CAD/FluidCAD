@@ -1,3 +1,4 @@
+import { SceneIndex } from '../../helpers/scene-index';
 import { SceneObjectRender } from '../../types';
 
 /** A solid-bearing statement a dialog can target, by call site. */
@@ -75,12 +76,5 @@ export function solidTargetForRow(
 
 /** Rows inside a sketch (its drawn entities) are 2D geometry, never targets. */
 function isInsideSketch(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
-  let current: SceneObjectRender | undefined = obj;
-  while (current?.parentId != null) {
-    current = sceneObjects.find(o => o.id === current!.parentId);
-    if (current?.type === 'sketch') {
-      return true;
-    }
-  }
-  return false;
+  return SceneIndex.of(sceneObjects).enclosing(obj, 'sketch') !== undefined;
 }

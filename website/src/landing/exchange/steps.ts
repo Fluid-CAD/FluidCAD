@@ -10,8 +10,12 @@ export type FeatureStep = {
 
 const PREAMBLE = `import {
   arc, circle, cut, extrude, fillet,
-  line, select, sketch,
+  line, origin, select, sketch,
 } from "fluidcad/core";
+import {
+  coincident, diameter, distance,
+  horizontal, radius, tangent,
+} from "fluidcad/constraints";
 import { edge } from "fluidcad/filters";
 const SPAN = 76;
 const ARM_RADIUS = 24;
@@ -30,12 +34,25 @@ export const STEPS: FeatureStep[] = [
     feature: 'sketch',
     summary: 'Arm profile',
     detail:
-      'Two straight sides and semicircular ends form the arm profile, with the pivot centers 76 mm apart.',
+      'Fully constrain the arm profile with tangent semicircular ends, a 24 mm radius and pivot centers 76 mm apart.',
     body: `sketch("xy", () => {
-  line([0, -ARM_RADIUS], [SPAN, -ARM_RADIUS]);
-  arc([SPAN, -ARM_RADIUS], [SPAN, ARM_RADIUS], [SPAN, 0]);
-  line([SPAN, ARM_RADIUS], [0, ARM_RADIUS]);
-  arc([0, ARM_RADIUS], [0, -ARM_RADIUS], [0, 0]);
+  const bottom = line([0, -ARM_RADIUS], [SPAN, -ARM_RADIUS]);
+  const tip = arc([SPAN, -ARM_RADIUS], [SPAN, ARM_RADIUS], [SPAN, 0]);
+  const top = line([SPAN, ARM_RADIUS], [0, ARM_RADIUS]);
+  const pivot = arc([0, ARM_RADIUS], [0, -ARM_RADIUS], [0, 0]);
+  coincident(bottom.end(), tip.start());
+  coincident(tip.end(), top.start());
+  coincident(top.end(), pivot.start());
+  coincident(pivot.end(), bottom.start());
+  tangent(bottom, tip);
+  tangent(tip, top);
+  tangent(top, pivot);
+  tangent(pivot, bottom);
+  horizontal(bottom);
+  horizontal(top);
+  coincident(pivot.center(), origin());
+  radius(pivot, ARM_RADIUS);
+  distance(pivot.center(), tip.center(), SPAN, "x");
 });`
   },
   {
@@ -51,9 +68,11 @@ export const STEPS: FeatureStep[] = [
     label: 'Sketch 2',
     feature: 'sketch',
     summary: 'Hub profile',
-    detail: 'Draw a 32 mm circle on the arm’s top face for the raised pivot hub.',
+    detail: 'Fully constrain the hub circle at the sketch origin with a 32 mm diameter on the arm’s top face.',
     body: `sketch(arm.endFaces(), () => {
-  circle([0, 0], HUB_DIAMETER);
+  const hub = circle([0, 0], HUB_DIAMETER);
+  coincident(hub.center(), origin());
+  diameter(hub, HUB_DIAMETER);
 });`
   },
   {
@@ -69,10 +88,15 @@ export const STEPS: FeatureStep[] = [
     label: 'Sketch 3',
     feature: 'sketch',
     summary: 'Pivot holes',
-    detail: 'Sketch a 20 mm pivot hole and an 11 mm hole at the other end. Nothing is cut yet.',
+    detail: 'Fully constrain the 20 mm and 11 mm hole profiles with aligned centers 76 mm apart. Nothing is cut yet.',
     body: `sketch(boss.endFaces(), () => {
-  circle([0, 0], PIVOT_DIAMETER);
-  circle([SPAN, 0], TIP_HOLE_DIAMETER);
+  const pivot = circle([0, 0], PIVOT_DIAMETER);
+  const tip = circle([SPAN, 0], TIP_HOLE_DIAMETER);
+  coincident(pivot.center(), origin());
+  diameter(pivot, PIVOT_DIAMETER);
+  horizontal(pivot.center(), tip.center());
+  distance(pivot.center(), tip.center(), SPAN, "x");
+  diameter(tip, TIP_HOLE_DIAMETER);
 });`
   },
   {

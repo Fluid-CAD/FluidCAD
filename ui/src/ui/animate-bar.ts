@@ -148,7 +148,7 @@ export class AnimateBar {
   }
 
   /** Open (or retarget) the bar for a mate. Stops any running animation first. */
-  open(target: AnimateTarget, { preserveSettings = false } = {}): void {
+  open(target: AnimateTarget, { preserveSettings = false, playback }: { preserveSettings?: boolean; playback?: Playback } = {}): void {
     this.pause();
     const settings = preserveSettings && this.target?.mateId === target.mateId
       && this.target.kind === target.kind
@@ -174,7 +174,7 @@ export class AnimateBar {
     this.startInput.value = fmt(start);
     this.endInput.value = fmt(end);
     this.stepsInput.value = String(DEFAULT_STEPS);
-    this.playbackSelect.value = isAngle ? 'loop' : 'single';
+    this.playbackSelect.value = playback ?? (isAngle ? 'loop' : 'single');
     if (settings) {
       [this.startInput.value, this.endInput.value, this.stepsInput.value, this.playbackSelect.value] = settings;
     }

@@ -1,6 +1,9 @@
 import type {ViewerAnimation, ViewerView} from '@site/src/lib/viewer-embed';
 import cylinderSource from '!!raw-loader!../models/hero-cylinder.part.js';
 import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
+import hingeFixedLeaf from '!!raw-loader!../models/box-fixed-leaf.part.js';
+import hingeMovingLeaf from '!!raw-loader!../models/box-moving-leaf.part.js';
+import hingePin from '!!raw-loader!../models/box-pin.part.js';
 
 // The four-cylinder engine is a real workspace, not a snippet: a crank, a
 // piston assembly built from five parts, and one replicate that puts four of
@@ -82,10 +85,17 @@ export const HERO_MODELS: HeroModel[] = [
   },
   {
     id: 'hinge',
-    label: 'Hinged blocks',
-    blurb: 'Two parts, one revolute joint between them.',
+    label: 'Box hinge',
+    blurb: 'Two leaves and a pin, joined with mates.',
     entry: 'hinge.assembly.js',
-    files: {'hinge.assembly.js': hingeSource},
+    animation: {mate: 'hinge-swing', autoplay: false, playback: 'reciprocate'},
+    files: {
+      'init.js': engineInit,
+      'hinge.assembly.js': hingeSource,
+      'box-fixed-leaf.part.js': hingeFixedLeaf,
+      'box-moving-leaf.part.js': hingeMovingLeaf,
+      'box-pin.part.js': hingePin,
+    },
     thumbnail: '/img/landing/thumb-hinge.png',
   },
 ];

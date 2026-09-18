@@ -15,6 +15,8 @@ export type ViewerAnimation = {
   owner?: string;
   /** Open controls paused by default; true starts playback after load. */
   autoplay?: boolean;
+  /** Initial playback mode; the visitor can change it in the controls. */
+  playback?: 'single' | 'loop' | 'reciprocate';
 };
 
 export type ViewerModel = {

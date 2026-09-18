@@ -96,6 +96,19 @@ describe('animate bar defaults', () => {
     const { el } = mount();
     expect(el('start').closest('.absolute')!.textContent).not.toContain('revolute');
   });
+
+  it('uses an embedded playback preference and preserves user changes on rebuild', () => {
+    const { bar, el, driven, pump } = mount();
+    bar.open({ mateId: 'm1', kind: 'angle', limits: [0, 90] }, { playback: 'reciprocate' });
+    expect(values(el).playback).toBe('reciprocate');
+    (el('steps') as HTMLInputElement).value = '3';
+    bar.play();
+    pump(6);
+    expect(driven).toEqual([0, 30, 60, 90, 60, 30, 0]);
+    (el('playback') as HTMLSelectElement).value = 'single';
+    bar.open({ mateId: 'm1', kind: 'angle' }, { playback: 'reciprocate', preserveSettings: true });
+    expect(values(el).playback).toBe('single');
+  });
 });
 
 describe('animate bar playback', () => {

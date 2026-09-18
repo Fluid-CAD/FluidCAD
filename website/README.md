@@ -34,7 +34,7 @@ dev server restarted.
 | Variable | Purpose |
 | --- | --- |
 | `ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_API_KEY`, `ALGOLIA_INDEX_NAME` | DocSearch credentials. |
-| `FLUIDCAD_VIEWER_URL` | Viewer origin. `npm start` defaults to `http://localhost:8788` and starts a viewer for loopback URLs. A remote URL skips local startup. Builds default to `https://viewer.fluidcad.io`. |
+| `FLUIDCAD_VIEWER_URL` | Viewer origin. `npm start` defaults to `http://localhost:8788` and starts a viewer for loopback URLs. A remote URL skips local startup. Builds default to `https://viewer.fluidcad.io` and ignore a loopback URL, so the `.env.local` that serves `npm start` is safe for `npm run deploy`. |
 | `FLUIDCAD_VIEWER_DIR` | Viewer checkout path, absolute or relative to `website`. Defaults to `../../FluidCAD-Viewer`. |
 
 To choose a different local viewer port, set:

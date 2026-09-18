@@ -188,12 +188,14 @@ export class EditorSurface {
   }
 
   /**
-   * @param reveal open the pane as part of activating. Only an explicit
-   * "show me the code" gesture ({@link gotoSource}) passes true — the editor
-   * is hidden by default and neither a tab click, a quick-open pick nor
-   * following the scene into a new file may pop it open (Invariant 7). If the
-   * file has to be loaded into Monaco first, that happens while the pane is
-   * still hidden.
+   * @param reveal open the pane as part of activating. For a model, only an
+   * explicit "show me the code" gesture ({@link gotoSource}) passes true — the
+   * editor is hidden by default and neither a tab click, a quick-open pick nor
+   * following the scene into a new file may pop it open (Invariant 7). A plain
+   * source file is the exception: it has no scene, so its code is the only
+   * thing opening it can mean, and the pane opens unless the caller says
+   * otherwise. If the file has to be loaded into Monaco first, that happens
+   * while the pane is still hidden.
    */
   async activateTab(absPath: string, options: { reveal?: boolean } = {}): Promise<void> {
     const entry = this.models.get(absPath);
@@ -202,7 +204,7 @@ export class EditorSurface {
     }
     this.activePath = absPath;
     this.persistTabs();
-    if (options.reveal) {
+    if (options.reveal ?? entry.kind !== 'model') {
       this.pane.setOpen(true);
     }
     await this.showFile(absPath);
@@ -435,7 +437,9 @@ export class EditorSurface {
       ? this.models.list().find((entry) => entry.relPath === state.activeTab)
       : undefined;
     if (active) {
-      await this.activateTab(active.absPath);
+      // Reopening last session is not the user opening a file: the pane comes
+      // back the way they left it, whatever kind of tab was active.
+      await this.activateTab(active.absPath, { reveal: false });
     }
   }
 

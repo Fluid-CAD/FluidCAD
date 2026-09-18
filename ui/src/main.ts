@@ -697,8 +697,9 @@ const topBar = new TopBar(container, {
   // A viewport-only host gets no tab affordances: the handler set is absent,
   // which is what removes them.
   tabs: editorSurfaceEnabled ? {
-    // Switching tabs re-targets the scene; it never opens the pane. The editor
-    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
+    // Switching to a model tab re-targets the scene; it never opens the pane,
+    // which shows only when toggled on explicitly (menu / Ctrl+B) — Invariant
+    // 7. A plain source tab has no scene to show, so activating one opens it.
     onActivate: (absPath) => void editorSurface?.activateTab(absPath),
     onClose: (absPath) => editorSurface?.closeTab(absPath),
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),

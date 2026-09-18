@@ -11,10 +11,19 @@ yarn
 ## Local Development
 
 ```bash
-yarn start
+npm run start
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+This starts Docusaurus and the local viewer at `http://localhost:8788`, so
+embedded models render without a second terminal. The viewer checkout is
+expected at `../../FluidCAD-Viewer` relative to this directory, with its npm
+dependencies installed. Missing viewer build output is built automatically;
+to refresh an existing build after viewer changes, run `npm run build` in
+that checkout. Most docs changes appear live.
+
+An already running viewer is reused. Ctrl+C stops the docs and any viewer
+started by this command; an existing viewer is left running. Docusaurus
+arguments still work, for example `npm run start -- --no-open --port 3001`.
 
 ### Environment
 
@@ -25,14 +34,13 @@ dev server restarted.
 | Variable | Purpose |
 | --- | --- |
 | `ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_API_KEY`, `ALGOLIA_INDEX_NAME` | DocSearch credentials. |
-| `FLUIDCAD_VIEWER_URL` | Origin the embedded viewer loads from — the hero viewport on the landing page, `<ViewerEmbed>` and every "Open in viewer" link. Defaults to `https://viewer.fluidcad.io`. |
+| `FLUIDCAD_VIEWER_URL` | Viewer origin. `npm start` defaults to `http://localhost:8788` and starts a viewer for loopback URLs. A remote URL skips local startup. Builds default to `https://viewer.fluidcad.io`. |
+| `FLUIDCAD_VIEWER_DIR` | Viewer checkout path, absolute or relative to `website`. Defaults to `../../FluidCAD-Viewer`. |
 
-To point the site at a viewer running on this machine, build and serve the
-viewer repo (`npm run build && npm run serve` in `FluidCAD-Viewer`, which
-listens on `8788`) and set:
+To choose a different local viewer port, set:
 
 ```
-FLUIDCAD_VIEWER_URL=http://localhost:8788
+FLUIDCAD_VIEWER_URL=http://localhost:8789
 ```
 
 The name has to match exactly: an unrecognised variable is not an error, the

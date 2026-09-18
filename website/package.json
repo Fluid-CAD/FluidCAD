@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "start": "dotenv -e .env.local -- docusaurus start",
+    "start": "dotenv -e .env.local -- node scripts/start-local.mjs",
     "build": "docusaurus build",
     "build:local": "dotenv -e .env.local -- docusaurus build",
     "swizzle": "docusaurus swizzle",

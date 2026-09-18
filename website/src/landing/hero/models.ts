@@ -1,5 +1,15 @@
 import type {ViewerAnimation, ViewerView} from '@site/src/lib/viewer-embed';
-import cylinderSource from '!!raw-loader!../models/hero-cylinder.part.js';
+import quickReturnMain from '!!raw-loader!../models/quick-return/main.assembly.js';
+import quickReturnFrame from '!!raw-loader!../models/quick-return/frame.part.js';
+import quickReturnWheel from '!!raw-loader!../models/quick-return/wheel.part.js';
+import quickReturnArm from '!!raw-loader!../models/quick-return/arm.part.js';
+import quickReturnLink from '!!raw-loader!../models/quick-return/link.part.js';
+import quickReturnPin from '!!raw-loader!../models/quick-return/pin.part.js';
+import quickReturnRam from '!!raw-loader!../models/quick-return/ram.part.js';
+import quickReturnGuide from '!!raw-loader!../models/quick-return/guide.part.js';
+import quickReturnBolt from '!!raw-loader!../models/quick-return/bolt.part.js';
+import quickReturnProfiles from '!!raw-loader!../models/quick-return/profiles.js';
+import quickReturnDimensions from '!!raw-loader!../models/quick-return/dimensions.js';
 import hingeSource from '!!raw-loader!../models/hero-hinge.assembly.js';
 import hingeFixedLeaf from '!!raw-loader!../models/box-fixed-leaf.part.js';
 import hingeMovingLeaf from '!!raw-loader!../models/box-moving-leaf.part.js';
@@ -76,19 +86,34 @@ export const HERO_MODELS: HeroModel[] = [
     view: '1.7,-1,1',
   },
   {
-    id: 'cylinder',
-    label: 'Bored cylinder',
-    blurb: 'A circle, an extrude, then a cut through it.',
-    entry: 'cylinder.part.js',
-    files: {'cylinder.part.js': cylinderSource},
-    thumbnail: '/img/landing/thumb-cylinder.png',
+    id: 'quick-return',
+    label: 'Quick return',
+    blurb: 'Revolute, slider, and tangent mates in motion.',
+    entry: 'main.assembly.js',
+    animation: {mate: 'crank-drive', autoplay: true},
+    files: {
+      'init.js': engineInit,
+      'main.assembly.js': quickReturnMain,
+      'frame.part.js': quickReturnFrame,
+      'wheel.part.js': quickReturnWheel,
+      'arm.part.js': quickReturnArm,
+      'link.part.js': quickReturnLink,
+      'pin.part.js': quickReturnPin,
+      'ram.part.js': quickReturnRam,
+      'guide.part.js': quickReturnGuide,
+      'bolt.part.js': quickReturnBolt,
+      'profiles.js': quickReturnProfiles,
+      'dimensions.js': quickReturnDimensions,
+    },
+    thumbnail: '/img/landing/thumb-quick-return.png',
+    view: '1,-2,0.75',
   },
   {
     id: 'hinge',
     label: 'Box hinge',
     blurb: 'Two leaves and a pin, joined with mates.',
     entry: 'hinge.assembly.js',
-    animation: {mate: 'hinge-swing', autoplay: false, playback: 'reciprocate'},
+    animation: {mate: 'hinge-swing', autoplay: true, playback: 'reciprocate'},
     files: {
       'init.js': engineInit,
       'hinge.assembly.js': hingeSource,

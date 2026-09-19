@@ -26,7 +26,7 @@ import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/sta
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
-import { VertexPicking } from './interactive/vertex-picking';
+import { VertexPicking, type VertexPickScope } from './interactive/vertex-picking';
 import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
@@ -213,11 +213,15 @@ export class Viewer {
   }
 
   /** null includes all visible shapes; [] arms the channel with no candidates. */
-  setVertexPickScope(shapeIds: readonly string[] | null): void {
+  setVertexPickScope(shapeIds: readonly VertexPickScope[] | null): void {
     if (this.ctx) {
       this.clearHover();
     }
     this.vertexPicking?.setScope(shapeIds);
+  }
+
+  setVertexPickEmphasis(entities: SelectedEntity[] | null): void {
+    this.vertexPicking?.setEmphasized(entities);
   }
   /**
    * Makes sketch wires pickable, independent of `pickFilter` — the armed
@@ -1305,6 +1309,7 @@ export class Viewer {
     this.hoverState = null;
     this.hoverFaceOverlayMeshes = [];
     this.vertexPicking?.setSelected([]);
+    this.vertexPicking?.setEmphasized(null);
     this.vertexPicking?.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
 

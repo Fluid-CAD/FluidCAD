@@ -83,6 +83,54 @@ describe('vertex picking channel', () => {
     expect(dots(scene).filter(dot => dot.userData.vertexState === 'selected')).toHaveLength(1);
   });
 
+  it('restricts individual topology vertices and invalidates the cached visibility when scope changes', () => {
+    const { scene, picker } = setup();
+    scene.add(vertices('body', [0, 0, 0, 1, 0, 0, 2, 0, 0]));
+    picker.setActive(true);
+    picker.setScope([{ shapeId: 'body', indices: [0] }, { shapeId: 'body', indices: [1] }]);
+    picker.refresh();
+    expect(dots(scene)).toHaveLength(2);
+    expect(picker.pick(240, 230)?.sub.index).toBe(0);
+    picker.setScope([{ shapeId: 'body', indices: [2] }]);
+    picker.refresh();
+    expect(dots(scene)).toHaveLength(1);
+    expect(picker.pick(240, 230)).toBeNull();
+    picker.setScope(['body']);
+    picker.refresh();
+    expect(dots(scene)).toHaveLength(3);
+  });
+
+  it('dims completed selections while a different vertex is emphasized', () => {
+    const { scene, picker } = setup();
+    scene.add(vertices('a', [0, 0, 0, 1, 0, 0]));
+    const selected = [0, 1].map(index => ({ shapeId: 'a', sub: { type: 'vertex' as const, index } }));
+    picker.setSelected(selected);
+    picker.setEmphasized([selected[1]]);
+    picker.refresh();
+    const opacity = () => dots(scene).map(dot => ((dot.children[0] as Mesh).material as MeshBasicMaterial).opacity);
+    expect(opacity()).toEqual([0.6, 1]);
+    picker.setEmphasized(null);
+    picker.refresh();
+    expect(opacity()).toEqual([1, 1]);
+  });
+
+  it('replaces sketch endpoint dots while armed and restores their prior visibility', () => {
+    const { scene, picker } = setup();
+    const shown = new Group();
+    const hidden = new Group();
+    shown.userData.isVertexDot = hidden.userData.isVertexDot = true;
+    hidden.visible = false;
+    scene.add(shown, hidden);
+    picker.setActive(true);
+    expect(shown.visible).toBe(false);
+    picker.setActive(false);
+    expect(shown.visible).toBe(true);
+    expect(hidden.visible).toBe(false);
+    picker.setActive(true);
+    picker.dispose();
+    expect(shown.visible).toBe(true);
+  });
+
   it('merges coincident positions even when they straddle spatial cell boundaries', () => {
     const { scene, picker } = setup();
     scene.add(vertices('a', [0.999e-6, 0, 0]), vertices('b', [1.001e-6, 0, 0]));

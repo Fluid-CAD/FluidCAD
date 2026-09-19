@@ -24,6 +24,22 @@ describe('topological vertex picks', () => {
     const shape = e.getShapes()[0];
     const payload = scene.getRenderedObjects().flatMap(object => object.sceneShapes).find(p => p.shapeId === shape.id)!;
     expect(payload.vertices).toHaveLength(24);
+    expect(payload.faceVertices).toHaveLength(6);
+    const faces = Explorer.findFacesWrapped(shape);
+    try {
+      for (const [index, face] of faces.entries()) {
+        const coordinates = topologyVertices(face);
+        expect(payload.faceVertices![index]).toHaveLength(4);
+        for (const vertex of payload.faceVertices![index]) {
+          const point = payload.vertices!.slice(vertex * 3, vertex * 3 + 3);
+          expect(Array.from({ length: coordinates.length / 3 }, (_, i) => coordinates.slice(i * 3, i * 3 + 3))).toContainEqual(point);
+        }
+      }
+    } finally {
+      for (const face of faces) {
+        face.dispose();
+      }
+    }
     const vertices = Explorer.findVerticesWrapped(shape);
     try {
       expect(payload.vertices).toEqual(vertices.flatMap(vertex => vertex.toPoint().toArray()));

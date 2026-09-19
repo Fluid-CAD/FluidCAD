@@ -1,15 +1,18 @@
 import {
-  applyLoft, applyLoftEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyLoft, applyLoftEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
   GhostSectionRef, GhostSolid, LoftApplyOptions, LoftEditGuideRef, LoftEditProfileRef,
   LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
+import { worldFromMm } from '../../units/scene-scale';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { SolidPickSelection } from '../solid-pick';
 import { LoftPanel } from './loft-panel';
+import { LoftConnections, type ConnectionPoint } from './loft-connections';
+import { LoftConnectionsOverlay } from './loft-connections-overlay';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
@@ -76,6 +79,15 @@ export class LoftFeatureService {
 
   private items: LoftProfileItem[] = [];
   private guides: LoftGuideItem[] = [];
+  private connections = new LoftConnections();
+  private profileVertices: {
+    items: LoftProfileItem[];
+    sceneObjects: SceneObjectRender[];
+    sourceSlots: LoftFeatureService['sourceSlots'];
+    vertices: SelectedEntity[][];
+  } | null = null;
+  private matching: LoftConnectionsOverlay;
+  private sourceRequest = 0;
   /** The `.scope(…)` targets, part-restricted whole-solid picks. */
   private scope = new ScopeTargetList();
   /** The edited statement's enclosing part — the scope picker's restriction. */
@@ -115,6 +127,7 @@ export class LoftFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.matching = new LoftConnectionsOverlay(viewer);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
     this.panel = new LoftPanel(container);
@@ -125,17 +138,21 @@ export class LoftFeatureService {
       // The op tab gates the scope section (hidden on New) — re-derive its
       // chips and the highlight alongside the preview.
       this.refreshScope();
-      this.runner.schedulePreview();
+      this.schedulePreview();
     };
     this.panel.onRemoveProfile = (index) => this.removeProfile(index);
     this.panel.onReorderProfile = (from, to) => this.reorderProfile(from, to);
     this.panel.onRemoveGuide = (index) => this.removeGuide(index);
-    this.panel.onArmedSectionChange = () => this.syncPickFilter();
+    this.panel.onArmedSectionChange = () => this.refreshProfilesUI();
+    this.panel.onRemoveConnection = index => {
+      this.connections.remove(index);
+      this.connectionsChanged();
+    };
     this.panel.onRemoveScope = (index) => {
       this.scope.removeAt(index);
       this.panel.setMessage(null);
       this.refreshScope();
-      this.runner.schedulePreview();
+      this.schedulePreview();
     };
 
     this.runner = new ApplyRunner({
@@ -152,9 +169,14 @@ export class LoftFeatureService {
       onPreviewSuccess: () => this.panel.setMessage(null),
       // The statement preview's geometric twin: the surface the chips describe,
       // drawn translucent in the viewport. Same debounce, same abort scope.
+      validateApply: () => {
+        const blocked = this.connectionError();
+        return blocked ? { error: blocked } : null;
+      },
       ghost: {
         fetch: (_request, signal) => this.fetchGhost(signal),
         apply: (solids) => {
+          this.matching.setGhost(solids);
           if (solids) {
             this.ghost.set(solids, this.ghostKind());
           } else {
@@ -243,30 +265,37 @@ export class LoftFeatureService {
     if (state === 'waiting') {
       // Mid-flight to the boundary — whatever the ghost was drawn against is
       // already gone from the view.
-      this.ghost.clear();
+      this.runner.cancelPreview();
+      this.clearGhost();
       if (!isRollback) {
         this.editSceneStale = true;
+        this.sourceRequest++;
+        this.connections.resolve([]);
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene. A keep
     // chip whose argument named a statement becomes that statement's option.
-    this.ghost.clear();
+    this.clearGhost();
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
     this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     if (this.editSceneStale) {
       this.editSceneStale = false;
+      const verticesReset = this.connections.invalidatePicks();
       // A scene rebuild killed every picked face's shape id; sketch chips
       // re-match by line, verbatim chips are position-addressed and survive.
       const faces = this.items.filter(item => item.kind === 'face').length;
       if (faces > 0) {
-        this.items = this.items.filter(item => item.kind !== 'face');
+        this.setItems(this.items.filter(item => item.kind !== 'face'));
         this.panel.setMessage('The code changed — re-picked faces were reset.');
+      }
+      if (verticesReset) {
+        this.panel.setMessage('The code changed. Pick the connection vertices again.');
       }
       this.sourceSlots = null;
     }
-    this.items = this.items.filter(item => {
+    this.setItems(this.items.filter(item => {
       if (item.kind !== 'sketch') {
         return true;
       }
@@ -276,7 +305,7 @@ export class LoftFeatureService {
       }
       item.option = refreshed;
       return true;
-    });
+    }));
     this.guides = this.guides.filter(guide => {
       if (guide.kind !== 'sketch') {
         return true;
@@ -293,7 +322,7 @@ export class LoftFeatureService {
     }
     void this.relabeler.refresh(this.profiles);
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -315,7 +344,10 @@ export class LoftFeatureService {
     }
     // The geometry under the ghost just changed — drop it now and let the
     // debounce redraw it. Correctness over the flicker.
-    this.ghost.clear();
+    this.clearGhost();
+    if (this.connections.invalidatePicks()) {
+      this.panel.setMessage('The code changed. Pick the connection vertices again.');
+    }
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
@@ -326,12 +358,11 @@ export class LoftFeatureService {
       this.sketchUI.suspend();
     }
     this.syncPickFilter();
-    this.viewer.pickSketchWires = true;
     // Shape ids changed with the render: face chips are stale and drop;
     // sketch chips (and guides) — and the chosen scope solids — are
     // line-addressed and survive while still offered.
     this.scope.setScene(sceneObjects, this.scopePartLoc());
-    this.items = this.items.filter((item): item is LoftProfileItem & { kind: 'sketch' } => {
+    this.setItems(this.items.filter((item): item is LoftProfileItem & { kind: 'sketch' } => {
       if (item.kind !== 'sketch') {
         return false;
       }
@@ -341,7 +372,7 @@ export class LoftFeatureService {
       }
       item.option = refreshed;
       return true;
-    });
+    }));
     this.guides = this.guides.filter((guide): guide is LoftGuideItem & { kind: 'sketch' } => {
       if (guide.kind !== 'sketch') {
         return false;
@@ -355,7 +386,7 @@ export class LoftFeatureService {
     });
     void this.relabeler.refresh(this.profiles);
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /**
@@ -379,6 +410,7 @@ export class LoftFeatureService {
     this.editTarget = target;
     this.editParsedProfiles = parsed.profileTexts.length;
     this.editParsedGuides = parsed.guideTexts.length;
+    this.connections.seed(parsed.connectionTexts ?? []);
     this.items = parsed.profileTexts.map((label, sourceIndex) => ({ kind: 'verbatim', sourceIndex, label }));
     this.guides = parsed.guideTexts.map((label, sourceIndex) => ({ kind: 'verbatim', sourceIndex, label }));
     this.sourceSlots = null;
@@ -402,7 +434,7 @@ export class LoftFeatureService {
     this.panel.setScopeChips(this.scope.chips());
     this.syncPickFilter();
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /**
@@ -426,20 +458,25 @@ export class LoftFeatureService {
     if (!boundary) {
       return;
     }
+    const request = ++this.sourceRequest;
+    const target = this.editTarget;
     const result = await fetchFeatureSources(boundary);
-    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+    if (!this.armed || this.editTarget !== target || request !== this.sourceRequest
+      || this.session.boundary?.index !== boundary.index) {
       return;
     }
     if (result.ok && result.feature === 'loft') {
       this.sourceSlots = { profiles: result.profiles, guides: result.guides };
+      this.connections.resolve(result.connections ?? []);
     } else {
       this.sourceSlots = { profiles: [], guides: [] };
+      this.connections.resolve([]);
     }
     this.refreshProfilesUI();
     // The ghost's kept chips read `sourceSlots`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the ghost appears
     // now that the statement's own profiles and guides are known.
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   enter(): void {
@@ -459,6 +496,7 @@ export class LoftFeatureService {
     this.viewer.pickSketchWires = true;
     this.items = [];
     this.guides = [];
+    this.connections.seed([]);
     this.scope.clear();
     this.editPartLoc = null;
     void this.refreshScopeVariables();
@@ -467,7 +505,7 @@ export class LoftFeatureService {
     void this.relabeler.refresh(this.profiles);
     this.refreshScope();
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /**
@@ -486,6 +524,7 @@ export class LoftFeatureService {
       opts = { ...opts, resume: 'lazy' };
     }
     this.armed = false;
+    this.sourceRequest++;
     this.editTarget = null;
     this.sourceSlots = null;
     this.editSceneStale = false;
@@ -497,10 +536,14 @@ export class LoftFeatureService {
     // The overlay is a compiledMesh sibling, so no render tears it down —
     // every way out of the dialog (apply, cancel, scene-driven) lands here.
     this.ghost.clear();
+    this.matching.set([], null, false);
+    this.matching.setGhost(null);
     this.items = [];
     this.guides = [];
+    this.connections.seed([]);
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
+    this.viewer.setVertexPickScope(null);
     this.viewer.pickSketchWires = false;
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
@@ -512,6 +555,12 @@ export class LoftFeatureService {
    * clicks keep the list.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
+    if (this.armed && this.panel.armedSection === 'connections') {
+      if (shapeId && sub?.type === 'vertex') {
+        this.pickConnection(shapeId, sub);
+      }
+      return;
+    }
     // The armed scope slot takes any face or edge click as a whole-solid
     // toggle instead of a profile pick.
     if (this.armed && this.panel.armedSection === 'scope') {
@@ -533,12 +582,13 @@ export class LoftFeatureService {
     const entity: SelectedEntity = { shapeId, sub };
     const existing = this.items.findIndex(item => item.kind === 'face' && sameEntity(item.entity, entity));
     if (existing >= 0) {
-      this.items = this.items.filter((_, i) => i !== existing);
+      this.removeProfile(existing);
+      return;
     } else {
-      this.items = [...this.items, { kind: 'face', entity }];
+      this.setItems([...this.items, { kind: 'face', entity }]);
     }
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /**
@@ -549,6 +599,9 @@ export class LoftFeatureService {
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    if (this.panel.armedSection === 'connections') {
+      return true;
     }
     const sketch = resolveWireRow(obj, this.sceneObjects);
     if (sketch?.sourceLocation) {
@@ -569,6 +622,9 @@ export class LoftFeatureService {
   handleSketchPick(shapeId: string): boolean {
     if (!this.armed) {
       return false;
+    }
+    if (this.panel.armedSection === 'connections') {
+      return true;
     }
     const sketch = resolveWireByShapeId(shapeId, this.sceneObjects);
     if (!sketch?.sourceLocation) {
@@ -632,9 +688,9 @@ export class LoftFeatureService {
       return;
     }
     this.panel.setMessage(null);
-    this.items = [...this.items, { kind: 'sketch', option }];
+    this.setItems([...this.items, { kind: 'sketch', option }]);
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   private addGuide(option: SketchProfileOption): void {
@@ -652,7 +708,7 @@ export class LoftFeatureService {
     this.panel.setMessage(null);
     this.guides = [...this.guides, { kind: 'sketch', option }];
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   private removeGuide(index: number): void {
@@ -662,7 +718,7 @@ export class LoftFeatureService {
     this.panel.setMessage(null);
     this.guides = this.guides.filter((_, i) => i !== index);
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   private removeProfile(index: number): void {
@@ -670,9 +726,9 @@ export class LoftFeatureService {
       return;
     }
     this.panel.setMessage(null);
-    this.items = this.items.filter((_, i) => i !== index);
+    this.setItems(this.items.filter((_, i) => i !== index));
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /** Move the chip at `from` to position `to` — order is argument order. */
@@ -684,9 +740,9 @@ export class LoftFeatureService {
     const items = [...this.items];
     const [moved] = items.splice(from, 1);
     items.splice(to, 0, moved);
-    this.items = items;
+    this.setItems(items);
     this.refreshProfilesUI();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /** Green while the loft adds material, red while it cuts. */
@@ -712,18 +768,26 @@ export class LoftFeatureService {
     }
     const profiles = this.ghostSections();
     const guides = this.ghostGuides();
-    if (!profiles || !guides || profiles.length < 2) {
+    // Rows still being picked stay out of the ghost (Apply is blocked on them
+    // anyway) so the loft and its matching stay visible while picking.
+    const connections = this.connections.completeWorldPoints();
+    if (!profiles || !guides || !connections || profiles.length < 2) {
       return null;
     }
-    return fetchFeatureGhost({
+    const result = await fetchFeatureGhostResult({
       feature: 'loft',
       op: values.op,
       thin: values.thin,
       profiles,
       guides,
+      connections,
       startCondition: values.startCondition,
       endCondition: values.endCondition,
     }, signal);
+    if (!signal.aborted && this.armed && result.notice) {
+      this.panel.setMessage(result.notice);
+    }
+    return result.solids;
   }
 
   /** The sections to skin through, in chip order, or null if one can't travel. */
@@ -803,6 +867,10 @@ export class LoftFeatureService {
 
   /** The request for the current form state, or the message blocking it. */
   private buildRequest(): LoftApplyOptions | { error: string } {
+    const blocked = this.connectionConflict();
+    if (blocked) {
+      return { error: blocked };
+    }
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -849,6 +917,7 @@ export class LoftFeatureService {
       thin: values.thin,
       profiles,
       guides,
+      connections: this.connections.refs(false),
       startCondition: values.startCondition,
       endCondition: values.endCondition,
       // A separate body has no boolean to scope — the hidden section's picks
@@ -865,6 +934,10 @@ export class LoftFeatureService {
    * face picks for synthesis against the session boundary.
    */
   private buildEditRequest(): Parameters<typeof applyLoftEdit>[1] | { error: string } {
+    const blocked = this.connectionConflict();
+    if (blocked) {
+      return { error: blocked };
+    }
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -921,11 +994,12 @@ export class LoftFeatureService {
       endCondition: values.endCondition,
       profiles,
       guides,
+      connections: this.connections.refs(true),
       // The dialog owns the chain it shows: the full list on Add/Remove, an
       // explicit drop on New (`.new()` resets the fusion scope).
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
       expectedStatement: this.session.expectedStatement,
-      before: hasFacePicks ? this.session.boundary ?? undefined : undefined,
+      before: hasFacePicks || this.connections.hasPicks ? this.session.boundary ?? undefined : undefined,
     };
   }
 
@@ -934,6 +1008,11 @@ export class LoftFeatureService {
   // -------------------------------------------------------------------------
 
   private refreshProfilesUI(): void {
+    this.syncPickFilter();
+    this.panel.setConnections(this.connections.chips(index => {
+      this.connections.edit(index);
+      this.refreshProfilesUI();
+    }), (!this.connections.incomplete && this.connectionError()) || this.connections.prompt(this.items.length));
     this.panel.setProfiles(this.items.map(item =>
       item.kind === 'sketch' ? sourceChip(item.option)
         : { label: item.kind === 'face' ? 'Picked face' : item.label }));
@@ -988,8 +1067,11 @@ export class LoftFeatureService {
     // Every selected input lights up: picked faces plus the wires of every
     // profile and guide sketch, and the chosen scope solids whole.
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
+    const vertices = this.connectionHighlights();
     this.solidPick.set(this.scope.shapeIds());
-    this.solidPick.refreshHighlight({ entities: faces, wireIds });
+    this.solidPick.refreshHighlight({ entities: [...faces, ...vertices.all], wireIds });
+    this.viewer.setVertexPickEmphasis(vertices.active);
+    this.matching.set(this.connections.rows, this.connections.active, this.panel.armedSection === 'connections');
     this.syncApplyEnabled();
   }
 
@@ -1025,7 +1107,7 @@ export class LoftFeatureService {
     this.scope.toggle(option);
     this.panel.setMessage(null);
     this.refreshScope();
-    this.runner.schedulePreview();
+    this.schedulePreview();
   }
 
   /**
@@ -1037,15 +1119,169 @@ export class LoftFeatureService {
     if (!this.armed) {
       return;
     }
-    this.viewer.pickFilter = this.panel.armedSection === 'scope' ? 'all' : 'face';
+    const connections = this.panel.armedSection === 'connections';
+    this.viewer.pickFilter = connections ? 'vertex' : this.panel.armedSection === 'scope' ? 'all' : 'face';
+    this.viewer.pickSketchWires = !connections;
+    this.viewer.setVertexPickScope(connections ? this.connectionProfiles().flat().map(entity => ({
+      shapeId: entity.shapeId, indices: [entity.sub.index],
+    })) : null);
   }
 
   private findOption(filePath: string, line: number): SketchProfileOption | undefined {
     return this.profiles.find(o => o.filePath === filePath && o.line === line);
   }
 
+  private setItems(items: LoftProfileItem[]): void {
+    this.connections.remap(items.map(item => this.items.indexOf(item)));
+    this.items = items;
+  }
+
+  /**
+   * The pickable vertices of every profile, in profile order. One UI refresh
+   * reads this for the pick scope, the highlights and each pick, so it is
+   * rebuilt only when what it derives from is replaced.
+   */
+  private connectionProfiles(): SelectedEntity[][] {
+    const cached = this.profileVertices;
+    if (cached && cached.items === this.items && cached.sceneObjects === this.sceneObjects
+      && cached.sourceSlots === this.sourceSlots) {
+      return cached.vertices;
+    }
+    const vertices = this.buildConnectionProfiles();
+    this.profileVertices = { items: this.items, sceneObjects: this.sceneObjects, sourceSlots: this.sourceSlots, vertices };
+    return vertices;
+  }
+
+  /** Face membership is topology data; tessellation and whole-solid ownership are insufficient. */
+  private buildConnectionProfiles(): SelectedEntity[][] {
+    const shapes = new Map(this.sceneObjects.flatMap(obj => obj.sceneShapes ?? []).map(shape => [shape.shapeId, shape]));
+    return this.items.map(item => {
+      const section: GhostSectionRef | null = item.kind === 'sketch'
+        ? { kind: 'sketch', filePath: item.option.filePath, line: item.option.line }
+        : item.kind === 'face'
+          ? { kind: 'faces', entities: [{ shapeId: item.entity.shapeId, index: item.entity.sub.index }] }
+          : this.keptSection(item.sourceIndex);
+      if (!section) {
+        return [];
+      }
+      const members = section.kind === 'sketch'
+        ? sketchWireShapeIds(section, this.sceneObjects).map(shapeId => ({ shapeId, face: null }))
+        : section.entities.map(entity => ({ shapeId: entity.shapeId, face: entity.index }));
+      return members.flatMap(({ shapeId, face }) => {
+        const shape = shapes.get(shapeId);
+        const positions = shape?.vertices ?? [];
+        // A closed one-vertex curve has only an artificial seam, not a usable corner.
+        if (positions.length < 6 || shape?.isMetaShape || shape?.isGuide) {
+          return [];
+        }
+        const indices = face === null ? Array.from({ length: positions.length / 3 }, (_, i) => i)
+          : shape?.faceVertices?.[face] ?? [];
+        if (indices.length < 2) {
+          return [];
+        }
+        return indices.map(index => ({ shapeId, sub: {
+          type: 'vertex' as const, index,
+          position: { x: positions[index * 3], y: positions[index * 3 + 1], z: positions[index * 3 + 2] },
+        } }));
+      });
+    });
+  }
+
+  private pickConnection(shapeId: string, sub: Extract<SubSelection, { type: 'vertex' }>): void {
+    if (this.items.length < 2) {
+      this.panel.setMessage('Add at least two profiles before picking connection vertices.');
+      return;
+    }
+    const identities = [{ shapeId, index: sub.index }, ...(sub.alternates ?? []).filter(entity => !entity.instanceId)];
+    const profiles = this.connectionProfiles();
+    const matches = profiles.map(vertices => vertices.find(vertex => identities.some(identity =>
+      identity.shapeId === vertex.shapeId && identity.index === vertex.sub.index)));
+    const row = this.connections.active === null ? null : this.connections.rows[this.connections.active];
+    let profile = matches.findIndex((vertex, index) => vertex && !row?.points[index]);
+    if (profile < 0) {
+      profile = matches.findIndex(Boolean);
+    }
+    const vertex = matches[profile];
+    if (!vertex || vertex.sub.type !== 'vertex' || !vertex.sub.position) {
+      this.panel.setMessage('Pick a vertex on one of the loft profiles.');
+      return;
+    }
+    const p = vertex.sub.position;
+    const point: ConnectionPoint = [p.x, p.y, p.z];
+    const used = this.connections.rows.findIndex((candidate, index) => index !== this.connections.active
+      && candidate.points[profile]?.point?.every((value, axis) => Math.abs(value - point[axis]) <= worldFromMm(1e-6)));
+    if (used >= 0) {
+      this.panel.setMessage(`That vertex is already used by C${used + 1}. Select its chip to edit the connection.`);
+      return;
+    }
+    this.connections.pick(profile, this.items.length, vertex, point);
+    this.connectionsChanged();
+  }
+
+  private connectionHighlights(): { all: SelectedEntity[]; active: SelectedEntity[] } {
+    const all: SelectedEntity[] = [];
+    const active: SelectedEntity[] = [];
+    const profiles = this.connectionProfiles();
+    this.connections.rows.forEach((row, rowIndex) => row.points.forEach((slot, index) => {
+      const vertex = profiles[index]?.find(candidate => {
+        const p = candidate.sub.type === 'vertex' ? candidate.sub.position : null;
+        return p && slot?.point && slot.point.every((value, axis) =>
+          Math.abs(value - [p.x, p.y, p.z][axis]) <= worldFromMm(1e-6));
+      });
+      if (vertex) {
+        all.push(vertex);
+        if (rowIndex === this.connections.active) {
+          active.push(vertex);
+        }
+      }
+    }));
+    return { all, active };
+  }
+
+  /** What blocks Apply. A row still being picked blocks only Apply — previews carry the finished rows. */
+  private connectionError(): string | null {
+    if (this.connections.incomplete) {
+      return 'Complete each connection with one vertex per profile, or remove its chip.';
+    }
+    return this.connectionConflict();
+  }
+
+  /** Combinations the loft cannot build yet — these block the preview too. */
+  private connectionConflict(): string | null {
+    if (this.connections.rows.length > 0) {
+      if (this.guides.length > 0) {
+        return 'Connections cannot be combined with guides yet. Remove the guides or connections.';
+      }
+      const values = this.panel.values();
+      if (!('error' in values) && values.thin) {
+        return 'Connections cannot be combined with thin walls yet. Turn off Thin or remove the connections.';
+      }
+    }
+    return null;
+  }
+
+  private connectionsChanged(): void {
+    this.panel.setMessage(null);
+    this.refreshProfilesUI();
+    this.schedulePreview();
+  }
+
+  private clearGhost(): void {
+    this.ghost.clear();
+    this.matching.setGhost(null);
+  }
+
+  /**
+   * The ghost stays up until its replacement (or a refusal) arrives — a form
+   * tweak must not blank the preview for the debounce. The paths where the
+   * ghost is genuinely invalid (the scene changed under it) clear it themselves.
+   */
+  private schedulePreview(): void {
+    this.runner.schedulePreview();
+  }
+
   private syncApplyEnabled(): void {
-    this.panel.setApplyEnabled(!this.runner.isApplying && this.items.length >= 2);
+    this.panel.setApplyEnabled(!this.runner.isApplying && this.items.length >= 2 && !this.connectionError());
   }
 
   private syncButton(): void {

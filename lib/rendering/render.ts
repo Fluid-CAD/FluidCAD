@@ -21,7 +21,7 @@ import { describeError } from "../common/describe-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
 import { debug } from "../common/log.js";
-import { topologyVertices } from "../selection/vertex-pick.js";
+import { topologyFaceVertices, topologyVertices } from "../selection/vertex-pick.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
@@ -470,6 +470,7 @@ export class SceneRenderer {
     return {
       shapeId: shape.id,
       vertices: shape.isMetaShape() ? undefined : topologyVertices(shape),
+      faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
       meshes: this.getOrBuildMeshes(shape, unit, profiler),
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,

@@ -21,6 +21,8 @@ export type RenderedShape = {
   shapeId: string;
   /** Packed world xyz per topological vertex, in Explorer order. */
   vertices?: number[];
+  /** Vertex indices belonging to each face, in the viewport's topology order. */
+  faceVertices?: number[][];
   meshes: SceneObjectMesh[];
   shapeType: string;
   isMetaShape?: boolean;

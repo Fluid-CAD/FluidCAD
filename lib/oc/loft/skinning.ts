@@ -91,20 +91,48 @@ export class Skinning {
     endField: number[][] | null = null,
   ): { grid: number[][][]; vBasis: BSplineCurveData } {
     const poleCount = sections[0].length;
+    const singleCondition = (startField !== null) !== (endField !== null);
     const grid: number[][][] = [];
     let vBasis: BSplineCurveData | null = null;
     for (let i = 0; i < poleCount; i++) {
       const column = sections.map(section => section[i]);
+      let startDerivative = startField?.[i];
+      let endDerivative = endField?.[i];
+      if (singleCondition) {
+        // Keep the unconstrained end's automatic takeoff. With three
+        // profiles, a lone derivative otherwise fits one global cubic:
+        // satisfying the constrained end can throw the opposite tangent
+        // outward and balloon that span. Retaining its original derivative
+        // adds the degree of freedom needed to accommodate the condition
+        // while still interpolating every section with C2 continuity.
+        const automatic = interpolateWithDerivatives(column, params);
+        if (!startDerivative) {
+          startDerivative = Skinning.endpointDerivative(automatic, false);
+        }
+        if (!endDerivative) {
+          endDerivative = Skinning.endpointDerivative(automatic, true);
+        }
+      }
       const interpolated = interpolateWithDerivatives(
         column,
         params,
-        startField ? startField[i] : undefined,
-        endField ? endField[i] : undefined,
+        startDerivative,
+        endDerivative,
       );
       grid.push(interpolated.poles);
       vBasis = interpolated;
     }
     return { grid, vBasis: vBasis! };
+  }
+
+  /** Exact endpoint derivative of the clamped, polynomial column curve. */
+  private static endpointDerivative(curve: BSplineCurveData, isEnd: boolean): number[] {
+    const { poles, knots, degree } = curve;
+    const last = poles.length - 1;
+    const a = poles[isEnd ? last - 1 : 0];
+    const b = poles[isEnd ? last : 1];
+    const span = isEnd ? knots[knots.length - 1] - knots[knots.length - 2] : knots[1] - knots[0];
+    return a.map((value, d) => (b[d] - value) * degree / span);
   }
 
   /**

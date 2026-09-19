@@ -190,6 +190,8 @@ export type SceneObjectPart = {
   shapeId?: string;
   /** Packed xyz per topological vertex, before any assembly instance pose. */
   vertices?: number[];
+  /** Vertex indices belonging to each face, in the viewport's topology order. */
+  faceVertices?: number[][];
   meshes: SceneObjectMesh[];
   shapeType?: ShapeType;
   isMetaShape?: boolean;

@@ -15,6 +15,9 @@ type VertexEntity = SelectedEntity & { sub: Extract<SubSelection, { type: 'verte
 type PointGroup = { position: Vector3; members: VertexCandidate[] };
 type MarkerState = 'candidate' | 'hover' | 'selected';
 
+/** Restrict a shape to explicit topology vertices; an omitted list includes all. */
+export type VertexPickScope = string | { shapeId: string; indices: readonly number[] };
+
 /**
  * Everything the visibility of the candidate dots depends on. While two
  * snapshots are equal the previous answer still holds, so a pointer move (a
@@ -40,13 +43,16 @@ type OccluderState = {
 export class VertexPicking {
   private active = false;
   private scope: ReadonlySet<string> | null = null;
+  private indices = new Map<string, Set<number> | null>();
   private selected = new Set<string>();
+  private emphasized: Set<string> | null = null;
   private hovered: string | null = null;
   private readonly group = new Group();
   private readonly markers = new Map<string, { group: Group; state: MarkerState }>();
   private readonly removeFrameHook: () => void;
   private readonly removeThemeListener: () => void;
   private cache: { snapshot: VisibilitySnapshot; groups: PointGroup[] } | null = null;
+  private sketchDots = new Map<Object3D, boolean>();
 
   constructor(
     private readonly ctx: Pick<SceneContext, 'scene' | 'camera' | 'renderer' | 'requestRender'>,
@@ -67,12 +73,33 @@ export class VertexPicking {
   setActive(active: boolean): void {
     this.active = active;
     this.hovered = null;
+    this.syncSketchDots();
     this.ctx.requestRender();
   }
 
-  setScope(shapeIds: readonly string[] | null): void {
-    this.scope = shapeIds === null ? null : new Set(shapeIds);
+  setScope(shapes: readonly VertexPickScope[] | null): void {
+    this.indices = new Map();
+    for (const shape of shapes ?? []) {
+      const id = typeof shape === 'string' ? shape : shape.shapeId;
+      const previous = this.indices.get(id);
+      if (typeof shape === 'string') {
+        this.indices.set(id, null);
+      } else if (previous !== null) {
+        const indices = previous ?? new Set<number>();
+        for (const index of shape.indices) {
+          indices.add(index);
+        }
+        this.indices.set(id, indices);
+      }
+    }
+    this.scope = shapes === null ? null : new Set(this.indices.keys());
     this.hovered = null;
+    this.ctx.requestRender();
+  }
+
+  /** null uses the ordinary selected tint; a list dims the other selected dots. */
+  setEmphasized(entities: SelectedEntity[] | null): void {
+    this.emphasized = entities === null ? null : new Set(entities.map(entityKey));
     this.ctx.requestRender();
   }
 
@@ -116,6 +143,10 @@ export class VertexPicking {
       vertices: true, vertexScope: this.scope,
     });
     const occluders = [...candidates.faces, ...this.extraOccluders()];
+    candidates.vertices = candidates.vertices.filter(candidate => {
+      const indices = this.indices.get(candidate.shapeId);
+      return !indices || indices.has(candidate.index);
+    });
 
     const snapshot = this.snapshot(candidates.vertices, occluders);
     if (this.cache && VertexPicking.sameSnapshot(this.cache.snapshot, snapshot)) {
@@ -259,6 +290,7 @@ export class VertexPicking {
   }
 
   refresh(): void {
+    this.syncSketchDots();
     const keep = new Set<string>();
     const groups = this.active || this.selected.size > 0 ? this.visibleGroups() : [];
     for (const points of groups) {
@@ -287,12 +319,38 @@ export class VertexPicking {
       marker.group.position.copy(points.position);
       marker.group.quaternion.copy(this.ctx.camera.quaternion);
       const dot = marker.group.children[0] as Mesh;
-      (dot.material as MeshBasicMaterial).color.copy(state === 'selected' ? themeColors.vertexSelectedColor
+      const material = dot.material as MeshBasicMaterial;
+      material.transparent = true;
+      material.opacity = selected && this.emphasized !== null
+        && !keys.some(key => this.emphasized!.has(key)) ? 0.6 : 1;
+      material.color.copy(state === 'selected' ? themeColors.vertexSelectedColor
         : state === 'hover' ? themeColors.vertexHoverColor : themeColors.vertexColor);
     }
     for (const key of [...this.markers.keys()]) {
       if (!keep.has(key)) {
         this.removeMarker(key);
+      }
+    }
+  }
+
+  /** The topology channel owns point states while armed; hide the sketch's larger endpoint dots. */
+  private syncSketchDots(): void {
+    const found = new Set<Object3D>();
+    if (this.active) {
+      this.ctx.scene.traverse(node => {
+        if (node.userData.isVertexDot) {
+          found.add(node);
+          if (!this.sketchDots.has(node)) {
+            this.sketchDots.set(node, node.visible);
+          }
+          node.visible = false;
+        }
+      });
+    }
+    for (const [node, visible] of this.sketchDots) {
+      if (!found.has(node)) {
+        node.visible = visible;
+        this.sketchDots.delete(node);
       }
     }
   }
@@ -307,6 +365,8 @@ export class VertexPicking {
   }
 
   dispose(): void {
+    this.active = false;
+    this.syncSketchDots();
     this.removeFrameHook();
     this.removeThemeListener();
     for (const key of [...this.markers.keys()]) {

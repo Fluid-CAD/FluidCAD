@@ -112,13 +112,14 @@ export class LoftPanel extends FeaturePanel {
   onReorderProfile?: (from: number, to: number) => void;
   /** The guide chip at `index` was removed. */
   onRemoveGuide?: (index: number) => void;
+  onRemoveConnection?: (index: number) => void;
   /** The scope chip at `index` was removed — the service owns the choices. */
   onRemoveScope?: (index: number) => void;
   /** The armed section changed — the service re-aims the pick channels. */
   onArmedSectionChange?: () => void;
 
   /** The slot a timeline/viewport sketch pick fills — last clicked. */
-  armedSection: 'profiles' | 'guides' | 'scope' = 'profiles';
+  armedSection: 'profiles' | 'guides' | 'connections' | 'scope' = 'profiles';
 
   private tabs: OpTabs;
   private thin: ThinControl;
@@ -126,6 +127,7 @@ export class LoftPanel extends FeaturePanel {
   private endCondition: ConditionRow;
   private profilesSlot: PickSlot;
   private guidesSlot: PickSlot;
+  private connectionsSlot: PickSlot;
   private scopeSlot: ScopeSlotControl;
 
   constructor(container: HTMLElement) {
@@ -137,6 +139,7 @@ export class LoftPanel extends FeaturePanel {
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profiles-slot"></div>
         <div data-role="guides-slot"></div>
+        <div data-role="connections-slot"></div>
         <div data-role="start-condition"></div>
         <div data-role="end-condition"></div>
         <div data-role="thin-host" class="contents"></div>
@@ -182,6 +185,9 @@ export class LoftPanel extends FeaturePanel {
     this.profilesSlot.onRemove = (index) => this.onRemoveProfile?.(index);
     this.profilesSlot.onReorder = (from, to) => this.onReorderProfile?.(from, to);
     this.guidesSlot.onRemove = (index) => this.onRemoveGuide?.(index);
+    this.connectionsSlot = new PickSlot(this.role('connections-slot'), { label: 'Connections', multiple: true });
+    this.connectionsSlot.onArm = () => this.setArmedSection('connections');
+    this.connectionsSlot.onRemove = index => this.onRemoveConnection?.(index);
 
     this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
     this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
@@ -308,11 +314,12 @@ export class LoftPanel extends FeaturePanel {
     }
   }
 
-  private setArmedSection(section: 'profiles' | 'guides' | 'scope'): void {
+  private setArmedSection(section: 'profiles' | 'guides' | 'connections' | 'scope'): void {
     const changed = this.armedSection !== section;
     this.armedSection = section;
     this.profilesSlot.setArmed(section === 'profiles');
     this.guidesSlot.setArmed(section === 'guides');
+    this.connectionsSlot.setArmed(section === 'connections');
     this.scopeSlot.setArmed(section === 'scope');
     if (changed) {
       this.onArmedSectionChange?.();
@@ -322,5 +329,10 @@ export class LoftPanel extends FeaturePanel {
   /** Profile progress prompt while more profiles are needed; null hides it. */
   setHint(text: string | null): void {
     this.profilesSlot.setPrompt(text);
+  }
+
+  setConnections(chips: PickSlotChip[], prompt: string): void {
+    this.connectionsSlot.setChips(chips);
+    this.connectionsSlot.setPrompt(prompt);
   }
 }

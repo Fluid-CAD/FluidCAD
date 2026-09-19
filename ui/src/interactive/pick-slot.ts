@@ -8,6 +8,9 @@
 /** One rendered chip in a {@link PickSlot}. */
 export type PickSlotChip = {
   label: string;
+  /** A selectable row, such as a connection being edited. */
+  onSelect?: () => void;
+  active?: boolean;
   /** Badge text — a number for ordered lists, '●' for single slots, 'G' for guides. */
   badge?: string;
   /** Neutral badge tint instead of primary (loft guides). */
@@ -230,7 +233,7 @@ export class PickSlot {
     const row = document.createElement('div');
     // A bare single chip carries the armed border itself; inside a container
     // the container border does.
-    const outline = !this.boxed && this.armed ? ROW_ARMED : ROW_IDLE;
+    const outline = chip.active || (!this.boxed && this.armed) ? ROW_ARMED : ROW_IDLE;
     row.className = `${ROW_BASE} ${outline} ${this.reorderable ? `pl-1.5 ${ROW_DRAG_EXTRA}` : 'pl-2'}`;
 
     if (this.reorderable) {
@@ -251,8 +254,14 @@ export class PickSlot {
       row.appendChild(badge);
     }
 
-    const label = document.createElement('span');
+    const label = document.createElement(chip.onSelect ? 'button' : 'span');
     label.className = 'flex-1 truncate';
+    if (chip.onSelect) {
+      label.classList.add('text-left');
+      label.setAttribute('type', 'button');
+      label.setAttribute('aria-pressed', String(!!chip.active));
+      label.addEventListener('click', () => chip.onSelect?.());
+    }
     label.textContent = chip.label;
     label.title = chip.title ?? chip.label;
     row.appendChild(label);

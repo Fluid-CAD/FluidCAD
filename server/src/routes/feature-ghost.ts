@@ -38,6 +38,7 @@ type GhostBody = {
   exclude?: { filePath?: unknown; line?: unknown };
   path?: unknown;
   profiles?: unknown;
+  connections?: unknown;
   guides?: unknown;
   startCondition?: unknown;
   endCondition?: unknown;
@@ -1143,6 +1144,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       res.status(400).json({ success: false, reason: 'Invalid loft sources' });
       return;
     }
+    const connections = isLoft ? parseLoftConnections(body.connections, sections.length) : [];
+    if (connections === null) {
+      res.status(400).json({ success: false, reason: 'Invalid loft connections: each connection needs one finite xyz point per profile' });
+      return;
+    }
     let repeat: RawRepeat | null = null;
     if (isRepeat) {
       const parsed = parseRepeat(body);
@@ -1393,6 +1399,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         thin,
         profiles: sections,
         guides,
+        connections,
         startCondition: startRaw ? { type: startRaw.type, magnitude: startMagnitude! } : null,
         endCondition: endRaw ? { type: endRaw.type, magnitude: endMagnitude! } : null,
       };
@@ -1490,4 +1497,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
   });
 
   return router;
+}
+
+/** Connections travel as resolved world points, never source expressions. */
+function parseLoftConnections(raw: unknown, profiles: number): [number, number, number][][] | null {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw) || !raw.every(connection => Array.isArray(connection)
+    && connection.length === profiles && connection.every(point => Array.isArray(point)
+      && point.length === 3 && point.every(value => typeof value === 'number' && Number.isFinite(value))))) {
+    return null;
+  }
+  return raw as [number, number, number][][];
 }

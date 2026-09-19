@@ -516,6 +516,8 @@ export type LoftGhostRequest = {
   guides: { filePath: string; line: number }[];
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
+  /** World-space points, one per profile in each connection. */
+  connections?: [number, number, number][][];
 };
 
 /** One loft section: a sketch by call site, or faces picked in the viewport. */
@@ -852,6 +854,8 @@ export type Mirror2DGhostRequest = {
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
   kind?: 'add' | 'remove';
+  /** Loft side-edge polylines, packed xyz. */
+  matchLines?: number[][];
   /**
    * A construction plane's own frame — its normal, and the point its quad is
    * centered on. Only the plane ghost carries it; the overlay draws the normal
@@ -2161,6 +2165,14 @@ export type LoftProfileRef =
 /** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
 export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
 
+/** A picked vertex or one point retained from a parsed connection. */
+export type LoftConnectionPointRef =
+  | { kind: 'vertex'; entity: { shapeId: string; sub: { type: 'vertex'; index: number } } }
+  | { kind: 'verbatim'; sourceIndex: number; pointIndex: number };
+export type LoftConnectionRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'points'; points: LoftConnectionPointRef[] };
+
 export type LoftApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain loft. */
@@ -2178,6 +2190,8 @@ export type LoftApplyOptions = {
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
+  /** Omitted keeps existing connections on edits; [] removes them. */
+  connections?: LoftConnectionRef[];
 };
 
 /**
@@ -2193,6 +2207,7 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     newVariables: options.newVariables,
     profiles: options.profiles,
     guides: options.guides,
+    connections: options.connections,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
     scope: options.scope,
@@ -2514,7 +2529,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'rib'; spine: SourceSlotRef; scope: SourceSlotRef[] }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
-  | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
+  | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[]; connections: [number, number, number][][] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
@@ -2699,6 +2714,8 @@ export type ParsedFeatureStatement =
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileTexts: string[];
       guideTexts: string[];
+      connectionTexts: string[][];
+      connectionArgs: string[];
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
     })
@@ -3194,6 +3211,8 @@ export type LoftEditOptions = EditSessionFields & {
   scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
+  /** Omitted keeps existing connections on edits; [] removes them. */
+  connections?: LoftConnectionRef[];
 };
 
 /** Rewrite the loft statement at `edit` in place. */
@@ -3213,6 +3232,7 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    connections: options.connections,
     scope: options.scope,
     preview: options.preview,
   }, options.signal);

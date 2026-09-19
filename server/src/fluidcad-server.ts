@@ -492,6 +492,8 @@ export type LoftGhostRequest = {
   guides: { filePath: string; line: number }[];
   startCondition: GhostLoftCondition | null;
   endCondition: GhostLoftCondition | null;
+  /** World-space points, one per profile in each connection. */
+  connections?: [number, number, number][][];
 };
 
 /**
@@ -797,6 +799,8 @@ export type Mirror2DGhostRequest = {
 export type GhostSolid = {
   meshes: any[];
   kind?: 'add' | 'remove';
+  /** Loft side-edge polylines, packed xyz. */
+  matchLines?: number[][];
   plane?: { normal: { x: number; y: number; z: number }; center: { x: number; y: number; z: number } };
 };
 

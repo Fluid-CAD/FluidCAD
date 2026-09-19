@@ -487,6 +487,11 @@ export class Loft extends ExtrudeBase implements ILoft {
     return "loft";
   }
 
+  /** Built world points for edit-dialog seeding; empty without connections. */
+  getConnectionPoints(): Point[][] {
+    return (this.getState('connection-points') as Point[][] | undefined) ?? [];
+  }
+
   serialize() {
     return {
       profiles: this.profiles.map(f => f.serialize()),

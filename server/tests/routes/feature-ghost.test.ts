@@ -965,3 +965,26 @@ describe('feature-ghost route — mirror2d', () => {
     expect(received).toBeUndefined();
   });
 });
+
+
+describe('feature-ghost route — loft connections', () => {
+  useGhostRoute();
+
+  const body = () => ({ feature: 'loft', op: 'add', thin: null,
+    profiles: [{ kind: 'sketch', filePath: FILE, line: 1 }, { kind: 'sketch', filePath: FILE, line: 7 }],
+    guides: [], startCondition: null, endCondition: null });
+
+  it('passes finite world point rows to the loft kernel', async () => {
+    const connections = [[[0, 0, 0], [0, 0, 40]], [[20, 0, 0], [20, 0, 40]]];
+    const result = await postGhost({ ...body(), connections });
+    expect(result.status).toBe(200);
+    expect(received.connections).toEqual(connections);
+  });
+
+  it.each([null, {}, [[0, 0, 0]], [[[0, 0, 0]]], [[[0, 0, 0], [0, 0, 'z']]],
+    [[[0, 0, 0], [0, null, 40]]], [[[0, 0, 0], [0, 0, 40, 1]]]].map(connections => ({ connections })))('rejects malformed point rows %j', async ({ connections }) => {
+    const result = await postGhost({ ...body(), connections });
+    expect(result.status).toBe(400);
+    expect(received).toBeUndefined();
+  });
+});

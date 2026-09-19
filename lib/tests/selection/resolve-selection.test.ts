@@ -504,7 +504,11 @@ describe("SelectionResolver — assembly instance scope", () => {
 
     // The match feeds measure unchanged: the instances' top faces (x 0..20
     // and 30..50) are 10 apart at their nearest points, in world coordinates.
-    const measured = getSceneManager().measure(scene, [home.matches[0], match]);
+    const homeMatch = home.matches[0];
+    if (homeMatch.kind === 'vertex' || match.kind === 'vertex') {
+      throw new Error('Expected face matches');
+    }
+    const measured = getSceneManager().measure(scene, [homeMatch, match]);
     expect(measured).not.toBeNull();
     expect(measured!.entities[1].ref.instanceId).toBe(second);
     expect(measured!.entities[1].summary.center).toEqual([40, 10, 10]);

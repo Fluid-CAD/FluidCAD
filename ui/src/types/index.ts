@@ -153,6 +153,12 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  | {
+    type: 'vertex'; index: number;
+    position: { x: number; y: number; z: number };
+    /** Other topological vertices at this same world position. */
+    alternates?: { shapeId: string; index: number; instanceId?: string | null }[];
+  }
   /**
    * A sketch wire hit — only produced while a create dialog has enabled
    * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
@@ -182,6 +188,8 @@ export type SubSelection =
 
 export type SceneObjectPart = {
   shapeId?: string;
+  /** Packed xyz per topological vertex, before any assembly instance pose. */
+  vertices?: number[];
   meshes: SceneObjectMesh[];
   shapeType?: ShapeType;
   isMetaShape?: boolean;

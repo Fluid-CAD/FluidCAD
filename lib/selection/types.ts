@@ -82,7 +82,7 @@ export const CONNECTOR_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export const MEMBER_NAME_PATTERN = CONNECTOR_NAME_PATTERN;
 
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
-export type PickSubRef = { type: 'edge' | 'face'; index: number };
+export type PickSubRef = { type: 'edge' | 'face' | 'vertex'; index: number };
 export type PickRef = { shapeId: string; sub: PickSubRef };
 
 /** Geometric summary of a picked sub-shape, for labels and debugging. */

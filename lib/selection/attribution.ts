@@ -85,6 +85,10 @@ export function attributePick(scene: SelectionScene, index: SelectionIndex, ref:
     ref, picked: null, pickedKey: null, solidOwner: null, solidShape: null, producer: null, lineage: null, creator: null,
   };
 
+  if (ref.sub.type === 'vertex') {
+    return { ...none, error: 'Vertex point synthesis is not available yet.' };
+  }
+
   const resolved = resolvePickShape(scene, ref);
   if (!resolved) {
     return { ...none, error: 'pick does not resolve to a sub-shape in the current scene' };
@@ -123,7 +127,7 @@ export function resolvePickShape(
       }
       const subs = ref.sub.type === 'face'
         ? Explorer.findFacesWrapped(shape)
-        : Explorer.findEdgesWrapped(shape);
+        : ref.sub.type === 'edge' ? Explorer.findEdgesWrapped(shape) : Explorer.findVerticesWrapped(shape);
       if (ref.sub.index < 0 || ref.sub.index >= subs.length) {
         return null;
       }

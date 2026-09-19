@@ -25,7 +25,9 @@ import { themeColors } from './scene/theme-colors';
 import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
-import { collectPickCandidates } from './interactive/pick-candidates';
+import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
+import { VertexPicking } from './interactive/vertex-picking';
+import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
@@ -127,8 +129,13 @@ export type SelectedEntity = {
   shapeId: string;
   sub: Exclude<
     NonNullable<SubSelection>,
-    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' }
-  >;
+    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' } | { type: 'vertex' }
+  > | {
+    type: 'vertex'; index: number;
+    /** Optional for stored/API identities; the viewer resolves the current payload on every frame. */
+    position?: { x: number; y: number; z: number };
+    alternates?: { shapeId: string; index: number; instanceId?: string | null }[];
+  };
   /**
    * The assembly instance the pick landed in. Instances of one part share a
    * shapeId, so highlights and measurements scope to this id; absent (or
@@ -187,7 +194,31 @@ export class Viewer {
    * (`pickSketchWires`, `pickAxes`) stay live — the revolve dialog's
    * profile-armed mode, where only sketch wires may be picked.
    */
-  pickFilter: 'all' | 'edge' | 'face' | 'none' = 'all';
+  private _pickFilter: 'all' | 'edge' | 'face' | 'vertex' | 'none' = 'all';
+  private vertexPicking: VertexPicking | null = null;
+
+  get pickFilter(): 'all' | 'edge' | 'face' | 'vertex' | 'none' {
+    return this._pickFilter;
+  }
+
+  set pickFilter(filter: 'all' | 'edge' | 'face' | 'vertex' | 'none') {
+    if (this._pickFilter === filter) {
+      return;
+    }
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this._pickFilter = filter;
+    this.vertexPicking?.setActive(filter === 'vertex');
+  }
+
+  /** null includes all visible shapes; [] arms the channel with no candidates. */
+  setVertexPickScope(shapeIds: readonly string[] | null): void {
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this.vertexPicking?.setScope(shapeIds);
+  }
   /**
    * Makes sketch wires pickable, independent of `pickFilter` — the armed
    * create dialogs (extrude/sweep/loft) enable it so clicking a sketch's
@@ -303,6 +334,9 @@ export class Viewer {
     // coordinate offsets. UI chrome stays on the full-size outer container.
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
+    this.vertexPicking = new VertexPicking(this.ctx,
+      (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
+      () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
@@ -825,15 +859,7 @@ export class Viewer {
 
   /** Walk up parents looking for an `instanceId` user-data marker. */
   private findInstanceIdForObject(obj: Object3D): string | null {
-    let cur: Object3D | null = obj;
-    while (cur) {
-      const id = cur.userData?.instanceId;
-      if (typeof id === 'string') {
-        return id;
-      }
-      cur = cur.parent;
-    }
-    return null;
+    return pickInstanceId(obj);
   }
 
   /**
@@ -906,14 +932,8 @@ export class Viewer {
    * through the point itself.
    */
   private isPointVisible(point: Vector3, occluders: Object3D[], tolerance: number): boolean {
-    if (occluders.length === 0) {
-      return true;
-    }
-    const ndc = point.clone().project(this.ctx.camera);
-    const ray = this.ctx.createPickingRaycaster(ndc.x, ndc.y);
-    const pointDepth = ray.ray.direction.dot(new Vector3().copy(point).sub(ray.ray.origin));
-    const hits = ray.intersectObjects(occluders, false);
-    return hits.length === 0 || hits[0].distance >= pointDepth - tolerance;
+    return pointIsVisible(point, occluders, tolerance, this.ctx.camera,
+      (x, y) => this.ctx.createPickingRaycaster(x, y));
   }
 
   /**
@@ -923,6 +943,10 @@ export class Viewer {
    * plane.
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
+    // The vertex channel is opt-in. Normal 'all' picking stays face + edge.
+    if (this.pickFilter === 'vertex') {
+      return this.vertexPicking?.pick(clientX, clientY) ?? null;
+    }
     // Connector gizmos render on top of everything (depth-test off), so while
     // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
     if (this.pickConnectors && this.assemblyController) {
@@ -1280,6 +1304,8 @@ export class Viewer {
     this.faceHighlightMeshes = [];
     this.hoverState = null;
     this.hoverFaceOverlayMeshes = [];
+    this.vertexPicking?.setSelected([]);
+    this.vertexPicking?.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
 
     this.removeCompiledMesh();
@@ -1685,6 +1711,7 @@ export class Viewer {
     this.highlightedEntities = [];
     this.highlightedSketchWires = [];
     this.highlightedPlaneQuads = [];
+    this.vertexPicking?.setSelected([]);
     this.ctx.render();
   }
 
@@ -1712,7 +1739,7 @@ export class Viewer {
       const scopeId = entity.instanceId ?? instanceId;
       if (entity.sub.type === 'face') {
         this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId);
-      } else {
+      } else if (entity.sub.type === 'edge') {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index, scopeId);
       }
     }
@@ -1726,6 +1753,7 @@ export class Viewer {
       this.applyPlaneQuadHighlight(shapeId);
     }
     this.highlightedEntities = entities;
+    this.vertexPicking?.setSelected(entities.map(entity => ({ ...entity, instanceId: entity.instanceId ?? instanceId })));
     this.highlightedSketchWires = sketchWireShapeIds;
     this.highlightedSolidShapeIds = solidShapeIds;
     this.highlightedPlaneQuads = planeQuadShapeIds;
@@ -1999,6 +2027,8 @@ export class Viewer {
       this.applyHoverFace(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'edge') {
       this.applyHoverEdge(result.shapeId, result.sub.index, result.instanceId ?? null);
+    } else if (result.sub?.type === 'vertex') {
+      this.vertexPicking?.setHover({ shapeId: result.shapeId, sub: result.sub, instanceId: result.instanceId });
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
@@ -2010,6 +2040,7 @@ export class Viewer {
   }
 
   clearHover(): void {
+    this.vertexPicking?.setHover(null);
     // Remove face hover overlays
     for (const m of this.hoverFaceOverlayMeshes) {
       m.parent?.remove(m);
@@ -2203,6 +2234,7 @@ export class Viewer {
   }
 
   dispose(): void {
+    this.vertexPicking?.dispose();
     this.ctx.dispose();
   }
 

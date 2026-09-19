@@ -377,6 +377,10 @@ export class SketchMesh extends Group {
         edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;
+          // Construction geometry offers no pickable vertices (as in ShapeGroup).
+          if (!shape.isGuide && shape.vertices) {
+            edgeMesh.userData.topologyVertices = shape.vertices;
+          }
           // Sketch wires are pickable only through the viewer's opt-in
           // sketch-pick channel (create dialogs) — mark the raycastable lines.
           edgeMesh.traverse(child => { child.userData.isSketchWire = true; });

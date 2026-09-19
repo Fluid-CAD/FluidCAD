@@ -551,6 +551,9 @@ export class HelixFeatureService {
       return null;
     }
     const { shapeId, sub } = slot.entities[0];
+    if (sub.type === 'vertex') {
+      return null;
+    }
     return { kind: sub.type, shapeId, index: sub.index };
   }
 

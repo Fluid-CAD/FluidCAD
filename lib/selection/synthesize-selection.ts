@@ -74,6 +74,9 @@ export class SelectionSynthesizer {
     request: ResolveSelectionRequest,
     options: SynthesizeOptions,
   ): SynthesizedSelection {
+    if (matches.some(match => match.kind === 'vertex')) {
+      return { ok: false, reason: 'Vertex picks resolve to points; source synthesis for those points is not available yet.' };
+    }
     if (matches.some(m => m.instanceId !== undefined)) {
       return { ok: false, reason: 'selectors are synthesized in the part file; an instance scope resolves the inserted part\'s build only.' };
     }

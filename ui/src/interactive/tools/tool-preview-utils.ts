@@ -2,21 +2,18 @@ import {
   BufferAttribute,
   BufferGeometry,
   Camera,
-  CircleGeometry,
-  DoubleSide,
   Group,
   Line,
   LineBasicMaterial,
   LineDashedMaterial,
   LineSegments,
-  Mesh,
-  MeshBasicMaterial,
   Vector3,
 } from 'three';
 import { localToWorld } from '../sketch-plane-utils';
 import { PlaneData } from '../../types';
 import { SnapType } from '../../snapping/types';
-import { applyConstantPixelSize, trackPixelsPerWorld } from '../../meshes/screen-scale';
+import { trackPixelsPerWorld } from '../../meshes/screen-scale';
+import { createPointMarker } from '../../meshes/point-marker';
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
@@ -100,27 +97,9 @@ export function addDot(
   radius = DOT_RADIUS,
   pxRadius = DOT_PX_RADIUS,
 ): void {
-  const geo = new CircleGeometry(radius, DOT_SEGMENTS);
-  const mat = new MeshBasicMaterial({
-    color,
-    side: DoubleSide,
-    depthTest: false,
-    transparent: opacity < 1,
-    opacity,
-  });
-  const dot = new Mesh(geo, mat);
-  dot.renderOrder = renderOrder;
-
-  const group = new Group();
-  group.renderOrder = renderOrder;
-  const pos = localToWorld(point2d, plane);
-  group.position.copy(pos);
-  group.lookAt(pos.clone().add(planeNormal));
-
-  applyConstantPixelSize(dot, group, pos, pxRadius, radius);
-
-  group.add(dot);
-  previewGroup.add(group);
+  previewGroup.add(createPointMarker(localToWorld(point2d, plane), color, {
+    radius, segments: DOT_SEGMENTS, pixelRadius: pxRadius, opacity, renderOrder, normal: planeNormal,
+  }));
 }
 
 export function addDashedLine(
@@ -503,4 +482,3 @@ export function centerFromChordAndRadius(
   const sign = ccw ? 1 : -1;
   return [mx + sign * h * nx / len, my + sign * h * ny / len];
 }
-

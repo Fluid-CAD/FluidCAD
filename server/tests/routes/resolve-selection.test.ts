@@ -234,6 +234,13 @@ describe('POST /api/resolve-selection — synthesis context', () => {
     expect(synthesis.params).toEqual([{ name: 'height', value: 50 }]);
   });
 
+  it('accepts vertex identities without substituting edge identities', async () => {
+    answer = { ok: true, matches: [], count: 0, scope: { kind: 'root' }, unit: 'mm' };
+    const { status } = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 3 }] });
+    expect(status).toBe(200);
+    expect(handed!.request.picks).toEqual([{ shapeId: 'sh-1', sub: { type: 'vertex', index: 3 } }]);
+  });
+
   it('marks each synthesized producer bound or not from the buffer', async () => {
     answer = {
       ok: true, matches: [TOP_FACE], count: 1, scope: { kind: 'root' }, unit: 'mm',
@@ -257,7 +264,7 @@ describe('POST /api/resolve-selection — synthesis context', () => {
     expect(both.status).toBe(400);
     expect(both.body.error).toContain('exactly one of expression');
     expect((await postSynth({ picks: [] })).status).toBe(400);
-    const badPick = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] });
+    const badPick = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'solid', index: 0 }] });
     expect(badPick.status).toBe(400);
     expect(badPick.body.error).toContain('picks[0]');
     const badBefore = await postSynth({ expression: 'face()', before: 0 });

@@ -66,7 +66,7 @@ export type MeasureAssemblyHooks = {
  * file.
  */
 export class MeasureController {
-  private entities: SelectedEntity[] = [];
+  private entities: (SelectedEntity & { sub: { type: 'face' | 'edge'; index: number } })[] = [];
   private result: MeasureResult | null = null;
   private panelOpen = false;
   private abortController: AbortController | null = null;
@@ -156,7 +156,7 @@ export class MeasureController {
    */
   handleClick(shapeId: string | null, sub: SubSelection, additive: boolean, instanceId: string | null = null): SelectedEntity[] {
     // Sketch-wire picks belong to the create dialogs, never to measurement.
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
+    if (!shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
       if (additive && this.entities.length > 0) {
         return this.entities; // missed ctrl-click shouldn't wipe a selection in progress
       }
@@ -181,7 +181,7 @@ export class MeasureController {
   /** Right-click in neutral mode: the multi-select menu over that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null = null): void {
     this.menu?.hide();
-    if (!this.menu || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
+    if (!this.menu || !shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
       return;
     }
     // The hover tint would otherwise be stashed as an "original" color by the
@@ -236,7 +236,7 @@ export class MeasureController {
     this.setSelection(this.entities.filter((e) => e.instanceId !== instanceId));
   }
 
-  private toRef(entity: SelectedEntity): MeasureEntityRef {
+  private toRef(entity: SelectedEntity & { sub: { type: 'face' | 'edge'; index: number } }): MeasureEntityRef {
     const ref: MeasureEntityRef = { shapeId: entity.shapeId, kind: entity.sub.type, index: entity.sub.index };
     if (entity.instanceId) {
       ref.instanceId = entity.instanceId;
@@ -269,9 +269,10 @@ export class MeasureController {
   }
 
   private setSelection(next: SelectedEntity[]): void {
-    this.entities = next;
-    if (next.length > 0) {
-      this.viewer.highlightEntities(next);
+    this.entities = next.filter((entity): entity is SelectedEntity & { sub: { type: 'face' | 'edge'; index: number } } =>
+      entity.sub.type === 'face' || entity.sub.type === 'edge');
+    if (this.entities.length > 0) {
+      this.viewer.highlightEntities(this.entities);
     } else {
       this.viewer.clearHighlight();
     }

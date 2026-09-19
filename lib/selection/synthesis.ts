@@ -684,6 +684,9 @@ function synthesizeChainCandidates(
   stmtBindable?: (feature: SceneObject) => boolean,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
+  if (kind === 'vertex') {
+    return { ok: false, reason: 'Tangent chains require faces or edges.', pick: chain.seed.ref };
+  }
   const members = chain.members;
   const memberKeys = new Set(members.map(a => a.pickedKey!));
   const seedKeys = new Set([chain.seed.pickedKey!]);

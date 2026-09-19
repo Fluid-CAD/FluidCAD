@@ -109,6 +109,9 @@ export class ShapeGroup extends Group {
         if (shape.shapeId) {
           mesh.userData.shapeId = shape.shapeId;
         }
+        if (!shape.isMetaShape && !shape.isGuide && shape.vertices) {
+          mesh.userData.topologyVertices = shape.vertices;
+        }
         this.add(mesh);
       }
     }

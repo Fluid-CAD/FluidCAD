@@ -1063,7 +1063,7 @@ export function measureEntities(
 
 export type ApplyFeatureEntity = {
   shapeId: string;
-  sub: { type: 'edge' | 'face'; index: number };
+  sub: { type: 'edge' | 'face' | 'vertex'; index: number };
 };
 
 /** A tangent chain: the right-clicked pick plus its full expansion. */

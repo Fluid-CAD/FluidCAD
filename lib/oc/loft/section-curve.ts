@@ -2,6 +2,16 @@ import type { Geom_BSplineCurve, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad"
 import { getOC } from "../init.js";
 import { CurveData } from "./curve-data.js";
 import { mmTol } from "../../units/tolerance.js";
+import { Point } from "../../math/point.js";
+
+export interface WireSection {
+  curve: Geom_BSplineCurve;
+  /**
+   * Actual wire junctions, at the exact knots used during concatenation —
+   * indexed like `SectionCurve.wireVertices`.
+   */
+  vertices: { point: Point; parameter: number }[];
+}
 
 /**
  * Turns a profile wire into a single clamped B-spline curve, parameterized
@@ -30,34 +40,73 @@ export class SectionCurve {
    * must share one surface (see `SectionCompatibility`).
    */
   static fromWire(wire: TopoDS_Wire, forcePolynomial = false): Geom_BSplineCurve {
+    return SectionCurve.fromWireWithVertices(wire, forcePolynomial).curve;
+  }
+
+  /**
+   * The wire's junction vertices in traversal order — entry i is where
+   * non-degenerated edge i starts, so it lines up with piece i of the section
+   * curve. This walk is the one definition of "a vertex a connection can
+   * use": a single closed edge (a full circle/ellipse) yields none, its lone
+   * vertex being an artificial seam rather than a junction.
+   */
+  static wireVertices(wire: TopoDS_Wire): Point[] {
+    const oc = getOC();
+    const points: Point[] = [];
+    const explorer = new oc.BRepTools_WireExplorer(wire);
+    try {
+      while (explorer.More()) {
+        if (!oc.BRep_Tool.Degenerated(explorer.Current())) {
+          const vertex = explorer.CurrentVertex();
+          const point = oc.BRep_Tool.Pnt(vertex);
+          points.push(new Point(point.X(), point.Y(), point.Z()));
+          point.delete();
+          vertex.delete();
+        }
+        explorer.Next();
+      }
+    } finally {
+      explorer.delete();
+    }
+    if (wire.Closed() && points.length === 1) {
+      return [];
+    }
+    return points;
+  }
+
+  static fromWireWithVertices(wire: TopoDS_Wire, forcePolynomial = false): WireSection {
     const oc = getOC();
     const pieces: Geom_BSplineCurve[] = [];
-
     const explorer = new oc.BRepTools_WireExplorer(wire);
-    while (explorer.More()) {
-      const edge = explorer.Current();
-      if (!oc.BRep_Tool.Degenerated(edge)) {
-        let piece = SectionCurve.edgeToBSpline(edge);
-        if (forcePolynomial && piece.IsRational()) {
-          const polynomial = SectionCurve.toPolynomial(piece, SectionCurve.APPROX_TOLERANCE);
-          piece.delete();
-          piece = polynomial;
+    try {
+      while (explorer.More()) {
+        const edge = explorer.Current();
+        if (!oc.BRep_Tool.Degenerated(edge)) {
+          const piece = SectionCurve.edgeToBSpline(edge);
+          pieces.push(piece);
+          if (forcePolynomial && piece.IsRational()) {
+            const polynomial = SectionCurve.toPolynomial(piece, SectionCurve.APPROX_TOLERANCE);
+            piece.delete();
+            pieces[pieces.length - 1] = polynomial;
+          }
         }
-        pieces.push(piece);
+        explorer.Next();
       }
-      explorer.Next();
-    }
-    explorer.delete();
 
-    if (pieces.length === 0) {
-      throw new Error("Loft profile wire has no usable edges.");
-    }
+      if (pieces.length === 0) {
+        throw new Error("Loft profile wire has no usable edges.");
+      }
 
-    const section = SectionCurve.concatenate(pieces, wire.Closed());
-    for (const piece of pieces) {
-      piece.delete();
+      const { curve, breaks } = SectionCurve.concatenateWithBreaks(pieces, wire.Closed());
+      const vertices = SectionCurve.wireVertices(wire)
+        .map((point, i) => ({ point, parameter: breaks[i] }));
+      return { curve, vertices };
+    } finally {
+      explorer.delete();
+      for (const piece of pieces) {
+        piece.delete();
+      }
     }
-    return section;
   }
 
   /**
@@ -74,6 +123,12 @@ export class SectionCurve {
    * re-proportions sections so matching features share parameters).
    */
   static concatenate(pieces: Geom_BSplineCurve[], closed: boolean, spans?: number[]): Geom_BSplineCurve {
+    return SectionCurve.concatenateWithBreaks(pieces, closed, spans).curve;
+  }
+
+  private static concatenateWithBreaks(
+    pieces: Geom_BSplineCurve[], closed: boolean, spans?: number[],
+  ): { curve: Geom_BSplineCurve; breaks: number[] } {
     const degree = Math.max(...pieces.map(piece => piece.Degree()));
     for (const piece of pieces) {
       if (piece.Degree() < degree) {
@@ -147,7 +202,7 @@ export class SectionCurve {
       poles[poles.length - 1] = [...poles[0]];
     }
 
-    return CurveData.build({ poles, weights, knots, multiplicities, degree });
+    return { curve: CurveData.build({ poles, weights, knots, multiplicities, degree }), breaks };
   }
 
   /**

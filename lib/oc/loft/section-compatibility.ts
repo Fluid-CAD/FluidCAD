@@ -2,7 +2,8 @@ import type { Geom_BSplineCurve, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { NCollections } from "../ncollection.js";
-import { SectionCurve } from "./section-curve.js";
+import { SectionCurve, WireSection } from "./section-curve.js";
+import { SectionPins } from "./section-pins.js";
 import { CurveData } from "./curve-data.js";
 import { closestCurveParameter } from "./curve-eval.js";
 
@@ -42,10 +43,10 @@ export interface CompatibleSections {
  *
  * 1. each wire becomes a single clamped curve over [0, 1] (`SectionCurve`),
  * 2. winding directions are made consistent along the loft,
- * 3. seams are chained to the nearest point of the previous section's seam
- *    (minimal twist),
- * 4. degrees are raised and knot vectors merged to a common union,
- * 5. weight vectors must then agree across sections — when they don't (e.g.
+ * 3. seams follow the first connection, or the nearest previous seam,
+ * 4. connection pins are ordered, validated and re-proportioned together,
+ * 5. degrees are raised and knot vectors merged to a common union,
+ * 6. weight vectors must then agree across sections — when they don't (e.g.
  *    a circle lofted to a rectangle), all rational pieces are re-approximated
  *    as polynomials and the pipeline reruns once, making everything weightless.
  */
@@ -53,6 +54,12 @@ export class SectionCompatibility {
   private static readonly SAMPLES = 128;
   /** Knots closer than this (curves live on [0, 1]) are treated as one. */
   private static readonly KNOT_TOLERANCE = 1e-9;
+  /**
+   * A seam this close to a C0 knot (or to the existing seam) moves onto it.
+   * Closest-point searches lose precision near a corner's distance minimum,
+   * and a split that near a knot leaves a sliver span in every section.
+   */
+  private static readonly SEAM_KNOT_TOLERANCE = 1e-6;
   private static readonly WEIGHT_TOLERANCE = 1e-9;
   /** Tangent turns above this (radians) across a knot count as a profile corner. */
   private static readonly CREASE_ANGLE = 0.01;
@@ -64,30 +71,45 @@ export class SectionCompatibility {
    */
   private static readonly CREASE_CURVATURE_JUMP = 0.3;
 
-  static build(wires: TopoDS_Wire[]): CompatibleSections {
+  static build(wires: TopoDS_Wire[], pins?: SectionPins): CompatibleSections {
     // Mixed rational/polynomial sections can never share a weight vector —
     // skip the doomed rational pass and go straight to the polynomial one.
-    const curves = wires.map(wire => SectionCurve.fromWire(wire));
-    const rationalCount = curves.filter(curve => curve.IsRational()).length;
-    const mixed = rationalCount > 0 && rationalCount < curves.length;
+    const sections = SectionCompatibility.readSections(wires);
+    const rationalCount = sections.filter(section => section.curve.IsRational()).length;
+    const mixed = rationalCount > 0 && rationalCount < sections.length;
     if (!mixed) {
-      const firstTry = SectionCompatibility.buildFromCurves(curves);
+      const firstTry = SectionCompatibility.buildFromCurves(sections, pins);
       if (firstTry) {
         return firstTry;
       }
     } else {
-      for (const curve of curves) {
-        curve.delete();
+      for (const section of sections) {
+        section.curve.delete();
       }
     }
 
     const secondTry = SectionCompatibility.buildFromCurves(
-      wires.map(wire => SectionCurve.fromWire(wire, true)),
+      SectionCompatibility.readSections(wires, true), pins,
     );
     if (!secondTry) {
       throw new Error("Loft sections could not be reduced to a common rational basis.");
     }
     return secondTry;
+  }
+
+  private static readSections(wires: TopoDS_Wire[], forcePolynomial = false): WireSection[] {
+    const sections: WireSection[] = [];
+    try {
+      for (const wire of wires) {
+        sections.push(SectionCurve.fromWireWithVertices(wire, forcePolynomial));
+      }
+      return sections;
+    } catch (error) {
+      for (const section of sections) {
+        section.curve.delete();
+      }
+      throw error;
+    }
   }
 
   /**
@@ -151,7 +173,6 @@ export class SectionCompatibility {
       return { compatible, targets: railTargets };
     }
 
-    const oc = getOC();
     const curves = compatible.sections.map((section, k) => {
       const curve = CurveData.build({
         poles: section.poles,
@@ -161,19 +182,11 @@ export class SectionCompatibility {
         degree: compatible.degree,
       });
 
-      const bounds = [0, ...splits[k], 1];
-      const pieces: Geom_BSplineCurve[] = [];
-      for (let i = 0; i + 1 < bounds.length; i++) {
-        pieces.push(oc.GeomConvert.SplitBSplineCurve(curve, bounds[i], bounds[i + 1], 1e-9, true));
+      try {
+        return SectionPins.reproportion(curve, splits[k], targets);
+      } finally {
+        curve.delete();
       }
-      curve.delete();
-
-      const targetSpans = [targets[0], ...targets.slice(1).map((t, j) => t - targets[j]), 1 - targets[targets.length - 1]];
-      const reproportioned = SectionCurve.concatenate(pieces, true, targetSpans);
-      for (const piece of pieces) {
-        piece.delete();
-      }
-      return reproportioned;
     });
 
     const rebuilt = SectionCompatibility.rebuildAligned(curves, compatible);
@@ -225,10 +238,25 @@ export class SectionCompatibility {
   }
 
   /** Returns null when the sections end up with mismatched weight vectors. */
-  private static buildFromCurves(curves: Geom_BSplineCurve[]): CompatibleSections | null {
+  private static buildFromCurves(sections: WireSection[], pins?: SectionPins): CompatibleSections | null {
+    const curves = sections.map(section => section.curve);
     try {
-      const frames = SectionCompatibility.orientConsistently(curves);
-      SectionCompatibility.alignSeams(curves);
+      const parameters = pins?.parameters(sections);
+      const frames = SectionCompatibility.orientConsistently(curves, parameters);
+      let pinTargets: number[] = [];
+      if (parameters && parameters[0].length > 0) {
+        for (let k = 0; k < curves.length; k++) {
+          const seam = parameters[k][0];
+          curves[k] = SectionCompatibility.moveSeam(curves[k], seam);
+          parameters[k] = SectionPins.snapToJunctions(
+            curves[k],
+            parameters[k].map(u => u >= seam ? u - seam : 1 + u - seam),
+          );
+        }
+        pinTargets = SectionPins.align(curves, parameters);
+      } else {
+        SectionCompatibility.alignSeams(curves);
+      }
       SectionCompatibility.unifyDegree(curves);
       SectionCompatibility.unifyKnots(curves);
 
@@ -251,7 +279,9 @@ export class SectionCompatibility {
         knots: datas[0].knots,
         multiplicities: datas[0].multiplicities,
         weights,
-        creases: SectionCompatibility.detectCreases(curves),
+        // Even tangent junctions can become surface creases when the spans
+        // to either side traverse the profiles at different relative speeds.
+        creases: SectionCompatibility.mergeCreases(curves, pinTargets),
         sections: datas.map((data, i) => ({
           poles: data.poles,
           centroid: frames[i].centroid,
@@ -308,21 +338,27 @@ export class SectionCompatibility {
    */
   private static orientConsistently(
     curves: Geom_BSplineCurve[],
+    parameters?: number[][],
   ): { centroid: Vector3d; normal: Vector3d }[] {
     const frames = curves.map(curve => SectionCompatibility.sectionFrame(curve));
+    const reverse = (i: number) => {
+      curves[i].Reverse();
+      frames[i] = { ...frames[i], normal: frames[i].normal.multiply(-1) };
+      if (parameters) {
+        parameters[i] = parameters[i].map(u => u === 0 ? 0 : 1 - u);
+      }
+    };
 
     if (curves.length > 1) {
       const advance = frames[1].centroid.subtract(frames[0].centroid);
       if (advance.length() > 1e-9 && frames[0].normal.dot(advance) < 0) {
-        curves[0].Reverse();
-        frames[0] = { ...frames[0], normal: frames[0].normal.multiply(-1) };
+        reverse(0);
       }
     }
 
     for (let i = 1; i < curves.length; i++) {
       if (frames[i].normal.dot(frames[i - 1].normal) < 0) {
-        curves[i].Reverse();
-        frames[i] = { ...frames[i], normal: frames[i].normal.multiply(-1) };
+        reverse(i);
       }
     }
 
@@ -405,22 +441,42 @@ export class SectionCompatibility {
 
   /**
    * Returns the curve re-parameterized so its origin sits at parameter `t`
-   * (splitting and re-concatenating), consuming the input. No-op near the
-   * existing seam.
+   * (splitting and re-concatenating), consuming the input. The two halves
+   * keep their parameter widths, so the move is a pure shift — every other
+   * parameter u becomes `u - t` (mod 1), which is what lets connection pins
+   * follow the seam by arithmetic. `t` snaps to a C0 knot within
+   * `SEAM_KNOT_TOLERANCE`; no-op when that knot is the existing seam.
    */
   private static moveSeam(curve: Geom_BSplineCurve, t: number): Geom_BSplineCurve {
     const oc = getOC();
-    if (t < 1e-6 || t > 1 - 1e-6) {
+    // Closest-point refinement can land a few ulps off a corner. Splitting
+    // there introduces a tiny extra span (and can corrupt concatenation).
+    let snapped = t;
+    let distance = SectionCompatibility.SEAM_KNOT_TOLERANCE;
+    for (let i = 1; i <= curve.NbKnots(); i++) {
+      const gap = Math.abs(t - curve.Knot(i));
+      if (curve.Multiplicity(i) >= curve.Degree() && gap <= distance) {
+        snapped = curve.Knot(i);
+        distance = gap;
+      }
+    }
+    t = snapped;
+    if (t === 0 || t === 1) {
       return curve;
     }
 
-    const tail = oc.GeomConvert.SplitBSplineCurve(curve, t, 1, 1e-9, true);
-    const head = oc.GeomConvert.SplitBSplineCurve(curve, 0, t, 1e-9, true);
-    const moved = SectionCurve.concatenate([tail, head], true);
-    tail.delete();
-    head.delete();
-    curve.delete();
-    return moved;
+    const pieces: Geom_BSplineCurve[] = [];
+    try {
+      pieces.push(oc.GeomConvert.SplitBSplineCurve(curve, t, 1, 1e-9, true));
+      pieces.push(oc.GeomConvert.SplitBSplineCurve(curve, 0, t, 1e-9, true));
+      const moved = SectionCurve.concatenate(pieces, true, [1 - t, t]);
+      curve.delete();
+      return moved;
+    } finally {
+      for (const piece of pieces) {
+        piece.delete();
+      }
+    }
   }
 
   private static unifyDegree(curves: Geom_BSplineCurve[]) {
@@ -556,6 +612,25 @@ export class SectionCompatibility {
     first.delete();
     second.delete();
     return creases;
+  }
+
+  private static mergeCreases(curves: Geom_BSplineCurve[], pins: number[]): number[] {
+    const creases = SectionCompatibility.detectCreases(curves);
+    for (const pin of pins) {
+      // Use the unified knot's representative, avoiding a microscopic face
+      // when two sections contributed numerically adjacent knot values.
+      let knot = pin;
+      for (let i = 2; i < curves[0].NbKnots(); i++) {
+        if (Math.abs(curves[0].Knot(i) - pin) <= SectionCompatibility.KNOT_TOLERANCE) {
+          knot = curves[0].Knot(i);
+          break;
+        }
+      }
+      if (!creases.some(crease => Math.abs(crease - knot) <= SectionCompatibility.KNOT_TOLERANCE)) {
+        creases.push(knot);
+      }
+    }
+    return creases.sort((a, b) => a - b);
   }
 
   private static nearestRepresentative(representatives: number[], value: number): number {

@@ -86,6 +86,10 @@ export class FeatureGhostOverlay {
           bodyOptions(bodyKind),
         ));
     });
+    // Pick candidates are filtered per node, not per subtree. Tag the
+    // nested faces and edges too, so a preview cannot hide profile vertices
+    // from the visibility test or intercept other geometry picks.
+    this.group.traverse(node => { node.userData.isMetaShape = true; });
     this.viewer.sceneContext.requestRender();
   }
 

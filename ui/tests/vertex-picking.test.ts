@@ -8,6 +8,7 @@ import { pointIsVisible } from '../src/interactive/pick-visibility';
 import { entityKey, sameEntity, selectionChipRows } from '../src/helpers/entities';
 import { runFrameHooks } from '../src/meshes/frame-hooks';
 import { ShapeGroup } from '../src/meshes/containers/shape-group';
+import { FeatureGhostOverlay } from '../src/interactive/create-feature/feature-ghost';
 import type { SceneObjectRender } from '../src/types';
 
 const disposers: (() => void)[] = [];
@@ -207,6 +208,50 @@ describe('vertex picking channel', () => {
     picker.refresh();
     expect(dots(scene)).toHaveLength(1);
     expect(picker.pick(240, 230)?.shapeId).toBe('back');
+  });
+
+  it('keeps profile vertices pickable through a feature ghost while real solids still occlude them', () => {
+    const { scene, picker, ctx } = setup();
+    scene.add(vertices('middle-profile', [0, 0, 0]));
+    picker.setActive(true);
+    picker.setScope(['middle-profile']);
+    expect(picker.pick(240, 230)?.shapeId).toBe('middle-profile');
+
+    // A preview wall lies in front of the middle profile, as a twisted
+    // loft ghost does when editing the rolled-back sketches at a breakpoint.
+    const ghost = new FeatureGhostOverlay({ sceneContext: ctx } as unknown as Viewer);
+    disposers.push(() => ghost.clear());
+    ghost.set([{ meshes: [{
+      label: 'solid-faces', vertices: [-2, -2, 2, 2, -2, 2, 2, 2, 2, -2, 2, 2],
+      normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+      indices: [0, 1, 2, 0, 2, 3], faceMapping: [0, 0],
+    }, {
+      label: 'solid-edges', vertices: [-2, -2, 2, 2, -2, 2],
+      normals: [], indices: [0, 1], edgeIndex: 0,
+    }] }], 'add');
+    expect(picker.pick(240, 230)?.shapeId).toBe('middle-profile');
+    picker.refresh();
+    expect(dots(scene)).toHaveLength(1);
+
+    const candidates = collectPickCandidates(scene, {
+      sketchWires: false, profileWires: false, axes: false, planes: false,
+    });
+    expect(candidates.faces).toHaveLength(0);
+    expect(candidates.edges).toHaveLength(0);
+
+    const solid = new Mesh(new PlaneGeometry(4, 4), new MeshBasicMaterial({ side: DoubleSide }));
+    solid.position.z = 3;
+    solid.userData.faceMapping = [0, 0];
+    scene.add(solid);
+    expect(picker.pick(240, 230)).toBeNull();
+    picker.refresh();
+    expect(dots(scene)).toHaveLength(0);
+    solid.visible = false;
+    expect(picker.pick(240, 230)?.shapeId).toBe('middle-profile');
+    disposers.push(() => {
+      solid.geometry.dispose();
+      (solid.material as MeshBasicMaterial).dispose();
+    });
   });
 
   it('reuses the visibility answer until the camera, the candidates or an occluder change', () => {

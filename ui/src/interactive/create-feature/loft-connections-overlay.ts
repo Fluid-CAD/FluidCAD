@@ -89,9 +89,9 @@ export class LoftConnectionsOverlay {
       indices.push(i, i + 1);
     }
     const mesh = new EdgeMesh({ meshes: [{ vertices, indices, normals: [] }] }, {
-      color: `#${(row === null ? themeColors.loftMatchColor : themeColors.vertexSelectedColor).getHexString()}`,
+      color: `#${themeColors.loftMatchColor.getHexString()}`,
       lineWidth: row === null ? 1.5 : row === this.active ? 3 : 2.5,
-      opacity: row === null ? 0.65 : row === this.active ? 1 : 0.8,
+      opacity: row === null ? 0.65 : 1,
       depthWrite: false,
     });
     mesh.userData.connectionRow = row;

@@ -58,6 +58,20 @@ function planeBoundary(scene: Scene, line: number): SelectionBoundary {
 describe("feature sources (edit-dialog seeding)", () => {
   setupOC();
 
+  it('returns built loft connection points in world coordinates', () => {
+    const a = sketch(plane('yz', { offset: 10 }), () => { testRect(20, 20); });
+    const b = sketch(plane('yz', { offset: 50 }), () => { testRect(20, 20); });
+    setLocation(a, 1);
+    setLocation(b, 7);
+    const l = loft(a, b).connect([10, 0, 0], [50, 0, 0]).connect([10, 20, 0], [50, 20, 0]);
+    setLocation(l, 13);
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, 'loft', 13));
+    expect(result).toMatchObject({ ok: true, feature: 'loft', connections: [
+      [[10, 0, 0], [50, 0, 0]], [[10, 20, 0], [50, 20, 0]],
+    ] });
+  });
+
   it("resolves shell faces onto the pre-shell solid", () => {
     sketch("xy", () => {
         testRect(100, 100);

@@ -364,9 +364,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     );
 
   const pickArg = z.object({
-    shapeId: z.string().min(1).describe('Solid id from list_shapes / get_scene_summary / hit_test.'),
-    kind: z.enum(['face', 'edge']),
-    index: z.number().int().nonnegative().describe('The face/edge index in that solid — the index hit_test, measure and resolve_selection matches report.'),
+    shapeId: z.string().min(1).describe('Shape id from list_shapes / get_scene_summary / hit_test.'),
+    kind: z.enum(['face', 'edge', 'vertex']),
+    index: z.number().int().nonnegative().describe('Topological face/edge/vertex index in that shape; vertex indices follow the rendered vertices payload.'),
   });
 
   server.registerTool(
@@ -375,11 +375,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Resolve a selection and synthesize the selector to write for it',
       description:
         'Two inputs, one of them: `expression` — a filter expression evaluated with exactly the candidate set a select() statement ' +
-        'would see at the given scope; or `picks` — explicit face/edge refs (from hit_test, a screenshot highlight, or an earlier ' +
-        'match). Returns every matched face/edge with its shapeId/kind/index (usable in measure and hit_test), owning ' +
+        'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
+        'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), owning ' +
         'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
         'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
-        '(returned as `unit`), rounded to its meaningful precision. Zero matches is a normal result with count 0 — check it before ' +
+        '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +
+        'vertex source synthesis is not yet available. Zero matches is a normal result with count 0 — check it before ' +
         'writing a fillet/chamfer/color on that filter, which would silently do nothing.\n\n' +
         '`synthesized` is the selector the language itself would write for exactly those matches — the same ranked, verified ' +
         'synthesis the UI runs on a pick: a feature accessor on a bound variable (`e.endEdges()`, `c.sideFaces(2)`) beats a filter ' +

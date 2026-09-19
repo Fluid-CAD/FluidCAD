@@ -12,6 +12,7 @@ import loftThreeSections from '!!raw-loader!./_examples/loft-three-sections.js';
 import loftThin from '!!raw-loader!./_examples/loft-thin.js';
 import loftGuides from '!!raw-loader!./_examples/loft-guides.js';
 import loftConditions from '!!raw-loader!./_examples/loft-conditions.js';
+import loftConnections from '!!raw-loader!./_examples/loft-connections.js';
 import loftScopeAdd from '!!raw-loader!./_examples/loft-scope-add.js';
 import loftThinAdd from '!!raw-loader!./_examples/loft-thin-add.js';
 
@@ -90,6 +91,29 @@ Guides compose with start/end conditions: the condition fades out around each gu
 ```js
 loft(p1, p2).guides(g1).startCondition('normal')
 ```
+
+## Vertex connections from code
+
+Use `.connect(...)` to choose which profile corners belong together. Pass one
+point per profile, in the same order as the `loft()` arguments, and repeat the
+call for each connection. Each connection becomes an edge of the loft; the side
+faces split along it.
+
+This example builds the outer solid of a square-to-round duct transition. The
+round section uses four arcs so it has vertices, and the connections hold the
+twist at the named `twistDegrees` value:
+
+<ExplainedCode code={loftConnections} fileName="duct-transition.part.js" />
+
+Returning geometry from a sketch callback makes it available through
+`sketch.geometries`. Point references follow their sketch planes, so the same
+code works on offset or tilted planes. You can also connect world coordinates
+such as `[0, 0, 40]` or solid-edge endpoints such as `e.endEdges(0).start()`.
+
+Connections require closed, planar profiles with one region each. Points must
+be vertices: split a full circle or ellipse into arcs first. Connections work
+with start/end conditions; combining them with guides or thin walls is not yet
+supported. The Connections section of the dialog is still being implemented.
 
 ## Start and end conditions
 

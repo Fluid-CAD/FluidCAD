@@ -33,4 +33,4 @@ const profile = sketch("top", () => {
     }
   });
 
-const pipe = sweep(spine, profile.regions.outerPipe);
+const pipe = sweep(spine, profile.geometries.outerPipe);

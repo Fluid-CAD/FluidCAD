@@ -136,7 +136,7 @@ function wireOptions() {
   };
 }
 
-function disposeTree(root: Object3D): void {
+export function disposeTree(root: Object3D): void {
   root.traverse((node: Object3D & { geometry?: { dispose?: () => void }; material?: any }) => {
     node.geometry?.dispose?.();
     const material = node.material;

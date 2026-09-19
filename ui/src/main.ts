@@ -2476,7 +2476,7 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     wrapService.handleClick(shapeId, sub);
     return;
   }
-  // The armed loft dialog owns face clicks — each pick is one profile.
+  // The loft dialog routes face profiles, scoped vertex connections and solid scope picks.
   if (loftService.isFacePicking) {
     loftService.handleClick(shapeId, sub);
     return;

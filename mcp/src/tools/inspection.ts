@@ -222,7 +222,7 @@ class SelectionInputs {
 }
 
 /** A face/edge ref the way `measure` and `hit_test` address entities. */
-export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
+export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge' | 'vertex'; index: number };
 
 export type ResolveSelectionInput = WorkspaceArg & {
   expression?: string;
@@ -257,10 +257,10 @@ class ResolveSelectionInputs {
       }
       for (let i = 0; i < picks.length; i++) {
         const pick = picks[i];
-        const validKind = pick?.kind === 'face' || pick?.kind === 'edge';
+        const validKind = pick?.kind === 'face' || pick?.kind === 'edge' || pick?.kind === 'vertex';
         const validIndex = Number.isInteger(pick?.index) && pick.index >= 0;
         if (!pick || typeof pick.shapeId !== 'string' || pick.shapeId.length === 0 || !validKind || !validIndex) {
-          return `\`picks[${i}]\` needs a shapeId, a kind (face | edge) and a non-negative index.`;
+          return `\`picks[${i}]\` needs a shapeId, a kind (face | edge | vertex) and a non-negative index.`;
         }
       }
     }

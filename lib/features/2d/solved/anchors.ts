@@ -6,8 +6,8 @@
 // outlines, curve degree) stay literals outside the solve. (The ellipse
 // was the third anchor statement until it became an entity of its own.)
 
-import { LazyVertex } from "../../lazy-vertex.js";
-import { Vertex } from "../../../common/vertex.js";
+import { SketchPointVertex } from "../../sketch-point-ref.js";
+import type { SceneObject } from "../../../common/scene-object.js";
 import { Point2D } from "../../../math/point.js";
 import type { GeometrySceneObject } from "../geometry.js";
 import type { Sketch } from "../sketch.js";
@@ -20,18 +20,23 @@ import type { SketchSolverContext } from "./solver-context.js";
  * guesses during module evaluation, solved values after the build's
  * solve), and resolving to its own solver point entity in constraints.
  */
-export class AnchorPointRef extends LazyVertex {
+export class AnchorPointRef extends SketchPointVertex {
   constructor(
     readonly owner: GeometrySceneObject,
     private readonly anchors: StatementAnchors,
     private readonly index: number,
     uniqueName: string,
   ) {
-    super(uniqueName, () => [Vertex.fromPoint2D(anchors.value(index))]);
+    super(owner, `point-${index}`, uniqueName, () => anchors.value(index));
   }
 
   get entityId(): number {
     return this.anchors.entityId(this.index);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const owner = (remap.get(this.owner) ?? this.owner) as GeometrySceneObject;
+    return new AnchorPointRef(owner, this.anchors, this.index, this.referenceName);
   }
 }
 

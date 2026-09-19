@@ -62,7 +62,7 @@ export type FeatureSources =
    */
   | { feature: 'rib'; spine: SourceSlot; scope: SourceSlot[] }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
-  | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
+  | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[]; connections: [number, number, number][][] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
   | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
   /** The single source: an axis statement (axis mode) or a face (face mode). */
@@ -168,6 +168,7 @@ export function resolveFeatureSources(
         feature: 'loft',
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
         guides: feature.guideObjects.map(g => resolver.wireSlot(g)),
+        connections: feature.getConnectionPoints().map(connection => connection.map(point => [point.x, point.y, point.z])),
       };
     }
     // Rib extends ExtrudeBase — its case must come first.

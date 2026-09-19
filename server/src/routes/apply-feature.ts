@@ -26,6 +26,7 @@ import {
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
+  LoftConnections, type LoftConnectionSpec, type LoftPointSpec,
   type MirrorAxisSpec, type MirrorEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions, type RepeatPlaneSpec,
   type RotateEditAxis, type RotateEditOptions,
@@ -51,17 +52,23 @@ import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../sketch-symb
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+type VertexPick = { shapeId: string; sub: { type: 'vertex'; index: number } };
 
-function validatePick(raw: RawPick | undefined): Pick | null {
-  const validType = raw?.sub?.type === 'edge' || raw?.sub?.type === 'face';
+export function validatePick(raw: RawPick | undefined): Pick | null;
+export function validatePick(raw: RawPick | undefined, kind: 'vertex'): VertexPick | null;
+export function validatePick(raw: RawPick | undefined, kind?: 'vertex'): Pick | VertexPick | null {
+  // Existing feature slots still accept only faces/edges. A point slot opts
+  // into vertices explicitly so a stale pick cannot change its meaning.
+  const validType = kind === 'vertex' ? raw?.sub?.type === 'vertex'
+    : raw?.sub?.type === 'edge' || raw?.sub?.type === 'face';
   const validIndex = Number.isInteger(raw?.sub?.index) && (raw!.sub!.index as number) >= 0;
   if (!raw || typeof raw.shapeId !== 'string' || !raw.shapeId || !validType || !validIndex) {
     return null;
   }
   return {
     shapeId: raw.shapeId,
-    sub: { type: raw.sub!.type as 'edge' | 'face', index: raw.sub!.index as number },
-  };
+    sub: { type: raw.sub!.type, index: raw.sub!.index },
+  } as Pick | VertexPick;
 }
 
 function validatePicks(entities: unknown): Pick[] | null {
@@ -813,6 +820,7 @@ type LoftRequest = {
   op: 'add' | 'remove' | 'new';
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profiles: LoftProfileInput[];
+  connections?: LoftConnectionInput[];
   guides: SketchLoc[];
   startCondition: LoftCondition | null;
   endCondition: LoftCondition | null;
@@ -821,6 +829,163 @@ type LoftRequest = {
 };
 
 const MAX_LOFT_PROFILES = 16;
+/** Each picked vertex costs a full point synthesis; far above any real loft. */
+const MAX_LOFT_CONNECTIONS = 64;
+
+/**
+ * What a connection point must sit on to belong to profile k, as far as the
+ * request can tell: a sketch by its statement line, a face pick by its shape.
+ * Null when the profile rides as kept source text — the build still checks it.
+ */
+type LoftProfileOwner = { kind: 'sketch'; line: number } | { kind: 'shape'; shapeId: string } | null;
+
+function loftProfileOwners(
+  profiles: ({ kind: 'verbatim' } | ({ kind: 'sketch' } & SketchLoc) | { kind: 'face'; pick: Pick })[] | undefined,
+): LoftProfileOwner[] | undefined {
+  return profiles?.map(profile => {
+    if (profile.kind === 'sketch') {
+      return { kind: 'sketch', line: profile.line };
+    }
+    if (profile.kind === 'face') {
+      return { kind: 'shape', shapeId: profile.pick.shapeId };
+    }
+    return null;
+  });
+}
+
+/** Clean connection rows: retained source text or newly picked topology vertices. */
+type LoftConnectionInput =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'points'; points: (
+    { kind: 'vertex'; pick: VertexPick }
+    | { kind: 'verbatim'; sourceIndex: number; pointIndex: number }
+  )[] };
+
+function validateLoftConnections(raw: unknown, edit: boolean, profileCount?: number):
+  { connections: LoftConnectionInput[] | undefined } | { error: string } {
+  if (raw === undefined) {
+    return { connections: undefined };
+  }
+  if (!Array.isArray(raw)) {
+    return { error: 'connections must be a list of point rows' };
+  }
+  if (raw.length > MAX_LOFT_CONNECTIONS) {
+    return { error: `a loft takes at most ${MAX_LOFT_CONNECTIONS} connections` };
+  }
+  const connections: LoftConnectionInput[] = [];
+  const validIndex = (index: unknown): index is number => Number.isInteger(index) && (index as number) >= 0;
+  for (const row of raw) {
+    if (edit && row?.kind === 'verbatim' && validIndex(row.sourceIndex)) {
+      connections.push({ kind: 'verbatim', sourceIndex: row.sourceIndex });
+      continue;
+    }
+    if (row?.kind !== 'points' || !Array.isArray(row.points)
+      || row.points.length < 2 || row.points.length > MAX_LOFT_PROFILES
+      || (profileCount !== undefined && row.points.length !== profileCount)) {
+      return { error: 'each connection needs one point per loft profile' };
+    }
+    const points: Extract<LoftConnectionInput, { kind: 'points' }>['points'] = [];
+    for (const point of row.points) {
+      if (edit && point?.kind === 'verbatim' && validIndex(point.sourceIndex) && validIndex(point.pointIndex)) {
+        points.push({ kind: 'verbatim', sourceIndex: point.sourceIndex, pointIndex: point.pointIndex });
+        continue;
+      }
+      const pick = point?.kind === 'vertex' ? validatePick(point.entity, 'vertex') : null;
+      if (!pick) {
+        return { error: 'a connection point must carry a {shapeId, sub:{type:"vertex", index}} pick' };
+      }
+      points.push({ kind: 'vertex', pick });
+    }
+    connections.push({ kind: 'points', points });
+  }
+  return { connections };
+}
+
+/** Reuse the stage-4 point synthesis and remap its producers into the loft's existing merger. */
+async function synthesizeLoftConnections(
+  server: FluidCadServer,
+  rows: LoftConnectionInput[] | undefined,
+  filePath: string,
+  merge: ReturnType<typeof makeProducerMerger>['merge'],
+  scopeLocation: { filePath: string; line: number; column?: number },
+  owners: LoftProfileOwner[] | undefined,
+  before?: SelectionBoundary,
+): Promise<{ connections: LoftConnectionSpec[] | undefined; imports: string[] } | { error: string }> {
+  if (rows === undefined) {
+    return { connections: undefined, imports: [] };
+  }
+  // Every picked vertex with its place in the request: connection row, profile slot.
+  const picked = rows.flatMap((row, connection) => row.kind === 'points'
+    ? row.points.flatMap((point, profile) => point.kind === 'vertex' ? [{ pick: point.pick, connection, profile }] : [])
+    : []);
+  const picks = picked.map(entry => entry.pick);
+  const points: LoftPointSpec[] = [];
+  const imports: string[] = [];
+  if (picks.length > 0) {
+    const code = server.getCurrentCode();
+    if (!code) {
+      return { error: 'no current source buffer is available for connection points' };
+    }
+    const scope = server.resolveStatementPart(scopeLocation);
+    const resolved = server.resolveSelection({ picks, ...(before ? { before: before.index } : {}),
+      ...(scope ? { scope: { part: scope.partName } } : {}) }, {
+      namer: await makeProducerNamer(code), bindable: await makeProducerBindable(code),
+      params: resolveParamValues(await extractNumericParams(code), server.getParamDefinitions()),
+    });
+    if (resolved.ok === false) {
+      return { error: resolved.reason };
+    }
+    if (resolved.matches.some(match => match.part !== (scope?.partName ?? null))) {
+      return { error: 'connection points must live in the loft’s part() scope' };
+    }
+    const synthesis = resolved.synthesized;
+    if (!synthesis?.ok) {
+      return { error: synthesis && synthesis.ok === false ? synthesis.reason : 'the workspace kernel cannot synthesize connection points' };
+    }
+    const remap = new Map<string, number>();
+    for (const producer of synthesis.producers) {
+      if (!producer.filePath || normalizePath(producer.filePath) !== normalizePath(filePath) || producer.line === null) {
+        return { error: 'connection points must be authored in the loft’s file' };
+      }
+      remap.set(producer.sceneObjectId, merge({ line: producer.line, column: producer.column ?? 0,
+        featureType: producer.featureType, nameHint: producer.variable, bind: true }));
+    }
+    for (const [i, part] of synthesis.parts.entries()) {
+      // A row is positional: point k must be a vertex of profile k. The build
+      // would refuse it too ("off its profile") — refuse before writing code.
+      const { connection, profile, pick } = picked[i] ?? {};
+      const owner = profile === undefined ? null : owners?.[profile] ?? null;
+      const onProfile = owner === null
+        || (owner.kind === 'shape' && pick!.shapeId === owner.shapeId)
+        || (owner.kind === 'sketch' && part.point?.kind === 'sketch'
+          && synthesis.producers.find(producer => producer.sceneObjectId === part.producer)?.line === owner.line);
+      if (!onProfile) {
+        return { error: `connection ${connection! + 1}: point ${profile! + 1} is not a vertex of profile ${profile! + 1} — pick one vertex on each profile, in profile order` };
+      }
+      if (part.point?.kind === 'sketch' && part.producer !== null && remap.has(part.producer)) {
+        points.push({ kind: 'sketch', producer: remap.get(part.producer)!, target: part.point.target });
+      } else if (part.point?.kind === 'edge') {
+        const refs = part.point.refs.map(id => remap.get(id)!);
+        points.push({ kind: 'edge', role: part.point.role, selector: {
+          producer: part.producer === null ? null : remap.get(part.producer)!, accessor: part.accessor,
+          indices: part.point.indices, filterArgs: part.point.filterArgs, refs,
+        } });
+      } else {
+        return { error: 'a connection point has no source expression' };
+      }
+    }
+    if (points.length !== picks.length) {
+      return { error: 'each picked connection vertex must resolve to one point expression' };
+    }
+    imports.push(...synthesis.imports);
+  }
+  let index = 0;
+  return { connections: rows.map(row => row.kind === 'verbatim' ? row : {
+    kind: 'points', points: row.points.map(point => point.kind === 'vertex' ? points[index++] : point),
+  }), imports };
+}
+
+
 
 /**
  * One `.startCondition()`/`.endCondition()` request field: absent/null means
@@ -934,10 +1099,18 @@ function validateLoft(body: any): LoftRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
+  const connections = validateLoftConnections(body.connections, false, result.length);
+  if ('error' in connections) {
+    return connections;
+  }
+  if (connections.connections?.length && (thinResult.offsets || guideLocs.length > 0)) {
+    return { error: 'loft connections cannot yet be combined with guides or thin walls' };
+  }
   return {
     op, thin: thinResult.offsets, profiles: result, guides: guideLocs,
     startCondition: startResult.condition, endCondition: endResult.condition,
     scope: scopeResult.scope,
+    connections: connections.connections,
   };
 }
 
@@ -2054,6 +2227,7 @@ type StatementEditRequest = {
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
   loftGuides?: EditLoftGuideInput[];
+  loftConnections?: LoftConnectionInput[];
   /**
    * The sketch retarget's new target (the sketch dialog's re-pick): a face
    * pick, an origin plane, or an existing plane() feature by call site.
@@ -2541,6 +2715,13 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       }
       result.loftGuides = parsed.guides;
     }
+    const connections = validateLoftConnections(body.connections, true, result.loftProfiles?.length);
+    if ('error' in connections) {
+      return connections;
+    }
+    result.loftConnections = connections.connections;
+    result.needsPicks ||= connections.connections?.some(row => row.kind === 'points'
+      && row.points.some(point => point.kind === 'vertex')) ?? false;
     return result;
   }
 
@@ -4056,6 +4237,19 @@ export function createApplyFeatureRouter(
             ? { kind: 'verbatim' as const, sourceIndex: guide.sourceIndex }
             : { kind: 'sketch' as const, producer: wireRef(guide, 'g') });
         }
+        if (request.loftConnections !== undefined) {
+          const connections = await synthesizeLoftConnections(fluidCadServer, request.loftConnections,
+            request.target.filePath, mergeProducer, request.target,
+            loftProfileOwners(request.loftProfiles), before ?? undefined);
+          if ('error' in connections) {
+            res.status(422).json({ success: false, reason: connections.error });
+            return;
+          }
+          edit.loft!.connections = connections.connections;
+          for (const symbol of connections.imports) {
+            importSet.add(symbol);
+          }
+        }
         if (request.sketchTarget) {
           const target = request.sketchTarget;
           if (target.kind === 'standard') {
@@ -4617,8 +4811,13 @@ export function createApplyFeatureRouter(
             });
             return;
           }
-          const vars = await allocateProducerVars(spec.producers, code);
-          const rendered = renderEditedStatement(parsed.parsed, spec, i => vars[i] ?? null);
+          const staged = spec.feature === 'loft' ? await LoftConnections.prepare(code, spec) : { code, spec };
+          if ('error' in staged) {
+            res.status(422).json({ success: false, reason: staged.error });
+            return;
+          }
+          const vars = await allocateProducerVars(staged.spec.producers, staged.code);
+          const rendered = renderEditedStatement(parsed.parsed, staged.spec, i => vars[i] ?? null);
           if ('error' in rendered) {
             res.status(422).json({ success: false, reason: rendered.error });
             return;
@@ -5387,6 +5586,20 @@ export function createApplyFeatureRouter(
           });
         }
 
+        // Connection producers go through the merger, so they are folded
+        // BEFORE the scope solids: the scope pass appends to the list directly
+        // and would be invisible to a later merge (one statement, two producers).
+        const connectionResult = await synthesizeLoftConnections(fluidCadServer, request.connections,
+          filePath!, mergeProducer, { filePath: filePath!, line: producers[0].line, column: producers[0].column },
+          loftProfileOwners(request.profiles));
+        if ('error' in connectionResult) {
+          res.status(422).json({ success: false, reason: connectionResult.error });
+          return;
+        }
+        for (const symbol of connectionResult.imports) {
+          imports.add(symbol);
+        }
+
         // Scope solids fold in last — a profile's own producer can double as
         // the scope target, matched by line like every statement key (no
         // later mergeProducer call runs, so the direct pushes stay aligned).
@@ -5398,47 +5611,44 @@ export function createApplyFeatureRouter(
           }
         }
         const scope = mergeScopeProducers(producers, request.scope);
-
-        const producerVars = await allocateProducerVars(producers, code);
-
+        const options: LoftEditOptions = {
+          op: request.op, thin: request.thin, profiles,
+          guides: guides.length > 0 ? guides : undefined,
+          startCondition: request.startCondition ?? undefined,
+          endCondition: request.endCondition ?? undefined,
+          connections: connectionResult.connections,
+          scope,
+        };
+        const spec: ApplyFeatureEditSpec = {
+          feature: 'loft', loft: options, filePath: filePath!, producers, parts,
+          imports: [...imports], newVariables,
+        };
+        const staged = code ? await LoftConnections.prepare(code, spec) : { code, spec };
+        if ('error' in staged) {
+          res.status(422).json({ success: false, reason: staged.error });
+          return;
+        }
+        const producerVars = await allocateProducerVars(staged.spec.producers, staged.code);
         const profileExprs = profiles.map(profile => {
           if (profile.kind === 'sketch') {
             return producerVars[profile.producer] ?? 's';
           }
           const part = parts[profile.part];
-          return renderSelectorPartExpr(
-            part,
-            part.producer === null ? null : producerVars[part.producer],
-            i => producerVars[i] ?? null,
-          );
+          return renderSelectorPartExpr(part,
+            part.producer === null ? null : producerVars[part.producer], i => producerVars[i] ?? null);
         });
-
-        const guideExprs = guides.map(guide => producerVars[guide.producer] ?? 'g');
-        const options: LoftEditOptions = {
-          op: request.op,
-          thin: request.thin,
-          profiles,
-          guides: guides.length > 0 ? guides : undefined,
-          startCondition: request.startCondition ?? undefined,
-          endCondition: request.endCondition ?? undefined,
-          scope,
-        };
-        const statement = renderLoftStatement(
-          options, profileExprs, guideExprs, scope.map(index => producerVars[index] ?? 'f'),
-        );
+        const connections = LoftConnections.render(staged.spec.loft?.connections, profiles.length, i => producerVars[i] ?? null);
+        if ('error' in connections) {
+          res.status(422).json({ success: false, reason: connections.error });
+          return;
+        }
+        const statement = renderLoftStatement(options, profileExprs,
+          guides.map(guide => producerVars[guide.producer] ?? 'g'), scope.map(index => producerVars[index] ?? 'f'), connections.args);
         if (preview === true) {
           res.json({ success: true, preview: statement });
           return;
         }
-        await dispatcher.dispatch(res, {
-          feature: 'loft',
-          loft: options,
-          filePath: filePath!,
-          producers,
-          parts,
-          imports: [...imports],
-          newVariables,
-        }, { success: true, preview: statement });
+        await dispatcher.dispatch(res, spec, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }

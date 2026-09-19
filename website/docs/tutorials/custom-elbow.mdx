@@ -59,7 +59,7 @@ The `true` after the callback makes this a **constraint sketch**: the geometry s
 
 The path itself is three connected segments. The two `coincident` constraints chain them end-to-start, `vertical(riser)` keeps the first leg straight up, and the two `tangent` constraints make the bend flow smoothly out of the riser and into the exit leg — that tangency is what makes the exit leave at exactly 45° once the arc spans a 45° turn. `fix` anchors the path's start at the origin, and the dimensions pin the sizes: a 1.5 riser, a radius-4 bend, and a 1.5 exit. The `.cw()` on the arc picks the clockwise sweep from start to end, so the bend curls away from the vertical run instead of back over it.
 
-We return `topSegment` from the sketch callback — whatever the callback returns is attached as `.regions` on the sketch, so `spine.regions.topSegment` gives us a named handle on that last straight segment. We'll turn it into the pattern axis in the final step.
+We return `topSegment` from the sketch callback — whatever the callback returns is attached as `.geometries` on the sketch, so `spine.geometries.topSegment` gives us a named handle on that last straight segment. We'll turn it into the pattern axis in the final step.
 
 Normally the next 3D operation consumes a sketch. This spine is used three times, so `.reusable()` keeps it alive across all of them.
 
@@ -89,10 +89,10 @@ const profile = sketch("top", () => {
 ### Sweep the outer pipe
 
 ```js
-const pipe = sweep(spine, profile.regions.outerPipe);
+const pipe = sweep(spine, profile.geometries.outerPipe);
 ```
 
-`sweep(spine, profile.regions.outerPipe)` drives the outer circle along the spine, producing a solid bent rod. Because we pass one specific region instead of the whole sketch, the `innerPipe` region stays available — we'll sweep it later to bore the pipe out. We capture the result as `pipe` so we can sketch on its end face in step 4.
+`sweep(spine, profile.geometries.outerPipe)` drives the outer circle along the spine, producing a solid bent rod. Because we pass one specific region instead of the whole sketch, the `innerPipe` region stays available — we'll sweep it later to bore the pipe out. We capture the result as `pipe` so we can sketch on its end face in step 4.
 
 ![Swept pipe](/img/docs/tutorials/custom-elbow-step2.png)
 
@@ -183,7 +183,7 @@ const upperFlange = extrude(-.625)
 So far the pipe is a solid rod, and both flanges block its ends. One sweep opens the whole passage.
 
 ```js
-sweep(spine, profile.regions.innerPipe).remove()
+sweep(spine, profile.geometries.innerPipe).remove()
 ```
 
 This sweeps the 1.5-diameter `innerPipe` region along the same reusable spine, and `.remove()` turns the sweep into a subtraction — instead of adding the swept solid, it carves it out of everything it passes through. The pipe wall, the base plate, and the upper flange all get bored in a single operation.
@@ -272,7 +272,7 @@ const s2 = cut(.25, outerSlot)
 ## Step 7: Pattern the slots and clean up
 
 ```js
-const a = axis(spine.regions.topSegment)
+const a = axis(spine.geometries.topSegment)
 
 repeat("circular", a, {
     count: 4,
@@ -282,7 +282,7 @@ repeat("circular", a, {
 remove(spine);
 ```
 
-`axis(spine.regions.topSegment)` builds an axis from the spine's straight exit segment — the segment we named back in step 1. That line is the pipe's centerline through the upper flange, exactly the axis the bolt pattern revolves around. `repeat("circular", a, { count: 4, angle: 360 }, s1, s2)` repeats both cuts 4 times evenly around it, giving four stepped slots at 90° spacing.
+`axis(spine.geometries.topSegment)` builds an axis from the spine's straight exit segment — the segment we named back in step 1. That line is the pipe's centerline through the upper flange, exactly the axis the bolt pattern revolves around. `repeat("circular", a, { count: 4, angle: 360 }, s1, s2)` repeats both cuts 4 times evenly around it, giving four stepped slots at 90° spacing.
 
 Finally, `remove(spine)` deletes the reusable spine sketch from the scene — every consumer is done with it, so it shouldn't linger in the rendered model.
 
@@ -298,7 +298,7 @@ Finally, `remove(spine)` deletes the reusable spine sketch from the scene — ev
 
 - **`sketch(plane, callback)`** — constraint sketches: fully-specified geometry guesses pinned down by constraint statements
 - **`sketch().reusable()`** — keeping one path sketch alive for multiple consumers (two sweeps and an axis)
-- **returning shapes from a sketch** — attaching named `.regions` handles to geometry for later reference
+- **returning shapes from a sketch** — attaching named `.geometries` handles to geometry for later reference
 - **`tangent(a, b)`** — blending lines and arcs into a smooth path, so the exit leg leaves the bend at exactly 45°
 - **`arc(start, end, center).cw()`** — choosing the sweep side of an arc so the bend curls the right way
 - **`sweep(path, region)`** — sweeping one named region of a multi-region profile, leaving the rest available

@@ -65,6 +65,10 @@ export class LazyVertex extends SceneObject {
     return super.compareTo(other) && this.uniqueName === other.uniqueName;
   }
 
+  override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new LazyVertex(this.uniqueName, this.getShapesFn);
+  }
+
   getType(): string {
     return "lazy-vertex";
   }

@@ -22,6 +22,9 @@ export type ExpandBucketResult =
 
 /** The sub-shape universe a pick's mesh indices are defined over. */
 function pickUniverse(shape: Shape, kind: PickSubRef['type']): Shape[] {
+  if (kind === 'vertex') {
+    return [];
+  }
   return kind === 'face'
     ? Explorer.findFacesWrapped(shape)
     : Explorer.findEdgesWrapped(shape);
@@ -64,6 +67,9 @@ export function bucketMembersOnSolid(
  * highlight them exactly like ordinary picks.
  */
 export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandTangentsResult {
+  if (ref.sub.type === 'vertex') {
+    return { ok: false, reason: 'Tangent chains require faces or edges.' };
+  }
   const resolved = resolvePickShape(scene, ref);
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };

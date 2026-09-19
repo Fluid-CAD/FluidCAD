@@ -82,7 +82,7 @@ export const CONNECTOR_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export const MEMBER_NAME_PATTERN = CONNECTOR_NAME_PATTERN;
 
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
-export type PickSubRef = { type: 'edge' | 'face'; index: number };
+export type PickSubRef = { type: 'edge' | 'face' | 'vertex'; index: number };
 export type PickRef = { shapeId: string; sub: PickSubRef };
 
 /** Geometric summary of a picked sub-shape, for labels and debugging. */
@@ -400,6 +400,7 @@ export function nameHintFor(featureType: string): string {
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
     case 'plane': return 'p';
+    case 'sketch': return 's';
     case 'axis': return 'a';
     // 2D sketch geometry (getType values of sketch primitives).
     case 'line': return 'l';

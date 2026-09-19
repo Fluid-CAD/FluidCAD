@@ -82,6 +82,9 @@ function accessorLabel(accessor: string): string {
  * Pure read over a built scene.
  */
 export function listSelectionGroups(scene: SelectionScene, ref: PickRef): SelectionGroupsResult {
+  if (ref.sub.type === 'vertex') {
+    return { ok: true, groups: [] };
+  }
   const resolved = resolvePickShape(scene, ref);
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };

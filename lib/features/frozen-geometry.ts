@@ -4,7 +4,7 @@ import { TransformablePrimitive } from "../common/transformable-primitive.js";
 /**
  * A clone-only stand-in for sketch geometry that a repeated feature references
  * but that lives in a sketch *outside* the cloned set — e.g. a `sweep` whose
- * path is `otherSketch.regions.foo`.
+ * path is `otherSketch.geometries.foo`.
  *
  * Such geometry cannot be rebuilt during the clone: a 2D curve resolves its
  * plane by walking up to its owning `Sketch` (see GeometrySceneObject.sketch),

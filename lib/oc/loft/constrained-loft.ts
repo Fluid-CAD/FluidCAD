@@ -4,12 +4,15 @@ import { Solid } from "../../common/solid.js";
 import { FaceOps } from "../face-ops.js";
 import { SectionCompatibility, CompatibleSections } from "./section-compatibility.js";
 import { Skinning, LoftEndCondition, SkinnedGrid } from "./skinning.js";
+import { Point } from "../../math/point.js";
+import { ConnectionResolver } from "./connection-resolver.js";
 
 export type { LoftConditionKind, LoftEndCondition } from "./skinning.js";
 
 /**
- * Loft with start/end conditions. OCC's `BRepOffsetAPI_ThruSections` cannot
- * constrain end tangency, so this path skins the surface itself: profiles
+ * Loft with vertex connections or start/end conditions. OCC's
+ * `BRepOffsetAPI_ThruSections` cannot enforce either constraint, so this
+ * path skins the surface itself: profiles
  * become compatible B-spline sections (`SectionCompatibility`), matching pole
  * columns are interpolated along the loft with the end derivatives pinned,
  * and the resulting surface is capped and sewn into a solid (`Skinning`).
@@ -26,8 +29,9 @@ export class ConstrainedLoft {
     wires: Wire[],
     startCondition: LoftEndCondition | undefined,
     endCondition: LoftEndCondition | undefined,
+    connections?: Point[][],
   ): Solid[] {
-    const compatible = ConstrainedLoft.skinWires(wires);
+    const compatible = ConstrainedLoft.skinWires(wires, connections);
     const skinned = Skinning.skinSections(compatible, startCondition, endCondition);
     return [Skinning.buildLoftSolid(compatible, skinned.grid, skinned.vBasis)];
   }
@@ -59,7 +63,11 @@ export class ConstrainedLoft {
     return [Skinning.sewSolid(faces)];
   }
 
-  private static skinWires(wires: Wire[]): CompatibleSections {
+  private static skinWires(wires: Wire[], connections?: Point[][]): CompatibleSections {
+    if (connections?.length) {
+      const pins = ConnectionResolver.resolve(wires, connections);
+      return SectionCompatibility.build(wires.map(wire => wire.getShape()), pins);
+    }
     for (const wire of wires) {
       if (!wire.isClosed()) {
         throw new Error("Loft with start/end conditions requires closed profiles.");

@@ -23,6 +23,10 @@ function readAll() {
   themeColors.gridColor.set(readCssVar('--scene-grid-color', '#6f6f6f'));
   themeColors.metaEdgeColor.set(readCssVar('--scene-meta-edge-color', '#b0b0b0'));
   themeColors.highlightColor.set(readCssVar('--scene-highlight-color', '#ffb433'));
+  themeColors.vertexColor.set(readCssVar('--scene-vertex-color', '#8f969f'));
+  themeColors.vertexHoverColor.set(readCssVar('--scene-vertex-hover', '#ffb433'));
+  themeColors.vertexSelectedColor.set(readCssVar('--scene-vertex-selected', '#11a4ed'));
+  themeColors.loftMatchColor.set(readCssVar('--scene-loft-match', '#bc72ad'));
   themeColors.selectEdgeColor.set(readCssVar('--scene-select-edge-color', '#11a4ed'));
   themeColors.selectFaceColor.set(readCssVar('--scene-select-face-color', '#5c9fcc'));
   themeColors.constraintColor.set(readCssVar('--scene-constraint-color', '#cccccc'));
@@ -46,6 +50,10 @@ export const themeColors = {
   gridColor: new Color('#6f6f6f'),
   metaEdgeColor: new Color('#b0b0b0'),
   highlightColor: new Color('#ffb433'),
+  vertexColor: new Color('#8f969f'),
+  vertexHoverColor: new Color('#ffb433'),
+  vertexSelectedColor: new Color('#11a4ed'),
+  loftMatchColor: new Color('#bc72ad'),
   selectEdgeColor: new Color('#11a4ed'),
   selectFaceColor: new Color('#5c9fcc'),
   constraintColor: new Color('#cccccc'),

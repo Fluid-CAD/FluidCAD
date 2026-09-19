@@ -31,6 +31,7 @@ export type MeasureEntitiesResolution =
   | MeasureEntitiesFailure;
 
 type Resolver = (request: { expression: string; scope?: SelectionScopeInput }) => ResolveSelectionResult | { ok: false; code: 'no-scene' | 'unsupported'; reason: string };
+type MeasurableMatch = ResolvedSelectionMatch & { kind: 'face' | 'edge' };
 
 /**
  * Turns the entity list a `/measure` caller sends — index refs and filter
@@ -125,7 +126,7 @@ export class MeasureEntityResolver {
     label: string,
     entity: MeasureFilterEntity,
     resolveSelection: Resolver,
-  ): { ok: true; matches: ResolvedSelectionMatch[]; where: string } | MeasureEntitiesFailure {
+  ): { ok: true; matches: MeasurableMatch[]; where: string } | MeasureEntitiesFailure {
     const result = resolveSelection({ expression: entity.expression, scope: entity.scope });
     if (result.ok === false) {
       const candidates = 'candidates' in result ? result.candidates : undefined;
@@ -135,10 +136,14 @@ export class MeasureEntityResolver {
     if (result.count === 0) {
       return { ok: false, code: 'no-match', error: `${label}: ${entity.expression} matches nothing ${where}` };
     }
-    return { ok: true, matches: result.matches, where };
+    const matches = result.matches.filter((match): match is MeasurableMatch => match.kind !== 'vertex');
+    if (matches.length !== result.matches.length) {
+      return { ok: false, code: 'unsupported', error: `${label}: vertex measurement is not supported yet` };
+    }
+    return { ok: true, matches, where };
   }
 
-  private static refFor(match: ResolvedSelectionMatch, entity: MeasureFilterEntity): MeasureRef {
+  private static refFor(match: MeasurableMatch, entity: MeasureFilterEntity): MeasureRef {
     const ref: MeasureRef = { shapeId: match.shapeId, kind: match.kind, index: match.index };
     if (match.instanceId !== undefined) {
       ref.instanceId = match.instanceId;

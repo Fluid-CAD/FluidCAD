@@ -17,6 +17,7 @@ import { buildOrthonormalFrame, facePlacement } from "./shape-anchor.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { EdgeQuery } from "../oc/edge-query.js";
 import { getOC } from "../oc/init.js";
+import { PointResolver } from "./point-resolver.js";
 
 export type ConnectorOptions = {
   xDirection?: AxisLike;
@@ -62,7 +63,7 @@ export function frameFromSource(source: ConnectorInput, options: ConnectorOption
     return source.getAnchorFrame(options);
   }
   if (source instanceof LazyVertex) {
-    return frameFromVertexPoint(source.asPoint(), options);
+    return frameFromVertexPoint(PointResolver.toWorld(source), options);
   }
   if (source instanceof SelectSceneObject || source instanceof LazySelectionSceneObject) {
     return frameFromSelection(source, options);

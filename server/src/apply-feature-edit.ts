@@ -22,9 +22,15 @@ import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-c
 import {
   applyDistanceTangency,
   applySolvedEmission,
+  collectIdentifiers,
+  enclosingLoop,
+  hoistSolvedStatement,
+  solvedTargetCallee,
+  targetError,
   type DistanceTangencySpec,
   type SolvedEmissionSpec,
 } from './sketch-solved-edit.ts';
+import { renderSolvedTarget, type SketchExportRequest, type SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
 import { RemoveFeature, type RemoveFeatureSpec } from './remove-feature.ts';
@@ -508,6 +514,18 @@ export type EditLoftGuide =
   | { kind: 'verbatim'; sourceIndex: number }
   | { kind: 'sketch'; producer: number };
 
+/** One connection point: an anchored edge, an exported sketch entity, or kept point text. */
+export type LoftPointSpec =
+  | { kind: 'edge'; selector: ApplyFeatureEditSpec['parts'][number]; role: 'start' | 'end' }
+  | { kind: 'sketch'; producer: number; target: SolvedEmissionTarget }
+  | { kind: 'verbatim'; sourceIndex: number; pointIndex: number }
+  /** Produced internally by the export staging pass. */
+  | { kind: 'expression'; expression: string };
+
+export type LoftConnectionSpec =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'points'; points: LoftPointSpec[] };
+
 /**
  * Dialog edits to apply over the feature statement at `line`. Only the
  * options the dialogs expose ride here — argument expressions they don't
@@ -630,6 +648,8 @@ export type FeatureStatementEditTarget = {
      * `[]` removes them all.
      */
     guides?: EditLoftGuide[];
+    /** Full replacement connections; omitted keeps, [] removes all. */
+    connections?: LoftConnectionSpec[];
     /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
     scope?: RepeatEditTargetSource[];
   };
@@ -1321,6 +1341,7 @@ export type LoftEditOptions = {
   startCondition?: LoftConditionSpec;
   /** Arrival constraint at the last profile; absent renders no chain. */
   endCondition?: LoftConditionSpec;
+  connections?: LoftConnectionSpec[];
   /** Producer indices of the `.scope(…)` targets, in pick order. */
   scope?: number[];
 };
@@ -1493,6 +1514,15 @@ export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
+  if (spec.feature === 'loft' && LoftConnections.hasExports(spec)) {
+    const staged = await LoftConnections.prepare(code, spec);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEdit(staged.code, staged.spec);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
   if (spec.sketchConstraint) {
     return applySketchConstraint(code, spec.sketchConstraint);
   }
@@ -1696,6 +1726,13 @@ async function applyCreateEdit(
           && validValueExpr(c.magnitude, { nonzero: true })));
     if (!valid) {
       return { newCode: code, error: 'malformed loft edit spec' };
+    }
+    const connections = LoftConnections.render(lo.connections, lo.profiles.length, i => spec.producers[i]?.bind ? 'producer' : null);
+    if ('error' in connections) {
+      return { newCode: code, error: connections.error };
+    }
+    if (connections.args.length > 0 && (lo.thin || guides.length > 0)) {
+      return { newCode: code, error: 'loft connections cannot yet be combined with guides or thin walls' };
     }
     if (guides.length > 0 && lo.thin) {
       return { newCode: code, error: 'loft guides cannot be combined with thin walls' };
@@ -2251,6 +2288,374 @@ async function applyPlaneSketch(
   return appendTopLevelStatement(
     code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
   );
+}
+
+/** Connection lists share one renderer and one atomic producer staging pass. */
+export class LoftConnections {
+  static list(spec: ApplyFeatureEditSpec): LoftConnectionSpec[] | undefined {
+    return spec.edit ? spec.edit.loft?.connections : spec.loft?.connections;
+  }
+
+  static hasExports(spec: ApplyFeatureEditSpec): boolean {
+    const connections = LoftConnections.list(spec);
+    return Array.isArray(connections) && connections.some(connection => connection?.kind === 'points'
+      && Array.isArray(connection.points) && connection.points.some(point => point?.kind === 'sketch'));
+  }
+
+  static async prepare(code: string, spec: ApplyFeatureEditSpec): Promise<
+    { code: string; spec: ApplyFeatureEditSpec } | { error: string }
+  > {
+    if (!LoftConnections.hasExports(spec)) {
+      return { code, spec };
+    }
+    const refs: SketchExportRequest[] = [];
+    for (const connection of LoftConnections.list(spec)!) {
+      if (connection.kind !== 'points') {
+        continue;
+      }
+      for (const point of connection.points) {
+        if (point.kind !== 'sketch') {
+          continue;
+        }
+        if (!isSketchProducer(spec, point.producer)) {
+          return { error: 'a connection sketch point needs its sketch producer' };
+        }
+        const producer = spec.producers[point.producer];
+        refs.push({ sketch: { filePath: spec.filePath, line: producer.line, column: producer.column }, target: point.target });
+      }
+    }
+    const tracked = [...spec.producers.map(producer => producer.line),
+      ...(spec.edit ? [spec.edit.line] : []), ...(spec.activePart ? [spec.activePart.line] : [])];
+    const staged = await SketchExports.applyCreates(code, refs, tracked);
+    if ('error' in staged) {
+      return staged;
+    }
+    let expression = 0;
+    const connections = LoftConnections.list(spec)!.map(connection => connection.kind === 'verbatim' ? connection : {
+      ...connection,
+      points: connection.points.map(point => point.kind === 'sketch'
+        ? { kind: 'expression' as const, expression: staged.expressions[expression++] } : point),
+    });
+    let anchor = 0;
+    const producers = spec.producers.map(producer => ({ ...producer, line: staged.anchors[anchor++] }));
+    const edit = spec.edit ? { ...spec.edit, line: staged.anchors[anchor++], loft: { ...spec.edit.loft!, connections } } : undefined;
+    const activePart = spec.activePart ? { ...spec.activePart, line: staged.anchors[anchor++] } : undefined;
+    return { code: staged.code, spec: { ...spec, producers, edit, activePart,
+      ...(spec.loft ? { loft: { ...spec.loft, connections } } : {}) } };
+  }
+
+  /** Kept rows preserve the live statement's entire argument list, including comments. */
+  static render(
+    connections: LoftConnectionSpec[] | undefined,
+    profileCount: number,
+    varFor: (producer: number) => string | null,
+    parsed?: Pick<Extract<ParsedFeatureStatement, { feature: 'loft' }>, 'connectionTexts' | 'connectionArgs'>,
+  ): { args: string[] } | { error: string } {
+    const existing = parsed?.connectionTexts ?? [];
+    if (connections === undefined) {
+      if (existing.some(points => points.length !== profileCount)) {
+        return { error: 'update the connections to include one point per loft profile' };
+      }
+      return { args: parsed?.connectionArgs ?? existing.map(points => points.join(', ')) };
+    }
+    if (!Array.isArray(connections)) {
+      return { error: 'connections must be a list of point rows' };
+    }
+    const args: string[] = [];
+    const kept = new Set<number>();
+    for (const connection of connections) {
+      if (connection?.kind === 'verbatim') {
+        const index = connection.sourceIndex;
+        if (!Number.isInteger(index) || !existing[index] || kept.has(index) || existing[index].length !== profileCount) {
+          return { error: 'a kept connection no longer matches the loft profiles' };
+        }
+        kept.add(index);
+        args.push(parsed?.connectionArgs?.[index] ?? existing[index].join(', '));
+        continue;
+      }
+      if (connection?.kind !== 'points' || !Array.isArray(connection.points) || connection.points.length !== profileCount) {
+        return { error: `each connection needs ${profileCount} points, one per loft profile` };
+      }
+      const points: string[] = [];
+      for (const point of connection.points) {
+        if (point?.kind === 'verbatim') {
+          const text = Number.isInteger(point.sourceIndex) && Number.isInteger(point.pointIndex)
+            ? existing[point.sourceIndex]?.[point.pointIndex] : undefined;
+          if (text === undefined) {
+            return { error: 'a kept connection point no longer matches the statement' };
+          }
+          points.push(text);
+        } else if (point?.kind === 'expression' && isExpressionText(point.expression)) {
+          points.push(point.expression);
+        } else if (point?.kind === 'edge' && (point.role === 'start' || point.role === 'end') && point.selector) {
+          const selector = point.selector;
+          if ([selector.producer, ...selector.refs ?? []].some(index => index !== null && !varFor(index))) {
+            return { error: 'a connection edge refers to an unknown producer' };
+          }
+          points.push(`${renderSelectorPartExpr(selector, selector.producer === null ? null : varFor(selector.producer), varFor)}.${point.role}()`);
+        } else {
+          return { error: 'a connection point must be an anchored edge or a staged sketch export' };
+        }
+      }
+      args.push(points.join(', '));
+    }
+    return { args };
+  }
+}
+
+type SketchExportEdit = { start: number; end?: number; text: string };
+
+/** One sketch statement being exported from: its binding, its return object and what this edit adds. */
+type SketchExportEntry = {
+  body: TSNode;
+  /** The variable the sketch statement is (or will be) bound to. */
+  name: string;
+  /** The object literal the callback already returns, or null when it returns nothing. */
+  returned: TSNode | null;
+  /** Bound variable → the property it is already exported under. */
+  exports: Map<string, string>;
+  keys: Set<string>;
+  /** Properties to add, rendered (`l1`, or `l2: l1` when the key had to differ). */
+  added: string[];
+};
+
+/** Everything one `applyCreates` call accumulates against the ORIGINAL buffer. */
+type SketchExportSession = {
+  code: string;
+  tree: { rootNode: TSNode };
+  lines: string[];
+  used: Set<string>;
+  hoistedNames: Map<number, string>;
+  edits: SketchExportEdit[];
+  sketches: Map<number, SketchExportEntry>;
+};
+
+/**
+ * Stage find/create sketch exports before the consuming edit. The caller
+ * applies its consumer to `code` using the relocated `anchors`, then writes
+ * that final buffer once; a refusal never returns a partially edited buffer.
+ *
+ * Entities are addressed by source line (the in-sketch target rail), so an
+ * exportable entity is one statement, alone on its line, directly in a
+ * block-bodied sketch callback.
+ */
+export class SketchExports {
+  private static readonly FUNCTION_SCOPES = new Set([
+    'arrow_function', 'function_expression', 'function_declaration', 'function', 'method_definition',
+  ]);
+
+  static async applyCreates(
+    code: string,
+    refs: SketchExportRequest[],
+    anchors: number[] = [],
+  ): Promise<{ code: string; expressions: string[]; anchors: number[] } | { error: string }> {
+    if (new Set(refs.map(ref => ref.sketch.filePath)).size > 1) {
+      return { error: 'sketch point exports must be authored in one file' };
+    }
+    const parser = await getJavaScriptParser();
+    const tree = parser.parse(code);
+    const session: SketchExportSession = {
+      code, tree, lines: splitLines(code), used: collectIdentifiers(tree),
+      hoistedNames: new Map(), edits: [], sketches: new Map(),
+    };
+
+    try {
+      const expressions: string[] = [];
+      for (const ref of refs) {
+        const error = targetError(ref.target, [], false);
+        if (error) {
+          return { error };
+        }
+        const entry = SketchExports.openSketch(session, ref.sketch.line);
+        expressions.push(renderSolvedTarget(ref.target, target => SketchExports.exportedName(session, entry, target)));
+      }
+      for (const entry of session.sketches.values()) {
+        const edit = SketchExports.returnEdit(session, entry);
+        if (edit) {
+          session.edits.push(edit);
+        }
+      }
+
+      let working = code;
+      for (const edit of session.edits.sort((a, b) => b.start - a.start)) {
+        working = spliceCode(working, edit.start, edit.end ?? edit.start, edit.text);
+      }
+      const relocated = await ForeignExposures.relocateCallLines(code, working, anchors);
+      if (!relocated) {
+        return { error: 'could not relocate the consuming statements after the sketch export edit — re-render and try again' };
+      }
+      return { code: working, expressions, anchors: anchors.map(line => relocated.get(line)!) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** The sketch statement at `line`, validated and bound once per session. Throws the refusal. */
+  private static openSketch(session: SketchExportSession, line: number): SketchExportEntry {
+    const known = session.sketches.get(line);
+    if (known) {
+      return known;
+    }
+    const call = findEditableCallAt(session.tree, session.lines, line);
+    if (!call || chainRootCallee(call) !== 'sketch') {
+      throw new Error(`no sketch statement at line ${line} — the source changed since the picks were made`);
+    }
+    const body = findSketchBody(call);
+    if (!body) {
+      throw new Error(`the sketch callback at line ${line} has an expression body — give it a block body `
+        + '(`() => { … }`) so its geometry can be named and returned');
+    }
+    const binding = resolveStatement(call);
+    if ('error' in binding) {
+      throw new Error(binding.error);
+    }
+    // A statement nested in a helper/loop is not a unique outside producer.
+    const part = findEnclosingPart(session.tree, call.startPosition.row);
+    if (binding.scope.type !== 'program' && (!part || !sameNode(binding.scope, part.body))) {
+      throw new Error('the sketch must be a direct statement in the file or its part() body');
+    }
+
+    let name = binding.varName;
+    if (binding.needsBinding) {
+      name = 's';
+      let suffix = 1;
+      while (session.used.has(name)) {
+        name = `s${++suffix}`;
+      }
+      session.used.add(name);
+      session.edits.push({ start: binding.statement.startIndex, text: `const ${name} = ` });
+    }
+    const entry: SketchExportEntry = { body, name: name!, ...SketchExports.readReturn(body), added: [] };
+    session.sketches.set(line, entry);
+    return entry;
+  }
+
+  /**
+   * What the callback returns today. Only "nothing" and "one final object
+   * literal of plain named properties" are understood — anything else is
+   * refused rather than rewritten.
+   */
+  private static readReturn(body: TSNode): Pick<SketchExportEntry, 'returned' | 'exports' | 'keys'> {
+    const returns = [...walkTree(body)].filter(node =>
+      node.type === 'return_statement' && SketchExports.belongsToCallback(node, body));
+    const exports = new Map<string, string>();
+    const keys = new Set<string>();
+    if (returns.length === 0) {
+      return { returned: null, exports, keys };
+    }
+
+    const returned = returns[0].namedChildren[0] ?? null;
+    const tail = body.namedChildren.filter(node => node.type !== 'comment').at(-1);
+    const isFinalStatement = !!returns[0].parent && sameNode(returns[0].parent, body) && !!tail && sameNode(tail, returns[0]);
+    if (returns.length > 1 || !isFinalStatement || returned?.type !== 'object') {
+      throw new Error('sketch exports need a single final object-literal return — change the callback to return { namedGeometry }');
+    }
+
+    for (const property of returned.namedChildren) {
+      if (property.type === 'comment') {
+        continue;
+      }
+      const shorthand = property.type === 'shorthand_property_identifier';
+      const key = shorthand ? property.text : property.childForFieldName('key')?.text;
+      if (!key || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) || keys.has(key)) {
+        throw new Error('sketch exports need unique plain property names — replace spread/computed/duplicate properties with named geometry properties');
+      }
+      keys.add(key);
+      const value = shorthand ? property : property.childForFieldName('value');
+      if (value?.type === 'identifier' || value?.type === 'shorthand_property_identifier') {
+        exports.set(value.text, key);
+      }
+    }
+    return { returned, exports, keys };
+  }
+
+  /** False for a `return` inside a nested function — that one is not the callback's. */
+  private static belongsToCallback(node: TSNode, body: TSNode): boolean {
+    for (let parent = node.parent; parent && !sameNode(parent, body); parent = parent.parent) {
+      if (SketchExports.FUNCTION_SCOPES.has(parent.type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** `<sketch>.geometries.<key>` for the entity statement a target names, binding and exporting it as needed. */
+  private static exportedName(session: SketchExportSession, entry: SketchExportEntry, target: SolvedEmissionTarget): string {
+    if (!Number.isInteger(target.line) || target.line! < 1 || target.occurrence !== undefined) {
+      throw new Error('sketch point exports require a single statement outside user loops/helpers — name and return that geometry explicitly');
+    }
+    const row = target.line! - 1;
+    if (row === entry.body.startPosition.row) {
+      throw new Error(`the geometry at line ${target.line} shares its line with the sketch() call — put it on its own line so it can be named`);
+    }
+    const sharing = entry.body.namedChildren.filter(node =>
+      node.type !== 'comment' && node.startPosition.row <= row && node.endPosition.row >= row);
+    if (sharing.length > 1) {
+      throw new Error(`line ${target.line} holds several statements — put the geometry on its own line so it can be named`);
+    }
+
+    const call = findEditableCallAt(session.tree, session.lines, target.line!);
+    if (!call) {
+      throw new Error(`no statement at line ${target.line} — the source changed since the picks were made`);
+    }
+    const callee = solvedTargetCallee(call, target);
+    const binding = resolveStatement(call);
+    if ('error' in binding) {
+      throw new Error(binding.error);
+    }
+    const direct = !!binding.statement.parent && sameNode(binding.statement.parent, entry.body);
+    if (!direct || enclosingLoop(call, entry.body)) {
+      throw new Error(`line ${target.line} is not a direct statement in the sketch callback — move it out of the loop/helper before exporting it`);
+    }
+
+    // The shared toolbar hoist names an unbound statement just once.
+    const variable = binding.varName
+      ?? hoistSolvedStatement(binding.statement, callee, session.used, session.hoistedNames, session.edits);
+    let key = entry.exports.get(variable);
+    if (!key) {
+      key = variable;
+      let suffix = 1;
+      while (entry.keys.has(key)) {
+        key = `${variable}${++suffix}`;
+      }
+      entry.keys.add(key);
+      entry.exports.set(variable, key);
+      entry.added.push(key === variable ? variable : `${key}: ${variable}`);
+    }
+    return `${entry.name}.geometries.${key}`;
+  }
+
+  /** The edit that adds this session's properties: extend the return object, or append a return. */
+  private static returnEdit(session: SketchExportSession, entry: SketchExportEntry): SketchExportEdit | null {
+    if (entry.added.length === 0) {
+      return null;
+    }
+    const { code, lines } = session;
+    if (entry.returned) {
+      // After the last property, before any trailing comma or comment.
+      const last = entry.returned.namedChildren.filter(node => node.type !== 'comment').at(-1);
+      if (!last) {
+        return { start: entry.returned.startIndex + 1, text: ` ${entry.added.join(', ')} ` };
+      }
+      // An object laid out one property per line keeps that layout.
+      const ownLines = last.startPosition.row > entry.returned.startPosition.row;
+      const separator = ownLines ? `,\n${indentOf(lines, last.startPosition.row)}` : ', ';
+      return { start: last.endIndex, text: entry.added.map(property => `${separator}${property}`).join('') };
+    }
+
+    const close = entry.body.endIndex - 1;
+    const indent = indentOf(lines, entry.body.startPosition.row);
+    const child = entry.body.namedChildren.find(node => node.type !== 'comment');
+    const bodyIndent = child && child.startPosition.row > entry.body.startPosition.row
+      ? indentOf(lines, child.startPosition.row) : `${indent}  `;
+    const lineStart = code.lastIndexOf('\n', close - 1) + 1;
+    const ownLine = code.slice(lineStart, close).trim() === '';
+    const start = ownLine ? lineStart : close - (code.slice(0, close).match(/[ \t]*$/)?.[0].length ?? 0);
+    return {
+      start, end: close,
+      text: `${ownLine ? '' : '\n'}${bodyIndent}return { ${entry.added.join(', ')} };\n${indent}`,
+    };
+  }
 }
 
 /**
@@ -3930,10 +4335,14 @@ export function renderLoftStatement(
   profileExprs: string[],
   guideExprs: string[] = [],
   scopeExprs: string[] = [],
+  connectionArgs: string[] = [],
 ): string {
   let statement = `loft(${profileExprs.join(', ')})`;
   if (guideExprs.length > 0) {
     statement += `.guides(${guideExprs.join(', ')})`;
+  }
+  for (const args of connectionArgs) {
+    statement += `.connect(${args})`;
   }
   statement += renderConditionChain('startCondition', lo.startCondition);
   statement += renderConditionChain('endCondition', lo.endCondition);
@@ -4259,7 +4668,11 @@ function buildStatement(
       return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     });
     const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
-    return renderLoftStatement(lo, profileExprs, guideExprs, scopeVarNames(lo.scope));
+    const connections = LoftConnections.render(lo.connections, profileExprs.length, i => bindings[i]?.varName ?? null);
+    if ('error' in connections) {
+      throw new Error(connections.error);
+    }
+    return renderLoftStatement(lo, profileExprs, guideExprs, scopeVarNames(lo.scope), connections.args);
   }
   if (spec.feature === 'plane') {
     const pl = spec.plane!;
@@ -4872,6 +5285,9 @@ export type ParsedFeatureStatement =
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     profileTexts: string[];
     guideTexts: string[];
+    connectionTexts: string[][];
+    /** Kept argument lists, including comments and whitespace. */
+    connectionArgs: string[];
     startCondition: LoftConditionSpec | null;
     endCondition: LoftConditionSpec | null;
   })
@@ -5146,7 +5562,7 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
   sweep: new Set(['thin', 'remove', 'new', 'scope']),
-  loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new', 'scope']),
+  loft: new Set(['connect', 'guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new', 'scope']),
   shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
@@ -5191,7 +5607,7 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   connector: new Set(['rotate', 'offset']),
 };
 
-type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
+type ChainSegment = { name: string; args: TSNode[]; argsText: string; endIndex: number };
 
 /** Split a call chain into its root call and member calls, in source order. */
 function decomposeChain(call: TSNode): { root: ChainSegment; members: ChainSegment[] } | null {
@@ -5205,7 +5621,7 @@ function decomposeChain(call: TSNode): { root: ChainSegment; members: ChainSegme
       return null;
     }
     if (fn.type === 'identifier') {
-      segments.push({ name: fn.text, args, endIndex: current.endIndex });
+      segments.push({ name: fn.text, args, argsText: argsNode?.text.slice(1, -1) ?? '', endIndex: current.endIndex });
       segments.reverse();
       const [root, ...members] = segments;
       return { root, members };
@@ -5215,7 +5631,7 @@ function decomposeChain(call: TSNode): { root: ChainSegment; members: ChainSegme
       if (!prop) {
         return null;
       }
-      segments.push({ name: prop.text, args, endIndex: current.endIndex });
+      segments.push({ name: prop.text, args, argsText: argsNode?.text.slice(1, -1) ?? '', endIndex: current.endIndex });
       current = fn.childForFieldName('object');
       continue;
     }
@@ -5429,10 +5845,16 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   const options = OPTION_MEMBERS[feature];
   const recognized = new Map<string, ChainSegment>();
+  const connections: ChainSegment[] = [];
   let end = chain.root.endIndex;
   let stopped = false;
   for (const member of chain.members) {
     if (!stopped && options.has(member.name)) {
+      if (feature === 'loft' && member.name === 'connect') {
+        connections.push(member);
+        end = member.endIndex;
+        continue;
+      }
       if (recognized.has(member.name)) {
         return { error: `the statement chains .${member.name}() twice` };
       }
@@ -5958,6 +6380,9 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
   if (args.length < 2) {
     return { error: 'the loft has fewer than two profiles' };
   }
+  if (connections.some(connection => connection.args.length !== args.length || connection.args.some(arg => arg.type === 'spread_element'))) {
+    return { error: `each .connect() must have ${args.length} points, one per loft profile` };
+  }
   const guideSeg = recognized.get('guides');
   if (guideSeg && (guideSeg.args.length < 1 || guideSeg.args.length > 2)) {
     return { error: 'the .guides() chain must carry one or two guides' };
@@ -5976,6 +6401,8 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       op,
       thin,
       profileTexts: args.map(a => a.text),
+      connectionTexts: connections.map(connection => connection.args.map(arg => arg.text)),
+      connectionArgs: connections.map(connection => connection.argsText),
       guideTexts: guideSeg ? guideSeg.args.map(a => a.text) : [],
       startCondition: startParse.condition,
       endCondition: endParse.condition,
@@ -8426,6 +8853,13 @@ export function renderEditedStatement(
     if ('error' in sources) {
       return sources;
     }
+    const connections = LoftConnections.render(opts.connections, sources.profileExprs.length, varFor, parsed);
+    if ('error' in connections) {
+      return connections;
+    }
+    if (connections.args.length > 0 && (opts.thin || sources.guideExprs.length > 0)) {
+      return { error: 'loft connections cannot yet be combined with guides or thin walls' };
+    }
     // The guides⊕thin exclusion holds for the statement being WRITTEN — the
     // edited guide list when one rides the spec, not the stale parsed one.
     if (sources.guideExprs.length > 0 && opts.thin) {
@@ -8441,6 +8875,7 @@ export function renderEditedStatement(
         sources.profileExprs,
         sources.guideExprs,
         scope.exprs,
+        connections.args,
       ),
     };
   }

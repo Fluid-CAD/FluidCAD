@@ -65,7 +65,7 @@ export function cloneWithTransform(
   // Sketch geometry whose owning sketch is part of the clone set rebuilds
   // normally (on the cloned, transformed plane). But a repeated feature can
   // also reference a bare curve that lives in a sketch *outside* the clone set
-  // (e.g. a sweep path `otherSketch.regions.foo`). That curve has no sketch
+  // (e.g. a sweep path `otherSketch.geometries.foo`). That curve has no sketch
   // ancestor among the clones, so it can't rebuild — `this.sketch` would be
   // null. Freeze such geometry's built edges instead (see FrozenGeometry).
   const clonedSketches = new Set<SceneObject>();

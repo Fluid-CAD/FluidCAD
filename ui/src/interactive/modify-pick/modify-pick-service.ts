@@ -1889,11 +1889,11 @@ export class ModifyPickService {
    * when the chain is picked.
    */
   private ghostEdges(): { shapeId: string; index: number; kind: 'edge' | 'face' }[] {
-    return this.selection.entities.map(entity => ({
+    return this.selection.entities.flatMap(entity => entity.sub.type === 'vertex' ? [] : [{
       shapeId: entity.shapeId,
       index: entity.sub.index,
       kind: entity.sub.type,
-    }));
+    }]);
   }
 
   private cancelGhost(): void {

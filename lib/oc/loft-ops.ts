@@ -5,6 +5,7 @@ import { Wire } from "../common/wire.js";
 import { ConstrainedLoft, LoftEndCondition, LoftConditionKind } from "./loft/constrained-loft.js";
 import { GuidedLoft } from "./loft/guided-loft.js";
 import { mmTol } from "../units/tolerance.js";
+import { Point } from "../math/point.js";
 
 export type { LoftEndCondition, LoftConditionKind };
 
@@ -15,13 +16,15 @@ export interface LoftOptions {
   endCondition?: LoftEndCondition;
   /** One or two side rails the loft surface must follow. */
   guides?: Wire[];
+  /** Each connection joins one world-space profile vertex per section. */
+  connections?: Point[][];
 }
 
 export class LoftOps {
   /**
    * Lofts through the section wires. Plain lofts run OCC's ThruSections;
    * guides dispatch to `GuidedLoft` (virtual sections carried onto the
-   * rails) and start/end conditions to `ConstrainedLoft` (derivative-pinned
+   * rails), connections and start/end conditions to `ConstrainedLoft` (pinned
    * skinning) — both in-house skins, since OCC can neither constrain end
    * tangency nor follow rails without distorting sections. Conditions
    * compose with guides: the condition fades out around each guide contact
@@ -29,6 +32,12 @@ export class LoftOps {
    */
   static makeLoft(wires: Wire[], options?: LoftOptions): Solid[] {
     const guides = options?.guides ?? [];
+    if (options?.connections?.length) {
+      if (guides.length > 0) {
+        throw new Error("Loft connections cannot yet be combined with guides.");
+      }
+      return ConstrainedLoft.build(wires, options.startCondition, options.endCondition, options.connections);
+    }
     if (guides.length > 0) {
       return GuidedLoft.build(wires, guides, options?.startCondition, options?.endCondition);
     }
@@ -45,6 +54,9 @@ export class LoftOps {
    * legacy ThruSections + boolean path in the feature layer.)
    */
   static makeThinLoft(outerWires: Wire[], innerWires: Wire[], options: LoftOptions): Solid[] {
+    if (options.connections?.length) {
+      throw new Error("Loft connections cannot yet be combined with thin mode.");
+    }
     return ConstrainedLoft.buildThin(outerWires, innerWires, options.startCondition, options.endCondition);
   }
 

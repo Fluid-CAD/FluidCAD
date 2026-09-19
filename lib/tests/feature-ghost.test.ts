@@ -429,6 +429,35 @@ describe("feature ghost — loft", () => {
     ];
   }
 
+  it('transports actual matching lines for plain and connected lofts', () => {
+    rectStack();
+    const scene = render();
+    const variants: LoftGhostRequest['connections'][] = [undefined, [[[0, 0, 0], [0, 0, 40]]]];
+    for (const connections of variants) {
+      const result = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.solids).toHaveLength(1);
+        const lines = result.solids[0].matchLines!;
+        expect(lines.length).toBeGreaterThanOrEqual(4);
+        expect(lines.every(line => line.length >= 6 && line.length % 3 === 0 && line.every(Number.isFinite))).toBe(true);
+        expect(lines.some(line => Math.hypot(...line.slice(0, 3)) < 1e-5
+          && Math.hypot(line.at(-3)!, line.at(-2)!, line.at(-1)! - 40) < 1e-5)).toBe(true);
+      }
+    }
+  });
+
+  it('surfaces invalid connection points and crossing order instead of a stale ghost', () => {
+    rectStack();
+    const scene = render();
+    const offProfile = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections: [[[500, 0, 0], [0, 0, 40]]] });
+    expect(offProfile).toMatchObject({ ok: false, surface: true, reason: expect.stringMatching(/profile|vertex/) });
+    const crossing = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections: [
+      [[0, 0, 0], [0, 0, 40]], [[100, 0, 0], [100, 50, 40]], [[100, 50, 0], [100, 0, 40]],
+    ] });
+    expect(crossing).toMatchObject({ ok: false, surface: true, reason: expect.stringContaining('cross') });
+  });
+
   it("skins between the sections its chips name", () => {
     rectStack();
     const scene = render();

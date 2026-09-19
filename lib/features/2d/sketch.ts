@@ -128,8 +128,9 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   /** The default filter excludes guides; pass `{ excludeGuide: false }` to
-   * index construction geometry too (the tArc-to-edge target resolution). */
-  getEdgesWithOwner(filter?: ShapeFilter): Map<Edge, GeometrySceneObject> {
+   * index construction geometry too (the tArc-to-edge target resolution).
+   * `removalScope` reads the geometry before an edited statement. */
+  getEdgesWithOwner(filter?: ShapeFilter, removalScope?: Set<SceneObject>): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
@@ -141,7 +142,7 @@ export class Sketch extends SceneObject implements Extrudable {
         continue;
       }
 
-      const shapes = child.getShapes(filter);
+      const shapes = child.getShapes(filter, undefined, removalScope);
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);

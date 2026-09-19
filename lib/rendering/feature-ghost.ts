@@ -15,7 +15,7 @@ import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
-import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
+import { buildLoftGhostSolids, loftMatchLines, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildOffsetGhostWires } from "../features/2d/offset-ghost.js";
 import { buildFillet2DGhostArcs } from "../features/fillet2d-ghost.js";
 import { Sketch } from "../features/2d/sketch.js";
@@ -166,6 +166,8 @@ export type LoftGhostRequest = {
   guides: { filePath: string; line: number }[];
   startCondition: GhostLoftCondition | null;
   endCondition: GhostLoftCondition | null;
+  /** World-space points, one per profile in each connection. */
+  connections?: [number, number, number][][];
 };
 
 /**
@@ -532,6 +534,8 @@ export type Mirror2DGhostRequest = {
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
   kind?: 'add' | 'remove';
+  /** Loft side-edge polylines, packed xyz. */
+  matchLines?: number[][];
   /**
    * A construction plane's own frame: its normal, and the point its quad is
    * centered on. Only the plane ghost carries it — the overlay draws the
@@ -643,7 +647,7 @@ function buildFeatureGhostInUnit(
  */
 function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGhostResult {
   if ('reason' in built) {
-    return { ok: false, reason: built.reason };
+    return { ok: false, reason: built.reason, ...(built.surface ? { surface: true } : {}) };
   }
 
   try {
@@ -652,7 +656,7 @@ function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGh
     for (const solid of built.solids) {
       const meshes = builder.build(solid);
       if (meshes) {
-        solids.push({ meshes });
+        solids.push({ meshes, ...(built.matchLines ? { matchLines: built.matchLines(solid) } : {}) });
       }
     }
     return { ok: true, solids };
@@ -1872,7 +1876,7 @@ function buildRotateGhost(
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */
-type GhostBuild = { solids: Shape[]; scratch: Shape[] } | { reason: string };
+type GhostBuild = { solids: Shape[]; scratch: Shape[]; matchLines?: (solid: Shape) => number[][] } | { reason: string; surface?: boolean };
 
 /** The single-profile features: one sketch in, its swept body out. */
 function buildProfileGhost(
@@ -2073,7 +2077,7 @@ function buildLoftGhost(scene: Scene, request: LoftGhostRequest): GhostBuild {
   try {
     const profiles = resolveSections(scene, request.profiles, scratch);
     if (!profiles) {
-      return { reason: 'That profile is not in the rendered scene.' };
+      return { reason: 'That profile is not in the rendered scene.', surface: !!request.connections?.length };
     }
     const guides = resolveGuideWires(scene, request.guides, scratch);
     if (!guides) {
@@ -2083,12 +2087,19 @@ function buildLoftGhost(scene: Scene, request: LoftGhostRequest): GhostBuild {
       op: request.op,
       thin: request.thin,
       guides,
+      connections: request.connections?.map(connection => connection.map(point => new Point(...point))),
       startCondition: toEndCondition(request.startCondition),
       endCondition: toEndCondition(request.endCondition),
     });
     scratch.push(...built.scratch);
     solids = built.solids;
-    return { solids, scratch };
+    return { solids, scratch, matchLines: solid => solid instanceof Solid
+      ? loftMatchLines(solid, profiles[0], profiles[profiles.length - 1]) : [] };
+  } catch (error) {
+    if (request.connections?.length) {
+      return { reason: error instanceof Error ? error.message : String(error), surface: true };
+    }
+    throw error;
   } finally {
     // Set only on the one path that hands the scratch on; a refusal or a
     // throw leaves it null and frees everything resolved so far.

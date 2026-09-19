@@ -423,6 +423,13 @@ describe('inspection tools (unit)', () => {
     expect(data.synthesized.producers[0].bound).toBe(true);
   });
 
+  it('resolve_selection forwards topological vertex picks', async () => {
+    const picks = [{ shapeId: 'sh-2', kind: 'vertex' as const, index: 2 }];
+    const result = await resolveSelection({ picks, before: 7 });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ picks, before: 7 });
+  });
+
   it('resolve_selection rejects both or neither input, malformed picks and a bad boundary before calling the server', async () => {
     lastRequest = null;
     const neither = await resolveSelection({});

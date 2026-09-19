@@ -51,7 +51,7 @@ describe("repeat circular cache-compare on unbuilt axis source", () => {
         return { innerPipe, outerPipe };
       });
 
-    const pipe = sweep(spine, profile.regions.outerPipe);
+    const pipe = sweep(spine, profile.geometries.outerPipe);
 
     // legacy: rect(3.5).centered().radius(0.5) + a d=0.5 bolt circle at
     // [-1.25, -1.25] copied 4x around the origin.
@@ -73,7 +73,7 @@ describe("repeat circular cache-compare on unbuilt axis source", () => {
 
     const upperFlange = extrude(-0.625);
 
-    sweep(spine, profile.regions.innerPipe).remove();
+    sweep(spine, profile.geometries.innerPipe).remove();
 
     // Legacy drew both slots in one sketch at the pen after hMove(3.25/2)
     // from the face centroid (local [-(4 - 1.25√2), 0]): cap centers at
@@ -100,7 +100,7 @@ describe("repeat circular cache-compare on unbuilt axis source", () => {
     const s1 = cut(innerSlot);
     const s2 = cut(0.25, outerSlot);
 
-    const a = axis(spine.regions.topSegment);
+    const a = axis(spine.geometries.topSegment);
 
     repeat("circular", a, { count: 4, angle: 360 }, s1, s2);
 

@@ -15,10 +15,14 @@ import { ExtrudeBase } from "./extrude-base.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
+import { Point, PointLike } from "../math/point.js";
+import { LazyVertex } from "./lazy-vertex.js";
+import { PointResolver } from "./point-resolver.js";
 
 export class Loft extends ExtrudeBase implements ILoft {
   private _profiles: SceneObject[] = [];
   private _guides: SceneObject[] = [];
+  private _connections: (Point | LazyVertex)[][] = [];
   private _startCondition?: LoftEndCondition;
   private _endCondition?: LoftEndCondition;
 
@@ -33,6 +37,24 @@ export class Loft extends ExtrudeBase implements ILoft {
 
   get guideObjects(): SceneObject[] {
     return this._guides;
+  }
+
+  connect(...points: (PointLike | LazyVertex)[]): this {
+    // Keep references live; snapshot coordinate literals so later edits to
+    // the caller's arrays cannot change a feature without changing its code.
+    this._connections.push(points.map(point => Loft.snapshotPoint(point)));
+    return this;
+  }
+
+  private static snapshotPoint(point: PointLike | LazyVertex): Point | LazyVertex {
+    if (point instanceof LazyVertex) {
+      return point;
+    }
+    if (Array.isArray(point)) {
+      return new Point(point[0], point[1], point[2]);
+    }
+    // Anything else resolves to non-finite coordinates, reported at build.
+    return new Point(point?.x, point?.y, point?.z);
   }
 
   /**
@@ -94,6 +116,17 @@ export class Loft extends ExtrudeBase implements ILoft {
   }
 
   override validate() {
+    for (const [i, connection] of this._connections.entries()) {
+      if (connection.length !== this._profiles.length) {
+        throw new Error(`Loft connection ${i + 1}: connect expects ${this._profiles.length} points, one per profile, got ${connection.length}.`);
+      }
+    }
+    if (this._connections.length > 0 && this.isThin()) {
+      throw new Error("Loft connections cannot yet be combined with thin mode.");
+    }
+    if (this._connections.length > 0 && this._guides.length > 0) {
+      throw new Error("Loft connections cannot yet be combined with guides.");
+    }
     for (let i = 0; i < this._profiles.length; i++) {
       requireShapes(this._profiles[i], `profile ${i + 1}`, "loft");
     }
@@ -122,13 +155,19 @@ export class Loft extends ExtrudeBase implements ILoft {
     } else {
       const allWires: Wire[] = [];
 
-      for (const profile of this.profiles) {
+      for (const [i, profile] of this.profiles.entries()) {
         const wires = p.record('Get profile wires', () => this.getWiresFromSceneObject(profile));
 
         if (wires.length === 0) {
+          if (this._connections.length > 0) {
+            throw new Error(`Loft connections require closed, planar profiles with exactly one region per profile; profile ${i + 1} has no closed region.`);
+          }
           throw new Error("Could not extract wire from profile.");
         }
         if (options && wires.length !== 1) {
+          if (this._connections.length > 0) {
+            throw new Error(`Loft connections require exactly one region per profile; profile ${i + 1} has ${wires.length}.`);
+          }
           throw new Error("Loft with guides or start/end conditions requires exactly one region per profile.");
         }
 
@@ -221,7 +260,7 @@ export class Loft extends ExtrudeBase implements ILoft {
    * untouched.
    */
   private resolveLoftOptions(): LoftOptions | undefined {
-    if (this._guides.length === 0 && !this.hasConditions()) {
+    if (this._guides.length === 0 && !this.hasConditions() && this._connections.length === 0) {
       return undefined;
     }
 
@@ -233,10 +272,27 @@ export class Loft extends ExtrudeBase implements ILoft {
       }
     }
 
+    const connections = this._connections.length > 0 ? this._connections.map((connection, i) =>
+      connection.map((point, k) => {
+        try {
+          const world = PointResolver.toWorld(point);
+          // References follow their cloned sources. Literals and unanchored
+          // lazy coordinates need the profile's clone transform explicitly.
+          const transform = point instanceof LazyVertex && point.getDependencies().length > 0
+            ? null : this.getTransform();
+          return transform ? world.transform(transform) : world;
+        } catch (error) {
+          throw new Error(`Loft connection ${i + 1}, profile ${k + 1}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }),
+    ) : undefined;
+    this.setState('connection-points', connections);
+
     return {
       startCondition: this._startCondition,
       endCondition: this._endCondition,
       guides,
+      connections,
     };
   }
 
@@ -346,7 +402,10 @@ export class Loft extends ExtrudeBase implements ILoft {
   }
 
   override getDependencies(): SceneObject[] {
-    return [...this._profiles, ...this._guides];
+    return [...new Set([
+      ...this._profiles, ...this._guides,
+      ...this._connections.flat().filter((point): point is LazyVertex => point instanceof LazyVertex),
+    ])];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
@@ -354,6 +413,11 @@ export class Loft extends ExtrudeBase implements ILoft {
     const copy = new Loft(...profiles);
     copy.syncWith(this);
     copy._guides = this._guides.map(g => remap.get(g) || g);
+    copy._connections = this._connections.map(connection => connection.map(point =>
+      point instanceof LazyVertex
+        ? (remap.get(point) ?? point.createCopy(remap)) as LazyVertex
+        : point.clone(),
+    ));
     copy._startCondition = this._startCondition ? { ...this._startCondition } : undefined;
     copy._endCondition = this._endCondition ? { ...this._endCondition } : undefined;
     return copy;
@@ -393,6 +457,22 @@ export class Loft extends ExtrudeBase implements ILoft {
       return false;
     }
 
+    if (this._connections.length !== other._connections.length) {
+      return false;
+    }
+    for (let i = 0; i < this._connections.length; i++) {
+      const a = this._connections[i];
+      const b = other._connections[i];
+      if (a.length !== b.length || !a.every((point, k) => {
+        const otherPoint = b[k];
+        return point instanceof LazyVertex
+          ? otherPoint instanceof LazyVertex && point.compareTo(otherPoint)
+          : otherPoint instanceof Point && point.equals(otherPoint);
+      })) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -407,10 +487,20 @@ export class Loft extends ExtrudeBase implements ILoft {
     return "loft";
   }
 
+  /** Built world points for edit-dialog seeding; empty without connections. */
+  getConnectionPoints(): Point[][] {
+    return (this.getState('connection-points') as Point[][] | undefined) ?? [];
+  }
+
   serialize() {
     return {
       profiles: this.profiles.map(f => f.serialize()),
       guides: this._guides.length > 0 ? this._guides.map(g => g.serialize()) : undefined,
+      connections: this._connections.length > 0 ? this._connections.map(connection =>
+        connection.map(point => point instanceof LazyVertex ? point.serialize() : point.toArray()),
+      ) : undefined,
+      connectionPoints: (this.getState('connection-points') as Point[][] | undefined)
+        ?.map(connection => connection.map(point => point.toArray())),
       startCondition: this._startCondition,
       endCondition: this._endCondition,
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,

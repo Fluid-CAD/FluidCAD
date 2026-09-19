@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Scene } from 'three';
+import { Group, Mesh, Scene } from 'three';
+import { WebGLRenderList } from 'three/src/renderers/webgl/WebGLRenderLists.js';
+import { WebGLProperties } from 'three/src/renderers/webgl/WebGLProperties.js';
 
 vi.mock('../src/api', async importOriginal => ({
   ...(await importOriginal<typeof import('../src/api')>()),
@@ -17,6 +19,7 @@ import * as api from '../src/api';
 import { LoftFeatureService } from '../src/interactive/create-feature/loft-service';
 import { LoftConnections } from '../src/interactive/create-feature/loft-connections';
 import { LoftConnectionsOverlay } from '../src/interactive/create-feature/loft-connections-overlay';
+import { FeatureGhostOverlay } from '../src/interactive/create-feature/feature-ghost';
 import { Navbar } from '../src/ui/navbar';
 import type { SceneObjectRender } from '../src/types';
 import type { Viewer } from '../src/viewer';
@@ -309,6 +312,57 @@ describe('loft Connections dialog', () => {
 });
 
 describe('connection matching and profile remapping', () => {
+  it.each([null, 0])('draws full-opacity connections after the ghost with active row %s', active => {
+    const scene = new Scene();
+    const viewer = { sceneContext: { scene, requestRender: vi.fn() } } as unknown as Viewer;
+    const overlay = new LoftConnectionsOverlay(viewer);
+    const ghost = new FeatureGhostOverlay(viewer);
+    try {
+      const rows = new LoftConnections();
+      rows.seed([['a', 'b']]);
+      rows.resolve([[[-1, 0, 0], [1, 0, 0]]]);
+      overlay.set(rows.rows, active, true);
+      ghost.set([{ meshes: [{
+        label: 'solid-faces', vertices: [-2, -2, 1, 2, -2, 1, 0, 2, 1],
+        normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: [0, 1, 2], faceMapping: [0],
+      }, {
+        label: 'solid-edges', vertices: [-1, 0, 0, 1, 0, 0],
+        normals: [], indices: [0, 1], edgeIndex: 0,
+      }] }], 'add');
+
+      // Use Three's actual pass classification and sorting. A high renderOrder
+      // cannot put an opaque line after a transparent ghost in a later pass.
+      const list = new WebGLRenderList(new WebGLProperties());
+      scene.traverseVisible(node => {
+        if (!(node instanceof Mesh) || Array.isArray(node.material)) {
+          return;
+        }
+        let parent = node.parent;
+        while (parent && !(parent instanceof Group)) {
+          parent = parent.parent;
+        }
+        list.push(node, node.geometry, node.material, parent?.renderOrder ?? 0, 0, null);
+      });
+      list.sort(undefined!, undefined!);
+      const drawOrder = [...list.opaque, ...list.transmissive, ...list.transparent].map(item => item.object);
+      const connection = scene.getObjectByName('loft-connections')!.children[0].children[0] as Mesh;
+      const ghostMeshes: Mesh[] = [];
+      scene.getObjectByName('featureGhost')!.traverse(node => {
+        if (node instanceof Mesh) {
+          ghostMeshes.push(node);
+        }
+      });
+      expect(ghostMeshes).toHaveLength(2);
+      for (const mesh of ghostMeshes) {
+        expect(drawOrder.indexOf(connection)).toBeGreaterThan(drawOrder.indexOf(mesh));
+      }
+      expect((connection.material as { opacity: number }).opacity).toBe(1);
+    } finally {
+      overlay.dispose();
+      ghost.clear();
+    }
+  });
+
   it('reorders original points and returns to an untouched argument list when restored', () => {
     const rows = new LoftConnections();
     rows.seed([['a', 'b', 'c']]);

@@ -92,6 +92,9 @@ export class LoftConnectionsOverlay {
       color: `#${themeColors.loftMatchColor.getHexString()}`,
       lineWidth: row === null ? 1.5 : row === this.active ? 3 : 2.5,
       opacity: row === null ? 0.65 : 1,
+      // Stay in the ghost's transparent pass even at full opacity, so the
+      // connection's higher render order paints it over the preview faces.
+      transparent: true,
       depthWrite: false,
     });
     mesh.userData.connectionRow = row;

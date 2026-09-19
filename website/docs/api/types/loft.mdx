@@ -95,6 +95,25 @@ shapes from a reusable object.
 
 ## Methods
 
+### connect()
+
+```ts
+connect(...points: (LazyVertex | PointLike)[]): this
+```
+
+Joins one vertex on each profile, in profile order. Repeat `.connect()`
+for additional connections. Each connection becomes an edge of the loft.
+Points may be world coordinates or sketch/selection point references.
+Requires closed, planar profiles with one region each. Full circles and
+ellipses must be split into arcs to supply vertices. Connections compose
+with start/end conditions; guides and thin walls are not yet supported.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | (LazyVertex \| PointLike)[] | One profile vertex per section, in the loft's profile order. *(optional)* |
+
+---
+
 ### guides()
 
 ```ts

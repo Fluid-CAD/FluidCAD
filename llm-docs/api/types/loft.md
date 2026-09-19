@@ -1,7 +1,7 @@
 ---
 id: api/types/loft
 title: Loft
-summary: "The Loft type. Extends BooleanOperation; adds 14 methods."
+summary: "The Loft type. Extends BooleanOperation; adds 15 methods."
 tags: [api, type, interface]
 symbols: [Loft, ILoft]
 seeAlso: [api/loft, api/types/boolean-operation]
@@ -10,6 +10,7 @@ seeAlso: [api/loft, api/types/boolean-operation]
 
 ```ts
 interface Loft extends BooleanOperation {
+  connect(...points: (PointLike | Vertex)[]): this;
   guides(...guides: SceneObject[]): this;
   startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
   endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
@@ -31,6 +32,19 @@ interface Loft extends BooleanOperation {
 Extends [[api/types/boolean-operation]].
 
 ## Methods
+
+### `connect()`
+
+Joins one vertex on each profile, in profile order. Repeat `.connect()`
+for additional connections. Each connection becomes an edge of the loft.
+Points may be world coordinates or sketch/selection point references.
+Requires closed, planar profiles with one region each. Full circles and
+ellipses must be split into arcs to supply vertices. Connections compose
+with start/end conditions; guides and thin walls are not yet supported.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...points` | ([[api/types/point-like]] \| [[api/types/vertex]])[] | One profile vertex per section, in the loft's profile order. *(optional)* |
 
 ### `guides()`
 

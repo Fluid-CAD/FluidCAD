@@ -9,7 +9,7 @@ import { countShapes } from "../utils.js";
 import { coincident, horizontal, vertical } from "../../core/constraints/index.js";
 
 // Regression: circular-repeating a sweep whose PATH is a bare curve borrowed
-// from another sketch (`pathSketch.regions.corner`). cloneWithTransform used to
+// from another sketch (`pathSketch.geometries.corner`). cloneWithTransform used to
 // deep-clone the path's 2D source chain (the fillet and the lines behind it)
 // out of its sketch and parent it under the repeat container. With no Sketch
 // ancestor those clones threw "Cannot read properties of null (reading
@@ -33,7 +33,7 @@ describe("repeat circular of a sweep with a borrowed in-sketch path", () => {
         circle([0, 0], 2);
       });
 
-    const s1 = sweep(pathSketch.regions.corner);
+    const s1 = sweep(pathSketch.geometries.corner);
 
     repeat("circular", "z", { count: 3, angle: 360 }, s1);
 

@@ -19,7 +19,8 @@ Returns `Loft` (extends `BooleanOperation`). Each profile is typically a
 sketch on a different plane (or a face selection). The solid interpolates
 between them in order.
 
-Chain: `.thin()`, plus the boolean scope methods. Direct accessors:
+Chain: `.connect(...)`, `.guides(...)`, `.startCondition(...)`,
+`.endCondition(...)`, `.thin()`, plus the boolean scope methods. Direct accessors:
 `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`,
 `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges`.
 
@@ -66,3 +67,28 @@ loft(bottom, top);
 
 See [[api/sweep]] for path-driven solids and [[api/extrude]] for the
 straight-pull case.
+
+## Vertex connections
+
+Each `.connect(p1, p2, ...)` joins one vertex from every profile, in profile
+order. Repeat the call for more connections. Each connection becomes a loft
+edge through all its vertices, splitting the side faces at that edge. The spans
+between neighboring connections match only each other.
+
+```js
+loft(a, b)
+  .connect(a.geometries.bottom.start(), b.geometries.right.start())
+  .connect(a.geometries.top.start(), b.geometries.left.start());
+```
+
+Return named geometry from each sketch callback to use `.geometries`. You can
+also pass world coordinates (`[x, y, z]`) or solid-edge endpoints such as
+`e.endEdges(0).start()`. Sketch point references resolve through their own
+planes, including offset and non-XY planes.
+
+Connections require closed, planar profiles with exactly one region each.
+Every point must coincide with a profile vertex; points in the middle of edges
+are refused. A full circle or ellipse has no usable vertex: draw arcs instead.
+Duplicate vertices, missing points and crossed connections produce feature
+errors. Connections work with start/end conditions. Guides and thin mode are
+not yet supported in combination with connections.

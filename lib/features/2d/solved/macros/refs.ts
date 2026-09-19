@@ -3,8 +3,8 @@
 // pass, so — like projected references — these carry {owner, slot} and
 // constraints targeting them register deferred with placeholder ids.
 
-import { LazyVertex } from "../../../lazy-vertex.js";
-import { Vertex } from "../../../../common/vertex.js";
+import { SketchPointVertex } from "../../../sketch-point-ref.js";
+import type { SceneObject } from "../../../../common/scene-object.js";
 import type { PointRole } from "../../../../sketch-solver/index.js";
 import type { MacroShapeBase } from "./base.js";
 
@@ -34,14 +34,17 @@ export class MacroEdgeRef {
  * as a plain point wherever one is accepted — reading the recipe
  * guess before the pre-solve pass, the solver params after.
  */
-export class MacroPointRef extends LazyVertex {
+export class MacroPointRef extends SketchPointVertex {
   constructor(
     readonly owner: MacroShapeBase,
     readonly slot: string,
     readonly role: PointRole,
   ) {
-    super(`${owner.getType()}-${slot}-${role}`, () => {
-      return [Vertex.fromPoint2D(owner.slotPointValue(slot, role))];
-    });
+    super(owner, role, `${owner.getType()}-${slot}-${role}`, () => owner.slotPointValue(slot, role));
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const owner = (remap.get(this.owner) ?? this.owner) as MacroShapeBase;
+    return new MacroPointRef(owner, this.slot, this.role);
   }
 }

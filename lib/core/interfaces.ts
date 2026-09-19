@@ -786,6 +786,17 @@ export type LoftConditionType = 'none' | 'normal' | 'tangent';
 
 export interface ILoft extends IBooleanOperation {
   /**
+   * Joins one vertex on each profile, in profile order. Repeat `.connect()`
+   * for additional connections. Each connection becomes an edge of the loft.
+   * Points may be world coordinates or sketch/selection point references.
+   * Requires closed, planar profiles with one region each. Full circles and
+   * ellipses must be split into arcs to supply vertices. Connections compose
+   * with start/end conditions; guides and thin walls are not yet supported.
+   * @param points - One profile vertex per section, in the loft's profile order.
+   */
+  connect(...points: (PointLike | LazyVertex)[]): this;
+
+  /**
    * Adds side guide curves (rails) the loft surface must follow. Supports one
    * or two guides in total; a single argument may carry several separate
    * curves (e.g. a sketch holding a curve and its mirror) — each connected

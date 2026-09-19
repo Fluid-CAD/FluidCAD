@@ -4,16 +4,21 @@
 // build's solve), and carrying {owner, role} so the constraint statement
 // layer resolves them to solver refs without any numeric round trip.
 
-import { LazyVertex } from "../../lazy-vertex.js";
-import { Vertex } from "../../../common/vertex.js";
+import { SketchPointVertex } from "../../sketch-point-ref.js";
+import type { SceneObject } from "../../../common/scene-object.js";
 import type { SolvedGeometryBase, SolvedPointRole } from "./solved-base.js";
 
-export class SolvedPointRef extends LazyVertex {
+export class SolvedPointRef extends SketchPointVertex {
   constructor(
     readonly owner: SolvedGeometryBase,
     readonly role: SolvedPointRole,
     uniqueName: string,
   ) {
-    super(uniqueName, () => [Vertex.fromPoint2D(owner.pointValue(role))]);
+    super(owner, role, uniqueName, () => owner.pointValue(role));
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const owner = (remap.get(this.owner) ?? this.owner) as SolvedGeometryBase;
+    return new SolvedPointRef(owner, this.role, this.referenceName);
   }
 }

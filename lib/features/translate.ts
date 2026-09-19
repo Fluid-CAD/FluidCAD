@@ -3,6 +3,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { requireShapes } from "../common/operand-check.js";
+import { PointResolver } from "./point-resolver.js";
 
 export class Translate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
@@ -45,7 +46,7 @@ export class Translate extends SceneObject {
           continue;
         }
 
-        const amount = this.amount.asPoint();
+        const amount = PointResolver.toWorldVector(this.amount);
 
         const matrix = Matrix4.fromTranslation(amount.x, amount.y, amount.z);
         const transformed = ShapeOps.transform(shape, matrix);

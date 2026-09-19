@@ -25,7 +25,7 @@ literal is only a guess for the solver, never the design: pin every
 entity to the datums (`origin()`, `xAxis()`, `yAxis()`), to a projected
 reference, or to other entities, and dimension every size, until the
 solver reports the sketch fully constrained. Whatever the callback
-returns is attached as `.regions` on the resulting `SceneObject`, so
+returns is attached as `.geometries` on the resulting `SceneObject`, so
 named references can be carried out:
 
 ```fluid.js
@@ -43,8 +43,14 @@ const s = sketch("xy", () => {
 });
 extrude(10);
 
-// s.regions.outer  → reference to the outer circle
+// s.geometries.outer  → reference to the outer circle
 ```
+
+Use `.geometries` for any named geometry, including lines and arcs. The older
+`.regions` spelling remains a deprecated alias for the same object.
+Point accessors such as `s.geometries.line.start()` stay local inside sketch
+constraints. Outside the sketch, loft connections and connectors resolve them
+through the sketch plane to world coordinates, including on offset or tilted planes.
 
 ## Sketch datums
 

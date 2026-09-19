@@ -7,6 +7,12 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { LoftEndCondition, LoftOps, LoftOptions } from "../oc/loft-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { Point } from "../math/point.js";
+import { Solid } from "../common/solid.js";
+import { EdgeQuery } from "../oc/edge-query.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { Mesh, MeshConfig } from "../oc/mesh.js";
+import { getOC } from "../oc/init.js";
 
 /**
  * One resolved profile of a ghost loft — the two things a dialog chip can be:
@@ -29,6 +35,8 @@ export type LoftGhostOptions = {
   startCondition: LoftEndCondition | null;
   /** How the surface arrives at the last profile, or null. */
   endCondition: LoftEndCondition | null;
+  /** One resolved world-space vertex per profile for each connection. */
+  connections?: Point[][];
 };
 
 export type LoftGhostSolids = {
@@ -89,6 +97,9 @@ function collectSolids(
   const loftOptions = resolveLoftOptions(options);
 
   if (options.thin) {
+    if (options.connections?.length) {
+      throw new Error("Loft connections cannot yet be combined with thin mode.");
+    }
     if (options.guides.length > 0) {
       return;
     }
@@ -105,6 +116,9 @@ function collectSolids(
     // Rails and end conditions run the in-house skin, which carries exactly
     // one section per profile (loft.ts:131).
     if (loftOptions && sections.length !== 1) {
+      if (options.connections?.length) {
+        throw new Error("Loft connections require exactly one region per profile.");
+      }
       return;
     }
     wires.push(...sections);
@@ -114,14 +128,62 @@ function collectSolids(
 
 /** Undefined for a plain loft, keeping it on OCC's ThruSections path. */
 function resolveLoftOptions(options: LoftGhostOptions): LoftOptions | undefined {
-  if (options.guides.length === 0 && !options.startCondition && !options.endCondition) {
+  if (options.guides.length === 0 && !options.startCondition && !options.endCondition && !options.connections?.length) {
     return undefined;
   }
   return {
     startCondition: options.startCondition ?? undefined,
     endCondition: options.endCondition ?? undefined,
     guides: options.guides.length > 0 ? options.guides : undefined,
+    connections: options.connections,
   };
+}
+
+/**
+ * The actual matching of a loft: edges on neither end plane, including the
+ * seam of a smooth closed side face (normally hidden by the solid renderer).
+ * Each returned polyline is packed xyz coordinates, ready for an overlay.
+ */
+export function loftMatchLines(
+  solid: Solid,
+  first: LoftGhostProfile,
+  last: LoftGhostProfile,
+  meshConfig?: MeshConfig,
+): number[][] {
+  const planeOf = (profile: LoftGhostProfile) => profile.kind === 'sketch'
+    ? profile.plane : profile.faces.length ? FaceOps.tryGetPlane(profile.faces[0]) : null;
+  const firstPlane = planeOf(first);
+  const lastPlane = planeOf(last);
+  if (!firstPlane || !lastPlane) {
+    return [];
+  }
+
+  const oc = getOC();
+  Mesh.ensureTriangulated(solid.getShape(), meshConfig);
+  const parents = solid.getEdgeToFacesIndex();
+  const lines: number[][] = [];
+  for (const shape of solid.getIndexedShapes('edge')) {
+    const edge = shape as Edge;
+    if (oc.BRep_Tool.Degenerated(edge.getShape())
+      || EdgeQuery.isEdgeOnPlane(edge, firstPlane)
+      || EdgeQuery.isEdgeOnPlane(edge, lastPlane)) {
+      continue;
+    }
+    const faces = parents.Seek(edge.getShape());
+    if (!faces || faces.IsEmpty()) {
+      continue;
+    }
+    const face = oc.TopoDS.Face(faces.First());
+    try {
+      const mesh = Mesh.discretizeEdgeOnFace(edge.getShape(), face);
+      if (mesh?.vertices.length) {
+        lines.push(mesh.vertices);
+      }
+    } finally {
+      face.delete();
+    }
+  }
+  return lines;
 }
 
 /**

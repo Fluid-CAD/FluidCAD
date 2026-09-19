@@ -46,7 +46,8 @@ import {
   type SolvedGeometryKind,
 } from './sketch-symbols.ts';
 
-export type SolvedEmissionRole = 'start' | 'end' | 'center' | 'mid';
+import { renderSolvedTarget, type SolvedEmissionRole, type SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
+export type { SolvedEmissionRole, SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
 
 export type SolvedGeometryEmission = {
   /** An entity statement, or the ellipse (P8) — targetable through its
@@ -57,68 +58,6 @@ export type SolvedGeometryEmission = {
   text: string;
   /** Append `.guide()` (the toolbar's guide latch — geometry only). */
   guide?: boolean;
-};
-
-export type SolvedEmissionTarget = {
-  /** 1-indexed line of an existing entity statement… */
-  line?: number;
-  /**
-   * Loop-instance targeting: present when the statement at `line` executed
-   * more than once in the last render (a user `for` loop) — the 0-based
-   * execution index of the picked instance. Composes only with `line`;
-   * absent defaults to instance 0 when the statement sits in a loop.
-   */
-  occurrence?: number;
-  /** …or an index into this emission's `geometry` array… */
-  newIndex?: number;
-  /** …or an implicit sketch datum, rendered as its accessor call
-   * (origin()/xAxis()/yAxis()) — datums have no source statement. */
-  datum?: 'origin' | 'x-axis' | 'y-axis';
-  /** Point accessor rendered as `.role()`; absent = the entity itself. */
-  role?: SolvedEmissionRole;
-  /** For `line` targets: the entity command the statement must call — a
-   * mismatch means the source changed under the picks and refuses the edit.
-   * References (P6) name their producer callee: 'project' | 'intersect';
-   * copy-instance targets name theirs: 'copy'; anchor-point targets (P8)
-   * name theirs: 'text' | 'bezier' — rendered as the anchor accessor
-   * (`t.anchor()`, `bz.point(i)`). */
-  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'text' | 'bezier';
-  /**
-   * Mirror-image targets: the mirrored statement whose image on the 2D
-   * mirror() statement at `line` is picked — itself a line-addressed
-   * target (an entity statement, a copy instance, another mirror's
-   * instance — never a datum/newIndex, never with a role), rendered
-   * recursively: `m1.instance(l1)`, `m1.instance(cp1.instance(2))`.
-   * Requires `featureType: 'mirror'`; composes with `line`, `role` and
-   * `occurrence` — never `refIndex`/`instanceIndex`/`pointIndex`.
-   */
-  source?: SolvedEmissionTarget;
-  /**
-   * Fixed reference targets (P6): the `.ref(i)` edge index of the
-   * project()/intersect() statement at `line`; null renders the terse
-   * single-entity form (`p1`, `p1.center()`). Presence marks the target as
-   * a reference.
-   */
-  refIndex?: number | null;
-  /**
-   * Copy-instance targets: the slot index of the picked duplicate on the 2D
-   * copy() statement at `line` — renders `cp.instance(k)` (the original
-   * occupies its own slot; duplicates fill the others; `skip` leaves holes).
-   * Composes with `line`, `role` and `occurrence` (a copy() inside a user
-   * loop rides the collector rail: `copies[1].instance(2)`); NEVER with
-   * `datum`/`newIndex`, and v1 never with `refIndex`.
-   */
-  instanceIndex?: number;
-  /**
-   * Anchor-point targets (P8): a bezier literal control point's 0-based
-   * index on the bezier statement at `line` — renders `bz.point(i)`.
-   * Requires `featureType: 'bezier'`; the `text` anchor target carries no
-   * index (its accessor is fixed: `.anchor()`).
-   * Composes with `line` and `occurrence` only — never `datum`/`newIndex`/
-   * `role`/`refIndex`/`instanceIndex`.
-   */
-  pointIndex?: number;
 };
 
 /** Reference-producer callees (P6) — hoistable like entity statements. */
@@ -289,7 +228,7 @@ export type SolvedEmissionResult = {
 
 /** A refusal raised inside the recursive target renderer — caught at the
  * constraint loop and turned into the refuse() result. */
-class EmissionRefusal extends Error {}
+export class EmissionRefusal extends Error {}
 
 function refuse(code: string, error: string): SolvedEmissionResult {
   return { newCode: code, error };
@@ -494,7 +433,7 @@ const VALID_ROLES = new Set<string>(['start', 'end', 'center', 'mid']);
  * Recursive for a mirror instance's `source` (`nested`: the mirrored
  * statement, which must be line-addressed and carries no role).
  */
-function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[], nested: boolean): string | null {
+export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[], nested: boolean): string | null {
     const byLine = typeof t.line === 'number';
     const byNew = typeof t.newIndex === 'number';
     const byDatum = t.datum !== undefined;
@@ -593,6 +532,68 @@ function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmission[]
     }
   }
   return null;
+}
+
+/** Verify an existing statement against the target captured by the pick. */
+export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTarget): string {
+  const callee = calleeName(chainBase(entityCall));
+  const isReference = target.refIndex !== undefined;
+  const isCopyInstance = target.instanceIndex !== undefined;
+  const isMirrorInstance = target.featureType === 'mirror';
+  const isAnchor = target.featureType !== undefined
+    && ANCHOR_ACCESSORS[target.featureType] !== undefined;
+  const legalCallee = isReference
+    ? !!callee && REFERENCE_CALLEES.has(callee)
+    : isCopyInstance
+      ? !!callee && COPY_CALLEES.has(callee)
+      : isMirrorInstance
+        ? !!callee && MIRROR_CALLEES.has(callee)
+        : isAnchor
+          ? callee === target.featureType
+          : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+  if (!legalCallee) {
+    throw new EmissionRefusal(isReference
+      ? `line ${target.line} is not a project()/intersect() statement`
+      : isCopyInstance
+        ? `line ${target.line} is not a 2D copy() statement`
+        : isMirrorInstance
+          ? `line ${target.line} is not a 2D mirror() statement`
+          : isAnchor
+            ? `line ${target.line} is not a ${target.featureType}() statement`
+            : `line ${target.line} is not a sketch entity statement`);
+  }
+  if (target.featureType && callee !== target.featureType) {
+    throw new EmissionRefusal(`line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);
+  }
+  return callee!;
+}
+
+/** The constraint toolbar and sketch exports share collision-free binding names. */
+export function allocateSolvedName(used: Set<string>, kind: string): string {
+  const hint = SOLVED_ENTITY_NAME_HINTS[kind] ?? 'e';
+  let n = 1;
+  while (used.has(`${hint}${n}`)) {
+    n++;
+  }
+  const name = `${hint}${n}`;
+  used.add(name);
+  return name;
+}
+
+export function hoistSolvedStatement(
+  statement: TSNode,
+  callee: string,
+  used: Set<string>,
+  hoistedNames: Map<number, string>,
+  edits: { start: number; text: string }[],
+): string {
+  let bound = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex);
+  if (!bound) {
+    bound = allocateSolvedName(used, callee);
+    hoistedNames.set(statement.startIndex, bound);
+    edits.push({ start: statement.startIndex, text: `const ${bound} = ` });
+  }
+  return bound;
 }
 
 export async function applySolvedEmission(
@@ -739,16 +740,7 @@ export async function applySolvedEmission(
   const targetAnchors: { after: number; indentRow: number }[] = [];
   const newNames: (string | null)[] = spec.geometry.map((): string | null => null);
 
-  const allocateName = (kind: string): string => {
-    const hint = SOLVED_ENTITY_NAME_HINTS[kind] ?? 'e';
-    let n = 1;
-    while (used.has(`${hint}${n}`)) {
-      n++;
-    }
-    const name = `${hint}${n}`;
-    used.add(name);
-    return name;
-  };
+  const allocateName = (kind: string): string => allocateSolvedName(used, kind);
 
   // Collector arrays read as the plural of what they collect — `lines`,
   // `arcs`, `projects`, `copies` — falling back to a numbered suffix on
@@ -769,12 +761,9 @@ export async function applySolvedEmission(
   const constraintTexts: string[] = [];
   for (const c of spec.constraints) {
     const argNames: string[] = [];
-    // One target → its rendered reference: a datum accessor, a fresh
-    // geometry's binding, or a line-addressed statement (hoisted to a
-    // binding / riding the loop collector) composed with its reference,
-    // copy-instance, anchor or mirror-instance accessor. Refusals throw
-    // EmissionRefusal; the loop below turns them into the refuse() result.
-    // Recursive: a mirror instance renders its `source` target inside.
+    // Bind one target through the existing hoist/collector rail. The shared
+    // renderer composes its point/ref/instance accessors and recursively
+    // asks for each mirror source binding. Refusals remain atomic below.
     const nameFor = (target: SolvedEmissionTarget): string => {
       if (target.datum !== undefined) {
         const command = DATUM_COMMANDS[target.datum];
@@ -801,35 +790,7 @@ export async function applySolvedEmission(
         const entityCall = wrapped && wrapped.argument.type === 'call_expression'
           ? wrapped.argument
           : call;
-        const callee = calleeName(chainBase(entityCall));
-        const isReference = target.refIndex !== undefined;
-        const isCopyInstance = target.instanceIndex !== undefined;
-        const isMirrorInstance = target.featureType === 'mirror';
-        const isAnchor = target.featureType !== undefined
-          && ANCHOR_ACCESSORS[target.featureType] !== undefined;
-        const legalCallee = isReference
-          ? !!callee && REFERENCE_CALLEES.has(callee)
-          : isCopyInstance
-            ? !!callee && COPY_CALLEES.has(callee)
-            : isMirrorInstance
-              ? !!callee && MIRROR_CALLEES.has(callee)
-              : isAnchor
-                ? callee === target.featureType
-                : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
-        if (!legalCallee) {
-          throw new EmissionRefusal(isReference
-            ? `line ${target.line} is not a project()/intersect() statement`
-            : isCopyInstance
-              ? `line ${target.line} is not a 2D copy() statement`
-              : isMirrorInstance
-                ? `line ${target.line} is not a 2D mirror() statement`
-                : isAnchor
-                  ? `line ${target.line} is not a ${target.featureType}() statement`
-                  : `line ${target.line} is not a sketch entity statement`);
-        }
-        if (target.featureType && callee !== target.featureType) {
-          throw new EmissionRefusal(`line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);
-        }
+        const callee = solvedTargetCallee(entityCall, target);
         if (loop) {
           // Loop-instance rail: the statement executes once per iteration, so
           // a `const` hoisted inside the loop body would be out of scope at
@@ -871,29 +832,7 @@ export async function applySolvedEmission(
         } else if (target.occurrence !== undefined) {
           throw new EmissionRefusal(`line ${target.line} runs more than once (helper function) — collect its results into an array to constrain one instance`);
         } else {
-          let bound = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex) ?? null;
-          if (!bound) {
-            bound = allocateName(callee!);
-            hoistedNames.set(statement.startIndex, bound);
-            edits.push({ start: statement.startIndex, text: `const ${bound} = ` });
-          }
-          name = bound;
-        }
-        if (typeof target.refIndex === 'number') {
-          name = `${name}.ref(${target.refIndex})`;
-        }
-        if (isCopyInstance) {
-          // Slot-indexed duplicate accessor; a point role composes on top
-          // (`cp1.instance(2).start()`) via the shared role append below.
-          name = `${name}.instance(${target.instanceIndex})`;
-        }
-        if (isAnchor) {
-          // The anchor-point accessor: `t1.anchor()`, `bz1.point(i)` — no
-          // role ever composes (validated above).
-          const accessor = ANCHOR_ACCESSORS[target.featureType!];
-          name = target.featureType === 'bezier'
-            ? `${name}.${accessor}(${target.pointIndex})`
-            : `${name}.${accessor}()`;
+          name = hoistSolvedStatement(statement, callee, used, hoistedNames, edits);
         }
         // Record the placement anchor: the constraint must land after this
         // statement's binding exists — the whole loop for loop-rail targets
@@ -905,24 +844,19 @@ export async function applySolvedEmission(
           indentRow: anchor.startPosition.row,
         });
       }
-      if (target.featureType === 'mirror') {
-        // The mirror image of another target — rendered through this same
-        // rail (its own hoist/collector), then wrapped: `m1.instance(l1)`.
-        name = `${name}.instance(${nameFor(target.source!)})`;
-      }
       return name;
     };
     for (const target of c.targets) {
       let name: string;
       try {
-        name = nameFor(target);
+        name = renderSolvedTarget(target, nameFor);
       } catch (err) {
         if (err instanceof EmissionRefusal) {
           return refuse(code, err.message);
         }
         throw err;
       }
-      argNames.push(target.role ? `${name}.${target.role}()` : name);
+      argNames.push(name);
     }
     const args = [...argNames];
     if (c.valueExpr !== undefined) {

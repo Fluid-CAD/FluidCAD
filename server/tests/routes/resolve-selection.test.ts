@@ -177,10 +177,11 @@ describe('POST /api/resolve-selection — synthesis context', () => {
   let synthUrl: string;
   let handed: { request: unknown; synthesis: any } | null = null;
   let answer: any = null;
+  let currentCode = CODE;
 
   const fakeEngine = {
     getCurrentFileName: () => '/ws/m.fluid.js',
-    getCurrentCode: () => CODE,
+    getCurrentCode: () => currentCode,
     getParamDefinitions: () => [],
     resolveSelection: (request: unknown, synthesis: unknown) => {
       handed = { request, synthesis };
@@ -239,6 +240,53 @@ describe('POST /api/resolve-selection — synthesis context', () => {
     const { status } = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 3 }] });
     expect(status).toBe(200);
     expect(handed!.request.picks).toEqual([{ shapeId: 'sh-1', sub: { type: 'vertex', index: 3 } }]);
+  });
+
+  it('resolves sketch export aliases against the buffer without applying the producer edits', async () => {
+    currentCode = `const profile = sketch('xy', () => {
+  const side = line([0, 0], [20, 0]);
+  return { rim: side };
+});`;
+    const original = currentCode;
+    answer = {
+      ok: true, matches: [], count: 1, scope: { kind: 'root' }, unit: 'mm',
+      synthesized: {
+        ok: true, expression: '$obj["line-1"].start()', source: 's.geometries.l1.start()',
+        sameAsInput: false, imports: [], alternatives: [], producers: [],
+        parts: [{ producer: 'sketch-1', accessor: 'geometries', tier: 0, source: 's.geometries.l1.start()' }],
+        exports: [{ part: 0, sketch: { filePath: '/ws/m.fluid.js', line: 1, column: 0 },
+          target: { line: 2, featureType: 'line', role: 'start' } }],
+      },
+    };
+    try {
+      const { status, body } = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] });
+      expect(status).toBe(200);
+      expect(body.synthesized.source).toBe('profile.geometries.rim.start()');
+      expect(body.synthesized.exports).toHaveLength(1);
+
+      // A two-point form whose alternative swaps the edge part: the sketch
+      // part is re-rendered from its part slot, never by editing the string —
+      // here the provisional spelling also appears inside the edge part.
+      const provisional = 's.geometries.l1.start()';
+      const edge = 'select(edge().near(s.geometries.l1.start())).end()';
+      answer.synthesized.parts = [
+        { producer: null, accessor: null, tier: 3, source: 'e.endEdges(0).start()' },
+        { producer: 'sketch-1', accessor: 'geometries', tier: 0, source: provisional },
+      ];
+      answer.synthesized.exports[0].part = 1;
+      answer.synthesized.alternatives = [{
+        expression: '[x, y]', source: `${edge}, ${provisional}`, partSources: [edge, provisional],
+      }];
+      const two = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] });
+      expect(two.body.synthesized.source).toBe('e.endEdges(0).start(), profile.geometries.rim.start()');
+      expect(two.body.synthesized.alternatives[0].source).toBe(`${edge}, profile.geometries.rim.start()`);
+      expect(currentCode).toBe(original);
+      currentCode = original.replace('return { rim: side };', 'return side;');
+      const refused = await postSynth({ picks: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] });
+      expect(refused.body.synthesized).toMatchObject({ ok: false, reason: expect.stringContaining('object-literal return') });
+    } finally {
+      currentCode = CODE;
+    }
   });
 
   it('marks each synthesized producer bound or not from the buffer', async () => {

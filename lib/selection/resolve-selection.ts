@@ -16,6 +16,11 @@ import type { MeasureEntityKind, MeasurePose } from "../oc/measure/measure-types
 import { Convert } from "../oc/convert.js";
 import { getOC } from "../oc/init.js";
 import { Point } from "../math/point.js";
+import { LazyVertex } from '../features/lazy-vertex.js';
+import { SketchPointVertex } from '../features/sketch-point-ref.js';
+import { AnchoredLazyVertex } from '../features/anchored-vertex.js';
+import { PointResolver } from '../features/point-resolver.js';
+import { mmTol } from '../units/tolerance.js';
 import { pickedVertexPoint, topologyVertices } from "./vertex-pick.js";
 import type { LengthUnit } from "../units/units.js";
 import type { PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
@@ -35,7 +40,7 @@ export type ResolvedSelectionScope =
   | { kind: 'sceneObject'; sceneObjectId: string; partId: string | null; part: string | null }
   | { kind: 'instance'; instanceId: string; partId: string; part: string };
 
-/** One matched face or edge, addressed the way `measure` and `hit_test` address entities. */
+/** One matched face, edge or vertex, addressed by its rendered shape and topology index. */
 export type ResolvedSelectionMatch = {
   shapeId: string;
   index: number;
@@ -104,6 +109,7 @@ type ScopeResolution =
 /** One evaluated selection: a filter builder or a selection/lazy-accessor object. */
 type EvaluatedItem =
   | { kind: 'filter'; filter: FilterBuilderBase<Shape> }
+  | { kind: 'point'; point: LazyVertex }
   | { kind: 'selection'; object: SceneObject };
 
 /** The expression's value: one selection or a list of them (`[e.endEdges(), edge().circle(5)]`). */
@@ -132,11 +138,17 @@ export class SelectionExpression {
     'globalThis', 'global', 'window', 'self', 'process', 'require', 'module', 'exports', 'Function', 'fetch', 'Buffer',
   ];
 
-  static evaluate(expression: string, objectsById: Record<string, SceneObject>, boundary?: number): EvaluatedExpression {
+  static evaluate(expression: string, objectsById: Record<string, SceneObject>, boundary?: number,
+    candidates = Object.values(objectsById), removalScope?: Set<SceneObject>): EvaluatedExpression {
     const body = `"use strict";\nreturn (\n${expression}\n);`;
-    const fn = new Function('face', 'edge', '$obj', ...SelectionExpression.SHADOWED_GLOBALS, body);
+    const fn = new Function('face', 'edge', '$obj', 'select', ...SelectionExpression.SHADOWED_GLOBALS, body);
     const $obj = SelectionExpression.objectLookup(objectsById, boundary);
-    const value = fn(face, edge, $obj, ...SelectionExpression.SHADOWED_GLOBALS.map(() => undefined));
+    const select = (...filters: FilterBuilderBase<Shape>[]) => {
+      const selection = new SelectSceneObject(filters);
+      selection.addShapes(SelectSceneObject.evaluateFilters(filters, candidates, [], removalScope));
+      return selection;
+    };
+    const value = fn(face, edge, $obj, select, ...SelectionExpression.SHADOWED_GLOBALS.map(() => undefined));
     return SelectionExpression.classify(value);
   }
 
@@ -175,6 +187,9 @@ export class SelectionExpression {
   }
 
   private static classifyItem(value: unknown): EvaluatedItem {
+    if (value instanceof LazyVertex) {
+      return { kind: 'point', point: value };
+    }
     if (value instanceof FilterBuilderBase) {
       return { kind: 'filter', filter: value };
     }
@@ -312,7 +327,8 @@ export class SelectionResolver {
     const before = view.removalScope ? view.objects.length : undefined;
     let evaluated: EvaluatedExpression;
     try {
-      evaluated = SelectionExpression.evaluate(expression, SelectionResolver.objectsById(view.objects), before);
+      evaluated = SelectionExpression.evaluate(expression, SelectionResolver.objectsById(view.objects), before,
+        scope.candidates, view.removalScope);
     } catch (e: any) {
       return { ok: false, code: 'evaluation-error', reason: e?.message ?? String(e) };
     }
@@ -326,6 +342,43 @@ export class SelectionResolver {
 
     const owners = SelectionResolver.ownersOf(solids, shapes);
     const matches: ResolvedSelectionMatch[] = [];
+    for (const item of evaluated.items) {
+      if (item.kind !== 'point') {
+        continue;
+      }
+      try {
+        const position = PointResolver.toWorld(item.point);
+        const sketch = item.point instanceof SketchPointVertex ? item.point.getSketch() : null;
+        const anchor = item.point instanceof AnchoredLazyVertex
+          ? SelectionResolver.ownersOf(solids, [item.point.getAnchorShape()])[0] : null;
+        const entries = SelectionResolver.vertexShapesOf(scope.candidates, view.removalScope).filter(entry => {
+          if (sketch) {
+            return entry.object.getParent() === sketch;
+          }
+          return anchor ? entry.solid.id === anchor.solid.id : false;
+        });
+        const found = entries.flatMap(entry => {
+          const points = topologyVertices(entry.solid);
+          const result: ResolvedSelectionMatch[] = [];
+          for (let i = 0; i < points.length; i += 3) {
+            const point = new Point(points[i], points[i + 1], points[i + 2]);
+            if (point.distanceTo(position) <= mmTol(1e-6)) {
+              result.push(SelectionResolver.toVertexMatch(scene, point,
+                { ...entry, index: i / 3 }, scope.instance));
+            }
+          }
+          return result;
+        });
+        // Shared sketch corners have several topology identities; keep one
+        // deterministic representative per point expression.
+        if (found.length === 0) {
+          return { ok: false, code: 'unresolved-pick', reason: 'the point expression does not name a visible profile vertex in this scope' };
+        }
+        matches.push(found[0]);
+      } catch (error) {
+        return { ok: false, code: 'evaluation-error', reason: error instanceof Error ? error.message : String(error) };
+      }
+    }
     let orphaned = 0;
     for (let i = 0; i < shapes.length; i++) {
       const owner = owners[i];

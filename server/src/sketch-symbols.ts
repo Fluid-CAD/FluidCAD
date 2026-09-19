@@ -31,10 +31,7 @@ export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES
  * `const prj1 = project(…)`, and so do 2D copy statements whose duplicates
  * are constraint targets (`const cp1 = copy(…)`) and the anchor-point
  * statements (P8): `const t1 = text(…)`, `const bz1 = bezier(…)`. */
-export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
-  line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz',
-};
+export { SOLVED_ENTITY_NAME_HINTS } from '../../lib/dist/selection/sketch-target.js';
 
 /**
  * Edge-consuming derived-op callees — the TAIL region of a solved sketch

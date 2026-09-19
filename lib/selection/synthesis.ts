@@ -93,6 +93,9 @@ export function synthesizeSelectors(
     ...chains.flatMap(c => c.members),
   ];
   for (const attr of allAttributions) {
+    if (attr.ref.sub.type === 'vertex') {
+      return { ok: false, reason: 'Vertex picks require point synthesis, not a face/edge selector.', pick: attr.ref };
+    }
     if (attr.error) {
       return { ok: false, reason: attr.error, pick: attr.ref };
     }
@@ -568,7 +571,6 @@ function synthesizeBucketCandidates(
 
   // Every verified filter form, best first; each remembers whether it bakes
   // a geometry constant so the ranking below can place it against the index.
-  const baked = new Map<SelectorPart, number>();
   if (!wholeBucket) {
     for (const induced of induceFilterCandidates(index, bucketContext(bucket, false, params), groupAttrs, pickKeys)) {
       const part: SelectorPart = {
@@ -578,7 +580,7 @@ function synthesizeBucketCandidates(
         filterArgs: induced.filterArgs,
         tier: induced.constants === 0 ? 1 : 2,
       };
-      baked.set(part, induced.bakedConstants);
+      part.bakedConstants = induced.bakedConstants;
       candidates.push(part);
     }
   }
@@ -608,19 +610,7 @@ function synthesizeBucketCandidates(
   // a filter; constant-free and parameter-linked filters keep winning unless
   // the consumer asked for indices first. Whole bucket always leads; the
   // sort is stable, so induction's own order holds within each rank.
-  const rank = (c: SelectorPart) => {
-    if (c.tier === 0) {
-      return 0;
-    }
-    if (c.tier === 4) {
-      return preferIndices ? 1 : 2;
-    }
-    if ((baked.get(c) ?? 0) > 0) {
-      return 3;
-    }
-    return preferIndices ? 2 : 1;
-  };
-  candidates.sort((a, b) => rank(a) - rank(b));
+  candidates.sort((a, b) => selectorRank(a, preferIndices) - selectorRank(b, preferIndices));
   return { ok: true, candidates };
 }
 
@@ -871,4 +861,21 @@ function findAnchor(attributions: PickAttribution[]): SceneObject | null {
     }
   }
   return null;
+}
+
+/** Shared ranking for bucket alternatives and the incident edges of a vertex. */
+export function selectorRank(part: SelectorPart, preferIndices = false): number {
+  if (part.tier === 0) {
+    return 0;
+  }
+  if (part.tier === 4) {
+    return preferIndices ? 1 : 2;
+  }
+  if ((part.bakedConstants ?? 0) > 0) {
+    return 4;
+  }
+  if (part.tier === 3) {
+    return 3;
+  }
+  return preferIndices ? 2 : 1;
 }

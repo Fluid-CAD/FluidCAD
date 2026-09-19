@@ -400,6 +400,7 @@ export function nameHintFor(featureType: string): string {
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
     case 'plane': return 'p';
+    case 'sketch': return 's';
     case 'axis': return 'a';
     // 2D sketch geometry (getType values of sketch primitives).
     case 'line': return 'l';

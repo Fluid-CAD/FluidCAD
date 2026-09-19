@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { readFile } from 'fs/promises';
 import type { FluidCadServer, SelectionSynthesisOptions } from '../fluidcad-server.ts';
-import type { SynthesizedProducer } from '../../../lib/dist/index.js';
+import type { SynthesizedProducer, SynthesizedSelection } from '../../../lib/dist/index.js';
 import { SelectionRequests } from './selection-requests.ts';
-import { makeProducerNamer, makeProducerBindable, makeProducerBoundProbe, extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
+import { SketchExports, makeProducerNamer, makeProducerBindable, makeProducerBoundProbe, extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 /**
@@ -51,6 +51,7 @@ export function createResolveSelectionRouter(fluidCadServer: FluidCadServer): Ro
       }
       if (result.synthesized?.ok && context) {
         await context.markBound(result.synthesized.producers);
+        result.synthesized = await context.resolveExports(result.synthesized);
       }
       res.json(result);
     } catch (err: any) {
@@ -78,6 +79,7 @@ class SynthesisContext {
     readonly options: SelectionSynthesisOptions,
     private readonly currentFile: string | null,
     private readonly currentProbe: BoundProbe,
+    private readonly code: string,
   ) {}
 
   static async forCurrentFile(fluidCadServer: FluidCadServer): Promise<SynthesisContext | undefined> {
@@ -90,7 +92,38 @@ class SynthesisContext {
       bindable: await makeProducerBindable(code),
       params: resolveParamValues(await extractNumericParams(code), fluidCadServer.getParamDefinitions()),
     };
-    return new SynthesisContext(options, fluidCadServer.getCurrentFileName(), await makeProducerBoundProbe(code));
+    return new SynthesisContext(options, fluidCadServer.getCurrentFileName(), await makeProducerBoundProbe(code), code);
+  }
+
+  /** Dry-run the same producer transform the consuming edit will stage. */
+  async resolveExports(synthesis: Extract<SynthesizedSelection, { ok: true }>): Promise<SynthesizedSelection> {
+    const refs = synthesis.exports ?? [];
+    if (refs.length === 0) {
+      return synthesis;
+    }
+    if (this.currentFile && refs.some(ref => normalizePath(ref.sketch.filePath) !== normalizePath(this.currentFile!))) {
+      return { ok: false, reason: 'sketch point exports must be authored in the sketch’s defining file' };
+    }
+    const staged = await SketchExports.applyCreates(this.code, refs);
+    if ('error' in staged) {
+      return { ok: false, reason: staged.error };
+    }
+    // The transform owns the real names (an existing binding or export key
+    // wins over the provisional one) — re-render every form from its parts.
+    const final = new Map(refs.map((ref, i) => [ref.part, staged.expressions[i]]));
+    for (const [part, expression] of final) {
+      synthesis.parts[part].source = expression;
+    }
+    synthesis.partSources = synthesis.parts.map(part => part.source!);
+    synthesis.source = synthesis.partSources.join(', ');
+    for (const alternative of synthesis.alternatives) {
+      if (!alternative.partSources) {
+        continue;
+      }
+      alternative.partSources = alternative.partSources.map((source, part) => final.get(part) ?? source);
+      alternative.source = alternative.partSources.join(', ');
+    }
+    return synthesis;
   }
 
   /**

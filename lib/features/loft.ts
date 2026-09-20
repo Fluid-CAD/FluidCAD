@@ -164,16 +164,16 @@ export class Loft extends ExtrudeBase implements ILoft {
           }
           throw new Error("Could not extract wire from profile.");
         }
-        if (options && wires.length !== 1) {
+        // Each profile contributes one section; extra regions are not
+        // additional sections on the same plane.
+        if (wires.length !== 1) {
           if (this._connections.length > 0) {
             throw new Error(`Loft connections require exactly one region per profile; profile ${i + 1} has ${wires.length}.`);
           }
-          throw new Error("Loft with guides or start/end conditions requires exactly one region per profile.");
+          throw new Error(`Loft requires exactly one region per profile; profile ${i + 1} has ${wires.length}. Use a single closed outline; mark helper lines as construction geometry with .guide().`);
         }
 
-        for (const wire of wires) {
-          allWires.push(wire);
-        }
+        allWires.push(wires[0]);
       }
 
       newShapes = p.record('Make loft', () => LoftOps.makeLoft(allWires, options));

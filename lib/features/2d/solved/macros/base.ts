@@ -38,6 +38,16 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
   private _finalizeError: string | null = null;
   private _entities = new Map<string, RegisteredEntity>();
 
+  override restoreState(state: Map<string, any>): void {
+    super.restoreState(state);
+    const entities = state.get('macro-entities');
+    if (entities) {
+      this._entities = new Map(entities);
+      this._finalized = true;
+      this._finalizeError = state.get('macro-finalize-error') ?? null;
+    }
+  }
+
   /** Every slot this shape can ever expose, in a FIXED order — the
    * ordinal feeds deterministic constraint placeholder ids. */
   abstract canonicalSlots(): string[];
@@ -110,6 +120,11 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
       }
     } catch (error) {
       this._finalizeError = error instanceof Error ? error.message : String(error);
+    } finally {
+      // The cached sketch's solver snapshot includes these build-time ids.
+      // Preserve the slot-to-id join so cached accessors read that solution.
+      this.setState('macro-entities', new Map(this._entities));
+      this.setState('macro-finalize-error', this._finalizeError);
     }
   }
 
@@ -238,6 +253,10 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
     copy._finalized = this._finalized;
     copy._finalizeError = this._finalizeError;
     copy._entities = new Map(this._entities);
+    if (copy._finalized) {
+      copy.setState('macro-entities', copy._entities);
+      copy.setState('macro-finalize-error', copy._finalizeError);
+    }
   }
 
   // NOTE deliberately NO registered-entity comparison in compareTo:

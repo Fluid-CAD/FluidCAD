@@ -4,6 +4,7 @@ import { Vector3d } from "../../math/vector3d.js";
 import { NCollections } from "../ncollection.js";
 import { SectionCurve, WireSection } from "./section-curve.js";
 import { SectionPins } from "./section-pins.js";
+import { SectionCorrespondence } from "./section-correspondence.js";
 import { CurveData } from "./curve-data.js";
 import { closestCurveParameter } from "./curve-eval.js";
 
@@ -43,7 +44,8 @@ export interface CompatibleSections {
  *
  * 1. each wire becomes a single clamped curve over [0, 1] (`SectionCurve`),
  * 2. winding directions are made consistent along the loft,
- * 3. seams follow the first connection, or the nearest previous seam,
+ * 3. seams follow the first connection, matching corner cycles, or (for
+ *    smooth/unequal-corner profiles) the nearest previous seam,
  * 4. connection pins are ordered, validated and re-proportioned together,
  * 5. degrees are raised and knot vectors merged to a common union,
  * 6. weight vectors must then agree across sections — when they don't (e.g.
@@ -241,8 +243,12 @@ export class SectionCompatibility {
   private static buildFromCurves(sections: WireSection[], pins?: SectionPins): CompatibleSections | null {
     const curves = sections.map(section => section.curve);
     try {
-      const parameters = pins?.parameters(sections);
+      let parameters: number[][] | undefined = pins?.parameters(sections)
+        ?? sections.map(section => section.vertices.map(vertex => vertex.parameter));
       const frames = SectionCompatibility.orientConsistently(curves, parameters);
+      if (!pins) {
+        parameters = SectionCorrespondence.parameters(sections, curves, parameters);
+      }
       let pinTargets: number[] = [];
       if (parameters && parameters[0].length > 0) {
         for (let k = 0; k < curves.length; k++) {

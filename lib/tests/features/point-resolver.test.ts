@@ -11,6 +11,8 @@ import { PointResolver } from "../../features/point-resolver.js";
 import { frameFromSource } from "../../features/connector-frame.js";
 import { Point, Point2D } from "../../math/point.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { getSceneManager } from "../../scene-manager.js";
+import { SceneCompare } from "../../rendering/scene-compare.js";
 
 describe('sketch points in world coordinates', () => {
   setupOC();
@@ -78,6 +80,34 @@ describe('sketch points in world coordinates', () => {
     expect((destination as unknown as Sketch).getError()).toBeNull();
     const world = PointResolver.toWorld(destination.geometries.p.ref(0).start());
     expect(world.distanceTo(new Point(50, 3, 4))).toBeLessThan(1e-6);
+  });
+
+  it('keeps solved macro, copy and mirror points coherent with cached sketch snapshots', () => {
+    const declare = () => sketch(plane('yz', { offset: 20 }), () => {
+      const c = circle([10, 0], 6);
+      const cp = copy('linear', xAxis(), { count: 2, offset: 30 }, c);
+      const m = mirror(yAxis(), c);
+      const r = rect([0, 30], 10, 5);
+      fix(c.center(), [15, 5]);
+      fix(r.bottom().start(), [10, 30]);
+      return { c, cp, m, r };
+    });
+    const points = (s: ReturnType<typeof declare>) => [
+      s.geometries.c.center(), s.geometries.cp.instance(1).center(),
+      s.geometries.m.instance(s.geometries.c).center(), s.geometries.r.bottom().start(),
+    ];
+    const original = declare();
+    const previous = render();
+    const expected = points(original).map(p => PointResolver.toWorld(p));
+    const scene = getSceneManager().startScene();
+    const cached = declare();
+    SceneCompare.compare(previous, scene);
+    render();
+    for (const [i, p] of points(cached).entries()) {
+      expect(PointResolver.toWorld(p).distanceTo(expected[i])).toBeLessThan(1e-6);
+    }
+    expect((cached.geometries.r as unknown as { serialize(): unknown }).serialize())
+      .toEqual((original.geometries.r as unknown as { serialize(): unknown }).serialize());
   });
 
   it('leaves coordinate literals in world space and rejects non-finite coordinates', () => {

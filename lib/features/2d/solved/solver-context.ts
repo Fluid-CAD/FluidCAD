@@ -40,6 +40,21 @@ export class SketchSolverContext {
   private statementErrors = new Map<SceneObject, string>();
   private deferredConstraints: { resolveNow(): void }[] = [];
   private summary: SolveSummary | null = null;
+  private cachedParams: Map<number, number[]> | null = null;
+
+  /**
+   * An atomically cached sketch is already solved. Its fresh statement-time
+   * system lacks build-time projection/macro entities, so point reads must
+   * use the complete saved solution instead of solving that partial graph.
+   * Keep this read model separate from the fresh system and its owner maps.
+   */
+  restoreSolved(snapshot: SketchSolverSystem): void {
+    this.cachedParams = new Map(snapshot.entities.map(entity => [entity.id,
+      snapshot.params.slice(entity.paramOffset, entity.paramOffset + PARAM_COUNT[entity.kind]),
+    ]));
+    this.summary = { snapshot, sketchError: null };
+    this.deferredConstraints = [];
+  }
 
   // -- registration (statement time; fixed references at pre-solve time) ---
 
@@ -189,6 +204,13 @@ export class SketchSolverContext {
   /** Current params of an entity — guesses before the solve, solved values
    * after (build order guarantees after, via Sketch.ensureSolvedForBuild). */
   entityParams(id: number): number[] {
+    if (this.cachedParams) {
+      const params = this.cachedParams.get(id);
+      if (!params) {
+        throw new Error(`Cached sketch has no solved entity ${id}.`);
+      }
+      return [...params];
+    }
     const record = this.system.entity(id);
     const values = this.system.values;
     const count = PARAM_COUNT[record.kind];

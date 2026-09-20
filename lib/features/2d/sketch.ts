@@ -26,6 +26,18 @@ export class Sketch extends SceneObject implements Extrudable {
     return this._solver;
   }
 
+  override restoreState(state: Map<string, any>): void {
+    super.restoreState(state);
+    const snapshot = state.get('solver-system');
+    if (snapshot && this._solver) {
+      this._solver.restoreSolved(snapshot);
+      // Both scene and assembly caches restore a whole sketch subtree.
+      // Re-preparing references here would query the final scene, where
+      // their source geometry may already have been consumed.
+      this._solveDone = true;
+    }
+  }
+
   /**
    * The one solve of the render pass. Triggered by the sketch's own build
    * (or defensively by the first solved child's) — the sketch callback has

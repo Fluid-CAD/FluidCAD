@@ -116,9 +116,14 @@ the loft: `const tip = select(edge().farthest('x'));`, then
 after `loft(...)` and the loft reports an error.
 
 Connections require closed, planar profiles with one region each. Points must
-be vertices: split a full circle or ellipse into arcs first. Connections work
-with start/end conditions; combining them with guides or thin walls is not yet
-supported. The Connections section of the dialog is still being implemented.
+be vertices: split a full circle or ellipse into arcs first. Connections
+compose with start/end conditions, guides and thin walls. A guide may ride a
+connected vertex; a guide that crosses a connection between two profiles is
+reported as an error. With thin walls each connection is carried onto both
+walls — the sharp offset corner on one side and the crest of the rounded
+corner on the other, where an edge runs along the rounding. Thin walls merge
+smooth junctions into one edge, so a thin loft connects real profile corners
+only, not the arc ends of a split circle.
 
 ## Start and end conditions
 

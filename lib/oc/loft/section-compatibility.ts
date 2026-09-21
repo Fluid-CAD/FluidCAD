@@ -3,7 +3,7 @@ import { getOC } from "../init.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { NCollections } from "../ncollection.js";
 import { SectionCurve, WireSection } from "./section-curve.js";
-import { SectionPins } from "./section-pins.js";
+import { SectionPin, SectionPins } from "./section-pins.js";
 import { SectionCorrespondence } from "./section-correspondence.js";
 import { CurveData } from "./curve-data.js";
 import { closestCurveParameter } from "./curve-eval.js";
@@ -36,7 +36,22 @@ export interface CompatibleSections {
    * normals and offers no edge to select or fillet.
    */
   creases: number[];
+  /**
+   * Interior parameters already aligned across every section — user
+   * connections and automatically matched corners (the seam pin is implicit
+   * at 0). Any later re-proportioning must keep them where they are.
+   */
+  pins: SectionPin[];
   sections: CompatibleSection[];
+}
+
+/** One parameter every section is re-proportioned around. */
+interface AlignmentSplit {
+  /** The parameter on each section. */
+  values: number[];
+  /** Guide rail index, or null for a pin that stays put. */
+  rail: number | null;
+  pin: SectionPin | null;
 }
 
 /**
@@ -62,6 +77,12 @@ export class SectionCompatibility {
    * and a split that near a knot leaves a sliver span in every section.
    */
   private static readonly SEAM_KNOT_TOLERANCE = 1e-6;
+  /**
+   * A rail contact this close (in section parameter) to an aligned pin on
+   * every profile rides that pin. Contacts come from a closest-point search
+   * bounded by the rail tolerance, so they can sit a little off the knot.
+   */
+  private static readonly PIN_CONTACT_TOLERANCE = 1e-4;
   private static readonly WEIGHT_TOLERANCE = 1e-9;
   /** Tangent turns above this (radians) across a knot count as a profile corner. */
   private static readonly CREASE_ANGLE = 0.01;
@@ -124,8 +145,13 @@ export class SectionCompatibility {
    *
    * `sectionParams[k]` lists the contact parameters of section k, one per
    * rail, in matching order across sections. Parameters at the seam are
-   * aligned already and are ignored. Returns the input unchanged when there
-   * is nothing to align or when the re-unified sections would lose their
+   * aligned already and are ignored. The sections' existing pins join the
+   * rails as one ordered split list, so connections and matched corners keep
+   * their parameters: a rail riding a pinned vertex takes the pin's
+   * parameter, a rail crossing a user connection is an error, and a rail
+   * crossing an automatically matched corner releases that corner. Returns
+   * the input unchanged when there is nothing to align, when two rails swap
+   * order between profiles, or when the re-unified sections would lose their
    * shared weight vector (exotic rational cases degrade gracefully).
    */
   static alignParameters(
@@ -134,42 +160,52 @@ export class SectionCompatibility {
   ): { compatible: CompatibleSections; targets: (number | null)[] } {
     const sectionCount = compatible.sections.length;
     const railCount = sectionParams[0].length;
-    const noTargets = new Array<number | null>(railCount).fill(null);
-
-    // Rails aligned by the seam itself (or wrapping across it on some
-    // profile) are left alone; only rails interior on every profile move.
+    const railTargets = new Array<number | null>(railCount).fill(null);
     const interior = (u: number) => u > 1e-4 && u < 1 - 1e-4;
-    const interiorRails: number[] = [];
+
+    // Split exactly at the unified knot a pin became, not an ulp beside it.
+    const knotOf = (u: number) =>
+      compatible.knots.find(knot => Math.abs(knot - u) <= SectionCompatibility.KNOT_TOLERANCE) ?? u;
+    let splits: AlignmentSplit[] = compatible.pins
+      .filter(pin => interior(pin.parameter))
+      .map(pin => ({ values: new Array<number>(sectionCount).fill(knotOf(pin.parameter)), rail: null, pin }));
+    let railSplits = 0;
     for (let g = 0; g < railCount; g++) {
-      if (sectionParams.every(params => interior(params[g]))) {
-        interiorRails.push(g);
+      // Rails aligned by the seam itself (or wrapping across it on some
+      // profile) are left alone; only rails interior on every profile move.
+      if (!sectionParams.every(params => interior(params[g]))) {
+        continue;
+      }
+      const pinned = compatible.pins.find(pin => sectionParams.every(params =>
+        Math.abs(params[g] - pin.parameter) <= SectionCompatibility.PIN_CONTACT_TOLERANCE));
+      if (pinned) {
+        railTargets[g] = pinned.parameter;
+        continue;
+      }
+      splits.push({ values: sectionParams.map(params => params[g]), rail: g, pin: null });
+      railSplits++;
+    }
+    if (railSplits === 0) {
+      return { compatible, targets: railTargets };
+    }
+
+    const ordered = SectionCompatibility.orderSplits(splits);
+    if (!ordered) {
+      return { compatible, targets: railTargets };
+    }
+    splits = ordered;
+
+    const targets = splits.map(split => split.pin
+      ? split.values[0]
+      : split.values.reduce((sum, u) => sum + u, 0) / sectionCount);
+    for (const [j, split] of splits.entries()) {
+      if (split.rail !== null) {
+        railTargets[split.rail] = targets[j];
       }
     }
-    if (interiorRails.length === 0) {
-      return { compatible, targets: noTargets };
-    }
-    interiorRails.sort((a, b) => sectionParams[0][a] - sectionParams[0][b]);
 
-    // Rails must keep the same order around every profile.
-    const splits = sectionParams.map(params => interiorRails.map(g => params[g]));
-    for (const params of splits) {
-      for (let j = 1; j < params.length; j++) {
-        if (params[j] <= params[j - 1]) {
-          return { compatible, targets: noTargets };
-        }
-      }
-    }
-
-    const targets = interiorRails.map((_, j) =>
-      splits.reduce((sum, params) => sum + params[j], 0) / sectionCount,
-    );
-    const railTargets: (number | null)[] = [...noTargets];
-    interiorRails.forEach((g, j) => {
-      railTargets[g] = targets[j];
-    });
-
-    const aligned = splits.every(params =>
-      params.every((u, j) => Math.abs(u - targets[j]) < SectionCompatibility.KNOT_TOLERANCE),
+    const aligned = splits.every((split, j) =>
+      split.values.every(u => Math.abs(u - targets[j]) < SectionCompatibility.KNOT_TOLERANCE),
     );
     if (aligned) {
       return { compatible, targets: railTargets };
@@ -185,23 +221,65 @@ export class SectionCompatibility {
       });
 
       try {
-        return SectionPins.reproportion(curve, splits[k], targets);
+        return SectionPins.reproportion(curve, splits.map(split => split.values[k]), targets);
       } finally {
         curve.delete();
       }
     });
 
-    const rebuilt = SectionCompatibility.rebuildAligned(curves, compatible);
+    const pins = compatible.pins.filter(pin =>
+      !interior(pin.parameter) || splits.some(split => split.pin === pin));
+    const rebuilt = SectionCompatibility.rebuildAligned(curves, compatible, pins);
     if (!rebuilt) {
-      return { compatible, targets: noTargets };
+      for (const split of splits) {
+        if (split.rail !== null) {
+          railTargets[split.rail] = null;
+        }
+      }
+      return { compatible, targets: railTargets };
     }
     return { compatible: rebuilt, targets: railTargets };
+  }
+
+  /**
+   * Sorts the splits by their first-section parameter and checks that every
+   * section agrees on that order. Returns null when two rails disagree; a
+   * rail crossing a user connection throws; an automatically matched corner
+   * in a rail's way is released and the check restarts without it.
+   */
+  private static orderSplits(splits: AlignmentSplit[]): AlignmentSplit[] | null {
+    const sorted = [...splits].sort((a, b) => a.values[0] - b.values[0]);
+    const sectionCount = sorted[0]?.values.length ?? 0;
+    for (let k = 1; k < sectionCount; k++) {
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const a = sorted[i];
+          const b = sorted[j];
+          if ((b.values[k - 1] - a.values[k - 1]) * (b.values[k] - a.values[k]) > 0) {
+            continue;
+          }
+          const rail = a.rail ?? b.rail;
+          const pin = a.pin ?? b.pin;
+          if (rail === null || pin === null) {
+            return null;
+          }
+          if (pin.connection !== null) {
+            throw new Error(
+              `Loft guide ${rail + 1} crosses connection ${pin.connection + 1} between profile ${k} and profile ${k + 1}.`,
+            );
+          }
+          return SectionCompatibility.orderSplits(splits.filter(split => split.pin !== pin));
+        }
+      }
+    }
+    return sorted;
   }
 
   /** Re-unifies re-proportioned section curves, keeping the original frames. */
   private static rebuildAligned(
     curves: Geom_BSplineCurve[],
     original: CompatibleSections,
+    pins: SectionPin[],
   ): CompatibleSections | null {
     try {
       SectionCompatibility.unifyDegree(curves);
@@ -225,7 +303,8 @@ export class SectionCompatibility {
         knots: datas[0].knots,
         multiplicities: datas[0].multiplicities,
         weights,
-        creases: SectionCompatibility.detectCreases(curves),
+        creases: SectionCompatibility.mergeCreases(curves, pins.map(pin => pin.parameter)),
+        pins,
         sections: datas.map((data, i) => ({
           poles: data.poles,
           centroid: original.sections[i].centroid,
@@ -249,7 +328,7 @@ export class SectionCompatibility {
       if (!pins) {
         parameters = SectionCorrespondence.parameters(sections, curves, parameters);
       }
-      let pinTargets: number[] = [];
+      let aligned: SectionPin[] = [];
       if (parameters && parameters[0].length > 0) {
         for (let k = 0; k < curves.length; k++) {
           const seam = parameters[k][0];
@@ -259,7 +338,7 @@ export class SectionCompatibility {
             parameters[k].map(u => u >= seam ? u - seam : 1 + u - seam),
           );
         }
-        pinTargets = SectionPins.align(curves, parameters);
+        aligned = SectionPins.align(curves, parameters, pins !== undefined);
       } else {
         SectionCompatibility.alignSeams(curves);
       }
@@ -287,7 +366,8 @@ export class SectionCompatibility {
         weights,
         // Even tangent junctions can become surface creases when the spans
         // to either side traverse the profiles at different relative speeds.
-        creases: SectionCompatibility.mergeCreases(curves, pinTargets),
+        creases: SectionCompatibility.mergeCreases(curves, aligned.map(pin => pin.parameter)),
+        pins: aligned,
         sections: datas.map((data, i) => ({
           poles: data.poles,
           centroid: frames[i].centroid,

@@ -5,7 +5,7 @@ import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { LoftEndCondition, LoftOps, LoftOptions } from "../oc/loft-ops.js";
+import { LoftEndCondition, LoftOps, LoftOptions, ThinLoftWalls } from "../oc/loft-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Point } from "../math/point.js";
 import { Solid } from "../common/solid.js";
@@ -97,9 +97,6 @@ function collectSolids(
   const loftOptions = resolveLoftOptions(options);
 
   if (options.thin) {
-    if (options.connections?.length) {
-      throw new Error("Loft connections cannot yet be combined with thin mode.");
-    }
     if (options.guides.length > 0) {
       return;
     }
@@ -236,21 +233,26 @@ function collectThinSolids(
 ): void {
   const outer: Wire[] = [];
   const inner: Wire[] = [];
-  for (const profile of profiles) {
+  const walls: ThinLoftWalls[] = [];
+  for (const [k, profile] of profiles.entries()) {
     if (profile.kind !== 'sketch' || !profile.plane || profile.geometries.length === 0) {
       return;
     }
     const ring = ThinFaceMaker.make(profile.geometries, profile.plane, thin[0], thin[1]);
-    scratch.push(...ring.faces);
-    for (const face of ring.faces) {
+    scratch.push(...ring.faces, ...ring.walls.map(wall => wall.source));
+    for (const [f, face] of ring.faces.entries()) {
       const wires = face.getWires();
       scratch.push(...wires);
       if (wires.length === 0) {
         continue;
       }
+      const { source, outerDistance, innerDistance } = ring.walls[f];
       outer.push(wires[0]);
-      if (wires.length > 1) {
+      if (wires.length > 1 && innerDistance !== null) {
         inner.push(wires[1]);
+        walls.push({ outer: wires[0], inner: wires[1], source, outerDistance, innerDistance });
+      } else if (loftOptions?.connections?.length) {
+        throw new Error(`Loft connections with thin walls require closed profiles; profile ${k + 1} is open.`);
       }
     }
   }
@@ -258,9 +260,9 @@ function collectThinSolids(
     return;
   }
 
-  const walled = inner.length > 0 && inner.length === outer.length;
+  const walled = walls.length > 0 && walls.length === outer.length;
   if (loftOptions && walled) {
-    solids.push(...LoftOps.makeThinLoft(outer, inner, loftOptions));
+    solids.push(...LoftOps.makeThinLoft(walls, loftOptions));
     return;
   }
 

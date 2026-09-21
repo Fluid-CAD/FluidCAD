@@ -10,10 +10,22 @@ import { getOC } from "./init.js";
 import type { TopAbs_ShapeEnum, TopoDS_Wire } from "ocjs-fluidcad";
 import { mmTol } from "../units/tolerance.js";
 
+/** Where one thin face came from: the profile wire it offsets and how far each boundary sits from it. */
+export interface ThinWallSource {
+  /** The unified, consistently wound profile wire that was offset. */
+  source: Wire;
+  /** Unsigned distance of the face's outer boundary from `source` (0 when the boundary is the profile itself). */
+  outerDistance: number;
+  /** Unsigned distance of the inner boundary from `source`; null for an open profile's single band outline. */
+  innerDistance: number | null;
+}
+
 export interface ThinFaceResult {
   faces: Face[];
   inwardEdges: Edge[];
   outwardEdges: Edge[];
+  /** One entry per face, in the same order. */
+  walls: ThinWallSource[];
 }
 
 export class ThinFaceMaker {
@@ -34,6 +46,7 @@ export class ThinFaceMaker {
     const faces: Face[] = [];
     const inwardEdges: Edge[] = [];
     const outwardEdges: Edge[] = [];
+    const walls: ThinWallSource[] = [];
 
     for (const group of groups) {
       const rawWire = WireOps.makeWireFromEdges(group);
@@ -58,15 +71,38 @@ export class ThinFaceMaker {
         faces.push(result.face);
         inwardEdges.push(...result.inwardEdges);
         outwardEdges.push(...result.outwardEdges);
+        walls.push(this.wallSource(wire, isClosed, offset1, this.opposite(offset1, offset2)));
       } else {
         const result = this.makeSingleOffsetFace(wire, isClosed, plane, offset1);
         faces.push(result.face);
         inwardEdges.push(...result.inwardEdges);
         outwardEdges.push(...result.outwardEdges);
+        walls.push(this.wallSource(wire, isClosed, offset1, 0));
       }
     }
 
-    return { faces, inwardEdges, outwardEdges };
+    return { faces, inwardEdges, outwardEdges, walls };
+  }
+
+  /** The second offset always runs opposite to the first. */
+  private static opposite(offset1: number, offset2: number): number {
+    return Math.sign(offset1) === Math.sign(offset2) ? -offset2 : offset2;
+  }
+
+  /**
+   * Closed profiles put the larger signed offset outside (positive is
+   * outward for the normalized counter-clockwise wire); the profile itself
+   * is offset 0.
+   */
+  private static wallSource(source: Wire, isClosed: boolean, offsetA: number, offsetB: number): ThinWallSource {
+    if (!isClosed) {
+      return { source, outerDistance: Math.max(Math.abs(offsetA), Math.abs(offsetB)), innerDistance: null };
+    }
+    return {
+      source,
+      outerDistance: Math.abs(Math.max(offsetA, offsetB)),
+      innerDistance: Math.abs(Math.min(offsetA, offsetB)),
+    };
   }
 
   private static makeSingleOffsetFace(wire: Wire, isClosed: boolean, plane: Plane, offset: number): { face: Face; inwardEdges: Edge[]; outwardEdges: Edge[] } {
@@ -100,10 +136,7 @@ export class ThinFaceMaker {
   }
 
   private static makeDualOffsetFace(wire: Wire, isClosed: boolean, plane: Plane, offset1: number, offset2: number): { face: Face; inwardEdges: Edge[]; outwardEdges: Edge[] } {
-    // Ensure offset2 goes in the opposite direction of offset1
-    if (Math.sign(offset1) === Math.sign(offset2)) {
-      offset2 = -offset2;
-    }
+    offset2 = this.opposite(offset1, offset2);
 
     const wire1 = WireOps.offsetWireOnPlane(wire, offset1, isClosed, plane);
     const wire2 = WireOps.offsetWireOnPlane(wire, offset2, isClosed, plane);

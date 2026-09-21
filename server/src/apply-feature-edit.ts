@@ -1748,9 +1748,6 @@ async function applyCreateEdit(
     if ('error' in connections) {
       return { newCode: code, error: connections.error };
     }
-    if (connections.args.length > 0 && (lo.thin || guides.length > 0)) {
-      return { newCode: code, error: 'loft connections cannot yet be combined with guides or thin walls' };
-    }
     if (guides.length > 0 && lo.thin) {
       return { newCode: code, error: 'loft guides cannot be combined with thin walls' };
     }
@@ -8806,9 +8803,6 @@ export function renderEditedStatement(
     const connections = LoftConnections.render(opts.connections, sources.profileExprs.length, varFor, parsed);
     if ('error' in connections) {
       return connections;
-    }
-    if (connections.args.length > 0 && (opts.thin || sources.guideExprs.length > 0)) {
-      return { error: 'loft connections cannot yet be combined with guides or thin walls' };
     }
     // The guides⊕thin exclusion holds for the statement being WRITTEN — the
     // edited guide list when one rides the spec, not the stale parsed one.

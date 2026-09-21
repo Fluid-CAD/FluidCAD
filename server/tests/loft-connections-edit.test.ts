@@ -156,14 +156,24 @@ describe('loft connection source edits', () => {
     expect(result.newCode).toBe(code);
   });
 
-  it.each(['thin', 'guides', 'arity', 'kept'])('refuses invalid %s connections atomically', async kind => {
+  it.each(['thin', 'guides'])('composes %s with connections in one edit', async kind => {
     const code = `${CODE}\nloft(a, b);`;
     const request = edit(connections);
     if (kind === 'thin') {
       request.edit!.loft!.thin = [1];
-    } else if (kind === 'guides') {
+    } else {
       request.edit!.loft!.guides = [{ kind: 'sketch', producer: 0 }];
-    } else if (kind === 'arity') {
+    }
+    const result = await applyFeatureEdit(code, request);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('.connect(a.geometries.l1.start(), b.geometries.rim.end())');
+    expect(result.newCode).toContain(kind === 'thin' ? '.thin(1)' : '.guides(a)');
+  });
+
+  it.each(['arity', 'kept'])('refuses invalid %s connections atomically', async kind => {
+    const code = `${CODE}\nloft(a, b);`;
+    const request = edit(connections);
+    if (kind === 'arity') {
       request.edit!.loft!.connections = [{ kind: 'points', points: [connections[0].kind === 'points' ? connections[0].points[0] : null!] }];
     } else {
       request.edit!.loft!.connections = [{ kind: 'verbatim', sourceIndex: 1 }];

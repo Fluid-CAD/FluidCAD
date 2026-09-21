@@ -133,8 +133,22 @@ describe("loft ghost", () => {
   it('surfaces invalid connections instead of returning an unconnected ghost', () => {
     const profiles = sectionsOf(rectStack());
     expect(() => ghost(profiles, { connections: [[new Point(0, 0, 0)]] })).toThrow(/connect expects 2 points/);
-    expect(() => ghost(profiles, { thin: [2], connections: [[new Point(0, 0, 0), new Point(0, 0, 40)]] }))
-      .toThrow(/connections cannot yet be combined with thin/);
+    expect(() => ghost(profiles, { thin: [2], connections: [[new Point(50, 0, 0), new Point(0, 0, 40)]] }))
+      .toThrow(/connection 1: the point for profile 1 is not a corner/);
+  });
+
+  it('carries connections onto both walls of a thin ghost', () => {
+    const profiles = sectionsOf(rectStack());
+    const connections = [[new Point(0, 0, 0), new Point(100, 0, 40)]];
+    withGhost(profiles, { thin: [2], connections }, solids => {
+      expect(solids).toHaveLength(1);
+      const edges = Explorer.findEdgesWrapped(solids[0]);
+      // A positive offset grows outward, so the inner wall is the profile itself.
+      expect(edges.some(edge => connections[0].every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
+      // The outer wall rounds the corner; the connection runs along the crest of that arc.
+      const outer = [new Point(-Math.SQRT2, -Math.SQRT2, 0), new Point(100 + Math.SQRT2, -Math.SQRT2, 40)];
+      expect(edges.some(edge => outer.every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
+    });
   });
 
   describe("add", () => {

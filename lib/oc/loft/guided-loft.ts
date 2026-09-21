@@ -8,6 +8,8 @@ import { CurveData, RationalBSplineData } from "./curve-data.js";
 import { Skinning, SkinnedGrid, LoftEndCondition } from "./skinning.js";
 import { evaluateBSplinePoint, closestCurveParameter, flattenKnots } from "./curve-eval.js";
 import { mmTol } from "../../units/tolerance.js";
+import { Point } from "../../math/point.js";
+import { ConnectionResolver } from "./connection-resolver.js";
 
 /** Where a guide meets one profile: guide parameter, section parameter, and the guide point. */
 interface GuideAnchor {
@@ -38,6 +40,10 @@ interface GuideAnchor {
  * shapes the rest. The faded fields drive both the base skin (so the
  * virtual sections carry the conditioned shape) and the final re-skin (so
  * the takeoff is pinned exactly where the condition is in force).
+ *
+ * Vertex connections compose too: they pin the sections first (seam and
+ * aligned junctions), and the rail contacts then join those pins as one
+ * ordered split list — see `SectionCompatibility.alignParameters`.
  */
 export class GuidedLoft {
   /** Virtual sections inserted between consecutive profiles. */
@@ -54,6 +60,7 @@ export class GuidedLoft {
     guideWires: Wire[],
     startCondition?: LoftEndCondition,
     endCondition?: LoftEndCondition,
+    connections?: Point[][],
   ): Solid[] {
     if (guideWires.length < 1 || guideWires.length > 2) {
       throw new Error("Guided loft supports one or two guide curves.");
@@ -64,7 +71,8 @@ export class GuidedLoft {
       }
     }
 
-    let compatible = SectionCompatibility.build(profileWires.map(w => w.getShape()));
+    const pins = connections?.length ? ConnectionResolver.resolve(profileWires, connections) : undefined;
+    let compatible = SectionCompatibility.build(profileWires.map(w => w.getShape()), pins);
 
     const guides = guideWires.map(wire => {
       const curve = SectionCurve.fromWire(wire.getShape());

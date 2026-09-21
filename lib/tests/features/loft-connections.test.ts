@@ -163,8 +163,7 @@ describe('loft connections API', () => {
     ['off profile', /off its profile.*gap/],
     ['duplicate', /same vertex on profile/],
     ['crossing', /connections 2 and 3 cross/],
-    ['thin', /connections cannot yet be combined with thin/],
-    ['guides', /connections cannot yet be combined with guides/],
+    ['thin junction', /not a corner of the profile — thin walls merge smooth junctions/],
     ['nonfinite', /finite numbers/],
   ])('surfaces %s errors through getError without throwing from render', (kind, message) => {
     const [a, b] = profiles();
@@ -177,12 +176,31 @@ describe('loft connections API', () => {
       'duplicate': () => feature.connect([0, 0, 0], [0, 0, 60]).connect([40, 0, 0], [0, 0, 60]),
       'crossing': () => feature.connect([0, 0, 0], [0, 0, 60])
         .connect([40, 0, 0], [40, 40, 60]).connect([40, 40, 0], [40, 0, 60]),
-      'thin': () => feature.connect([0, 0, 0], [0, 0, 60]).thin(2),
-      'guides': () => feature.connect([0, 0, 0], [0, 0, 60]).guides(a as unknown as SceneObject),
+      'thin junction': () => feature.connect([20, 0, 0], [0, 0, 60]).thin(2),
     };
     setups[kind]();
     expect(() => render()).not.toThrow();
     expect(feature.getError()).toMatch(message);
+  });
+
+  it('composes connections with thin walls, carrying each corner onto both walls', () => {
+    const [a, b] = profiles();
+    const feature = loft(a, b).connect([0, 0, 0], [40, 0, 60]).thin(2) as Loft;
+    render();
+    // A positive offset grows outward: the inner wall is the profile itself,
+    // the outer wall rounds the corner and the connection runs along its crest.
+    expectEdge(feature, [new Point(0, 0, 0), new Point(40, 0, 60)]);
+    expectEdge(feature, [new Point(-Math.SQRT2, -Math.SQRT2, 0), new Point(40 + Math.SQRT2, -Math.SQRT2, 60)]);
+    expect(feature.serialize().thin).toEqual([2]);
+  });
+
+  it('composes connections with a guide that rides a connected corner', () => {
+    const [a, b] = profiles();
+    const guide = sketch('xz', () => line([0, 0], [0, 60]));
+    const feature = loft(a, b).guides(guide).connect([0, 0, 0], [0, 0, 60]).connect([40, 40, 0], [40, 0, 60]) as Loft;
+    render();
+    expectEdge(feature, [new Point(0, 0, 0), new Point(0, 0, 60)]);
+    expectEdge(feature, [new Point(40, 40, 0), new Point(40, 0, 60)]);
   });
 
   it('reports multi-region and open profiles as feature errors', () => {

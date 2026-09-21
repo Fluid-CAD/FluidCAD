@@ -146,22 +146,28 @@ describe('loft connections HTTP authoring', () => {
     expect(applied.newCode).toContain(result.body.preview);
   });
 
-  it.each(['arity', 'edge', 'index', 'thin', 'guides'] as const)('rejects invalid %s connection requests without dispatch', async invalid => {
+  it.each(['arity', 'edge', 'index'] as const)('rejects invalid %s connection requests without dispatch', async invalid => {
     const body = request();
     if (invalid === 'arity') {
       body.connections[0].points.pop();
     } else if (invalid === 'edge') {
       body.connections[0].points[0].entity.sub.type = 'edge';
-    } else if (invalid === 'index') {
-      body.connections[0].points[0].entity.sub.index = -1;
-    } else if (invalid === 'thin') {
-      Object.assign(body, { thin: [1] });
     } else {
-      Object.assign(body, { guides: [profile(15)] });
+      body.connections[0].points[0].entity.sub.index = -1;
     }
     const result = await post(body);
     expect(result.status).toBe(400);
     expect(sent).toHaveLength(0);
+  });
+
+  it('composes connections with thin walls in one dispatched statement', async () => {
+    const result = await post({ ...request(), thin: [1] });
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(sent).toHaveLength(1);
+    const applied = await applyFeatureEdit(code, sent[0].spec);
+    expect(applied.error).toBeUndefined();
+    expect(applied.newCode).toContain('.thin(1)');
+    expect(applied.newCode).toContain('.connect(a.geometries.l1.start(), b.geometries.l2.start())');
   });
 
   it('rejects unknown vertices and non-object export returns before dispatch', async () => {

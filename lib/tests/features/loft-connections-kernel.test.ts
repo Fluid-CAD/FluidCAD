@@ -18,6 +18,9 @@ import { Vector3d } from "../../math/vector3d.js";
 import { Face } from "../../common/face.js";
 import { FaceOps } from "../../oc/face-ops.js";
 import { ExtrudeOps } from "../../oc/extrude-ops.js";
+import { ThinFaceMaker } from "../../oc/thin-face-maker.js";
+import { Plane } from "../../math/plane.js";
+import type { ThinLoftWalls } from "../../oc/loft-ops.js";
 
 function polygon(points: Point[]) {
   return WireOps.makeWireFromEdges(points.map((point, i) =>
@@ -366,14 +369,163 @@ describe("loft kernel connections", () => {
       .toThrow(/planar profiles; profile 2 is not planar/);
   });
 
-  it("refuses unsupported composition rather than dropping connections", () => {
+});
+
+describe("loft kernel connections with thin walls", () => {
+  setupOC();
+
+  /** The walls `Loft.buildThinLoft` hands the kernel for one square profile. */
+  function walls(points: Point[], thin: [number] | [number, number]): ThinLoftWalls {
+    const ring = ThinFaceMaker.make([polygon(points)], Plane.XY().translate(0, 0, points[0].z), thin[0], thin[1]);
+    const [outer, inner] = ring.faces[0].getWires();
+    const { source, outerDistance, innerDistance } = ring.walls[0];
+    return { outer, inner, source, outerDistance, innerDistance: innerDistance! };
+  }
+
+  /**
+   * Where a corner of an origin-centred square lands on each wall, along the
+   * corner's bisector: the crest of the outward rounding arc sits `distance`
+   * out, the sharp inward corner `distance · √2` in.
+   */
+  function images(corner: Point, distance: number, outward: boolean): Point {
+    const radius = Math.hypot(corner.x, corner.y);
+    const along = outward ? distance : -distance * Math.SQRT2;
+    return new Point(corner.x * (1 + along / radius), corner.y * (1 + along / radius), corner.z);
+  }
+
+  it.each([[[3]], [[-3]], [[2, 3]]] as [[number] | [number, number]][])("carries a twisted square's corners onto both walls of thin %j", thin => {
     const a = square(0);
-    const b = square(80);
+    const b = a.map(p => new Point((p.x - p.y) / Math.SQRT2, (p.x + p.y) / Math.SQRT2, 100));
+    const connections = a.map((point, i) => [point, b[(i + 1) % 4]]);
+    const sections = [walls(a, thin), walls(b, thin)];
+    const [solid] = LoftOps.makeThinLoft(sections, { connections });
+    const validation = ShapeValidator.validate(solid.getShape());
+    expect(validation.findings).toEqual([]);
+    expect(validation.solids).toBe(1);
+    const { outerDistance, innerDistance } = sections[0];
+    // Every connection has an edge on the outer wall and one on the inner wall.
+    const outer = connections.map(row => row.map(point => images(point, outerDistance, true)));
+    const inner = connections.map(row => row.map(point => images(point, innerDistance, false)));
+    expectConnections(solid, outerDistance > 0 ? outer : connections);
+    expectConnections(solid, innerDistance > 0 ? inner : connections);
+  });
+
+  it("reproduces the boolean thin loft's volume when connections agree with the automatic matching", () => {
+    const a = square(0);
+    const b = square(100);
+    const connections = a.map((point, i) => [point, b[i]]);
+    const [connected] = LoftOps.makeThinLoft([walls(a, [3]), walls(b, [3])], { connections });
+    // Outer 86 × 86 with 3 mm rounded corners, inner 80 × 80, 100 tall.
+    const expected = (86 * 86 - (4 - Math.PI) * 9 - 80 * 80) * 100;
+    const volume = ShapeValidator.signedVolume(connected.getShape());
+    expect(Math.abs(volume - expected) / expected).toBeLessThan(1e-6);
+  });
+
+  it("composes thin walls, connections and an end condition", () => {
+    const a = square(0);
+    const b = a.map(p => new Point((p.x - p.y) / Math.SQRT2, (p.x + p.y) / Math.SQRT2, 100));
+    const connections = a.map((point, i) => [point, b[i]]);
+    const [solid] = LoftOps.makeThinLoft([walls(a, [-3]), walls(b, [-3])], {
+      connections, endCondition: { kind: "normal", magnitude: 1 },
+    });
+    expectConnections(solid, connections);
+    expectConnections(solid, connections.map(row => row.map(point => images(point, 3, false))));
+  });
+
+  it("refuses a smooth junction that the wall offset merges away", () => {
+    const a = splitCircle(0);
+    const b = splitCircle(100);
+    const connections = [[a.points[0], b.points[1]]];
+    const ring = (wire: Wire, z: number) => ThinFaceMaker.make([wire], Plane.XY().translate(0, 0, z), 3);
+    const sections = [ring(a.wire, 0), ring(b.wire, 100)].map(result => {
+      const [outer, inner] = result.faces[0].getWires();
+      return { outer, inner, ...result.walls[0], innerDistance: result.walls[0].innerDistance! };
+    });
+    expect(() => LoftOps.makeThinLoft(sections, { connections }))
+      .toThrow(/connection 1: the point for profile 1 is not a corner of the profile — thin walls merge smooth junctions/);
+  });
+});
+
+describe("loft kernel connections with guides", () => {
+  setupOC();
+
+  /** A straight rail between two points, as one wire. */
+  function rail(from: Point, to: Point): Wire {
+    return WireOps.makeWireFromEdges([EdgeOps.makeLineEdge(from, to)]);
+  }
+
+  /** The twisted square stack: the top turned by 45° and shifted. */
+  function twisted() {
+    const a = square(0);
+    const b = a.map(p => new Point((p.x - p.y) / Math.SQRT2 + 10, (p.x + p.y) / Math.SQRT2, 100));
+    return { a, b, wires: [polygon(a), polygon(b)] };
+  }
+
+  /** Every sample of the rail must lie on the solid's boundary. */
+  function expectOnRail(solid: Solid, from: Point, to: Point): void {
+    const faces = Explorer.findFacesWrapped(solid) as Face[];
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      const point = new Point(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t);
+      const gap = Math.min(...faces.map(face => EdgeOps.distancePointToEdge(point, face)));
+      expect(gap).toBeLessThan(1e-3);
+    }
+  }
+
+  it("keeps every connection while a rail rides a connected corner", () => {
+    const { a, b, wires } = twisted();
+    const connections = a.map((point, i) => [point, b[(i + 1) % 4]]);
+    const guide = rail(a[1], b[2]);
+    const [solid] = LoftOps.makeLoft(wires, { connections, guides: [guide] });
+    expectConnections(solid, connections, 6);
+    expectOnRail(solid, a[1], b[2]);
+  });
+
+  it("aligns a mid-edge rail between two connections without moving them", () => {
+    const a = square(0);
+    const b = square(100).map(p => new Point(p.x * 1.5, p.y * 0.5, 100));
     const wires = [polygon(a), polygon(b)];
-    const options = { connections: [[a[0], b[0]]] };
-    expect(() => LoftOps.makeLoft(wires, { ...options, guides: [wires[0]] }))
-      .toThrow(/connections cannot yet be combined with guides/);
-    expect(() => LoftOps.makeThinLoft(wires, wires, options))
-      .toThrow(/connections cannot yet be combined with thin mode/);
+    const connections = [[a[0], b[0]], [a[2], b[2]]];
+    // The rail leaves the bottom edge at 1/4 of its length and arrives at
+    // the top edge at 3/4: a real re-proportioning between the two pins.
+    const from = new Point(-20, -40, 0);
+    const to = new Point(30, -20, 100);
+    const [solid] = LoftOps.makeLoft(wires, { connections, guides: [rail(from, to)] });
+    expectConnections(solid, connections);
+    expectOnRail(solid, from, to);
+  });
+
+  it("composes connections, a rail and an end condition", () => {
+    const { a, b, wires } = twisted();
+    const connections = a.map((point, i) => [point, b[i]]);
+    const guide = rail(a[3], b[3]);
+    const [solid] = LoftOps.makeLoft(wires, {
+      connections, guides: [guide], startCondition: { kind: "normal", magnitude: 1 },
+    });
+    expectConnections(solid, connections, 6);
+    expectOnRail(solid, a[3], b[3]);
+  });
+
+  it("names a rail that crosses a connection", () => {
+    const { a, b, wires } = twisted();
+    // Corner 0 is pinned to corner 0, but the rail runs from the edge after
+    // corner 0 on the bottom to the edge before corner 0 on the top.
+    const connections = [[a[0], b[0]], [a[2], b[2]]];
+    const from = new Point(0, -40, 0);
+    const to = new Point((b[3].x + b[0].x) / 2, (b[3].y + b[0].y) / 2, 100);
+    expect(() => LoftOps.makeLoft(wires, { connections, guides: [rail(from, to)] }))
+      .toThrow(/Loft guide 1 crosses connection 2 between profile 1 and profile 2/);
+  });
+
+  it("keeps automatically matched corners aligned around a mid-edge rail", () => {
+    const a = square(0);
+    const b = square(100).map(p => new Point(p.x * 1.5, p.y * 0.5, 100));
+    const wires = [polygon(a), polygon(b)];
+    const from = new Point(-20, -40, 0);
+    const to = new Point(30, -20, 100);
+    const [solid] = LoftOps.makeLoft(wires, { guides: [rail(from, to)] });
+    const corners = a.map((point, i) => [point, b[i]]);
+    expectConnections(solid, corners);
+    expectOnRail(solid, from, to);
   });
 });

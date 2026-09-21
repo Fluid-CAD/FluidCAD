@@ -1103,9 +1103,6 @@ function validateLoft(body: any): LoftRequest | { error: string } {
   if ('error' in connections) {
     return connections;
   }
-  if (connections.connections?.length && (thinResult.offsets || guideLocs.length > 0)) {
-    return { error: 'loft connections cannot yet be combined with guides or thin walls' };
-  }
   return {
     op, thin: thinResult.offsets, profiles: result, guides: guideLocs,
     startCondition: startResult.condition, endCondition: endResult.condition,

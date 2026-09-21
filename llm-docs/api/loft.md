@@ -100,5 +100,10 @@ Connections require closed, planar profiles with exactly one region each.
 Every point must coincide with a profile vertex; points in the middle of edges
 are refused. A full circle or ellipse has no usable vertex: draw arcs instead.
 Duplicate vertices, missing points and crossed connections produce feature
-errors. Connections work with start/end conditions. Guides and thin mode are
-not yet supported in combination with connections.
+errors. Connections compose with start/end conditions, guides and thin walls.
+With guides, a rail may ride a connected vertex; a rail that crosses a
+connection between two profiles is a feature error. With thin walls, each
+connection is carried onto both walls: the sharp offset corner on one side,
+and the crest of the rounding arc on the other (an edge runs along that
+crest). Thin walls merge smooth junctions into one edge, so a thin loft can
+only connect real profile corners — not the arc ends of a split circle.

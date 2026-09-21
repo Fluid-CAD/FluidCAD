@@ -291,23 +291,18 @@ describe('loft Connections dialog', () => {
     expect(m.viewer.setVertexPickScope).toHaveBeenLastCalledWith([]);
   });
 
-  it('explains the current guide and thin-wall limits and blocks Apply', () => {
+  it('keeps Apply available with thin walls and guides alongside connections', () => {
     const m = mount();
     m.begin(); m.pick(0); m.pick(1);
     const thin = m.panel.querySelector<HTMLInputElement>('[data-role="thin"]')!;
     thin.checked = true;
     thin.dispatchEvent(new Event('change'));
-    expect(m.apply.disabled).toBe(true);
-    expect(m.connections()).toContain('cannot be combined with thin walls');
-    thin.checked = false;
-    thin.dispatchEvent(new Event('change'));
     expect(m.apply.disabled).toBe(false);
+    expect(m.connections()).not.toContain('cannot be combined');
     m.arm('guides');
     m.service.handleTimelinePick(m.scene[4]);
-    expect(m.apply.disabled).toBe(true);
-    expect(m.connections()).toContain('cannot be combined with guides');
-    m.remove('guides', 0);
     expect(m.apply.disabled).toBe(false);
+    expect(m.connections()).not.toContain('cannot be combined');
   });
 });
 

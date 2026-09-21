@@ -1,6 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Explorer } from "../oc/explorer.js";
-import { LoftOps, LoftOptions, LoftEndCondition } from "../oc/loft-ops.js";
+import { LoftOps, LoftOptions, LoftEndCondition, ThinLoftWalls } from "../oc/loft-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
@@ -121,12 +121,6 @@ export class Loft extends ExtrudeBase implements ILoft {
       if (connection.length !== this._profiles.length) {
         throw new Error(`Loft connection ${i + 1}: connect expects ${this._profiles.length} points, one per profile, got ${connection.length}.`);
       }
-    }
-    if (this._connections.length > 0 && this.isThin()) {
-      throw new Error("Loft connections cannot yet be combined with thin mode.");
-    }
-    if (this._connections.length > 0 && this._guides.length > 0) {
-      throw new Error("Loft connections cannot yet be combined with guides.");
     }
     for (let i = 0; i < this._profiles.length; i++) {
       requireShapes(this._profiles[i], `profile ${i + 1}`, "loft");
@@ -307,8 +301,9 @@ export class Loft extends ExtrudeBase implements ILoft {
   private buildThinLoft(options?: LoftOptions): Shape[] {
     const outerWires: Wire[] = [];
     const innerWires: Wire[] = [];
+    const walls: ThinLoftWalls[] = [];
 
-    for (const profile of this.profiles) {
+    for (const [k, profile] of this.profiles.entries()) {
       if (!profile.isExtrudable()) {
         throw new Error("Thin loft requires all profiles to be sketches.");
       }
@@ -317,20 +312,24 @@ export class Loft extends ExtrudeBase implements ILoft {
       const thinResult = ThinFaceMaker.make(
         extrudable.getGeometries(), profilePlane, this._thin[0], this._thin[1]
       );
-      for (const face of thinResult.faces) {
+      for (const [f, face] of thinResult.faces.entries()) {
         const wires = face.getWires();
+        const { source, outerDistance, innerDistance } = thinResult.walls[f];
         outerWires.push(wires[0]);
-        if (wires.length > 1) {
+        if (wires.length > 1 && innerDistance !== null) {
           innerWires.push(wires[1]);
+          walls.push({ outer: wires[0], inner: wires[1], source, outerDistance, innerDistance });
+        } else if (this._connections.length > 0) {
+          throw new Error(`Loft connections with thin walls require closed profiles; profile ${k + 1} is open.`);
         }
       }
     }
 
-    // With conditions, both walls come from the in-house skin — assemble the
-    // thin solid directly (walls + ring caps). Booleans between two
-    // nearly-parallel B-spline shells take OCC seconds.
-    if (options && innerWires.length > 0 && innerWires.length === outerWires.length) {
-      return LoftOps.makeThinLoft(outerWires, innerWires, options);
+    // With conditions or connections, both walls come from the in-house
+    // skin — assemble the thin solid directly (walls + ring caps). Booleans
+    // between two nearly-parallel B-spline shells take OCC seconds.
+    if (options && walls.length > 0 && walls.length === outerWires.length) {
+      return LoftOps.makeThinLoft(walls, options);
     }
 
     const outerSolids = LoftOps.makeLoft(outerWires, options);

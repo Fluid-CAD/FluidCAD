@@ -6,8 +6,19 @@ import { SectionCompatibility, CompatibleSections } from "./section-compatibilit
 import { Skinning, LoftEndCondition, SkinnedGrid } from "./skinning.js";
 import { Point } from "../../math/point.js";
 import { ConnectionResolver } from "./connection-resolver.js";
+import { ThinConnections } from "./thin-connections.js";
 
 export type { LoftConditionKind, LoftEndCondition } from "./skinning.js";
+
+/** One thin profile's two walls, with the profile they offset for carrying connections across. */
+export interface ThinLoftWalls {
+  outer: Wire;
+  inner: Wire;
+  source: Wire;
+  /** Unsigned offsets of each wall from `source`. */
+  outerDistance: number;
+  innerDistance: number;
+}
 
 /**
  * Loft with vertex connections or start/end conditions. OCC's
@@ -42,25 +53,48 @@ export class ConstrainedLoft {
    * loft out of the outer with a boolean instead takes OCC seconds — two
    * nearly-parallel B-spline shells are the pave-filler's worst case — and
    * the walls are already exact offsets, so no boolean is needed.
+   *
+   * Connections are stated on the profiles; each wall receives its own
+   * image of every connection vertex (`ThinConnections`).
    */
   static buildThin(
-    outerWires: Wire[],
-    innerWires: Wire[],
+    walls: ThinLoftWalls[],
     startCondition: LoftEndCondition | undefined,
     endCondition: LoftEndCondition | undefined,
+    connections?: Point[][],
   ): Solid[] {
-    const outer = ConstrainedLoft.skinWires(outerWires);
-    const inner = ConstrainedLoft.skinWires(innerWires);
-    const outerSkin = Skinning.skinSections(outer, startCondition, endCondition);
-    const innerSkin = Skinning.skinSections(inner, startCondition, endCondition);
+    const rebuilt: Wire[] = [];
+    try {
+      const wall = (side: 'outer' | 'inner'): { wires: Wire[]; connections?: Point[][] } => {
+        const wires = walls.map(w => w[side]);
+        if (!connections?.length) {
+          return { wires };
+        }
+        const mapped = ThinConnections.map(walls.map(w => ({
+          wall: w[side], source: w.source, distance: side === 'outer' ? w.outerDistance : w.innerDistance,
+        })), connections, side);
+        rebuilt.push(...mapped.rebuilt);
+        return mapped;
+      };
+      const outerWall = wall('outer');
+      const innerWall = wall('inner');
+      const outer = ConstrainedLoft.skinWires(outerWall.wires, outerWall.connections);
+      const inner = ConstrainedLoft.skinWires(innerWall.wires, innerWall.connections);
+      const outerSkin = Skinning.skinSections(outer, startCondition, endCondition);
+      const innerSkin = Skinning.skinSections(inner, startCondition, endCondition);
 
-    const faces = [
-      ...Skinning.sideFaces(outer, outerSkin.grid, outerSkin.vBasis),
-      ...Skinning.sideFaces(inner, innerSkin.grid, innerSkin.vBasis),
-      ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, false),
-      ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, true),
-    ];
-    return [Skinning.sewSolid(faces)];
+      const faces = [
+        ...Skinning.sideFaces(outer, outerSkin.grid, outerSkin.vBasis),
+        ...Skinning.sideFaces(inner, innerSkin.grid, innerSkin.vBasis),
+        ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, false),
+        ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, true),
+      ];
+      return [Skinning.sewSolid(faces)];
+    } finally {
+      for (const wire of rebuilt) {
+        wire.dispose();
+      }
+    }
   }
 
   private static skinWires(wires: Wire[], connections?: Point[][]): CompatibleSections {

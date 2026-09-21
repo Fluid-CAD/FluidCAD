@@ -867,10 +867,6 @@ export class LoftFeatureService {
 
   /** The request for the current form state, or the message blocking it. */
   private buildRequest(): LoftApplyOptions | { error: string } {
-    const blocked = this.connectionConflict();
-    if (blocked) {
-      return { error: blocked };
-    }
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -934,10 +930,6 @@ export class LoftFeatureService {
    * face picks for synthesis against the session boundary.
    */
   private buildEditRequest(): Parameters<typeof applyLoftEdit>[1] | { error: string } {
-    const blocked = this.connectionConflict();
-    if (blocked) {
-      return { error: blocked };
-    }
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -1242,20 +1234,6 @@ export class LoftFeatureService {
   private connectionError(): string | null {
     if (this.connections.incomplete) {
       return 'Complete each connection with one vertex per profile, or remove its chip.';
-    }
-    return this.connectionConflict();
-  }
-
-  /** Combinations the loft cannot build yet — these block the preview too. */
-  private connectionConflict(): string | null {
-    if (this.connections.rows.length > 0) {
-      if (this.guides.length > 0) {
-        return 'Connections cannot be combined with guides yet. Remove the guides or connections.';
-      }
-      const values = this.panel.values();
-      if (!('error' in values) && values.thin) {
-        return 'Connections cannot be combined with thin walls yet. Turn off Thin or remove the connections.';
-      }
     }
     return null;
   }

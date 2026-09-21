@@ -2,6 +2,13 @@ import type { Geom_BSplineCurve } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { SectionCurve, WireSection } from "./section-curve.js";
 
+/** A parameter shared by every section after alignment. */
+export interface SectionPin {
+  parameter: number;
+  /** Index of the user connection, or null for automatic corner matching. */
+  connection: number | null;
+}
+
 /**
  * Validated connection vertices, one row per section and one column per
  * connection — each an index into `SectionCurve.wireVertices` of its wire.
@@ -58,9 +65,11 @@ export class SectionPins {
   /**
    * Parameters have already been oriented and shifted so connection 1 is
    * the seam. Validate cyclic order before aligning the remaining pins.
-   * Input order is arbitrary; only the geometric order must agree.
+   * Input order is arbitrary; only the geometric order must agree. Returns
+   * the aligned pins in parameter order, each naming its connection column
+   * (`explicit` false marks automatic corner matching).
    */
-  static align(curves: Geom_BSplineCurve[], parameters: number[][]): number[] {
+  static align(curves: Geom_BSplineCurve[], parameters: number[][], explicit: boolean): SectionPin[] {
     const order = parameters[0].map((_, i) => i).slice(1)
       .sort((a, b) => parameters[0][a] - parameters[0][b]);
     for (let k = 1; k < parameters.length; k++) {
@@ -88,7 +97,7 @@ export class SectionPins {
       curves[k].delete();
       curves[k] = aligned;
     }
-    return targets;
+    return targets.map((parameter, j) => ({ parameter, connection: explicit ? order[j] : null }));
   }
 
   /** Preserves the input; callers own the returned curve and the original. */

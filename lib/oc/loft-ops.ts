@@ -2,12 +2,12 @@ import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
-import { ConstrainedLoft, LoftEndCondition, LoftConditionKind } from "./loft/constrained-loft.js";
+import { ConstrainedLoft, LoftEndCondition, LoftConditionKind, ThinLoftWalls } from "./loft/constrained-loft.js";
 import { GuidedLoft } from "./loft/guided-loft.js";
 import { mmTol } from "../units/tolerance.js";
 import { Point } from "../math/point.js";
 
-export type { LoftEndCondition, LoftConditionKind };
+export type { LoftEndCondition, LoftConditionKind, ThinLoftWalls };
 
 export interface LoftOptions {
   /** Constrains how the surface leaves the first profile. */
@@ -28,18 +28,16 @@ export class LoftOps {
    * skinning) — both in-house skins, since OCC can neither constrain end
    * tangency nor follow rails without distorting sections. Conditions
    * compose with guides: the condition fades out around each guide contact
-   * (the rails own their sides of the surface).
+   * (the rails own their sides of the surface). Connections compose with
+   * both: they pin the sections, and rail contacts align around the pins.
    */
   static makeLoft(wires: Wire[], options?: LoftOptions): Solid[] {
     const guides = options?.guides ?? [];
-    if (options?.connections?.length) {
-      if (guides.length > 0) {
-        throw new Error("Loft connections cannot yet be combined with guides.");
-      }
-      return ConstrainedLoft.build(wires, options.startCondition, options.endCondition, options.connections);
-    }
     if (guides.length > 0) {
-      return GuidedLoft.build(wires, guides, options?.startCondition, options?.endCondition);
+      return GuidedLoft.build(wires, guides, options?.startCondition, options?.endCondition, options?.connections);
+    }
+    if (options?.connections?.length) {
+      return ConstrainedLoft.build(wires, options.startCondition, options.endCondition, options.connections);
     }
     if (options?.startCondition || options?.endCondition) {
       return ConstrainedLoft.build(wires, options.startCondition, options.endCondition);
@@ -48,16 +46,14 @@ export class LoftOps {
   }
 
   /**
-   * Thin-walled loft with start/end conditions: both walls are skinned with
-   * the same conditions and assembled directly with ring caps — see
-   * `ConstrainedLoft.buildThin`. (The condition-less thin loft stays on the
-   * legacy ThruSections + boolean path in the feature layer.)
+   * Thin-walled loft with start/end conditions or connections: both walls
+   * are skinned with the same constraints and assembled directly with ring
+   * caps — see `ConstrainedLoft.buildThin`. Connections are stated on the
+   * profiles and carried onto each wall. (The unconstrained thin loft stays
+   * on the legacy ThruSections + boolean path in the feature layer.)
    */
-  static makeThinLoft(outerWires: Wire[], innerWires: Wire[], options: LoftOptions): Solid[] {
-    if (options.connections?.length) {
-      throw new Error("Loft connections cannot yet be combined with thin mode.");
-    }
-    return ConstrainedLoft.buildThin(outerWires, innerWires, options.startCondition, options.endCondition);
+  static makeThinLoft(walls: ThinLoftWalls[], options: LoftOptions): Solid[] {
+    return ConstrainedLoft.buildThin(walls, options.startCondition, options.endCondition, options.connections);
   }
 
   private static makeThruSectionsLoft(wires: Wire[]): Solid[] {

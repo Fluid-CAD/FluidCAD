@@ -5,6 +5,7 @@ import { Axis } from "../math/axis.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
+import { Shape } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { EdgeQuery } from "./edge-query.js";
@@ -172,6 +173,33 @@ export class EdgeOps {
     mid.delete();
     adaptor.delete();
     return result;
+  }
+
+  /**
+   * Splits an edge at its parametric midpoint into two edges on the same
+   * curve, in the curve's own direction. Returns the pieces and the new
+   * shared vertex position.
+   */
+  static splitEdgeAtMid(edge: Edge): { pieces: [Edge, Edge]; point: Point } {
+    const oc = getOC();
+    const info = oc.BRep_Tool.Curve(edge.getShape(), 0, 1);
+    const mid = (info.First + info.Last) / 2;
+    const pieces = [[info.First, mid], [mid, info.Last]].map(([from, to]) => {
+      const maker = new oc.BRepBuilderAPI_MakeEdge(info.returnValue, from, to);
+      try {
+        if (!maker.IsDone()) {
+          throw new Error("Failed to split edge: " + maker.Error());
+        }
+        return Edge.fromTopoDSEdge(maker.Edge());
+      } finally {
+        maker.delete();
+      }
+    }) as [Edge, Edge];
+    const pnt = new oc.gp_Pnt();
+    info.returnValue.D0(mid, pnt);
+    const point = new Point(pnt.X(), pnt.Y(), pnt.Z());
+    pnt.delete();
+    return { pieces, point };
   }
 
   static reverseEdgeRaw(edge: TopoDS_Edge): TopoDS_Edge {
@@ -407,8 +435,8 @@ export class EdgeOps {
     return { edges: result, sourceIndex };
   }
 
-  /** Minimum distance from a point to an edge; Infinity when the extrema fails. */
-  static distancePointToEdge(point: Point, edge: Edge): number {
+  /** Minimum distance from a point to an edge (or any shape); Infinity when the extrema fails. */
+  static distancePointToEdge(point: Point, edge: Shape): number {
     const oc = getOC();
 
     const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);

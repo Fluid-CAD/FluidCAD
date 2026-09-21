@@ -24,12 +24,13 @@ export class PointResolver {
   private static resolve(point: PointLike | LazyVertex, asVector: boolean): Point {
     let resolved: Point;
     if (point instanceof SketchPointVertex) {
-      const sketch = point.getSketch();
-      const plane = sketch?.getPlane();
-      if (!sketch || !plane) {
+      // Solver-backed points live on their sketch's plane; an offset edge
+      // point carries its owner's plane (a face-target offset has no sketch).
+      const plane = point.getPlane();
+      if (!plane) {
         throw new Error("Sketch point reference has no built sketch plane.");
       }
-      sketch.ensureSolvedForBuild();
+      point.getSketch()?.ensureSolvedForBuild();
       resolved = plane.localToWorld(point.localPoint());
       if (asVector) {
         resolved = resolved.subtract(plane.origin);

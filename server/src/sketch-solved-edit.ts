@@ -62,6 +62,8 @@ export type SolvedGeometryEmission = {
 
 /** Reference-producer callees (P6) — hoistable like entity statements. */
 const REFERENCE_CALLEES = new Set(['project', 'intersect']);
+/** The 2D offset — its edges are addressed by index (`o.edge(i)`) for sketch exports. */
+const OFFSET_CALLEES = new Set(['offset']);
 
 const WIRE_ROLES = new Set(['start', 'end', 'center', 'mid']);
 const WIRE_DATUMS = new Set(['origin', 'x-axis', 'y-axis']);
@@ -523,6 +525,25 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
   } else if (t.source !== undefined) {
     return "a target source requires featureType 'mirror'";
   }
+  // Offset edge targets (D9): the edge index composes with line/role/
+  // occurrence only. Offset edges are no solver entities — these targets
+  // reach the transform through sketch exports, never from a constraint pick.
+  if (t.featureType === 'offset') {
+    if (!byLine) {
+      return "an offset edge target names the offset() statement's line";
+    }
+    if (!Number.isInteger(t.edgeIndex) || t.edgeIndex! < 0) {
+      return 'an offset edge target needs a non-negative edgeIndex';
+    }
+    if (t.refIndex !== undefined || t.instanceIndex !== undefined || t.pointIndex !== undefined) {
+      return 'an offset edge target takes no refIndex/instanceIndex/pointIndex';
+    }
+    if (t.role === 'mid') {
+      return 'an offset edge point is start, end or center';
+    }
+  } else if (t.edgeIndex !== undefined) {
+    return "a target edgeIndex requires featureType 'offset'";
+  }
   if (nested) {
     if (!byLine) {
       return 'a mirror source names an existing statement line';
@@ -540,6 +561,7 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
   const isReference = target.refIndex !== undefined;
   const isCopyInstance = target.instanceIndex !== undefined;
   const isMirrorInstance = target.featureType === 'mirror';
+  const isOffsetEdge = target.featureType === 'offset';
   const isAnchor = target.featureType !== undefined
     && ANCHOR_ACCESSORS[target.featureType] !== undefined;
   const legalCallee = isReference
@@ -548,9 +570,11 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
       ? !!callee && COPY_CALLEES.has(callee)
       : isMirrorInstance
         ? !!callee && MIRROR_CALLEES.has(callee)
-        : isAnchor
-          ? callee === target.featureType
-          : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+        : isOffsetEdge
+          ? !!callee && OFFSET_CALLEES.has(callee)
+          : isAnchor
+            ? callee === target.featureType
+            : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
   if (!legalCallee) {
     throw new EmissionRefusal(isReference
       ? `line ${target.line} is not a project()/intersect() statement`
@@ -558,9 +582,11 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
         ? `line ${target.line} is not a 2D copy() statement`
         : isMirrorInstance
           ? `line ${target.line} is not a 2D mirror() statement`
-          : isAnchor
-            ? `line ${target.line} is not a ${target.featureType}() statement`
-            : `line ${target.line} is not a sketch entity statement`);
+          : isOffsetEdge
+            ? `line ${target.line} is not a 2D offset() statement`
+            : isAnchor
+              ? `line ${target.line} is not a ${target.featureType}() statement`
+              : `line ${target.line} is not a sketch entity statement`);
   }
   if (target.featureType && callee !== target.featureType) {
     throw new EmissionRefusal(`line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);

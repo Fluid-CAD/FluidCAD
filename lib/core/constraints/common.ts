@@ -21,6 +21,7 @@ import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Copy2DInstance, Copy2DInstancePointRef } from "../../features/copy2d-instance-ref.js";
 import { MirrorShape2D } from "../../features/mirror-shape2d.js";
 import { Mirror2DInstance, Mirror2DInstancePointRef } from "../../features/mirror2d-instance-ref.js";
+import { OffsetEdge, OffsetEdgePointRef } from "../../features/2d/offset-edge.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { IReferenceEntity, ISceneObject } from "../interfaces.js";
@@ -158,6 +159,13 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     // Single-entity sugar: `tangent(bore, l)` — resolution errors with the
     // count when the projection yielded more than one constrainable edge.
     return pendingRef(arg, null);
+  }
+  // Offset edge points name built geometry for consumers outside the sketch
+  // (loft connections); the offset result has no solver identity.
+  if (arg instanceof OffsetEdgePointRef || arg instanceof OffsetEdge) {
+    throw new Error(
+      `${what}: an offset edge has no solver identity — constrain the source geometry instead (o.edge(i) points are for references outside the sketch)`,
+    );
   }
   throw new Error(
     `${what}: expected solved sketch geometry — a line/arc/circle/ellipse/point statement, a .start()/.end()/.center() accessor, an anchor point (t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), a copy or mirror instance (cp.instance(k), m.instance(l)), or a projected reference (p, p.ref(i))`,

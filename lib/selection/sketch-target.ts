@@ -30,7 +30,17 @@ export type SolvedEmissionTarget = {
    * name theirs: 'text' | 'bezier' — rendered as the anchor accessor
    * (`t.anchor()`, `bz.point(i)`). */
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'text' | 'bezier';
+    | 'text' | 'bezier' | 'offset';
+  /**
+   * Offset edge targets: the index of the picked edge on the 2D offset()
+   * statement at `line` — renders `o.edge(i)` before the point role
+   * (`o.edge(2).start()`, `.end()`, `.center()` for an arc). Requires
+   * `featureType: 'offset'`; composes with `line`, `occurrence` and `role`
+   * only — never `refIndex`/`instanceIndex`/`pointIndex`/`source`. Offset
+   * edges have no solver identity, so these targets serve sketch exports
+   * (points named from outside the sketch), never constraints.
+   */
+  edgeIndex?: number;
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
    * mirror() statement at `line` is picked — itself a line-addressed
@@ -86,11 +96,13 @@ export function renderSolvedTarget(
     name += '.anchor()';
   } else if (target.featureType === 'mirror') {
     name += `.instance(${renderSolvedTarget(target.source!, bind)})`;
+  } else if (target.featureType === 'offset') {
+    name += `.edge(${target.edgeIndex})`;
   }
   return target.role ? `${name}.${target.role}()` : name;
 }
 
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz',
+  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz', offset: 'o',
 };

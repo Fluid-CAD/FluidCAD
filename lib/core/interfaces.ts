@@ -518,6 +518,24 @@ export interface IText extends IExtrudableGeometry {
   startAt(distance: number): this;
 }
 
+/**
+ * One edge of an offset result (`o.edge(i)`): a whole-edge operand like any
+ * `edge(i)` selection, and a point source for references from outside the
+ * sketch — loft connections, connectors — through `.start()`, `.end()` and,
+ * on an arc, `.center()`. Offset edges have no solver identity, so these
+ * points are not constraint targets.
+ */
+export interface IOffsetEdge extends ISelect {
+  /** The edge's first point along the offset walk (see `IOffset.edge`). */
+  start(): LazyVertex;
+
+  /** The edge's last point along the offset walk — `o.edge(i).end()` is `o.edge(i + 1).start()`. */
+  end(): LazyVertex;
+
+  /** The center of an arc edge (an offset arc or a rounded outward corner); an error on a line. */
+  center(): LazyVertex;
+}
+
 export interface IOffset extends IExtrudableGeometry {
   /**
    * Closes an open offset by joining it back to the source wire with
@@ -525,6 +543,23 @@ export interface IOffset extends IExtrudableGeometry {
    * is already closed.
    */
   close(): this;
+
+  /**
+   * One edge of the result by index, with point accessors for references
+   * from outside the sketch (`a.geometries.o.edge(2).start()` in a loft
+   * connection). Indices walk the result: index 0 is the offset of the
+   * first source edge in statement order (for an open offset, the offset of
+   * the chain's first edge), the walk continues in that edge's own
+   * direction, and the arcs an outward offset rounds corners with are
+   * ordinary steps of it. Several separate sources offset to several wires,
+   * numbered wire after wire in statement order; `.close()` appends the cap
+   * at the walk's end, then the cap at its start. Because the indices are
+   * positional, an edit that changes which corners are rounded — flipping
+   * the sign, for one — shifts them, and a reference then resolves to a
+   * different vertex, as any index-based reference does.
+   * @param index - The 0-based edge index along the offset walk.
+   */
+  edge(index: number): IOffsetEdge;
 }
 
 export interface ICommon extends ISceneObject {

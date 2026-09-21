@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { Point2D } from "../math/point.js";
+import type { Plane } from "../math/plane.js";
 import { Sketch } from "./2d/sketch.js";
 import { LazyVertex } from "./lazy-vertex.js";
 
@@ -43,6 +44,11 @@ export abstract class SketchPointVertex extends LazyVertex implements SketchPoin
       }
     }
     return null;
+  }
+
+  /** The plane the local point lives on — the sketch's, unless a subclass owns world geometry of its own. */
+  getPlane(): Plane | null {
+    return this.getSketch()?.getPlane() ?? null;
   }
 
   override getDependencies(): SceneObject[] {

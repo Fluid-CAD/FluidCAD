@@ -109,6 +109,10 @@ Returning geometry from a sketch callback makes it available through
 `sketch.geometries`. Point references follow their sketch planes, so the same
 code works on offset or tilted planes. You can also connect world coordinates
 such as `[0, 0, 40]` or solid-edge endpoints such as `e.endEdges(0).start()`.
+A vertex of an `offset()` result is named by edge index,
+`a.geometries.o.edge(2).start()` — see
+[naming offset edges](/docs/sketching/tools/offset#naming-offset-edges-from-outside-the-sketch)
+for the index rule and why a sign flip shifts the indices.
 
 To use a point of a `select(...)`, declare the selection on its own line before
 the loft: `const tip = select(edge().farthest('x'));`, then

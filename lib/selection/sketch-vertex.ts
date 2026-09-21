@@ -7,6 +7,7 @@ import { isReferenceProducer, ReferencePointRef } from '../features/2d/solved/re
 import { Copy2DBase } from '../features/copy2d-base.js';
 import { MirrorShape2D } from '../features/mirror-shape2d.js';
 import { BezierCurve } from '../features/2d/bezier.js';
+import { Offset } from '../features/2d/offset.js';
 import { PointResolver } from '../features/point-resolver.js';
 import { LazyVertex } from '../features/lazy-vertex.js';
 import { Point } from '../math/point.js';
@@ -39,12 +40,15 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
   const objects = new Set(scene.getAllSceneObjects());
   const edges = [...sketch.getEdgesWithOwner({}, scene.editedStatement ? objects : undefined)]
     .filter(([edge, owner]) => objects.has(owner) && incident(edge, point));
-  edges.sort(([, a], [, b]) => {
+  // Both edges at a corner of one derived statement (an offset) share owner
+  // and source line: the lower edge index wins there.
+  edges.sort(([edgeA, a], [edgeB, b]) => {
     const x = a.getSourceLocation();
     const y = b.getSourceLocation();
     return (x?.line ?? Infinity) - (y?.line ?? Infinity)
       || (x?.column ?? Infinity) - (y?.column ?? Infinity)
-      || a.getOrder() - b.getOrder();
+      || a.getOrder() - b.getOrder()
+      || a.getAddedShapes().indexOf(edgeA) - b.getAddedShapes().indexOf(edgeB);
   });
   let refusal: string | undefined;
   for (const [edge, owner] of edges) {
@@ -122,6 +126,15 @@ function entityAddress(owner: SceneObject, edge: Edge, sketch: Sketch, seen = ne
       const refIndex = owner.referenceEntities().length === 1 ? null : index;
       return { target: { ...target, featureType: owner.getType() === 'projection' ? 'project' : 'intersect', refIndex }, entities,
         entity: owner, point: role => new ReferencePointRef(owner, refIndex, role) };
+    }
+  }
+  if (owner instanceof Offset) {
+    // Index-based (D9): the edge's position along the offset walk.
+    const index = owner.edgeIndexOf(edge);
+    if (index >= 0) {
+      const handle = owner.edge(index);
+      return { target: { ...target, featureType: 'offset', edgeIndex: index }, entities, entity: owner,
+        point: role => handle[role]() };
     }
   }
   if (owner instanceof Copy2DBase) {

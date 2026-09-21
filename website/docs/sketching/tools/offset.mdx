@@ -55,6 +55,20 @@ To use only the offset curve in the profile, make the sources guides with `.guid
 
 On a profile that is already closed, `.close()` does nothing.
 
+## Naming offset edges from outside the sketch
+
+An offset has no named entities, so its edges are addressed by index: `o.edge(i)` is one edge of the result, and `o.edge(i).start()`, `.end()` and — on an arc — `.center()` are its points. Return the offset from the sketch callback and use them wherever a point from outside the sketch is accepted, such as a [loft connection](/docs/3d-operations/loft#vertex-connections-from-code); the Loft dialog writes them when you click an offset vertex. They are not constraint targets — constrain the source geometry instead.
+
+```js
+const base = sketch("xy", () => {
+    const sides = square(40)               // your own constrained square, sides as guides
+    return { o: offset(-5, sides.b, sides.r, sides.t, sides.l) }
+})
+loft(base, top).connect(base.geometries.o.edge(0).start(), top.geometries.r.start())
+```
+
+The indices walk the result: index 0 is the offset of the first source edge in statement order (for an open offset, the offset of the chain's first edge), the walk continues in that edge's own direction, and `o.edge(i).end()` is `o.edge(i + 1).start()`. The arcs an outward offset rounds corners with are ordinary steps of the walk; separate sources offset to separate wires numbered one after the other; **Close ends** appends the cap at the walk's end, then the cap at its start. Because the indices are positional, an edit that changes which corners are rounded — flipping the sign, for one — shifts them, and a reference then points at a different vertex, as any index-based reference does.
+
 ## Combining with other shapes
 
 Offsets and fresh geometry share one profile:

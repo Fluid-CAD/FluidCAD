@@ -84,7 +84,11 @@ loft(a, b)
 Return named geometry from each sketch callback to use `.geometries`. You can
 also pass world coordinates (`[x, y, z]`) or solid-edge endpoints such as
 `e.endEdges(0).start()`. Sketch point references resolve through their own
-planes, including offset and non-XY planes.
+planes, including offset and non-XY planes. A vertex of an `offset()` result
+is named by edge index, `a.geometries.o.edge(2).start()` — the indices walk
+the result from the offset of the first source edge, and an edit that changes
+which corners are rounded (a sign flip) shifts them, as with any index-based
+reference; see [[api/offset]].
 
 A point taken from a `select(...)` needs the selection declared **before** the
 loft statement. Written inside `.connect(...)` it runs after `loft(...)`, and

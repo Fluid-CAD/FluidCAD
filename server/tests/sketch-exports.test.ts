@@ -4,7 +4,7 @@ import { getJavaScriptParser } from '../src/code-editor.ts';
 import type { SketchExportRequest, SolvedEmissionTarget } from '../../lib/selection/sketch-target.js';
 import sketch from '../../lib/core/sketch.js';
 import plane from '../../lib/core/plane.js';
-import { line } from '../../lib/core/2d/index.js';
+import { line, offset } from '../../lib/core/2d/index.js';
 import { getSceneManager } from '../../lib/scene-manager.js';
 import { render } from '../../lib/tests/setup.js';
 import { PointResolver } from '../../lib/features/point-resolver.js';
@@ -89,6 +89,36 @@ const s = sketch('xy', () => {
     expect(result.expressions).toEqual(['a.geometries.m.instance(a.geometries.cp.instance(2)).end()',
       'a.geometries.prj.ref(2).start()', 'a.geometries.bz.point(2)']);
     expect(result.code).toContain('return { m, cp, prj, bz };');
+  });
+
+  it('names offset edges by index, hoists the offset statement and resolves the points in world space', async () => {
+    const code = `const a = sketch(plane('yz', { offset: 40 }), () => {
+  const b = line([0, 0], [40, 0]);
+  const r = line([40, 0], [40, 30]);
+  const t = line([40, 30], [0, 30]);
+  const l = line([0, 30], [0, 0]);
+  offset(-5, b, r, t, l);
+});`;
+    const result = await apply(code, [
+      ref(1, { line: 6, featureType: 'offset', edgeIndex: 0, role: 'start' }),
+      ref(1, { line: 6, featureType: 'offset', edgeIndex: 2, role: 'end' }),
+    ]);
+    expect(result.expressions).toEqual(['a.geometries.o1.edge(0).start()', 'a.geometries.o1.edge(2).end()']);
+    expect(result.code).toContain('const o1 = offset(-5, b, r, t, l);');
+    expect(result.code).toContain('return { o1 };');
+    const run = new Function('sketch', 'plane', 'line', 'offset', `${result.code}\nreturn [${result.expressions.join(', ')}];`);
+    getSceneManager().startScene();
+    const refs = run(sketch, plane, line, offset);
+    render();
+    expect(refs.map(point => PointResolver.toWorld(point).toArray())).toEqual([[40, 5, 5], [40, 5, 25]]);
+  });
+
+  it('refuses an offset edge target whose line is not an offset() statement', async () => {
+    const code = `const a = sketch('xy', () => {
+  line([0, 0], [20, 0]);
+});`;
+    const result = await SketchExports.applyCreates(code, [ref(1, { line: 2, featureType: 'offset', edgeIndex: 0, role: 'start' })]);
+    expect(result).toMatchObject({ error: expect.stringMatching(/line 2 is not a 2D offset\(\) statement/) });
   });
 
   it('relocates a later sketch and its consumer after staging multiple exports', async () => {

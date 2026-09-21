@@ -8,6 +8,7 @@ import copy from '../../core/copy.js';
 import mirror from '../../core/mirror.js';
 import fillet from '../../core/fillet.js';
 import { line, arc, bezier, project, offset, xAxis, yAxis } from '../../core/2d/index.js';
+import { coincident } from '../../core/constraints/index.js';
 import { SceneObject } from '../../common/scene-object.js';
 import { Shape } from '../../common/shape.js';
 import { Scene } from '../../rendering/scene.js';
@@ -200,16 +201,68 @@ describe('vertex source synthesis', () => {
     expect(mixed).toMatchObject({ ok: true, synthesized: { ok: false, reason: expect.stringContaining('mix') } });
   });
 
-  it.each(['offset', 'fillet'] as const)('names the unsupported %s operation in its refusal', kind => {
+  it('names the unsupported fillet operation in its refusal', () => {
     const s = located(sketch('xy', () => {
       const a = located(line([0, 0], [20, 0]), 2);
       const b = located(line([20, 0], [20, 20]), 3);
-      return { target: kind === 'offset' ? located(offset(3, a, b), 4) : located(fillet(3, a, b), 4) };
+      return { target: located(fillet(3, a, b), 4) };
     }), 1);
     const scene = render();
     const shape = (s.geometries.target as unknown as SceneObject).getAddedShapes().find(shape => shape.isEdge())!;
     expect(shape).toBeDefined();
     expect(SelectionResolver.resolve(scene, { picks: [pick(shape)] }, {}))
-      .toMatchObject({ ok: true, synthesized: { ok: false, reason: expect.stringContaining(kind) } });
+      .toMatchObject({ ok: true, synthesized: { ok: false, reason: expect.stringContaining('fillet') } });
+  });
+
+  it('names offset vertices by edge index, the lower index winning a shared corner', () => {
+    const s = located(sketch('xy', () => {
+      const r = testRect(40, 30, { at: [10, 5] });
+      for (const [i, side] of Object.values(r).entries()) {
+        located(side.guide(), 2 + i);
+      }
+      return { target: located(offset(5, ...Object.values(r)), 6) };
+    }), 1);
+    const scene = render();
+    const target = s.geometries.target as unknown as SceneObject;
+    const edges = target.getAddedShapes().filter(shape => shape.isEdge());
+    expect(edges).toHaveLength(8);
+    const vertexAt = (shape: Shape, at: [number, number, number]) => {
+      const points = topologyVertices(shape);
+      for (let i = 0; i < points.length; i += 3) {
+        if (Math.hypot(points[i] - at[0], points[i + 1] - at[1], points[i + 2] - at[2]) < 1e-6) {
+          return i / 3;
+        }
+      }
+      throw new Error(`no vertex at ${at}`);
+    };
+    // Edge 0 is the offset of the first drawn (bottom) line; its far corner
+    // (50, 0) is also the rounding arc's start — both picks name edge 0.
+    const corner = roundTrip(scene, edges[0], vertexAt(edges[0], [50, 0, 0]));
+    expect(corner.source).toBe('s.geometries.o1.edge(0).end()');
+    expect(corner.exports).toMatchObject([{ part: 0, target: { line: 6, featureType: 'offset', edgeIndex: 0, role: 'end' } }]);
+    expect(roundTrip(scene, edges[1], vertexAt(edges[1], [50, 0, 0])).source).toBe(corner.source);
+    // The arc's far end (55, 5) is shared with edge 2: the arc, index 1, wins.
+    expect(roundTrip(scene, edges[1], vertexAt(edges[1], [55, 5, 0])).source).toBe('s.geometries.o1.edge(1).end()');
+    expect(roundTrip(scene, edges[2], vertexAt(edges[2], [55, 5, 0])).source).toBe('s.geometries.o1.edge(1).end()');
+  });
+
+  it('synthesizes a constraint-native fillet arc end as an ordinary tier-1 point', () => {
+    // The sketch fillet emits a real arc() statement and drops the corner
+    // coincident; nothing about the arc is derived geometry.
+    const s = located(sketch('xy', () => {
+      const a = located(line([0, 0], [40, 0]), 2);
+      const b = located(line([40, 0], [40, 30]), 3);
+      const f = located(arc([35, 0], [40, 5], [35, 5]), 4);
+      coincident(f.start(), a.end());
+      coincident(f.end(), b.start());
+      return { a, b, f };
+    }), 1);
+    const scene = render();
+    const arcEdge = (s.geometries.f as unknown as SceneObject).getShapes().find(shape => shape.isEdge())!;
+    for (const index of [0, 1]) {
+      const result = roundTrip(scene, arcEdge, index);
+      expect(result.exports?.[0].target.featureType).toMatch(/^(line|arc)$/);
+      expect(result.source).toMatch(/^s\.geometries\.(l|a)\d\.(start|end)\(\)$/);
+    }
   });
 });

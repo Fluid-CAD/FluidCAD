@@ -1,0 +1,78 @@
+---
+sidebar_position: 32.1
+title: "OffsetEdge"
+description: "The OffsetEdge type. Extends Select."
+---
+
+# OffsetEdge
+
+Extends [`Select`](/docs/api/types/select)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+The edge's first point along the offset walk (see `IOffset.edge`).
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+The edge's last point along the offset walk — `o.edge(i).end()` is `o.edge(i + 1).start()`.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### center()
+
+```ts
+center(): Vertex
+```
+
+The center of an arc edge (an offset arc or a rounded outward corner); an error on a line.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+

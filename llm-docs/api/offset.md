@@ -69,6 +69,65 @@ const rim = offset(3, body.endFaces());  // outline 3mm outside the top face
 extrude(5, rim);                          // extrude it like a sketch
 ```
 
+## Naming offset edges from outside the sketch
+
+An offset result has no named entities, so its vertices are addressed by
+index: `o.edge(i)` is one edge of the result and `o.edge(i).start()`,
+`.end()` and (on an arc) `.center()` are its points. Return the offset from
+the sketch callback and use them wherever a point from outside the sketch is
+accepted — a loft connection, a connector. They are not constraint targets:
+constrain the source geometry instead.
+
+The indices walk the result. Index 0 is the offset of the first source edge
+in statement order (for an open offset, the offset of the chain's first
+edge); the walk continues in that edge's own direction, and
+`o.edge(i).end()` is `o.edge(i + 1).start()`. The arcs an outward offset
+rounds corners with are ordinary steps of the walk. Several separate
+sources offset to several wires, numbered one after the other in statement
+order; `.close()` appends the cap at the walk's end, then the cap at its
+start. Because the indices are positional, an edit that changes which
+corners are rounded — flipping the sign, for one — shifts them, and a
+reference then resolves to a different vertex, as any index-based reference
+does.
+
+```fluid.js
+import { line, loft, offset, origin, plane, sketch } from "fluidcad/core";
+import { coincident, distance, horizontal, vertical } from "fluidcad/constraints";
+
+function square(size) {
+  const b = line([0, 0], [size, 0]);
+  const r = line([size, 0], [size, size]);
+  const t = line([size, size], [0, size]);
+  const l = line([0, size], [0, 0]);
+  coincident(b.start(), origin());
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
+  horizontal(t);
+  vertical(l);
+  distance(b.start(), b.end(), size);
+  distance(r.start(), r.end(), size);
+  return { b, r, t, l };
+}
+
+const base = sketch("xy", () => {
+  const sides = square(40);
+  for (const side of Object.values(sides)) {
+    side.guide();                       // only the inset square forms the profile
+  }
+  return { o: offset(-5, sides.b, sides.r, sides.t, sides.l) };
+});
+const top = sketch(plane("xy", { offset: 30 }), () => square(40));
+
+// The inset's first corner goes to the top square's second corner: a quarter twist.
+loft(base, top)
+  .connect(base.geometries.o.edge(0).start(), top.geometries.r.start())
+  .connect(base.geometries.o.edge(1).start(), top.geometries.t.start());
+```
+
 ## Example
 
 ```fluid.js

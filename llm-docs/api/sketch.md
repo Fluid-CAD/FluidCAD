@@ -51,6 +51,10 @@ Use `.geometries` for any named geometry, including lines and arcs. The older
 Point accessors such as `s.geometries.line.start()` stay local inside sketch
 constraints. Outside the sketch, loft connections and connectors resolve them
 through the sketch plane to world coordinates, including on offset or tilted planes.
+Derived geometry is addressed by index on the operation that produced it:
+`s.geometries.o.edge(2).start()` names a vertex of an `offset()` result (see
+[[api/offset]] for the index rule). A sketch fillet is a real `arc()`
+statement, so its ends are ordinary named points.
 
 ## Sketch datums
 

@@ -197,9 +197,10 @@ export function instantiateEdgeAtoms(
   }
   if (curveClass === null || curveClass === 'ellipse' || curveClass === 'other') {
     // No positive curve-class atom covers these picks (mixed classes, or a
-    // class with no predicate — fillet transition edges probe as 'other').
-    // A negated class can still separate them: e.g. a rim of arcs plus
-    // fillet splines needs `.notCircle()` to shed a coplanar bore circle.
+    // class with no predicate — a fillet transition spline that recovers to
+    // no line or circle probes as 'other'). A negated class can still
+    // separate them: e.g. a rim of arcs plus such splines needs
+    // `.notCircle()` to shed a coplanar bore circle.
     atoms.push({ code: '.notLine()', addTo: b => b.notLine(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notArc()', addTo: b => b.notArc(), weight: 28, constants: 0, needsScope: false });

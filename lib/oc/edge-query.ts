@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Circ, gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { FaceOps } from "./face-ops.js";
@@ -12,7 +12,7 @@ import { mmTol } from "../units/tolerance.js";
 /** An edge's geometry independent of its kernel representation; see {@link EdgeQuery.getEdgeGeometryRaw}. */
 export type EdgeGeometry =
   | { kind: 'line'; length: number }
-  | { kind: 'circle'; radius: number; closed: boolean }
+  | { kind: 'circle'; radius: number; closed: boolean; center: Point; axisDirection: Vector3d }
   | { kind: 'other' };
 
 export class EdgeQuery {
@@ -131,9 +131,9 @@ export class EdgeQuery {
       }
       if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
         const circle = adaptor.Circle();
-        const radius = circle.Radius();
+        const geometry = EdgeQuery.circleGeometry(circle, adaptor.IsClosed());
         circle.delete();
-        return { kind: 'circle', radius, closed: adaptor.IsClosed() };
+        return geometry;
       }
       if (type === oc.GeomAbs_CurveType.GeomAbs_BSplineCurve || type === oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
         return EdgeQuery.recoverAnalyticalGeometry(ocEdge, adaptor.IsClosed());
@@ -162,9 +162,9 @@ export class EdgeQuery {
         }
         if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
           const circle = analytical.Circle();
-          const radius = circle.Radius();
+          const geometry = EdgeQuery.circleGeometry(circle, closed);
           circle.delete();
-          return { kind: 'circle', radius, closed };
+          return geometry;
         }
         return { kind: 'other' };
       } finally {
@@ -175,6 +175,23 @@ export class EdgeQuery {
       converter.delete();
       curve[Symbol.dispose]();
     }
+  }
+
+  private static circleGeometry(circle: gp_Circ, closed: boolean): EdgeGeometry {
+    const location = circle.Location();
+    const axis = circle.Axis();
+    const dir = axis.Direction();
+    const geometry: EdgeGeometry = {
+      kind: 'circle',
+      radius: circle.Radius(),
+      closed,
+      center: new Point(location.X(), location.Y(), location.Z()),
+      axisDirection: new Vector3d(dir.X(), dir.Y(), dir.Z()),
+    };
+    dir.delete();
+    axis.delete();
+    location.delete();
+    return geometry;
   }
 
   /**
@@ -325,27 +342,17 @@ export class EdgeQuery {
     return point;
   }
 
-  static getCircleDataFromEdgeRaw(edge: TopoDS_Edge) {
-    const oc = getOC();
-    const curve = new oc.BRepAdaptor_Curve(edge);
-    const circle = curve.Circle();
-    const center = circle.Location();
-    const radius = circle.Radius();
-    const axis = circle.Axis();
-    const dir = axis.Direction();
-
-    const result = {
-      center: new Point(center.X(), center.Y(), center.Z()),
-      radius,
-      axisDirection: new Vector3d(dir.X(), dir.Y(), dir.Z()),
-    };
-
-    dir.delete();
-    axis.delete();
-    center.delete();
-    circle.delete();
-    curve.delete();
-    return result;
+  /**
+   * Center, radius and axis of a circular edge — native or a B-spline that
+   * {@link getEdgeGeometryRaw} recovers as a circle, so every caller that
+   * classified the edge through that recovery can read its circle too.
+   */
+  static getCircleDataFromEdgeRaw(edge: TopoDS_Edge): { center: Point; radius: number; axisDirection: Vector3d } {
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    if (geometry.kind !== 'circle') {
+      throw new Error(`edge is not a circle or arc (got '${geometry.kind}')`);
+    }
+    return { center: geometry.center, radius: geometry.radius, axisDirection: geometry.axisDirection };
   }
 
   static doEdgesIntersectRaw(edge1: TopoDS_Edge, edge2: TopoDS_Edge): boolean {

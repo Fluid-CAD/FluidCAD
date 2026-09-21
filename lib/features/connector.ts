@@ -102,13 +102,12 @@ export class Connector extends SceneObject implements IConnector {
     // (or lazy edge) was used purely to derive the frame, and the frame
     // now lives on the connector. Mirrors plane-from-object / axis-from-edge.
     // A free point has nothing to consume.
-    if (!(this.sourceShape instanceof FreePoint)) {
-      (this.sourceShape as SceneObject).removeShapes(this);
-    }
     if (this.sourceShape instanceof AnchoredLazyVertex) {
-      // Anchored vertices wrap an inline selection (`e.endFaces().center()`)
-      // whose highlight shapes would otherwise linger — consume through.
-      this.sourceShape.getSourceSelection().removeShapes(this);
+      // Anchored vertices wrap a selection (`e.endFaces().center()`) whose
+      // highlight shapes would otherwise linger — consume through.
+      this.sourceShape.consumeFor(this);
+    } else if (!(this.sourceShape instanceof FreePoint)) {
+      (this.sourceShape as SceneObject).removeShapes(this);
     }
 
     const center = Vertex.fromPoint(frame.origin);

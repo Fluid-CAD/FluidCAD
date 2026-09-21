@@ -82,6 +82,22 @@ describe('loft connections API', () => {
     expect(result.getShapes()).toHaveLength(1);
   });
 
+  it('consumes the selections its connection points are anchored to', () => {
+    const base = sketch('xy', () => testRect(40, 40));
+    const e = extrude(20, base);
+    const top = sketch(plane('xy', { offset: 80 }), () => testRect(40, 40));
+    const sel = select(edge().onPlane('xy', 20).nearest('y'));
+    const kept = select(edge().onPlane('xy', 20).nearest('y')).reusable();
+    const result = loft(e.endFaces(), top)
+      .connect(sel.start(), top.geometries.b.start())
+      .connect(kept.end(), top.geometries.r.start()).new() as Loft;
+    render();
+    expect(result.getError()).toBeNull();
+    expect(result.getShapes()).toHaveLength(1);
+    expect((sel as unknown as SceneObject).getShapes()).toHaveLength(0);
+    expect((kept as unknown as SceneObject).getShapes()).toHaveLength(1);
+  });
+
   it('reports a selection written inside .connect() as created after the loft', () => {
     const base = sketch('xy', () => testRect(40, 40));
     const e = extrude(20, base);
@@ -99,7 +115,9 @@ describe('loft connections API', () => {
     const anchor = e.endEdges(0).start();
     const result = loft(e.endFaces(), top).connect(anchor, top.geometries.b.start()).new() as Loft;
     render();
-    expectEdge(result, [anchor.asPoint(), new Point(0, 0, 80)]);
+    // The anchor is consumed by the loft; its resolved position lives on the feature.
+    expectEdge(result, [result.getConnectionPoints()[0][0], new Point(0, 0, 80)]);
+    expect(result.getConnectionPoints()[0][0].z).toBeCloseTo(20);
   });
 
   it.each(['references', 'literals', 'lazy coordinates'])('repeats a connected loft using %s', kind => {

@@ -85,6 +85,19 @@ export class AnchoredLazyVertex extends LazyVertex {
     return super.getShapes(filter, type);
   }
 
+  /**
+   * Consume the anchor for `consumer`: the vertex and, through it, the
+   * selection it is pinned to. That selection existed only to locate the
+   * point (`select(…).end()`, `e.endFaces().center()`), so once the consumer
+   * has read the position its highlight must not linger in the scene. Call
+   * it after the point is resolved — a consumed selection reads as empty.
+   * Reusable selections stay, as with every consumption.
+   */
+  consumeFor(consumer: SceneObject): void {
+    this.removeShapes(consumer);
+    this.sourceSelection.removeShapes(consumer);
+  }
+
   override getDependencies(): SceneObject[] {
     return [this.sourceSelection];
   }

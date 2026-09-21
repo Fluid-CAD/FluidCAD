@@ -16,6 +16,7 @@ import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
 import { Point, PointLike } from "../math/point.js";
+import { AnchoredLazyVertex } from "./anchored-vertex.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { PointResolver } from "./point-resolver.js";
 
@@ -184,6 +185,13 @@ export class Loft extends ExtrudeBase implements ILoft {
     }
     for (const guide of this._guides) {
       guide.removeShapes(this);
+    }
+    // Connection points were resolved with the options above; the selections
+    // they are anchored to (`sel.end()`) served only to locate them.
+    for (const point of this._connections.flat()) {
+      if (point instanceof AnchoredLazyVertex) {
+        point.consumeFor(this);
+      }
     }
 
     // Classify faces into start/end/side using profile planes

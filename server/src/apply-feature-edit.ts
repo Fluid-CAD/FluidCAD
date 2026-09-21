@@ -34,6 +34,8 @@ import { renderSolvedTarget, type SketchExportRequest, type SolvedEmissionTarget
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
 import { RemoveFeature, type RemoveFeatureSpec } from './remove-feature.ts';
+import { OrphanedSelections } from './orphaned-selections.ts';
+import { SelectHoist } from './select-hoist.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 import { applyAssemblyConnectorEdit, type AssemblyConnectorEditSpec } from './assembly-connector-edit.ts';
@@ -1509,8 +1511,23 @@ type ProducerBinding = {
  *
  * Pure string-in/string-out; returns `{ newCode: code, error }` and changes
  * nothing when the edit cannot be applied safely.
+ *
+ * Whatever the edit was, the `select()` declarations it left without a
+ * reference go with it (a deleted loft's connection selections, a re-picked
+ * projection's old source) — see {@link OrphanedSelections}.
  */
 export async function applyFeatureEdit(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const result = await applyFeatureEditTransform(code, spec);
+  if (result.error) {
+    return result;
+  }
+  return { ...result, newCode: await OrphanedSelections.sweep(code, result.newCode) };
+}
+
+async function applyFeatureEditTransform(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
@@ -1519,7 +1536,7 @@ export async function applyFeatureEdit(
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
-    const result = await applyFeatureEdit(staged.code, staged.spec);
+    const result = await applyFeatureEditTransform(staged.code, staged.spec);
     return result.error ? { newCode: code, error: result.error } : result;
   }
 
@@ -2072,6 +2089,13 @@ async function applyCreateEdit(
 
   type Edit = { index: number; text: string };
   const hoistEdits: Edit[] = [];
+  // Selections that would run after the feature they feed (a loft
+  // connection's, inside `.connect(…)`) become declarations directly before
+  // the statement.
+  const selectDecls: string[] = [];
+  const usedNames = SelectHoist.usedNames(
+    tree, [...bindings.map(b => b.varName), ...(spec.newVariables ?? []).map(v => v?.name)],
+  );
   // A projection's global `select(…)` arguments must run OUTSIDE the sketch
   // body — select captures whatever container it executes in, so from inside
   // the sketch callback it resolves against the sketch's own scope and the
@@ -2089,12 +2113,13 @@ async function applyCreateEdit(
       // Nothing bound to read the style off — follow the sketch statement.
       useSemicolon = sketchStatement.text.trimEnd().endsWith(';');
     }
-    const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
-    if ('error' in hoisted) {
-      return { newCode: code, error: hoisted.error };
-    }
+    const hoisted = await SelectHoist.extract(statementText, 'all', usedNames, useSemicolon);
     statementText = hoisted.statement;
-    hoistEdits.push(...hoisted.edits);
+    hoistEdits.push(...declarationsBefore(sketchStatement, hoisted.decls, lines));
+  } else {
+    const hoisted = await SelectHoist.extract(statementText, 'late', usedNames, useSemicolon);
+    statementText = hoisted.statement;
+    selectDecls.push(...hoisted.decls);
   }
 
   // Declarations a dialog expression field committed land directly before
@@ -2105,7 +2130,7 @@ async function applyCreateEdit(
   if ('error' in declsResult) {
     return { newCode: code, error: declsResult.error };
   }
-  const block = [...declsResult.decls, statementText + (useSemicolon ? ';' : '')]
+  const block = [...declsResult.decls, ...selectDecls, statementText + (useSemicolon ? ';' : '')]
     .join(`\n${insertion.indent}`);
   const enclosingPart = findEnclosingPart(tree, rowOfIndex(code, insertion.index));
   const partLine = enclosingPart ? enclosingPart.call.startPosition.row + 1 : null;
@@ -5041,91 +5066,16 @@ export function resolvePartBodyInsertion(
 }
 
 /**
- * Lift the global `select(…)` arguments of a freshly built `project(…)`
- * statement out of the sketch body. `select()` registers a scene-wide query
- * against the container it runs in, so called from inside the sketch callback
- * it captures the sketch's own (empty of solids) scope and resolves to
- * nothing — the projection silently drops. Each `select(…)` call is moved to
- * a `const` on the line before the sketch statement (where it sees the whole
- * model, like every other selection) and referenced by name inside project().
- *
- * Producer-accessor arguments (`box.sideFaces(0)`) stay inline: they only read
- * a producer already declared above the sketch, registering nothing. Returns
- * the (possibly rewritten) statement plus the declaration edits to apply.
- * `sketchStatement` is the statement of the sketch() call the projection
- * lands in (create mode) or already lives in (edit mode) — the declarations
- * go on the line before it.
+ * The insertion that lands `decls` (from {@link SelectHoist}) on the lines
+ * before `anchor`, at its indent — the sketch statement for a projection's
+ * selections, the feature statement itself for a chained call's.
  */
-async function hoistProjectSelects(
-  statementText: string,
-  bindings: ProducerBinding[],
-  tree: TSTree,
-  lines: string[],
-  sketchStatement: TSNode,
-  useSemicolon: boolean,
-): Promise<{ statement: string; edits: { index: number; text: string }[] } | { error: string }> {
-  const parser = await getJavaScriptParser();
-  // `project(<args>)` is itself a valid call expression — parse it directly to
-  // find the select() calls among its arguments.
-  const stmtTree = parser.parse(statementText);
-  const selects: TSNode[] = [];
-  for (const node of walkTree(stmtTree.rootNode)) {
-    if (node.type === 'call_expression') {
-      const fn = node.childForFieldName('function');
-      if (fn && fn.type === 'identifier' && fn.text === 'select') {
-        selects.push(node);
-      }
-    }
+function declarationsBefore(anchor: TSNode, decls: string[], lines: string[]): { index: number; text: string }[] {
+  if (decls.length === 0) {
+    return [];
   }
-  if (selects.length === 0) {
-    return { statement: statementText, edits: [] };
-  }
-
-  // The declarations go on the line before the sketch statement, at its
-  // indent.
-  const sketchIndent = indentOf(lines, sketchStatement.startPosition.row);
-
-  // Names already taken: every identifier in the file plus the producer
-  // variables this same edit is about to introduce.
-  const used = new Set<string>();
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type === 'identifier' || node.type === 'property_identifier'
-      || node.type === 'shorthand_property_identifier') {
-      used.add(node.text);
-    }
-  }
-  for (const binding of bindings) {
-    if (binding.varName) {
-      used.add(binding.varName);
-    }
-  }
-
-  // Name each select() in source order (stable `sel`, `sel2`, … numbering),
-  // then splice the statement descending so earlier spans keep their offsets.
-  const inSourceOrder = [...selects].sort((a, b) => a.startIndex - b.startIndex);
-  const nameByNode = new Map<TSNode, string>();
-  for (const node of inSourceOrder) {
-    let name = 'sel';
-    let suffix = 1;
-    while (used.has(name)) {
-      suffix++;
-      name = `sel${suffix}`;
-    }
-    used.add(name);
-    nameByNode.set(node, name);
-  }
-
-  let statement = statementText;
-  for (const node of [...selects].sort((a, b) => b.startIndex - a.startIndex)) {
-    statement = spliceCode(statement, node.startIndex, node.endIndex, nameByNode.get(node)!);
-  }
-  const decls = inSourceOrder
-    .map(node => `const ${nameByNode.get(node)} = ${node.text}${useSemicolon ? ';' : ''}`)
-    .join(`\n${sketchIndent}`);
-  return {
-    statement,
-    edits: [{ index: sketchStatement.startIndex, text: `${decls}\n${sketchIndent}` }],
-  };
+  const indent = indentOf(lines, anchor.startPosition.row);
+  return [{ index: anchor.startIndex, text: decls.map(decl => `${decl}\n${indent}`).join('') }];
 }
 
 /**
@@ -9131,19 +9081,28 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   // from inside the sketch callback it resolves against the sketch's own
   // scope and the projection silently drops. Lift each to a declaration
   // before the sketch, exactly like the create path.
+  // Every other feature lifts the selections that would run after it (a loft
+  // connection's, inside `.connect(…)`) to the lines before its own statement
+  // — kept verbatim text included, which heals a hand-written inline one.
+  const editedStatementNode = enclosingStatement(call) ?? call;
+  const useSemicolon = editedStatementNode.text.trimEnd().endsWith(';');
+  const usedNames = SelectHoist.usedNames(
+    tree, [...bindings.map(b => b.varName), ...(spec.newVariables ?? []).map(v => v?.name)],
+  );
+  let hoistAnchor = editedStatementNode;
   if (chain.parsed.feature === 'project') {
     const sketchStatement = enclosingSketchStatement(call);
     if (!sketchStatement) {
       return { newCode: code, error: `the ${chain.parsed.op}() at line ${edit.line} is not inside a sketch body` };
     }
-    const useSemicolon = (enclosingStatement(call) ?? call).text.trimEnd().endsWith(';');
-    const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
-    if ('error' in hoisted) {
-      return { newCode: code, error: hoisted.error };
-    }
-    statementText = hoisted.statement;
-    edits.push(...hoisted.edits.map(e => ({ start: e.index, end: e.index, text: e.text })));
+    hoistAnchor = sketchStatement;
   }
+  const hoisted = await SelectHoist.extract(
+    statementText, chain.parsed.feature === 'project' ? 'all' : 'late', usedNames, useSemicolon,
+  );
+  statementText = hoisted.statement;
+  edits.push(...declarationsBefore(hoistAnchor, hoisted.decls, lines)
+    .map(e => ({ start: e.index, end: e.index, text: e.text })));
   edits.push({ start: chain.start, end: chain.end, text: statementText });
   for (const binding of bindings) {
     if (binding.needsBinding) {

@@ -5,6 +5,8 @@ import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
 import extrude from "../../core/extrude.js";
 import repeat from "../../core/repeat.js";
+import select from "../../core/select.js";
+import { edge } from "../../filters/index.js";
 import { line } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -67,6 +69,27 @@ describe('loft connections API', () => {
     render();
     expectEdge(result, [new Point(0, 0, 0), new Point(0, 0, 60)]);
     expect(result.serialize().connections).toEqual([[[0, 0, 0], [0, 0, 60]]]);
+  });
+
+  it('connects a selection declared before the loft', () => {
+    const base = sketch('xy', () => testRect(40, 40));
+    const e = extrude(20, base);
+    const top = sketch(plane('xy', { offset: 80 }), () => testRect(40, 40));
+    const sel = select(edge().onPlane('xy', 20).nearest('y'));
+    const result = loft(e.endFaces(), top).connect(sel.start(), top.geometries.b.start()).new() as Loft;
+    render();
+    expect(result.getError()).toBeNull();
+    expect(result.getShapes()).toHaveLength(1);
+  });
+
+  it('reports a selection written inside .connect() as created after the loft', () => {
+    const base = sketch('xy', () => testRect(40, 40));
+    const e = extrude(20, base);
+    const top = sketch(plane('xy', { offset: 80 }), () => testRect(40, 40));
+    const result = loft(e.endFaces(), top)
+      .connect(select(edge().onPlane('xy', 20).nearest('y')).start(), top.geometries.b.start()).new() as Loft;
+    render();
+    expect(result.getError()).toMatch(/loft\(\) uses a select\(\) that runs after it/);
   });
 
   it('connects solid edge anchors to exported sketch points', () => {

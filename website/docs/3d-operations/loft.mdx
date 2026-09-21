@@ -110,6 +110,11 @@ Returning geometry from a sketch callback makes it available through
 code works on offset or tilted planes. You can also connect world coordinates
 such as `[0, 0, 40]` or solid-edge endpoints such as `e.endEdges(0).start()`.
 
+To use a point of a `select(...)`, declare the selection on its own line before
+the loft: `const tip = select(edge().farthest('x'));`, then
+`.connect(tip.end(), ...)`. A selection written inside `.connect(...)` runs
+after `loft(...)` and the loft reports an error.
+
 Connections require closed, planar profiles with one region each. Points must
 be vertices: split a full circle or ellipse into arcs first. Connections work
 with start/end conditions; combining them with guides or thin walls is not yet

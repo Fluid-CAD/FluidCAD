@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RemoveFeature } from '../src/remove-feature.ts';
+import { applyFeatureEdit } from '../src/apply-feature-edit.ts';
 
 const HEADER = `import { sketch, circle, extrude, fillet, shell, plane, part, breakpoint } from "fluidcad/core";\n`
   + `import { diameter } from "fluidcad/constraints";\n`;
@@ -180,5 +181,41 @@ sketch('xy', () => {
 });
 extrude(25);
 `);
+  });
+});
+
+describe('RemoveFeature — orphaned selections', () => {
+  const code = `${HEADER}
+const a = sketch('xy', () => {
+  circle([0, 0], 10);
+});
+const b = sketch(plane('xy', { offset: 40 }), () => {
+  circle([0, 0], 5);
+});
+const keep = select(face());
+const sel = select(edge().farthest('x'));
+const sel2 = select(edge().nearest('x'));
+const l = loft(a, b).connect(sel.end(), sel2.start());
+fillet(2, l.edges(), keep);
+shell(1, sel2);
+`;
+
+  it('does not list the selections a removed feature used as dependants', async () => {
+    const { analysis } = await analyze(code, 'const l = loft');
+    expect(analysis).toEqual({ ok: true, dependents: [{ name: 'fillet', line: lineOf(code, 'fillet(2') }] });
+  });
+
+  it('the cascade takes the selections only the removed statements referenced', async () => {
+    const { spec } = await analyze(code, 'const l = loft');
+    const result = await applyFeatureEdit(code, {
+      feature: 'sketch', filePath: '/ws/model.fluid.js', producers: [], parts: [], imports: [], removeFeature: spec,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('const sel = ');
+    expect(result.newCode).not.toContain('loft(');
+    expect(result.newCode).not.toContain('fillet(');
+    // `keep` lost its only consumer too; `sel2` still feeds the shell.
+    expect(result.newCode).not.toContain('const keep');
+    expect(result.newCode).toContain(`const sel2 = select(edge().nearest('x'));\nshell(1, sel2);`);
   });
 });

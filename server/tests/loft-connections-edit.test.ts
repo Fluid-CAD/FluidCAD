@@ -97,6 +97,56 @@ describe('loft connection source edits', () => {
     expect(result.newCode).toContain('.connect(e.startEdges(0).start(), e.endEdges(2).end())');
   });
 
+  it('declares a global selection point before the loft instead of inside .connect()', async () => {
+    const request = spec();
+    request.imports = ['select', 'edge'];
+    request.loft!.connections = [{ kind: 'points', points: [
+      { kind: 'edge', selector: { producer: null, accessor: 'select', filterArgs: "edge().farthest('x')" }, role: 'end' },
+      { kind: 'edge', selector: { producer: null, accessor: 'select', filterArgs: "edge().nearest('x')" }, role: 'start' },
+    ] }];
+    const result = await applyFeatureEdit(`${CODE}\nconst sel = 1;`, request);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `const sel2 = select(edge().farthest('x'));`,
+      `const sel3 = select(edge().nearest('x'));`,
+      `loft(a, b).connect(sel2.end(), sel3.start());`,
+    ].join('\n'));
+  });
+
+  it('lifts new and kept inline selections on edit, inside the part body the loft lives in', async () => {
+    const original = `loft(a, b).connect(select(edge().farthest('x')).end(), [0, 0, 40])`;
+    const code = `part('P', () => {\n  ${CODE.split('\n').join('\n  ')}\n  ${original};\n});`;
+    const request = edit([{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'points', points: [
+      { kind: 'edge', selector: { producer: null, accessor: 'select', filterArgs: "edge().nearest('x')" }, role: 'start' },
+      { kind: 'verbatim', sourceIndex: 0, pointIndex: 1 },
+    ] }]);
+    request.producers = request.producers.map(producer => ({ ...producer, line: producer.line + 1 }));
+    request.edit!.line = 9;
+    const result = await applyFeatureEdit(code, request);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const sel = select(edge().farthest('x'));`,
+      `  const sel2 = select(edge().nearest('x'));`,
+      `  loft(a, b).connect(sel.end(), [0, 0, 40]).connect(sel2.start(), [0, 0, 40]);`,
+    ].join('\n'));
+  });
+
+  it('removes a connection\'s selection with the connection, and keeps one still in use', async () => {
+    const code = [CODE,
+      `const sel = select(edge().farthest('x'));`,
+      `const sel2 = select(edge().nearest('x'));`,
+      `loft(a, b).connect(sel.end(), [0, 0, 40]).connect(sel2.start(), [0, 0, 40]);`,
+    ].join('\n');
+    const request = edit([{ kind: 'verbatim', sourceIndex: 1 }]);
+    request.edit!.line = 10;
+    const result = await applyFeatureEdit(code, request);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([`import { loft } from 'fluidcad/core';`, CODE,
+      `const sel2 = select(edge().nearest('x'));`,
+      `loft(a, b).connect(sel2.start(), [0, 0, 40]);`,
+    ].join('\n'));
+  });
+
   it('refuses stale consumers without returning staged exports', async () => {
     const code = `${CODE}\nloft(a, b).new();`;
     const request = edit(connections);

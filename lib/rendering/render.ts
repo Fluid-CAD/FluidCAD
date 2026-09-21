@@ -8,6 +8,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { Exposed } from "../features/exposed.js";
+import { SelectSceneObject } from "../features/select.js";
 import type { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { transformMeshes } from "./mesh-transform.js";
@@ -398,6 +399,9 @@ export class SceneRenderer {
     const profiler = new Profiler();
 
     try {
+      // Ahead of validate(): an unresolved late selection would otherwise
+      // surface as its symptom ("guide 1 (select) has no shapes").
+      this.assertSelectionsPrecede(object, scene);
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).
@@ -434,6 +438,42 @@ export class SceneRenderer {
 
     const totalMs = performance.now() - start;
     return { totalMs, profiler };
+  }
+
+  /**
+   * A `select()` registers in the scene where its call runs, and the scene
+   * builds in that order. One written inside a chained call —
+   * `loft(a, b).connect(select(…).end(), …)` — runs after `loft(…)`, so the
+   * feature would build against a selection that has not resolved yet.
+   * Reported as the misordering it is rather than as whatever the feature
+   * trips over reading the empty selection. References reached through
+   * objects outside the scene (lazy accessors, anchored vertices) count.
+   */
+  private assertSelectionsPrecede(object: SceneObject, scene: Scene): void {
+    const position = scene.indexOf(object);
+    if (position < 0 || object.isContainer()) {
+      return;
+    }
+    const seen = new Set<SceneObject>();
+    const pending = [...object.getDependencies()];
+    while (pending.length > 0) {
+      const dependency = pending.pop()!;
+      if (seen.has(dependency)) {
+        continue;
+      }
+      seen.add(dependency);
+      const index = scene.indexOf(dependency);
+      if (index < 0) {
+        pending.push(...dependency.getDependencies());
+        continue;
+      }
+      if (index > position && dependency instanceof SelectSceneObject) {
+        throw new Error(
+          `${object.getType()}() uses a select() that runs after it — a selection written inside a chained call `
+          + `(.connect(select(…)), .guides(select(…))) is created after the feature. Declare it before the statement: const sel = select(…);`,
+        );
+      }
+    }
   }
 
   // Meshing runs outside the object's build scope, so the owning object's

@@ -13,6 +13,7 @@ import {
 } from './code-editor.ts';
 import { removeStatementWithAssemblySweep } from './assembly-delete-sweep.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
+import { OrphanedSelections } from './orphaned-selections.ts';
 
 /**
  * The timeline "Remove" for a statement inside a `sketch()` body:
@@ -28,13 +29,16 @@ import { StatementAnalysis } from './statement-analysis.ts';
  * is the plain removal for a part file.
  */
 export class SketchDeleteSweep extends StatementAnalysis {
-  /** The remove-statement route's entry: sketch sweep, else assembly sweep. */
+  /**
+   * The remove-statement route's entry: sketch sweep, else assembly sweep.
+   * Either way the `select()` declarations only the removed statements
+   * referenced go along (a deleted loft's connection selections, a deleted
+   * projection's hoisted sources).
+   */
   static async removeStatement(code: string, sourceLine: number): Promise<CodeEditResult> {
-    const swept = await SketchDeleteSweep.sweep(code, sourceLine);
-    if (swept !== null) {
-      return swept;
-    }
-    return removeStatementWithAssemblySweep(code, sourceLine);
+    const swept = await SketchDeleteSweep.sweep(code, sourceLine)
+      ?? await removeStatementWithAssemblySweep(code, sourceLine);
+    return { ...swept, newCode: await OrphanedSelections.sweep(code, swept.newCode) };
   }
 
   /** The sweep for a sketch-body statement; null when `sourceLine` is not one. */

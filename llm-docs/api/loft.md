@@ -86,6 +86,16 @@ also pass world coordinates (`[x, y, z]`) or solid-edge endpoints such as
 `e.endEdges(0).start()`. Sketch point references resolve through their own
 planes, including offset and non-XY planes.
 
+A point taken from a `select(...)` needs the selection declared **before** the
+loft statement. Written inside `.connect(...)` it runs after `loft(...)`, and
+the loft reports an error. The same holds for a `select(...)` passed to
+`.guides(...)`:
+
+```js
+const tip = select(edge().farthest('x'));
+loft(a, b).connect(tip.end(), b.geometries.right.start());
+```
+
 Connections require closed, planar profiles with exactly one region each.
 Every point must coincide with a profile vertex; points in the middle of edges
 are refused. A full circle or ellipse has no usable vertex: draw arcs instead.

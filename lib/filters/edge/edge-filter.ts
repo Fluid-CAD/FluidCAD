@@ -14,6 +14,8 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
 import { BelongsToFaceFromSceneObjectFilter, NotBelongsToFaceFromSceneObjectFilter } from "./belongs-to-object.js";
+import { WireMembershipFilter, WireMembershipFromSceneObjectFilter } from "./wire-membership.js";
+import { WireRole } from "../../common/face.js";
 import { FromSceneObjectFilter } from "../from-object.js";
 import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
 import { AbovePlaneFilter, BelowPlaneFilter } from "./above-below.js";
@@ -343,6 +345,69 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     }
     if (filterBuilders.length > 0) {
       this.filters.push(new NotBelongsToFaceFilter(filterBuilders));
+    }
+    return this;
+  }
+
+  /**
+   * Selects edges on the outer loop of a face — the rim of a plate's top
+   * face, leaving its bore rims out; the top rim of a thin loft, leaving the
+   * wall's inner rim out. The face is given as face filters
+   * (`face().onPlane('xy', 80)`) or as a face reference — a bucket accessor
+   * like `lf.endFaces()`, or a select(). A reference is read for its
+   * surface: the face lying on that surface *now* is the one whose loop is
+   * taken, so the selection stays valid when a fillet or a boolean reshaped
+   * the rim after the referenced feature built it. Loop membership is pure
+   * topology — no tolerance, no radius, no length — so it survives dimension
+   * edits.
+   * @param faces - Face filter builders, or a scene object whose faces are the reference.
+   */
+  outerOf(...faces: (FilterBuilderBase<Face> | ISceneObject)[]): this {
+    return this.wireMembership('outer', false, faces);
+  }
+
+  /**
+   * Excludes edges on the outer loop of a face given as face filters or as a
+   * face reference. An edge bounding no such face survives.
+   * @param faces - Face filter builders, or a scene object whose faces are the reference.
+   */
+  notOuterOf(...faces: (FilterBuilderBase<Face> | ISceneObject)[]): this {
+    return this.wireMembership('outer', true, faces);
+  }
+
+  /**
+   * Selects edges on a hole loop of a face — a bore's rim on the plate's top
+   * face, the inner rim of a thin loft's end face. Takes the same face
+   * filters or face reference as `outerOf()`, and reads a reference by its
+   * surface the same way, so the loop is the face's current one. An edge
+   * belongs to two faces, and a bore rim is a hole of the top face but the
+   * outer loop of the bore's wall: the face decides.
+   * @param faces - Face filter builders, or a scene object whose faces are the reference.
+   */
+  holeOf(...faces: (FilterBuilderBase<Face> | ISceneObject)[]): this {
+    return this.wireMembership('hole', false, faces);
+  }
+
+  /**
+   * Excludes edges on a hole loop of a face given as face filters or as a
+   * face reference. An edge bounding no such face survives.
+   * @param faces - Face filter builders, or a scene object whose faces are the reference.
+   */
+  notHoleOf(...faces: (FilterBuilderBase<Face> | ISceneObject)[]): this {
+    return this.wireMembership('hole', true, faces);
+  }
+
+  private wireMembership(role: WireRole, negate: boolean, args: (FilterBuilderBase<Face> | ISceneObject)[]): this {
+    const filterBuilders: FilterBuilderBase<Face>[] = [];
+    for (const arg of args) {
+      if (arg instanceof SceneObject) {
+        this.filters.push(new WireMembershipFromSceneObjectFilter(arg, role, negate));
+      } else {
+        filterBuilders.push(arg as FilterBuilderBase<Face>);
+      }
+    }
+    if (filterBuilders.length > 0) {
+      this.filters.push(new WireMembershipFilter(filterBuilders, role, negate));
     }
     return this;
   }

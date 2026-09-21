@@ -28,6 +28,8 @@ export type EdgeProbe = {
   size: number;
   /** Surface properties of the owning solid's faces this edge bounds. */
   adjacentFaces: FaceProperties[];
+  /** The same faces as wrappers, for loop lookups (`outerOf(ref)` / `holeOf(ref)`). */
+  owningFaces: Face[];
   /** Outer corner, inner corner, or tangent transition within the owning solid. */
   convexity: EdgeConvexity | null;
 };
@@ -47,11 +49,17 @@ export type FaceProbe = {
 export function probeEdge(edge: Edge, ownerSolid: Shape | null): EdgeProbe {
   const props = EdgeProps.getProperties(edge.getShape());
   const adjacentFaces: FaceProperties[] = [];
+  const owningFaces: Face[] = [];
   let convexity: EdgeConvexity | null = null;
   if (ownerSolid instanceof Solid) {
     const index = ownerSolid.getEdgeToFacesIndex();
+    const wrappers = ownerSolid.getFaces();
     for (const raw of TopologyIndex.seekShapes(index, edge.getShape())) {
       adjacentFaces.push(FaceProps.getProperties(raw));
+      const wrapper = wrappers.find(f => f.getShape().IsSame(raw));
+      if (wrapper) {
+        owningFaces.push(wrapper);
+      }
     }
     convexity = EdgeConvexityOps.classify(edge, ownerSolid);
   }
@@ -63,6 +71,7 @@ export function probeEdge(edge: Edge, ownerSolid: Shape | null): EdgeProbe {
     center: ShapeMeasure.centerOfMass(edge),
     size: ShapeMeasure.size(edge),
     adjacentFaces,
+    owningFaces,
     convexity,
   };
 }

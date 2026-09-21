@@ -9,7 +9,14 @@ import { FilterBase, applyFilterStages } from "../filter-base.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { ScopeAwareFilter } from "../scope-injection.js";
 
-abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements ScopeAwareFilter {
+/**
+ * Shared scope lookup for the edge predicates that reason about the faces an
+ * edge bounds: `belongsToFace(face()...)` and the loop predicates
+ * `outerOf` / `holeOf`. The scope index answers "which faces in scope does
+ * this edge bound" through the solids' edge→faces index, plus the extra
+ * faces by `hasEdge`.
+ */
+export abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements ScopeAwareFilter {
   protected scopeSolids: Solid[] = [];
   protected scopeFaces: Face[] = [];
   protected faceByHash: Map<number, Face[]> = new Map();

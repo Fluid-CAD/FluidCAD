@@ -834,8 +834,8 @@ function globalFailureReason(kind: 'edge' | 'face', pool: PickAttribution[]): st
   if (attr.lineage && attr.lineage.classified) {
     const origin = attr.lineage.classified.bucket.feature.getType();
     const mods = [...new Set(attr.lineage.modifiedBy.map(m => m.getType()))].join(', ');
-    return `this ${kind} originates from ${origin}() but was reshaped by ${mods} afterwards, and no `
-      + `geometric filter distinguishes it — select it in code with a geometric filter`;
+    return `these ${kind}s come from ${origin}() and were reshaped by ${mods}, so no ${origin}() accessor `
+      + `names them any more, and no geometric filter distinguishes them — select them in code with a geometric filter`;
   }
   return `no geometric filter distinguishes the picked ${kind}s from the rest of the model — `
     + `select them in code instead`;

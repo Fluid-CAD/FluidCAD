@@ -73,7 +73,9 @@ describe("negated class atoms", () => {
     const result = synthesizeApplyFeature(scene, refs, "fillet", 1);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("fillet(1, select(edge().onPlane(e.endFaces()).arc()))");
+      // The rim is the top face's outer loop — the bore circle is its hole —
+      // so the loop predicate names it alone, no curve class needed.
+      expect(result.preview).toBe("fillet(1, select(edge().outerOf(e.endFaces())))");
     }
   });
 });

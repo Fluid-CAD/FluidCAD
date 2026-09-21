@@ -90,7 +90,9 @@ describe("B-spline rim edges probe by the geometry they stand for", () => {
     const result = synthesizeApplyFeature(scene, refs, "chamfer", 1);
     expect(result.ok, result.ok === false ? result.reason : "").toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("chamfer(1, select(edge().arc().onPlane(lf.endFaces()).largest('radius')))");
+      // The loop isolates more than the plane (the inner rim's arcs share
+      // it), so it opens; `.arc()` closes without a rank predicate.
+      expect(result.preview).toBe("chamfer(1, select(edge().outerOf(lf.endFaces()).arc()))");
     }
   });
 });

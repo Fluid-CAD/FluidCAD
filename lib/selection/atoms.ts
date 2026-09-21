@@ -8,6 +8,7 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
 import { FaceProperties } from "../oc/face-props.js";
+import { FaceQuery } from "../oc/face-query.js";
 import { mmTol } from "../units/tolerance.js";
 import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
@@ -242,6 +243,7 @@ export function instantiateEdgeAtoms(
   if (allowScoped) {
     atoms.push(...convexityAtoms(probes));
     atoms.push(...belongsToFaceAtoms(probes, params));
+    atoms.push(...wireRefAtoms(probes, faceSources));
   }
 
   return atoms;
@@ -551,6 +553,41 @@ function faceRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
       code: `.belongsToFace({{ref}}.${source.accessor}())`,
       addTo: b => b.belongsToFace(source.resolve()),
       weight: 20, constants: 0, needsScope: false,
+      ref: source.feature,
+    });
+  }
+  return atoms;
+}
+
+/**
+ * `outerOf({{ref}}.endFaces())` / `holeOf({{ref}}.endFaces())` atoms: the
+ * loop of a feature's face every picked edge lies on. The loop is read off
+ * the pick's *current* owning face that shares the group's surface — the
+ * as-built group no longer bounds a rim two fillets reshaped, which is the
+ * very case a loop predicate exists for. Constant-free, it ranks just above
+ * the face group it refines (20) and just below the plane reference (21):
+ * induction takes the atom that isolates more, weight only breaking ties,
+ * so the loop wins wherever a plane leaves a bore rim or an inner loop in
+ * (it closes the cover, or eliminates more) and the plainer `onPlane(...)`
+ * keeps a box rim or a lone corner arc, where both isolate equally.
+ */
+function wireRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
+  const atoms: EdgeAtom[] = [];
+  for (const source of sources) {
+    const roles = probes.map(p => {
+      const owner = p.owningFaces.find(face =>
+        source.members.some(m => m.compareTo(face) || FaceQuery.isSameSurface(face, m)));
+      return owner ? owner.wireRoleOf(p.edge.getShape()) ?? undefined : undefined;
+    });
+    const role = sharedString(roles);
+    if (role === null) {
+      continue;
+    }
+    const method = role === 'outer' ? 'outerOf' : 'holeOf';
+    atoms.push({
+      code: `.${method}({{ref}}.${source.accessor}())`,
+      addTo: b => b[method](source.resolve()),
+      weight: 20.5, constants: 0, needsScope: true,
       ref: source.feature,
     });
   }

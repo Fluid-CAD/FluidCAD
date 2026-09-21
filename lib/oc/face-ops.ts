@@ -167,6 +167,16 @@ export class FaceOps {
   }
 
   /**
+   * The face's outer (boundary) wire; every other wire of the face bounds a
+   * hole. Pure topology — no tolerance, no geometry — so it holds under
+   * fillets, booleans and shells alike. The caller owns the returned wire.
+   */
+  static outerWireRaw(face: TopoDS_Face): TopoDS_Wire {
+    const oc = getOC();
+    return oc.BRepTools.OuterWire(oc.TopoDS.Face(face));
+  }
+
+  /**
    * The axis of a face whose surface is a cylinder or a cone — origin at the
    * surface's own location, direction along its axis — or null for any other
    * surface. The direction carries the surface's raw sign: for an extruded

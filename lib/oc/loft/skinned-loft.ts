@@ -21,12 +21,16 @@ export interface ThinLoftWalls {
 }
 
 /**
- * Loft with vertex connections or start/end conditions. OCC's
- * `BRepOffsetAPI_ThruSections` cannot enforce either constraint, so this
- * path skins the surface itself: profiles
- * become compatible B-spline sections (`SectionCompatibility`), matching pole
- * columns are interpolated along the loft with the end derivatives pinned,
- * and the resulting surface is capped and sewn into a solid (`Skinning`).
+ * The loft kernel: profiles become compatible B-spline sections
+ * (`SectionCompatibility`), matching pole columns are interpolated along the
+ * loft — with the end derivatives pinned when a condition asks for it — and
+ * the resulting surface is capped and sewn into a solid (`Skinning`).
+ *
+ * Every loft runs here, plain ones included, so the topology (cap edges cut
+ * from the section curve, walls split at profile creases) is the same
+ * whether or not a loft carries connections or conditions; OCC's
+ * `BRepOffsetAPI_ThruSections` can enforce neither, and switching kernels
+ * per option changed the result's edges and faces along with its shape.
  *
  * Conditions:
  * - `normal`: the surface leaves the profile along the profile's plane
@@ -35,32 +39,32 @@ export interface ThinLoftWalls {
  *   directed outward — profiles become tangency planes (e.g. a barrel from
  *   two stacked circles). Negative magnitudes direct it inward.
  */
-export class ConstrainedLoft {
+export class SkinnedLoft {
   static build(
     wires: Wire[],
-    startCondition: LoftEndCondition | undefined,
-    endCondition: LoftEndCondition | undefined,
+    startCondition?: LoftEndCondition,
+    endCondition?: LoftEndCondition,
     connections?: Point[][],
   ): Solid[] {
-    const compatible = ConstrainedLoft.skinWires(wires, connections);
+    const compatible = SkinnedLoft.skinWires(wires, connections);
     const skinned = Skinning.skinSections(compatible, startCondition, endCondition);
     return [Skinning.buildLoftSolid(compatible, skinned.grid, skinned.vBasis)];
   }
 
   /**
-   * Thin-walled conditioned loft, assembled directly: outer wall, inner
-   * wall, and two planar ring caps sewn into one solid. Cutting the inner
-   * loft out of the outer with a boolean instead takes OCC seconds — two
-   * nearly-parallel B-spline shells are the pave-filler's worst case — and
-   * the walls are already exact offsets, so no boolean is needed.
+   * Thin-walled loft, assembled directly: outer wall, inner wall, and two
+   * planar ring caps sewn into one solid. Cutting the inner loft out of the
+   * outer with a boolean instead takes OCC seconds — two nearly-parallel
+   * B-spline shells are the pave-filler's worst case — and the walls are
+   * already exact offsets, so no boolean is needed.
    *
    * Connections are stated on the profiles; each wall receives its own
    * image of every connection vertex (`ThinConnections`).
    */
   static buildThin(
     walls: ThinLoftWalls[],
-    startCondition: LoftEndCondition | undefined,
-    endCondition: LoftEndCondition | undefined,
+    startCondition?: LoftEndCondition,
+    endCondition?: LoftEndCondition,
     connections?: Point[][],
   ): Solid[] {
     const rebuilt: Wire[] = [];
@@ -78,16 +82,16 @@ export class ConstrainedLoft {
       };
       const outerWall = wall('outer');
       const innerWall = wall('inner');
-      const outer = ConstrainedLoft.skinWires(outerWall.wires, outerWall.connections);
-      const inner = ConstrainedLoft.skinWires(innerWall.wires, innerWall.connections);
+      const outer = SkinnedLoft.skinWires(outerWall.wires, outerWall.connections);
+      const inner = SkinnedLoft.skinWires(innerWall.wires, innerWall.connections);
       const outerSkin = Skinning.skinSections(outer, startCondition, endCondition);
       const innerSkin = Skinning.skinSections(inner, startCondition, endCondition);
 
       const faces = [
         ...Skinning.sideFaces(outer, outerSkin.grid, outerSkin.vBasis),
         ...Skinning.sideFaces(inner, innerSkin.grid, innerSkin.vBasis),
-        ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, false),
-        ConstrainedLoft.ringCap(outer, outerSkin, inner, innerSkin, true),
+        SkinnedLoft.ringCap(outer, outerSkin, inner, innerSkin, false),
+        SkinnedLoft.ringCap(outer, outerSkin, inner, innerSkin, true),
       ];
       return [Skinning.sewSolid(faces)];
     } finally {
@@ -102,9 +106,9 @@ export class ConstrainedLoft {
       const pins = ConnectionResolver.resolve(wires, connections);
       return SectionCompatibility.build(wires.map(wire => wire.getShape()), pins);
     }
-    for (const wire of wires) {
+    for (const [k, wire] of wires.entries()) {
       if (!wire.isClosed()) {
-        throw new Error("Loft with start/end conditions requires closed profiles.");
+        throw new Error(`Loft requires closed profiles; profile ${k + 1} is open.`);
       }
     }
     return SectionCompatibility.build(wires.map(w => w.getShape()));

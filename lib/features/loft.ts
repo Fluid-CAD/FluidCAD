@@ -6,7 +6,6 @@ import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { FaceOps } from "../oc/face-ops.js";
-import { BooleanOps } from "../oc/boolean-ops.js";
 import { Plane } from "../math/plane.js";
 import { ILoft, LoftConditionType } from "../core/interfaces.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
@@ -60,8 +59,8 @@ export class Loft extends ExtrudeBase implements ILoft {
 
   /**
    * Adds side guide curves the loft surface must follow. FluidCAD supports
-   * one or two guides (the underlying OCC algorithm has no notion of more);
-   * each guide must pass through every profile.
+   * one or two guides (`GuidedLoft` carries sections onto the rails with a
+   * two-point affine map); each guide must pass through every profile.
    */
   guides(...guides: SceneObject[]): this {
     if (guides.length === 0) {
@@ -258,8 +257,7 @@ export class Loft extends ExtrudeBase implements ILoft {
    * The options for `LoftOps.makeLoft`, with guide objects resolved to wires.
    * A single guide argument may carry several separate curves (e.g. a sketch
    * with a curve and its mirror) — each connected chain counts as one guide.
-   * Returns undefined for a plain loft, keeping the legacy multi-wire path
-   * untouched.
+   * Returns undefined for a plain loft.
    */
   private resolveLoftOptions(): LoftOptions | undefined {
     if (this._guides.length === 0 && !this.hasConditions() && this._connections.length === 0) {
@@ -325,26 +323,14 @@ export class Loft extends ExtrudeBase implements ILoft {
       }
     }
 
-    // With conditions or connections, both walls come from the in-house
-    // skin — assemble the thin solid directly (walls + ring caps). Booleans
-    // between two nearly-parallel B-spline shells take OCC seconds.
-    if (options && walls.length > 0 && walls.length === outerWires.length) {
+    // Closed profiles offset into two walls, assembled directly (walls +
+    // ring caps) — booleans between two nearly-parallel B-spline shells
+    // take OCC seconds. An open profile offsets into a single band, whose
+    // outline is the section.
+    if (walls.length > 0 && walls.length === outerWires.length) {
       return LoftOps.makeThinLoft(walls, options);
     }
-
-    const outerSolids = LoftOps.makeLoft(outerWires, options);
-
-    if (innerWires.length > 0 && innerWires.length === outerWires.length) {
-      const innerSolids = LoftOps.makeLoft(innerWires, options);
-      const outerFuse = BooleanOps.fuse(outerSolids);
-      const innerFuse = BooleanOps.fuse(innerSolids);
-      const cutResult = BooleanOps.cutShapes(outerFuse.result[0], innerFuse.result[0]);
-      outerFuse.dispose();
-      innerFuse.dispose();
-      return [cutResult];
-    }
-
-    return outerSolids;
+    return LoftOps.makeLoft(outerWires, options);
   }
 
   private getProfilePlane(profile: SceneObject): Plane | null {

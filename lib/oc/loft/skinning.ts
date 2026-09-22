@@ -45,8 +45,8 @@ export interface SkinnedGrid {
  * The shared loft-skinning pipeline: interpolates matching pole columns of
  * compatible sections along the loft (optionally with end-derivative
  * constraints) and assembles the resulting `Geom_BSplineSurface` plus exact
- * boundary caps into a sewn solid. Used by `ConstrainedLoft` (conditions)
- * and `GuidedLoft` (virtual sections along rails).
+ * boundary caps into a sewn solid. Used by `SkinnedLoft` (plain lofts,
+ * connections, conditions) and `GuidedLoft` (virtual sections along rails).
  */
 export class Skinning {
   /** 1e-6 mm, in the active unit. */

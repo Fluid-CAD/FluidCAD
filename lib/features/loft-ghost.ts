@@ -3,7 +3,6 @@ import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
-import { BooleanOps } from "../oc/boolean-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { LoftEndCondition, LoftOps, LoftOptions, ThinLoftWalls } from "../oc/loft-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
@@ -89,8 +88,8 @@ function collectSolids(
   solids: Shape[],
   scratch: Shape[],
 ): void {
-  // A loft needs two sections, and OCC's rails come in ones and twos
-  // (loft.ts:103, :112) — the dialog reaches both states while composing.
+  // A loft needs two sections, and rails come in ones and twos
+  // (loft.ts:131) — the dialog reaches both states while composing.
   if (profiles.length < 2 || options.guides.length > 2) {
     return;
   }
@@ -110,20 +109,19 @@ function collectSolids(
     if (sections.length === 0) {
       return;
     }
-    // Rails and end conditions run the in-house skin, which carries exactly
-    // one section per profile (loft.ts:131).
-    if (loftOptions && sections.length !== 1) {
+    // The skin carries exactly one section per profile (loft.ts:164).
+    if (sections.length !== 1) {
       if (options.connections?.length) {
         throw new Error("Loft connections require exactly one region per profile.");
       }
       return;
     }
-    wires.push(...sections);
+    wires.push(sections[0]);
   }
   solids.push(...LoftOps.makeLoft(wires, loftOptions));
 }
 
-/** Undefined for a plain loft, keeping it on OCC's ThruSections path. */
+/** Undefined for a plain loft. */
 function resolveLoftOptions(options: LoftGhostOptions): LoftOptions | undefined {
   if (options.guides.length === 0 && !options.startCondition && !options.endCondition && !options.connections?.length) {
     return undefined;
@@ -216,9 +214,8 @@ function outerWires(faces: Face[], scratch: Shape[]): Wire[] {
 
 /**
  * The thin-walled loft, mirroring `Loft.buildThinLoft`: every profile is
- * offset into a ring, and the rings skin into outer and inner walls. With end
- * conditions both walls come from the in-house skin and assemble directly;
- * without them the inner solid is cut out of the outer one.
+ * offset into a ring, and the rings skin into outer and inner walls that
+ * assemble directly with ring caps.
  *
  * Only sketches offset — a picked face has no edges to run `ThinFaceMaker`
  * over, which is exactly the "Thin loft requires all profiles to be sketches"
@@ -260,29 +257,10 @@ function collectThinSolids(
     return;
   }
 
-  const walled = walls.length > 0 && walls.length === outer.length;
-  if (loftOptions && walled) {
+  if (walls.length > 0 && walls.length === outer.length) {
     solids.push(...LoftOps.makeThinLoft(walls, loftOptions));
     return;
   }
-
-  const outerSolids = LoftOps.makeLoft(outer, loftOptions);
-  if (!walled) {
-    // An open profile offsets into a single band — its skin is the body.
-    solids.push(...outerSolids);
-    return;
-  }
-  scratch.push(...outerSolids);
-  const innerSolids = LoftOps.makeLoft(inner, loftOptions);
-  scratch.push(...innerSolids);
-
-  const outerFuse = BooleanOps.fuse(outerSolids);
-  const innerFuse = BooleanOps.fuse(innerSolids);
-  scratch.push(...outerFuse.result, ...innerFuse.result);
-  outerFuse.dispose();
-  innerFuse.dispose();
-  if (outerFuse.result.length === 0 || innerFuse.result.length === 0) {
-    return;
-  }
-  solids.push(BooleanOps.cutShapes(outerFuse.result[0], innerFuse.result[0]));
+  // An open profile offsets into a single band — its skin is the body.
+  solids.push(...LoftOps.makeLoft(outer, loftOptions));
 }

@@ -647,8 +647,8 @@ export class SectionCompatibility {
    * multiplicity (structurally C0) can. Two kinds of feature boundary count:
    * a tangent kink (a profile corner — turns by degrees, while smooth
    * junctions from concatenation or seam moves turn by ~0), and a curvature
-   * jump (the tangent line→arc junctions of rounded/offset corners — the
-   * legacy loft splits faces there too, and without the split the near-crease
+   * jump (the tangent line→arc junctions of rounded/offset corners — OCC's
+   * ThruSections split faces there too, and without the split the near-crease
    * band renders smeared and offers no edge).
    */
   private static detectCreases(curves: Geom_BSplineCurve[]): number[] {

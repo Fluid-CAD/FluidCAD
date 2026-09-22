@@ -144,8 +144,66 @@ describe("symmetric — entity forms", () => {
     sys.constrain({ kind: "symmetric", a: entityRef(la), b: entityRef(lb), l: entityRef(axis) });
     sys.constrain({ kind: "symmetric", a: entityRef(ca), b: entityRef(cb), l: entityRef(axis) });
     sys.constrain({ kind: "symmetric", a: entityRef(aa), b: entityRef(ab), l: entityRef(axis) });
-    // 4 + 3 + 5 user rows + 2×2 arc-consistency rows.
-    expect(sys.compiled().rows.length).toBe(16);
+    const ea = sys.ellipse(3.3, 6.1, 4.2, 2.1, 0.4);
+    const eb = sys.ellipse(-2.7, 9.8, 3.9, 2.4, 1.9);
+    sys.constrain({ kind: "symmetric", a: entityRef(ea), b: entityRef(eb), l: entityRef(axis) });
+    // 4 + 3 + 5 + 5 user rows + 2×2 arc-consistency rows.
+    expect(sys.compiled().rows.length).toBe(21);
     fdCheckRows(sys, [7, 19, 41], 0.25);
+  });
+
+  it("two ellipses: 5 rows — centers mirror, semi-radii equal, RX axes reflect across a datum axis", () => {
+    const sys = new SketchSystem();
+    sys.ensureDatums();
+    const a = sys.ellipse(20, 5, 8, 3, Math.PI / 2 - 0.3);
+    // A rough image: reflected guess, orientation slightly off.
+    const b = sys.ellipse(-19, 6, 7, 3.5, Math.PI / 2 + 0.4);
+    sys.constrain({ kind: "symmetric", a: entityRef(a), b: entityRef(b), l: entityRef(Y_AXIS_ENTITY) });
+    expect(sys.compiled().rows.length).toBe(5);
+    // Pin the source completely; the image must follow it.
+    sys.constrain({ kind: "fix", p: center(a), x: 25, y: 8 });
+    sys.constrain({ kind: "radius", a: entityRef(a), value: 9, axis: "x" });
+    sys.constrain({ kind: "radius", a: entityRef(a), value: 4, axis: "y" });
+    sys.constrain({ kind: "vertical", a: entityRef(a) });
+    const outcome = solve(sys);
+    expect(outcome.outcome).toBe("solved");
+    const oa = sys.entity(a).paramOffset;
+    const ob = sys.entity(b).paramOffset;
+    const thetaA = sys.values[oa + 4];
+    expect(sys.values[ob]).toBeCloseTo(-25, 6);
+    expect(sys.values[ob + 1]).toBeCloseTo(8, 6);
+    expect(sys.values[ob + 2]).toBeCloseTo(9, 6);
+    expect(sys.values[ob + 3]).toBeCloseTo(4, 6);
+    // Reflection across x = 0 (φ = π/2): θb ≡ π − θa (mod π).
+    const wrapped = ((sys.values[ob + 4] + thetaA - Math.PI) / Math.PI);
+    expect(Math.abs(wrapped - Math.round(wrapped))).toBeLessThan(1e-6);
+    expect(diagnose(sys).dof).toBe(0);
+  });
+
+  it("two ellipses across a sketched line: the image's orientation follows the line", () => {
+    const sys = new SketchSystem();
+    sys.ensureDatums();
+    const axis = sys.line(0, 0, 10, 10);
+    const a = sys.ellipse(20, 0, 6, 2, 0);
+    const b = sys.ellipse(0, 20, 6, 2, Math.PI / 2);
+    sys.constrain({ kind: "symmetric", a: entityRef(a), b: entityRef(b), l: entityRef(axis) });
+    sys.constrain({ kind: "fix", p: start(axis) });
+    sys.constrain({ kind: "fix", p: end(axis), x: 10, y: 5 });
+    sys.constrain({ kind: "fix", p: center(a), x: 20, y: 0 });
+    sys.constrain({ kind: "radius", a: entityRef(a), value: 6, axis: "x" });
+    sys.constrain({ kind: "radius", a: entityRef(a), value: 2, axis: "y" });
+    sys.constrain({ kind: "horizontal", a: entityRef(a) });
+    expect(solve(sys).outcome).toBe("solved");
+    const ob = sys.entity(b).paramOffset;
+    const phi = Math.atan2(5, 10);
+    // Reflect (20, 0) across the line through the origin at angle φ.
+    const ux = Math.cos(phi);
+    const uy = Math.sin(phi);
+    const t = 20 * ux;
+    expect(sys.values[ob]).toBeCloseTo(2 * t * ux - 20, 6);
+    expect(sys.values[ob + 1]).toBeCloseTo(2 * t * uy, 6);
+    const wrapped = (sys.values[ob + 4] - 2 * phi) / Math.PI;
+    expect(Math.abs(wrapped - Math.round(wrapped))).toBeLessThan(1e-6);
+    expect(diagnose(sys).dof).toBe(0);
   });
 });

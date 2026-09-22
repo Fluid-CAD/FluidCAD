@@ -219,7 +219,7 @@ const NEED = {
   concentric: 'pick two circles/arcs/ellipses',
   collinear: 'pick two lines',
   midpoint: 'pick a point and a line, or three points',
-  symmetric: 'pick two points, or two lines/arcs/circles of one kind, then their mirror line',
+  symmetric: 'pick two points, or two lines/arcs/circles/ellipses of one kind, then their mirror line',
   fix: 'pick one point',
   dimension: 'pick two points/entities, one line, one circle/arc, or one ellipse',
   angle: 'pick two lines',
@@ -300,9 +300,9 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       if (points.length === 2) {
         return picks.filter(isLine).length === 1;
       }
-      // Entity form: two drawn entities of one kind (lines, arcs, circles),
-      // then the mirror line — the LAST pick, since three lines would
-      // otherwise be ambiguous.
+      // Entity form: two drawn entities of one kind (lines, arcs, circles,
+      // ellipses), then the mirror line — the LAST pick, since three lines
+      // would otherwise be ambiguous.
       if (points.length !== 0) {
         return false;
       }
@@ -310,7 +310,7 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       return isLine(line)
         && first.role === undefined && second.role === undefined
         && first.kind === second.kind
-        && (first.kind === 'line' || first.kind === 'arc' || first.kind === 'circle')
+        && (first.kind === 'line' || first.kind === 'arc' || first.kind === 'circle' || first.kind === 'ellipse')
         && !isAxisPick(first) && !isAxisPick(second)
         && first.entityId !== second.entityId
         && first.entityId !== line.entityId && second.entityId !== line.entityId;

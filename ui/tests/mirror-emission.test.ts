@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildMirrorEmission, mirrorTargetsFor, reflectPoint, type MirrorTarget,
+  buildMirrorEmission, mirrorTargetsFor, reflectAngleDeg, reflectPoint, type MirrorTarget,
 } from '../src/interactive/tools/mirror-emission';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
 import type { SolvedBezierView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
@@ -35,6 +35,10 @@ const arcView: SolvedEntityView = {
 };
 const circleView: SolvedEntityView = {
   entityId: 2, kind: 'circle', obj: obj('c', 7, 'solved-circle'), center: [15, 15], radius: 4,
+};
+const ellipseView: SolvedEntityView = {
+  entityId: 6, kind: 'ellipse', obj: obj('e', 10, 'solved-ellipse'),
+  center: [20, 5], radii: [8, 3], theta: Math.PI / 6,
 };
 const axisView: SolvedEntityView = {
   entityId: 3, kind: 'line', obj: obj('g', 4, 'solved-line', true), start: [0, -10], end: [0, 50],
@@ -71,8 +75,19 @@ describe('reflectPoint', () => {
   });
 });
 
+describe('reflectAngleDeg', () => {
+  it('reflects a direction across the line and normalizes to (-180, 180]', () => {
+    // Across the x axis: θ → −θ; across the y axis: θ → 180 − θ.
+    expect(reflectAngleDeg(Math.PI / 6, [0, 0], [1, 0])).toBeCloseTo(-30, 9);
+    expect(reflectAngleDeg(Math.PI / 6, [0, 0], [0, 1])).toBeCloseTo(150, 9);
+    // Across the 45° diagonal: 30° → 60°.
+    expect(reflectAngleDeg(Math.PI / 6, [0, 0], [1, 1])).toBeCloseTo(60, 9);
+    expect(reflectAngleDeg(0, [0, 0], [-1, 0])).toBe(0);
+  });
+});
+
 describe('buildMirrorEmission', () => {
-  const model = modelOf([lineView, arcView, circleView, axisView, guideLineView]);
+  const model = modelOf([lineView, arcView, circleView, axisView, guideLineView, ellipseView]);
 
   it('emits reflected statements + one symmetric per entity across a datum axis', () => {
     const plan = buildMirrorEmission({
@@ -98,6 +113,22 @@ describe('buildMirrorEmission', () => {
       { kind: 'symmetric', targets: [{ line: 7, featureType: 'circle' }, { newIndex: 2 }, { datum: 'y-axis' }] },
     ]);
     expect(plan.preview).toHaveLength(3);
+  });
+
+  it('mirrors an ellipse: reflected center, same semi-radii, reflected rotation, one symmetric', () => {
+    const plan = buildMirrorEmission({
+      targets: targets(edgePick(ellipseView)),
+      model,
+      axis: { kind: 'datum', axis: 'x' },
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.request.geometry).toEqual([{ kind: 'ellipse', text: 'ellipse([20, -5], 8, 3, -30)' }]);
+    expect(plan.request.constraints).toEqual([
+      { kind: 'symmetric', targets: [{ line: 10, featureType: 'ellipse' }, { newIndex: 0 }, { datum: 'x-axis' }] },
+    ]);
   });
 
   it('mirrors across a picked sketched line and keeps a guide source a guide', () => {

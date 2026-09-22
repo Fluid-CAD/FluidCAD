@@ -362,7 +362,7 @@ export class SketchMirrorService {
       const labels = unresolved.map(shapeId => this.selection.describe(shapeId).label);
       return {
         ok: false,
-        reason: `${labels.join(', ')}: the picked geometry has no solver identity — pick drawn lines, arcs, circles, beziers or points`,
+        reason: `${labels.join(', ')}: the picked geometry has no solver identity — pick drawn lines, arcs, circles, ellipses, beziers or points`,
       };
     }
     const selection = this.panel.axisSelection();

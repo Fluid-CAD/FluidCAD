@@ -14,7 +14,7 @@ import {
 import type { SceneObjectRender } from '../../types';
 import { constraintTargetFor } from '../solved-constraint-toolbar/constraint-targets';
 import {
-  arcText, bezierText, circleText, lineText, newTarget, pointText,
+  arcText, bezierText, circleText, ellipseText, lineText, newTarget, pointText,
   type SolvedConstraintParam, type SolvedEmissionRequest, type SolvedEmissionTargetParam,
   type SolvedGeometryParam,
 } from './solved-emission';
@@ -48,6 +48,18 @@ export type MirrorEmissionError = { ok: false; reason: string };
 
 const fail = (reason: string): MirrorEmissionError => ({ ok: false, reason });
 const p2 = (p: V2): V2 => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100];
+
+/**
+ * An ellipse's RX-axis angle reflected across the line through a and b,
+ * in DEGREES for the statement: a direction at θ reflects to 2φ − θ, φ the
+ * line's angle. Normalized to (−180, 180].
+ */
+export function reflectAngleDeg(thetaRad: number, a: V2, b: V2): number {
+  const phi = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  let deg = ((2 * phi - thetaRad) * 180) / Math.PI;
+  deg = ((deg + 180) % 360 + 360) % 360 - 180;
+  return deg === -180 ? 180 : deg;
+}
 
 /** p reflected across the infinite line through a and b. */
 export function reflectPoint(p: V2, a: V2, b: V2): V2 {
@@ -203,7 +215,7 @@ export function buildMirrorEmission(opts: {
       return fail('the mirror line cannot be mirrored across itself — remove it from Geometry');
     }
     if (pick.anchor !== undefined) {
-      return fail(`the Mirror tool mirrors lines, arcs, circles, beziers and points — a ${pick.anchor.owner} needs mirror() in code`);
+      return fail(`the Mirror tool mirrors lines, arcs, circles, ellipses, beziers and points — a ${pick.anchor.owner} needs mirror() in code`);
     }
     const view = model.entities.get(pick.entityId);
     if (!view) {
@@ -244,18 +256,26 @@ export function buildMirrorEmission(opts: {
         break;
       }
       case 'ellipse': {
-        return fail('the Mirror tool mirrors lines, arcs, circles, beziers and points — an ellipse needs mirror() in code');
+        if (!view.center || !view.radii || view.theta === undefined) {
+          return fail('a picked ellipse has no solved geometry');
+        }
+        // The image keeps the semi-radii and reflects the RX axis; the
+        // rotation is written so the solver's linear orientation row starts
+        // on the right branch.
+        text = ellipseText(reflect(view.center), view.radii[0], view.radii[1], reflectAngleDeg(view.theta, axisA, axisB));
+        break;
       }
     }
     geometry.push({ kind: view.kind, text, ...(guide ? { guide: true } : {}) });
     preview.push(`${text}${guide ? '.guide()' : ''}`);
     // One entity-level symmetric per image: lines mirror both endpoints,
-    // circles their centers + equal radii, arcs centers/starts/end rays —
-    // exact rows, so a mirrored entity never shows up redundant.
+    // circles their centers + equal radii, arcs centers/starts/end rays,
+    // ellipses centers + equal semi-radii + reflected RX axes — exact rows,
+    // so a mirrored entity never shows up redundant.
     constraints.push({ kind: 'symmetric', targets: [source, newTarget(k), axisTarget] });
   }
   if (geometry.length === 0) {
-    return fail('pick sketch edges to mirror — lines, arcs, circles, beziers or points');
+    return fail('pick sketch edges to mirror — lines, arcs, circles, ellipses, beziers or points');
   }
   return {
     ok: true,

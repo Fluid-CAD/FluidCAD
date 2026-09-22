@@ -127,7 +127,8 @@ export type ConstraintSpec =
   /** Point p sits halfway between points a and b (2). Same rows as the
    * line form with a/b standing in for the line's endpoints. */
   | { kind: 'midpoint'; p: SolverRef; a: SolverRef; b: SolverRef }
-  /** Points a and b mirror across line l (2). */
+  /** Points a and b mirror across line l (2); or two entities of one kind
+   * — lines (4), circles (3), arcs (5), ellipses (5). */
   | { kind: 'symmetric'; a: SolverRef; b: SolverRef; l: SolverRef }
   /**
    * Anchor a point at (x, y) (2). When x/y are omitted at constrain()

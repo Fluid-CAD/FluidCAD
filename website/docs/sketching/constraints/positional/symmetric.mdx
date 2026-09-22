@@ -10,11 +10,11 @@ import constraintSymmetric from '!!raw-loader!../../_examples/constraint-symmetr
 
 # Symmetric
 
-`symmetric` mirrors two points across a line: they end up the same distance from it on opposite sides, on a line perpendicular to it. It also mirrors two whole entities of one kind — two lines, two arcs, two circles — which is what the sketch [Mirror](/docs/sketching/tools/mirror) tool writes, one statement per mirrored entity. It is how one dimension drives both halves of a symmetric profile.
+`symmetric` mirrors two points across a line: they end up the same distance from it on opposite sides, on a line perpendicular to it. It also mirrors two whole entities of one kind — two lines, two arcs, two circles, two ellipses — which is what the sketch [Mirror](/docs/sketching/tools/mirror) tool writes, one statement per mirrored entity. It is how one dimension drives both halves of a symmetric profile.
 
 ## In the viewport
 
-1. Click the two points — or two lines, two arcs, or two circles — then the mirror line: a datum axis, or any sketched line (a `.guide()` centreline is the usual choice). The mirror line is always the last pick.
+1. Click the two points — or two lines, two arcs, two circles, or two ellipses — then the mirror line: a datum axis, or any sketched line (a `.guide()` centreline is the usual choice). The mirror line is always the last pick.
 2. Click **Symmetric**. Both points (or both entities) get an `S` badge.
 
 <UiFigure
@@ -41,9 +41,10 @@ symmetric(a, b, yAxis())         // ... across a datum axis
 symmetric(l1, l2, yAxis())       // two lines: both endpoints mirror (4 DOF)
 symmetric(c1, c2, yAxis())       // two circles: centers mirror, equal radii (3 DOF)
 symmetric(a1, a2, l)             // two arcs: centers and starts mirror, ends reflect (5 DOF)
+symmetric(el1, el2, l)           // two ellipses: centers mirror, equal semi-radii, RX axes reflect (5 DOF)
 ```
 
-`a` and `b` are points (line ends, centers, `point()`s) or two entities of the same kind; `l` is a line or an axis datum. The arc form removes exactly the arc's free dimensions, so a mirrored semicircle stays solvable and never reads as redundant. To mirror several entities at once, draw one half and use the sketch [Mirror](/docs/sketching/tools/mirror) tool — it writes one of these statements per entity.
+`a` and `b` are points (line ends, centers, `point()`s) or two entities of the same kind; `l` is a line or an axis datum. The arc and ellipse forms remove exactly the entity's free dimensions, so a mirrored semicircle stays solvable and never reads as redundant, and a mirrored ellipse turns with its source. To mirror several entities at once, draw one half and use the sketch [Mirror](/docs/sketching/tools/mirror) tool — it writes one of these statements per entity.
 
 ## See also
 

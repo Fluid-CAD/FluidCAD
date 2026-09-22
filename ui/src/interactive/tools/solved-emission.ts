@@ -94,17 +94,21 @@ export function circleText(
   return `circle(${solvedPointText(center)}, ${dia})`;
 }
 
-/** `ellipse(center, rx, ry)` — the semi-radii are literals (or typed
- * expressions) the solver never resizes; the center and rotation solve
- * (the tool draws axis-aligned, so no rotation argument is written). */
+/** `ellipse(center, rx, ry[, rotation])` — the semi-radii and the
+ * rotation (DEGREES of the RX axis from the sketch x direction) are the
+ * statement's guesses; the solver moves all of them. The Ellipse tool draws
+ * axis-aligned and writes no rotation; the Mirror tool writes the
+ * reflected one. */
 export function ellipseText(
   center: [number, number] | PickedPoint,
   rxExpr: string | number,
   ryExpr: string | number,
+  rotationDeg?: number,
 ): string {
   const rx = typeof rxExpr === 'number' ? fmt(rxExpr) : rxExpr;
   const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
-  return `ellipse(${solvedPointText(center)}, ${rx}, ${ry})`;
+  const rotation = rotationDeg !== undefined ? `, ${fmt(rotationDeg)}` : '';
+  return `ellipse(${solvedPointText(center)}, ${rx}, ${ry}${rotation})`;
 }
 
 export function pointText(p: [number, number] | PickedPoint): string {

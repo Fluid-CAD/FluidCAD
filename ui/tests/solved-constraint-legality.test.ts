@@ -155,7 +155,11 @@ describe('constraintOptions', () => {
     // The mirror line must be the LAST pick; two lines + an axis works too.
     expect(enabledIds([lineA, lineB, xAxis]).includes('symmetric')).toBe(true);
     expect(enabledIds([circleC, circleF, lineA]).includes('symmetric')).toBe(true);
+    const ellipseG: SolvedPick = { entityId: 7, kind: 'ellipse', sourceLocation: loc(12) };
+    const ellipseH: SolvedPick = { entityId: 8, kind: 'ellipse', sourceLocation: loc(13) };
+    expect(enabledIds([ellipseG, ellipseH, xAxis]).includes('symmetric')).toBe(true);
     // Mixed kinds, a point among entities, or the axis as an entity: no.
+    expect(enabledIds([ellipseG, circleC, lineA]).includes('symmetric')).toBe(false);
     expect(enabledIds([lineA, circleC, lineB]).includes('symmetric')).toBe(false);
     expect(enabledIds([lineA, endA, lineB]).includes('symmetric')).toBe(false);
     expect(enabledIds([xAxis, lineA, lineB]).includes('symmetric')).toBe(false);

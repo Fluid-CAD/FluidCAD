@@ -102,11 +102,33 @@ export type SolvedConstraintView = {
   status: ConstraintStatus;
 };
 
+/** The solver point a bezier control point rides: an anchor entity (no
+ * role — the entity IS the point) or another entity's named point. Null
+ * when the argument carries no solver identity (a foreign vertex). */
+export type BezierControlSource = { entityId: number; role: 'start' | 'end' | 'center' | 'mid' | null } | null;
+
+/**
+ * A bezier statement of a solved sketch (P8): not an entity itself but a
+ * rigid function of its control points, which are solver points — its own
+ * anchor entities for literal arguments, other entities' points for
+ * accessor-valued ones. The live drag redraws the curve and its handles
+ * from `sources` every frame; `points` is the payload's resolved control
+ * polygon (statement-time truth, and the fallback for a point without a
+ * solver source).
+ */
+export type SolvedBezierView = {
+  obj: SceneObjectRender;
+  points: [number, number][];
+  sources: BezierControlSource[];
+};
+
 export type SolvedSketchModel = {
   sketch: SceneObjectRender;
   plane: PlaneData;
   solver: SketchSolverSystem | null;
   entities: Map<number, SolvedEntityView>;
+  /** Bezier statements by scene object id — see {@link SolvedBezierView}. */
+  beziers: Map<string, SolvedBezierView>;
   constraints: SolvedConstraintView[];
   /** True when the snapshot carries the implicit datum entities (origin +
    * axes, reserved negative ids). Datums stay OUT of `entities` — they have
@@ -220,6 +242,60 @@ function referenceEntityView(
   return view;
 }
 
+/** The bezier payload's resolved control polygon (`startPoint` +
+ * `resolvedPoints`) and per-point solver sources (`controlSources`, absent
+ * when no point has a solver identity). */
+function bezierView(obj: SceneObjectRender): SolvedBezierView | null {
+  const start = obj.object?.startPoint;
+  const rest = obj.object?.resolvedPoints;
+  const points: [number, number][] = [];
+  if (Array.isArray(start) && start.length === 2) {
+    points.push([start[0], start[1]]);
+  }
+  if (Array.isArray(rest)) {
+    for (const p of rest) {
+      if (Array.isArray(p) && p.length === 2) {
+        points.push([p[0], p[1]]);
+      }
+    }
+  }
+  if (points.length === 0) {
+    return null;
+  }
+  const raw = Array.isArray(obj.object?.controlSources) ? obj.object.controlSources : [];
+  const sources: BezierControlSource[] = points.map((_, i) => {
+    const source = raw[i];
+    return source && typeof source.entityId === 'number'
+      ? { entityId: source.entityId, role: source.role ?? null }
+      : null;
+  });
+  return { obj, points, sources };
+}
+
+/**
+ * A bezier's control points as the model currently holds them: each solver
+ * source read off its entity view (the live drag mutates those in place),
+ * the payload position for a point without one.
+ */
+export function bezierControlPoints(model: SolvedSketchModel, view: SolvedBezierView): [number, number][] {
+  return view.points.map((fallback, i) => {
+    const source = view.sources[i];
+    const entity = source ? model.entities.get(source.entityId) : undefined;
+    if (!entity) {
+      return fallback;
+    }
+    const role = source!.role;
+    const at = role === null ? entity.point
+      : role === 'start' ? entity.start
+        : role === 'end' ? entity.end
+          : role === 'center' ? entity.center
+            : entity.start && entity.end
+              ? [(entity.start[0] + entity.end[0]) / 2, (entity.start[1] + entity.end[1]) / 2] as [number, number]
+              : undefined;
+    return at ?? fallback;
+  });
+}
+
 export function isSolvedSketch(obj: SceneObjectRender | null | undefined): boolean {
   return obj?.type === 'sketch' && obj.object?.solvedMode === true;
 }
@@ -328,6 +404,7 @@ export function buildSolvedSketchModel(
   const redundantIds = new Set<number>(solver?.redundant ?? []);
 
   const entities = new Map<number, SolvedEntityView>();
+  const beziers = new Map<string, SolvedBezierView>();
   const constraints: SolvedConstraintView[] = [];
   const referenceProducers = new Map<string, number[]>();
   const derivedProducers = new Map<string, number[]>();
@@ -335,6 +412,16 @@ export function buildSolvedSketchModel(
   for (const obj of allObjects) {
     if (obj.parentId !== sketch.id) {
       continue;
+    }
+
+    // Every bezier statement joins as a derived curve (its control points
+    // join as entities below when literal) — a one-point placeholder
+    // included, so the drawing tool's first dot renders like a handle.
+    if (obj.id && obj.uniqueType?.startsWith('bezier-')) {
+      const view = bezierView(obj);
+      if (view) {
+        beziers.set(obj.id, view);
+      }
     }
 
     const entityKind = ENTITY_KINDS[obj.uniqueType ?? ''];
@@ -513,6 +600,7 @@ export function buildSolvedSketchModel(
     plane: sketch.object.plane as PlaneData,
     solver,
     entities,
+    beziers,
     constraints,
     hasDatums: solver?.entities.some(e => e.id < 0) ?? false,
     conflictingEntityIds,

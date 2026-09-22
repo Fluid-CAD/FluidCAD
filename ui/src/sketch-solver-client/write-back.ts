@@ -55,7 +55,10 @@ export function buildPositionWriteBack(
   model: SolvedSketchModel,
   read: (entityId: number) => LiveEntityGeometry | null,
 ): { edits: SketchPositionEditParam[]; filePath?: string } {
-  const edits: SketchPositionEditParam[] = [];
+  // One edit per STATEMENT, keyed by source line: a bezier's control points
+  // are separate anchor entities that all address the same statement, and
+  // the server refuses a batch that names a line twice.
+  const editsByLine = new Map<number, SketchPositionEditParam>();
   let filePath: string | undefined;
 
   for (const [entityId, view] of model.entities) {
@@ -133,10 +136,33 @@ export function buildPositionWriteBack(
     }
 
     if (edit.points || edit.scalar || edit.radii || edit.rotation) {
-      edits.push(edit);
+      mergeEdit(editsByLine, edit);
       filePath = filePath ?? loc.filePath;
     }
   }
 
-  return { edits, filePath };
+  return { edits: [...editsByLine.values()], filePath };
+}
+
+/** Fold `edit` into the statement edit already collected for its line, if
+ * any: point edits append (distinct chain-point indices per entity), the
+ * scalar slots are owned by a single entity each and simply carry over. */
+function mergeEdit(editsByLine: Map<number, SketchPositionEditParam>, edit: SketchPositionEditParam): void {
+  const existing = editsByLine.get(edit.sourceLine);
+  if (!existing) {
+    editsByLine.set(edit.sourceLine, edit);
+    return;
+  }
+  if (edit.points) {
+    existing.points = [...(existing.points ?? []), ...edit.points];
+  }
+  if (edit.scalar) {
+    existing.scalar = edit.scalar;
+  }
+  if (edit.radii) {
+    existing.radii = edit.radii;
+  }
+  if (edit.rotation) {
+    existing.rotation = edit.rotation;
+  }
 }

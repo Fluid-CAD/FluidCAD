@@ -26,6 +26,7 @@ function modelWith(entities: SolvedEntityView[]): SolvedSketchModel {
     plane: {} as any,
     solver: null,
     entities: new Map(entities.map(e => [e.entityId, e])),
+    beziers: new Map(),
     constraints: [],
     hasDatums: false,
     conflictingEntityIds: new Set(),
@@ -138,6 +139,31 @@ describe('buildPositionWriteBack', () => {
     const { edits } = buildPositionWriteBack(model, id => live[id]);
     expect(edits).toEqual([
       { sourceLine: 4, points: [{ pointIndex: 2, position: [104, 2], expected: [100, 0] }] },
+    ]);
+  });
+
+  it('merges the drifted control points of one bezier into a single edit for its line', () => {
+    // bezier([-17.61, 58.37], [-15, 30], [-35, 20], [-35.84, 3.8]) — four
+    // anchor entities, one statement. A drag that moves several of them
+    // must not name the line twice (the server refuses duplicate lines).
+    const model = modelWith([
+      view(0, 'point', { point: [-17.61, 58.37], guess: { point: [-17.61, 58.37] }, anchor: { owner: 'bezier', pointIndex: 0 } }, 19),
+      view(1, 'point', { point: [-15, 30], guess: { point: [-15, 30] }, anchor: { owner: 'bezier', pointIndex: 1 } }, 19),
+      view(2, 'point', { point: [-35, 20], guess: { point: [-35, 20] }, anchor: { owner: 'bezier', pointIndex: 2 } }, 19),
+      view(3, 'point', { point: [-35.84, 3.8], guess: { point: [-35.84, 3.8] }, anchor: { owner: 'bezier', pointIndex: 3 } }, 19),
+    ]);
+    const live: Record<number, LiveEntityGeometry> = {
+      0: { kind: 'point', point: [-17.61, 58.37] },
+      1: { kind: 'point', point: [-12, 33] },
+      2: { kind: 'point', point: [-35, 20] },
+      3: { kind: 'point', point: [-30, 5] },
+    };
+    const { edits } = buildPositionWriteBack(model, id => live[id]);
+    expect(edits).toEqual([
+      { sourceLine: 19, points: [
+        { pointIndex: 1, position: [-12, 33], expected: [-15, 30] },
+        { pointIndex: 3, position: [-30, 5], expected: [-35.84, 3.8] },
+      ] },
     ]);
   });
 

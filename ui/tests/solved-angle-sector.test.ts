@@ -21,6 +21,7 @@ function makeModel(entities: [number, SolvedEntityView][]): SolvedSketchModel {
     solver: null,
     hasDatums: true,
     entities: new Map(entities),
+    beziers: new Map(),
     constraints: [],
     conflictingEntityIds: new Set(),
     constrainedEntityIds: new Set(),

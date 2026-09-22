@@ -4,8 +4,13 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { StatementAnchors, AnchorPointRef } from "./solved/anchors.js";
 import { SolvedPointRef } from "./solved/refs.js";
+import type { SolvedPointRole } from "./solved/solved-base.js";
 import { sourceEntitiesPayload, type SourceEntitiesRecord } from "./solved/source-entities.js";
 import type { Sketch } from "./sketch.js";
+
+/** The solver point a bezier control point rides — see
+ * {@link BezierCurve.controlSources}. */
+export type ControlPointSource = { entityId: number; role: SolvedPointRole | null } | null;
 
 export class BezierCurve extends GeometrySceneObject {
 
@@ -107,6 +112,32 @@ export class BezierCurve extends GeometrySceneObject {
     return { ids: [...ids].sort((a, b) => a - b), allSolved };
   }
 
+  /**
+   * The solver point each control point rides, in control-point order —
+   * what the UI's live drag redraws the curve from between renders: a
+   * literal's own anchor entity (no role), an accessor-valued argument's
+   * owner entity + point role, or null for a point with no solver identity.
+   */
+  controlSources(): ControlPointSource[] {
+    return this.controlPoints.map((cp, i) => {
+      const anchorIndex = this.anchorIndexOf.get(i);
+      if (anchorIndex !== undefined) {
+        return this.anchors.registered ? { entityId: this.anchors.entityId(anchorIndex), role: null } : null;
+      }
+      if (cp instanceof SolvedPointRef) {
+        return cp.owner.entityId >= 0 ? { entityId: cp.owner.entityId, role: cp.role } : null;
+      }
+      if (cp instanceof AnchorPointRef) {
+        try {
+          return { entityId: cp.entityId, role: null };
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    });
+  }
+
   /** Current control-point positions — solved values for literals (the
    * caller must have triggered the solve), resolved accessors otherwise. */
   private currentPoints(): Point2D[] {
@@ -173,10 +204,14 @@ export class BezierCurve extends GeometrySceneObject {
     const points = this.currentPoints();
     const start = points[0];
     const resolved = points.slice(1).map(p => [p.x, p.y]);
+    const controlSources = this.controlSources();
     return {
       controlPoints: this.controlPoints,
       startPoint: start ? [start.x, start.y] : null,
       resolvedPoints: resolved,
+      // Per control point, the solver point it rides (live-drag redraw);
+      // present only when at least one point has a solver identity.
+      ...(controlSources.some(source => source !== null) ? { controlSources } : {}),
       // The tint join: the curve wears its control points' constrained
       // verdict (same rail as copy/mirror duplicates).
       ...sourceEntitiesPayload(this.anchorSourceEntities()),

@@ -23,12 +23,16 @@ import type { SolvedGlyphLayout } from './solved-glyph-layout';
 import { addFrameHook } from '../frame-hooks';
 import {
   SolvedSketchModel,
+  bezierControlPoints,
   buildSolvedSketchModel,
   layoutConstraintGlyphs,
+  tessellateBezier,
   tessellateSolvedEntity,
 } from '../../sketch-solver-client';
-import type { LiveEntityGeometry } from '../../sketch-solver-client';
+import type { LiveEntityGeometry, SolvedBezierView } from '../../sketch-solver-client';
+import type { Vec2 } from '../../sketch-solver-client/resolve';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
+import { createDashedPolyline } from '../../interactive/tools/tool-preview-utils';
 import { themeColors } from '../../scene/theme-colors';
 import { viewerSettings } from '../../scene/viewer-settings';
 import { worldFromMm } from '../../units/scene-scale';
@@ -45,6 +49,10 @@ const NON_INTERACTIVE_VERTEX_OPACITY = 0.6;
 const META_VERTEX_COLOR = '#8899aa';
 const META_VERTEX_RADIUS_MM = 1.5;
 const META_VERTEX_PX_RADIUS = 4.5;
+const META_VERTEX_OPACITY = 0.5;
+/** Bezier handles (control polygon + control-point dots) draw above the
+ * curve and its vertex dots. */
+const BEZIER_HANDLE_RENDER_ORDER = 2;
 /** Frames a glyph-layout hook waits for its mesh to reach the scene before
  * assuming it never will (a mesh built and then dropped). */
 const DETACHED_GRACE_FRAMES = 300;
@@ -61,6 +69,16 @@ export class SketchMesh extends Group {
   private solvedEdgeMeshes = new Map<number, Group[]>();
   /** Vertex-dot groups bound to solved entity points, for live drag moves. */
   private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
+  /** Bezier statements → their curve edge meshes: the curve is a rigid
+   * function of solver points (its control points), so a drag that moves
+   * any of them retessellates it every frame (P8). */
+  private solvedBezierMeshes: { curve: SolvedBezierView; meshes: Group[] }[] = [];
+  /** The active sketch's bezier handles — the dashed control polygon per
+   * curve; the control-point dots are ordinary bound vertex dots. */
+  private bezierHandlePolylines: { curve: SolvedBezierView; line: Line }[] = [];
+  /** Bezier handles belong to the sketch being edited: reference sketches
+   * on screen show their curves, not their control polygons. */
+  private readonly showBezierHandles: boolean;
   /** The current glyph groups — replaced wholesale on live updates. */
   private solvedGlyphGroups: Group[] = [];
   /** Constraint badges and dimensions belong to the sketch being edited.
@@ -84,9 +102,11 @@ export class SketchMesh extends Group {
     this.userData.sketchObjectId = sceneObject.id;
     this.isRollback = isRollback;
     this.showConstraints = !activeSketchId || sceneObject.id === activeSketchId;
+    this.showBezierHandles = sceneObject.id === activeSketchId;
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
+    this.buildBezierHandles();
     this.bindSolvedDots();
     this.addConstraintIcons();
   }
@@ -141,65 +161,20 @@ export class SketchMesh extends Group {
         continue;
       }
       for (const edgeMesh of meshes) {
-        for (const child of edgeMesh.children) {
-          if (child.userData.isEdgeLine) {
-            const line = child as LineSegments2;
-            const geometry = line.geometry as LineSegmentsGeometry;
-            // setPositions must keep the segment count the mesh was built
-            // with — the renderer caches the instance count per geometry, so
-            // a different count clips or overruns the draw.
-            const segments = geometry.attributes.instanceStart?.count;
-            if (!segments) {
-              continue;
-            }
-            const points = tessellateSolvedEntity(view, segments);
-            if (!points || points.length !== segments + 1) {
-              continue;
-            }
-            const positions = new Float32Array(segments * 6);
-            let offset = 0;
-            let prev = localToWorld(points[0], model.plane);
-            for (let i = 1; i < points.length; i++) {
-              const next = localToWorld(points[i], model.plane);
-              positions[offset++] = prev.x;
-              positions[offset++] = prev.y;
-              positions[offset++] = prev.z;
-              positions[offset++] = next.x;
-              positions[offset++] = next.y;
-              positions[offset++] = next.z;
-              prev = next;
-            }
-            geometry.setPositions(positions);
-            geometry.computeBoundingBox();
-            geometry.computeBoundingSphere();
-          } else if (child.userData.isDashDotEdgeLine) {
-            // Guide entities render as a continuous dash-dot polyline —
-            // rewrite its points in place, keeping the vertex count the
-            // geometry was built with.
-            const line = child as Line;
-            const geometry = line.geometry as BufferGeometry;
-            const posAttr = geometry.getAttribute('position') as BufferAttribute | undefined;
-            const pointCount = posAttr?.count ?? 0;
-            if (!posAttr || pointCount < 2) {
-              continue;
-            }
-            const points = tessellateSolvedEntity(view, pointCount - 1);
-            if (!points || points.length !== pointCount) {
-              continue;
-            }
-            for (let i = 0; i < points.length; i++) {
-              const world = localToWorld(points[i], model.plane);
-              posAttr.setXYZ(i, world.x, world.y, world.z);
-            }
-            posAttr.needsUpdate = true;
-            // The dash pattern accumulates distance along the polyline —
-            // stale distances would stretch the dashes as the curve moves.
-            line.computeLineDistances();
-            geometry.computeBoundingBox();
-            geometry.computeBoundingSphere();
-          }
-        }
+        this.rewriteEdgeMesh(edgeMesh, segments => tessellateSolvedEntity(view, segments));
       }
+    }
+
+    // Beziers redraw from their control points' fresh views — the entity
+    // loop above already moved those — and their handles follow.
+    for (const { curve, meshes } of this.solvedBezierMeshes) {
+      const controls = bezierControlPoints(model, curve);
+      for (const edgeMesh of meshes) {
+        this.rewriteEdgeMesh(edgeMesh, segments => tessellateBezier(controls, segments));
+      }
+    }
+    for (const { curve, line } of this.bezierHandlePolylines) {
+      this.rewritePolyline(line, bezierControlPoints(model, curve));
     }
 
     for (const binding of this.solvedDotBindings) {
@@ -219,6 +194,130 @@ export class SketchMesh extends Group {
     }
 
     this.rebuildSolvedGlyphs();
+  }
+
+  /**
+   * Rewrite one edge mesh's polyline in place from `tessellate`, which must
+   * honour the segment count it is handed: the renderer caches the instance
+   * count per LineSegmentsGeometry, so a different count clips or overruns
+   * the draw (observed: a circle drawn as a half-circle mid-drag). Guide
+   * meshes render as a continuous dash-dot polyline instead and rewrite
+   * their vertex positions, keeping the count the geometry was built with.
+   */
+  private rewriteEdgeMesh(edgeMesh: Group, tessellate: (segments: number) => Vec2[] | null): void {
+    const model = this.solvedModel;
+    if (!model) {
+      return;
+    }
+    for (const child of edgeMesh.children) {
+      if (child.userData.isEdgeLine) {
+        const line = child as LineSegments2;
+        const geometry = line.geometry as LineSegmentsGeometry;
+        const segments = geometry.attributes.instanceStart?.count;
+        if (!segments) {
+          continue;
+        }
+        const points = tessellate(segments);
+        if (!points || points.length !== segments + 1) {
+          continue;
+        }
+        const positions = new Float32Array(segments * 6);
+        let offset = 0;
+        let prev = localToWorld(points[0], model.plane);
+        for (let i = 1; i < points.length; i++) {
+          const next = localToWorld(points[i], model.plane);
+          positions[offset++] = prev.x;
+          positions[offset++] = prev.y;
+          positions[offset++] = prev.z;
+          positions[offset++] = next.x;
+          positions[offset++] = next.y;
+          positions[offset++] = next.z;
+          prev = next;
+        }
+        geometry.setPositions(positions);
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+      } else if (child.userData.isDashDotEdgeLine) {
+        const line = child as Line;
+        const pointCount = (line.geometry.getAttribute('position') as BufferAttribute | undefined)?.count ?? 0;
+        if (pointCount < 2) {
+          continue;
+        }
+        const points = tessellate(pointCount - 1);
+        if (points && points.length === pointCount) {
+          this.rewritePolyline(line, points);
+        }
+      }
+    }
+  }
+
+  /** Move a continuous polyline's vertices in place (sketch-local points →
+   * world). The dash pattern accumulates distance along the polyline, so
+   * stale distances would stretch the dashes as the curve moves. */
+  private rewritePolyline(line: Line, points: Vec2[]): void {
+    const model = this.solvedModel;
+    const geometry = line.geometry as BufferGeometry;
+    const posAttr = geometry.getAttribute('position') as BufferAttribute | undefined;
+    if (!model || !posAttr || posAttr.count !== points.length) {
+      return;
+    }
+    for (let i = 0; i < points.length; i++) {
+      const world = localToWorld(points[i], model.plane);
+      posAttr.setXYZ(i, world.x, world.y, world.z);
+    }
+    posAttr.needsUpdate = true;
+    line.computeLineDistances();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+  }
+
+  /**
+   * The active sketch's bezier handles: a dashed control polygon and a
+   * meta dot per control point, for every bezier statement — a one-point
+   * placeholder mid-draw included (its dot is all there is yet). A curve
+   * whose edge was consumed downstream (fillet, trim) is dropped from the
+   * payload outright, so a curve with no live edge draws no handles: a
+   * `.guide()` edge still renders and still drags, so it counts as live.
+   * The dots are ordinary vertex dots, so bindSolvedDots ties each to its
+   * control point's solver point and the live drag moves it.
+   */
+  private buildBezierHandles(): void {
+    const model = this.solvedModel;
+    if (!model || !this.showBezierHandles) {
+      return;
+    }
+    const normal = model.sketch.object?.plane?.normal;
+    for (const curve of model.beziers.values()) {
+      const hasCurve = curve.points.length >= 2;
+      const hasLiveEdge = curve.obj.sceneShapes.some(shape => !shape.isMetaShape);
+      if (hasCurve && !hasLiveEdge) {
+        continue;
+      }
+      if (hasCurve) {
+        const verts = new Float32Array(curve.points.length * 3);
+        for (const [i, point] of curve.points.entries()) {
+          const world = localToWorld(point, model.plane);
+          verts[i * 3] = world.x;
+          verts[i * 3 + 1] = world.y;
+          verts[i * 3 + 2] = world.z;
+        }
+        const line = createDashedPolyline(verts, BEZIER_HANDLE_RENDER_ORDER);
+        line.userData.isBezierHandle = true;
+        // Annotation, not geometry: screenshots prune it with the other
+        // meta shapes and no pick channel claims it (no shapeId, no edge).
+        line.userData.isMetaShape = true;
+        this.add(line);
+        this.bezierHandlePolylines.push({ curve, line });
+      }
+      this.addVertexDots(
+        curve.points.map(point => localToWorld(point, model.plane)),
+        normal,
+        worldFromMm(META_VERTEX_RADIUS_MM),
+        META_VERTEX_PX_RADIUS,
+        META_VERTEX_COLOR,
+        META_VERTEX_OPACITY,
+      );
+    }
   }
 
   /** Bind each vertex dot to the solved entity point it sits on, by world
@@ -361,13 +460,7 @@ export class SketchMesh extends Group {
               // A guided solved entity still drags live — register its
               // dash-dot mesh so updateSolvedGeometry rewrites it per frame
               // instead of leaving it parked until the commit re-render.
-              if (this.isSolvedEntity(obj)) {
-                const entityId = obj.object.entityId as number;
-                metaMesh.userData.entityId = entityId;
-                const list = this.solvedEdgeMeshes.get(entityId) ?? [];
-                list.push(metaMesh);
-                this.solvedEdgeMeshes.set(entityId, list);
-              }
+              this.registerLiveEdgeMesh(obj, metaMesh);
             }
             this.add(metaMesh);
           }
@@ -385,14 +478,31 @@ export class SketchMesh extends Group {
           // sketch-pick channel (create dialogs) — mark the raycastable lines.
           edgeMesh.traverse(child => { child.userData.isSketchWire = true; });
         }
-        if (this.isSolvedEntity(obj)) {
-          const entityId = obj.object.entityId as number;
-          edgeMesh.userData.entityId = entityId;
-          const list = this.solvedEdgeMeshes.get(entityId) ?? [];
-          list.push(edgeMesh);
-          this.solvedEdgeMeshes.set(entityId, list);
-        }
+        this.registerLiveEdgeMesh(obj, edgeMesh);
         this.add(edgeMesh);
+      }
+    }
+  }
+
+  /** Register an edge mesh for per-frame rewriting during a live drag:
+   * under its entity for a solved entity, under its statement for a bezier
+   * (a rigid function of solver points, not an entity itself). */
+  private registerLiveEdgeMesh(obj: SceneObjectRender, mesh: Group): void {
+    if (this.isSolvedEntity(obj)) {
+      const entityId = obj.object.entityId as number;
+      mesh.userData.entityId = entityId;
+      const list = this.solvedEdgeMeshes.get(entityId) ?? [];
+      list.push(mesh);
+      this.solvedEdgeMeshes.set(entityId, list);
+      return;
+    }
+    const curve = obj.id ? this.solvedModel?.beziers.get(obj.id) : undefined;
+    if (curve) {
+      const entry = this.solvedBezierMeshes.find(e => e.curve === curve);
+      if (entry) {
+        entry.meshes.push(mesh);
+      } else {
+        this.solvedBezierMeshes.push({ curve, meshes: [mesh] });
       }
     }
   }

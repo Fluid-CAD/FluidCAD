@@ -103,6 +103,39 @@ export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): 
   }
 }
 
+/**
+ * Polyline along a Bézier curve of any degree through its control points
+ * (de Casteljau), `segments + 1` points from the first control point to
+ * the last. Null below two points — no curve yet.
+ */
+export function tessellateBezier(controls: Vec2[], segments: number): Vec2[] | null {
+  if (controls.length < 2 || segments < 1) {
+    return null;
+  }
+  const points: Vec2[] = [];
+  for (let i = 0; i <= segments; i++) {
+    points.push(bezierPointAt(controls, i / segments));
+  }
+  points[0] = controls[0];
+  points[segments] = controls[controls.length - 1];
+  return points;
+}
+
+function bezierPointAt(controls: Vec2[], t: number): Vec2 {
+  let level = controls;
+  while (level.length > 1) {
+    const next: Vec2[] = [];
+    for (let i = 0; i + 1 < level.length; i++) {
+      next.push([
+        level[i][0] + (level[i + 1][0] - level[i][0]) * t,
+        level[i][1] + (level[i + 1][1] - level[i][1]) * t,
+      ]);
+    }
+    level = next;
+  }
+  return level[0];
+}
+
 /** `ellipse(center, rx, ry, rotation)`: semi-radii along the ellipse's own
  * axes, u = (cos θ, sin θ) carrying rx; closed with the seam vertex
  * repeated (segments + 1 points). */

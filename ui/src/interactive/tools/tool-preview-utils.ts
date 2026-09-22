@@ -36,7 +36,14 @@ export function snapDotColor(snapType: SnapType): number {
 export const PREVIEW_DASH_PX = 8;
 export const PREVIEW_GAP_PX = 5;
 
-function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder: number, color: number = GUIDE_COLOR): void {
+/**
+ * A screen-pixel dashed polyline through world-space `verts` (xyz triples).
+ * The dash pattern is fixed in pixels: LineDashedMaterial's `scale`
+ * multiplies lineDistance in the vertex shader, so pixels-per-world turns
+ * world distances into the pixel units above. Callers that rewrite the
+ * positions in place must call `computeLineDistances()` again.
+ */
+export function createDashedPolyline(verts: Float32Array, renderOrder: number, color: number = GUIDE_COLOR): Line {
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(verts, 3));
 
@@ -50,12 +57,14 @@ function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder
   const line = new Line(geo, mat);
   line.computeLineDistances();
   line.renderOrder = renderOrder;
-  // LineDashedMaterial's `scale` multiplies lineDistance in the vertex shader,
-  // so pixels-per-world turns world distances into the pixel units above.
   trackPixelsPerWorld(line, (pixelsPerWorld) => {
     mat.scale = pixelsPerWorld;
   });
-  previewGroup.add(line);
+  return line;
+}
+
+function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder: number, color: number = GUIDE_COLOR): void {
+  previewGroup.add(createDashedPolyline(verts, renderOrder, color));
 }
 
 /**

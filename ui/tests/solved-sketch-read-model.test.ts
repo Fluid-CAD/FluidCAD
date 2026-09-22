@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  bezierControlPoints,
   buildSolvedSketchModel,
   computeSketchDofState,
   isSolvedSketch,
@@ -815,6 +816,39 @@ describe('anchor-point entities (P8) and the ellipse entity', () => {
     expect(cp2.guess).toEqual({ point: [100, 0] });
     // All statements share the bezier object so its sourceLocation rides picks.
     expect(cp0.obj).toBe(bezierObj);
+    // The curve itself joins as a derived view over its control polygon.
+    const curve = model.beziers.get(bezierObj.id)!;
+    expect(curve.points).toEqual([[0, 0], [50, 50], [100, 0]]);
+    expect(curve.sources).toEqual([null, null, null]);
+  });
+
+  it('resolves a bezier\'s control points from their solver sources, falling back to the payload', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'line', fixed: false, paramOffset: 0 },
+        { id: 1, kind: 'point', fixed: false, paramOffset: 4 },
+      ],
+      params: [0, 0, 50, 0, 75, 30],
+      dof: 6,
+      underconstrainedEntities: [0, 1],
+    });
+    const lineObj = child('solved-line', { entityId: 0, start: { x: 0, y: 0 }, end: { x: 50, y: 0 } });
+    // bezier(l.end(), [75, 30], someForeignVertex): the start rides the
+    // line's end, the middle is its own anchor, the end has no solver source.
+    const bezierObj = child('bezier-3', {
+      startPoint: [50, 0], resolvedPoints: [[75, 30], [100, 0]],
+      anchors: [{ pointIndex: 1, entityId: 1, guess: { x: 75, y: 30 } }],
+      controlSources: [{ entityId: 0, role: 'end' }, { entityId: 1, role: null }, null],
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [sketchObj(solver), lineObj, bezierObj])!;
+    const curve = model.beziers.get(bezierObj.id)!;
+    expect(curve.sources).toEqual([{ entityId: 0, role: 'end' }, { entityId: 1, role: null }, null]);
+    expect(bezierControlPoints(model, curve)).toEqual([[50, 0], [75, 30], [100, 0]]);
+
+    // A live drag mutates the views in place; the curve follows.
+    model.entities.get(0)!.end = [60, 5];
+    model.entities.get(1)!.point = [70, 40];
+    expect(bezierControlPoints(model, curve)).toEqual([[60, 5], [70, 40], [100, 0]]);
   });
 
   // An ellipse's semi-radii are dimensioned like a circle's radius, one

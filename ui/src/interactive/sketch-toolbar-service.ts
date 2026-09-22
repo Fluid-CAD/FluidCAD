@@ -15,7 +15,6 @@ import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
-import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
@@ -111,7 +110,6 @@ export class SketchToolbarService {
   /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
-  private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
   private opMessageToast: HTMLDivElement | null = null;
   private opMessageTimer: number | null = null;
@@ -172,7 +170,6 @@ export class SketchToolbarService {
     // field, and coordinates are expressions, not just digits.
     this.shortcuts.suspendWhile = () => this.activeDrawingTool?.wantsPrintableKeys() ?? false;
 
-    this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
     this.dofStatus = new SketchDofStatus(container, (loc) => gotoSource(loc));
     this.dofStatus.onVisibilityChange = (visible) => this.onDofPillVisibilityChange?.(visible);
@@ -482,9 +479,6 @@ export class SketchToolbarService {
       }
       this.solvedToolbar.show();
 
-      this.bezierHandles.activate();
-      this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
-
       // The sketch an edit dialog was opened over has arrived: re-arm its
       // toolbar button (the bar's own hide() dropped it while the breakpoint
       // render was in flight) so the picking handlers below come back with it.
@@ -557,7 +551,6 @@ export class SketchToolbarService {
         this.toolbar.setActiveTool(null);
       }
       this.deactivateDragHandler();
-      this.bezierHandles.deactivate();
       this.solvedToolbar.hide();
       this.solvedDimensionEditor.hide();
       this.dofStatus.update({ result: 'hidden' });

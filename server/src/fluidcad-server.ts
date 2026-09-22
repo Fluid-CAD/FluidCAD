@@ -470,6 +470,10 @@ export type SweepGhostRequest = {
   /** The producing statement of the profile to sweep. */
   profile: { filePath: string; line: number };
   path: GhostPathRef;
+  /** `.extend('start', …)` lead-in before the path, or null. */
+  extendStart?: number | null;
+  /** `.extend('end', …)` run-out past the path, or null. */
+  extendEnd?: number | null;
 };
 
 /**

@@ -123,6 +123,26 @@ function validateBoundary(raw: any): SelectionBoundary | undefined | null {
   return { index: raw.index, type: raw.type, line: raw.line, column: raw.column };
 }
 
+/**
+ * The sweep's `.extend('start', …)` / `.extend('end', …)` amounts: absent or
+ * null writes no chain for that end; a value must be positive (the kernel
+ * treats a non-positive amount as a no-op, which the dialog must not write).
+ */
+function validateSweepExtend(body: any): { extendStart: ValueExpr | null; extendEnd: ValueExpr | null } | { error: string } {
+  const result: { extendStart: ValueExpr | null; extendEnd: ValueExpr | null } = { extendStart: null, extendEnd: null };
+  for (const key of ['extendStart', 'extendEnd'] as const) {
+    const value = body?.[key];
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (!validValueExpr(value, { positive: true })) {
+      return { error: `${key} must be a positive number or expression` };
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
 /** One or two non-zero `.thin()` offsets (signs pick sides); absent means a plain feature. */
 function validateThinOffsets(thin: unknown): { offsets: [ValueExpr] | [ValueExpr, ValueExpr] | null } | { error: string } {
   if (thin === undefined || thin === null) {
@@ -596,6 +616,10 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
 type SweepRequest = {
   op: 'add' | 'remove' | 'new';
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path, or null for none. */
+  extendStart: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null for none. */
+  extendEnd: ValueExpr | null;
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   path:
     | ({ kind: 'sketch' } & SketchLoc)
@@ -613,6 +637,10 @@ function validateSweep(body: any): SweepRequest | { error: string } {
   if ('error' in thinResult) {
     return thinResult;
   }
+  const extend = validateSweepExtend(body);
+  if ('error' in extend) {
+    return extend;
+  }
   const mode = profile?.mode;
   const profileLoc = validateSketchLoc(profile);
   if ((mode !== 'active' && mode !== 'bound') || !profileLoc) {
@@ -623,7 +651,7 @@ function validateSweep(body: any): SweepRequest | { error: string } {
     return scopeResult;
   }
   const base = {
-    op, thin: thinResult.offsets, profile: { mode, ...profileLoc }, scope: scopeResult.scope,
+    op, thin: thinResult.offsets, ...extend, profile: { mode, ...profileLoc }, scope: scopeResult.scope,
   };
   if (path?.kind === 'sketch') {
     const pathLoc = validateSketchLoc(path);
@@ -2709,7 +2737,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return thin;
     }
     if (feature === 'sweep') {
-      edit.sweep = { op, thin: thin.offsets };
+      const extend = validateSweepExtend(body);
+      if ('error' in extend) {
+        return extend;
+      }
+      edit.sweep = { op, thin: thin.offsets, ...extend };
       const result: StatementEditRequest = base;
       const scopeResult = validateScopeEdits(body);
       if ('error' in scopeResult) {
@@ -5230,7 +5262,11 @@ export function createApplyFeatureRouter(
         // (reused consts, collision-suffixed hints) in one pass, so
         // collision suffixes stay consistent across every input.
         const producerVars = await allocateProducerVars(producers, code);
-        const options: SweepEditOptions = { op: request.op, thin: request.thin, profile, path, scope };
+        const options: SweepEditOptions = {
+          op: request.op, thin: request.thin,
+          extendStart: request.extendStart, extendEnd: request.extendEnd,
+          profile, path, scope,
+        };
         const pathExpr = path.kind === 'sketch' ? producerVars[path.producer] ?? 'p' : pathArgs!;
         const statement = renderSweepStatement(
           options,

@@ -593,6 +593,10 @@ export type FeatureStatementEditTarget = {
   sweep?: {
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+    /** `.extend('start', …)` lead-in before the path; null or absent writes none. */
+    extendStart?: ValueExpr | null;
+    /** `.extend('end', …)` run-out past the path; null or absent writes none. */
+    extendEnd?: ValueExpr | null;
     /** Re-sourced path; absent keeps the statement's path text. */
     path?: EditPathSource;
     /** Re-sourced profile; absent keeps the statement's profile text. */
@@ -950,7 +954,7 @@ export type RibEditOptions = {
 
 /**
  * How a sweep statement is rendered and placed: `sweep(<path>[, <profile>])`
- * plus `.thin(…)` / `.remove()` / `.new()` chains. The profile is a sketch —
+ * plus `.extend(…)` / `.thin(…)` / `.remove()` / `.new()` chains. The profile is a sketch —
  * `implicit` consumes the last sketch (an anchor-only producer verifies it),
  * `{producer}` binds that sketch to a variable. The path is either a bound
  * sketch producer or the selector rendered from `parts` (edge picks). The
@@ -960,6 +964,10 @@ export type RibEditOptions = {
 export type SweepEditOptions = {
   op: 'add' | 'remove' | 'new';
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path; null or absent writes none. */
+  extendStart?: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path; null or absent writes none. */
+  extendEnd?: ValueExpr | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
   /** Producer indices of the `.scope(…)` targets, in pick order. */
@@ -1660,6 +1668,7 @@ async function applyCreateEdit(
     const sw = spec.sweep;
     const valid = sw !== undefined
       && spec.producers.length > 0
+      && validEditExtend(sw.extendStart) && validEditExtend(sw.extendEnd)
       // The path is any wire source (a sketch or a helix); the profile must
       // be a planar sketch; the scope targets are bound feature producers.
       && (sw.path.kind === 'selector'
@@ -3923,12 +3932,12 @@ function renderOpChains(opts: {
 }
 
 /**
- * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.thin(…)` and
- * the `.remove()` / `.new()` / `.scope(…)` operation chains. Shared with the
+ * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.extend(…)`,
+ * `.thin(…)` and the `.remove()` / `.new()` / `.scope(…)` operation chains. Shared with the
  * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderSweepStatement(
-  sw: Pick<SweepEditOptions, 'op' | 'thin'>,
+  sw: Pick<SweepEditOptions, 'op' | 'thin' | 'extendStart' | 'extendEnd'>,
   pathExpr: string,
   profileVar: string | null,
   scopeExprs: string[] = [],
@@ -3937,7 +3946,23 @@ export function renderSweepStatement(
   if (profileVar) {
     args.push(profileVar);
   }
-  return `sweep(${args.join(', ')})` + renderOpChains(sw, scopeExprs);
+  return `sweep(${args.join(', ')})` + renderSweepExtendChains(sw) + renderOpChains(sw, scopeExprs);
+}
+
+/**
+ * The `.extend('start', …)` / `.extend('end', …)` chains, start first. They
+ * describe the spine, so they precede the profile (`.thin`) and operation
+ * chains; an absent or null amount writes nothing for that end.
+ */
+function renderSweepExtendChains(sw: Pick<SweepEditOptions, 'extendStart' | 'extendEnd'>): string {
+  let chains = '';
+  if (sw.extendStart != null) {
+    chains += `.extend('start', ${formatValue(sw.extendStart)})`;
+  }
+  if (sw.extendEnd != null) {
+    chains += `.extend('end', ${formatValue(sw.extendEnd)})`;
+  }
+  return chains;
 }
 
 /**
@@ -5232,6 +5257,10 @@ export type ParsedFeatureStatement =
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+    /** `.extend('start', …)` lead-in, or null when the chain is absent. */
+    extendStart: ValueExpr | null;
+    /** `.extend('end', …)` run-out, or null when the chain is absent. */
+    extendEnd: ValueExpr | null;
     pathText: string;
     profileText: string | null;
   })
@@ -5556,7 +5585,9 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
-  sweep: new Set(['thin', 'remove', 'new', 'scope']),
+  // `.extend()` may chain twice — once per end — so the parse collects it
+  // like loft's `.connect()` instead of refusing the repeat.
+  sweep: new Set(['extend', 'thin', 'remove', 'new', 'scope']),
   loft: new Set(['connect', 'guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new', 'scope']),
   shell: new Set(['join']),
   fillet: new Set(),
@@ -5820,6 +5851,43 @@ type ChainParse =
  * (both empty when the chain is absent) — shared by every feature that
  * writes one (rib, extrude, sweep, loft, revolve).
  */
+/**
+ * The sweep's `.extend(side, amount)` chains — at most one per side, the side
+ * a plain `'start'`/`'end'` string literal and the amount a number or
+ * expression. Anything else is left to the source editor.
+ */
+function parseSweepExtendSegments(
+  segments: ChainSegment[],
+): { extendStart: ValueExpr | null; extendEnd: ValueExpr | null } | { error: string } {
+  let extendStart: ValueExpr | null = null;
+  let extendEnd: ValueExpr | null = null;
+  for (const segment of segments) {
+    if (segment.args.length !== 2) {
+      return { error: 'the .extend() chain has an argument shape the dialog cannot edit' };
+    }
+    const side = stringArgValue(segment.args[0]);
+    if (side !== 'start' && side !== 'end') {
+      return { error: "the .extend() side is not a plain 'start' or 'end' — edit the statement in the source" };
+    }
+    const amount = anyValueArg(segment.args[1]);
+    if (amount === null) {
+      return { error: 'the .extend() amount is not a plain number or expression — edit it in the source' };
+    }
+    if (side === 'start') {
+      if (extendStart !== null) {
+        return { error: "the statement chains .extend('start') twice" };
+      }
+      extendStart = amount;
+    } else {
+      if (extendEnd !== null) {
+        return { error: "the statement chains .extend('end') twice" };
+      }
+      extendEnd = amount;
+    }
+  }
+  return { extendStart, extendEnd };
+}
+
 function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number): ParsedScopeChain {
   const scopeNodes = recognized.get('scope')?.args ?? [];
   return {
@@ -5841,12 +5909,18 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
   const options = OPTION_MEMBERS[feature];
   const recognized = new Map<string, ChainSegment>();
   const connections: ChainSegment[] = [];
+  const extensions: ChainSegment[] = [];
   let end = chain.root.endIndex;
   let stopped = false;
   for (const member of chain.members) {
     if (!stopped && options.has(member.name)) {
       if (feature === 'loft' && member.name === 'connect') {
         connections.push(member);
+        end = member.endIndex;
+        continue;
+      }
+      if (feature === 'sweep' && member.name === 'extend') {
+        extensions.push(member);
         end = member.endIndex;
         continue;
       }
@@ -6237,9 +6311,13 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     if (args.length < 1 || args.length > 2) {
       return { error: 'the sweep has more arguments than the dialog understands' };
     }
+    const extend = parseSweepExtendSegments(extensions);
+    if ('error' in extend) {
+      return extend;
+    }
     return {
       parsed: {
-        feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null,
+        feature, op, thin, ...extend, pathText: args[0].text, profileText: args[1]?.text ?? null,
         ...parseScopeSegment(recognized, start),
       },
       start,
@@ -7768,6 +7846,11 @@ function validEditThin(thin: unknown): thin is [ValueExpr] | [ValueExpr, ValueEx
     && thin.every(t => validValueExpr(t, { nonzero: true }));
 }
 
+/** A sweep `.extend()` amount: absent or null writes no chain; a value must be positive. */
+function validEditExtend(amount: unknown): amount is ValueExpr | null | undefined {
+  return amount === undefined || amount === null || validValueExpr(amount, { positive: true });
+}
+
 function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
   return condition === undefined
     || ((condition.type === 'normal' || condition.type === 'tangent')
@@ -8713,7 +8796,8 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'sweep') {
     const opts = spec.edit?.sweep;
-    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)) {
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
+      || !validEditExtend(opts.extendStart) || !validEditExtend(opts.extendEnd)) {
       return { error: 'malformed sweep edit spec' };
     }
     let pathText = parsed.pathText;
@@ -8747,7 +8831,10 @@ export function renderEditedStatement(
       return scope;
     }
     return {
-      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText, scope.exprs),
+      statement: renderSweepStatement(
+        { op: opts.op, thin: opts.thin, extendStart: opts.extendStart, extendEnd: opts.extendEnd },
+        pathText, profileText, scope.exprs,
+      ),
     };
   }
   if (parsed.feature === 'wrap') {

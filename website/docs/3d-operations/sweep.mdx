@@ -30,12 +30,13 @@ Sweep moves a profile along a path to make a solid: pipes, rails, handles, cable
   src="/img/docs/ui/sweep-dialog.png"
   alt="The Sweep dialog with a profile sketch and a path sketch picked"
   markers={[
-    {n: 1, x: 5, y: 16, label: 'Add / Remove / New', description: 'What the swept solid does to the model — fuse, cut, or stand alone. See Add, New and Remove below.'},
-    {n: 2, x: 5, y: 33, label: 'Sketch', description: 'The profile that travels along the path. One sketch; click a sketch row in the timeline or its wires in the viewport to change it.'},
-    {n: 3, x: 5, y: 50, label: 'Path', description: 'The curve to follow — a sketch, a helix, or edges picked in the viewport. Edge picking stays live while the dialog is open: clicking an edge re-sources the path to edges, clicking a sketch switches it back.'},
-    {n: 4, x: 5, y: 60, label: 'Thin walls', description: 'Sweeps a wall of the thickness you type instead of the filled profile — a pipe rather than a rod.'},
-    {n: 5, x: 5, y: 78, label: 'Scope', description: 'Which solids the Add or Remove applies to.'},
-    {n: 6, x: 5, y: 92, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+    {n: 1, x: 5, y: 15, label: 'Add / Remove / New', description: 'What the swept solid does to the model — fuse, cut, or stand alone. See Add, New and Remove below.'},
+    {n: 2, x: 5, y: 30, label: 'Sketch', description: 'The profile that travels along the path. One sketch; click a sketch row in the timeline or its wires in the viewport to change it.'},
+    {n: 3, x: 5, y: 47, label: 'Path', description: 'The curve to follow — a sketch, a helix, or edges picked in the viewport. Edge picking stays live while the dialog is open: clicking an edge re-sources the path to edges, clicking a sketch switches it back.'},
+    {n: 4, x: 5, y: 56, label: 'Extend', description: 'Runs the swept solid straight past the ends of the path. Turn it on to reveal the Start and End amounts; leave one empty to extend only the other end. See Extend below.'},
+    {n: 5, x: 5, y: 63, label: 'Thin walls', description: 'Sweeps a wall of the thickness you type instead of the filled profile — a pipe rather than a rod.'},
+    {n: 6, x: 5, y: 79, label: 'Scope', description: 'Which solids the Add or Remove applies to.'},
+    {n: 7, x: 5, y: 92, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
   ]}
 />
 
@@ -56,7 +57,7 @@ The first argument of `sweep()` is the path (spine), the second the profile.
 
 ## Extend
 
-`.extend()` continues the swept solid past the end of the path, straight along the path's tangent there. Use it for lead-ins and run-outs — a pipe that runs straight past its last bend:
+Turn on **Extend** in the dialog and type a **Start** and/or **End** amount: the swept solid continues past that end of the path, straight along the path's tangent there. Use it for lead-ins and run-outs — a pipe that runs straight past its last bend. In code, each end is one `.extend()` call:
 
 ![Sweep extended past the path end](/img/docs/3d-operations/sweep-extend.png)
 

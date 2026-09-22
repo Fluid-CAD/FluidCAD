@@ -23,6 +23,8 @@ type GhostBody = {
   draft?: unknown;
   drill?: unknown;
   thin?: unknown;
+  extendStart?: unknown;
+  extendEnd?: unknown;
   angle?: unknown;
   offset?: unknown;
   value?: unknown;
@@ -1063,6 +1065,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle)
       || !isValueExprOrNull(body.value) || !isValueExprOrNull(body.count)
       || !isThin(body.thin)
+      || !isValueExprOrNull(body.extendStart) || !isValueExprOrNull(body.extendEnd)
       || !isValueExprOrNull(body.radius) || !isValueExprOrNull(body.endRadius)
       || !isValueExprOrNull(body.pitch) || !isValueExprOrNull(body.turns)
       || !isValueExprOrNull(body.height) || !isValueExprOrNull(body.startOffset)
@@ -1264,6 +1267,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const thin = Array.isArray(body.thin)
       ? body.thin.map(v => resolve(v)) as [number] | [number, number]
       : null;
+    const extendStart = resolve(body.extendStart);
+    const extendEnd = resolve(body.extendEnd);
     const startMagnitude = startRaw ? resolve(startRaw.magnitude) : null;
     const endMagnitude = endRaw ? resolve(endRaw.magnitude) : null;
     const radius = resolve(body.radius);
@@ -1420,6 +1425,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         thin,
         profile: profileRef!,
         path: path!,
+        extendStart,
+        extendEnd,
       };
     } else if (isRib) {
       if (thickness === null || thickness === 0) {

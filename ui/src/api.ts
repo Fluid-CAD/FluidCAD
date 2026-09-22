@@ -487,6 +487,10 @@ export type SweepGhostRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   path: GhostPathRef;
+  /** `.extend('start', …)` lead-in before the path, or null. */
+  extendStart?: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null. */
+  extendEnd?: ValueExpr | null;
 };
 
 /**
@@ -2111,6 +2115,10 @@ export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path, or null for none. */
+  extendStart: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null for none. */
+  extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   profile: ExtrudeProfileRef;
@@ -2135,6 +2143,8 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
     feature: 'sweep',
     op: options.op,
     thin: options.thin,
+    extendStart: options.extendStart,
+    extendEnd: options.extendEnd,
     newVariables: options.newVariables,
     profile: options.profile,
     path: options.path,
@@ -2704,6 +2714,10 @@ export type ParsedFeatureStatement =
       feature: 'sweep';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+      /** `.extend('start', …)` lead-in, or null when the chain is absent. */
+      extendStart: ValueExpr | null;
+      /** `.extend('end', …)` run-out, or null when the chain is absent. */
+      extendEnd: ValueExpr | null;
       pathText: string;
       profileText: string | null;
     })
@@ -3086,6 +3100,10 @@ export async function applyRibEdit(
 export type SweepEditOptions = EditSessionFields & {
   op: FeatureOpKind;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path, or null for none. */
+  extendStart: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null for none. */
+  extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Re-sourced path; omitted keeps the statement's own. */
@@ -3114,6 +3132,8 @@ export async function applySweepEdit(
     before: options.before,
     op: options.op,
     thin: options.thin,
+    extendStart: options.extendStart,
+    extendEnd: options.extendEnd,
     newVariables: options.newVariables,
     path: options.path,
     profile: options.profile,

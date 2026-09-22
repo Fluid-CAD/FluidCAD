@@ -1008,6 +1008,29 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('previews sweep extend chains ahead of thin and relays them in the spec', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80,
+      profile: SWEEP_PROFILE, path: SWEEP_PATH,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`sweep(p).extend('start', lead).extend('end', 80).thin(2)`);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'sweep',
+      sweep: { op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80 },
+    });
+  });
+
+  it('rejects a non-positive sweep extend amount', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', thin: null, extendEnd: -5,
+      profile: SWEEP_PROFILE, path: SWEEP_PATH,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toBe('extendEnd must be a positive number or expression');
+    expect(relayed).toHaveLength(0);
+  });
+
   it('synthesizes an edges path and merges producers ahead of the profile', async () => {
     currentSynthesis = {
       ok: true,

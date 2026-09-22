@@ -5,6 +5,7 @@ import { Plane } from "../math/plane.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { SweepOps } from "../oc/sweep-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { WireExtendOps } from "../oc/wire-extend-ops.js";
 
 /** The dialog values a ghost sweep is built from, all resolved. */
 export type SweepGhostOptions = {
@@ -13,6 +14,10 @@ export type SweepGhostOptions = {
   thin: [number] | [number, number] | null;
   /** The spine to run along, already resolved from the dialog's path slot. */
   path: Wire;
+  /** `.extend('start', …)` lead-in along the spine's start tangent, or null. */
+  extendStart?: number | null;
+  /** `.extend('end', …)` run-out along the spine's end tangent, or null. */
+  extendEnd?: number | null;
 };
 
 export type SweepGhostSolids = {
@@ -37,10 +42,10 @@ const DRILL_HOLES = true;
  * tool is the same body either way, so only the overlay's color changes.
  *
  * The branching mirrors `Sweep.build` (sweep.ts) minus everything scene-bound
- * — face classification, fusion scope, `removeShapes`, the cut itself. Nothing
- * here honors `.extend()`: the dialog has no field for it, and an edit rewrites
- * the statement without it, so a ghost that ran past the path would show
- * geometry the apply can't produce.
+ * — face classification, fusion scope, `removeShapes`, the cut itself. The
+ * `.extend()` lead-in/run-out is applied to the spine exactly as
+ * `Sweep.getSpineWire` does, so the ghost runs as far past the path as the
+ * statement the dialog writes.
  *
  * The caller owns disposal: every returned shape, `scratch` included, must be
  * `dispose()`d once meshed. None of it is reachable from scene state, so
@@ -91,5 +96,21 @@ function collectSolids(
   // One body per region, as the kernel builds them (sweep-ops.ts:70) — no fuse
   // here, unlike the revolve: separate regions stay separate bodies through
   // the apply too, so the ghost has no coincident walls to merge away.
-  solids.push(...SweepOps.makeSweep(options.path, faces).solids);
+  solids.push(...SweepOps.makeSweep(extendedSpine(options), faces).solids);
+}
+
+/**
+ * The spine with the dialog's lead-in/run-out applied, as `Sweep.getSpineWire`
+ * builds it (sweep.ts). `extendWire` returns its input untouched for a
+ * closed wire or a non-positive length, so nothing here needs disposing.
+ */
+function extendedSpine(options: SweepGhostOptions): Wire {
+  let wire = options.path;
+  if (options.extendStart != null) {
+    wire = WireExtendOps.extendWire(wire, "start", options.extendStart);
+  }
+  if (options.extendEnd != null) {
+    wire = WireExtendOps.extendWire(wire, "end", options.extendEnd);
+  }
+  return wire;
 }

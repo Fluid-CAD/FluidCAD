@@ -1315,6 +1315,11 @@ describe('sweep statement templates', () => {
     expect(result.newCode).toContain(`sweep(p).new()`);
   });
 
+  it('writes the extend chains ahead of thin on a created sweep', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, sweepSpec({ thin: [2], extendEnd: 80 }));
+    expect(result.newCode).toContain(`sweep(p).extend('end', 80).thin(2)`);
+  });
+
   it('reuses an existing const binding for the path sketch', async () => {
     const code = [
       `import { sketch, ellipse, circle } from 'fluidcad/core'`,
@@ -1979,11 +1984,38 @@ describe('parseFeatureStatement', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'sweep', op: 'remove', thin: null, pathText: 'p', profileText: 's',
+        feature: 'sweep', op: 'remove', thin: null, extendStart: null, extendEnd: null,
+        pathText: 'p', profileText: 's',
         scopeTexts: [], scopeRefs: [],
       },
       statement: 'sweep(p, s).remove()',
     });
+  });
+
+  it('reads a sweep with both extend chains, in either order', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s).extend("end", 80).extend('start', lead).thin(2)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'sweep', op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80,
+        pathText: 'p', profileText: 's',
+        scopeTexts: [], scopeRefs: [],
+      },
+      statement: `sweep(p, s).extend("end", 80).extend('start', lead).thin(2)`,
+    });
+  });
+
+  it('refuses a sweep that extends the same end twice', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s).extend('end', 10).extend('end', 20)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("extend('end') twice") });
+  });
+
+  it('refuses a sweep whose extend side is not a plain string literal', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s).extend(side, 10)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.extend() side') });
   });
 
   it('reads a wrap with a remove chain', async () => {
@@ -2361,6 +2393,33 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`sweep(p, s).thin(1.5).remove()`);
+  });
+
+  it('writes sweep extend chains before the thin and op chains, and drops them when null', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s).extend('start', 5)\n`;
+    const added = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 5, column: 0,
+      sweep: { op: 'remove', thin: [1.5], extendStart: 'lead', extendEnd: 80 },
+    }));
+    expect(added.error).toBeUndefined();
+    expect(added.newCode).toContain(`sweep(p, s).extend('start', lead).extend('end', 80).thin(1.5).remove()`);
+
+    const dropped = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 5, column: 0,
+      sweep: { op: 'add', thin: null, extendStart: null, extendEnd: null },
+    }));
+    expect(dropped.error).toBeUndefined();
+    expect(dropped.newCode).toContain(`sweep(p, s)\n`);
+    expect(dropped.newCode).not.toContain('.extend(');
+  });
+
+  it('refuses a non-positive sweep extend amount', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 5, column: 0,
+      sweep: { op: 'add', thin: null, extendStart: 0, extendEnd: null },
+    }));
+    expect(result.error).toBe('malformed sweep edit spec');
   });
 
   it('rewrites wrap thickness and op in place, keeping both arguments verbatim', async () => {

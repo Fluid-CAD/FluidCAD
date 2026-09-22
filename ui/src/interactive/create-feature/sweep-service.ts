@@ -348,6 +348,8 @@ export class SweepFeatureService {
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
+      extendStart: parsed.extendStart,
+      extendEnd: parsed.extendEnd,
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText,
     });
@@ -687,6 +689,8 @@ export class SweepFeatureService {
       feature: 'sweep',
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
       profile,
       path,
     }, signal);
@@ -790,6 +794,9 @@ export class SweepFeatureService {
     return {
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
+      newVariables: values.newVariables,
       profile: {
         mode: profile.kind === 'active' ? 'active' : 'bound',
         filePath: profile.filePath,
@@ -853,6 +860,9 @@ export class SweepFeatureService {
     return {
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
+      newVariables: values.newVariables,
       path,
       profile,
       // The dialog owns the chain it shows: the full list on Add/Remove, an

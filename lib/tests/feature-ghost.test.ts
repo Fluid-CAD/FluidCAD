@@ -626,6 +626,24 @@ describe("feature ghost — sweep", () => {
   });
 
   /**
+   * The dialog's Extend toggle: the ghost runs past the spine's ends by the
+   * same amounts `.extend()` writes, so the preview matches the apply. A
+   * lead-in grows the tube below z = 0, a run-out above z = 50.
+   */
+  it("runs the ghost past the path ends by the extend amounts", () => {
+    tube();
+    const scene = render();
+
+    const both = bounds(sweepGhost(scene, 5, wireRef(3), { extendStart: 20, extendEnd: 30 }));
+    expect(both.minZ).toBeCloseTo(-20, 1);
+    expect(both.maxZ).toBeCloseTo(80, 1);
+
+    const endOnly = bounds(sweepGhost(scene, 5, wireRef(3), { extendStart: null, extendEnd: 30 }));
+    expect(endOnly.minZ).toBeCloseTo(0, 1);
+    expect(endOnly.maxZ).toBeCloseTo(80, 1);
+  });
+
+  /**
    * The edit dialog's keep-path chip: the sweep being edited has consumed both
    * its profile and its spine, whose shapes are recorded as removed. Reading
    * them back is what makes an edit-mode ghost possible at all — and since the

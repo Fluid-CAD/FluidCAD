@@ -1,6 +1,6 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
-import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { ExpressionField, ExpressionFieldResult, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { NewVariable, ValueExpr } from '../../api';
 
@@ -222,6 +222,144 @@ export class ThinControl {
     this.valuesRow.classList.toggle('hidden', !on);
     this.valuesRow.classList.toggle('flex', on);
   }
+}
+
+/** The sweep's `.extend()` amounts: a lead-in before the path, a run-out past it, or both. */
+export type ExtendValues = { extendStart: ValueExpr | null; extendEnd: ValueExpr | null };
+
+/**
+ * The sweep dialog's "Extend" section: a toggle that reveals the Start and
+ * End fields. Each writes an `.extend('start' | 'end', amount)` chain that
+ * runs the swept solid straight past that end of the path along its tangent;
+ * an empty field writes no chain for its end, so the toggle alone changes
+ * nothing until an amount is typed.
+ */
+export class ExtendControl {
+  onChange?: () => void;
+  /** Enter pressed inside a field — the dialogs apply. */
+  onSubmit?: () => void;
+
+  private checkbox: HTMLInputElement;
+  private valuesRow: HTMLElement;
+  private startInput: HTMLInputElement;
+  private endInput: HTMLInputElement;
+  private startField: ExpressionField;
+  private endField: ExpressionField;
+
+  constructor(container: HTMLElement) {
+    const toggle = document.createElement('label');
+    toggle.className = 'flex items-center justify-between cursor-pointer';
+    toggle.title = 'Run the swept solid straight past the ends of the path, along its tangent there';
+    toggle.innerHTML = `
+      <span class="text-base-content/70">Extend</span>
+      <input data-role="extend" type="checkbox" class="toggle toggle-sm toggle-primary" />
+    `;
+    container.appendChild(toggle);
+
+    this.valuesRow = document.createElement('div');
+    this.valuesRow.className = 'hidden gap-2';
+    this.valuesRow.innerHTML = `
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Lead-in before the start of the path — leave empty for none">
+        <span class="text-base-content/70">Start</span>
+        <input data-role="extend-start" data-unit="length" type="number" step="1" min="0" placeholder="off"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Run-out past the end of the path — leave empty for none">
+        <span class="text-base-content/70">End</span>
+        <input data-role="extend-end" data-unit="length" type="number" step="1" min="0" placeholder="off"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
+    `;
+    container.appendChild(this.valuesRow);
+
+    this.checkbox = toggle.querySelector('[data-role="extend"]')!;
+    this.startInput = this.valuesRow.querySelector('[data-role="extend-start"]')!;
+    this.endInput = this.valuesRow.querySelector('[data-role="extend-end"]')!;
+
+    this.checkbox.addEventListener('change', () => {
+      this.sync();
+      this.onChange?.();
+    });
+    // The fields own their inputs' keyboard handling (dropdown navigation,
+    // Enter-to-submit) and flip the inputs to type="text" for identifiers.
+    this.startField = new ExpressionField(this.startInput);
+    this.startField.onSubmit = () => this.onSubmit?.();
+    this.startInput.addEventListener('input', () => this.onChange?.());
+    this.endField = new ExpressionField(this.endInput);
+    this.endField.onSubmit = () => this.onSubmit?.();
+    this.endInput.addEventListener('input', () => this.onChange?.());
+  }
+
+  /** The variables the amount fields' dropdowns offer. */
+  setVariables(variables: VariableInfo[]): void {
+    this.startField.setVariables(variables);
+    this.endField.setVariables(variables);
+  }
+
+  /**
+   * Programmatic amounts (edit-mode prefill); no change event fires. Both
+   * null turns the toggle off and clears the fields — a statement without
+   * `.extend()` must not show stale amounts once re-enabled.
+   */
+  setValues(values: ExtendValues): void {
+    this.checkbox.checked = values.extendStart !== null || values.extendEnd !== null;
+    this.startField.setValue(values.extendStart ?? '');
+    this.endField.setValue(values.extendEnd ?? '');
+    this.sync();
+  }
+
+  /** Back to the defaults: toggle off, both ends empty. */
+  reset(): void {
+    this.setValues({ extendStart: null, extendEnd: null });
+  }
+
+  /** The `.extend()` amounts, both null when off, or the message for a bad value. */
+  values(): (ExtendValues & { newVariables?: NewVariable[] }) | { error: string } {
+    if (!this.checkbox.checked) {
+      return { extendStart: null, extendEnd: null };
+    }
+    const start = readExtendAmount(this.startField, 'Start');
+    if ('error' in start) {
+      return start;
+    }
+    const end = readExtendAmount(this.endField, 'End');
+    if ('error' in end) {
+      return end;
+    }
+    // Both empty is a plain sweep, not an error — the ghost and the preview
+    // keep showing the unextended solid while the amounts are still being typed.
+    return {
+      extendStart: start.value,
+      extendEnd: end.value,
+      newVariables: collectNewVariables([start.read, end.read]),
+    };
+  }
+
+  private sync(): void {
+    const on = this.checkbox.checked;
+    this.valuesRow.classList.toggle('hidden', !on);
+    this.valuesRow.classList.toggle('flex', on);
+  }
+}
+
+/** One extend field: empty is "no chain for this end"; a number must be positive. */
+function readExtendAmount(
+  field: ExpressionField,
+  label: string,
+): { value: ValueExpr | null; read: Exclude<ExpressionFieldResult, { error: string }> | null } | { error: string } {
+  const read = field.read();
+  if ('error' in read) {
+    if (read.error === 'empty') {
+      return { value: null, read: null };
+    }
+    return { error: read.error };
+  }
+  if (typeof read.value === 'number' && read.value <= 0) {
+    return { error: `${label} extension must be greater than zero.` };
+  }
+  return { value: read.value, read };
 }
 
 /**

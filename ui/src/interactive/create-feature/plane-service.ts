@@ -753,6 +753,7 @@ export class PlaneFeatureService {
       rotateX: values.rotateX,
       rotateY: values.rotateY,
       rotateZ: values.rotateZ,
+      rotationAxes: values.rotationAxes,
       position: values.position,
     }, signal);
   }

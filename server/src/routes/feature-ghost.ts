@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
+import { extractNumericParams, resolveParamValues, type PlaneRotationAxes } from '../apply-feature-edit.ts';
 import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
@@ -63,6 +63,7 @@ type GhostBody = {
   rotateX?: unknown;
   rotateY?: unknown;
   rotateZ?: unknown;
+  rotationAxes?: unknown;
   position?: unknown;
   skip?: unknown;
   close?: unknown;
@@ -1205,12 +1206,20 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     }
     let planeType: 'offset' | 'mid' | 'edge' | null = null;
     let planeBases: GhostPlaneBaseRef[] = [];
+    // The axes the plane's rotations turn around; absent reads as the
+    // plane's own.
+    let planeAxes: PlaneRotationAxes = 'local';
     if (isPlane) {
       if (typeof body.type !== 'string' || !PLANE_TYPES.includes(body.type)) {
         res.status(400).json({ success: false, reason: 'Invalid plane type' });
         return;
       }
       planeType = body.type as 'offset' | 'mid' | 'edge';
+      if (body.rotationAxes !== undefined && body.rotationAxes !== 'local' && body.rotationAxes !== 'world') {
+        res.status(400).json({ success: false, reason: 'Invalid plane rotationAxes' });
+        return;
+      }
+      planeAxes = (body.rotationAxes as PlaneRotationAxes | undefined) ?? 'local';
       const parsed = parsePlaneBases(body.bases, planeType);
       if (typeof parsed === 'string') {
         res.status(400).json({ success: false, reason: parsed });
@@ -1324,6 +1333,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         rotateX,
         rotateY,
         rotateZ,
+        rotationAxes: planeAxes,
         position,
       };
     } else if (isRepeat) {

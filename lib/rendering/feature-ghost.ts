@@ -31,7 +31,7 @@ import { Extrudable } from "../helpers/types.js";
 import { throughAllLength } from "../helpers/through-all.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { Plane, toPlane } from "../math/plane.js";
+import { Plane, PlaneRotationAxes, toPlane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -392,6 +392,8 @@ export type PlaneGhostRequest = {
   rotateX: number | null;
   rotateY: number | null;
   rotateZ: number | null;
+  /** The axes the rotations turn around: the plane's own, or the world's. */
+  rotationAxes: PlaneRotationAxes;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: number | null;
 };
@@ -825,6 +827,7 @@ function buildPlaneGhost(
       rotateX: request.rotateX ?? 0,
       rotateY: request.rotateY ?? 0,
       rotateZ: request.rotateZ ?? 0,
+      rotationAxes: request.rotationAxes,
     });
     try {
       const meshes = new MeshBuilder(meshConfig).build(quad.face);

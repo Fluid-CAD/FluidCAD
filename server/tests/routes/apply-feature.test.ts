@@ -1846,6 +1846,31 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('no offset or rotation');
   });
 
+  it('rejects world rotationAxes on an edge plane', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5, rotationAxes: 'world', bases: [planePick(2, 'edge')],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('no offset or rotation');
+  });
+
+  it('previews world-axes rotation and rejects unknown rotationAxes', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const world = await post({
+      feature: 'plane', type: 'offset', rotateY: 30, rotationAxes: 'world',
+      bases: [{ kind: 'standard', plane: 'xz' }], preview: true,
+    });
+    expect(world.status).toBe(200);
+    expect(world.body.preview).toBe(`plane('xz', { rotateY: 30, rotationAxes: 'world' })`);
+
+    const bad = await post({
+      feature: 'plane', type: 'offset', rotateY: 30, rotationAxes: 'sideways',
+      bases: [{ kind: 'standard', plane: 'xz' }],
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain('rotationAxes');
+  });
+
   it('rejects a position on an offset plane', async () => {
     const { status, body } = await post({
       feature: 'plane', type: 'offset', position: 0.5, bases: [{ kind: 'standard', plane: 'xy' }],

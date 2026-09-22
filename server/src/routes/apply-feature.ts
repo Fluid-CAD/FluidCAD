@@ -28,7 +28,7 @@ import {
   type HelixSourceSpec, type LoftEditOptions,
   LoftConnections, type LoftConnectionSpec, type LoftPointSpec,
   type MirrorAxisSpec, type MirrorEditOptions,
-  type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions, type RepeatPlaneSpec,
+  type PlaneEditOptions, type PlaneRotationAxes, validPlaneRotationAxes, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions, type RepeatPlaneSpec,
   type RotateEditAxis, type RotateEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
@@ -1188,6 +1188,7 @@ type PlaneValues = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  rotationAxes: PlaneRotationAxes;
   position: ValueExpr | null;
 };
 
@@ -1197,14 +1198,19 @@ type PlaneRequest = PlaneValues & {
 
 /**
  * The value half of a plane request, shared by the create and edit paths: the
- * form plus its numeric options. The offset and per-axis rotations are
- * optional and belong to the offset/mid forms — the edge form's second
- * argument slot is taken by its normalized 0–1 position.
+ * form plus its numeric options. The offset, the per-axis rotations and the
+ * axes they turn around (`local` when absent) are optional and belong to the
+ * offset/mid forms — the edge form's second argument slot is taken by its
+ * normalized 0–1 position.
  */
 function validatePlaneValues(body: any): PlaneValues | { error: string } {
   const { type } = body ?? {};
   if (type !== 'offset' && type !== 'mid' && type !== 'edge') {
     return { error: 'type must be "offset", "mid" or "edge"' };
+  }
+  const axes: PlaneRotationAxes = body?.rotationAxes ?? 'local';
+  if (!validPlaneRotationAxes(axes)) {
+    return { error: 'rotationAxes must be "local" or "world"' };
   }
   const numbers: Record<string, ValueExpr | null> = {};
   for (const key of ['offset', 'rotateX', 'rotateY', 'rotateZ', 'position'] as const) {
@@ -1223,7 +1229,8 @@ function validatePlaneValues(body: any): PlaneValues | { error: string } {
       || (typeof numbers.position === 'number' && (numbers.position < 0 || numbers.position > 1))) {
       return { error: 'position must be a number between 0 (start) and 1 (end), or an expression' };
     }
-    if (numbers.offset !== null || numbers.rotateX !== null || numbers.rotateY !== null || numbers.rotateZ !== null) {
+    if (numbers.offset !== null || numbers.rotateX !== null || numbers.rotateY !== null || numbers.rotateZ !== null
+      || axes === 'world') {
       return { error: 'an edge plane takes a position only — no offset or rotation' };
     }
   } else if (numbers.position !== null) {
@@ -1235,6 +1242,7 @@ function validatePlaneValues(body: any): PlaneValues | { error: string } {
     rotateX: numbers.rotateX,
     rotateY: numbers.rotateY,
     rotateZ: numbers.rotateZ,
+    rotationAxes: axes,
     position: numbers.position,
   };
 }
@@ -5878,6 +5886,7 @@ export function createApplyFeatureRouter(
           rotateX: request.rotateX,
           rotateY: request.rotateY,
           rotateZ: request.rotateZ,
+          rotationAxes: request.rotationAxes,
           position: request.position,
           bases,
         };

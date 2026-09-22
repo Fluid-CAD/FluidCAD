@@ -726,9 +726,17 @@ export type PlaneGhostRequest = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around: the plane's own, or the world's. */
+  rotationAxes: PlaneRotationAxes;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: ValueExpr | null;
 };
+
+/**
+ * The axes a plane's rotations turn around: its own X, Y and normal (`local`,
+ * the statement's default) or the fixed world X, Y and Z (`world`).
+ */
+export type PlaneRotationAxes = 'local' | 'world';
 
 /**
  * The plane dialog's base slot on the wire. The first three are the mirror
@@ -2248,10 +2256,12 @@ export type PlaneApplyOptions = {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null renders none. Offset type only. */
   offset: ValueExpr | null;
-  /** Rotation in degrees around the plane's local axes; null renders none. */
+  /** Rotation in degrees around the X/Y/Z axes ({@link axes}); null renders none. */
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around; `local` renders nothing. */
+  rotationAxes: PlaneRotationAxes;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   bases: PlaneBaseRef[];
@@ -2274,6 +2284,7 @@ export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatu
     rotateX: options.rotateX,
     rotateY: options.rotateY,
     rotateZ: options.rotateZ,
+    rotationAxes: options.rotationAxes,
     position: options.position,
     bases: options.bases,
     newVariables: options.newVariables,
@@ -2926,6 +2937,8 @@ export type ParsedFeatureStatement =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
+      /** The axes the rotations turn around; `local` when the statement writes none. */
+      rotationAxes: PlaneRotationAxes;
       /** Normalized 0–1 position along the edge; null for the other forms. */
       position: ValueExpr | null;
     }
@@ -3534,10 +3547,12 @@ export type PlaneEditOptions = EditSessionFields & {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null renders none. Offset type only. */
   offset: ValueExpr | null;
-  /** Rotation in degrees around the plane's local axes; null renders none. */
+  /** Rotation in degrees around the X/Y/Z axes ({@link axes}); null renders none. */
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around; `local` renders nothing. */
+  rotationAxes: PlaneRotationAxes;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   /** Full replacement base list; omitted keeps the statement's own. */
@@ -3563,6 +3578,7 @@ export async function applyPlaneEdit(
     rotateX: options.rotateX,
     rotateY: options.rotateY,
     rotateZ: options.rotateZ,
+    rotationAxes: options.rotationAxes,
     position: options.position,
     bases: options.bases,
     newVariables: options.newVariables,

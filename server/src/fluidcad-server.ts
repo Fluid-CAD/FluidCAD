@@ -682,6 +682,8 @@ export type PlaneGhostRequest = {
   rotateX: number | null;
   rotateY: number | null;
   rotateZ: number | null;
+  /** The axes the rotations turn around: the plane's own, or the world's. */
+  rotationAxes: 'local' | 'world';
   /** Edge form: the normalized 0–1 position along the curve. */
   position: number | null;
 };

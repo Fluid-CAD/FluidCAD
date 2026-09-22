@@ -314,6 +314,7 @@ export const optionsTypeProperties: Record<string, OptionsProperty[]> = {
     { name: 'rotateX', type: 'number', description: 'Rotation around the plane\'s X axis (in degrees)', optional: true },
     { name: 'rotateY', type: 'number', description: 'Rotation around the plane\'s Y axis (in degrees)', optional: true },
     { name: 'rotateZ', type: 'number', description: 'Rotation around the plane\'s Z axis / normal (in degrees)', optional: true },
+    { name: 'rotationAxes', type: "'local' | 'world'", description: 'The axes the rotations turn around: the plane\'s own through its origin (`local`, the default — tilts in place) or the world axes through the world origin (`world` — an offset plane orbits)', optional: true },
   ],
 };
 

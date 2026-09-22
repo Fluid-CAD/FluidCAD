@@ -960,7 +960,7 @@ describe('select→apply-feature end to end', () => {
         line: 5, column: 0,
         expectedStatement: `plane('xy', 30)`,
         plane: {
-          type: 'offset', offset: 45, rotateX: null, rotateY: null, rotateZ: null, position: null,
+          type: 'offset', offset: 45, rotateX: null, rotateY: null, rotateZ: null, rotationAxes: 'local', position: null,
         },
       },
     };
@@ -995,7 +995,7 @@ describe('select→apply-feature end to end', () => {
         line: 5, column: 0,
         expectedStatement: `plane(e.endFaces(), 4)`,
         plane: {
-          type: 'mid', offset: null, rotateX: null, rotateY: null, rotateZ: null, position: null,
+          type: 'mid', offset: null, rotateX: null, rotateY: null, rotateZ: null, rotationAxes: 'local', position: null,
           bases: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'standard', plane: 'xy' }],
         },
       },

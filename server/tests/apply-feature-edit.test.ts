@@ -2555,6 +2555,24 @@ describe('plane statement templates', () => {
     expect(result.newCode).toContain(`plane('xy', { offset: 10, rotateX: 15, rotateZ: -30 })`);
   });
 
+  it('renders world rotationAxes after the rotations, and never without one', async () => {
+    const world = await applyFeatureEdit(base, planeSpec(planeOptions({ rotateY: 30, rotationAxes: 'world' })));
+    expect(world.error).toBeUndefined();
+    expect(world.newCode).toContain(`plane('xy', { rotateY: 30, rotationAxes: 'world' })`);
+
+    // `local` is the statement's default; `world` alone turns nothing, so
+    // both keep the bare-offset shorthand.
+    const local = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10, rotateY: 30, rotationAxes: 'local' })));
+    expect(local.newCode).toContain(`plane('xy', { offset: 10, rotateY: 30 })`);
+    const unturned = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10, rotationAxes: 'world' })));
+    expect(unturned.newCode).toContain(`plane('xy', 10)`);
+  });
+
+  it('refuses unknown plane rotationAxes', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions({ rotateY: 30, rotationAxes: 'sideways' as never })));
+    expect(result.error).toBe('malformed plane edit spec');
+  });
+
   it('appends a standard-base plane before an active breakpoint', async () => {
     const code = [
       `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
@@ -5482,7 +5500,7 @@ describe('parseFeatureStatement — plane', () => {
       parsed: {
         feature: 'plane', type: 'offset',
         bases: [{ text: `'xz'`, kind: 'plane', standard: 'xz', ref: null }],
-        offset: 10, rotateX: null, rotateY: null, rotateZ: null, position: null,
+        offset: 10, rotateX: null, rotateY: null, rotateZ: null, rotationAxes: 'local', position: null,
       },
       statement: `plane('xz', 10)`,
     });
@@ -5512,6 +5530,21 @@ describe('parseFeatureStatement — plane', () => {
         offset: null,
       },
     });
+  });
+
+  it('reads the rotationAxes the rotations turn around', async () => {
+    const code = `${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: "world" })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'offset', rotateY: 30, rotationAxes: 'world' },
+    });
+  });
+
+  it('refuses plane rotationAxes the dialog cannot show', async () => {
+    const code = `${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: frame })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("'local' or 'world'") });
   });
 
   it('reads two bases as a mid plane', async () => {

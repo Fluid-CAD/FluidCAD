@@ -173,6 +173,74 @@ describe("Plane", () => {
       expect(transformed.normal.length()).toBeCloseTo(1);
       expect(transformed.xDirection.length()).toBeCloseTo(1);
     });
+
+    it("applies local rotations in order around the axes the earlier turns left", () => {
+      const plane = Plane.XY();
+      // X 90° takes the normal to -Y; the Z turn is then around that new
+      // normal, which leaves it where it is.
+      const transformed = plane.transform({ rotateX: 90, rotateZ: 90 });
+      expect(transformed.normal.y).toBeCloseTo(-1);
+      expect(transformed.normal.z).toBeCloseTo(0);
+    });
+
+    it("rotates around the world axes with rotationAxes: 'world'", () => {
+      // XZ: xDirection +X, normal -Y, yDirection +Z. A Y turn around the
+      // plane's own Y (world Z) swings the normal to +X; around the world Y
+      // the normal is the axis itself and stays put while X swings to -Z.
+      const local = Plane.XZ().transform({ rotateY: 90 });
+      expect(local.normal.x).toBeCloseTo(1);
+      expect(local.normal.y).toBeCloseTo(0);
+
+      const world = Plane.XZ().transform({ rotateY: 90, rotationAxes: 'world' });
+      expect(world.normal.y).toBeCloseTo(-1);
+      expect(world.xDirection.z).toBeCloseTo(-1);
+      expect(world.xDirection.x).toBeCloseTo(0);
+    });
+
+    it("applies world rotations in order around the fixed axes", () => {
+      // X 90° takes the normal to -Y; the Z turn is around world Z, which
+      // carries -Y on to +X.
+      const transformed = Plane.XY().transform({ rotateX: 90, rotateZ: 90, rotationAxes: 'world' });
+      expect(transformed.normal.x).toBeCloseTo(1);
+      expect(transformed.normal.y).toBeCloseTo(0);
+      expect(transformed.normal.z).toBeCloseTo(0);
+    });
+
+    it("orbits an offset plane around the world axis line", () => {
+      // Offset 10 up, then swung 90° around the world X axis: the origin
+      // rides from (0,0,10) to (0,-10,0) and the normal from +Z to -Y.
+      const transformed = Plane.XY().transform({ offset: 10, rotateX: 90, rotationAxes: 'world' });
+      expect(transformed.origin.x).toBeCloseTo(0);
+      expect(transformed.origin.y).toBeCloseTo(-10);
+      expect(transformed.origin.z).toBeCloseTo(0);
+      expect(transformed.normal.y).toBeCloseTo(-1);
+    });
+
+    it("tilts an offset plane in place around its own axes", () => {
+      const transformed = Plane.XY().transform({ offset: 10, rotateX: 90 });
+      expect(transformed.origin.z).toBeCloseTo(10);
+      expect(transformed.origin.y).toBeCloseTo(0);
+      expect(transformed.normal.y).toBeCloseTo(-1);
+    });
+
+    it("keeps a plane through the world origin in place under world axes", () => {
+      const transformed = Plane.YZ().transform({ rotateZ: 30, rotationAxes: 'world' });
+      expect(transformed.origin.x).toBeCloseTo(0);
+      expect(transformed.origin.y).toBeCloseTo(0);
+      expect(transformed.normal.x).toBeCloseTo(Math.cos(Math.PI / 6));
+      expect(transformed.normal.y).toBeCloseTo(Math.sin(Math.PI / 6));
+    });
+
+    it("treats rotationAxes: 'local' as the default", () => {
+      const explicit = Plane.XZ().transform({ rotateX: 30, rotateY: 40, rotateZ: 50, rotationAxes: 'local' });
+      const implicit = Plane.XZ().transform({ rotateX: 30, rotateY: 40, rotateZ: 50 });
+      expect(explicit.compareTo(implicit, 1e-12)).toBe(true);
+    });
+
+    it("rejects an unknown rotationAxes value", () => {
+      expect(() => Plane.XY().transform({ rotateX: 10, rotationAxes: 'sideways' as never }))
+        .toThrow("rotationAxes must be 'local' or 'world'");
+    });
   });
 
   describe("translate", () => {

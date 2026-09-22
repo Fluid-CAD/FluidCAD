@@ -1,6 +1,7 @@
 import { FeaturePanel } from './feature-panel';
+import { ChoiceTabs } from './panel-controls';
 import { PickSlot, PickSlotChip } from '../pick-slot';
-import { NewVariable, ValueExpr } from '../../api';
+import { NewVariable, PlaneRotationAxes, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 
@@ -14,10 +15,26 @@ export type PlaneValues =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
+      /** The axes the rotations turn around; always `local` for the edge form. */
+      rotationAxes: PlaneRotationAxes;
       position: ValueExpr | null;
       newVariables?: NewVariable[];
     }
   | { error: string };
+
+/** The per-axis input tooltips under each axes choice. */
+const AXIS_TITLES: Record<PlaneRotationAxes, [string, string, string]> = {
+  local: [
+    "Rotation around the plane's X axis",
+    "Rotation around the plane's Y axis",
+    "Rotation around the plane's normal",
+  ],
+  world: [
+    'Rotation around the world X axis',
+    'Rotation around the world Y axis',
+    'Rotation around the world Z axis',
+  ],
+};
 
 /**
  * The plane dialog: the type dropdown (Offset / Mid plane / From edge), the
@@ -25,10 +42,11 @@ export type PlaneValues =
  * 3D view while the dialog is armed (edges for the edge type), standard
  * origin planes by clicking their viewport quads, existing plane features
  * via timeline clicks — plus the offset distance (offset type), the 0–1
- * edge position (edge type) and the per-axis rotation row (offset/mid — the
- * edge form's argument slot is taken by the position). The mid type takes
- * two bases, so its chips wrap in a container. Pure DOM + form state — the
- * service owns the base list, picks, previews, and the apply call.
+ * edge position (edge type) and the per-axis rotation row with its axes
+ * choice — the plane's own axes or the world's (offset/mid — the edge form's
+ * argument slot is taken by the position). The mid type takes two bases, so
+ * its chips wrap in a container. Pure DOM + form state — the service owns the
+ * base list, picks, previews, and the apply call.
  */
 export class PlanePanel extends FeaturePanel {
   /** The type dropdown changed — the service re-validates its base list. */
@@ -44,6 +62,8 @@ export class PlanePanel extends FeaturePanel {
   private positionField: ExpressionField;
   private rotationRow: HTMLElement;
   private rotationFields: ExpressionField[] = [];
+  private rotationInputs: HTMLInputElement[] = [];
+  private axesTabs: ChoiceTabs<PlaneRotationAxes>;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -80,6 +100,7 @@ export class PlanePanel extends FeaturePanel {
             <input data-role="rotate-z" type="number" step="5" value="0" title="Rotation around the plane's normal"
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
+          <div data-role="axes-tabs" class="join w-full"></div>
         </div>
       `,
     });
@@ -101,7 +122,22 @@ export class PlanePanel extends FeaturePanel {
 
     this.offsetField = this.enhance('offset');
     this.positionField = this.enhance('position');
+    this.rotationInputs = ['x', 'y', 'z'].map(axis => this.role<HTMLInputElement>(`rotate-${axis}`));
     this.rotationFields = ['x', 'y', 'z'].map(axis => this.enhance(`rotate-${axis}`));
+    this.axesTabs = new ChoiceTabs<PlaneRotationAxes>(this.role('axes-tabs'), [
+      {
+        key: 'local', label: 'Local',
+        title: "Turn around the plane's own X, Y and normal, through its origin — the plane tilts in place",
+      },
+      {
+        key: 'world', label: 'World',
+        title: 'Turn around the world X, Y and Z axes, through the world origin — an offset plane orbits it',
+      },
+    ], 'local');
+    this.axesTabs.onChange = () => {
+      this.syncAxisTitles();
+      this.onChange?.();
+    };
   }
 
   get planeType(): PlaneType {
@@ -123,6 +159,8 @@ export class PlanePanel extends FeaturePanel {
     for (const field of this.rotationFields) {
       field.setValue(0);
     }
+    this.axesTabs.reset();
+    this.syncAxisTitles();
     this.setBases([]);
     this.syncType();
     this.shell.show();
@@ -141,6 +179,7 @@ export class PlanePanel extends FeaturePanel {
     rotateX: ValueExpr | null;
     rotateY: ValueExpr | null;
     rotateZ: ValueExpr | null;
+    rotationAxes: PlaneRotationAxes;
     position: ValueExpr | null;
   }): void {
     this.shell.setTitle('Edit plane');
@@ -149,6 +188,8 @@ export class PlanePanel extends FeaturePanel {
     this.setFieldValue(this.positionField, state.position);
     const rotations = [state.rotateX, state.rotateY, state.rotateZ];
     this.rotationFields.forEach((field, i) => this.setFieldValue(field, rotations[i]));
+    this.axesTabs.setValue(state.rotationAxes);
+    this.syncAxisTitles();
     this.setBases([]);
     this.syncType();
     this.shell.show();
@@ -191,7 +232,7 @@ export class PlanePanel extends FeaturePanel {
         return { error: 'Enter a position between 0 (edge start) and 1 (edge end).' };
       }
       return {
-        type, offset: null, rotateX: null, rotateY: null, rotateZ: null,
+        type, offset: null, rotateX: null, rotateY: null, rotateZ: null, rotationAxes: 'local',
         position: read.value,
         newVariables: collectNewVariables([read]),
       };
@@ -222,9 +263,18 @@ export class PlanePanel extends FeaturePanel {
       rotateX: numbers[1],
       rotateY: numbers[2],
       rotateZ: numbers[3],
+      rotationAxes: this.axesTabs.value,
       position: null,
       newVariables: collectNewVariables(reads),
     };
+  }
+
+  /** The per-axis tooltips name the axes the current choice turns around. */
+  private syncAxisTitles(): void {
+    const titles = AXIS_TITLES[this.axesTabs.value];
+    this.rotationInputs.forEach((input, i) => {
+      input.title = titles[i];
+    });
   }
 
   /** Seed one field; an option the statement omits shows empty, not zero. */

@@ -37,7 +37,7 @@ mirror("yz")                     // mirror the model across the YZ plane
 1. Click **Plane** on the toolbar. The Plane dialog docks on the right.
 2. Pick the **type** at the top: **Offset**, **Mid plane** or **From edge**.
 3. Fill the **Base** slot from the scene: click a face in the viewport, an origin-plane quad, or a plane row in the timeline. **Mid plane** takes two bases; **From edge** takes an edge. Once the slot is full, only the origin planes you chose stay in the viewport, so the ghost reads clearly against them; clicking a chosen quad again, or the chip's ✕, frees the slot and brings the others back.
-4. Enter the **Distance** (Offset type) or the **position** along the edge from 0 to 1 (From edge type). Offset and Mid planes also take a rotation per axis — around the plane's own X, Y, or its normal, in degrees.
+4. Enter the **Distance** (Offset type) or the **position** along the edge from 0 to 1 (From edge type). Offset and Mid planes also take a rotation per axis, in degrees, and a choice of which axes the turns are around: **Local** (the plane's own X, Y and normal, so it tilts in place) or **World** (the world X, Y and Z axes through the origin, so an offset plane swings around them).
 5. Click **Apply**. The plane appears as a translucent quad in the viewport and as a row in the timeline, and a `plane()` statement is written to the file. Clicking that quad later picks the plane for a sketch or a mirror.
 
 A translucent ghost of the plane follows the fields while the dialog is open. Double-click the plane's timeline row to reopen the dialog and edit it.
@@ -50,14 +50,18 @@ The most common plane: an origin plane or a face, shifted along its normal. In t
 
 <ExplainedCode code={planeOffset} fileName="offset.part.js" />
 
-The offset is one of the transform options. The others rotate the plane around its own axes, and they compose — the offset is applied first, then the rotations around the offset origin:
+The offset is one of the transform options. The others rotate the plane, and they compose — the offset is applied first, then the rotations. By default the rotations are around the plane's own axes: X first, then Y and the normal as the earlier turns left them. Those axes pass through the plane's origin, so the plane tilts in place. With `rotationAxes: "world"` the rotations are around the world X, Y and Z instead, in that order — the axis lines through the world origin, so an offset plane swings around them rather than tilting where it is:
 
 ```js
 plane("xy", 50)                                  // shorthand: offset only
 plane("xy", { offset: 50 })                      // same
 plane("xz", { rotateX: 45 })                     // tilted 45° around the plane's X
 plane("xy", { offset: 30, rotateZ: 90 })         // shifted, then spun around its normal
+plane("xz", { rotateY: 30, rotationAxes: "world" })      // turned 30° around the world Y axis
+plane("yz", { offset: 20, rotateZ: 30, rotationAxes: "world" }) // a radial plane: pushed out 20, swung 30° around Z
 ```
+
+The two readings differ in the axes and in the pivot. The XZ plane's own Y is the world Z, so `rotateY: 90` swings it to stand in YZ, while the same turn around the world Y leaves it in XZ and spins it in place. And an XY plane offset 30 with `rotateX: 90` stays 30 up and tilts on the spot, while with `rotationAxes: "world"` it swings down around the X axis to stand 30 along −Y.
 
 ### From a face
 

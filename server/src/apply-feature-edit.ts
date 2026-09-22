@@ -1383,13 +1383,27 @@ export type PlaneValueOptions = {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null/0 renders none. Offset/mid types only. */
   offset: ValueExpr | null;
-  /** Rotation in degrees around the plane's local axes; null/0 renders none. */
+  /** Rotation in degrees around the X/Y/Z axes ({@link axes}); null/0 renders none. */
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /**
+   * The axes the rotations turn around: the plane's own (`local`, the
+   * default when absent) or the fixed world axes (`world`). Renders only
+   * beside a rotation — alone it changes nothing.
+   */
+  rotationAxes?: PlaneRotationAxes;
   /** Normalized 0–1 position along the edge (edge type only). */
   position?: ValueExpr | null;
 };
+
+/** The axes a plane's rotations turn around — the kernel's `PlaneRotationAxes`. */
+export type PlaneRotationAxes = 'local' | 'world';
+
+/** An absent `rotationAxes` reads as `local`; anything else must be one of the two names. */
+export function validPlaneRotationAxes(value: unknown): value is PlaneRotationAxes | undefined {
+  return value === undefined || value === 'local' || value === 'world';
+}
 
 /**
  * A created plane statement: its values plus the bases to render, which also
@@ -1771,6 +1785,7 @@ async function applyCreateEdit(
       && new Set(selectorParts).size === selectorParts.length
       && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ]
         .every(v => v === null || validValueExpr(v))
+      && validPlaneRotationAxes(pl.rotationAxes)
       // The edge form is an edge source (a picked edge or a helix) plus a
       // normalized position — the second argument slot is taken, so no
       // offset/rotation can ride.
@@ -1779,7 +1794,8 @@ async function applyCreateEdit(
         && pl.position !== null && pl.position !== undefined
         && validValueExpr(pl.position)
         && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
-        && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)));
+        && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)
+        && pl.rotationAxes !== 'world'));
     if (!valid) {
       return { newCode: code, error: 'malformed plane edit spec' };
     }
@@ -4514,8 +4530,9 @@ export function renderRibStatement(
  * Render a plane statement from its rendered base expressions:
  * `plane('xy')` / `plane('xy', 10)` (offset only keeps the bare-number
  * shorthand) / `plane(e.endFaces(), { offset: 10, rotateX: 15 })` /
- * `plane(p, 'xz', { rotateY: 30 })` (mid). Shared with the route's preview so
- * the previewed text is exactly what the transform writes.
+ * `plane(p, 'xz', { rotateY: 30, rotationAxes: 'world' })` (mid, turned around the
+ * world Y). Shared with the route's preview so the previewed text is exactly
+ * what the transform writes.
  */
 export function renderPlaneStatement(pl: PlaneValueOptions, baseExprs: string[]): string {
   if (pl.type === 'edge') {
@@ -4536,6 +4553,10 @@ export function renderPlaneStatement(pl: PlaneValueOptions, baseExprs: string[])
       hasRotation = true;
       entries.push(`${key}: ${formatValue(value)}`);
     }
+  }
+  // The axes only mean something beside a rotation; `local` is the default.
+  if (hasRotation && pl.rotationAxes === 'world') {
+    entries.push(`rotationAxes: 'world'`);
   }
   let optionsArg = '';
   if (entries.length > 0) {
@@ -5468,6 +5489,8 @@ export type ParsedFeatureStatement =
     rotateX: ValueExpr | null;
     rotateY: ValueExpr | null;
     rotateZ: ValueExpr | null;
+    /** The axes the rotations turn around; `local` when the statement writes none. */
+    rotationAxes: PlaneRotationAxes;
     /** Normalized 0–1 position along the edge; null for the other forms. */
     position: ValueExpr | null;
   }
@@ -7147,7 +7170,8 @@ function standardPlaneLiteral(node: TSNode): 'xy' | 'xz' | 'yz' | null {
 const EDGE_POSITION_NAMES = new Map<string, number>([['start', 0], ['middle', 0.5], ['end', 1]]);
 
 /** The transform-option members the plane dialog owns; the rest refuse. */
-const PLANE_OPTION_MEMBERS = ['offset', 'rotateX', 'rotateY', 'rotateZ'] as const;
+const PLANE_NUMERIC_MEMBERS = ['offset', 'rotateX', 'rotateY', 'rotateZ'] as const;
+const PLANE_OPTION_MEMBERS = [...PLANE_NUMERIC_MEMBERS, 'rotationAxes'] as const;
 
 /**
  * Which form a plane base's text reads as (see {@link ParsedPlaneBase}). A
@@ -7182,9 +7206,9 @@ function readPlaneBase(node: TSNode, statementStart: number): ParsedPlaneBase {
 /**
  * A `plane(…)` statement's dialog-editable reading. The bases are preserved
  * verbatim (and classified, so the dialog knows which form they fit); the
- * transform options must be a plain object literal of the four members the
- * dialog owns — anything else would be silently dropped by a rewrite, so it
- * refuses. The second argument disambiguates the forms: an options object or
+ * transform options must be a plain object literal of the five members the
+ * dialog owns (the four numbers and the `rotationAxes` name) — anything else would be
+ * silently dropped by a rewrite, so it refuses. The second argument disambiguates the forms: an options object or
  * nothing leaves an offset (or, with two bases, a mid) plane, a number is
  * the offset — or, on an edge base, the position along it — and a second
  * plane-like makes it a mid plane.
@@ -7242,7 +7266,7 @@ function parsePlaneChain(
     return {
       parsed: {
         feature: 'plane', type, bases,
-        offset: null, rotateX: null, rotateY: null, rotateZ: null, position: value,
+        offset: null, rotateX: null, rotateY: null, rotateZ: null, rotationAxes: 'local', position: value,
       },
       start,
       end,
@@ -7253,12 +7277,21 @@ function parsePlaneChain(
   if (options === null) {
     return { error: 'the plane options are not a plain object literal — edit them in the source' };
   }
-  const values: Record<(typeof PLANE_OPTION_MEMBERS)[number], ValueExpr | null> =
+  const values: Record<(typeof PLANE_NUMERIC_MEMBERS)[number], ValueExpr | null> =
     { offset: value, rotateX: null, rotateY: null, rotateZ: null };
+  let axes: PlaneRotationAxes = 'local';
   for (const [name, node] of options) {
     const member = PLANE_OPTION_MEMBERS.find(m => m === name);
     if (!member) {
       return { error: `the plane options include ${name}, which the dialog cannot edit — edit the statement in the source` };
+    }
+    if (member === 'rotationAxes') {
+      const read = stringArgValue(node);
+      if (read !== 'local' && read !== 'world') {
+        return { error: "the plane rotationAxes is not 'local' or 'world' — edit the statement in the source" };
+      }
+      axes = read;
+      continue;
     }
     const read = anyValueArg(node);
     if (read === null) {
@@ -7275,6 +7308,7 @@ function parsePlaneChain(
     parsed: {
       feature: 'plane', type, bases,
       offset: values.offset, rotateX: values.rotateX, rotateY: values.rotateY, rotateZ: values.rotateZ,
+      rotationAxes: axes,
       position: null,
     },
     start,
@@ -8431,7 +8465,8 @@ function renderEditedPlane(
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.plane;
   if (!opts || (opts.type !== 'offset' && opts.type !== 'mid' && opts.type !== 'edge')
-    || ![opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].every(v => v === null || validValueExpr(v))) {
+    || ![opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].every(v => v === null || validValueExpr(v))
+    || !validPlaneRotationAxes(opts.rotationAxes)) {
     return { error: 'malformed plane edit spec' };
   }
   if (opts.type === 'edge') {
@@ -8439,7 +8474,7 @@ function renderEditedPlane(
       || (typeof opts.position === 'number' && (opts.position < 0 || opts.position > 1))) {
       return { error: 'an edge plane takes a position between 0 (start) and 1 (end)' };
     }
-    if ([opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].some(v => v !== null)) {
+    if ([opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].some(v => v !== null) || opts.rotationAxes === 'world') {
       return { error: 'an edge plane takes a position only — no offset or rotation' };
     }
   } else if (opts.position !== null && opts.position !== undefined) {

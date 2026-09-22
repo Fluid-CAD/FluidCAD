@@ -1,0 +1,66 @@
+---
+sidebar_position: 8
+title: "Split"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolSplit from '!!raw-loader!../_examples/tool-split.js';
+
+# Split
+
+Split cuts a sketch edge in two at the point you click. The two pieces stay joined at the split point, which becomes a vertex you can drag, dimension or build a notch from.
+
+## In the viewport
+
+1. Click **Split** on the sketch toolbar (shortcut <kbd>sp</kbd>). It sits in the group with **Fillet** and **Offset**. There is no dialog: the tool arms and waits for a click.
+2. Click an edge where it should split. The edge is cut at the click, and a toast reports what was written: *Split l1 into l1 and l3*, or *Turned c1 into an arc* for a circle.
+3. The tool stays armed, so click the next edge for the next split. <kbd>Esc</kbd> leaves the tool.
+
+The tool does not write a `split()` call. It rewrites the source: the entity's statement keeps the first piece under its old variable name, so every `.start()` and `.center()` reference to it stays valid; a new `const` for the second piece is inserted right after it, under the next free name; and a `coincident(first.end(), second.start())` is appended to the sketch, which is the junction. Argument expressions you did not touch stay verbatim: `line([0, 0], [w, h])` split at x = 10 becomes `line([0, 0], [10, 0])` and `line([10, 0], [w, h])`.
+
+The split is a plain edit. **Undo** reverts it, and the pieces are drawn geometry like any other: drag them, dimension them, fillet them or delete one of them.
+
+![A mounting plate whose bottom edge is split at 35 from the corner](/img/docs/sketching/tool-split.png)
+
+<ExplainedCode code={toolSplit} fileName="plate.part.js">
+Only the constraints the tool had to touch changed: the corner coincident and the plate length moved their `.end()` to the second piece, `horizontal` was copied onto it, and the junction coincident was appended. The last dimension is not the tool's: a split adds one degree of freedom (the split point can slide along the edge), so the DOF readout goes up by one until you dimension the point.
+</ExplainedCode>
+
+## What each primitive becomes
+
+| Edge | After the split |
+|---|---|
+| `line()` | Two lines joined at the split point. |
+| `arc()` | Two arcs around the same center, joined at the split point; each keeps `.cw()` / `.guide()`. A second `coincident(first.center(), second.center())` keeps them on one circle. |
+| `circle()` | One arc whose start and end both sit at the split point: `arc(P, P, center)`. Coincident arc ends mean a full turn, so it still draws as the whole circle until you drag one end away from the other. |
+
+```js
+// an arc split at P
+const a1 = arc([40, 0], P, [0, 0]).cw();
+const a2 = arc(P, [0, 40], [0, 0]).cw();
+coincident(a1.end(), a2.start());
+coincident(a1.center(), a2.center());
+
+// a circle split at P: one full-turn arc
+const c1 = arc(P, P, [0, 0]);
+```
+
+## Constraints on the split edge
+
+Every constraint that referenced the edge is kept where it still makes sense, and the toast names the ones that had to go.
+
+- `.end()` references move to the second piece; `.start()` and `.center()` references stay on the first. `distance(l1.start(), l1.end(), 40)` becomes `distance(l1.start(), l2.end(), 40)`, so an overall length stays dimensioned.
+- On a **line**, `horizontal`, `vertical`, `parallel`, `perpendicular`, `angle`, `collinear` and `fix` are copied onto the second piece. A point-on-line `coincident`, a `tangent` or a `distance` to the line goes to whichever piece the constraint touches. `equal` (length), `symmetric` and a `midpoint` of the line are removed.
+- On an **arc** or a **circle**, both pieces ride one circle, so `radius`, `diameter`, `concentric`, `tangent`, `equal` and a point on the circumference stay on the first piece. Only `fix` is copied; `symmetric` is removed.
+- A `.mid()` of the edge used by other geometry refuses the split, since the midpoint of the whole edge no longer exists.
+
+## What cannot be split
+
+The tool says why in a toast:
+
+- Text, bezier curves and ellipses (ellipses: not yet).
+- Points.
+- Projected and intersected references.
+- Copy and mirror images: split the source edge instead, and the image follows.
+- Edges drawn by a loop.
+- A click on a vertex rather than the body of the edge.

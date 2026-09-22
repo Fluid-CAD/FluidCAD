@@ -9,8 +9,16 @@ import type { Vec2 } from './resolve';
 const CIRCLE_SEGMENTS = 64;
 const ARC_SEGMENTS = 48;
 
-/** Signed sweep from start to end around the center, on the drawn side
- * (mirrors resolve.ts's arcMidPoint convention). */
+/** Ends closer than this angle (radians) read as coincident. */
+const FULL_TURN_TOL = 1e-9;
+
+/**
+ * Signed sweep from start to end around the center, on the drawn side —
+ * negative for a clockwise arc. The one home of the arc sweep convention
+ * (hit testing, badges and the live drag all read it). Coincident ends are
+ * a FULL turn, never an empty arc: that is the arc the Split tool makes of
+ * a circle, and the kernel renders it as the whole circle.
+ */
 export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | null {
   if (!e.center || !e.start || !e.end) {
     return null;
@@ -24,6 +32,9 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
     }
   } else if (sweep < 0) {
     sweep += 2 * Math.PI;
+  }
+  if (Math.abs(sweep) < FULL_TURN_TOL) {
+    sweep = e.cw ? -2 * Math.PI : 2 * Math.PI;
   }
   return { a0, sweep };
 }

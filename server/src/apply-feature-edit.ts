@@ -20,6 +20,7 @@ import {
   type TSTree,
 } from './code-editor.ts';
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
+import { SketchSplit, type SketchSplitSpec } from './sketch-split.ts';
 import {
   applyDistanceTangency,
   applySolvedEmission,
@@ -236,6 +237,14 @@ export type ApplyFeatureEditSpec = {
    * `sketchConstraint`; every other spec field is ignored.
    */
   distanceTangency?: DistanceTangencySpec;
+  /**
+   * Sketch Split tool (2D): rewrite an entity statement as the first piece
+   * the kernel cut, bind the second piece right after it, re-home the
+   * constraints that referenced the entity and append the junction
+   * coincident(s). Rides the same round trip as `sketchEmission`; every
+   * other spec field is ignored.
+   */
+  sketchSplit?: SketchSplitSpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1586,6 +1595,10 @@ async function applyFeatureEditTransform(
   }
   if (spec.distanceTangency) {
     return applyDistanceTangency(code, spec.distanceTangency);
+  }
+  if (spec.sketchSplit) {
+    const { newCode, error } = await SketchSplit.apply(code, spec.sketchSplit);
+    return { newCode, ...(error !== undefined ? { error } : {}) };
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);

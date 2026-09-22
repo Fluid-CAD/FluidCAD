@@ -150,6 +150,14 @@ export class SketchHoverSelectHandler {
   private entityShapeIds = new Map<number, string[]>();
   /** Sketch-space click point per selected edge pick (see SolvedPick.at). */
   private edgePickAt = new Map<string, [number, number]>();
+  /**
+   * Optional cut/point preview on the hovered edge: given the hovered solved
+   * entity and the cursor's sketch position, the point ON the entity to mark
+   * (the Split tool's cut point), or null for no mark. Drawn as a vertex
+   * ring that follows the cursor along the edge.
+   */
+  hoverMarker?: (entity: SolvedEntityView, point2d: [number, number]) => [number, number] | null;
+  private hoverMarkerOverlay: Group | null = null;
   private hoveredBadge: BadgeHitTarget | null = null;
   /** Constraint statements tinted while a vertex pick stands for them (the
    * coincident ring behind a selected junction) — by render objId. */
@@ -553,6 +561,8 @@ export class SketchHoverSelectHandler {
       this.ctx.requestRender();
     }
 
+    this.updateHoverMarker(nearest !== null && !hit?.isCenter ? nearest : null, point2d);
+
     if (hit?.isCenter && hit.centerPoint) {
       const samePoint = this.hoveredCenterPoint
         && this.hoveredCenterPoint[0] === hit.centerPoint[0]
@@ -774,6 +784,7 @@ export class SketchHoverSelectHandler {
   }
 
   private clearHover(): void {
+    this.clearHoverMarker();
     if (this.hoveredShapeId) {
       this.removeHoverHighlight(this.hoveredShapeId);
       this.hoveredShapeId = null;
@@ -781,6 +792,35 @@ export class SketchHoverSelectHandler {
       this.removeCenterOverlay();
       this.ctx.requestRender();
     }
+  }
+
+  /** Re-place the hover marker for the edge under the cursor (see {@link hoverMarker}). */
+  private updateHoverMarker(shapeId: string | null, point2d: [number, number]): void {
+    const entity = shapeId !== null ? this.entityOfShape(shapeId) : undefined;
+    const at = entity && this.hoverMarker ? this.hoverMarker(entity, point2d) : null;
+    this.clearHoverMarker();
+    if (at) {
+      this.hoverMarkerOverlay = this.buildVertexOverlay(at, 0.9);
+      this.ctx.requestRender();
+    }
+  }
+
+  private clearHoverMarker(): void {
+    if (this.hoverMarkerOverlay) {
+      this.disposeVertexOverlay(this.hoverMarkerOverlay);
+      this.hoverMarkerOverlay = null;
+      this.ctx.requestRender();
+    }
+  }
+
+  /** The solved entity a picked shape belongs to, if any. */
+  private entityOfShape(shapeId: string): SolvedEntityView | undefined {
+    for (const [entityId, shapeIds] of this.entityShapeIds) {
+      if (shapeIds.includes(shapeId)) {
+        return this.solvedModel?.entities.get(entityId);
+      }
+    }
+    return undefined;
   }
 
   private clearSelection(): void {

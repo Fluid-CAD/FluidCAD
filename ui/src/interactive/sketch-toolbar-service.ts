@@ -32,6 +32,7 @@ import {
 } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
+import { SketchSplitService } from './sketch-split-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -85,6 +86,7 @@ export class SketchToolbarService {
   private offsetOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private mirrorOp!: SketchMirrorService;
+  private splitOp!: SketchSplitService;
   private toolbar: SketchToolbar;
   /** The solved-sketch constraint bar (P4). */
   private solvedToolbar: SolvedConstraintToolbarService;
@@ -228,11 +230,36 @@ export class SketchToolbarService {
         },
       ],
     });
+    // The Split tool has no dialog: a single edge click is the whole input,
+    // so it rides the op-dialog surface (hover handler active, selection
+    // changes delivered) and acts on the click's own pick.
+    this.splitOp = new SketchSplitService({
+      picks: opRail.picks,
+      model: opRail.model,
+      sketch: () => this.activeSketchInfo
+        ? {
+          filePath: this.activeSketchInfo.sourceLocation.filePath,
+          sketchLine: this.solvedEmitSketchLine ?? this.activeSketchInfo.sourceLocation.line,
+        }
+        : null,
+      clearSelection: opSelection.clear,
+      message: (text) => this.showOpMessage(text),
+      noteEdit: ({ sketchLine }) => {
+        // The rewrite added lines inside the body and may have added an
+        // import: every pending emission's line is stale, and the sketch
+        // statement may have moved.
+        this.pendingEmissions = [];
+        if (sketchLine !== undefined) {
+          this.solvedEmitSketchLine = sketchLine;
+        }
+      },
+    });
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
       mirror: this.mirrorOp,
       offset: this.offsetOp,
+      split: this.splitOp,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
@@ -256,7 +283,7 @@ export class SketchToolbarService {
     return this.activeDrawingTool !== null;
   }
 
-  /** The op dialog (fillet, offset, copy, mirror) of the currently armed toolbar tool. */
+  /** The op dialog (fillet, offset, copy, mirror, split) of the currently armed toolbar tool. */
   private activeOpService(): SketchOpDialog | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
@@ -818,6 +845,9 @@ export class SketchToolbarService {
       this.activeOpService()?.refresh();
       this.solvedToolbar.selectionChanged(this.activeHoverSelectHandler);
     };
+    // The Split tool previews its cut point on the hovered edge.
+    this.activeHoverSelectHandler.hoverMarker = (entity, point2d) =>
+      this.toolbar.activeTool === 'split' ? this.splitOp.markerFor(entity, point2d) : null;
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
       if (pick.sourceLocation) {
         gotoSource(pick.sourceLocation, { revealEditor: false });

@@ -46,6 +46,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
+    { id: 'split', label: 'Split', iconPng: 'split' },
   ]},
   { tools: [
     { id: 'project', label: 'Project', iconPng: 'projection' },
@@ -69,6 +70,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   bezier: 'b',
   fillet: 'f',
   offset: 'o',
+  split: 'sp',
   copy: 'cp',
   mirror: 'm',
   text: 'x',

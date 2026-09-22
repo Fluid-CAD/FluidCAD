@@ -586,10 +586,14 @@ export class SketchMesh extends Group {
           }
 
           // A closed curve's polyline duplicates its seam vertex at both
-          // ends, so the two lone indices coincide. That seam is not a
-          // topological endpoint — a circle grows no endpoint dot (it also
-          // has no solver point role, so a seam dot could never track drags).
-          if (endpoints.length === 2 && this.samePosition(meshData.vertices, endpoints[0], endpoints[1])) {
+          // ends, so the two lone indices coincide. For a circle that seam
+          // is not a topological endpoint — it grows no dot (it also has no
+          // solver point role, so a seam dot could never track drags). A
+          // full-turn ARC (coincident start and end — what the Split tool
+          // makes of a circle) keeps it: the seam is both of its endpoint
+          // roles, and dragging the dot opens the arc.
+          if (endpoints.length === 2 && this.samePosition(meshData.vertices, endpoints[0], endpoints[1])
+            && !this.hasEndpointRoles(obj)) {
             continue;
           }
 
@@ -617,6 +621,16 @@ export class SketchMesh extends Group {
     }
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
     this.addVertexDots(uniqueMeta, normal, worldFromMm(META_VERTEX_RADIUS_MM), META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
+  }
+
+  /** Whether the object's solver entity has start/end point roles (a line
+   * or an arc) — the roles a closed curve's seam vertex can stand for. */
+  private hasEndpointRoles(obj: SceneObjectRender): boolean {
+    if (!this.isSolvedEntity(obj)) {
+      return false;
+    }
+    const kind = this.solvedModel!.entities.get(obj.object!.entityId as number)?.kind;
+    return kind === 'line' || kind === 'arc';
   }
 
   /** Solved-entity child of this solved sketch (they report 'selectable'

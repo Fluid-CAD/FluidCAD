@@ -48,6 +48,49 @@ import {
   type SolvedGeometryEmission,
 } from '../sketch-solved-edit.ts';
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../sketch-symbols.ts';
+import { SketchSplit, type SketchSplitSpec } from '../sketch-split.ts';
+import {
+  SketchEntitySplit, SplitRefusal, type SplittableEntity, type SplitPoint,
+} from '../../../lib/dist/features/2d/split.js';
+
+/** A finite `[x, y]` pair off the wire, or null. */
+function sanitizeSplitPoint(raw: unknown): SplitPoint | null {
+  if (!Array.isArray(raw) || raw.length !== 2 || !raw.every(v => typeof v === 'number' && Number.isFinite(v))) {
+    return null;
+  }
+  return [raw[0], raw[1]];
+}
+
+/** The Split tool's entity geometry off the wire, or null. */
+function sanitizeSplittableEntity(raw: unknown): SplittableEntity | null {
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const e = raw as Record<string, unknown>;
+  switch (e.kind) {
+    case 'line': {
+      const start = sanitizeSplitPoint(e.start);
+      const end = sanitizeSplitPoint(e.end);
+      return start && end ? { kind: 'line', start, end } : null;
+    }
+    case 'arc': {
+      const start = sanitizeSplitPoint(e.start);
+      const end = sanitizeSplitPoint(e.end);
+      const center = sanitizeSplitPoint(e.center);
+      return start && end && center && typeof e.cw === 'boolean'
+        ? { kind: 'arc', start, end, center, cw: e.cw }
+        : null;
+    }
+    case 'circle': {
+      const center = sanitizeSplitPoint(e.center);
+      return center && typeof e.radius === 'number' && Number.isFinite(e.radius) && e.radius > 0
+        ? { kind: 'circle', center, radius: e.radius }
+        : null;
+    }
+    default:
+      return null;
+  }
+}
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
@@ -7605,6 +7648,89 @@ export function createApplyFeatureRouter(
       },
     };
     await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // Sketch Split tool (2D): the kernel projects the click onto the picked
+  // entity and cuts it (lib SketchEntitySplit); the statement transform then
+  // rewrites the source as the pieces. The UI sends the entity's SOLVED
+  // geometry (the statement's literals are guesses) plus, per constraint
+  // that acts somewhere along the entity, where it touches it — resolved
+  // here to the piece that place falls on.
+  router.post('/sketch/split', async (req, res) => {
+    const { sketchLine, filePath, line, entity, at, hints } = req.body ?? {};
+    const cleanEntity = sanitizeSplittableEntity(entity);
+    const cleanAt = sanitizeSplitPoint(at);
+    if (typeof sketchLine !== 'number' || typeof line !== 'number'
+      || (filePath !== undefined && typeof filePath !== 'string')
+      || cleanEntity === null || cleanAt === null
+      || (hints !== undefined && !Array.isArray(hints))) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const cleanHints: { line: number; locus: SplitPoint }[] = [];
+    for (const h of hints ?? []) {
+      const locus = sanitizeSplitPoint(h?.locus);
+      if (typeof h !== 'object' || h === null || !Number.isInteger(h.line) || h.line < 1 || locus === null) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanHints.push({ line: h.line, locus });
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    let split: ReturnType<typeof SketchEntitySplit.split>;
+    try {
+      split = SketchEntitySplit.split(cleanEntity, cleanAt);
+    } catch (err) {
+      if (err instanceof SplitRefusal) {
+        res.status(422).json({ success: false, reason: err.message });
+        return;
+      }
+      throw err;
+    }
+    const sketchSplit: SketchSplitSpec = {
+      sketchLine,
+      line,
+      pieces: split.pieces,
+      ...(cleanHints.length > 0 && split.pieces.length === 2
+        ? { assignments: cleanHints.map(h => ({ line: h.line, piece: SketchEntitySplit.nearestPiece(split.pieces, h.locus) })) }
+        : {}),
+    };
+
+    // Preflight for the report (what was removed, the pieces' names); the
+    // dispatcher preflights again for the drift guard.
+    let report: Record<string, unknown> = {};
+    if (targetFile === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await SketchSplit.apply(code, sketchSplit);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+          report = {
+            ...(dryRun.removed !== undefined ? { removed: dryRun.removed } : {}),
+            ...(dryRun.names !== undefined ? { names: dryRun.names } : {}),
+            ...(dryRun.sketchLine !== undefined ? { sketchLine: dryRun.sketchLine } : {}),
+          };
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchSplit,
+    };
+    await dispatcher.dispatch(res, spec, { success: true, at: split.at, ...report });
   });
 
   // Distance-dimension tangency rewrite (timeline "Use min/max tangent"):

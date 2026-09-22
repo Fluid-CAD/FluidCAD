@@ -2,6 +2,11 @@ import { Point2D } from "../../math/point.js";
 import { Plane } from "../../math/plane.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { mmTol } from "../../units/tolerance.js";
+
+/** Ends closer than this (mm) make the arc a full turn, not a sliver. */
+const FULL_TURN_TOL = 1e-6;
 
 export type FittedArc = {
   edge: Edge;
@@ -26,6 +31,9 @@ export function fitArcThroughEndpoints(
   centerPt: Point2D,
   clockwise: boolean,
 ): FittedArc {
+  if (startPt.distanceTo(endPt) < mmTol(FULL_TURN_TOL)) {
+    return fitFullTurn(plane, startPt, centerPt, clockwise);
+  }
   const aStart = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
   const aEnd = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
   let sweep = clockwise ? aStart - aEnd : aEnd - aStart;
@@ -56,6 +64,34 @@ export function fitArcThroughEndpoints(
   const endTangent = new Point2D(sign * (-Math.sin(endAngle)), sign * Math.cos(endAngle));
 
   return { edge, actualCenter, endTangent };
+}
+
+/**
+ * Coincident ends read as a full turn — the arc the sketch Split tool makes
+ * of a circle — never as a zero-length arc, which no drawing tool can draw
+ * and no fit could carry (the circumcenter degenerates). The circle keeps
+ * the authored end as its seam vertex, so the arc's start/end stay on the
+ * built edge, and its axis follows the sweep side like any other arc.
+ */
+function fitFullTurn(
+  plane: Plane,
+  startPt: Point2D,
+  centerPt: Point2D,
+  clockwise: boolean,
+): FittedArc {
+  const radius = startPt.distanceTo(centerPt);
+  const center = plane.localToWorld(centerPt);
+  const start = plane.localToWorld(startPt);
+  const toStart = new Vector3d(start.x - center.x, start.y - center.y, start.z - center.z).normalize();
+  const normal = clockwise ? plane.normal.negate() : plane.normal;
+  const circle = Geometry.makeCircle(center, radius, normal, toStart);
+  const edge = Geometry.makeEdgeFromCircle(circle);
+
+  const endAngle = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
+  const sign = clockwise ? -1 : 1;
+  const endTangent = new Point2D(sign * (-Math.sin(endAngle)), sign * Math.cos(endAngle));
+
+  return { edge, actualCenter: centerPt, endTangent };
 }
 
 function circumcenter(a: Point2D, b: Point2D, c: Point2D): Point2D {

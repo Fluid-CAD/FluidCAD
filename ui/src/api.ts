@@ -1867,6 +1867,55 @@ export async function insertSolvedGeometry(options: {
   }
 }
 
+/** The solved geometry of the entity the Split tool cuts (sketch-local). */
+export type SplittableEntityParam =
+  | { kind: 'line'; start: [number, number]; end: [number, number] }
+  | { kind: 'arc'; start: [number, number]; end: [number, number]; center: [number, number]; cw: boolean }
+  | { kind: 'circle'; center: [number, number]; radius: number };
+
+export type SplitSketchEntityResult = {
+  success: boolean;
+  reason?: string;
+  /** The split point on the entity. */
+  at?: [number, number];
+  /** Constraint statements the split deleted — nothing could carry them. */
+  removed?: { line: number; kind: string }[];
+  /** The pieces' binding names, first piece first. */
+  names?: string[];
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Split tool: cut the entity statement at `line` where the click
+ * projects onto it. The kernel does the geometry; the route resolves each
+ * hint (where a whole-entity constraint touches the entity) to the piece
+ * that keeps it, and the statement transform rewrites the source.
+ */
+export async function splitSketchEntity(options: {
+  sketchLine: number;
+  filePath?: string;
+  line: number;
+  entity: SplittableEntityParam;
+  at: [number, number];
+  hints?: { line: number; locus: [number, number] }[];
+}): Promise<SplitSketchEntityResult> {
+  try {
+    const res = await fetch('/api/sketch/split', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** The profile sketch an extrude consumes, addressed by its source location. */
 export type ExtrudeProfileRef = {
   /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */

@@ -111,6 +111,12 @@ export function pointText(p: [number, number] | PickedPoint): string {
   return `point(${solvedPointText(p)})`;
 }
 
+/** `bezier(p0, p1, …)` — every control point a literal, so each registers
+ * as the statement's own anchor point (`bz.point(i)`). */
+export function bezierText(points: ([number, number] | PickedPoint)[]): string {
+  return `bezier(${points.map(solvedPointText).join(', ')})`;
+}
+
 /** A snap ref as an emission constraint target. Loop-instance refs carry
  * their occurrence so the server addresses the right instance of a looped
  * statement. */

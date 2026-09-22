@@ -9,7 +9,8 @@ import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
 import { SketchMirrorPanel, SketchMirrorArmedSlot } from './sketch-mirror-panel';
 import {
-  buildMirrorEmission, type MirrorAxisInput, type MirrorEmissionError, type MirrorEmissionPlan,
+  buildMirrorEmission, mirrorTargetsFor, type MirrorAxisInput, type MirrorEmissionError,
+  type MirrorEmissionPlan, type MirrorTarget,
 } from './tools/mirror-emission';
 import type { SolvedPick } from './sketch-hover-select-handler';
 
@@ -32,10 +33,11 @@ type ParsedSketchMirror = Extract<ParsedFeatureStatement, { feature: 'mirror' }>
  * The in-sketch mirror dialog on the 2D op rails: armed from the sketch
  * toolbar, it reads the hover handler's selected edges and — like the
  * Rectangle and Fillet tools — writes plain geometry, not a `mirror()`
- * statement: the reflected line/arc/circle/point statements plus one
- * `symmetric(source, image, line)` per entity, planned client-side from the
- * solved model (tools/mirror-emission.ts) and applied through the atomic
- * insert-solved rail. The user gets editable geometry held symmetric by
+ * statement: the reflected line/arc/circle/point/bezier statements plus
+ * `symmetric(source, image, line)` rows (one per entity, one per bezier
+ * control point), planned client-side from the solved model
+ * (tools/mirror-emission.ts) and applied through the atomic insert-solved
+ * rail. The user gets editable geometry held symmetric by
  * constraints they can read, move and delete. Exactly one panel slot is
  * armed at a time and the picks land in it: the Geometry slot collects the
  * targets; the armed Mirror line slot consumes ONE pick as the line to
@@ -89,8 +91,9 @@ export class SketchMirrorService {
   /** The solved pick behind `axisEntity` — the line entity the symmetric
    * rows name (create mode). */
   private axisPick: SolvedPick | null = null;
-  /** The target picks frozen with `frozenTargets` while the line slot is
-   * armed (the live selection is cleared then). */
+  /** The solved picks frozen with `frozenTargets` while the line slot is
+   * armed (the live selection is cleared then) — the targets re-resolve
+   * from these, so a chip's ✕ needs no pick bookkeeping of its own. */
   private frozenPicks: SolvedPick[] = [];
   /** A datum pick is being evicted from the viewport — its own change is not a new pick. */
   private consumingDatum = false;
@@ -130,7 +133,6 @@ export class SketchMirrorService {
         this.selection.deselect(shapeId);
       } else {
         this.frozenTargets = this.frozenTargets.filter(id => id !== shapeId);
-        this.frozenPicks = this.frozenPicks.filter(pick => pick.shapeId !== shapeId);
         this.refresh();
       }
     };
@@ -274,7 +276,7 @@ export class SketchMirrorService {
     }
     if (this.armedApplied === 'targets') {
       this.frozenTargets = this.selection.ids();
-      this.frozenPicks = this.livePicks();
+      this.frozenPicks = this.rail.picks();
     }
     this.armedApplied = next;
     this.selection.clear();
@@ -336,23 +338,14 @@ export class SketchMirrorService {
     return this.panel.armedSlot === 'targets' ? this.selection.ids() : this.frozenTargets;
   }
 
-  /** The solved edge picks behind the live selection, in selection order. */
-  private livePicks(): SolvedPick[] {
-    const ids = this.selection.ids();
-    const picks = this.rail.picks();
-    const out: SolvedPick[] = [];
-    for (const shapeId of ids) {
-      const pick = picks.find(p => p.shapeId === shapeId && p.role === undefined);
-      if (pick) {
-        out.push(pick);
-      }
-    }
-    return out;
-  }
-
-  /** The solved picks behind {@link targetIds} — live or frozen. */
-  private targetPicks(): SolvedPick[] {
-    return this.panel.armedSlot === 'targets' ? this.livePicks() : this.frozenPicks;
+  /**
+   * The mirror targets behind {@link targetIds} — live or frozen — resolved
+   * against the solved picks and model: entity edge picks, and bezier
+   * curves (no solver entity of their own) by their statement.
+   */
+  private mirrorTargets(): { targets: MirrorTarget[]; unresolved: string[] } {
+    const picks = this.panel.armedSlot === 'targets' ? this.rail.picks() : this.frozenPicks;
+    return mirrorTargetsFor(this.targetIds(), picks, this.rail.model());
   }
 
   /**
@@ -361,11 +354,16 @@ export class SketchMirrorService {
    * null while the form is incomplete (still picking — no hint yet).
    */
   private createPlan(): MirrorEmissionPlan | MirrorEmissionError | null {
-    const picks = this.targetPicks();
-    if (picks.length === 0) {
-      return this.targetIds().length === 0
-        ? null
-        : { ok: false, reason: 'the picked geometry has no solver identity — pick drawn lines, arcs, circles or points' };
+    if (this.targetIds().length === 0) {
+      return null;
+    }
+    const { targets, unresolved } = this.mirrorTargets();
+    if (unresolved.length > 0) {
+      const labels = unresolved.map(shapeId => this.selection.describe(shapeId).label);
+      return {
+        ok: false,
+        reason: `${labels.join(', ')}: the picked geometry has no solver identity — pick drawn lines, arcs, circles, beziers or points`,
+      };
     }
     const selection = this.panel.axisSelection();
     if (!selection || selection.kind === 'keep') {
@@ -385,7 +383,7 @@ export class SketchMirrorService {
     if (!model) {
       return { ok: false, reason: 'the sketch has not rendered yet' };
     }
-    return buildMirrorEmission({ picks, model, axis });
+    return buildMirrorEmission({ targets, model, axis });
   }
 
   /**

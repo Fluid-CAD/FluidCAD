@@ -8,6 +8,7 @@
 // testing — reads this model, never the raw payload.
 
 import type { PlaneData, SceneObjectRender } from '../types';
+import type { SolvedPick } from '../interactive/sketch-hover-select-handler';
 import type {
   ConstraintSpec,
   SketchSolverSystem,
@@ -294,6 +295,74 @@ export function bezierControlPoints(model: SolvedSketchModel, view: SolvedBezier
               : undefined;
     return at ?? fallback;
   });
+}
+
+/**
+ * The bezier statement whose curve `shapeId` renders, or undefined: an
+ * entity's edge, a statement of another kind, a sketch not rendered yet.
+ * A bezier is no solver entity, so the entity→shape join never finds its
+ * curve — tools that mirror or otherwise address a picked curve resolve
+ * it here (the Mirror tool).
+ */
+export function bezierViewForShape(model: SolvedSketchModel, shapeId: string): SolvedBezierView | undefined {
+  for (const view of model.beziers.values()) {
+    if ((view.obj.sceneShapes ?? []).some(shape => shape.shapeId === shapeId && !shape.isMetaShape)) {
+      return view;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The address fields a rendered entity view contributes to a pick made on
+ * it: reference / copy-instance / anchor / mirror-image. A mirror image
+ * nests the pick of its SOURCE view — recursively, so a mirror of a copy
+ * instance (or of another mirror's image) addresses all the way down.
+ */
+export function entityPickAddress(
+  model: SolvedSketchModel,
+  e: SolvedEntityView,
+): Pick<SolvedPick, 'reference' | 'copyInstance' | 'anchor' | 'mirrorInstance'> {
+  const source = e.mirrorInstance !== undefined
+    ? model.entities.get(e.mirrorInstance.sourceEntityId)
+    : undefined;
+  return {
+    ...(e.reference ? { reference: e.reference } : {}),
+    ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
+    ...(e.anchor ? { anchor: e.anchor } : {}),
+    ...(source && source.obj
+      ? {
+        mirrorInstance: {
+          source: {
+            entityId: source.entityId,
+            kind: source.kind,
+            sourceLocation: source.obj.sourceLocation,
+            ...entityPickAddress(model, source),
+          },
+        },
+      }
+      : {}),
+  };
+}
+
+/**
+ * The pick an entity view yields — the whole entity, or with `role` one of
+ * its named points (null = a point entity's own point) — for tools that
+ * address an entity the MODEL resolved for them rather than the viewport:
+ * the Mirror tool names a bezier's control-point sources this way.
+ */
+export function pickForEntity(
+  model: SolvedSketchModel,
+  e: SolvedEntityView,
+  role?: 'start' | 'end' | 'center' | null,
+): SolvedPick {
+  return {
+    entityId: e.entityId,
+    kind: e.kind,
+    sourceLocation: e.obj?.sourceLocation,
+    ...(role !== undefined ? { role } : {}),
+    ...entityPickAddress(model, e),
+  };
 }
 
 export function isSolvedSketch(obj: SceneObjectRender | null | undefined): boolean {

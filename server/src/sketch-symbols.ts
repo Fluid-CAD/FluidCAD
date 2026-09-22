@@ -21,10 +21,16 @@ export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
  * its radii stay literals. */
 export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point', 'ellipse']);
 
-/** What the emission rail may write as geometry: the entity statements. */
-export type SolvedGeometryKind = SolvedEntityKind;
+/**
+ * What the emission rail may write as geometry: the entity statements, plus
+ * the bezier — no solver entity itself, but a rigid function of its literal
+ * control points, each an anchor point a constraint target addresses as
+ * `bz.point(i)` (P8). The sketch Mirror tool writes reflected beziers this
+ * way, one point-pair symmetric per control point.
+ */
+export type SolvedGeometryKind = SolvedEntityKind | 'bezier';
 
-export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES]);
+export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES, 'bezier']);
 
 /** Binding-name hints per entity kind — `const l1 = line(…)`,
  * `const el1 = ellipse(…)`. Reference producers (P6) hoist too:

@@ -451,6 +451,19 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
     if (byNew && (t.newIndex! < 0 || t.newIndex! >= geometry.length)) {
       return (`constraint target newIndex ${t.newIndex} is out of range`);
     }
+    // A same-emission statement is addressed by what it IS: a featureType
+    // on a newIndex target must match the geometry entry's kind, and a
+    // bezier entry — no solver entity — is only reachable through its
+    // control points (`featureType: 'bezier'` + pointIndex).
+    if (byNew) {
+      const emittedKind = geometry[t.newIndex!].kind;
+      if (t.featureType !== undefined && t.featureType !== emittedKind) {
+        return (`constraint target newIndex ${t.newIndex} is a ${emittedKind} statement, not ${t.featureType}`);
+      }
+      if (emittedKind === 'bezier' && t.featureType === undefined) {
+        return (`constraint target newIndex ${t.newIndex} is a bezier — address one of its control points (featureType 'bezier' + pointIndex)`);
+      }
+    }
     if (t.role !== undefined && !VALID_ROLES.has(t.role)) {
       return (`invalid target role '${t.role}'`);
     }
@@ -485,9 +498,10 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
     }
     // Anchor-point targets (P8): the accessor is derived from the
     // featureType, so a role never composes; bezier targets need the
-    // control-point index, text refuses one.
+    // control-point index, text refuses one. A bezier emitted by the same
+    // request is addressed by newIndex (its kind was matched above).
     if (t.featureType !== undefined && ANCHOR_ACCESSORS[t.featureType] !== undefined) {
-      if (!byLine) {
+      if (!byLine && !byNew) {
         return (`a ${t.featureType} anchor target names an existing statement line`);
       }
       if (t.role !== undefined) {

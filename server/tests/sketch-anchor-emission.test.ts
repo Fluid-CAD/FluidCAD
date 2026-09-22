@@ -98,6 +98,66 @@ describe('applySolvedEmission — anchor-point targets', () => {
     expect(result.newCode).toContain('coincident(b.point(1), a.end());');
   });
 
+  it('emits a bezier and binds its control points by newIndex — the Mirror tool\'s reflected curve', async () => {
+    const code = [
+      `import { sketch, line, bezier } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  bezier([0, 0], [50, 50], a.end());`,
+      `});`,
+    ].join('\n');
+    const image = (pointIndex: number) => ({ newIndex: 0, featureType: 'bezier' as const, pointIndex });
+    const result = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [{ kind: 'bezier', text: 'bezier([0, 0], [-50, 50], [-100, 0])' }],
+      constraints: [
+        { kind: 'symmetric', targets: [{ line: 5, featureType: 'bezier', pointIndex: 0 }, image(0), { datum: 'y-axis' }] },
+        { kind: 'symmetric', targets: [{ line: 5, featureType: 'bezier', pointIndex: 1 }, image(1), { datum: 'y-axis' }] },
+        { kind: 'symmetric', targets: [{ line: 4, featureType: 'line', role: 'end' }, image(2), { datum: 'y-axis' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    // The source bezier hoists like any entity statement; the new one binds
+    // under the bezier name hint; every row names control points.
+    expect(result.newCode).toContain('const bz1 = bezier([0, 0], [50, 50], a.end());');
+    expect(result.newCode).toContain('const bz2 = bezier([0, 0], [-50, 50], [-100, 0]);');
+    expect(result.newCode).toContain('symmetric(bz1.point(0), bz2.point(0), yAxis());');
+    expect(result.newCode).toContain('symmetric(bz1.point(1), bz2.point(1), yAxis());');
+    expect(result.newCode).toContain('symmetric(a.end(), bz2.point(2), yAxis());');
+    const coreImport = result.newCode.split('\n')[0];
+    expect(coreImport).toMatch(/^import \{[^}]*\} from "fluidcad\/core";$/);
+    expect(coreImport).toMatch(/\bbezier\b/);
+    expect(coreImport).toMatch(/\byAxis\b/);
+    // The new constraints import shifts the body by a line; the reported
+    // geometry line points at the emitted bezier after that shift.
+    expect(result.geometryLines).toHaveLength(1);
+    expect(result.newCode.split('\n')[result.geometryLines![0] - 1]).toContain('const bz2 = bezier(');
+  });
+
+  it('refuses a newIndex target that names an emitted bezier as a whole, or with the wrong featureType', async () => {
+    const code = [
+      `import { sketch, line } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `});`,
+    ].join('\n');
+    const geometry = [{ kind: 'bezier' as const, text: 'bezier([0, 0], [-50, 50], [-100, 0])' }];
+    const whole = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry,
+      constraints: [{ kind: 'symmetric', targets: [{ line: 4, featureType: 'line' }, { newIndex: 0 }, { datum: 'y-axis' }] }],
+    });
+    expect(whole.error).toMatch(/is a bezier — address one of its control points/);
+    const mismatched = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry,
+      constraints: [{ kind: 'horizontal', targets: [{ newIndex: 0, featureType: 'line' }] }],
+    });
+    expect(mismatched.error).toMatch(/newIndex 0 is a bezier statement, not line/);
+  });
+
   it('refuses an anchor target whose statement callee drifted', async () => {
     const code = [
       `import { sketch, circle } from "fluidcad/core";`,

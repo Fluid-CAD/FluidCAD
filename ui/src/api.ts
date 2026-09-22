@@ -1809,8 +1809,10 @@ export type SolvedEmissionTargetParam = {
 
 export type SolvedGeometryParam = {
   /** An entity statement — the ellipse included: a solver entity whose
-   * `center` role is its one point accessor. */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
+   * `center` role is its one point accessor — or a bezier, addressed only
+   * through its literal control points (`featureType: 'bezier'` +
+   * `pointIndex` on a `newIndex` target). */
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;

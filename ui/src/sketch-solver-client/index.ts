@@ -6,7 +6,10 @@
 export {
   buildSolvedSketchModel,
   bezierControlPoints,
+  bezierViewForShape,
+  entityPickAddress,
   isSolvedSketch,
+  pickForEntity,
   specEntityIds,
 } from './model';
 export type {

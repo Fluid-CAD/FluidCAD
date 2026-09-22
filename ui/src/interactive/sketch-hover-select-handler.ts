@@ -23,6 +23,7 @@ import {
   SolvedSketchModel,
   buildSolvedSketchModel,
   datumHitTest,
+  entityPickAddress,
   solvedHitTest,
 } from '../sketch-solver-client';
 import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView } from '../sketch-solver-client';
@@ -73,38 +74,6 @@ export type SolvedPick = {
    * `.anchor()` / `.point(i)`. */
   anchor?: { owner: 'text' | 'bezier'; pointIndex: number };
 };
-
-/**
- * The address fields a rendered entity view contributes to a pick made on
- * it: reference / copy-instance / anchor / mirror-image. A mirror image
- * nests the pick of its SOURCE view — recursively, so a mirror of a copy
- * instance (or of another mirror's image) addresses all the way down.
- */
-function pickAddress(
-  model: SolvedSketchModel,
-  e: SolvedEntityView,
-): Pick<SolvedPick, 'reference' | 'copyInstance' | 'anchor' | 'mirrorInstance'> {
-  const source = e.mirrorInstance !== undefined
-    ? model.entities.get(e.mirrorInstance.sourceEntityId)
-    : undefined;
-  return {
-    ...(e.reference ? { reference: e.reference } : {}),
-    ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
-    ...(e.anchor ? { anchor: e.anchor } : {}),
-    ...(source && source.obj
-      ? {
-        mirrorInstance: {
-          source: {
-            entityId: source.entityId,
-            kind: source.kind,
-            sourceLocation: source.obj.sourceLocation,
-            ...pickAddress(model, source),
-          },
-        },
-      }
-      : {}),
-  };
-}
 
 type SelectedVertexPick = {
   entityId: number;
@@ -431,7 +400,7 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             role: pick.role,
             sourceLocation: e.obj.sourceLocation,
-            ...pickAddress(model, e),
+            ...entityPickAddress(model, e),
           });
         }
       } else {
@@ -449,7 +418,7 @@ export class SketchHoverSelectHandler {
             // An anchor statement's edges (text glyphs) resolve to its
             // anchor POINT — the only solver entity it has, so an edge click
             // means "constrain its position" (P8).
-            ...pickAddress(model, e),
+            ...entityPickAddress(model, e),
           });
         }
       }

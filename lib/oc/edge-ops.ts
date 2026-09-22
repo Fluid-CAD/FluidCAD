@@ -213,20 +213,45 @@ export class EdgeOps {
   }
 
   static getEdgeTangentAtEndRaw(edge: TopoDS_Edge): Vector3d {
+    return EdgeOps.getEdgeTangentRaw(edge, "end");
+  }
+
+  static getEdgeTangentAtStartRaw(edge: TopoDS_Edge): Vector3d {
+    return EdgeOps.getEdgeTangentRaw(edge, "start");
+  }
+
+  /**
+   * Unit tangent at one end of the edge, in the edge's traversal direction
+   * (a reversed edge is walked from its curve's last parameter to its first).
+   * Evaluated through `BRepAdaptor_Curve`, whose parameter range is the
+   * edge's own trim — the underlying `Geom_Curve` of an arc spans the whole
+   * circle, so its first/last parameters say nothing about the edge's ends.
+   */
+  static getEdgeTangentRaw(edge: TopoDS_Edge, end: "start" | "end"): Vector3d {
     const oc = getOC();
     const isReversed = edge.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
-    const curveHandle = oc.BRep_Tool.Curve(edge, 0, 1);
-    const curve = curveHandle.returnValue;
-    const param = isReversed ? curve.FirstParameter() : curve.LastParameter();
+    const adaptor = new oc.BRepAdaptor_Curve(edge);
+    const atCurveEnd = (end === "end") !== isReversed;
+    const param = atCurveEnd ? adaptor.LastParameter() : adaptor.FirstParameter();
     const edgeSign = isReversed ? -1 : 1;
 
     const tangentVec = new oc.gp_Vec();
     const pnt = new oc.gp_Pnt();
-    curve.D1(param, pnt, tangentVec);
-    const result = Convert.toVector3d(tangentVec, true).multiply(edgeSign);
+    adaptor.D1(param, pnt, tangentVec);
+    const result = Convert.toVector3d(tangentVec, true).normalize().multiply(edgeSign);
     pnt.delete();
+    adaptor.delete();
 
     return result;
+  }
+
+  /** Arc length of the edge, exact for any curve type. */
+  static getEdgeLengthRaw(edge: TopoDS_Edge): number {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(edge);
+    const length = oc.GCPnts_AbscissaPoint.Length(adaptor);
+    adaptor.delete();
+    return length;
   }
 
   static makeEdgeFromCurveAndVerticesRaw(curve: any, v1: TopoDS_Vertex, v2: TopoDS_Vertex): TopoDS_Edge {

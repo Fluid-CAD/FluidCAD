@@ -1,4 +1,5 @@
 import type {ReactNode} from 'react';
+import CodeBlock from '@theme/CodeBlock';
 import styles from './ModeTable.module.css';
 
 export type ModeColumn = {
@@ -8,6 +9,8 @@ export type ModeColumn = {
   image: string;
   /** One line under the image — the dialog tab or the chained method. */
   code?: string;
+  /** Full example source shown under the image, typically a `!!raw-loader!` import. */
+  source?: string;
   /** What happens in this mode. */
   description?: ReactNode;
 };
@@ -30,6 +33,7 @@ export function ModeTable({columns}: ModeTableProps) {
             <strong className={styles.title}>{c.title}</strong>
             <img src={c.image} alt={`${c.title} mode`} loading="lazy" />
             {c.code && <code className={styles.code}>{c.code}</code>}
+            {c.source && <CodeBlock language="js" className={styles.source}>{c.source}</CodeBlock>}
             {c.description && <p className={styles.desc}>{c.description}</p>}
           </div>
         ))}

@@ -477,6 +477,24 @@ export class ShapeOps {
     }
   }
 
+  /**
+   * The face `face` became after a boolean `op`, oriented as it sits in
+   * `result` (a maker's images carry no in-result orientation). A face the
+   * op left untouched is returned as is.
+   */
+  static trackFace(op: { Modified(shape: TopoDS_Shape): TopTools_ListOfShape }, face: TopoDS_Shape, result: TopoDS_Shape): TopoDS_Shape {
+    const modified = ShapeOps.shapeListToArray(op.Modified(face));
+    if (modified.length === 0) {
+      return face;
+    }
+    const oriented = new OrientedFaces(result);
+    try {
+      return oriented.orient(modified[0]);
+    } finally {
+      oriented.delete();
+    }
+  }
+
   static shapeListToArray(list: TopTools_ListOfShape) {
     let res: TopoDS_Shape[] = [];
     while (list.Size() > 0) {

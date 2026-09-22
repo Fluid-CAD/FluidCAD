@@ -31,6 +31,8 @@
 //   quads too (they are left out of the framing by default).
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
 //   Add "// @screenshot crop 0,0,100,16" to keep a percent region (x,y,w,h) of the capture.
+//   Add "// @screenshot extent 1100x1500" to centre the (cropped) capture on a canvas of
+//   that pixel size, so images shown side by side come out the same height.
 //   Add "// @screenshot delay 8000" to wait longer for the UI to mesh the scene
 //   (examples calling text() wait 10 s by default).
 //
@@ -157,6 +159,12 @@ function discoverExamples(docsDir) {
     const cropMatch = firstLines.match(/\/\/ @screenshot.*crop\s+([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
     const crop = cropMatch ? cropMatch.slice(1, 5).map(Number) : null;
 
+    // Parse extent annotation, e.g. "// @screenshot extent 1100x1500" — pad
+    // the capture (after auto-crop and crop) onto a canvas of that size, the
+    // picture centred, so a row of side-by-side images shares one height.
+    const extentMatch = firstLines.match(/\/\/ @screenshot.*extent\s+(\d+)x(\d+)/);
+    const extent = extentMatch ? [Number(extentMatch[1]), Number(extentMatch[2])] : null;
+
     // Parse view annotation, e.g. "// @screenshot view iso-ftr". Captures from
     // a fixed named view (front, top, iso-ftr, ...) instead of the UI client's
     // current camera, making the shot reproducible without manual framing.
@@ -194,6 +202,7 @@ function discoverExamples(docsDir) {
       size,
       view,
       crop,
+      extent,
       renderDelayMs,
       source: relPath,
     });
@@ -278,6 +287,13 @@ function waitForIPC(server, type, timeoutMs = 30000) {
 
 // Crops a PNG in place to a percent region [x, y, w, h] with ImageMagick.
 let magickWarned = false;
+function extentPng(filePath, [w, h]) {
+  const result = spawnSync('magick', [filePath, '-gravity', 'center', '-background', 'none', '-extent', `${w}x${h}`, filePath]);
+  if (result.status !== 0) {
+    console.warn(`\n(extent failed for ${filePath}: ${result.stderr})`);
+  }
+}
+
 function cropPng(filePath, [x, y, w, h]) {
   const probe = spawnSync('magick', ['identify', '-format', '%w %h', filePath]);
   if (probe.error || probe.status !== 0) {
@@ -443,7 +459,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, framePlanes, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, framePlanes, waitForInput, emptyScene, aspectRatio, size, view, crop, extent, renderDelayMs } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -503,6 +519,9 @@ async function main() {
         writeFileSync(outputPath, png);
         if (crop) {
           cropPng(outputPath, crop);
+        }
+        if (extent) {
+          extentPng(outputPath, extent);
         }
         const optimizedSize = optimizePng(outputPath);
         if (optimizedSize !== null) {

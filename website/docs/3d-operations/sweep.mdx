@@ -13,6 +13,8 @@ import sweepThin from '!!raw-loader!./_examples/sweep-thin.js';
 import sweepThinOpen from '!!raw-loader!./_examples/sweep-thin-open.js';
 import sweepScopeAdd from '!!raw-loader!./_examples/sweep-scope-add.js';
 import sweepThinAdd from '!!raw-loader!./_examples/sweep-thin-add.js';
+import sweepCornerMitre from '!!raw-loader!./_examples/sweep-corner-mitre.js';
+import sweepCornerTangent from '!!raw-loader!./_examples/sweep-corner-tangent.js';
 
 # Sweep
 
@@ -65,6 +67,17 @@ sweep(spine, profile).extend("end", 80)                      // 80 units past th
 sweep(spine, profile).extend("start", 20)                    // 20 units before the start
 sweep(spine, profile).extend("start", 20).extend("end", 80)  // both ends
 ```
+
+## Corners
+
+Where the path turns, the two legs are joined at the corner:
+
+<ModeTable columns={[
+  {title: 'Sharp corner', image: '/img/docs/3d-operations/sweep-corner-mitre.png', description: 'Two lines meet in a mitre: each leg is cut on the plane that bisects the corner, like two pipe lengths at an elbow.', source: sweepCornerMitre},
+  {title: 'Rounded corner', image: '/img/docs/3d-operations/sweep-corner-tangent.png', description: 'An arc tangent to both lines: the profile follows the bend and there is no joint at all.', source: sweepCornerTangent},
+]} />
+
+A line meeting an arc without tangency is joined by spinning the profile about the corner. A leg shorter than the mitre at its end, or a path that folds straight back on itself, is an error rather than a self-intersecting solid.
 
 ## Add, New and Remove
 

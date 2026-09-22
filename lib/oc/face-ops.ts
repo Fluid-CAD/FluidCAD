@@ -500,8 +500,6 @@ export class FaceOps {
   }
 
   static planeToFace(plane: Plane, center?: Point): Face {
-    const oc = getOC();
-
     // A 100 mm visual half-size, in the document's unit.
     const size = mmTol(100);
 
@@ -510,12 +508,17 @@ export class FaceOps {
       plane = plane.translate(translation.x, translation.y, translation.z);
     }
 
+    return Face.fromTopoDSFace(FaceOps.makeSquareFace(plane, size));
+  }
+
+  /** A square planar face centred on the plane's origin, `halfSize` to each side. */
+  static makeSquareFace(plane: Plane, halfSize: number): TopoDS_Face {
+    const oc = getOC();
     const [pln, dispose] = Convert.toGpPln(plane);
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln, -size, size, -size, size);
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln, -halfSize, halfSize, -halfSize, halfSize);
     const face = faceMaker.Face();
     faceMaker.delete();
     dispose();
-
-    return Face.fromTopoDSFace(face);
+    return face;
   }
 }

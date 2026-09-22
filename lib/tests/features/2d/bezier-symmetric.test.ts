@@ -63,3 +63,23 @@ describe("bezier mirrored through per-control-point symmetric rows", () => {
     expect(sketchPayload.solver.redundant ?? []).toEqual([]);
   });
 });
+
+describe("bezier render payload", () => {
+  setupOC();
+
+  it("serializes an accessor-valued control point without a cycle (the render broadcast is JSON)", () => {
+    let curve: unknown;
+    sketch('xy', () => {
+      const a = line([0, 0], [40, 0]);
+      curve = bezier([10, 0], [25, 30], a.end());
+    });
+    const scene = render();
+    const rendered = scene.getRenderedObject(curve as SceneObject)!;
+    expect(() => JSON.stringify(rendered)).not.toThrow();
+    const payload = rendered.object;
+    expect(payload.controlPoints).toBeUndefined();
+    expect(payload.startPoint).toEqual([10, 0]);
+    expect(payload.resolvedPoints).toEqual([[25, 30], [40, 0]]);
+    expect(payload.controlSources[2]).toEqual({ entityId: expect.any(Number), role: 'end' });
+  });
+});

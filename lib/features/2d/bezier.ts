@@ -205,8 +205,11 @@ export class BezierCurve extends GeometrySceneObject {
     const start = points[0];
     const resolved = points.slice(1).map(p => [p.x, p.y]);
     const controlSources = this.controlSources();
+    // Positions only — never the LazyVertex arguments themselves: an
+    // accessor-valued control point (`a.end()`) holds its owner entity,
+    // whose parent sketch holds it back, and the render broadcast's
+    // JSON.stringify would throw on the cycle.
     return {
-      controlPoints: this.controlPoints,
       startPoint: start ? [start.x, start.y] : null,
       resolvedPoints: resolved,
       // Per control point, the solver point it rides (live-drag redraw);

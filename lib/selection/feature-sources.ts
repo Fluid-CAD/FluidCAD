@@ -72,7 +72,16 @@ export type FeatureSources =
    * The projected (or, for `intersect()`, sectioned) 3D sources, as entities
    * on the pre-statement solids — the two statements share one dialog.
    */
-  | { feature: 'projection' | 'intersect'; selection: SourceSlot }
+  | {
+    feature: 'projection' | 'intersect';
+    selection: SourceSlot;
+    /**
+     * Whole sketch statements the projection references (`project(s1)`), by
+     * call site, in argument order; `selection` covers the other sources.
+     * Always empty for `intersect()`, which sections solids only.
+     */
+    sketches: SourceSlot[];
+  }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -143,10 +152,10 @@ export function resolveFeatureSources(
       return { ok: true, feature: 'chamfer', selection: resolver.entitiesSlot(feature.selections) };
     }
     if (feature instanceof Projection) {
-      return { ok: true, feature: 'projection', selection: resolver.entitiesSlot(feature.sources) };
+      return { ok: true, feature: 'projection', ...resolver.projectionSlots(feature.sources) };
     }
     if (feature instanceof Intersect) {
-      return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources) };
+      return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources), sketches: [] };
     }
     // A top-level (face-target) offset: its targets are face selections, the
     // same shape as shell's. In-sketch offsets never reach here — their edit
@@ -435,6 +444,22 @@ class SourceResolver {
   /** The profile of an extrude-family feature: a sketch, or nothing pickable. */
   profileSlot(feature: ExtrudeBase): SourceSlot {
     return this.sketchSlot(feature.extrudable instanceof Sketch ? feature.extrudable : null);
+  }
+
+  /**
+   * A projection's sources: whole sketch statements by call site
+   * (`project(s1)`), and everything else as viewport entities on the
+   * pre-statement solids. A sketch entity referenced on its own
+   * (`s1.geometries.c`) is sketch geometry with no pick to seed — it rides
+   * `selection` and leaves it opaque, so the dialog keeps the verbatim text.
+   */
+  projectionSlots(sources: SceneObject[]): { selection: SourceSlot; sketches: SourceSlot[] } {
+    const sketches = sources.filter(obj => obj instanceof Sketch).map(obj => this.callSiteSlot(obj));
+    const rest = sources.filter(obj => !(obj instanceof Sketch));
+    const selection: SourceSlot = rest.length === 0 && sketches.length > 0
+      ? { kind: 'entities', entities: [] }
+      : this.entitiesSlot(rest);
+    return { selection, sketches };
   }
 
   /** A slot holding either a wire statement (sketch/helix) or a geometry selection (loft profile, sweep path). */

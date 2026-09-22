@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../edit-dispatch.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerBindable, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
+  applyFeatureEdit, enclosingSketchLine, extractNumericParams, makeProducerBindable, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
   parseOffsetTargetDescriptors,
   resolveEditedStatementLine,
   renderCopyCenterExpr,
@@ -276,6 +276,66 @@ function validateSketchLoc(loc: any): SketchLoc | null {
     line: loc.line,
     column: Number.isInteger(loc.column) && loc.column >= 0 ? loc.column : 0,
   };
+}
+
+/**
+ * The previous sketches a projection references whole (`project(s1)`), as
+ * `{filePath, line, column}` call sites: absent or empty means none; each
+ * entry must be a valid call site, and duplicates fold to one. Capped to
+ * keep a request bounded. Null when the shape is wrong.
+ */
+const MAX_PROJECT_SKETCHES = 32;
+function validateProjectSketches(raw: unknown): SketchLoc[] | null {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw) || raw.length > MAX_PROJECT_SKETCHES) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const locs: SketchLoc[] = [];
+  for (const entry of raw) {
+    const loc = validateSketchLoc(entry);
+    if (!loc) {
+      return null;
+    }
+    const key = `${normalizePath(loc.filePath)}:${loc.line}:${loc.column}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    locs.push(loc);
+  }
+  return locs;
+}
+
+/**
+ * Why a sketch cannot be a projection source in `receiver`'s sketch, or null
+ * when it can: it must live in the receiver's file (the statement binds its
+ * variable from inside the sketch body), must not be the receiving sketch
+ * itself, and must belong to the receiver's own part (a sketch has no
+ * expose() rail — cross-part projection is for solids).
+ */
+function projectSketchRefusal(
+  loc: SketchLoc,
+  receiver: SketchLoc,
+  consumer: { partName: string; filePath: string; line: number } | null,
+  resolvePart: ((loc: SketchLoc) => { partName: string; filePath: string; line: number } | null) | undefined,
+): string | null {
+  if (normalizePath(loc.filePath) !== normalizePath(receiver.filePath)) {
+    return 'the picked sketch lives in a different file than the sketch';
+  }
+  if (loc.line === receiver.line) {
+    return 'a sketch cannot project itself — pick a previous sketch';
+  }
+  const owner = resolvePart?.(loc) ?? null;
+  const ownerKey = owner ? `${normalizePath(owner.filePath)}:${owner.line}` : null;
+  const consumerKey = consumer ? `${normalizePath(consumer.filePath)}:${consumer.line}` : null;
+  if (ownerKey !== consumerKey) {
+    const name = owner ? `"${owner.partName}"` : 'the top level';
+    return `the picked sketch belongs to another part (${name}) — only sketches of the sketch's own part can be projected`;
+  }
+  return null;
 }
 
 /** The dialog-editable extrude options, shared by the create and edit paths. */
@@ -2190,6 +2250,12 @@ type StatementEditRequest = {
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
   chains?: { seed: Pick; members: Pick[] }[];
+  /**
+   * A re-sourced projection's whole-sketch references (`project(s1)`), by
+   * call site; set together with `picks` (either may be empty). Absent
+   * keeps the statement's own arguments.
+   */
+  projectSketches?: SketchLoc[];
   /** Re-picked sketch edges for a 2D offset; absent keeps the args. */
   sketchPicks?: { shapeId: string }[];
   /** Re-sourced extrude profile sketch; absent keeps the statement's. */
@@ -2794,10 +2860,22 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       ...base,
       rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
     };
-    if (body?.entities !== undefined && body?.entities !== null) {
-      const picks = validatePicks(body.entities);
+    // A re-sourced edit sends both lists (either may be empty, not both);
+    // neither present keeps the statement's own arguments.
+    const resourced = (body?.entities !== undefined && body?.entities !== null)
+      || (body?.sketches !== undefined && body?.sketches !== null);
+    if (resourced) {
+      const sketches = validateProjectSketches(body?.sketches);
+      if (!sketches) {
+        return { error: `sketches must be an array of at most ${MAX_PROJECT_SKETCHES} {filePath, line, column} sketch call sites` };
+      }
+      const hasEntities = Array.isArray(body?.entities) && body.entities.length > 0;
+      const picks = hasEntities ? validatePicks(body.entities) : [];
       if (!picks) {
-        return { error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
+        return { error: 'entities must be an array of {shapeId, sub:{type, index}} picks' };
+      }
+      if (picks.length === 0 && sketches.length === 0) {
+        return { error: 'pick at least one source: entities (edges/faces) or sketches' };
       }
       const chains = validateChains(body?.chains);
       if (!chains) {
@@ -2805,7 +2883,8 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       }
       result.picks = picks;
       result.chains = chains;
-      result.needsPicks = true;
+      result.projectSketches = sketches;
+      result.needsPicks = picks.length > 0;
     }
     return result;
   }
@@ -4274,7 +4353,23 @@ export function createApplyFeatureRouter(
             edit.sketch!.target = { kind: 'selector' };
           }
         }
-        if (request.picks && request.feature === 'project') {
+        if (request.projectSketches && request.feature === 'project') {
+          // The re-sourced sketches obey the create path's rules: same file,
+          // same part, and never the sketch the statement is drawn in.
+          const consumer = fluidCadServer.resolveStatementPart?.(request.target) ?? null;
+          const receiverLine = code ? await enclosingSketchLine(code, request.edit.line) : null;
+          const receiver = { ...request.target, line: receiverLine ?? -1 };
+          for (const loc of request.projectSketches) {
+            const refusal = projectSketchRefusal(
+              loc, receiver, consumer, fluidCadServer.resolveStatementPart?.bind(fluidCadServer),
+            );
+            if (refusal) {
+              res.status(422).json({ success: false, reason: refusal });
+              return;
+            }
+          }
+        }
+        if (request.picks && request.picks.length > 0 && request.feature === 'project') {
           // Re-sourcing keeps the statement in place, so its arguments must
           // stay the statement's own part's geometry: another part's pick
           // would need the find-or-create reference rail the create path
@@ -4296,7 +4391,7 @@ export function createApplyFeatureRouter(
             return;
           }
         }
-        if (request.picks) {
+        if (request.picks && request.picks.length > 0) {
           // A connector's name rides the value channel, and its anchor rides
           // the options — the synthesis renders the suffix onto the args, so
           // the re-picked source reads exactly like a freshly created one.
@@ -4756,6 +4851,25 @@ export function createApplyFeatureRouter(
           // The user's expression text wins only when it differs from what
           // the picks synthesize — the create path's contract.
           rawArgs = rawArgs !== undefined && rawArgs !== synthesis.args ? rawArgs : undefined;
+        }
+        if (request.projectSketches && request.projectSketches.length > 0) {
+          // Whole-sketch sources bind as sketch producers rendered bare,
+          // after the re-picked selectors; the expression row shows the
+          // names the rewrite allocates.
+          const sketchProducers = request.projectSketches.map(loc => mergeProducer({
+            line: loc.line, column: loc.column, featureType: 'sketch', nameHint: 's', bind: true,
+          }));
+          for (const producer of sketchProducers) {
+            parts.push({ producer, accessor: '', indices: null, filterArgs: null });
+          }
+          const producerVars = await allocateProducerVars(producers, code);
+          const sketchArgs = sketchProducers.map((producer, i) => producerVars[producer] ?? `s${i === 0 ? '' : i + 1}`);
+          const withSketches = (own: string | undefined): string =>
+            [own ?? '', ...sketchArgs].filter(arg => arg !== '').join(', ');
+          const ownArgs = synthesizedArgs;
+          synthesizedArgs = withSketches(ownArgs);
+          alternatives = alternatives.map(withSketches);
+          rawArgs = rawArgs !== undefined && rawArgs !== synthesizedArgs ? rawArgs : undefined;
         }
         if (request.feature === 'boolean' && request.booleanTargets) {
           // Every re-picked target is a bound feature producer; keeps stay
@@ -6299,9 +6413,22 @@ export function createApplyFeatureRouter(
     // of the sketch named by `sketch` — `project()` reads the sketch it is
     // called from. The transform binds the producers where they already live.
     if (feature === 'project') {
-      const picks = validatePicks(req.body?.entities);
+      // The sources: 3D picks (synthesized like a fillet's) and/or previous
+      // sketches referenced whole (`project(s1)`, bound like an extrude's
+      // profile). Either list may be empty, not both.
+      const sketches = validateProjectSketches(req.body?.sketches);
+      if (!sketches) {
+        res.status(400).json({ error: `sketches must be an array of at most ${MAX_PROJECT_SKETCHES} {filePath, line, column} sketch call sites` });
+        return;
+      }
+      const hasEntities = Array.isArray(req.body?.entities) && req.body.entities.length > 0;
+      const picks = hasEntities ? validatePicks(req.body?.entities) : [];
       if (!picks) {
-        res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
+        res.status(400).json({ error: 'entities must be an array of {shapeId, sub:{type, index}} picks' });
+        return;
+      }
+      if (picks.length === 0 && sketches.length === 0) {
+        res.status(400).json({ error: 'pick at least one source: entities (edges/faces) or sketches' });
         return;
       }
       const chains = validateChains(req.body?.chains);
@@ -6336,7 +6463,7 @@ export function createApplyFeatureRouter(
         // scene; without one (a top-level sketch, an assembly scene, a
         // kernel predating the lookup) every pick is local as before.
         const consumer = fluidCadServer.resolveStatementPart?.(sketchLoc) ?? null;
-        const resolution = consumer
+        const resolution = consumer && picks.length > 0
           ? await foreignPicks.resolve(picks, chains, consumer)
           : { ok: true as const, local: picks, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
         if (resolution.ok === false) {
@@ -6344,6 +6471,15 @@ export function createApplyFeatureRouter(
             success: false, reason: resolution.reason, ...(resolution.pick ? { pick: resolution.pick } : {}),
           });
           return;
+        }
+        for (const loc of sketches) {
+          const refusal = projectSketchRefusal(
+            loc, sketchLoc, consumer, fluidCadServer.resolveStatementPart?.bind(fluidCadServer),
+          );
+          if (refusal) {
+            res.status(422).json({ success: false, reason: refusal });
+            return;
+          }
         }
 
         let localSpec: ApplyFeatureEditSpec | null = null;
@@ -6384,10 +6520,38 @@ export function createApplyFeatureRouter(
           localArgs = synthesis.args;
           localAlternatives = synthesis.alternatives ?? [];
         }
+        // The sketch sources bind as sketch producers (an extrude profile's
+        // kind: the transform verifies the sketch() call and reuses or
+        // introduces its variable) and render as bare variables after the
+        // synthesized selectors. Named here with the transform's own namer
+        // over the full producer list, so the preview shows the exact names
+        // the rewrite allocates.
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        if (localSpec) {
+          const remap = localSpec.producers.map(mergeProducer);
+          for (const part of localSpec.parts) {
+            parts.push({
+              ...part,
+              producer: part.producer === null ? null : remap[part.producer],
+              refs: part.refs ? part.refs.map(i => remap[i]) : part.refs,
+            });
+          }
+        }
+        const sketchProducers = sketches.map(loc => mergeProducer({
+          line: loc.line, column: loc.column, featureType: 'sketch', nameHint: 's', bind: true,
+        }));
+        for (const producer of sketchProducers) {
+          parts.push({ producer, accessor: '', indices: null, filterArgs: null });
+        }
+        const producerVars = sketches.length > 0
+          ? await allocateProducerVars(producers, fluidCadServer.getCurrentCode())
+          : [];
+        const sketchArgs = sketchProducers.map((producer, i) => producerVars[producer] ?? `s${i === 0 ? '' : i + 1}`);
         // The references append after the sketch's own selectors — in the
         // synthesized list and in each verified alternative alike.
         const withReferences = (own: string): string =>
-          [own, ...resolution.expressions].filter(arg => arg !== '').join(', ');
+          [own, ...sketchArgs, ...resolution.expressions].filter(arg => arg !== '').join(', ');
         const args = withReferences(localArgs);
         // Composed here rather than taken from `synthesis.preview`: the args
         // ARE the statement, and composing keeps the preview identical to what
@@ -6420,7 +6584,10 @@ export function createApplyFeatureRouter(
           return;
         }
         let spec: ApplyFeatureEditSpec = {
-          ...(localSpec ?? { filePath: sketchLoc.filePath, producers: [], parts: [], imports: [] }),
+          filePath: sketchLoc.filePath,
+          producers,
+          parts,
+          imports: localSpec?.imports ?? [],
           feature: 'project',
           value: undefined,
           project: {

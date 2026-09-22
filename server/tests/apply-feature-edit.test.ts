@@ -6240,6 +6240,59 @@ describe('project into a sketch body', () => {
     ].join('\n'));
   });
 
+  it('binds a whole-sketch source like an extrude profile and renders it bare', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+        { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' },
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xz', () => {`,
+      `  circle(4)`,
+      `  project(e.endFaces(0), s)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('refuses a sketch source declared after the receiving sketch', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => {`,
+      `  circle(4)`,
+      `})`,
+      `sketch('yz', () => { circle(8) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, projectSpec({
+      producers: [{ line: 8, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toContain('built after this sketch');
+  });
+
+  it('refuses a non-sketch statement as a whole-sketch source', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      producers: [{ line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeDefined();
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
   it('writes intersect() under the op and imports it', async () => {
     const result = await applyFeatureEdit(`${base}\n`, projectSpec({
       project: { sketch: { line: 5, column: 0 }, op: 'intersect' },

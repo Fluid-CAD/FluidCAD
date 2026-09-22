@@ -5,14 +5,46 @@ import { Edge } from "../../common/edge.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
+import { Shape } from "../../common/shape.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { GeometrySceneObject } from "./geometry.js";
+import { Sketch } from "./sketch.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import {
   ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, centerMetaVertices,
   registerReferenceEntities,
 } from "./solved/reference.js";
 import { withUnit } from "../../units/registry.js";
+
+/**
+ * The sketch a source belongs to when it IS sketch geometry: the sketch
+ * statement itself, or an entity statement drawn inside one. Lazy accessors
+ * and selections register in whatever container they run in (the target
+ * sketch's body, for `project(b.sideFaces(0))`), so they never count —
+ * only statements that draw are sketch geometry.
+ */
+export function sketchGeometryOwner(obj: SceneObject): Sketch | null {
+  if (obj instanceof Sketch) {
+    return obj;
+  }
+  const parent = obj.getParent();
+  return obj instanceof GeometrySceneObject && parent instanceof Sketch ? parent : null;
+}
+
+/**
+ * The removal scope that reads a sketch's geometry as its own body left it:
+ * removals by the sketch's own statements apply, removals by later
+ * consumers (extrude, revolve, …) do not.
+ */
+function ownBodyScope(sketch: Sketch): Set<SceneObject> {
+  return new Set(sketch.getChildren());
+}
+
+/** A whole sketch's edges as its own body left them (see ownBodyScope). */
+export function sketchReferenceEdges(sketch: Sketch): Edge[] {
+  return [...sketch.getEdgesWithOwner(undefined, ownBodyScope(sketch)).keys()];
+}
 
 export class Projection extends ExtrudableGeometryBase {
 
@@ -61,7 +93,7 @@ export class Projection extends ExtrudableGeometryBase {
           withUnit(obj.getUnit(), () => obj.build());
         }
       }
-      const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
+      const shapes = this.sourceObjects.flatMap(obj => this.sourceShapes(obj));
 
       // Project every source first; collect all resulting edges before any
       // dedup. We need the full set up-front so the General Fuse in
@@ -139,8 +171,36 @@ export class Projection extends ExtrudableGeometryBase {
     }
 
     for (const obj of this.sourceObjects) {
+      // Sketch geometry is referenced, never consumed (see sourceShapes):
+      // the source sketch stays on screen and available to its own
+      // consumers.
+      if (!sketchGeometryOwner(obj)) {
         obj.removeShapes(this);
+      }
     }
+  }
+
+  /**
+   * One source's geometry as the projection reads it. Sketch geometry — a
+   * whole sketch statement (`project(s1)`) or an entity it returned
+   * (`project(s1.geometries.c)`) — is read as it stands at the end of its
+   * own sketch body: removals by that sketch's own statements (a trim, a
+   * fillet's corner) are honored, later consumers (an extrude that already
+   * swallowed the sketch) are not, so the reference keeps working whether
+   * or not the source sketch is still on screen. Everything else (faces,
+   * edges, selections) reads exactly what the render serves.
+   */
+  private sourceShapes(obj: SceneObject): Shape[] {
+    const owner = sketchGeometryOwner(obj);
+    if (!owner) {
+      return obj.getShapes();
+    }
+    if (owner === this.sketch) {
+      throw new Error(
+        'project() cannot reference geometry of the sketch it is drawn in — pick a previous sketch or 3D geometry',
+      );
+    }
+    return owner === obj ? sketchReferenceEdges(owner) : obj.getShapes(undefined, undefined, ownBodyScope(owner));
   }
 
   /** The projected source selections, for edit-dialog seeding. */

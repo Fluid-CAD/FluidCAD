@@ -403,6 +403,53 @@ describe("feature sources (edit-dialog seeding)", () => {
     }
   });
 
+  it("resolves a projection's sketch sources by call site next to its entity picks", () => {
+    const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      });
+    setLocation(s1, 3);
+    const e = extrude(30) as Extrude;
+    setLocation(e, 4);
+    sketch("xz", () => {
+      const p = project(s1, e.endFaces());
+      setLocation(p as any, 8);
+    });
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projection", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projection") {
+      expect(result.sketches).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }]);
+      expect(result.selection.kind).toBe("entities");
+      if (result.selection.kind === "entities") {
+        expect(result.selection.entities.length).toBeGreaterThan(0);
+        expect(result.selection.entities.every(ref => ref.shapeId === box.id)).toBe(true);
+      }
+    }
+  });
+
+  it("resolves a sketch-only projection with an empty entity selection", () => {
+    const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      });
+    setLocation(s1, 3);
+    sketch("xz", () => {
+      const p = project(s1);
+      setLocation(p as any, 8);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projection", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projection") {
+      expect(result.sketches).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }]);
+      expect(result.selection).toEqual({ kind: "entities", entities: [] });
+    }
+  });
+
   it("resolves a projection's sources onto the pre-statement solid", () => {
     sketch("xy", () => {
         testRect(100, 50);

@@ -76,7 +76,7 @@ const fakeServer = {
   },
   resolveStatementPart: (loc: unknown) => {
     statementPartCalls.push(loc);
-    return currentStatementPart;
+    return typeof currentStatementPart === 'function' ? currentStatementPart(loc) : currentStatementPart;
   },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
@@ -2520,6 +2520,35 @@ describe('apply-feature route validation', () => {
         expect(body.preview).toBe(`project(b.sideFaces(0))`);
         expect(synthesizeCalls).toHaveLength(0);
         expect(relayed).toHaveLength(0);
+      });
+
+      it('re-sources with previous sketches rendered whole, without a boundary', async () => {
+        currentCode = [
+          `import { sketch, extrude, project, circle } from 'fluidcad/core'`,
+          ``,
+          `sketch('xz', () => { circle(5) })`,
+          `const b = extrude(30)`,
+          `sketch('xy', () => {`,
+          `  project(b.sideFaces(0))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const edit = { filePath: '/ws/m.fluid.js', line: 6, column: 2 };
+        const { status, body } = await post({
+          feature: 'project', edit, entities: [], sketches: [{ filePath: '/ws/m.fluid.js', line: 3, column: 0 }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(s)`);
+        expect(body.args).toBe(`s`);
+        expect(synthesizeCalls).toHaveLength(0);
+      });
+
+      it('refuses re-sourcing a projection with the sketch it is drawn in', async () => {
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, sketches: [{ filePath: '/ws/m.fluid.js', line: 4, column: 0 }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('cannot project itself');
       });
 
       it('rewrites the source list from an edited expression row', async () => {
@@ -5324,6 +5353,123 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    describe('previous sketches as sources', () => {
+      const SKETCH_CODE = [
+        `import { sketch, extrude, circle } from 'fluidcad/core'`,
+        ``,
+        `sketch('xz', () => { circle(5) })`,
+        `const e = extrude(30)`,
+        `const layout = sketch('yz', () => { circle(8) })`,
+        `sketch('xy', () => {`,
+        `  circle(4)`,
+        `})`,
+        ``,
+      ].join('\n');
+      const RECEIVER = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+      const UNBOUND = { filePath: '/ws/m.fluid.js', line: 3, column: 0 };
+      const BOUND = { filePath: '/ws/m.fluid.js', line: 5, column: 15 };
+
+      beforeEach(() => {
+        currentCode = SKETCH_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('appends the sketches as bare variables after the picked selectors', async () => {
+        currentSynthesis = projectSynthesis;
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: RECEIVER, sketches: [UNBOUND, BOUND], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          success: true,
+          preview: 'project(e.endFaces(0), s, layout)',
+          args: 'e.endFaces(0), s, layout',
+          alternatives: ['e.face(2), s, layout'],
+        });
+      });
+
+      it('relays sketch producers bound like an extrude profile, rendered whole', async () => {
+        currentSynthesis = projectSynthesis;
+        const { status } = await post({
+          feature: 'project', entities: [PICK], sketch: RECEIVER, sketches: [UNBOUND],
+        });
+        expect(status).toBe(200);
+        expect(relayed).toHaveLength(1);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'project',
+          project: { sketch: { line: 6, column: 0 } },
+          producers: [
+            { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+            { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          ],
+          parts: [
+            { producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' },
+            { producer: 1, accessor: '', indices: null, filterArgs: null },
+          ],
+        });
+      });
+
+      it('takes a sketch-only source list without synthesizing', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ success: true, preview: 'project(layout)', args: 'layout' });
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('folds a repeated sketch to one source', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND, { ...BOUND }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('project(layout)');
+      });
+
+      it('refuses an empty source list', async () => {
+        const { status, body } = await post({ feature: 'project', sketch: RECEIVER, sketches: [], entities: [] });
+        expect(status).toBe(400);
+        expect(body.error).toContain('at least one source');
+      });
+
+      it('refuses the receiving sketch as its own source', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [{ ...RECEIVER }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('cannot project itself');
+      });
+
+      it('refuses a sketch from another file', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [{ ...BOUND, filePath: '/ws/other.fluid.js' }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('different file');
+      });
+
+      it('refuses a sketch owned by another part', async () => {
+        const bracket = { partName: 'bracket', filePath: '/ws/m.fluid.js', line: 2, column: 0 };
+        const lid = { partName: 'lid', filePath: '/ws/m.fluid.js', line: 20, column: 0 };
+        currentStatementPart = (loc: { line: number }) => (loc.line === RECEIVER.line ? bracket : lid);
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part ("lid")');
+      });
+
+      it('refuses a top-level sketch for a sketch inside a part', async () => {
+        const bracket = { partName: 'bracket', filePath: '/ws/m.fluid.js', line: 2, column: 0 };
+        currentStatementPart = (loc: { line: number }) => (loc.line === RECEIVER.line ? bracket : null);
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part (the top level)');
+      });
+    });
+
     it('previews and relays intersect() under op', async () => {
       currentSynthesis = projectSynthesis;
       const previewed = await post({
@@ -5384,7 +5530,7 @@ describe('apply-feature route validation', () => {
     it('rejects an empty pick set', async () => {
       const { status, body } = await post({ feature: 'project', entities: [], sketch: SKETCH });
       expect(status).toBe(400);
-      expect(body.error).toContain('entities must be a non-empty array');
+      expect(body.error).toContain('pick at least one source')
     });
 
     it('surfaces a synthesis refusal as a 422', async () => {

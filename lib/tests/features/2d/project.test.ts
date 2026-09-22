@@ -15,6 +15,101 @@ import { Vertex } from "../../../common/vertex.js";
 describe("project", () => {
   setupOC();
 
+  describe("project a previous sketch", () => {
+    it("projects a coplanar sketch as fixed reference edges without consuming it", () => {
+      const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      }) as Sketch;
+
+      let p!: Projection;
+      const s2 = sketch("xy", () => {
+        p = project(s1) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      expect(s2.getShapes().length).toBe(4);
+      expect(p.referenceEntities()).toHaveLength(4);
+      // The source sketch is referenced, not consumed: it still serves its
+      // geometry and carries no removal by the projection.
+      expect(s1.getShapes().length).toBe(4);
+      const removedByProjection = s1.getChildren()
+        .flatMap(c => c.getRemovedShapes())
+        .filter(r => r.removedBy === p);
+      expect(removedByProjection).toHaveLength(0);
+    });
+
+    it("still projects a sketch an extrude already consumed", () => {
+      const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      }) as Sketch;
+      extrude(30);
+
+      let p!: Projection;
+      const s2 = sketch("xy", () => {
+        p = project(s1) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      expect(s2.getShapes().length).toBe(4);
+      expect(p.referenceEntities()).toHaveLength(4);
+    });
+
+    it("projects a perpendicular sketch edge-on: parallel edges merge, normal edges drop", () => {
+      const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      }) as Sketch;
+
+      let p!: Projection;
+      const s2 = sketch("xz", () => {
+        p = project(s1) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      // The two x-parallel edges land on one line; the two y-parallel edges
+      // are normal to xz and vanish.
+      expect(s2.getShapes().length).toBe(1);
+      expect(p.referenceEntities()).toHaveLength(1);
+    });
+
+    it("projects an entity a sketch returned", () => {
+      const s1 = sketch("xy", () => {
+        const c = circle([10, 20], 30);
+        return { c };
+      });
+      extrude(5);
+
+      let p!: Projection;
+      const s2 = sketch("xy", () => {
+        p = project(s1.geometries.c) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      expect(s2.getShapes().length).toBe(1);
+      expect(p.referenceEntities()).toHaveLength(1);
+      expect(p.referenceEntities()[0].kind).toBe("circle");
+    });
+
+    it("refuses geometry of the sketch it is drawn in", () => {
+      let p!: Projection;
+      sketch("xy", () => {
+        const c = circle([0, 0], 10);
+        p = project(c) as unknown as Projection;
+      });
+
+      render();
+
+      expect(p.getError()).toContain("cannot reference geometry of the sketch it is drawn in");
+    });
+  });
+
   describe("project 3D shape onto sketch plane", () => {
     it("should project a box onto the current sketch plane", () => {
       sketch("xy", () => {

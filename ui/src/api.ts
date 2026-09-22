@@ -1192,6 +1192,12 @@ export async function applyProject(
     /** The statement's callee; defaults to `project`. */
     op?: ProjectionOp;
     chains?: ApplyFeatureChain[];
+    /**
+     * Previous sketches projected whole (`project(s1)`), by call site —
+     * bound like an extrude's profile. Either this or `entities` may be
+     * empty, not both.
+     */
+    sketches?: SketchSourceRef[];
     selectorOverride?: string;
     /**
      * The user confirmed the cross-part sources the preview reported: Apply
@@ -1209,6 +1215,7 @@ export async function applyProject(
     sketch,
     op: options.op,
     chains: options.chains,
+    sketches: options.sketches,
     selectorOverride: options.selectorOverride,
     confirmForeign: options.confirmForeign,
     preview: options.preview,
@@ -1335,9 +1342,15 @@ export async function fetchConnectorAnchors(
 export type ProjectEditOptions = EditSessionFields & {
   /** Edited source argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
-  /** Re-picked 3D sources; omitted keeps the statement's own arguments. */
+  /**
+   * Re-picked 3D sources; omitted (together with `sketches`) keeps the
+   * statement's own arguments. A re-sourced edit sends both lists, either
+   * of which may be empty.
+   */
   entities?: ApplyFeatureEntity[];
   chains?: ApplyFeatureChain[];
+  /** Re-picked whole-sketch sources (`project(s1)`), by call site. */
+  sketches?: SketchSourceRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -1354,6 +1367,7 @@ export async function applyProjectEdit(
     before: options.before,
     entities: options.entities,
     chains: options.chains,
+    sketches: options.sketches,
     selectorOverride: options.selectorOverride,
     preview: options.preview,
   }, options.signal);
@@ -2533,7 +2547,17 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
-  | { ok: true; feature: 'projection' | 'intersect'; selection: SourceSlotRef }
+  | {
+    ok: true;
+    feature: 'projection' | 'intersect';
+    selection: SourceSlotRef;
+    /**
+     * Whole sketch statements the projection references (`project(s1)`), by
+     * call site, in argument order; `selection` covers the other sources.
+     * Absent on a workspace kernel predating sketch sources.
+     */
+    sketches?: SourceSlotRef[];
+  }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the

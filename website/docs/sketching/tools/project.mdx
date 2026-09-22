@@ -8,12 +8,12 @@ import toolProjectBasic from '!!raw-loader!../_examples/tool-project-basic.js';
 
 # Project
 
-Project flattens 3D edges and faces onto the sketch plane. The projected curves are **fixed reference geometry**: the solver never moves them, they render as locked (green) geometry, and your sketch geometry can be constrained against them. It is how a feature follows the shape of what is already there.
+Project flattens 3D edges and faces — or the geometry of a previous sketch — onto the sketch plane. The projected curves are **fixed reference geometry**: the solver never moves them, they render as locked (green) geometry, and your sketch geometry can be constrained against them. It is how a feature follows the shape of what is already there.
 
 ## In the viewport
 
 1. Click **Project** on the sketch toolbar. The Project dialog opens with one **Selection** slot.
-2. Click the 3D edges and faces to bring in — a face projects its outline, an edge projects itself. Picks accumulate as chips.
+2. Click the 3D edges and faces to bring in — a face projects its outline, an edge projects itself. Click the geometry of a previous sketch to bring in that whole sketch. Picks accumulate as chips.
 
 A face's outline is what you would see of it from the sketch plane: its boundary edges plus, for a curved face, the silhouette where the surface turns past the view. A cylinder seen from the side comes in as a rectangle, seen along its axis as a circle; a circle seen edge-on becomes a line across its diameter. Seams are never projected.
 3. **Apply** writes the `project(…)` statement at the top of the sketch body, where the references it creates are available to every constraint after it.
@@ -44,12 +44,31 @@ export const gasket = part("Gasket", () => {
 
 Picks from your own part stay ordinary selectors, so a mixed selection reads `project(b.endFaces(0), lid.features.g1)`. Removing a cross-part pick, or adding another one, asks for the confirmation again. The lid's part statement must be bound to a `const` (exported if it lives in another file) so the reference has a name to use.
 
+## From a previous sketch
+
+A sketch that is still on screen — a layout sketch, or one marked `.reusable()` — can be picked as a whole: click any of its curves while the Project dialog is open and the chip names the sketch's variable. Apply writes the sketch as a bare argument, binding the statement to a `const` if it has none yet:
+
+```js
+const layout = sketch("xy", () => {
+    circle([0, 0], 40)
+})
+
+sketch(e.endFaces(), () => {
+    const rim = project(layout)             // the layout's circle, as a fixed reference
+    const c = circle([0, 0], 10)
+    concentric(c, rim)
+})
+```
+
+The source sketch is **referenced, not consumed**: it stays on screen and any feature can still use it. Written by hand, `project(s1)` also works for a sketch an extrude has already used — the projection reads the sketch's geometry as its own body left it — and `project(s1.geometries.c)` picks one entity the sketch's callback returned. A sketch drawn on another plane projects edge-on: curves normal to the sketch plane vanish, and coincident results fold into one edge. A sketch cannot project itself, and only sketches declared before the receiving sketch, in the same part, can be picked.
+
 ## By hand
 
 ```js
 project(e.endFaces())              // a face → its outline
 project(e.endEdges())              // just the edges
 project(face1, face2, edge1)       // several sources at once
+project(layout, e.endEdges())      // a previous sketch next to 3D sources
 ```
 
 Projections usually carry `.guide()` so the outline stays out of the profile and only the geometry built against it is extruded or cut.

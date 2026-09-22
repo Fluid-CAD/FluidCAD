@@ -5080,6 +5080,31 @@ function declarationsBefore(anchor: TSNode, decls: string[], lines: string[]): {
  * or null when the node lives outside every sketch body. The edited
  * projection's hoisted declarations go before this statement.
  */
+/**
+ * The line of the `sketch()` call whose callback body holds the statement
+ * at `line` — a projection's receiving sketch — or null when the line holds
+ * no editable call or the call sits in no sketch body. What the edit routes
+ * check a re-sourced whole-sketch reference against: a sketch cannot
+ * project itself.
+ */
+export async function enclosingSketchLine(code: string, line: number): Promise<number | null> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const call = findEditableCallAt(tree, splitLines(code), line);
+  if (!call) {
+    return null;
+  }
+  for (let cur = call.parent; cur; cur = cur.parent) {
+    if (cur.type === 'call_expression') {
+      const fn = cur.childForFieldName('function');
+      if (fn?.type === 'identifier' && fn.text === 'sketch') {
+        return cur.startPosition.row + 1;
+      }
+    }
+  }
+  return null;
+}
+
 function enclosingSketchStatement(node: TSNode): TSNode | null {
   for (let cur = node.parent; cur; cur = cur.parent) {
     if (cur.type === 'call_expression') {

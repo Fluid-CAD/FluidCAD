@@ -148,6 +148,36 @@ export function createTimelineRouter(
     res.json({ success: true });
   });
 
+  // The Finish Sketch button (closed: true) and the reopen-for-edit gesture
+  // (closed: false). Acked through the dispatcher, not fire-and-forget: both
+  // callers place or clear a breakpoint right after, and a host that reads
+  // its buffer for the second edit before the first landed would drop one.
+  router.post('/set-sketch-closed', async (req, res) => {
+    const { sourceLocation, closed } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number' ||
+      typeof closed !== 'boolean'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: sourceLocation.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchClosed: { sourceLine: sourceLocation.line, closed },
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
   router.post('/add-breakpoint', (req, res) => {
     const { sourceLocation } = req.body;
     if (

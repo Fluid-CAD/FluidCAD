@@ -122,6 +122,18 @@ export function findActiveObject(sceneObjects: SceneObjectRender[]): SceneObject
 }
 
 /**
+ * The sketch the active scope ends in while it is still open for editing —
+ * the one thing every sketch-mode derivation keys off (camera lock, sketch
+ * toolbar, dialog adoption, timeline gating). A trailing sketch that carries
+ * `.close()` is finished: the scope ends in it, but nothing enters sketch
+ * mode for it, so it reads as no active sketch here.
+ */
+export function findActiveSketch(sceneObjects: SceneObjectRender[]): SceneObjectRender | undefined {
+  const active = findActiveObject(sceneObjects);
+  return active?.type === 'sketch' && active.closed !== true ? active : undefined;
+}
+
+/**
  * The rows a part-scoped rollback truncates: the scoped part's row and every
  * descendant. Null without a scope part (global rollback / full render). A
  * single forward pass suffices — parents always precede their descendants in
@@ -172,13 +184,14 @@ function hasSolidShape(obj: SceneObjectRender): boolean {
 }
 
 /**
- * Nothing in the render is material a feature could be built *from* — no
- * solids and no sketches. Everything else a document can hold at this point is
- * a construction input: planes, axes, a `select()` overlay, or a helix (a
- * wire — you sweep a profile along it, you can't build it into anything on its
- * own). Those leave the scene as empty as a blank file, so the toolbar treats
- * them the same. See {@link Viewer.sceneIsEmpty}.
+ * Nothing in the render is material a feature could work *on* — no solids.
+ * Everything else a document can hold at this point is an input: planes,
+ * axes, a `select()` overlay, a helix (a wire — you sweep a profile along it),
+ * or a sketch (a profile — you extrude it). Those leave the scene as empty as
+ * a blank file, so the toolbar treats them the same: a document that holds
+ * only a finished (`.close()`d) sketch gets the same whole toolbar the blank
+ * document offered before that sketch was drawn. See {@link Viewer.sceneIsEmpty}.
  */
 export function isSceneEmpty(sceneObjects: SceneObjectRender[]): boolean {
-  return !sceneObjects.some(o => o.type === 'sketch' || hasSolidShape(o));
+  return !sceneObjects.some(hasSolidShape);
 }

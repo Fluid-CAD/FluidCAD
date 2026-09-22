@@ -1,6 +1,6 @@
 import { fetchSketchNames, gotoSource } from '../../api';
 import { SceneIndex } from '../../helpers/scene-index';
-import { findActiveObject, isTopLevel } from '../../helpers/scene-utils';
+import { findActiveSketch, isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
@@ -31,8 +31,8 @@ export type SketchProfileOption = {
  * active sketch is offered even while empty; Apply refuses it with a hint.
  */
 export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
-  const tip = findActiveObject(sceneObjects);
-  const active = tip?.type === 'sketch' && tip.sourceLocation ? tip : undefined;
+  const tip = findActiveSketch(sceneObjects);
+  const active = tip?.sourceLocation ? tip : undefined;
 
   const options: SketchProfileOption[] = [];
   if (active) {

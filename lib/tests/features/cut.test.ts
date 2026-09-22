@@ -110,7 +110,7 @@ describe("cut", () => {
 
       const s = sketch(e.endFaces(), () => {
           testRect(50, 50, { at: [25, 25] });
-        }) as SceneObject;
+        }) as unknown as SceneObject;
 
       cut(20);
 

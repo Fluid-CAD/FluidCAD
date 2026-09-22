@@ -56,6 +56,11 @@ export type SceneObjectRender = {
   /** The object carries a `.reusable()` chain — kept visible when consumed. */
   reusable?: boolean;
   /**
+   * A sketch carrying a `.close()` chain: finished, so a scope ending in it
+   * does not enter sketch mode. Only ever set on sketch rows.
+   */
+  closed?: boolean;
+  /**
    * The object serves another statement's build (a sketch's own plane) rather
    * than being a feature the code wrote — the timeline leaves it out.
    */

@@ -170,7 +170,7 @@ export class RevolveFeatureService {
     return this.armed;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }

@@ -44,7 +44,7 @@ import { ConnectorFeatureService } from './interactive/create-feature/connector-
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
-import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
+import { FinishSketchButton } from './interactive/create-feature/finish-sketch-button';
 import { PartToolButton } from './interactive/create-feature/part-tool';
 import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
@@ -52,7 +52,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
+import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
@@ -887,7 +887,7 @@ const regionService = new RegionPickService(viewer, navbar);
 // its picks are solid edges and faces in the free 3D view, so the routing
 // below hands it viewport clicks while it is armed.
 const projectionService = new ProjectionPickService(container, viewer);
-// While a create-feature dialog launched from the Finish Sketch menu is open,
+// While a create-feature dialog launched from an active sketch is open,
 // keep the sketch toolbar pinned in place — the bar stays on the sketch tools
 // until the feature is applied — even though the dialog suspends sketch editing
 // so the free 3D view can be picked. Derived from the dialogs' own suspend
@@ -1265,9 +1265,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
-  // openFeatureEditor), so its double-click defers the generic breakpoint.
+  // openFeatureEditor), so its double-click defers the generic breakpoint. A
+  // closed sketch row defers it too: its `.close()` must come off first, or
+  // the paused build would end in a finished sketch and enter nothing.
   panel.managesOwnBreakpoint = (obj) =>
-    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj);
+    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj)
+    || (obj.type === 'sketch' && obj.closed === true);
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
@@ -1345,7 +1348,7 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  */
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (obj.type === 'sketch' && obj.sourceLocation) {
-    enterSketchEdit(obj.sourceLocation);
+    await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
   }
   if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
@@ -1377,7 +1380,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // call site — `sketch('xy', …)` builds itself a plane. The statement is
     // what the dialogs edit, so it opens as the sketch it is (the breakpoint
     // the gesture placed already landed after it).
-    enterSketchEdit(target);
+    await enterSketchEdit(target);
     return;
   }
   const info = { index, type: obj.type, expectedStatement: result.statement };
@@ -1550,16 +1553,39 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
  * sketch dialog adopts the render that ends in it. Flag that adoption as the
  * edit it is, so the dialog owns the breakpoint and its close leaves the
  * statement alone. Whether a later feature consumes the sketch (Finish Sketch
- * just removes the breakpoint) or not (offer the grid) comes from the last
- * complete build's snapshot, not the row — the gesture's own rollback has
- * already flipped its `visible` by dropping its geometry out of scope.
+ * just removes the breakpoint) or not (Finish Sketch writes `.close()`) comes
+ * from the last complete build's snapshot, not the row — the gesture's own
+ * rollback has already flipped its `visible` by dropping its geometry out of
+ * scope.
+ *
+ * A sketch that already carries `.close()` is finished, and a build paused
+ * after it would end in a closed sketch and enter nothing. Its chain comes
+ * off first (an acked edit), and only then does the breakpoint the timeline
+ * deferred for this row (`managesOwnBreakpoint`) go in — two host edits in
+ * flight would race on the buffer. The edit request is noted after the chain
+ * edit rather than before it: the removal's own render may adopt the sketch
+ * as a plain session meanwhile, and the note upgrades that session in place.
  */
-function enterSketchEdit(loc: { filePath: string; line: number; column: number }): void {
+async function enterSketchEdit(
+  loc: { filePath: string; line: number; column: number },
+  closedHint?: boolean,
+): Promise<void> {
   const row = viewer.currentSceneObjects.find(o =>
     o.type === 'sketch' && o.sourceLocation && sketchLocKey(o.sourceLocation) === sketchLocKey(loc));
   const consumed = sketchConsumedByKey.get(sketchLocKey(loc))
     ?? (row?.visible === false || row?.reusable === true);
-  modifyService.noteSketchEditRequest(loc, consumed);
+  const closed = closedHint ?? row?.closed === true;
+  if (closed) {
+    const result = await setSketchClosed(loc, false);
+    if (!result.success) {
+      showToast(`Can't reopen the sketch: ${result.reason ?? 'the edit was refused'}`);
+      return;
+    }
+  }
+  modifyService.noteSketchEditRequest(loc, consumed, closed);
+  if (closed) {
+    addBreakpoint(loc);
+  }
 }
 
 // Transient toast for messages with no dialog to carry them — an edit the
@@ -2016,38 +2042,33 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
   onResumeSketchUI: resumeSketchForFeature,
 });
 
-// While a sketch is active, the create-feature buttons collapse into a single
-// "Finish Sketch" button whose popup grid mirrors them and delegates clicks
-// straight back to them. Constructed after every create service so its button
-// prepends ahead of theirs; only the mirrored buttons hide, so Shell (a modify
-// tool that also lives in the create group) stays reachable alongside it.
-const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
-  { button: extrudeService.toolbarButton },
-  { button: ribService.toolbarButton },
-  { button: revolveService.toolbarButton },
-  { button: sweepService.toolbarButton },
-  { button: loftService.toolbarButton },
-  { button: wrapService.toolbarButton },
-  { button: planeService.toolbarButton },
-  {
-    button: modifyService.sketchButton,
-    label: 'New Sketch',
-    reflectActive: false,
-    onClick: () => modifyService.startNewSketch(),
-  },
-  // New Part finishes the sketch implicitly: the appended part() statement
-  // takes the tip of the timeline, so the sketch is no longer active.
-  {
-    button: partTool.button,
-    label: 'New Part',
-    reflectActive: false,
-  },
+// While a sketch is active, a green "Finish Sketch" button heads the create
+// group and the create-feature buttons leave the bar. It marks the sketch
+// done — writing `.close()` onto its statement, or clearing the edit
+// breakpoint of a consumed sketch — and sketch mode ends with the render that
+// follows, bringing the 3D toolbar back for the follow-up feature.
+// Constructed after every create service so its button prepends ahead of theirs.
+const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, [
+  extrudeService.toolbarButton,
+  ribService.toolbarButton,
+  revolveService.toolbarButton,
+  sweepService.toolbarButton,
+  loftService.toolbarButton,
+  wrapService.toolbarButton,
+  planeService.toolbarButton,
+  helixService.toolbarButton,
+  modifyService.sketchButton,
+  partTool.button,
 ]);
-sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
-// Editing a consumed sketch (double-click → breakpoint): finishing removes the
-// breakpoint so the downstream feature re-applies with the edits, rather than
-// turning the sketch into a new feature.
-finishSketchMenu.onResume = () => modifyService.finishSketchEdit();
+finishSketchButton.onClick = () => {
+  void modifyService.finishSketch(breakpointActive);
+};
+// The breakpoint chip steps aside while sketching: Finish Sketch is the one
+// way out of a sketch, paused or not, so it also lifts the pause.
+sketchService.onActiveChange = (active) => {
+  finishSketchButton.setVisible(active);
+  breakpointIndicator.setSketchActive(active);
+};
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
@@ -2755,10 +2776,6 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   // re-seeds its sources there; without one, a (non-rollback) render
   // drops an armed tool's now-unaddressable picks.
   projectionService.handleSceneRendered(result, renderStop, isRollback);
-  // Once the modify service has (re)adopted the active sketch for this
-  // render, the Finish Sketch button knows whether it should offer the
-  // grid or just remove the breakpoint (editing a consumed sketch).
-  finishSketchMenu.setResumeMode(modifyService.isEditingConsumedSketch);
   extrudeService.handleSceneRendered(result, renderStop, isRollback);
   ribService.handleSceneRendered(result, renderStop, isRollback);
   revolveService.handleSceneRendered(result, renderStop, isRollback);

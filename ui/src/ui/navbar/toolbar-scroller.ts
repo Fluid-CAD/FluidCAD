@@ -23,7 +23,7 @@ const ARROW_BASE =
  * `overflow-x: auto`, because a scroll container would also clip *vertically*
  * (CSS forces `overflow-y: visible` to `auto` alongside a scrolling axis) and
  * cut off everything the toolbar hangs below itself: button tooltips, the
- * Rectangle options menu, the Finish Sketch grid. `clip` beside `visible` is
+ * Rectangle options menu. `clip` beside `visible` is
  * the one combination that leaves the vertical axis unclipped, which makes the
  * scroll offset ours to own — a relative `left` on the track.
  */

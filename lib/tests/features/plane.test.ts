@@ -355,7 +355,7 @@ describe("plane", () => {
       // available to the feature that consumes it.
       const s = sketch("xy", () => {
         bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]);
-      }) as SceneObject;
+      }) as unknown as SceneObject;
       plane(s, 0.5);
 
       render();

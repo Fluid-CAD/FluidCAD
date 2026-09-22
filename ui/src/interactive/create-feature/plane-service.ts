@@ -218,7 +218,7 @@ export class PlaneFeatureService {
     return this.editTarget !== null;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }

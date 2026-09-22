@@ -1,11 +1,11 @@
 import {
   applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, fetchFeatureGhost,
-  fetchFeatureSources, parseFeatureAt, removeFeature, ApplyFeatureResponse, FeatureEditTarget,
-  NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType, SketchSourceRef,
-  ValueExpr,
+  fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
+  FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
+  SketchSourceRef, ValueExpr,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
-import { findActiveObject } from '../../helpers/scene-utils';
+import { findActiveSketch } from '../../helpers/scene-utils';
 import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
 import { SketchStartPanel } from '../create-feature/sketch-panel';
 import { FeatureGhostOverlay } from '../create-feature/feature-ghost';
@@ -64,6 +64,12 @@ type SketchSession = {
    * re-applies), not by turning it into a new 3D feature.
    */
   consumed: boolean;
+  /**
+   * The sketch carried `.close()` when the double-click edit opened it — the
+   * gesture took the chain off so the paused build could re-enter the sketch,
+   * and Finish puts it back. Only meaningful with {@link breakpoint}.
+   */
+  wasClosed: boolean;
 };
 
 /**
@@ -164,7 +170,9 @@ export class ModifyPickService {
    * to the sketch and loses that signal. The adopting session copies it.
    */
   private pendingSketchEditConsumed = false;
-  /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
+  /** Whether {@link pendingSketchEditKey}'s sketch carried `.close()` before the edit took it off. */
+  private pendingSketchEditClosed = false;
+  /** The scene ends with an open sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
   private sketchUI: SketchUISuspender;
@@ -380,23 +388,9 @@ export class ModifyPickService {
     return this.feature !== null;
   }
 
-  /** The Sketch (start-a-new-sketch) button, mirrored into the Finish Sketch grid. */
+  /** The Sketch (start-a-new-sketch) button. */
   get sketchButton(): FeatureButton {
     return this.buttons.get('sketch')!;
-  }
-
-  /**
-   * Start a brand-new sketch in one gesture — the Finish Sketch grid's New
-   * Sketch. The Sketch toolbar button is a toggle: while a sketch is being
-   * edited, its first press only closes that sketch's dialog, so plain
-   * delegation would take two clicks. Here we drop any tracked session first,
-   * then arm the new-sketch pick, so a single click always starts a new sketch.
-   */
-  startNewSketch(): void {
-    if (this.sketchSession?.tracking) {
-      this.closeSketchDialog();
-    }
-    this.enterSketch();
   }
 
   /** An edit session is open (the viewport shows the pre-statement rollback). */
@@ -477,8 +471,8 @@ export class ModifyPickService {
   update(sceneObjects: SceneObjectRender[]): void {
     const hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
-    const active = findActiveObject(sceneObjects);
-    const sketchMode = active?.type === 'sketch';
+    const active = findActiveSketch(sceneObjects);
+    const sketchMode = active !== undefined;
     // Fillet/Chamfer/Shell need a solid to pick on, and stay out of the way
     // while a sketch is being edited. A blank document is the exception: it
     // shows the whole toolbar (see {@link Viewer.sceneIsEmpty}) and can't be
@@ -937,10 +931,15 @@ export class ModifyPickService {
    * in place; the pending key only covers the case where the rollback render
    * hasn't landed yet.
    */
-  noteSketchEditRequest(loc: { filePath: string; line: number; column: number }, consumed: boolean): void {
+  noteSketchEditRequest(
+    loc: { filePath: string; line: number; column: number },
+    consumed: boolean,
+    wasClosed: boolean,
+  ): void {
     const key = ModifyPickService.sketchKey(loc);
     this.pendingSketchEditKey = key;
     this.pendingSketchEditConsumed = consumed;
+    this.pendingSketchEditClosed = wasClosed;
     if (this.dismissedSketchKey === key) {
       this.dismissedSketchKey = null;
     }
@@ -949,25 +948,50 @@ export class ModifyPickService {
       this.pendingSketchEditKey = null;
       this.sketchSession.breakpoint = true;
       this.sketchSession.consumed = consumed;
+      this.sketchSession.wasClosed = wasClosed;
       this.syncSketchPanelMode();
     }
   }
 
-  /** Editing a sketch that a later feature consumes: the Finish Sketch button
-   *  removes the breakpoint (the feature re-applies) instead of offering the
-   *  grid of new features. */
-  get isEditingConsumedSketch(): boolean {
-    return this.sketchSession?.breakpoint === true && this.sketchSession.consumed === true;
-  }
-
   /**
-   * Finish editing a consumed sketch: close the edit dialog, which clears the
-   * breakpoint the double-click placed so the build resumes to its tip and the
-   * downstream feature re-applies with the edits. The edits themselves are
-   * already in the file — nothing is undone.
+   * The Finish Sketch button. A sketch nothing consumes is finished by
+   * writing `.close()` onto its statement: the render that follows ends in a
+   * closed sketch, which leaves sketch mode and closes this dialog
+   * scene-driven (see {@link update}). A consumed sketch being edited
+   * (double-click → breakpoint) is finished by clearing that breakpoint so
+   * the downstream feature re-applies with the edits; it gets `.close()`
+   * back only when it carried one before the edit took it off. The chain
+   * edit is acked before the breakpoint goes — two host edits in flight
+   * would both read the pre-edit buffer and one would be lost.
+   *
+   * `paused` is the build's breakpoint state: a paused build that ends in
+   * this sketch is paused right after it, and the breakpoint chip is hidden
+   * while sketching, so Finish is also the Continue — the pause is lifted
+   * whether this session placed the breakpoint or the user did ("Breakpoint
+   * here"), or the finished sketch would leave the build stuck behind it.
    */
-  finishSketchEdit(): void {
-    this.closeSketchDialog();
+  async finishSketch(paused: boolean): Promise<void> {
+    const session = this.sketchSession;
+    const loc = this.activeSketchLoc();
+    if (!session || !loc) {
+      return;
+    }
+    if (!session.consumed || session.wasClosed) {
+      const result = await setSketchClosed(loc, true);
+      if (!result.success) {
+        this.sketchPanel.setMessage(`Couldn't finish the sketch: ${result.reason ?? 'the edit was refused'}`);
+        return;
+      }
+    }
+    if (session.breakpoint || paused) {
+      // The chain edit's render may already have closed the session; the
+      // breakpoint must not outlive the sketch either way.
+      if (this.sketchSession === session && session.breakpoint) {
+        this.closeSketchDialog();
+      } else {
+        clearBreakpoints();
+      }
+    }
   }
 
   /**
@@ -1006,10 +1030,12 @@ export class ModifyPickService {
     }
     const fromEdit = key === this.pendingSketchEditKey;
     const consumed = fromEdit && this.pendingSketchEditConsumed;
+    const wasClosed = fromEdit && this.pendingSketchEditClosed;
     this.pendingSketchEditKey = null;
     this.pendingSketchEditConsumed = false;
+    this.pendingSketchEditClosed = false;
     this.dismissedSketchKey = null;
-    this.sketchSession = { tracking: true, label: 'Sketch target', created: false, breakpoint: fromEdit, consumed };
+    this.sketchSession = { tracking: true, label: 'Sketch target', created: false, breakpoint: fromEdit, consumed, wasClosed };
     this.syncSketchPanelMode();
     this.sketchPanel.setTarget(this.sketchSession.label);
     this.sketchPanel.setMessage(null);
@@ -1084,8 +1110,8 @@ export class ModifyPickService {
 
   /** The active (trailing) sketch's source location, or null. */
   private activeSketchLoc(): SketchSourceRef | null {
-    const active = findActiveObject(this.viewer.currentSceneObjects);
-    if (active?.type === 'sketch' && active.sourceLocation) {
+    const active = findActiveSketch(this.viewer.currentSceneObjects);
+    if (active?.sourceLocation) {
       const { filePath, line, column } = active.sourceLocation;
       return { filePath, line, column };
     }
@@ -1147,6 +1173,7 @@ export class ModifyPickService {
           created: repick ? prev!.created : true,
           breakpoint: repick ? prev!.breakpoint : false,
           consumed: repick ? prev!.consumed : false,
+          wasClosed: repick ? prev!.wasClosed : false,
         };
         this.syncSketchPanelMode();
         this.sketchPanel.setTarget(label);

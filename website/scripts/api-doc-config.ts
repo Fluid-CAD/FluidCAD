@@ -90,7 +90,7 @@ export const features: FeatureEntry[] = [
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 
   // 3D Operations
-  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
+  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISketch', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
   { name: 'extrude', displayName: 'extrude', category: '3d', sourceFile: 'core/extrude.ts', interfaceName: 'ExtrudeFunction', returnType: 'IExtrude', relatedGuide: '/docs/3d-operations/extrude', sidebarPosition: 2 },
   { name: 'cut', displayName: 'cut', category: '3d', sourceFile: 'core/cut.ts', interfaceName: 'CutFunction', returnType: 'ICut', relatedGuide: '/docs/3d-operations/extrude#add-new-and-remove', sidebarPosition: 3 },
   { name: 'revolve', displayName: 'revolve', category: '3d', sourceFile: 'core/revolve.ts', interfaceName: 'RevolveFunction', returnType: 'IRevolve', relatedGuide: '/docs/3d-operations/revolve', sidebarPosition: 4 },
@@ -140,6 +140,7 @@ export const features: FeatureEntry[] = [
 
 export const types: TypeEntry[] = [
   { name: 'ISceneObject', displayName: 'SceneObject', sourceFile: 'core/interfaces.ts', sidebarPosition: 1 },
+  { name: 'ISketch', displayName: 'Sketch', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 1.5 },
   { name: 'ITransformable', displayName: 'Transformable', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 2 },
   { name: 'IBooleanOperation', displayName: 'BooleanOperation', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 3 },
   { name: 'IGeometry', displayName: 'Geometry', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 4 },
@@ -340,6 +341,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IOffset': 'Offset',
   'IOffsetEdge': 'OffsetEdge',
   'IPlane': 'Plane',
+  'ISketch': 'Sketch',
   'IAxis': 'Axis',
   'ISelect': 'Select',
   'IRepeat': 'Repeat',

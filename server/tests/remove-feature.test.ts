@@ -205,6 +205,21 @@ shell(1, sel2);
     expect(analysis).toEqual({ ok: true, dependents: [{ name: 'fillet', line: lineOf(code, 'fillet(2') }] });
   });
 
+  it('a sketchClosed rider rides the same round trip and writes the chain', async () => {
+    const source = `const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\n`;
+    const closed = await applyFeatureEdit(source, {
+      feature: 'sketch', filePath: '/ws/model.fluid.js', producers: [], parts: [], imports: [],
+      sketchClosed: { sourceLine: 1, closed: true },
+    });
+    expect(closed.error).toBeUndefined();
+    expect(closed.newCode).toBe(`const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n}).close();\n`);
+    const reopened = await applyFeatureEdit(closed.newCode, {
+      feature: 'sketch', filePath: '/ws/model.fluid.js', producers: [], parts: [], imports: [],
+      sketchClosed: { sourceLine: 1, closed: false },
+    });
+    expect(reopened.newCode).toBe(source);
+  });
+
   it('the cascade takes the selections only the removed statements referenced', async () => {
     const { spec } = await analyze(code, 'const l = loft');
     const result = await applyFeatureEdit(code, {

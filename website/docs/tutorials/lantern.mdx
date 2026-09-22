@@ -76,9 +76,7 @@ Click the **top side** and click **Horizontal**. That is the last degree of free
 
 ### Extrude it with a draft
 
-Click **Finish Sketch ▾** and choose **Extrude**.
-
-![The Finish Sketch menu over the finished hexagon](/img/docs/tutorials/lantern-ui-08-finish-sketch-menu.png)
+Click **Extrude** on the toolbar.
 
 Select the **New** tab, set **Distance** to `150` and **Draft angle** to `8`. New keeps the cage as its own solid, so the base and the top you add later cannot interfere with the faces you are about to reference. The draft is what gives the lantern its taper — the hexagon grows as it rises. The statement reads `extrude(150).draft(8).new()`.
 
@@ -136,7 +134,7 @@ Click **Apply**. The inset loop is the sketch's only real profile, and it is exa
 
 ### Cut it, then repeat it around
 
-Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab and set **Depth** to `7` — the wall thickness. A cut runs opposite the sketch normal, so 7 mm from the outer face is exactly through the wall. The red ghost is the material about to disappear and the statement is `cut(7)`.
+Click **Extrude** on the toolbar. Select the **Remove** tab and set **Depth** to `7` — the wall thickness. A cut runs opposite the sketch normal, so 7 mm from the outer face is exactly through the wall. The red ghost is the material about to disappear and the statement is `cut(7)`.
 
 ![Extrude dialog on the Remove tab, red ghost through the wall](/img/docs/tutorials/lantern-ui-18-cut-ghost.png)
 
@@ -164,7 +162,7 @@ Click **Sketch** and click the **XY** origin plane — the horizontal one, at z 
 
 Draw the same way as before: **Polygon**, origin, ⌀`150`, `6` sides, then a **Horizontal** on the top side to spend the last degree of freedom.
 
-**Finish Sketch ▾ → Extrude**, **Distance** `12`, **Add** tab. The green ghost is the slab.
+**Extrude**, **Distance** `12`, **Add** tab. The green ghost is the slab.
 
 ![Extrude dialog with the 12 mm base slab ghost](/img/docs/tutorials/lantern-ui-23-base-extrude-ghost.png)
 
@@ -176,7 +174,7 @@ Click **Apply**.
 
 Click **Sketch** again and this time click the **top face of the slab**. The chip reads *Face — Extrude*.
 
-Draw a **Polygon** on the origin, ⌀`115`, `6` sides, **Horizontal** on the top side, then **Finish Sketch ▾ → Extrude**, **Distance** `12`.
+Draw a **Polygon** on the origin, ⌀`115`, `6` sides, **Horizontal** on the top side, then **Extrude**, **Distance** `12`.
 
 ![Extrude dialog with the upper tier's ghost on the slab](/img/docs/tutorials/lantern-ui-25-base-upper-ghost.png)
 
@@ -194,7 +192,7 @@ Click **Plane**, pick **XY** and set **Offset** to `174` — 24 plus the 150 mm 
 
 ![Sketch tool armed on the plane 174 mm up](/img/docs/tutorials/lantern-ui-27-sketch-plane-174.png)
 
-**Polygon**, origin, ⌀`165`, `6` sides, **Horizontal**. Then **Finish Sketch ▾ → Extrude**, **Distance** `12`, **Apply**.
+**Polygon**, origin, ⌀`165`, `6` sides, **Horizontal**. Then **Extrude**, **Distance** `12`, **Apply**.
 
 ![The cap on top of the cage](/img/docs/tutorials/lantern-ui-28-cap.png)
 
@@ -202,7 +200,7 @@ Click **Plane**, pick **XY** and set **Offset** to `174` — 24 plus the 150 mm 
 
 Click **Plane** again, **XY**, **Offset** `238`. Apply, **Sketch** on it, and draw a **Polygon** on the origin, ⌀`50`, `6` sides, **Horizontal**.
 
-**Finish Sketch ▾ → Extrude**, **Distance** `12`. The tip floats 52 mm above the cap for now — nothing joins them yet.
+**Extrude**, **Distance** `12`. The tip floats 52 mm above the cap for now — nothing joins them yet.
 
 ![Extrude dialog with the small tip ghost floating above the cap](/img/docs/tutorials/lantern-ui-29-tip-ghost.png)
 

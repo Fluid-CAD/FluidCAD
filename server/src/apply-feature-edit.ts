@@ -11,6 +11,7 @@ import {
   indentOf,
   isBreakpointStatement,
   isExpressionText,
+  setSketchClosed,
   splitLines,
   spliceCode,
   walkTree,
@@ -321,6 +322,13 @@ export type ApplyFeatureEditSpec = {
    * round trip as `moveToPart`; every other spec field is ignored.
    */
   removeFeature?: RemoveFeatureSpec;
+  /**
+   * Add or remove the `.close()` chain on the sketch statement at
+   * `sourceLine` — the Finish Sketch button and the reopen-for-edit gesture.
+   * Rides the acked round trip so the caller can sequence its breakpoint
+   * edit after it; every other spec field is ignored.
+   */
+  sketchClosed?: SketchClosedEditSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part. Only the producer-less appends
@@ -1433,6 +1441,13 @@ export type PlaneEditOptions = PlaneValueOptions & {
  */
 export type PlaneEditBase = { kind: 'verbatim'; sourceIndex: number } | PlaneBaseSpec;
 
+/** The Finish Sketch chain edit: see {@link setSketchClosed}. */
+export type SketchClosedEditSpec = {
+  /** The sketch statement's 1-based source line. */
+  sourceLine: number;
+  closed: boolean;
+};
+
 export type ApplyFeatureEditResult = {
   newCode: string;
   error?: string;
@@ -1586,6 +1601,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.removeFeature) {
     return RemoveFeature.apply(code, spec.removeFeature);
+  }
+  if (spec.sketchClosed) {
+    return setSketchClosed(code, spec.sketchClosed.sourceLine, spec.sketchClosed.closed);
   }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);

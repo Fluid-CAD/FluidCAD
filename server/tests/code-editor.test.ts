@@ -12,6 +12,7 @@ import {
   removePick,
   removeStatement,
   setFeatureName,
+  setSketchClosed,
   setPickPoints,
   insertGeometryCall,
   insertGeometryCallWithVariable,
@@ -930,6 +931,54 @@ describe('removeStatement', () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);
     expect(result.newCode).toBe(`const a = 1; \n`);
+  });
+});
+
+describe('setSketchClosed', () => {
+  const sketchCode = `const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\nextrude(5);\n`;
+
+  it('appends .close() after a multi-line sketch statement', async () => {
+    const result = await setSketchClosed(sketchCode, 1, true);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n}).close();\nextrude(5);\n`);
+  });
+
+  it('appends after existing chains, keeping them in place', async () => {
+    const code = `sketch('xy', () => {}).name('Profile').reusable();\n`;
+    const result = await setSketchClosed(code, 1, true);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile').reusable().close();\n`);
+  });
+
+  it('is a no-op when the sketch is already closed', async () => {
+    const code = `sketch('xy', () => {}).close();\n`;
+    const result = await setSketchClosed(code, 1, true);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('removes .close() from the chain', async () => {
+    const code = `sketch('xy', () => {}).close().name('Profile');\n`;
+    const result = await setSketchClosed(code, 1, false);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile');\n`);
+  });
+
+  it('removes a .close() broken onto its own line together with its indentation', async () => {
+    const code = `sketch('xy', () => {\n  line([0, 0], [10, 0]);\n})\n  .close();\n`;
+    const result = await setSketchClosed(code, 1, false);
+    expect(result.newCode).toBe(`sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\n`);
+  });
+
+  it('is a no-op when removing from an open sketch', async () => {
+    const result = await setSketchClosed(sketchCode, 1, false);
+    expect(result.newCode).toBe(sketchCode);
+  });
+
+  it('is a no-op on a line with no statement', async () => {
+    const result = await setSketchClosed(sketchCode, 3, true);
+    expect(result.newCode).toBe(sketchCode);
+  });
+
+  it('refuses a line whose statement is not a sketch', async () => {
+    const result = await setSketchClosed(sketchCode, 4, true);
+    expect(result.newCode).toBe(sketchCode);
   });
 });
 

@@ -6,7 +6,7 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
-import { IPlane, ISceneObject } from "./interfaces.js";
+import { IPlane, ISceneObject, ISketch } from "./interfaces.js";
 
 type Extend<T> = T extends object ? {
   /** Named geometry returned by the sketch callback. */
@@ -22,26 +22,26 @@ interface SketchFunction {
    * @param plane - The plane to sketch on
    * @param sketcher - Callback containing sketch statements
    */
-  <T>(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(plane: PlaneLike, sketcher: () => T): ISketch & Extend<T>;
   /**
    * Draws 2D geometry on a face selection.
    * @param face - The face to sketch on
    * @param sketcher - Callback containing sketch statements
    */
-  <T>(face: ISceneObject, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(face: ISceneObject, sketcher: () => T): ISketch & Extend<T>;
   /**
    * Draws 2D geometry on an existing Plane object.
    * @param plane - The Plane object to sketch on
    * @param sketcher - Callback containing sketch statements
    */
-  <T>(plane: IPlane, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(plane: IPlane, sketcher: () => T): ISketch & Extend<T>;
 }
 
 function build(context: SceneParserContext): SketchFunction {
   // The P7-era third argument (`, true` for solved mode) is gone from the
   // signature; a stale extra argument is silently ignored at runtime so
   // pre-P7 files load without edits.
-  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISceneObject & Extend<T> {
+  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISketch & Extend<T> {
     let planeObj: PlaneObjectBase;
 
     // A plane the sketch makes for itself is internal: it carries the
@@ -80,7 +80,7 @@ function build(context: SceneParserContext): SketchFunction {
       });
     }
 
-    return sketch as unknown as ISceneObject & Extend<T>;
+    return sketch as unknown as ISketch & Extend<T>;
   } as unknown as SketchFunction;
 }
 

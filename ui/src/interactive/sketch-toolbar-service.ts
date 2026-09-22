@@ -23,7 +23,7 @@ import {
 } from '../api';
 import type { SolvedEmissionRequest, SolvedEmitResult, SolvedToolContext } from './tools/solved-emission';
 import { pendingEmissionOf, pruneRedundantInferred, type PendingEmission } from './tools/emission-redundancy';
-import { findActiveObject } from '../helpers/scene-utils';
+import { findActiveSketch } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
@@ -53,8 +53,8 @@ export class SketchToolbarService {
 
   /**
    * Fires when a sketch becomes active or inactive (the sketch toolbar shows
-   * or hides). main.ts uses it to collapse the create-feature buttons into the
-   * Finish Sketch popup while a sketch is being edited.
+   * or hides). main.ts uses it to show the Finish Sketch button while a
+   * sketch is being edited.
    */
   onActiveChange?: (active: boolean) => void;
 
@@ -449,9 +449,9 @@ export class SketchToolbarService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
-    const lastRoot = findActiveObject(sceneObjects) ?? null;
+    const lastRoot = findActiveSketch(sceneObjects) ?? null;
 
-    if (lastRoot?.type === 'sketch' && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
+    if (lastRoot && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
       const plane: PlaneData = lastRoot.object.plane;
       const prevSketchId = this.activeSketchInfo?.sketchObj.id;
       // Solved sketches are container-atomic in the render cache (P2): every

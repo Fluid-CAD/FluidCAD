@@ -48,7 +48,7 @@ describe("cut two distances", () => {
 
       const s = sketch("xy", () => {
           testRect(50, 50, { at: [25, 25] });
-        }) as SceneObject;
+        }) as unknown as SceneObject;
 
       cut(20, 10);
 

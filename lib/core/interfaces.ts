@@ -23,6 +23,17 @@ export interface ISceneObject {
   reusable(): this;
 }
 
+export interface ISketch extends ISceneObject {
+  /**
+   * Marks the sketch finished. The editor stays in sketch mode while the
+   * timeline ends in an open sketch; a closed sketch ends that without a
+   * consuming feature, so a profile can be left unconsumed and the model
+   * still opens as a 3D scene. The Finish Sketch button adds this chain and
+   * removes it again when the sketch is reopened for editing.
+   */
+  close(): this;
+}
+
 export interface LoadOptions {
   /**
    * Asserts the unit the asset's cached geometry is in. Normally unnecessary:

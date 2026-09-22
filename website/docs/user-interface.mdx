@@ -46,7 +46,7 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
   ![Row context menu](/img/docs/ui/history-context-menu.png)
 
-  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm.
+  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm.
 - The **⋮** menu on the panel header:
 
   ![History menu](/img/docs/ui/history-menu.png)

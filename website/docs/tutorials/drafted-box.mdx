@@ -47,7 +47,7 @@ The Rectangle tool writes the horizontal, vertical, corner-coincidence, width, h
 
 ### Extrude downward with draft
 
-Choose **Finish Sketch ▾ → Extrude**. Leave **Add** and **One direction** selected. Enter `-1.5` for **Distance** and `-8` for **Draft angle (°)**. Leave **Thin walls** off.
+Click **Extrude** on the toolbar. Leave **Add** and **One direction** selected. Enter `-1.5` for **Distance** and `-8` for **Draft angle (°)**. Leave **Thin walls** off.
 
 The green preview extends from the rim plane down to XY. Its lower footprint is smaller than the 7 × 5 inch top. The statement reads `extrude(-1.5).draft(-8)`.
 
@@ -105,7 +105,7 @@ Choose **Circle**, click the **origin**, and type `2` for the diameter, then <kb
 
 ### Extrude into the floor
 
-Choose **Finish Sketch ▾ → Extrude**, leave **Add** selected, and set **Distance** to `-2` and **Draft angle (°)** to `8`. The preview flares outward toward the floor and overlaps it, joining the pipe to the box. The statement reads `extrude(-2).draft(8)`.
+Click **Extrude** on the toolbar, leave **Add** selected, and set **Distance** to `-2` and **Draft angle (°)** to `8`. The preview flares outward toward the floor and overlaps it, joining the pipe to the box. The statement reads `extrude(-2).draft(8)`.
 
 ![Pipe extrusion with positive eight-degree draft](/img/docs/tutorials/drafted-box-ui-13-pipe-ghost.png)
 
@@ -119,7 +119,7 @@ Click **Sketch** and select the pipe's **flat top face**. Use **Circle** again: 
 
 ![Fully constrained one-and-a-half-inch bore circle](/img/docs/tutorials/drafted-box-ui-15-bore-profile.png)
 
-Choose **Finish Sketch ▾ → Extrude** and select **Remove**. Keep **One direction**, enable **Through all**, and set **Draft angle (°)** to `-8`. The statement reads `cut().draft(-8)`.
+Click **Extrude** on the toolbar and select **Remove**. Keep **One direction**, enable **Through all**, and set **Draft angle (°)** to `-8`. The statement reads `cut().draft(-8)`.
 
 Inspect the red preview: the bore runs down through the pipe and the box floor, narrowing toward the underside. The outside of the pipe flares outward as it descends, so the pipe wall becomes thicker toward the bottom; the two surfaces are not parallel.
 
@@ -143,7 +143,7 @@ Press <kbd>Escape</kbd>, select the line's **left endpoint**, and click **Fix** 
 
 ### Extend the rib to the surrounding walls
 
-Choose **Finish Sketch ▾ → Rib**. Leave **Add** selected and set:
+Click **Rib** on the toolbar. Leave **Add** selected and set:
 
 - **Thickness:** `0.25`
 - **Parallel to sketch plane:** on

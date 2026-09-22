@@ -8,10 +8,9 @@ import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LAB
  * enter/exit toggle via `onClick`.
  *
  * The button also tracks its own visible/disabled/active state and emits
- * {@link onStateChange} on every transition, so the Finish Sketch popup can
- * mirror a subset of these buttons (see {@link FinishSketchMenu}) and delegate
- * clicks straight back to them — every service's coordination then runs
- * unchanged whether the user clicks the toolbar button or its grid twin.
+ * {@link onStateChange} on every transition, so another surface can mirror
+ * it and delegate clicks straight back through {@link click} — every
+ * service's coordination then runs unchanged whichever surface was clicked.
  */
 export class FeatureButton {
   onClick?: () => void;
@@ -67,12 +66,12 @@ export class FeatureButton {
     }
   }
 
-  /** The button's icon URL — mirrored into the Finish Sketch grid cell. */
+  /** The button's icon URL, for surfaces that mirror the button. */
   get iconSrc(): string {
     return this.icon;
   }
 
-  /** The button's caption — mirrored into the Finish Sketch grid cell. */
+  /** The button's caption, for surfaces that mirror the button. */
   get labelText(): string {
     return this.label;
   }
@@ -90,9 +89,8 @@ export class FeatureButton {
   }
 
   /**
-   * Programmatically trigger the button. The Finish Sketch grid delegates to
-   * the real toolbar buttons this way, so a grid click runs exactly what a
-   * toolbar click would (enter/exit plus every `onEnter` hook in main.ts).
+   * Programmatically trigger the button: runs exactly what a toolbar click
+   * would (enter/exit plus every `onEnter` hook in main.ts).
    */
   click(): void {
     this.button.click();
@@ -126,13 +124,13 @@ export class FeatureButton {
   }
 
   /**
-   * Hide (or restore) this button while the Finish Sketch button consolidates
-   * the create group during sketch mode. It rides a separate class from
-   * {@link setVisible} so the owning service's per-render visibility updates
-   * keep flowing underneath — de-consolidating drops back to whatever `visible`
-   * currently says.
+   * Hide (or restore) this button while a sketch is being edited — the
+   * Finish Sketch button owns the create group then. It rides a separate
+   * class from {@link setVisible} so the owning service's per-render
+   * visibility updates keep flowing underneath: leaving sketch mode drops
+   * back to whatever `visible` currently says.
    */
-  setConsolidated(consolidated: boolean): void {
-    this.wrap.classList.toggle('feature-consolidated', consolidated);
+  setSketchHidden(hidden: boolean): void {
+    this.wrap.classList.toggle('feature-sketch-hidden', hidden);
   }
 }

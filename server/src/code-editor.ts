@@ -1307,6 +1307,56 @@ export function setFeatureName(
 }
 
 // ---------------------------------------------------------------------------
+// Sketch finishing — add/remove the chained .close() on a sketch statement
+// ---------------------------------------------------------------------------
+
+/**
+ * Add or remove the `.close()` chain of the sketch statement at `sourceLine`
+ * — the Finish Sketch button marks a sketch finished (the editor leaves
+ * sketch mode without a consuming feature), and reopening that sketch for
+ * editing takes the chain off again so the paused build re-enters it. The
+ * chain appends after the last call of the statement so other trailing
+ * chains (`.name('…')`, `.reusable()`) keep their place; an existing
+ * argument-less `.close()` is stripped along with whatever whitespace led
+ * up to it, so a chain broken onto its own line leaves no dangling
+ * indentation. Both directions are idempotent.
+ */
+export function setSketchClosed(
+  code: string,
+  sourceLine: number,
+  closed: boolean,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    // Only a sketch statement carries the chain: a stale line that now holds
+    // some other feature must not grow a `.close()` it has no meaning for.
+    if (!call || chainRootCallee(call) !== 'sketch') {
+      return null;
+    }
+    const closeCall = findMemberCallInChain(call, 'close');
+    if (closed) {
+      if (closeCall) {
+        return null;
+      }
+      return spliceCode(code, call.endIndex, call.endIndex, '.close()');
+    }
+    if (!closeCall) {
+      return null;
+    }
+    const closeArgs = getArgumentsNode(closeCall);
+    if (!closeArgs || closeArgs.namedChildren.length !== 0) {
+      return null;
+    }
+    const member = closeCall.childForFieldName('function');
+    const object = member ? member.childForFieldName('object') : null;
+    if (!object) {
+      return null;
+    }
+    return spliceCode(code, object.endIndex, closeCall.endIndex, '');
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Geometry insertion — insert a new call expression at the end of a sketch body
 // ---------------------------------------------------------------------------
 

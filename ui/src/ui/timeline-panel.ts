@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
-import { findActiveObject, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow } from '../helpers/scene-utils';
+import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
@@ -758,13 +758,14 @@ export class TimelinePanel {
     const rollbackStop = this.rollbackStop;
 
     // Mirrors the viewer's sketch-mode derivation: a non-truncated render
-    // whose active scope ends in a sketch — including a part-scoped stop on
-    // the active part's tip sketch, which hides nothing and DOES enter
-    // sketch editing. Derived here rather than in update() so a part-row
-    // click — which repoints the active part and re-renders without a new
-    // scene — reads the new scope's state.
+    // whose active scope ends in an open sketch — including a part-scoped
+    // stop on the active part's tip sketch, which hides nothing and DOES
+    // enter sketch editing; a `.close()`d tip sketch does not. Derived here
+    // rather than in update() so a part-row click — which repoints the
+    // active part and re-renders without a new scene — reads the new
+    // scope's state.
     this.sketchActive = !isRollbackViewTruncated(items, rollbackStop, this.rollbackScopePartId)
-      && findActiveObject(items)?.type === 'sketch';
+      && findActiveSketch(items) !== undefined;
 
     const parentIds = new Set<string>();
     for (const obj of items) {
@@ -1445,8 +1446,8 @@ export class TimelinePanel {
   /**
    * Right-click menu on a timeline row: "Rename" swaps the menu for an
    * inline input editing the feature's chained `.name('…')`, "Edit feature"
-   * runs the double-click gesture (breakpoint after the row plus the
-   * feature's edit dialog), "Breakpoint here" places the breakpoint after
+   * (or "Edit sketch") runs the double-click gesture (breakpoint after the
+   * row plus the feature's edit dialog), "Breakpoint here" places the breakpoint after
    * the row without opening a dialog and "Remove" deletes the feature's
    * statement from the code. Rows without a source location get no menu —
    * none of the actions can target them.
@@ -1470,19 +1471,23 @@ export class TimelinePanel {
     dropdown.style.left = `${e.clientX - panelRect.left}px`;
     dropdown.style.top = `${e.clientY - panelRect.top}px`;
 
-    // The edit action mirrors double-click: only rows with an edit dialog
-    // offer it, and those work even while sketching — the dialog suspends
-    // the sketch UI itself and restores it on exit.
-    const editItem = this.isFeatureEditable?.(obj) !== true ? '' : `
+    // The edit action mirrors double-click: rows with an edit dialog offer
+    // it, and those work even while sketching — the dialog suspends the
+    // sketch UI itself and restores it on exit. A sketch row offers it too
+    // (the gesture pauses the build after the sketch and opens it, taking a
+    // `.close()` chain off first), but only outside sketch mode: editing one
+    // sketch from inside another would replace the active one, not suspend it.
+    const sketchRow = obj.type === 'sketch' && !this.sketchActive;
+    const editItem = !(sketchRow || this.isFeatureEditable?.(obj) === true) ? '' : `
         <li><button data-action="edit" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_ADJUSTMENTS}</span>
-          <span>Edit feature</span>
+          <span>${sketchRow ? 'Edit sketch' : 'Edit feature'}</span>
         </button></li>`;
     // The breakpoint action is timeline navigation — absent while sketching,
     // except on the active sketch's own children: a breakpoint there replays
     // the sketch up to that shape without leaving sketch mode.
     const activeSketchChild = this.sketchActive && obj.parentId != null
-      && findActiveObject(this.sceneObjects)?.id === obj.parentId;
+      && findActiveSketch(this.sceneObjects)?.id === obj.parentId;
     const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>

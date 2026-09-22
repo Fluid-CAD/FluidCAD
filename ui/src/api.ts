@@ -3948,6 +3948,17 @@ export function renameFeature(sourceLocation: SourceLocationParam, name: string 
   postFireAndForget('/api/rename-feature', { sourceLocation, name });
 }
 
+/**
+ * Add (`closed: true`) or remove the `.close()` chain on a sketch statement —
+ * the Finish Sketch button and the reopen-for-edit gesture. Acked: the
+ * server answers once the editor host has applied the transform, so a
+ * caller can place or clear a breakpoint afterwards without the two edits
+ * racing on the host's buffer.
+ */
+export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boolean): Promise<SetUnitResult> {
+  return postAcked('/api/set-sketch-closed', { sourceLocation, closed });
+}
+
 export function clearBreakpoints(): void {
   postFireAndForget('/api/clear-breakpoints');
 }

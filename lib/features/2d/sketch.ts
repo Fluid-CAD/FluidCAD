@@ -16,6 +16,7 @@ export class Sketch extends SceneObject implements Extrudable {
 
   private _solver: SketchSolverContext | null;
   private _solveDone = false;
+  private _closed = false;
 
   constructor(public planeObj: PlaneObjectBase) {
     super();
@@ -24,6 +25,23 @@ export class Sketch extends SceneObject implements Extrudable {
 
   solver(): SketchSolverContext | null {
     return this._solver;
+  }
+
+  /**
+   * Mark the sketch finished. A sketch that ends the active scope keeps the
+   * UI in sketch mode until a later feature consumes it; `.close()` ends
+   * sketch mode without one, so the sketch can stay unconsumed (a profile
+   * kept for later, a reference drawing) and the file still opens as a 3D
+   * scene. The Finish Sketch button writes and removes it. Geometry, solve
+   * and consumption are untouched — the flag only reaches the render.
+   */
+  close(): this {
+    this._closed = true;
+    return this;
+  }
+
+  isClosed(): boolean {
+    return this._closed;
   }
 
   override restoreState(state: Map<string, any>): void {

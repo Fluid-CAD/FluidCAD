@@ -71,11 +71,7 @@ Click **Apply**. Each corner is replaced by an arc that is tangent to both of it
 
 ### Extrude the body
 
-Click **Finish Sketch ▾**. The menu offers the operations that take a sketch as input.
-
-![The Finish Sketch menu](/img/docs/tutorials/desk-organizer-ui-09-finish-sketch-menu.png)
-
-Choose **Extrude**. The Extrude dialog opens with the sketch already in its Sketch slot. Set **Distance** to `110`. The green ghost is a live preview of the solid the extrude will add, and the statement under the dialog reads `extrude(110)`.
+The 3D operations that take a sketch as input stay on the toolbar while the sketch is open. Click **Extrude**. The Extrude dialog opens with the sketch already in its Sketch slot. Set **Distance** to `110`. The green ghost is a live preview of the solid the extrude will add, and the statement under the dialog reads `extrude(110)`.
 
 ![Extrude dialog with the 110 mm ghost preview](/img/docs/tutorials/desk-organizer-ui-10-extrude-preview.png)
 
@@ -131,7 +127,7 @@ Click **Apply**. The sketch now holds a closed outer loop and a closed inner loo
 
 ### Extrude the column
 
-Click **Finish Sketch ▾** and choose **Extrude**. Set **Distance** to `160`, taller than the 110 mm cup so the column will stand above the rim. The ghost shows the tube rising from the floor and through the open top.
+Click **Extrude** on the toolbar. Set **Distance** to `160`, taller than the 110 mm cup so the column will stand above the rim. The ghost shows the tube rising from the floor and through the open top.
 
 ![Extrude dialog with the 160 mm column preview](/img/docs/tutorials/desk-organizer-ui-19-column-extrude-preview.png)
 
@@ -168,7 +164,7 @@ The spine does not need to reach either wall. The rib will be extended to meet t
 
 ### Build the rib
 
-Click **Finish Sketch ▾** and choose **Rib**. Set **Thickness** to `5`, and switch on **Parallel to sketch plane** and **Extend to walls**. *Parallel* grows the rib in the sketch plane, so it stands as a wall rather than being pushed out normal to the plane; *Extend* stretches the spine until it meets the surrounding solids. The green ghost shows the wall between the column and the outer shell, and the statement reads `rib(5).parallel().extend()`.
+Click **Rib** on the toolbar. Set **Thickness** to `5`, and switch on **Parallel to sketch plane** and **Extend to walls**. *Parallel* grows the rib in the sketch plane, so it stands as a wall rather than being pushed out normal to the plane; *Extend* stretches the spine until it meets the surrounding solids. The green ghost shows the wall between the column and the outer shell, and the statement reads `rib(5).parallel().extend()`.
 
 ![Rib dialog with the parallel, extended rib preview](/img/docs/tutorials/desk-organizer-ui-23-rib-preview.png)
 
@@ -200,7 +196,7 @@ Click **Sketch** and pick the **XZ** plane. Pick the **Center Arc** tool: click 
 
 ### Revolve it as a thin cut
 
-Click **Finish Sketch ▾** and choose **Revolve**. Select the **Remove** tab so the revolved shape is subtracted. The axis defaults to *World Z axis*. Switch on **Thin walls** and set **Thickness** to `30`: an open arc cannot enclose a solid on its own, so the thin option turns it into a 30 mm thick hemispherical shell. The red ghost is the shell that will be removed; the 30 mm is deliberately generous so it consumes everything above the dome.
+Click **Revolve** on the toolbar. Select the **Remove** tab so the revolved shape is subtracted. The axis defaults to *World Z axis*. Switch on **Thin walls** and set **Thickness** to `30`: an open arc cannot enclose a solid on its own, so the thin option turns it into a 30 mm thick hemispherical shell. The red ghost is the shell that will be removed; the 30 mm is deliberately generous so it consumes everything above the dome.
 
 ![Revolve dialog with the thin, removed hemisphere preview](/img/docs/tutorials/desk-organizer-ui-27-revolve-preview.png)
 
@@ -227,7 +223,7 @@ Everything above was written into `desk-organizer.fluid.js` by the dialogs. Open
 - **Polygon** with a typed diameter and side count, and what it emits: a guide circle, tangent and equal sides, and an angle between neighbors
 - **Horizontal, Fix, Dimension, Angle and Coincident** from the constraint bar, and reading the DOF pill until a sketch is fully constrained
 - **Sketch Fillet** on a run of sides, which swaps every corner for a tangent arc with one shared radius
-- **Finish Sketch ▾** as the way into Extrude, Rib and Revolve, and the live ghost preview in each dialog
+- Extrude, Rib and Revolve applied straight from the toolbar to the open sketch, and the live ghost preview in each dialog
 - **Chamfer** with a double-click to pick a whole edge group, and **Shell** with a negative thickness and a picked face to open
 - **Rectangle** with typed sizes and **Fix** to pin a corner, then **Offset** for an inner loop
 - **Plane** with a rotation about an axis, and dimensioning a sketch against its own axes

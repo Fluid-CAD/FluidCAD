@@ -30,7 +30,7 @@ import { VertexPicking, type VertexPickScope } from './interactive/vertex-pickin
 import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
-import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
+import { findActiveSketch, isSceneEmpty } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
@@ -507,8 +507,8 @@ export class Viewer {
     if (!this.sketchEditingSuspended || this.lastRenderIsRollback) {
       return false;
     }
-    const active = findActiveObject(this.sceneObjects);
-    return active?.type === 'sketch' && !!active.object?.plane;
+    const active = findActiveSketch(this.sceneObjects);
+    return active !== undefined && !!active.object?.plane;
   }
 
   /**
@@ -547,8 +547,8 @@ export class Viewer {
     // Re-engaging the lock re-squares the view: free rotation while unlocked
     // may have tilted the camera, and a locked camera must face the plane.
     if (enabled) {
-      const active = findActiveObject(this.sceneObjects);
-      if (active?.type === 'sketch' && active.object?.plane) {
+      const active = findActiveSketch(this.sceneObjects);
+      if (active?.object?.plane) {
         this.modeManager.enforceSketchNormal(active.object.plane);
       }
     }
@@ -1334,12 +1334,13 @@ export class Viewer {
     }
 
     if (!isRollback) {
-      const activeObject = findActiveObject(sceneObjects);
+      const activeObject = findActiveSketch(sceneObjects);
 
       // A disabled mode manager (suspendSketchEditing / region picking) makes
       // a trailing sketch render like any other scene — no camera lock, no
-      // ghosting — so faces stay pickable in the free 3D view.
-      if (activeObject?.type === 'sketch' && activeObject.object?.plane && this.modeManager.sketchEnabled) {
+      // ghosting — so faces stay pickable in the free 3D view. A trailing
+      // sketch that carries `.close()` never enters (findActiveSketch).
+      if (activeObject?.object?.plane && this.modeManager.sketchEnabled) {
         if (!this.modeManager.isSketchMode) {
           this.modeManager.enterSketchMode(activeObject.object.plane);
         } else {

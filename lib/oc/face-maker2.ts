@@ -1,4 +1,4 @@
-import { TopoDS_Shape } from "ocjs-fluidcad";
+import { TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
@@ -137,7 +137,53 @@ export class FaceMaker2 {
     splitter.delete();
     dispose();
 
-    return filtered.map(f => Face.fromTopoDSFace(oc.TopoDS.Face(f)));
+    return filtered.map(f => Face.fromTopoDSFace(this.stripDanglingWires(oc.TopoDS.Face(f))));
+  }
+
+  /**
+   * Removes the wires the splitter embeds for open edges that end inside a
+   * region — a sketch line drawn from a circle's centre, a segment whose
+   * far end lands inside a copied profile. They come back as wires whose
+   * edges are all INTERNAL (or EXTERNAL) and bound nothing: a region is its
+   * closed loops. Left in place they reach the extruded cap, and
+   * `BRepAdaptor_CompCurve` over such a wire has no traversable edge — its
+   * `Value()` faults inside OCC ("memory access out of bounds").
+   */
+  private static stripDanglingWires(face: TopoDS_Face): TopoDS_Face {
+    const oc = getOC();
+    const dangling: TopoDS_Shape[] = [];
+    const it = new oc.TopoDS_Iterator(face, true, true);
+    while (it.More()) {
+      const wire = it.Value();
+      if (this.isDanglingWire(wire)) {
+        dangling.push(wire);
+      }
+      it.Next();
+    }
+    it.delete();
+
+    if (dangling.length > 0) {
+      const builder = new oc.BRep_Builder();
+      for (const wire of dangling) {
+        builder.Remove(face, wire);
+      }
+      builder.delete();
+    }
+    return face;
+  }
+
+  private static isDanglingWire(wire: TopoDS_Shape): boolean {
+    const oc = getOC();
+    const orientation = wire.Orientation();
+    if (orientation === oc.TopAbs_Orientation.TopAbs_INTERNAL
+        || orientation === oc.TopAbs_Orientation.TopAbs_EXTERNAL) {
+      return true;
+    }
+    const edges = Explorer.findShapes(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
+    return edges.length > 0 && edges.every(e =>
+      e.Orientation() === oc.TopAbs_Orientation.TopAbs_INTERNAL
+      || e.Orientation() === oc.TopAbs_Orientation.TopAbs_EXTERNAL
+    );
   }
 
   /**

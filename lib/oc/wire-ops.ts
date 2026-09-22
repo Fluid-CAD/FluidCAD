@@ -81,6 +81,12 @@ export class WireOps {
     const adaptor = new oc.BRepAdaptor_CompCurve(wire, false);
     const u0 = adaptor.FirstParameter();
     const u1 = adaptor.LastParameter();
+    if (!(u1 > u0)) {
+      // A wire of INTERNAL/EXTERNAL edges has nothing to traverse; sampling
+      // it faults inside OCC instead of throwing.
+      adaptor.delete();
+      throw new Error("Wire orientation: the wire has no traversable edges");
+    }
     const N = 64;
     let signedArea = 0;
 

@@ -1,7 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Axis, AxisTransformOptions } from "../math/axis.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
-import { EdgeOps } from "../oc/edge-ops.js";
 
 export class AxisObject extends AxisObjectBase {
 
@@ -18,9 +17,7 @@ export class AxisObject extends AxisObjectBase {
   }
 
   build() {
-    const edge = EdgeOps.axisToEdge(this.getAxis());
-    edge.markAsMetaShape();
-    this.addShape(edge);
+    this.addAxisEdge(this.getAxis());
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

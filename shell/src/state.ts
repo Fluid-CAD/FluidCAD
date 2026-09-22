@@ -10,11 +10,24 @@ import { deleteThumbnail } from './thumbnails';
  * it by the engine (`<workspace>/.fluidcad/editor-state.json`).
  */
 
+/**
+ * What the user told the upgrade prompt for one project. A preference, not a
+ * fact about the project, which is why it lives here and not in
+ * `fluidcad.json`: a teammate opening the same repo should be asked too.
+ */
+export type UpgradePromptPreference = {
+  /** "Keep the current engine": stay quiet until an engine newer than this one ships. */
+  declinedUpgradeTo: string | null;
+  /** "Don't ask again for this project". */
+  muted: boolean;
+};
+
 export type RecentProject = {
   path: string;
   lastOpenedAt: string;
-  /** Recorded so the engine manager can say what a project pins without opening it. */
+  /** Recorded so the prune step can protect what a project pins without opening it. */
   pin: string | null;
+  upgradePrompt?: UpgradePromptPreference;
 };
 
 export type WindowBounds = { width: number; height: number; x?: number; y?: number };
@@ -70,8 +83,11 @@ function writeDesktopState(state: DesktopState): void {
 
 export function rememberProject(workspacePath: string, pin: string | null): void {
   const state = readDesktopState();
+  const previous = state.recentProjects.find((entry) => entry.path === workspacePath);
   const others = state.recentProjects.filter((entry) => entry.path !== workspacePath);
-  const recents = [{ path: workspacePath, lastOpenedAt: new Date().toISOString(), pin }, ...others];
+  // The upgrade preference rides along; only the open time and the pin are new.
+  const fresh: RecentProject = { ...previous, path: workspacePath, lastOpenedAt: new Date().toISOString(), pin };
+  const recents = [fresh, ...others];
   writeDesktopState({ ...state, recentProjects: recents.slice(0, MAX_RECENTS) });
   // A project that fell off the list takes its start-screen preview with it;
   // the preview only ever exists to be shown there.
@@ -114,6 +130,28 @@ export function dismissNotification(id: string): void {
   // ago is never checked again, so the list must not grow forever.
   const dismissed = [id, ...state.dismissedNotifications].slice(0, MAX_DISMISSED);
   writeDesktopState({ ...state, dismissedNotifications: dismissed });
+}
+
+export function upgradePromptPreference(workspacePath: string): UpgradePromptPreference {
+  const entry = readDesktopState().recentProjects.find((item) => item.path === workspacePath);
+  return entry?.upgradePrompt ?? { declinedUpgradeTo: null, muted: false };
+}
+
+/**
+ * Record an answer to the upgrade prompt. Only a project already in the
+ * recents can carry one — the prompt is shown from an open window, which put
+ * it there — so an unknown path is a no-op rather than a new entry.
+ */
+export function rememberUpgradeChoice(workspacePath: string, change: Partial<UpgradePromptPreference>): void {
+  const state = readDesktopState();
+  const recents = state.recentProjects.map((entry) => {
+    if (entry.path !== workspacePath) {
+      return entry;
+    }
+    const current = entry.upgradePrompt ?? { declinedUpgradeTo: null, muted: false };
+    return { ...entry, upgradePrompt: { ...current, ...change } };
+  });
+  writeDesktopState({ ...state, recentProjects: recents });
 }
 
 export function rememberWindowBounds(bounds: WindowBounds): void {

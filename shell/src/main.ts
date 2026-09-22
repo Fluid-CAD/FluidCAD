@@ -21,6 +21,7 @@ import {
 } from './start-screen';
 import { pinnedVersions, workspaceForPath } from './state';
 import { initAutoUpdate } from './updater';
+import { UpgradePrompt, type UpgradeChoice } from './upgrade-prompt';
 
 /**
  * The FluidCAD desktop shell.
@@ -215,6 +216,16 @@ function registerIpcHandlers(): void {
   ipcMain.handle('desktop:restart-engine', async (event) => {
     await callerWindow(event)?.restartEngine();
   });
+
+  // The upgrade prompt drawn onto a project's page. The choice is validated
+  // here, not trusted: the page is engine-versioned and could be anything.
+  const UPGRADE_CHOICES = new Set<UpgradeChoice>(['upgrade', 'preview', 'keep', 'never', 'dismiss']);
+  ipcMain.handle('desktop:engine-upgrade-respond', async (event, choice: unknown) => {
+    if (typeof choice === 'string' && UPGRADE_CHOICES.has(choice as UpgradeChoice)) {
+      await callerWindow(event)?.respondToUpgrade(choice as UpgradeChoice);
+    }
+  });
+  UpgradePrompt.configure({ openProject });
 
   // The startup splash, when an engine could not be resolved.
   ipcMain.handle('shell:retry', async (event) => {

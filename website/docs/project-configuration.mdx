@@ -60,7 +60,9 @@ FluidCAD: this project pins engine 0.0.42 (fluidcad.json), but 0.0.45 is running
 Geometry may differ from what the project was authored against.
 ```
 
-The desktop app goes one step further and uses the pin to choose which engine to load for the project. Bump the pin once you have upgraded `fluidcad` and checked the model still builds the way you expect.
+The desktop app goes one step further and uses the pin to choose which engine to load for the project — every project opens on the engine it was authored against, however often the app itself updates. A new project is pinned to the engine that ships with the app, and the start screen shows it as **latest** until a newer app arrives. From then on the card reads **update**, and the project offers the move when it opens: **Upgrade**, **Preview changes** (every model is rebuilt on both engines and the differences — features that stop or start building, solid counts, volumes — are listed before anything is written), **Keep** the current engine until the next release, or **Don't ask again** for that project. The card's **⋯ → Change engine version…** does the same in either direction, including to an older engine that is downloaded on demand.
+
+Outside the desktop app, bump the pin by hand once you have upgraded `fluidcad` and checked the model still builds the way you expect.
 
 `package.json` is accepted as an alternative home for the same pin — `{ "fluidcad": { "engine": "0.0.42" } }` — and `fluidcad.json` wins when both exist. An `engine` value that is not a version string is reported and ignored.
 

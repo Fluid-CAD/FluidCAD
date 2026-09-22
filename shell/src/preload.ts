@@ -67,6 +67,15 @@ const desktopApi = {
 
   /** Restart the engine behind this window (offered by the crash banner). */
   restartEngine: (): Promise<void> => ipcRenderer.invoke('desktop:restart-engine'),
+
+  /**
+   * The engine-upgrade prompt's buttons. The card is the shell's own, drawn
+   * onto the page; the page cannot pick a version — it can only hand back
+   * which of the shell's buttons was pressed, and the shell validates that.
+   */
+  engineUpgrade: {
+    respond: (choice: string): Promise<void> => ipcRenderer.invoke('desktop:engine-upgrade-respond', choice),
+  },
 };
 
 const shellApi = {
@@ -95,6 +104,19 @@ const shellApi = {
     /** The recents changed under the page (a project closed, a preview landed). */
     onChanged: (handler: () => void): void => {
       ipcRenderer.on('shell:start-changed', () => handler());
+    },
+
+    /** The "Change engine version…" dialog: what a project can move to. */
+    engineOptions: (workspacePath: string): Promise<any> =>
+      ipcRenderer.invoke('shell:start-engine-options', workspacePath),
+    /** Rebuild the project on both engines and report what moved. Commits nothing. */
+    previewUpgrade: (workspacePath: string, version: string): Promise<any> =>
+      ipcRenderer.invoke('shell:start-preview-upgrade', workspacePath, version),
+    /** Move the pin; an open window for the project is reopened on it. */
+    applyPin: (workspacePath: string, version: string): Promise<any> =>
+      ipcRenderer.invoke('shell:start-apply-pin', workspacePath, version),
+    onUpgradeProgress: (handler: (progress: { workspacePath: string; message: string }) => void): void => {
+      ipcRenderer.on('shell:upgrade-progress', (_event, progress: any) => handler(progress));
     },
   },
 };

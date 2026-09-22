@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { projectInstalledEngine, readProjectPin } from './engine/project-pin';
 import { isEngineManagedLink } from './engine/resolver';
+import { EngineUpgrade } from './engine-upgrade';
 import { FeedService } from './feed';
 import { createNewProject } from './new-project';
 import { findProjectWindow, type ProjectWindow } from './project-window';
@@ -13,12 +14,13 @@ import { readThumbnail } from './thumbnails';
  * The start screen: the window the app opens on when nothing told it which
  * project to open. A grid of recent projects — folder name, cached preview,
  * the engine each one pins — and two buttons: open a folder, or scaffold a
- * new project into an empty one.
+ * new project into an empty one. Each card's menu can also move the project
+ * to another engine, with a comparison first.
  *
- * Like the engine manager it is a shell page, not engine UI: it exists before
- * any engine is running, and it lists projects across every engine version.
- * It closes itself when a project opens from it and comes back when the last
- * project window closes (see `main.ts`), so it behaves as the app's home.
+ * It is a shell page, not engine UI: it exists before any engine is running,
+ * and it lists projects across every engine version. It closes itself when a
+ * project opens from it and comes back when the last project window closes
+ * (see `main.ts`), so it behaves as the app's home.
  */
 
 const START_PAGE = path.join(__dirname, '..', 'static', 'start.html');
@@ -106,26 +108,39 @@ export type StartScreenProject = {
   /** The engine version the project runs on, and where that comes from. */
   engine: string | null;
   engineSource: 'pin' | 'own' | null;
+  /** The pin is the engine that ships with the app — the card says "latest". */
+  latest: boolean;
+  /** A newer built-in engine the pin could move to; the card says so. */
+  upgradeTo: string | null;
   lastOpenedAt: string;
   open: boolean;
   thumbnail: string | null;
 };
 
 function describeProject(workspacePath: string, lastOpenedAt: string): StartScreenProject {
-  // Same rule as the engine manager: an install the user made wins, a link the
-  // engine planted does not count as one, and the pin is read live so a pin
-  // moved in the manager shows up here without reopening.
+  // An install the user made wins, a link the engine planted does not count
+  // as one, and the pin is read live so a pin moved from the engine dialog
+  // shows up here without reopening.
   const own = isEngineManagedLink(workspacePath) ? null : projectInstalledEngine(workspacePath);
   const pin = readProjectPin(workspacePath).engine;
+  const latest = EngineUpgrade.latestVersion();
   return {
     path: workspacePath,
     name: path.basename(workspacePath),
     engine: own ?? pin,
     engineSource: own ? 'own' : pin ? 'pin' : null,
+    latest: !own && pin !== null && pin === latest,
+    upgradeTo: EngineUpgrade.pendingFor(workspacePath)?.to ?? null,
     lastOpenedAt,
     open: Boolean(findProjectWindow(workspacePath)),
     thumbnail: readThumbnail(workspacePath)?.dataUrl ?? null,
   };
+}
+
+function sendUpgradeProgress(workspacePath: string, message: string): void {
+  if (startWindow && !startWindow.isDestroyed()) {
+    startWindow.webContents.send('shell:upgrade-progress', { workspacePath, message });
+  }
 }
 
 export function registerStartScreenHandlers(deps: StartScreenDeps): void {
@@ -134,6 +149,28 @@ export function registerStartScreenHandlers(deps: StartScreenDeps): void {
     /** For `~/…` in the cards; the page has no `os` of its own. */
     home: os.homedir(),
   }));
+
+  /** What the "Change engine version…" dialog lists for one project. */
+  ipcMain.handle('shell:start-engine-options', (_event, workspacePath: string) => {
+    const project = describeProject(workspacePath, '');
+    return {
+      current: project.engine,
+      currentSource: project.engineSource,
+      latest: EngineUpgrade.latestVersion(),
+      choices: EngineUpgrade.choices(),
+    };
+  });
+
+  ipcMain.handle('shell:start-preview-upgrade', (_event, workspacePath: string, version: string) =>
+    EngineUpgrade.preview(workspacePath, version, (message) => sendUpgradeProgress(workspacePath, message)),
+  );
+
+  ipcMain.handle('shell:start-apply-pin', (_event, workspacePath: string, version: string) =>
+    EngineUpgrade.apply(workspacePath, version, {
+      openWindow: findProjectWindow(workspacePath),
+      openProject: (target) => deps.openProject(target, startWindow),
+    }),
+  );
 
   ipcMain.handle('shell:start-open', async (_event, workspacePath: string) => {
     await deps.openProject(workspacePath, startWindow);

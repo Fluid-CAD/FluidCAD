@@ -17,6 +17,8 @@
         --faint: #6b6b6b;
         --accent: #4f9cf9;
         --ok: #7bd88f;
+        --warn: #f7b955;
+        --error: #ff8b8b;
         /* Straight from the fluidcad-dark daisyUI theme in ui/src/styles.css, so
            the buttons below are the same object the project scene renders. */
         --color-primary: #4a9eff;
@@ -181,6 +183,9 @@
       }
       .tag.open { color: var(--ok); border-color: #7bd88f55; }
       .tag.own { color: var(--accent); border-color: #4f9cf955; }
+      /* An engine newer than the pin: the chip is the upgrade affordance. */
+      .tag.update { color: var(--warn); border-color: #f7b95566; cursor: pointer; }
+      .tag.update:hover { background: #f7b95518; }
       .path {
         color: var(--muted);
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -233,6 +238,64 @@
         background: transparent;
       }
       .menu button:hover, .menu button:focus-visible { background: #ffffff1a; outline: none; }
+      .menu button:disabled { color: var(--faint); cursor: default; background: transparent; }
+      /* The engine dialog: pick a version, compare, switch. */
+      dialog {
+        background: var(--panel);
+        color: var(--fg);
+        border: 1px solid #ffffff2e;
+        border-radius: 12px;
+        padding: 18px 20px;
+        width: min(560px, calc(100vw - 48px));
+        max-height: calc(100vh - 48px);
+        box-shadow: 0 16px 48px #000000a6;
+      }
+      dialog::backdrop { background: #000000a6; }
+      dialog h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+      dialog .lede { color: var(--muted); margin: 0 0 14px; }
+      dialog .lede code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      .versions { display: grid; gap: 4px; margin-bottom: 10px; }
+      .version {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .version:hover { background: var(--panel-hover); }
+      .version.selected { border-color: var(--accent); background: #4f9cf912; }
+      .version input { margin: 0; accent-color: var(--accent); }
+      .version .v { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 64px; }
+      .version .note { color: var(--muted); font-size: 12px; }
+      .version.other input[type="text"] {
+        font: inherit;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 3px 8px;
+        width: 110px;
+        font-variant-numeric: tabular-nums;
+      }
+      .version.other input[type="text"]:focus { outline: none; border-color: var(--accent); }
+      .diff { -webkit-user-select: text; user-select: text; margin: 6px 0 4px; }
+      .diff .summary { margin: 0 0 8px; color: var(--muted); }
+      .diff .progress { color: var(--muted); }
+      .diff .error { color: var(--error); white-space: pre-wrap; }
+      .diff-list { display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+      .diff-model { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+      .diff-model .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+      .diff-model .status { font-size: 11px; margin-left: 8px; }
+      .diff-model.identical { border-color: #7bd88f44; }
+      .diff-model.identical .status, .diff-model.fixed .status { color: var(--ok); }
+      .diff-model.changed { border-color: #f7b95566; }
+      .diff-model.changed .status { color: var(--warn); }
+      .diff-model.broken { border-color: #ff8b8b66; }
+      .diff-model.broken .status { color: var(--error); }
+      .diff-model ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+      .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
       .empty {
         color: var(--muted);
         text-align: center;
@@ -328,6 +391,18 @@
       </section>
     </main>
 
+    <dialog id="engine-dialog">
+      <h3>Engine version</h3>
+      <p class="lede" id="engine-lede"></p>
+      <div id="versions" class="versions"></div>
+      <div id="engine-diff" class="diff" hidden></div>
+      <div class="dialog-actions">
+        <button id="engine-cancel" class="btn btn-outline btn-sm">Cancel</button>
+        <button id="engine-compare" class="btn btn-outline btn-sm">Compare first</button>
+        <button id="engine-apply" class="btn btn-primary btn-sm">Switch</button>
+      </div>
+    </dialog>
+
     <script>
       const api = window.fluidcadShell;
       const grid = document.getElementById('grid');
@@ -388,6 +463,8 @@
           const button = document.createElement('button');
           button.setAttribute('role', 'menuitem');
           button.textContent = item.label;
+          button.disabled = Boolean(item.disabled);
+          if (item.title) { button.title = item.title; }
           button.onclick = (event) => {
             event.stopPropagation();
             closeMenu();
@@ -443,13 +520,31 @@
           tag.title = 'This project has no engine pin yet; it opens with the engine that ships with the app.';
           return tag;
         }
-        tag.textContent = project.engine;
         if (project.engineSource === 'own') {
+          tag.textContent = project.engine;
           tag.classList.add('own');
           tag.title = "Runs the engine from the project's own node_modules.";
-        } else {
-          tag.title = 'Pinned in fluidcad.json.';
+          return tag;
         }
+        if (project.upgradeTo) {
+          // The pin lags the app: the chip says so and opens the engine dialog.
+          tag.textContent = `${project.engine} · update`;
+          tag.classList.add('update');
+          tag.title = `Engine ${project.upgradeTo} is available. Click to compare and switch.`;
+          tag.setAttribute('role', 'button');
+          tag.onclick = (event) => {
+            event.stopPropagation();
+            void openEngineDialog(project);
+          };
+          return tag;
+        }
+        if (project.latest) {
+          tag.textContent = `latest (${project.engine})`;
+          tag.title = 'Pinned in fluidcad.json to the engine that ships with the app.';
+          return tag;
+        }
+        tag.textContent = project.engine;
+        tag.title = 'Pinned in fluidcad.json.';
         return tag;
       }
 
@@ -496,7 +591,14 @@
         whenRow.append(when, engineTag(project));
         meta.append(nameRow, path, whenRow);
 
+        const own = project.engineSource === 'own';
         const more = moreButton([
+          {
+            label: 'Change engine version…',
+            disabled: own,
+            title: own ? "This project runs the engine from its own node_modules; its lockfile decides." : '',
+            action: () => openEngineDialog(project),
+          },
           {
             label: 'Remove from recent',
             action: async () => {
@@ -526,6 +628,236 @@
         el.append(preview, meta, more);
         return el;
       }
+
+      // The engine dialog: one project at a time. The list is what is on disk
+      // (the built-in engine first, marked latest) plus a typed version that is
+      // downloaded when chosen. "Compare first" rebuilds the project on both
+      // engines and shows what moved; "Switch" moves the pin, and reopens the
+      // project if it is up.
+      const engineDialog = document.getElementById('engine-dialog');
+      const engineLede = document.getElementById('engine-lede');
+      const versionsEl = document.getElementById('versions');
+      const engineDiff = document.getElementById('engine-diff');
+      const engineCancel = document.getElementById('engine-cancel');
+      const engineCompare = document.getElementById('engine-compare');
+      const engineApply = document.getElementById('engine-apply');
+
+      let dialogState = null;
+
+      const VERSION_SHAPE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+
+      function selectedVersion() {
+        if (!dialogState) { return null; }
+        if (dialogState.selected === 'other') { return dialogState.otherInput.value.trim() || null; }
+        return dialogState.selected;
+      }
+
+      function updateDialogActions() {
+        const version = selectedVersion();
+        const valid = Boolean(version) && VERSION_SHAPE.test(version) && version !== dialogState.current;
+        const busy = dialogState.working;
+        engineCancel.disabled = busy;
+        engineCompare.disabled = busy || !valid;
+        engineApply.disabled = busy || !valid;
+        engineApply.textContent = valid ? `Switch to ${version}` : 'Switch';
+        for (const row of versionsEl.children) {
+          row.classList.toggle('selected', row.dataset.version === dialogState.selected);
+        }
+      }
+
+      function versionRow(version, note, extra) {
+        const row = document.createElement('label');
+        row.className = 'version';
+        row.dataset.version = version;
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'engine-version';
+        radio.value = version;
+        radio.onchange = () => {
+          dialogState.selected = version;
+          updateDialogActions();
+        };
+        row.appendChild(radio);
+        if (extra) {
+          row.appendChild(extra);
+        } else {
+          const v = document.createElement('span');
+          v.className = 'v';
+          v.textContent = version;
+          row.appendChild(v);
+        }
+        if (note) {
+          const n = document.createElement('span');
+          n.className = 'note';
+          n.textContent = note;
+          row.appendChild(n);
+        }
+        return row;
+      }
+
+      async function openEngineDialog(project) {
+        closeMenu();
+        const options = await api.start.engineOptions(project.path);
+        const otherInput = document.createElement('input');
+        otherInput.type = 'text';
+        otherInput.placeholder = 'e.g. 0.0.42';
+        otherInput.spellcheck = false;
+        otherInput.oninput = () => updateDialogActions();
+        otherInput.onfocus = () => {
+          dialogState.selected = 'other';
+          otherInput.closest('.version').querySelector('input[type="radio"]').checked = true;
+          updateDialogActions();
+        };
+        dialogState = { project, current: options.current, selected: null, otherInput, working: false };
+
+        engineLede.replaceChildren();
+        engineLede.append(`${project.name} · currently `);
+        const code = document.createElement('code');
+        code.textContent = options.current ?? 'unpinned';
+        engineLede.append(code, options.currentSource === 'pin' ? ' (fluidcad.json)' : '');
+
+        versionsEl.replaceChildren();
+        for (const choice of options.choices) {
+          const notes = [];
+          if (choice.builtin) { notes.push('latest · ships with the app'); }
+          if (choice.version === options.current) { notes.push('current'); }
+          if (!choice.builtin && choice.version !== options.current) { notes.push('installed'); }
+          versionsEl.appendChild(versionRow(choice.version, notes.join(' · ')));
+        }
+        const otherLabel = document.createElement('span');
+        otherLabel.className = 'v';
+        otherLabel.textContent = 'Other';
+        const otherWrap = document.createElement('span');
+        otherWrap.style.display = 'inline-flex';
+        otherWrap.style.alignItems = 'center';
+        otherWrap.style.gap = '8px';
+        otherWrap.append(otherLabel, otherInput);
+        const otherRow = versionRow('other', 'downloaded when switched', otherWrap);
+        otherRow.classList.add('other');
+        versionsEl.appendChild(otherRow);
+
+        // Preselect the obvious move: the latest engine when the pin lags it,
+        // otherwise the current one so the dialog shows where the project is.
+        const preselect = options.latest && options.latest !== options.current ? options.latest : options.current;
+        if (preselect) {
+          const radio = versionsEl.querySelector(`input[value="${preselect}"]`);
+          if (radio) {
+            radio.checked = true;
+            dialogState.selected = preselect;
+          }
+        }
+
+        engineDiff.hidden = true;
+        engineDiff.replaceChildren();
+        updateDialogActions();
+        engineDialog.showModal();
+      }
+
+      function showDiffMessage(text, className) {
+        const p = document.createElement('p');
+        p.className = className;
+        p.textContent = text;
+        engineDiff.replaceChildren(p);
+        engineDiff.hidden = false;
+      }
+
+      function renderDiff(diff) {
+        engineDiff.replaceChildren();
+        const summary = document.createElement('p');
+        summary.className = 'summary';
+        summary.textContent = diff.identical
+          ? `Every model builds to identical geometry on engine ${diff.to}.`
+          : `Engine ${diff.to} changes this project. Review before switching.`;
+        engineDiff.appendChild(summary);
+        const list = document.createElement('div');
+        list.className = 'diff-list';
+        for (const model of diff.models) {
+          const row = document.createElement('div');
+          row.className = `diff-model ${model.status}`;
+          const file = document.createElement('span');
+          file.className = 'file';
+          file.textContent = model.file;
+          const status = document.createElement('span');
+          status.className = 'status';
+          status.textContent = model.status;
+          row.append(file, status);
+          if (model.notes.length > 0) {
+            const notes = document.createElement('ul');
+            for (const note of model.notes) {
+              const item = document.createElement('li');
+              item.textContent = note;
+              notes.appendChild(item);
+            }
+            row.appendChild(notes);
+          }
+          list.appendChild(row);
+        }
+        if (diff.skipped.length > 0) {
+          const skipped = document.createElement('p');
+          skipped.className = 'summary';
+          skipped.textContent = `${diff.skipped.length} more model(s) were not compared: ${diff.skipped.join(', ')}`;
+          list.appendChild(skipped);
+        }
+        engineDiff.appendChild(list);
+        engineDiff.hidden = false;
+      }
+
+      async function withDialogBusy(action) {
+        dialogState.working = true;
+        updateDialogActions();
+        try {
+          await action();
+        } finally {
+          if (dialogState) {
+            dialogState.working = false;
+            updateDialogActions();
+          }
+        }
+      }
+
+      engineCompare.onclick = () => void withDialogBusy(async () => {
+        const version = selectedVersion();
+        showDiffMessage('Preparing…', 'progress');
+        const result = await api.start.previewUpgrade(dialogState.project.path, version);
+        if (result.diff) {
+          renderDiff(result.diff);
+        } else {
+          showDiffMessage(result.error || 'The comparison failed.', 'error');
+        }
+      });
+
+      engineApply.onclick = () => void withDialogBusy(async () => {
+        const version = selectedVersion();
+        const { path: workspacePath } = dialogState.project;
+        showDiffMessage(`Switching to engine ${version}…`, 'progress');
+        const result = await api.start.applyPin(workspacePath, version);
+        if (result.ok) {
+          dialogState = null;
+          engineDialog.close();
+          await refresh();
+        } else {
+          showDiffMessage(result.error || 'The pin could not be changed.', 'error');
+        }
+      });
+
+      engineCancel.onclick = () => {
+        dialogState = null;
+        engineDialog.close();
+      };
+      // Escape must not abandon a comparison mid-flight.
+      engineDialog.oncancel = (event) => {
+        if (dialogState?.working) {
+          event.preventDefault();
+        } else {
+          dialogState = null;
+        }
+      };
+
+      api?.start.onUpgradeProgress?.(({ workspacePath, message }) => {
+        if (dialogState?.working && dialogState.project.path === workspacePath && message) {
+          showDiffMessage(message, 'progress');
+        }
+      });
 
       // A notification body is remote HTML. This page runs with a preload
       // bridge, so it only ever renders a sanitized copy: formatting tags and

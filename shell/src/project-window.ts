@@ -7,6 +7,7 @@ import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type Resolved
 import { rememberProject, rememberWindowBounds, readDesktopState } from './state';
 import { isFluidScriptFile } from './file-kind';
 import { captureThumbnail } from './thumbnails';
+import { UpgradePrompt, type UpgradeChoice } from './upgrade-prompt';
 
 /**
  * One window, one project, one engine child.
@@ -75,6 +76,7 @@ export class ProjectWindow {
   private closeReady = false;
   private closePreparation: Promise<void> | null = null;
   private reopening = false;
+  private readonly upgradePrompt = new UpgradePrompt(this);
 
   constructor(readonly workspacePath: string) {
     const bounds = readDesktopState().windowBounds;
@@ -237,6 +239,13 @@ export class ProjectWindow {
     await this.browserWindow.loadURL(started.url);
     this.browserWindow.setTitle(`${path.basename(this.workspacePath)} — FluidCAD`);
     await this.openLastFile(started.url);
+    // Only once the model is up: the offer is about geometry the user can see.
+    await this.upgradePrompt.offer();
+  }
+
+  /** A button on the upgrade prompt was pressed in this window's page. */
+  respondToUpgrade(choice: UpgradeChoice): Promise<void> {
+    return this.upgradePrompt.respond(choice);
   }
 
   /**

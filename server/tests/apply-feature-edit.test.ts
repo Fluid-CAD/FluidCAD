@@ -1848,7 +1848,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: null, profileText: null,
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'extrude(30)',
     });
@@ -1862,7 +1862,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'new', distance: 25, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: [2], profileText: 's',
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'extrude(25, s).thin(2).new()',
     });
@@ -1876,7 +1876,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 25, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: [-2, 3.5], profileText: 's',
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'extrude(25, s).thin(-2, 3.5)',
     });
@@ -1890,7 +1890,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'remove', distance: null, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: null, profileText: 's',
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'cut(s)',
     });
@@ -1904,7 +1904,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: false,
         draft: 5, endOffset: null, drill: false, thin: null, profileText: 's',
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'extrude(10, 20, s).draft(5).drill(false)',
     });
@@ -1918,7 +1918,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'remove', distance: 20, distance2: null, symmetric: false,
         draft: null, endOffset: 1.5, drill: true, thin: null, profileText: null,
-        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'cut(20).endOffset(1.5)',
     });
@@ -1986,7 +1986,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'sweep', op: 'remove', thin: null, extendStart: null, extendEnd: null,
         pathText: 'p', profileText: 's',
-        scopeTexts: [], scopeRefs: [],
+        scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'sweep(p, s).remove()',
     });
@@ -2000,7 +2000,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'sweep', op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80,
         pathText: 'p', profileText: 's',
-        scopeTexts: [], scopeRefs: [],
+        scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: `sweep(p, s).extend("end", 80).extend('start', lead).thin(2)`,
     });
@@ -2023,7 +2023,7 @@ describe('parseFeatureStatement', () => {
     const result = await parseFeatureStatement(code, 5);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'wrap', op: 'remove', thickness: 2, sketchText: 's', faceText: 'e.sideFaces(0)' },
+      parsed: { feature: 'wrap', op: 'remove', thickness: 2, sketchText: 's', faceText: 'e.sideFaces(0)', regions: [] },
       statement: 'wrap(2, s, e.sideFaces(0)).remove()',
     });
   });
@@ -2039,6 +2039,41 @@ describe('parseFeatureStatement', () => {
 
   it('refuses a wrap missing its face argument', async () => {
     const code = `${editBase}\nwrap(2, s)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('reads the region picks of an extrude, keys and positions alike', async () => {
+    const code = `${editBase}\nextrude(20, s).region('outer', 1).symmetric()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', symmetric: true, profileText: 's', regions: ['outer', 1] },
+      statement: `extrude(20, s).region('outer', 1).symmetric()`,
+    });
+  });
+
+  it('reads a bare .region() as no picks', async () => {
+    const code = `${editBase}\nextrude(20).region()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'extrude', regions: [] } });
+  });
+
+  it('reads the region picks of a revolve, a sweep and a wrap', async () => {
+    const base = `${editBase}\nconst e = extrude(30)\n`;
+    expect(await parseFeatureStatement(`${base}revolve('z', s).region('c1')\n`, 5)).toMatchObject({
+      ok: true, parsed: { feature: 'revolve', regions: ['c1'] },
+    });
+    expect(await parseFeatureStatement(`${base}sweep(p, s).region('c1', 'c2').thin(2)\n`, 5)).toMatchObject({
+      ok: true, parsed: { feature: 'sweep', thin: [2], regions: ['c1', 'c2'] },
+    });
+    expect(await parseFeatureStatement(`${base}wrap(2, s, e.sideFaces(0)).region('c1').remove()\n`, 5)).toMatchObject({
+      ok: true, parsed: { feature: 'wrap', op: 'remove', regions: ['c1'] },
+    });
+  });
+
+  it('refuses a region argument that is neither a key string nor a position', async () => {
+    const code = `${editBase}\nextrude(20).region(k)\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({ ok: false });
   });
@@ -2173,7 +2208,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: null, distance2: null, symmetric: false,
         draft: 3, endOffset: null, drill: true, thin: null, profileText: 's',
-        toFaceText: 'e.endFaces()', toFaceKind: 'selector', scopeTexts: [], scopeRefs: [],
+        toFaceText: 'e.endFaces()', toFaceKind: 'selector', scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: 'extrude(e.endFaces(), s).draft(3)',
     });
@@ -2431,6 +2466,59 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`wrap(3.5, s, e.sideFaces(0)).remove()`);
     expect(result.newCode).not.toContain(`wrap(2,`);
+  });
+
+  it('keeps the region picks of an extrude the dialog did not touch', async () => {
+    const code = `${editBase}\nextrude(20, s).region('outer', 1).symmetric()\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 30, symmetric: true }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(30, s).region('outer', 1).symmetric()`);
+  });
+
+  it('rewrites the region picks of an extrude and drops the chain on an empty list', async () => {
+    const code = `${editBase}\nextrude(20, s).region('outer').draft(5)\n`;
+    const rewritten = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 20, draft: 5, regions: ['inner', "it's"] }),
+    }));
+    expect(rewritten.error).toBeUndefined();
+    expect(rewritten.newCode).toContain(`extrude(20, s).region('inner', 'it\\'s').draft(5)`);
+
+    const dropped = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 20, draft: 5, regions: [] }),
+    }));
+    expect(dropped.error).toBeUndefined();
+    expect(dropped.newCode).toContain(`extrude(20, s).draft(5)\n`);
+  });
+
+  it('writes region picks on a wrap, a revolve and a sweep', async () => {
+    const wrapCode = `${editBase}\nconst e = extrude(30)\nwrap(2, s, e.sideFaces(0))\n`;
+    const wrapped = await applyFeatureEdit(wrapCode, editSpec('wrap', {
+      line: 5, column: 0,
+      wrap: { op: 'add', thickness: 2, regions: ['c1'] },
+    }));
+    expect(wrapped.error).toBeUndefined();
+    expect(wrapped.newCode).toContain(`wrap(2, s, e.sideFaces(0)).region('c1')\n`);
+
+    const revolveCode = `${editBase}\nrevolve('z', s).thin(1)\n`;
+    const revolved = await applyFeatureEdit(revolveCode, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: { op: 'add', angle: 360, symmetric: false, thin: [1], regions: [0] },
+    }));
+    expect(revolved.error).toBeUndefined();
+    expect(revolved.newCode).toContain(`revolve('z', s).region(0).thin(1)\n`);
+
+    const sweepCode = `${editBase}\nsweep(p, s)\n`;
+    const swept = await applyFeatureEdit(sweepCode, editSpec('sweep', {
+      line: 4, column: 0,
+      sweep: { op: 'remove', thin: null, regions: ['c1', 'c2'] },
+    }));
+    expect(swept.error).toBeUndefined();
+    expect(swept.newCode).toContain(`sweep(p, s).region('c1', 'c2').remove()\n`);
   });
 
   it('rewrites loft conditions while keeping profiles and guides verbatim', async () => {
@@ -3593,7 +3681,7 @@ describe('parseFeatureStatement — revolve', () => {
       ok: true,
       parsed: {
         feature: 'revolve', op: 'add', angle: null, symmetric: false, thin: null,
-        axisText: `'z'`, profileText: null, scopeTexts: [], scopeRefs: [],
+        axisText: `'z'`, profileText: null, scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: `revolve('z')`,
     });
@@ -3615,7 +3703,7 @@ describe('parseFeatureStatement — revolve', () => {
       ok: true,
       parsed: {
         feature: 'revolve', op: 'remove', angle: null, symmetric: false, thin: null,
-        axisText: 'a', profileText: 's', scopeTexts: [], scopeRefs: [],
+        axisText: 'a', profileText: 's', scopeTexts: [], scopeRefs: [], regions: [],
       },
       statement: `revolve(a, s).remove()`,
     });

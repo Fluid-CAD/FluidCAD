@@ -2012,7 +2012,7 @@ describe('apply-feature route validation', () => {
         parsed: {
           feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
           draft: null, endOffset: null, drill: true, thin: null, profileText: null,
-          toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+          toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
         },
         statement: 'extrude(30)',
       });

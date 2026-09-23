@@ -32,6 +32,7 @@ import {
   type RotateEditAxis, type RotateEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
+  type RegionKey,
 } from '../apply-feature-edit.ts';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
@@ -484,6 +485,8 @@ type ExtrudeRequest = ExtrudeOptionSet & {
   toFace?: Pick | ExtrudeFaceTarget;
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
+  /** The picked profile regions; empty writes no `.region(…)`. */
+  regions: RegionKey[];
 };
 
 /**
@@ -571,6 +574,64 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
 
 /** How many solid statements a `.scope(…)` chain can name. */
 export const MAX_SCOPE_TARGETS = 16;
+
+/** How many regions a `.region(…)` chain can name — a dialog pick list, not a bulk API. */
+export const MAX_REGION_KEYS = 64;
+
+/** The longest key a pick writes; a sketch loop of that many statements is already hand-written territory. */
+const MAX_REGION_KEY_LENGTH = 512;
+
+/**
+ * One `.region(…)` argument off the wire: a key string (the grammar is the
+ * kernel's to check — an unparseable key becomes the feature's error) or a
+ * non-negative integer position. Null for anything else.
+ */
+function validateRegionKey(raw: unknown): RegionKey | null {
+  if (typeof raw === 'string') {
+    return raw.length > 0 && raw.length <= MAX_REGION_KEY_LENGTH ? raw : null;
+  }
+  if (typeof raw === 'number') {
+    return Number.isInteger(raw) && raw >= 0 ? raw : null;
+  }
+  return null;
+}
+
+/**
+ * A request's `regions` field as a key list: absent reads as the empty list
+ * (no `.region()` chain — every region builds). Shared by the create paths
+ * of every swept feature (extrude, sweep, revolve, wrap).
+ */
+export function validateRegionKeys(body: any): { regions: RegionKey[] } | { error: string } {
+  const raw = body?.regions ?? [];
+  if (!Array.isArray(raw) || raw.length > MAX_REGION_KEYS) {
+    return { error: `regions must be 0-${MAX_REGION_KEYS} region keys` };
+  }
+  const regions: RegionKey[] = [];
+  for (const entry of raw) {
+    const key = validateRegionKey(entry);
+    if (key === null) {
+      return { error: 'each region must be a key string or a non-negative region number' };
+    }
+    if (regions.includes(key)) {
+      return { error: 'the same region was picked twice — each region key must be different' };
+    }
+    regions.push(key);
+  }
+  return { regions };
+}
+
+/**
+ * An edit request's `regions` field. The field owns the `.region(…)` chain
+ * outright when present: an empty list drops the statement's chain (back
+ * to every region); absent (`regions: undefined` in the result) keeps it
+ * verbatim. Shared by every swept-feature dialog.
+ */
+function validateRegionEdits(body: any): { regions: RegionKey[] | undefined } | { error: string } {
+  if (body?.regions === undefined || body?.regions === null) {
+    return { regions: undefined };
+  }
+  return validateRegionKeys(body);
+}
 
 /**
  * Validate a create request's `scope` list — 0-16 distinct solid-statement
@@ -696,19 +757,24 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
+  const regionResult = validateRegionKeys(body);
+  if ('error' in regionResult) {
+    return regionResult;
+  }
   const scope = scopeResult.scope;
+  const regions = regionResult.regions;
   const profile = { mode, feature: profileFeature, ...loc };
   if (!hasToFace) {
-    return { ...options, profile, scope };
+    return { ...options, profile, scope, regions };
   }
   if (target === 'first-face' || target === 'last-face') {
-    return { ...options, profile, toFace: target, scope };
+    return { ...options, profile, toFace: target, scope, regions };
   }
   const pick = validatePick(target);
   if (!pick || pick.sub.type !== 'face') {
     return { error: 'toFace must be "first-face", "last-face" or a {shapeId, sub:{type:"face", index}} pick' };
   }
-  return { ...options, profile, toFace: pick, scope };
+  return { ...options, profile, toFace: pick, scope, regions };
 }
 
 /**
@@ -728,6 +794,8 @@ type SweepRequest = {
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
+  /** The picked profile regions; empty writes no `.region(…)`. */
+  regions: RegionKey[];
 };
 
 function validateSweep(body: any): SweepRequest | { error: string } {
@@ -752,8 +820,13 @@ function validateSweep(body: any): SweepRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
+  const regionResult = validateRegionKeys(body);
+  if ('error' in regionResult) {
+    return regionResult;
+  }
   const base = {
     op, thin: thinResult.offsets, ...extend, profile: { mode, ...profileLoc }, scope: scopeResult.scope,
+    regions: regionResult.regions,
   };
   if (path?.kind === 'sketch') {
     const pathLoc = validateSketchLoc(path);
@@ -793,6 +866,8 @@ type WrapRequest = {
   thickness: ValueExpr;
   sketch: SketchLoc;
   face: Pick;
+  /** The picked sketch regions; empty writes no `.region(…)`. */
+  regions: RegionKey[];
 };
 
 function validateWrap(body: any): WrapRequest | { error: string } {
@@ -811,7 +886,11 @@ function validateWrap(body: any): WrapRequest | { error: string } {
   if (!pick || pick.sub.type !== 'face') {
     return { error: 'face must be a {shapeId, sub:{type:"face", index}} pick' };
   }
-  return { op, thickness, sketch: sketchLoc, face: pick };
+  const regionResult = validateRegionKeys(body);
+  if ('error' in regionResult) {
+    return regionResult;
+  }
+  return { op, thickness, sketch: sketchLoc, face: pick, regions: regionResult.regions };
 }
 
 /**
@@ -839,6 +918,8 @@ type RevolveRequest = {
   axis: RevolveAxisInput;
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
+  /** The picked profile regions; empty writes no `.region(…)`. */
+  regions: RegionKey[];
 };
 
 /** One revolve axis field: standard string, axis statement, or edge pick. */
@@ -897,10 +978,15 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
+  const regionResult = validateRegionKeys(body);
+  if ('error' in regionResult) {
+    return regionResult;
+  }
   return {
     op, angle, symmetric: symmetric === true,
     thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis,
     scope: scopeResult.scope,
+    regions: regionResult.regions,
   };
 }
 
@@ -2628,6 +2714,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return scopeResult;
     }
     result.scope = scopeResult.scope;
+    const regionResult = validateRegionEdits(body);
+    if ('error' in regionResult) {
+      return regionResult;
+    }
+    edit.extrude.regions = regionResult.regions;
     if (hasToFace) {
       if (toFaceRaw.kind === 'keep' || toFaceRaw.kind === 'first-face' || toFaceRaw.kind === 'last-face') {
         edit.extrude.toFace = { kind: toFaceRaw.kind };
@@ -2685,6 +2776,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     }
     edit.wrap = { op, thickness };
     const result: StatementEditRequest = base;
+    const regionResult = validateRegionEdits(body);
+    if ('error' in regionResult) {
+      return regionResult;
+    }
+    edit.wrap.regions = regionResult.regions;
     if (!isKeepSlot(body?.face)) {
       if (body.face?.kind !== 'face') {
         return { error: 'face must be {kind: "keep"} or {kind: "face", entity}' };
@@ -2760,6 +2856,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return scopeResult;
     }
     result.scope = scopeResult.scope;
+    const regionResult = validateRegionEdits(body);
+    if ('error' in regionResult) {
+      return regionResult;
+    }
+    edit.revolve.regions = regionResult.regions;
     if (!isKeepSlot(body?.axis)) {
       const axis = validateRevolveAxis(body.axis);
       if ('error' in axis) {
@@ -2850,6 +2951,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
         return scopeResult;
       }
       result.scope = scopeResult.scope;
+      const regionResult = validateRegionEdits(body);
+      if ('error' in regionResult) {
+        return regionResult;
+      }
+      edit.sweep.regions = regionResult.regions;
       if (!isKeepSlot(body?.path)) {
         if (body.path?.kind === 'sketch') {
           const loc = validateSketchLoc(body.path);
@@ -5187,6 +5293,7 @@ export function createApplyFeatureRouter(
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
           toFace,
           scope,
+          regions: request.regions,
         };
         // Truthful preview names: the same resolution the transform runs
         // (reused consts, collision-suffixed hints).
@@ -5367,7 +5474,7 @@ export function createApplyFeatureRouter(
         const options: SweepEditOptions = {
           op: request.op, thin: request.thin,
           extendStart: request.extendStart, extendEnd: request.extendEnd,
-          profile, path, scope,
+          profile, path, scope, regions: request.regions,
         };
         const pathExpr = path.kind === 'sketch' ? producerVars[path.producer] ?? 'p' : pathArgs!;
         const statement = renderSweepStatement(
@@ -5458,6 +5565,7 @@ export function createApplyFeatureRouter(
           op: request.op,
           thickness: request.thickness,
           sketch: { producer: 0 },
+          regions: request.regions,
         };
         // Truthful preview name for the sketch: the same resolution the
         // transform runs (reused const, collision-suffixed hint).
@@ -5577,6 +5685,7 @@ export function createApplyFeatureRouter(
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
           axis,
           scope,
+          regions: request.regions,
         };
 
         // Truthful preview names: the same resolution the transform runs

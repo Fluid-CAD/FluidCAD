@@ -62,6 +62,12 @@ import { applyAssemblyReplicateEdit, type AssemblyReplicateEditSpec } from './as
  */
 export type ValueExpr = number | string;
 
+/**
+ * One `.region()` argument: a key naming a region by the statements on its
+ * outer loop (`'b r t l'`), or a position in the sketch's region list.
+ */
+export type RegionKey = string | number;
+
 export { isExpressionText } from './code-editor.ts';
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
@@ -607,6 +613,8 @@ export type FeatureStatementEditTarget = {
      * it (back to whole-scene fusion).
      */
     scope?: RepeatEditTargetSource[];
+    /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
+    regions?: RegionKey[];
   };
   rib?: {
     op: 'add' | 'remove' | 'new';
@@ -637,6 +645,8 @@ export type FeatureStatementEditTarget = {
     profile?: EditSketchSource;
     /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
     scope?: RepeatEditTargetSource[];
+    /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
+    regions?: RegionKey[];
   };
   wrap?: {
     op: 'add' | 'remove' | 'new';
@@ -648,6 +658,8 @@ export type FeatureStatementEditTarget = {
      * keeps the statement's own face text.
      */
     face?: { kind: 'selector' };
+    /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
+    regions?: RegionKey[];
   };
   shell?: {
     joinType: ShellJoinKind;
@@ -706,6 +718,8 @@ export type FeatureStatementEditTarget = {
     axis?: RevolveAxisSpec;
     /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
     scope?: RepeatEditTargetSource[];
+    /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
+    regions?: RegionKey[];
   };
   /**
    * Helix options. The chained geometry configurators edit in place; the
@@ -959,6 +973,11 @@ export type ExtrudeEditOptions = {
    * contract). Absent or empty writes no chain (whole-scene fusion).
    */
   scope?: number[];
+  /**
+   * The `.region(…)` picks — the keys of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region).
+   */
+  regions?: RegionKey[];
 };
 
 /**
@@ -1006,6 +1025,11 @@ export type SweepEditOptions = {
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
   /** Producer indices of the `.scope(…)` targets, in pick order. */
   scope?: number[];
+  /**
+   * The `.region(…)` picks — the keys of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region).
+   */
+  regions?: RegionKey[];
 };
 
 /**
@@ -1021,6 +1045,11 @@ export type WrapEditOptions = {
   /** Pad thickness along the surface normal (always positive). */
   thickness: ValueExpr;
   sketch: { producer: number };
+  /**
+   * The `.region(…)` picks — the keys of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region).
+   */
+  regions?: RegionKey[];
 };
 
 /** The two sketch-reference statements the projection dialog writes. */
@@ -1085,6 +1114,11 @@ export type RevolveEditOptions = {
   axis: RevolveAxisSpec;
   /** Producer indices of the `.scope(…)` targets, in pick order. */
   scope?: number[];
+  /**
+   * The `.region(…)` picks — the keys of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region).
+   */
+  regions?: RegionKey[];
 };
 
 /**
@@ -3971,6 +4005,28 @@ function renderScopeChain(scopeExprs: string[]): string {
   return scopeExprs.length > 0 ? `.scope(${scopeExprs.join(', ')})` : '';
 }
 
+/**
+ * A region key as a single-quoted JS string literal. Keys only ever hold
+ * `[\w$#\[\].\- ]`, but a quote or backslash that did slip in must not
+ * break the statement, so both are escaped.
+ */
+function quoteRegionKey(key: string): string {
+  return `'${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * The `.region(…)` chain of a swept feature — the picked regions of its
+ * profile, keys quoted and positions bare, right after the call so it reads
+ * as what the operation builds before how it builds it. Absent or empty
+ * writes nothing: the operation takes every region.
+ */
+export function renderRegionChain(keys: RegionKey[] | undefined): string {
+  if (!keys || keys.length === 0) {
+    return '';
+  }
+  return `.region(${keys.map(key => typeof key === 'number' ? String(key) : quoteRegionKey(key)).join(', ')})`;
+}
+
 function renderOpChains(opts: {
   op: 'add' | 'remove' | 'new';
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -3993,7 +4049,7 @@ function renderOpChains(opts: {
  * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderSweepStatement(
-  sw: Pick<SweepEditOptions, 'op' | 'thin' | 'extendStart' | 'extendEnd'>,
+  sw: Pick<SweepEditOptions, 'op' | 'thin' | 'extendStart' | 'extendEnd' | 'regions'>,
   pathExpr: string,
   profileVar: string | null,
   scopeExprs: string[] = [],
@@ -4002,7 +4058,8 @@ export function renderSweepStatement(
   if (profileVar) {
     args.push(profileVar);
   }
-  return `sweep(${args.join(', ')})` + renderSweepExtendChains(sw) + renderOpChains(sw, scopeExprs);
+  return `sweep(${args.join(', ')})` + renderRegionChain(sw.regions)
+    + renderSweepExtendChains(sw) + renderOpChains(sw, scopeExprs);
 }
 
 /**
@@ -4028,12 +4085,12 @@ function renderSweepExtendChains(sw: Pick<SweepEditOptions, 'extendStart' | 'ext
  * transform writes.
  */
 export function renderWrapStatement(
-  wr: Pick<WrapEditOptions, 'op' | 'thickness'>,
+  wr: Pick<WrapEditOptions, 'op' | 'thickness' | 'regions'>,
   sketchExpr: string,
   faceExpr: string,
 ): string {
   return `wrap(${formatValue(wr.thickness)}, ${sketchExpr}, ${faceExpr})`
-    + renderOpChains({ op: wr.op, thin: null });
+    + renderRegionChain(wr.regions) + renderOpChains({ op: wr.op, thin: null });
 }
 
 /**
@@ -4120,7 +4177,7 @@ export function renderTextStatement(
  * transform writes.
  */
 export function renderRevolveStatement(
-  rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'symmetric' | 'thin'>,
+  rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'symmetric' | 'thin' | 'regions'>,
   axisExpr: string,
   profileExpr: string | null,
   scopeExprs: string[] = [],
@@ -4133,7 +4190,8 @@ export function renderRevolveStatement(
     args.push(profileExpr);
   }
   const symmetric = rev.symmetric ? '.symmetric()' : '';
-  return `revolve(${args.join(', ')})` + symmetric + renderOpChains(rev, scopeExprs);
+  return `revolve(${args.join(', ')})` + renderRegionChain(rev.regions) + symmetric
+    + renderOpChains(rev, scopeExprs);
 }
 
 /**
@@ -4550,7 +4608,7 @@ export function renderExtrudeStatement(
   if (ext.profile === 'bound') {
     callArgs.push(profileVar ?? 's');
   }
-  let statement = `${callee}(${callArgs.join(', ')})`;
+  let statement = `${callee}(${callArgs.join(', ')})` + renderRegionChain(ext.regions);
   if (ext.symmetric) {
     statement += '.symmetric()';
   }
@@ -5265,6 +5323,11 @@ export type ParsedScopeChain = {
   scopeRefs: ({ line: number; column: number } | null)[];
 };
 
+export type ParsedRegionChain = {
+  /** `.region(…)` arguments — keys and positions; empty when the chain is absent or bare. */
+  regions: RegionKey[];
+};
+
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
  * dialogs don't edit (profiles, paths, selector args) are carried as
@@ -5273,7 +5336,7 @@ export type ParsedScopeChain = {
  * not this dialog.
  */
 export type ParsedFeatureStatement =
-  | (ParsedScopeChain & {
+  | (ParsedScopeChain & ParsedRegionChain & {
     feature: 'extrude';
     op: 'add' | 'remove' | 'new';
     /** null = through-all remove (`cut()` with no distance). */
@@ -5309,7 +5372,7 @@ export type ParsedFeatureStatement =
     /** Trailing spine argument text (`s`), or null for implicit consumption. */
     spineText: string | null;
   })
-  | (ParsedScopeChain & {
+  | (ParsedScopeChain & ParsedRegionChain & {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -5320,7 +5383,7 @@ export type ParsedFeatureStatement =
     pathText: string;
     profileText: string | null;
   })
-  | {
+  | (ParsedRegionChain & {
     feature: 'wrap';
     op: 'add' | 'remove' | 'new';
     /** Pad thickness along the surface normal (always positive). */
@@ -5329,8 +5392,8 @@ export type ParsedFeatureStatement =
     sketchText: string;
     /** Target face argument text, verbatim (`e.sideFaces(0)`). */
     faceText: string;
-  }
-  | (ParsedScopeChain & {
+  })
+  | (ParsedScopeChain & ParsedRegionChain & {
     feature: 'revolve';
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; null = omitted (the 360° API default). */
@@ -5639,19 +5702,19 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
  * statement, so that shape refuses to parse.
  */
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
-  extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
+  extrude: new Set(['region', 'symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
   // `.extend()` may chain twice — once per end — so the parse collects it
   // like loft's `.connect()` instead of refusing the repeat.
-  sweep: new Set(['extend', 'thin', 'remove', 'new', 'scope']),
+  sweep: new Set(['region', 'extend', 'thin', 'remove', 'new', 'scope']),
   loft: new Set(['connect', 'guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new', 'scope']),
   shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
-  revolve: new Set(['symmetric', 'thin', 'remove', 'new', 'scope']),
+  revolve: new Set(['region', 'symmetric', 'thin', 'remove', 'new', 'scope']),
   text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing', 'offset', 'startAt', 'flip']),
-  // Wrap has no thin mode — only the boolean-operation chains.
-  wrap: new Set(['remove', 'new']),
+  // Wrap has no thin mode — the region picks and the boolean-operation chains.
+  wrap: new Set(['region', 'remove', 'new']),
   // The dialog edits only the target argument; `.name()` and friends are
   // unrecognized members and survive verbatim after the root call.
   sketch: new Set(),
@@ -5942,6 +6005,31 @@ function parseSweepExtendSegments(
     }
   }
   return { extendStart, extendEnd };
+}
+
+/**
+ * The `.region(…)` chain's arguments: string keys and non-negative integer
+ * positions, the two forms the kernel resolves. Anything else (a variable, an
+ * expression) is not a form the dialog can show, so the parse refuses.
+ */
+function parseRegionSegment(recognized: Map<string, ChainSegment>): ParsedRegionChain | { error: string } {
+  const regions: RegionKey[] = [];
+  for (const arg of recognized.get('region')?.args ?? []) {
+    if (arg.type === 'string') {
+      const key = stringArgValue(arg);
+      if (key === null) {
+        return { error: 'a .region() key is not a plain string — edit it in the source' };
+      }
+      regions.push(key);
+      continue;
+    }
+    if (arg.type === 'number' && Number.isInteger(Number(arg.text)) && Number(arg.text) >= 0) {
+      regions.push(Number(arg.text));
+      continue;
+    }
+    return { error: 'a .region() argument is not a key string or a region number — edit it in the source' };
+  }
+  return { regions };
 }
 
 function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number): ParsedScopeChain {
@@ -6296,11 +6384,16 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       // A bare .drill() means true — the API default.
     }
 
+    const regionParse = parseRegionSegment(recognized);
+    if ('error' in regionParse) {
+      return regionParse;
+    }
     return {
       parsed: {
         feature, op, distance, distance2, symmetric, draft, endOffset, drill, thin,
         profileText, toFaceText, toFaceKind,
         ...parseScopeSegment(recognized, start),
+        ...regionParse,
       },
       start,
       end,
@@ -6371,10 +6464,15 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     if ('error' in extend) {
       return extend;
     }
+    const regionParse = parseRegionSegment(recognized);
+    if ('error' in regionParse) {
+      return regionParse;
+    }
     return {
       parsed: {
         feature, op, thin, ...extend, pathText: args[0].text, profileText: args[1]?.text ?? null,
         ...parseScopeSegment(recognized, start),
+        ...regionParse,
       },
       start,
       end,
@@ -6391,8 +6489,12 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     if (thickness === null) {
       return { error: 'the wrap() thickness is not a plain number or expression — edit it in the source' };
     }
+    const regionParse = parseRegionSegment(recognized);
+    if ('error' in regionParse) {
+      return regionParse;
+    }
     return {
-      parsed: { feature, op, thickness, sketchText: args[1].text, faceText: args[2].text },
+      parsed: { feature, op, thickness, sketchText: args[1].text, faceText: args[2].text, ...regionParse },
       start,
       end,
     };
@@ -6427,10 +6529,15 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       return { error: 'the .symmetric() chain has arguments the dialog cannot edit' };
     }
     const symmetric = symmetricSeg !== undefined;
+    const regionParse = parseRegionSegment(recognized);
+    if ('error' in regionParse) {
+      return regionParse;
+    }
     return {
       parsed: {
         feature, op, angle, symmetric, thin, axisText, profileText: rest[0]?.text ?? null,
         ...parseScopeSegment(recognized, start),
+        ...regionParse,
       },
       start,
       end,
@@ -8701,6 +8808,15 @@ function renderEditedPlane(
  * drops the chain (whole-scene fusion). Shared by every feature that writes
  * the chain (rib, extrude, sweep, loft, revolve).
  */
+/**
+ * The `.region(…)` list an edit writes: the dialog's full replacement when
+ * it sent one (an empty list drops the chain), else the statement's own
+ * picks, kept verbatim.
+ */
+function editedRegions(edited: RegionKey[] | undefined, parsed: RegionKey[]): RegionKey[] {
+  return edited ?? parsed;
+}
+
 function resolveEditedScopeExprs(
   spec: EditRenderSpec,
   feature: string,
@@ -8816,7 +8932,10 @@ export function renderEditedStatement(
     const { toFace, scope: _scope, ...rest } = opts;
     return {
       statement: renderExtrudeStatement(
-        { ...rest, profile: profileText ? 'bound' : 'implicit', toFace: target },
+        {
+          ...rest, profile: profileText ? 'bound' : 'implicit', toFace: target,
+          regions: editedRegions(opts.regions, parsed.regions),
+        },
         profileText,
         faceExpr,
         scope.exprs,
@@ -8888,7 +9007,10 @@ export function renderEditedStatement(
     }
     return {
       statement: renderSweepStatement(
-        { op: opts.op, thin: opts.thin, extendStart: opts.extendStart, extendEnd: opts.extendEnd },
+        {
+          op: opts.op, thin: opts.thin, extendStart: opts.extendStart, extendEnd: opts.extendEnd,
+          regions: editedRegions(opts.regions, parsed.regions),
+        },
         pathText, profileText, scope.exprs,
       ),
     };
@@ -8917,7 +9039,10 @@ export function renderEditedStatement(
       sketchText = varName;
     }
     return {
-      statement: renderWrapStatement({ op: opts.op, thickness: opts.thickness }, sketchText, faceText),
+      statement: renderWrapStatement(
+        { op: opts.op, thickness: opts.thickness, regions: editedRegions(opts.regions, parsed.regions) },
+        sketchText, faceText,
+      ),
     };
   }
   if (parsed.feature === 'revolve') {
@@ -8957,7 +9082,10 @@ export function renderEditedStatement(
     }
     return {
       statement: renderRevolveStatement(
-        { op: opts.op, angle: opts.angle, symmetric: opts.symmetric, thin: opts.thin },
+        {
+          op: opts.op, angle: opts.angle, symmetric: opts.symmetric, thin: opts.thin,
+          regions: editedRegions(opts.regions, parsed.regions),
+        },
         axisExpr, profileText, scope.exprs,
       ),
     };

@@ -9,6 +9,7 @@
 // register deferred with placeholder ids, like projected references.
 
 import { GeometrySceneObject } from "../../geometry.js";
+import { Edge } from "../../../../common/edge.js";
 import { BuildError } from "../../../../common/build-error.js";
 import { Point2D } from "../../../../math/point.js";
 import { Geometry } from "../../../../oc/geometry.js";
@@ -193,18 +194,22 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
     for (const [slot, rec] of this._entities) {
       const params = this._ctx.entityParams(rec.entityId);
       solvedState[slot] = params;
+      // Each edge wears its slot as its role — what `edge('top')` selects
+      // by and what a region key names it as (`r1.top`).
+      let edge: Edge;
       if (rec.kind === 'line') {
         const start = new Point2D(params[0], params[1]);
         const end = new Point2D(params[2], params[3]);
         const segment = Geometry.makeSegment(plane.localToWorld(start), plane.localToWorld(end));
-        this.addShape(Geometry.makeEdge(segment));
+        edge = Geometry.makeEdge(segment);
       } else {
         const start = new Point2D(params[3], params[4]);
         const end = new Point2D(params[5], params[6]);
         const center = new Point2D(params[0], params[1]);
-        const { edge } = fitArcThroughEndpoints(plane, start, end, center, rec.cw);
-        this.addShape(edge);
+        edge = fitArcThroughEndpoints(plane, start, end, center, rec.cw).edge;
       }
+      edge.setRole(slot);
+      this.addShape(edge);
     }
     this.setState('solved', solvedState);
   }

@@ -26,14 +26,14 @@ import {
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
-  LoftConnections, type LoftConnectionSpec, type LoftPointSpec,
+  LoftConnections, renderLoftConnections, type LoftConnectionSpec, type LoftPointSpec,
   type MirrorAxisSpec, type MirrorEditOptions,
   type PlaneEditOptions, type PlaneRotationAxes, validPlaneRotationAxes, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions, type RepeatPlaneSpec,
   type RotateEditAxis, type RotateEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
   type RegionKey,
-} from '../apply-feature-edit.ts';
+} from '../apply-feature-edit/index.ts';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { ForeignPickResolver, allocateExposeName, type ForeignPickSummary } from './foreign-exposure.ts';
@@ -6003,7 +6003,7 @@ export function createApplyFeatureRouter(
           return renderSelectorPartExpr(part,
             part.producer === null ? null : producerVars[part.producer], i => producerVars[i] ?? null);
         });
-        const connections = LoftConnections.render(staged.spec.loft?.connections, profiles.length, i => producerVars[i] ?? null);
+        const connections = renderLoftConnections(staged.spec.loft?.connections, profiles.length, i => producerVars[i] ?? null);
         if ('error' in connections) {
           res.status(422).json({ success: false, reason: connections.error });
           return;

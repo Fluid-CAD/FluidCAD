@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyFeatureEdit,
   type ApplyFeatureEditSpec,
-} from '../src/apply-feature-edit.ts';
+} from '../src/apply-feature-edit/index.ts';
 
 function exposeSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
   return {

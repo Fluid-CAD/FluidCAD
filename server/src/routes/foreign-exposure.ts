@@ -4,7 +4,7 @@ import {
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec,
   type ForeignExposureRef,
-} from '../apply-feature-edit.ts';
+} from '../apply-feature-edit/index.ts';
 import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 

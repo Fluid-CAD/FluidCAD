@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RemoveFeature } from '../src/remove-feature.ts';
-import { applyFeatureEdit } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit } from '../src/apply-feature-edit/index.ts';
 
 const HEADER = `import { sketch, circle, extrude, fillet, shell, plane, part, breakpoint } from "fluidcad/core";\n`
   + `import { diameter } from "fluidcad/constraints";\n`;

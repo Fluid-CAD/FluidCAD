@@ -3,7 +3,7 @@ import {
   applyFeatureEdit,
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec,
-} from '../src/apply-feature-edit.ts';
+} from '../src/apply-feature-edit/index.ts';
 
 /** Donor bound at line 3, consumer at line 9; the exposure already exists. */
 const TWO_PART_CODE = [

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { basename } from 'path';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import type { AssemblyReplicatePayload, ReplicateSideRef } from '../assembly-replicate-edit.ts';
 import { isReplicateSide, makeSidePreparer, type ReplicateSideBody } from '../assembly-side-refs.ts';
 import { normalizePath } from '../normalize-path.ts';

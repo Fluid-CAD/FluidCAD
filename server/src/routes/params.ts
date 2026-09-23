@@ -3,7 +3,7 @@ import { sceneUnitFields } from '../fluidcad-server.ts';
 import { UI_APPLY_WAIT_MS } from './render.ts';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import {
   ParamEditor,
   MULTI_CONTROL_TYPES,

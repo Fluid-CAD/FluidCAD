@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFeatureEdit, parseFeatureStatement, type ApplyFeatureEditSpec, type LoftConnectionSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, parseFeatureStatement, type ApplyFeatureEditSpec, type LoftConnectionSpec } from '../src/apply-feature-edit/index.ts';
 
 const FILE = '/ws/model.fluid.js';
 const CODE = `const a = sketch('xy', () => {

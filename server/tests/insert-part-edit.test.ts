@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyInsertPartEdit } from '../src/part-catalog/insert-edit.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 import { newFileContent } from '../src/file-kind.ts';
 
 /** Single-entry sugar — most cases exercise one insert. */

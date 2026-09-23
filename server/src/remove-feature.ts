@@ -24,7 +24,7 @@ import {
 import { isReferenceUse } from './lint-fluid-js.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
 import { SketchDeleteSweep } from './sketch-delete-sweep.ts';
-import type { ApplyFeatureEditResult } from './apply-feature-edit.ts';
+import type { ApplyFeatureEditResult } from './apply-feature-edit/index.ts';
 
 export type RemoveFeatureSpec = {
   /** The deleted statement, by timeline source line, with its drift guard. */

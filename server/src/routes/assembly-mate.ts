@@ -3,7 +3,7 @@ import { basename } from 'path';
 import { readFile } from 'fs/promises';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import { parseFeatureStatement, type ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import { parseFeatureStatement, type ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import {
   ASSEMBLY_MATE_TYPES,
   type AssemblyMateOptions,

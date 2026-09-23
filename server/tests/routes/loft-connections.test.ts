@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
-import { applyFeatureEdit } from '../../src/apply-feature-edit.ts';
+import { applyFeatureEdit } from '../../src/apply-feature-edit/index.ts';
 import { setupOC, render } from '../../../lib/tests/setup.js';
 import sketch from '../../../lib/core/sketch.js';
 import plane from '../../../lib/core/plane.js';

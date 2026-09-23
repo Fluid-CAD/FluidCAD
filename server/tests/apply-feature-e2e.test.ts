@@ -28,7 +28,7 @@ import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
 import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
-import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()

@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { basename } from 'path';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
-import { isExpressionText } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { isExpressionText } from '../apply-feature-edit/index.ts';
 import {
   getAssemblyConnectorExpressions, listAssemblyConnectorNames, validateAssemblyConnectorSpec,
   type AssemblyConnectorEditSpec,

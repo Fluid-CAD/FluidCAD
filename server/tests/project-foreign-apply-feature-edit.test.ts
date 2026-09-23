@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 
 const FILE = '/ws/model.fluid.js';
 

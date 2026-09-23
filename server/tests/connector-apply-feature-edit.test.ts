@@ -4,7 +4,7 @@ import {
   parseFeatureStatement,
   type ApplyFeatureEditSpec,
   type FeatureStatementEditTarget,
-} from '../src/apply-feature-edit.ts';
+} from '../src/apply-feature-edit/index.ts';
 
 function connectorSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
   return {

@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import type { FluidCadServer } from './fluidcad-server.ts';
 import { EditAckRegistry } from './edit-acks.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from './apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
 
 export type EditDispatcherOptions = {
   /**

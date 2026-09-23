@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sceneUnitFields } from '../fluidcad-server.ts';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { MoveToPart } from '../move-to-part.ts';
 import { RemoveFeature } from '../remove-feature.ts';
 

@@ -6,7 +6,7 @@ import {
   parseOffsetTargetDescriptors,
   resolveParamValues,
   type ApplyFeatureEditSpec,
-} from '../src/apply-feature-edit.ts';
+} from '../src/apply-feature-edit/index.ts';
 
 function spec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
   return {
@@ -1806,7 +1806,7 @@ describe('loft statement templates', () => {
 // In-place statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
 
-import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit.ts';
+import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
 
 const editBase = [
   `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
@@ -2652,7 +2652,7 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
 });
 
 describe('plane statement templates', () => {
-  const planeOptions = (over: Partial<import('../src/apply-feature-edit.ts').PlaneEditOptions> = {}) => ({
+  const planeOptions = (over: Partial<import('../src/apply-feature-edit/index.ts').PlaneEditOptions> = {}) => ({
     type: 'offset' as const,
     offset: null,
     rotateX: null,
@@ -5947,7 +5947,7 @@ describe('applyFeatureEdit (plane in-place statement edit)', () => {
 // plus the `newVariables` declarations the expression fields commit.
 // ---------------------------------------------------------------------------
 
-import { isExpressionText, validValueExpr } from '../src/apply-feature-edit.ts';
+import { isExpressionText, validValueExpr } from '../src/apply-feature-edit/index.ts';
 
 describe('isExpressionText', () => {
   it('accepts identifiers, arithmetic and call expressions', () => {

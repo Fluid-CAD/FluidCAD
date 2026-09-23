@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MoveToPart, type MoveToPartSpec } from '../src/move-to-part.ts';
-import { applyFeatureEdit } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit } from '../src/apply-feature-edit/index.ts';
 
 /** Build a spec the way the route does: capture drift guards from `code`. */
 async function moveSpec(code: string, lines: number[], partLine: number): Promise<MoveToPartSpec> {

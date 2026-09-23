@@ -26,7 +26,7 @@ import {
 } from './code-editor.ts';
 import { isReferenceUse } from './lint-fluid-js.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
-import { resolvePartBodyInsertion, type ApplyFeatureEditResult } from './apply-feature-edit.ts';
+import { resolvePartBodyInsertion, type ApplyFeatureEditResult } from './apply-feature-edit/index.ts';
 
 export type MoveToPartSpec = {
   /** The selected statements, by timeline source line, with drift guards. */

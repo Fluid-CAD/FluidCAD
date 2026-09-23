@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import type { FluidCadServer, SelectionSynthesisOptions } from '../fluidcad-server.ts';
 import type { SynthesizedProducer, SynthesizedSelection } from '../../../lib/dist/index.js';
 import { SelectionRequests } from './selection-requests.ts';
-import { SketchExports, makeProducerNamer, makeProducerBindable, makeProducerBoundProbe, extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
+import { SketchExports, makeProducerNamer, makeProducerBindable, makeProducerBoundProbe, extractNumericParams, resolveParamValues } from '../apply-feature-edit/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 /**

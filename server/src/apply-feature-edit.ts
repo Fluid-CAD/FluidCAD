@@ -22,6 +22,7 @@ import {
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
 import { SketchSplit, type SketchSplitSpec } from './sketch-split.ts';
 import { SketchTrim, type SketchTrimSpec } from './sketch-trim.ts';
+import { SketchEntityDelete, type SketchDeleteSpec } from './sketch-entity-delete.ts';
 import {
   applyDistanceTangency,
   applySolvedEmission,
@@ -253,6 +254,14 @@ export type ApplyFeatureEditSpec = {
    * round trip as `sketchSplit`; every other spec field is ignored.
    */
   sketchTrim?: SketchTrimSpec;
+  /**
+   * Sketcher Delete key (2D): remove the picked entity statements from the
+   * sketch body in one edit, with the constraints naming them and the
+   * statements that consumed them; geometry that borrowed one of their
+   * points keeps its place. Rides the same round trip as `sketchTrim`;
+   * every other spec field is ignored.
+   */
+  sketchDelete?: SketchDeleteSpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1610,6 +1619,10 @@ async function applyFeatureEditTransform(
   }
   if (spec.sketchTrim) {
     const { newCode, error } = await SketchTrim.apply(code, spec.sketchTrim);
+    return { newCode, ...(error !== undefined ? { error } : {}) };
+  }
+  if (spec.sketchDelete) {
+    const { newCode, error } = await SketchEntityDelete.apply(code, spec.sketchDelete);
     return { newCode, ...(error !== undefined ? { error } : {}) };
   }
   if (spec.paramEdit) {

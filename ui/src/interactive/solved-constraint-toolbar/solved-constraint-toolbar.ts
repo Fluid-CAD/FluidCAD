@@ -91,6 +91,8 @@ export class SolvedConstraintToolbar {
   private dimensionArmed = false;
   private deleteEnabled = false;
   private deleteLabel: string | null = null;
+  /** Why Delete is disabled for the current picks, when there is a specific reason. */
+  private deleteReason: string | null = null;
 
   constructor(container: HTMLElement) {
     this.root = document.createElement('div');
@@ -123,7 +125,7 @@ export class SolvedConstraintToolbar {
     }
 
     this.root.appendChild(this.divider());
-    const del = this.button(CONSTRAINT_REMOVE_ICON, 'Delete constraint');
+    const del = this.button(CONSTRAINT_REMOVE_ICON, 'Delete');
     del.btn.addEventListener('click', () => {
       if (!del.btn.disabled) {
         this.onDelete?.();
@@ -191,10 +193,12 @@ export class SolvedConstraintToolbar {
   }
 
   /** `label` names what Delete would remove when it is not a picked badge
-   * (a vertex pick standing in for its coincident ring). */
-  setDeleteEnabled(enabled: boolean, label?: string): void {
+   * (the selected edges, a vertex pick standing in for its coincident
+   * ring); `reason` says why a pick cannot be deleted. */
+  setDeleteEnabled(enabled: boolean, label?: string, reason?: string): void {
     this.deleteEnabled = enabled;
     this.deleteLabel = enabled ? label ?? null : null;
+    this.deleteReason = enabled ? null : reason ?? null;
     this.render();
   }
 
@@ -235,6 +239,7 @@ export class SolvedConstraintToolbar {
     this.deleteIcon.className = this.deleteBtn.disabled ? ICON_DISABLED : ICON_ENABLED;
     this.deleteTip.textContent = this.deleteEnabled
       ? `${this.deleteLabel ?? 'Delete the picked constraint'} (Del)`
-      : 'Click a constraint badge, or a vertex that shares a coincident, to pick it';
+      : this.deleteReason
+        ?? 'Select edges, click a constraint badge, or click a vertex that shares a coincident, to delete it';
   }
 }

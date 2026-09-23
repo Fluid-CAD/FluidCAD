@@ -34,6 +34,7 @@ import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { SketchSplitService } from './sketch-split-service';
 import { SketchTrimService } from './sketch-trim-service';
+import { SketchDeleteService } from './sketch-delete-service';
 import type { SketchClickOpRail, SketchClickOpService } from './sketch-click-op-service';
 import { SPLIT_SNAP_PX } from './tools/split-plan';
 import { pixelToSketchThreshold } from './sketch-plane-utils';
@@ -92,6 +93,8 @@ export class SketchToolbarService {
   private mirrorOp!: SketchMirrorService;
   private splitOp!: SketchSplitService;
   private trimOp!: SketchTrimService;
+  /** The Delete key's action on the selected edges (no toolbar button). */
+  private deleteOp!: SketchDeleteService;
   /** The click tools by toolbar id — the ones with a hover preview. */
   private clickOps: Partial<Record<ToolId, SketchClickOpService<unknown>>> = {};
   private toolbar: SketchToolbar;
@@ -267,6 +270,15 @@ export class SketchToolbarService {
     });
     this.trimOp = new SketchTrimService(clickRail);
     this.clickOps = { split: this.splitOp, trim: this.trimOp };
+    // The Delete key has no toolbar button: it acts on the selection the
+    // hover handler holds while nothing else owns it, through the same rail
+    // the cut tools edit on.
+    this.deleteOp = new SketchDeleteService({
+      ...clickRail,
+      selectedShapeIds: () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
+      sceneObjects: () => this.viewer.currentSceneObjects,
+      idle: () => this.toolbar.activeTool === null && this.activeDrawingTool === null,
+    });
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
@@ -283,6 +295,7 @@ export class SketchToolbarService {
       (message) => this.showOpMessage(message),
       () => this.fetchScopeVariables(),
       this.shortcuts,
+      this.deleteOp,
     );
     this.solvedDimensionEditor = new SolvedDimensionEditor(
       container,

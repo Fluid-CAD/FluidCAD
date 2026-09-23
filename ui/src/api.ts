@@ -1942,6 +1942,34 @@ export function trimSketchEntity(options: {
   return postSketchCut('/api/sketch/trim', options);
 }
 
+/** A statement the delete took along, by its line in the source BEFORE the edit. */
+export type SweptStatementParam = { line: number; kind: string };
+
+export type DeleteSketchEntitiesResult = {
+  success: boolean;
+  reason?: string;
+  /** Constraint statements deleted because they named a deleted entity. */
+  removed?: SweptStatementParam[];
+  /** Statements deleted because they consumed a deleted entity (a derived op, text on a path). */
+  dependents?: SweptStatementParam[];
+};
+
+/**
+ * Sketcher Delete key: remove the entity statements at `lines` from the
+ * sketch in one edit, with the constraints naming them and the statements
+ * that consumed them; geometry that borrowed one of their points keeps its
+ * place. The statement transform rewrites the source as what survives.
+ */
+export function deleteSketchEntities(options: {
+  sketchLine: number;
+  filePath?: string;
+  lines: number[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<DeleteSketchEntitiesResult> {
+  return postSketchCut('/api/sketch/delete', options);
+}
+
 /** The Split/Trim round trip: the route's body, or a `reason` for a refusal or a failed request. */
 async function postSketchCut<Result extends { success: boolean; reason?: string }>(
   path: string,

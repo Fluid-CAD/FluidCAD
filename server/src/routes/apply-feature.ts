@@ -50,6 +50,7 @@ import {
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../sketch-symbols.ts';
 import { SketchSplit, type SketchSplitSpec } from '../sketch-split.ts';
 import { SketchTrim, type SketchTrimSpec } from '../sketch-trim.ts';
+import { SketchEntityDelete, type SketchDeleteSpec } from '../sketch-entity-delete.ts';
 import { validateSketchPositionEdits } from '../sketch-position-validate.ts';
 import {
   SketchEntitySplit, SplitRefusal, type SplittableEntity, type SplitPiece, type SplitPoint,
@@ -7866,6 +7867,64 @@ export function createApplyFeatureRouter(
       parts: [],
       imports: [],
       sketchTrim,
+    };
+    await dispatcher.dispatch(res, spec, { success: true, ...report });
+  });
+
+  // Sketcher Delete key: remove the picked entity statements (by line) in
+  // one edit, with the constraints naming them and the statements that
+  // consumed them. Like the cut tools, the sketch's solved positions travel
+  // with the request so a borrowed point is substituted at rest.
+  router.post('/sketch/delete', async (req, res) => {
+    const { sketchLine, filePath, lines, settle } = req.body ?? {};
+    const cleanSettle = validateSketchPositionEdits(settle);
+    if (typeof sketchLine !== 'number'
+      || (filePath !== undefined && typeof filePath !== 'string')
+      || !Array.isArray(lines) || lines.length === 0
+      || lines.some(line => !Number.isInteger(line) || line < 1)
+      || cleanSettle === null) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const sketchDelete: SketchDeleteSpec = {
+      sketchLine,
+      lines: [...new Set(lines as number[])],
+      ...(cleanSettle.length > 0 ? { settle: cleanSettle } : {}),
+    };
+
+    // Preflight for the report (what else went); the dispatcher preflights
+    // again for the drift guard.
+    let report: Record<string, unknown> = {};
+    if (targetFile === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await SketchEntityDelete.apply(code, sketchDelete);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+          report = {
+            ...(dryRun.removed !== undefined ? { removed: dryRun.removed } : {}),
+            ...(dryRun.dependents !== undefined ? { dependents: dryRun.dependents } : {}),
+          };
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchDelete,
     };
     await dispatcher.dispatch(res, spec, { success: true, ...report });
   });

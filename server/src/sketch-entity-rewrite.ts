@@ -34,8 +34,8 @@ export type EntityCallee = 'line' | 'arc' | 'circle';
 /** Their argument counts: line(start, end), arc(start, end, center), circle(center, diameter). */
 const ENTITY_ARITY: Record<EntityCallee, number> = { line: 2, arc: 3, circle: 2 };
 
-/** The entity statement a cut acts on, resolved from the source. */
-export type EntityStatement = {
+/** A call statement of a sketch body, resolved from the source. */
+export type BodyStatement = {
   tree: TSTree;
   lines: string[];
   /** The sketch callback's block. */
@@ -44,15 +44,19 @@ export type EntityStatement = {
   call: TSNode;
   /** The body statement holding it. */
   statement: TSNode;
-  /** The entity call itself (`line(…)`). */
+  /** The root call of the chain (`line(…)`). */
   base: TSNode;
-  callee: EntityCallee;
+  /** The root callee, or null when it is not a plain identifier call. */
+  callee: string | null;
   args: TSNode[];
-  /** The chained modifiers after the entity call (`.cw().guide()`), verbatim. */
+  /** The chained modifiers after the root call (`.cw().guide()`), verbatim. */
   modifiers: string;
   /** The binding name, or null for a bare expression statement. */
   name: string | null;
 };
+
+/** The entity statement a cut acts on: a body statement drawing a line, arc or circle. */
+export type EntityStatement = BodyStatement & { callee: EntityCallee };
 
 export type Edit = { start: number; end: number; text: string };
 
@@ -146,24 +150,32 @@ export class SketchEntityRewrite extends StatementAnalysis {
   }
 
   /**
-   * The entity statement at `line` inside the sketch at `sketchLine`, or the
-   * reason it cannot be rewritten: the source moved under the pick, the
-   * statement sits in a loop, it is not a line/arc/circle statement of the
-   * body, or its argument list is not the primitive's.
+   * The sketch callback's block for the `sketch()` statement at
+   * `sketchLine`, with the parse it came from; null when there is none.
    */
-  protected static async resolveEntity(
+  protected static async parseSketchBody(
     code: string,
     sketchLine: number,
-    line: number,
-  ): Promise<EntityStatement | { error: string }> {
+  ): Promise<{ tree: TSTree; lines: string[]; body: TSNode } | null> {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
     const lines = splitLines(code);
     const sketchCall = findEditableCallAt(tree, lines, sketchLine);
     const body = sketchCall ? findSketchBody(sketchCall) : null;
-    if (!sketchCall || !body) {
-      return { error: `no sketch statement at line ${sketchLine} — the source changed since the pick was made` };
-    }
+    return body ? { tree, lines, body } : null;
+  }
+
+  /**
+   * The call statement at `line` of an already-parsed sketch body, or the
+   * reason it cannot be rewritten: the source moved under the pick, the
+   * statement sits in a loop, or it is not a direct statement of the body.
+   */
+  protected static bodyStatementAt(
+    parsed: { tree: TSTree; lines: string[]; body: TSNode },
+    code: string,
+    line: number,
+  ): BodyStatement | { error: string } {
+    const { tree, lines, body } = parsed;
     const call = findEditableCallAt(tree, lines, line);
     if (!call || !SketchEntityRewrite.within(call, body)) {
       return { error: `no sketch statement at line ${line} — the source changed since the pick was made` };
@@ -176,19 +188,42 @@ export class SketchEntityRewrite extends StatementAnalysis {
       return { error: `line ${line} is not a statement of the sketch body — edit the entity's own statement` };
     }
     const base = chainBase(call);
-    const callee = calleeName(base);
-    if (callee !== 'line' && callee !== 'arc' && callee !== 'circle') {
-      return { error: `line ${line} is a ${callee ?? 'non-entity'}() statement — only lines, arcs and circles can be cut` };
-    }
-    const args = base.childForFieldName('arguments')?.namedChildren ?? [];
-    if (args.length !== ENTITY_ARITY[callee]) {
-      return { error: `line ${line}: ${callee}() takes ${ENTITY_ARITY[callee] === 3 ? 'three' : 'two'} arguments` };
-    }
     return {
-      tree, lines, body, call, statement, base, callee, args,
+      tree, lines, body, call, statement, base,
+      callee: calleeName(base),
+      args: base.childForFieldName('arguments')?.namedChildren ?? [],
       modifiers: code.slice(base.endIndex, call.endIndex),
       name: boundVariableName(statement),
     };
+  }
+
+  /**
+   * The entity statement at `line` inside the sketch at `sketchLine`, or the
+   * reason it cannot be rewritten: the source moved under the pick, the
+   * statement sits in a loop, it is not a line/arc/circle statement of the
+   * body, or its argument list is not the primitive's.
+   */
+  protected static async resolveEntity(
+    code: string,
+    sketchLine: number,
+    line: number,
+  ): Promise<EntityStatement | { error: string }> {
+    const parsed = await SketchEntityRewrite.parseSketchBody(code, sketchLine);
+    if (!parsed) {
+      return { error: `no sketch statement at line ${sketchLine} — the source changed since the pick was made` };
+    }
+    const resolved = SketchEntityRewrite.bodyStatementAt(parsed, code, line);
+    if ('error' in resolved) {
+      return resolved;
+    }
+    const { callee, args } = resolved;
+    if (callee !== 'line' && callee !== 'arc' && callee !== 'circle') {
+      return { error: `line ${line} is a ${callee ?? 'non-entity'}() statement — only lines, arcs and circles can be cut` };
+    }
+    if (args.length !== ENTITY_ARITY[callee]) {
+      return { error: `line ${line}: ${callee}() takes ${ENTITY_ARITY[callee] === 3 ? 'three' : 'two'} arguments` };
+    }
+    return { ...resolved, callee };
   }
 
   /**
@@ -310,7 +345,7 @@ export class SketchEntityRewrite extends StatementAnalysis {
     removed: Iterable<TSNode>,
   ): { code: string; remapLine: (line: number) => number } | { error: string } {
     const doomed = [...removed];
-    const live = edits.filter(e => !doomed.some(d => e.start >= d.startIndex && e.end <= d.endIndex && e.text !== ''));
+    const live = edits.filter(e => !doomed.some(d => e.start >= d.startIndex && e.end <= d.endIndex));
     for (const d of doomed) {
       const startRow = d.startPosition.row;
       const endRow = d.endPosition.row;

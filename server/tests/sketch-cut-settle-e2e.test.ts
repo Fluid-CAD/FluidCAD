@@ -15,6 +15,7 @@ import type { Scene } from '../../lib/rendering/scene.js';
 import { SketchEntitySplit } from '../../lib/features/2d/split.js';
 import { SketchTrim } from '../src/sketch-trim.ts';
 import { SketchSplit } from '../src/sketch-split.ts';
+import { SketchEntityDelete } from '../src/sketch-entity-delete.ts';
 import { buildSolvedSketchModel, type SolvedEntityView, type SolvedSketchModel } from '../../ui/src/sketch-solver-client/model';
 import { buildSettleWriteBack } from '../../ui/src/sketch-solver-client/write-back';
 import { buildTrimPlan } from '../../ui/src/interactive/tools/trim-plan';
@@ -280,5 +281,40 @@ describe('cutting a constrained sketch keeps its geometry at rest', () => {
     getSceneManager()!.startScene();
     const after = solvedModel(result.newCode);
     expect(maxDrift(model, after, 'l7')).toBeGreaterThan(1);
+  });
+
+  it('deletes the top edge with its constraints without moving anything else — and would not without the settle', async () => {
+    const model = solvedModel(SOURCE);
+    const top = byName(model, 'l7');
+    const settled = await SketchEntityDelete.apply(SOURCE, {
+      sketchLine: SKETCH_LINE,
+      lines: [top.obj!.sourceLocation!.line],
+      settle: buildSettleWriteBack(model).edits,
+    });
+    expect(settled.error).toBeUndefined();
+    expect(settled.dependents).toBeUndefined();
+    expect(settled.removed).toEqual([
+      { line: 11, kind: 'coincident' },
+      { line: 12, kind: 'coincident' },
+      { line: 15, kind: 'horizontal' },
+      { line: 18, kind: 'midpoint' },
+    ]);
+    expect(settled.newCode).not.toContain('l7');
+    // The survivors carry their solved coordinates: the midpoint constraint
+    // that placed the rectangle went with the edge, and the literals now
+    // hold it there on their own.
+    expect(settled.newCode).toContain(`const l5 = line([-46.27, -17.03], [46.27, -17.03]);`);
+    expect(settled.newCode).toContain(`const c2 = circle([0, 0], 61.24);`);
+
+    getSceneManager()!.startScene();
+    const after = solvedModel(settled.newCode);
+    expect(maxDrift(model, after, 'l7')).toBeLessThan(REST_TOL);
+    expect(after.entities.size).toBe(model.entities.size - 1);
+
+    const unsettled = await SketchEntityDelete.apply(SOURCE, { sketchLine: SKETCH_LINE, lines: [top.obj!.sourceLocation!.line] });
+    expect(unsettled.error).toBeUndefined();
+    getSceneManager()!.startScene();
+    const jumped = solvedModel(unsettled.newCode);
+    expect(maxDrift(model, jumped, 'l7')).toBeGreaterThan(1);
   });
 });

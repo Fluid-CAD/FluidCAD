@@ -37,6 +37,8 @@ import type { Vec2 } from '../../sketch-solver-client/resolve';
 import { refPoint } from '../../sketch-solver-client/resolve';
 import { CONSTRAINT_SHORTCUTS, SolvedConstraintToolbar } from './solved-constraint-toolbar';
 import type { ShortcutManager } from '../../ui/shortcut-manager';
+import type { SketchDeleteService } from '../sketch-delete-service';
+import type { DeletePlan } from '../tools/delete-plan';
 import {
   ConstraintButtonId,
   DimensionForm,
@@ -168,6 +170,8 @@ export class SolvedConstraintToolbarService {
     private showMessage: (message: string) => void,
     private fetchVariables: () => Promise<VariableInfo[]>,
     shortcuts: ShortcutManager,
+    /** The Delete key's action on selected edges — the bar's button and key route to it. */
+    private entityDelete: SketchDeleteService,
   ) {
     this.view = new SolvedConstraintToolbar(container);
     this.valueInput = new ExpressionInput(container);
@@ -246,7 +250,7 @@ export class SolvedConstraintToolbarService {
     this.refreshPendingDimension();
     this.refreshAnglePlacement();
     this.refreshDistancePlacement();
-    this.selectionChanged(handler);
+    this.refreshPicks(handler);
   }
 
   /** A re-render landed during distance placement: redraw the preview
@@ -313,8 +317,16 @@ export class SolvedConstraintToolbarService {
     this.valueInput.updateValue(measured);
   }
 
-  /** The shared selection changed — recompute the pick list and options. */
+  /** The shared selection changed under a click — recompute the pick list
+   * and options. A click on geometry (or on empty space) supersedes a
+   * picked badge: Delete follows what the user picked last. */
   selectionChanged(handler: SketchHoverSelectHandler | null): void {
+    this.pickedConstraint = null;
+    this.refreshPicks(handler);
+  }
+
+  /** Recompute the pick list and options from the handler's selection. */
+  private refreshPicks(handler: SketchHoverSelectHandler | null): void {
     this.handler = handler;
     this.picks = handler?.getSolvedPicks() ?? [];
     this.clearGhost();
@@ -385,12 +397,31 @@ export class SolvedConstraintToolbarService {
     this.refreshDelete();
   }
 
+  /**
+   * The Delete key's plan for the selected edges, or null when none are
+   * selected. The armed dimension tool owns the picks while it waits for
+   * its second one — never a delete target.
+   */
+  private entityDeletePlan(): DeletePlan | null {
+    return this.dimensionArmed ? null : this.entityDelete.plan();
+  }
+
   /** What Delete targets right now: a picked badge first, else the
-   * coincidents behind the vertex pick — the ring tints so the target
-   * is visible. */
+   * selected edges, else the coincidents behind the vertex pick — the ring
+   * tints so the target is visible. */
   private refreshDelete(): void {
     if (this.pickedConstraint) {
       this.view.setDeleteEnabled(true);
+      this.handler?.setPinnedBadges([]);
+      return;
+    }
+    const entities = this.entityDeletePlan();
+    if (entities) {
+      if (entities.ok === false) {
+        this.view.setDeleteEnabled(false, undefined, entities.reason);
+      } else {
+        this.view.setDeleteEnabled(true, entities.label);
+      }
       this.handler?.setPinnedBadges([]);
       return;
     }
@@ -446,7 +477,7 @@ export class SolvedConstraintToolbarService {
       }
       return;
     }
-    if (this.pickedConstraint || this.vertexCoincidents.length > 0) {
+    if (this.pickedConstraint || this.vertexCoincidents.length > 0 || this.entityDeletePlan()) {
       e.preventDefault();
       this.deletePicked();
     }
@@ -1118,6 +1149,10 @@ export class SolvedConstraintToolbarService {
       removeFeature(loc);
       this.pickedConstraint = null;
       this.refreshDelete();
+      return;
+    }
+    if (this.entityDeletePlan()) {
+      void this.entityDelete.run();
       return;
     }
     void this.deleteVertexCoincidents();

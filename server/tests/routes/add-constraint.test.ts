@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 
 // The solved-sketch toolbar constraint route (sketch-rewrite P4): shallow
 // shape validation, then the apply-feature-edit dispatcher round trip. The

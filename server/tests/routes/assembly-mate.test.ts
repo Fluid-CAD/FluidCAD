@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createAssemblyMateRouter } from '../../src/routes/assembly-mate.ts';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 
 // The mate dialog's commit endpoint: validation, the preflight refusing bad

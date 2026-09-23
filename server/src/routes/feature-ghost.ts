@@ -8,7 +8,7 @@ import type {
 } from '../fluidcad-server.ts';
 import {
   MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS, MAX_ROTATE_TARGETS, validateRegionKeys,
-} from './apply-feature.ts';
+} from './apply-feature/index.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;

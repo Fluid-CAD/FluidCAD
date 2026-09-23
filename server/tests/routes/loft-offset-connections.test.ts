@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { applyFeatureEdit } from '../../src/apply-feature-edit/index.ts';
 import { setupOC, render } from '../../../lib/tests/setup.js';
 import sketch from '../../../lib/core/sketch.js';

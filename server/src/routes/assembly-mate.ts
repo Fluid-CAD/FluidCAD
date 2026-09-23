@@ -20,7 +20,7 @@ import {
   type MateConnectorSideBody,
   type MateViaEntryBody,
 } from '../assembly-side-refs.ts';
-import { allocateExposeName, makeSynthesisOptionsForFile } from './apply-feature.ts';
+import { allocateExposeName, makeSynthesisOptionsForFile } from './apply-feature/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 

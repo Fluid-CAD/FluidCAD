@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validatePick } from '../src/routes/apply-feature.ts';
+import { validatePick } from '../src/routes/apply-feature/index.ts';
 import { SelectionRequests } from '../src/routes/selection-requests.ts';
 
 describe('vertex pick validation', () => {

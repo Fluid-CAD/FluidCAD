@@ -15,7 +15,7 @@ import { createValidateRouter } from './routes/validate.ts';
 import { createInterfereRouter } from './routes/interfere.ts';
 import { createTimelineRouter } from './routes/timeline.ts';
 import { createSketchEditsRouter } from './routes/sketch-edits.ts';
-import { createApplyFeatureRouter } from './routes/apply-feature.ts';
+import { createApplyFeatureRouter } from './routes/apply-feature/index.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';

@@ -82,14 +82,14 @@ export async function handleInsertPoint(client: Client, msg: { point: [number, n
   }
 }
 
-export async function handleAddPick(client: Client, msg: { sourceLocation: { line: number } }) {
+export async function handleAddRegion(client: Client, msg: { sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
-    client.logger.appendLine(`[add-pick] No editor found for ${client.currentFileName}`);
+    client.logger.appendLine(`[add-region] No editor found for ${client.currentFileName}`);
     return;
   }
   const doc = editor.document;
-  const result = await codeApi.addPick(
+  const result = await codeApi.addRegion(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
   );
   if (!result) {
@@ -136,14 +136,14 @@ export async function handleRemoveGuide(client: Client, msg: { sourceLocation: {
   }
 }
 
-export async function handleRemovePick(client: Client, msg: { sourceLocation: { line: number } }) {
+export async function handleRemoveRegion(client: Client, msg: { sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
-    client.logger.appendLine(`[remove-pick] No editor found for ${client.currentFileName}`);
+    client.logger.appendLine(`[remove-region] No editor found for ${client.currentFileName}`);
     return;
   }
   const doc = editor.document;
-  const result = await codeApi.removePick(
+  const result = await codeApi.removeRegion(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
   );
   if (!result) {
@@ -282,14 +282,14 @@ export async function handleUpdateInsertChain(
   }
 }
 
-export async function handleSetPickPoints(client: Client, msg: { points: [number, number][]; sourceLocation: { line: number } }) {
+export async function handleSetRegions(client: Client, msg: { keys: string[]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
     return;
   }
   const doc = editor.document;
-  const result = await codeApi.setPickPoints(
-    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.points, client.logger,
+  const result = await codeApi.setRegions(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.keys, client.logger,
   );
   if (!result) {
     return;

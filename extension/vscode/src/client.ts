@@ -21,10 +21,10 @@ import {
   handleInsertPoint,
   handleAddGuide,
   handleRemoveGuide,
-  handleAddPick,
-  handleRemovePick,
+  handleAddRegion,
+  handleRemoveRegion,
   handleRemovePoint,
-  handleSetPickPoints,
+  handleSetRegions,
   handleGotoSource,
   handleUpdateInsertChain,
   handleInsertGeometry,
@@ -165,8 +165,8 @@ export class Client {
         });
         break;
       }
-      case 'set-pick-points': {
-        handleSetPickPoints(this, msg);
+      case 'set-regions': {
+        handleSetRegions(this, msg);
         break;
       }
       case 'update-insert-chain': {
@@ -175,8 +175,8 @@ export class Client {
         });
         break;
       }
-      case 'add-pick': {
-        handleAddPick(this, msg);
+      case 'add-region': {
+        handleAddRegion(this, msg);
         break;
       }
       case 'add-guide': {
@@ -187,8 +187,8 @@ export class Client {
         handleRemoveGuide(this, msg);
         break;
       }
-      case 'remove-pick': {
-        handleRemovePick(this, msg);
+      case 'remove-region': {
+        handleRemoveRegion(this, msg);
         break;
       }
       case 'insert-geometry': {

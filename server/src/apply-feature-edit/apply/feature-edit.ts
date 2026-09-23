@@ -1,6 +1,6 @@
 // The apply-feature-edit entry point: dispatches a spec to its transform and sweeps orphaned selections.
 
-import { setSketchClosed } from '../../code-editor.ts';
+import { setSketchClosed } from '../../code-editor/index.ts';
 import { applySketchConstraint } from '../../sketch-constraint-edit.ts';
 import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';

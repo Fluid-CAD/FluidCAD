@@ -1,6 +1,6 @@
 // Appending a new part() body to the document.
 
-import { chainRootCallee, getJavaScriptParser, walkTree } from '../../code-editor.ts';
+import { chainRootCallee, getJavaScriptParser, walkTree } from '../../code-editor/index.ts';
 import { appendTopLevelStatement } from '../insertion.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 

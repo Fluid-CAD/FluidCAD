@@ -25,7 +25,7 @@ import {
   walkTree,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 
 export type SelectHoistPolicy = 'late' | 'all';
 

@@ -1,6 +1,6 @@
 // Numeric parameter extraction and value resolution for ghost previews and selection synthesis.
 
-import { getJavaScriptParser } from '../code-editor.ts';
+import { getJavaScriptParser } from '../code-editor/index.ts';
 import { numericLiteralText } from './ast/args.ts';
 
 export type ExtractedParam = {

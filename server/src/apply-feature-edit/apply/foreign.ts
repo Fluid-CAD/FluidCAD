@@ -1,6 +1,6 @@
 // Cross-part references: applying nested exposure creates and rendering the consumer-side sketch/projection.
 
-import { ensureSymbolImport, importLocalName } from '../../code-editor.ts';
+import { ensureSymbolImport, importLocalName } from '../../code-editor/index.ts';
 import { applyCreateEdit } from './create.ts';
 import { relocateCallLines } from '../call-site-relocation.ts';
 import { CONNECTOR_NAME } from '../features/connector.ts';

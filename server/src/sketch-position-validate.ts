@@ -2,7 +2,7 @@
 // drag's own batch, and the `settle` a cut tool (Split, Trim) runs ahead of
 // its edit so the source it cuts is already at rest.
 
-import type { SketchPositionEdit } from './code-editor.ts';
+import type { SketchPositionEdit } from './code-editor/index.ts';
 
 /** A [x, y] pair of finite numbers, or null for anything else. */
 export function validPoint(input: unknown): [number, number] | null {

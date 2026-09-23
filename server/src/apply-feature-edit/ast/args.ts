@@ -1,6 +1,6 @@
 // Reading call arguments back out of the tree: literals, value expressions, object entries and identifier references.
 
-import { isExpressionText, walkTree, type TSNode, type TSTree } from '../../code-editor.ts';
+import { isExpressionText, walkTree, type TSNode, type TSTree } from '../../code-editor/index.ts';
 import { enclosingScope } from './nodes.ts';
 import type { ValueExpr } from '../value-expr.ts';
 

@@ -1,6 +1,6 @@
 // Rendering the `const` declarations a spec's new variables land with.
 
-import { isExpressionText } from '../../code-editor.ts';
+import { isExpressionText } from '../../code-editor/index.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
 /**

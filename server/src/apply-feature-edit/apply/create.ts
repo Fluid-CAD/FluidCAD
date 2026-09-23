@@ -10,7 +10,7 @@ import {
   indentOf,
   spliceCode,
   splitLines,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';

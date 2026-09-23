@@ -23,7 +23,7 @@ import {
   extractVariablesInPart,
   extractVariablesInScope,
   type VariableInfo,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
 import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';

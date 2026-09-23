@@ -1,6 +1,6 @@
 // Tree-sitter node helpers: identity, enclosing scopes/statements and sketch bodies.
 
-import { findEditableCallAt, getJavaScriptParser, splitLines, type TSNode } from '../../code-editor.ts';
+import { findEditableCallAt, getJavaScriptParser, splitLines, type TSNode } from '../../code-editor/index.ts';
 
 /** The 0-based row the character at `index` sits on. */
 export function rowOfIndex(code: string, index: number): number {

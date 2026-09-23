@@ -1,6 +1,6 @@
 // Following call-site lines across a source edit by callee ordinal.
 
-import { findEditableCallAt, getJavaScriptParser, splitLines, walkTree, type TSNode, type TSTree } from '../code-editor.ts';
+import { findEditableCallAt, getJavaScriptParser, splitLines, walkTree, type TSNode, type TSTree } from '../code-editor/index.ts';
 import { chainRootCall } from './ast/nodes.ts';
 
 /**

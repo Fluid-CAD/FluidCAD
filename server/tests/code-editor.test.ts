@@ -28,7 +28,7 @@ import {
   collectBoundNames,
   getJavaScriptParser,
   declareParamStatementsFor,
-} from '../src/code-editor.ts';
+} from '../src/code-editor/index.ts';
 
 describe('addBreakpoint', () => {
   it('adds the import line and inserts breakpoint after the statement', async () => {

@@ -15,7 +15,7 @@
 // solved positions first, so the substituted literals agree with what the
 // user saw.
 
-import type { SketchPositionEdit, TSNode } from './code-editor.ts';
+import type { SketchPositionEdit, TSNode } from './code-editor/index.ts';
 import { calleeName, chainBase } from './sketch-solved-edit.ts';
 import { SketchEntityRewrite, fmt, type Edit } from './sketch-entity-rewrite.ts';
 

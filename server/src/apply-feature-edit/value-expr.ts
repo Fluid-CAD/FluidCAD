@@ -1,6 +1,6 @@
 // Dialog value slots: the number-or-expression type every option field uses, its validators and its renderers.
 
-import { isExpressionText } from '../code-editor.ts';
+import { isExpressionText } from '../code-editor/index.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text

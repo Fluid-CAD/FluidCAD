@@ -1,6 +1,6 @@
 // copy(): option types, statement rendering, chain parsing and the edit renderer.
 
-import type { TSNode } from '../../code-editor.ts';
+import type { TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   booleanArgValue,

@@ -10,7 +10,7 @@
 // so a new name never collides with a binding the file already holds.
 
 import { SOLVED_ENTITY_NAME_HINTS } from './sketch-symbols.ts';
-import type { TSNode } from './code-editor.ts';
+import type { TSNode } from './code-editor/index.ts';
 
 const IDENTIFIER_NODE_TYPES = new Set<string>([
   'identifier', 'property_identifier', 'shorthand_property_identifier',

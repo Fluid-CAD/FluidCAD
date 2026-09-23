@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { extractNumericParams, resolveParamValues, type PlaneRotationAxes } from '../apply-feature-edit/index.ts';
-import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor.ts';
+import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor/index.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,

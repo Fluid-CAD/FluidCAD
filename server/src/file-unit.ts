@@ -1,4 +1,4 @@
-import { readUnitStatement } from './code-editor.ts';
+import { readUnitStatement } from './code-editor/index.ts';
 import { parseProjectUnit, type LengthUnit } from './project-config.ts';
 
 /** The suffixes a FluidCAD script can carry (mirrors lib SCRIPT_SUFFIXES). */

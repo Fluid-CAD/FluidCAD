@@ -13,7 +13,7 @@ import {
   splitLines,
   type TSNode,
   type TSTree,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import {
   enclosingScope,
   enclosingStatement,

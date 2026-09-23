@@ -10,7 +10,7 @@ import {
   indentOf,
   spliceCode,
   splitLines,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { SelectHoist } from '../../select-hoist.ts';
 import { numericVarNames } from '../ast/args.ts';
 import { enclosingScope, enclosingSketchStatement, enclosingStatement, sameNode } from '../ast/nodes.ts';

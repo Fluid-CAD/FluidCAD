@@ -1,7 +1,7 @@
 // Public surface of the apply-feature-edit service. Routes, hosts and
 // tests import from here; the modules behind it are grouped by concern.
 
-export { isExpressionText } from '../code-editor.ts';
+export { isExpressionText } from '../code-editor/index.ts';
 export { validCountValue, validValueExpr, type RegionKey, type ValueExpr } from './value-expr.ts';
 export type {
   ApplyFeatureEditResult,

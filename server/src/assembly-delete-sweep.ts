@@ -8,7 +8,7 @@ import {
   type CodeEditResult,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import {
   baseCallName,
   canonicalChainText,

@@ -33,7 +33,7 @@ import {
   splitLines,
   type NewVariableDecl,
   type TSNode,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import {
   COPY_CALLEES,
   MIRROR_CALLEES,

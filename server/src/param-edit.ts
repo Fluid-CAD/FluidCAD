@@ -9,7 +9,7 @@ import {
   removeStatement,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;

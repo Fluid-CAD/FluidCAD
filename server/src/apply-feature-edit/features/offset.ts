@@ -6,7 +6,7 @@ import {
   splitLines,
   walkTree,
   type TSNode,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { booleanArgValue, numericValueArg, numericVarNames } from '../ast/args.ts';
 import { decomposeChain } from '../ast/chain.ts';
 import { formatValue, type ValueExpr } from '../value-expr.ts';

@@ -10,7 +10,7 @@ import {
   type CodeEditResult,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import { removeStatementWithAssemblySweep } from './assembly-delete-sweep.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
 import { OrphanedSelections } from './orphaned-selections.ts';

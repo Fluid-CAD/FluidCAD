@@ -8,7 +8,7 @@
 // that addressed the whole entity follow the rule table. The junction
 // coincident(s) then ride the ordinary insert-solved emission rail.
 
-import { ensureSymbolImport, splitLines, type SketchPositionEdit, type TSNode } from './code-editor.ts';
+import { ensureSymbolImport, splitLines, type SketchPositionEdit, type TSNode } from './code-editor/index.ts';
 import {
   applySolvedEmission,
   hoistSolvedStatement,

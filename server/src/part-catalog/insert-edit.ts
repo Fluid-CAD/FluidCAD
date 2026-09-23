@@ -7,7 +7,7 @@ import {
   joinLines,
   splitLines,
   type TSNode,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
 
 /** What the chosen catalog export is, deciding the statement rendered for it. */

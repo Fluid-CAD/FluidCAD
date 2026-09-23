@@ -6,7 +6,7 @@ import {
   walkTree,
   type TSNode,
   type TSTree,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { enclosingFunctionScope, enclosingScope, enclosingStatement, sameNode } from '../ast/nodes.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';

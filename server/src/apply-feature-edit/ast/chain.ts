@@ -1,6 +1,6 @@
 // Decomposing a member-call chain (`extrude(...).cut().region(...)`) into its root and segments.
 
-import type { TSNode } from '../../code-editor.ts';
+import type { TSNode } from '../../code-editor/index.ts';
 
 export type ChainSegment = { name: string; args: TSNode[]; argsText: string; endIndex: number };
 

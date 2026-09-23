@@ -1,6 +1,6 @@
 // loft(): option types, statement rendering, condition segments and edit-time source resolution.
 
-import { isExpressionText } from '../../code-editor.ts';
+import { isExpressionText } from '../../code-editor/index.ts';
 import type { SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
 import { anyValueArg } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';

@@ -8,7 +8,7 @@ import {
   walkTree,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 
 /**
  * Tree-sitter helpers shared by the assembly statement writers (mate,

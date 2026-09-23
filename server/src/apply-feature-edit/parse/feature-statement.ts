@@ -6,7 +6,7 @@ import {
   splitLines,
   walkTree,
   type TSNode,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { numericVarNames } from '../ast/args.ts';
 import { parseFeatureChain } from './feature-chain.ts';
 import type { ParsedFeatureStatement } from './parsed-statement.ts';

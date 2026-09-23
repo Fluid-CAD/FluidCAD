@@ -7,7 +7,7 @@ import {
   splitLines,
   walkTree,
   type TSTree,
-} from '../../code-editor.ts';
+} from '../../code-editor/index.ts';
 import { resolveStatement, type ProducerBinding } from './bindings.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
 

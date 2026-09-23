@@ -1,6 +1,6 @@
 // Parsing an editable feature call chain into its ParsedFeatureStatement.
 
-import type { TSNode } from '../../code-editor.ts';
+import type { TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   booleanArgValue,

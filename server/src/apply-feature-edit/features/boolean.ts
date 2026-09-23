@@ -1,6 +1,6 @@
 // fuse() / subtract() / common(): option types, statement rendering, chain parsing and the edit renderer.
 
-import type { TSNode } from '../../code-editor.ts';
+import type { TSNode } from '../../code-editor/index.ts';
 import { resolveRepeatTargetRef } from '../ast/args.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isFeatureProducer } from '../producers/predicates.ts';

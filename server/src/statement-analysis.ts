@@ -10,7 +10,7 @@ import {
   walkTree,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import { isReferenceUse, listEngineSymbols } from './lint-fluid-js.ts';
 
 /** The innermost call of a chain whose callee is a bare identifier, or null. */

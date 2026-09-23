@@ -6,7 +6,7 @@ import {
   getJavaScriptParser,
   splitLines,
   type TSNode,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import { chainRootCall } from './ast/nodes.ts';
 
 /**

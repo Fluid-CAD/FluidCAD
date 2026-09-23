@@ -11,7 +11,7 @@
 // instance is the same singleton the param editor in `code-editor.ts` uses.
 // Doing it that way means we don't double-load the JavaScript wasm grammar.
 
-import { getJavaScriptParser } from './code-editor.ts';
+import { getJavaScriptParser } from './code-editor/index.ts';
 import { lintUnitStatements, type LintDiagnostic } from './unit-lint.ts';
 
 type TSNode = {

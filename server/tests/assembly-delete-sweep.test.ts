@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { removeStatementWithAssemblySweep } from '../src/assembly-delete-sweep.ts';
-import { removeStatement } from '../src/code-editor.ts';
+import { removeStatement } from '../src/code-editor/index.ts';
 
 const HEADER = `import { insert, mate, connector } from "fluidcad/core";\n`;
 

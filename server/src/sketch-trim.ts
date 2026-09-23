@@ -15,7 +15,7 @@
 
 import {
   ensureSymbolImport, findEditableCallAt, splitLines, type SketchPositionEdit, type TSNode, type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import {
   applySolvedEmission,
   boundVariableName,

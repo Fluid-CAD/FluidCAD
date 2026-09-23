@@ -1,6 +1,6 @@
 // connector(): option types, chain rendering and chain parsing.
 
-import type { TSNode } from '../../code-editor.ts';
+import type { TSNode } from '../../code-editor/index.ts';
 import { numericArgValue, stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse } from '../parse/parsed-statement.ts';

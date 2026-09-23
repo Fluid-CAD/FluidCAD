@@ -11,7 +11,7 @@ import {
   splitLines,
   walkTree,
   type TSNode,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import {
   enclosingLoop,
   hoistSolvedStatement,

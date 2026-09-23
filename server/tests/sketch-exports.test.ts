@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SketchExports } from '../src/apply-feature-edit/index.ts';
-import { getJavaScriptParser } from '../src/code-editor.ts';
+import { getJavaScriptParser } from '../src/code-editor/index.ts';
 import type { SketchExportRequest, SolvedEmissionTarget } from '../../lib/selection/sketch-target.js';
 import sketch from '../../lib/core/sketch.js';
 import plane from '../../lib/core/plane.js';

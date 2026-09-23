@@ -6,7 +6,7 @@ import {
   spliceCode,
   splitLines,
   type TSNode,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import {
   CONNECTOR_NAME,
   EXPORT_KEY,

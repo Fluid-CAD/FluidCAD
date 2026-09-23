@@ -1,6 +1,6 @@
 // plane(): option types, statement and base-expression rendering, chain parsing and the edit renderer.
 
-import { chainRootCallee, type TSNode } from '../../code-editor.ts';
+import { chainRootCallee, type TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   numericValueArg,

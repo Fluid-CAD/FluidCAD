@@ -1,6 +1,6 @@
 // Assembly edits that ride the feature-edit transform: instance poses, connectors, insert params and mates with nested exposures.
 
-import { getJavaScriptParser, isExpressionText, walkTree } from '../../code-editor.ts';
+import { getJavaScriptParser, isExpressionText, walkTree } from '../../code-editor/index.ts';
 import { applyInstancePoseEdit } from '../../insert-chain-edit.ts';
 import { applyAssemblyConnectorEdit } from '../../assembly-connector-edit.ts';
 import { applyInsertParamsEdit } from '../../insert-params-edit.ts';

@@ -30,7 +30,7 @@ its plane normal. With no `target`, auto-fuses with anything it touches.
 - `.endOffset(d)` — shift the end face by `d` along the extrusion direction.
 - `.thin(offset)` / `.thin(o1, o2)` — thin-walled solid from the profile edges.
 - `.drill(bool)` — `true` (default) treats inner closed regions as holes.
-- `.pick(...points)` — restrict to specific regions of a multi-region sketch.
+- `.region(...keys)` — restrict to particular regions of a multi-region sketch. Get the keys from the kernel rather than composing them: call `.region()` with no keys — it builds nothing and reports every region's key in the feature's `regions` parameter (`get_scene_summary`) — then write the ones you want. A key that fails to resolve lists the current keys in its error. A key reads as the sketch entities on the region's outer loop (holes never count): `'b r t l'` for the rectangle those four lines close, `'c1 c2-'` for the ring inside `c1` and outside `c2` (`-` = the far side of that edge, the outside of a circle). A number picks by position in the `regions` list — a position, not an identity.
 - `.add()` / `.new()` / `.remove()` / `.scope(...)` — boolean scope controls.
 
 ## Direct accessors

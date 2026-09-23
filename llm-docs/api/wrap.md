@@ -35,7 +35,9 @@ ignored; the plane must not be perpendicular to the target's axis, and the
 sketch cannot span more than one full turn.
 
 Sketch regions keep their holes (nested profiles are subtracted), and
-`.pick(point)` / `.drill(false)` work as in `extrude`. Face/edge accessors:
+`.region(...keys)` / `.drill(false)` work as in `extrude` — call `.region()`
+with no keys to get the region keys from the feature's `regions` parameter,
+then write the ones you want. Face/edge accessors:
 `startFaces` (on the target surface), `endFaces` (raised/engraved faces),
 `sideFaces` (outer-boundary walls), `internalFaces` (hole walls), plus the
 matching `*Edges` variants.

@@ -24,8 +24,10 @@ cut(face, target)
 
 Returns `Cut`. Always subtractive — equivalent to `extrude(...).remove()`.
 Same chain set as `extrude` except no `.add()` / `.new()`: `.symmetric()`,
-`.draft()`, `.endOffset()`, `.thin()`, `.pick()`, `.scope()`, plus
+`.draft()`, `.endOffset()`, `.thin()`, `.region()`, `.scope()`, plus
 `.startEdges()`, `.endEdges()`, `.internalEdges()`, `.internalFaces()`.
+`.region()` keys come from the `regions` list the feature reports when
+called with no keys — see [[api/extrude]].
 
 ## Direction convention
 

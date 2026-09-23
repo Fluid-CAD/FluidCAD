@@ -17,9 +17,10 @@ sweep(path: SceneObject, target?: SceneObject)
 ```
 
 Returns `Sweep` (extends `BooleanOperation`). Chain: `.draft()`,
-`.endOffset()`, `.drill()`, `.pick()`, `.thin()`, plus boolean scope
+`.endOffset()`, `.drill()`, `.region()`, `.thin()`, plus boolean scope
 methods. Direct accessors mirror `extrude`: `startFaces`, `endFaces`,
-`sideFaces`, etc.
+`sideFaces`, etc. `.region()` keys come from the `regions` list the
+feature reports when called with no keys — see [[api/extrude]].
 
 The path is typically a reusable sketch (open or closed wire) or an
 edge selection. The profile is whatever sketch was last opened — usually

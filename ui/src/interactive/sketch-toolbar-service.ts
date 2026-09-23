@@ -33,6 +33,8 @@ import {
 import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { SketchSplitService } from './sketch-split-service';
+import { SPLIT_SNAP_PX } from './tools/split-plan';
+import { pixelToSketchThreshold } from './sketch-plane-utils';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -242,6 +244,7 @@ export class SketchToolbarService {
           sketchLine: this.solvedEmitSketchLine ?? this.activeSketchInfo.sourceLocation.line,
         }
         : null,
+      snapTolerance: () => pixelToSketchThreshold(this.viewer.sceneContext, SPLIT_SNAP_PX),
       clearSelection: opSelection.clear,
       message: (text) => this.showOpMessage(text),
       noteEdit: ({ sketchLine }) => {

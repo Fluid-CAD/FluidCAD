@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildSplitPlan, splitPointOn, splitRefusalFor } from '../src/interactive/tools/split-plan';
+import {
+  buildSplitPlan, splitPointOn, splitRefusalFor, splitSnapPoints, splitTargetOn,
+} from '../src/interactive/tools/split-plan';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
 import type {
   SolvedConstraintView, SolvedEntityView, SolvedSketchModel,
@@ -71,12 +73,12 @@ describe('splitRefusalFor', () => {
 });
 
 describe('buildSplitPlan', () => {
-  it('sends the solved geometry and the click, not the literals', () => {
+  it('sends the solved geometry and the click projected onto the edge, not the literals', () => {
     const l = lineView(1, 5, [0, 0], [40, 0]);
     const plan = buildSplitPlan(edgePick(l, [10, 1]), makeModel([l]));
     expect(plan).toEqual({
       ok: true,
-      request: { line: 5, entity: { kind: 'line', start: [0, 0], end: [40, 0] }, at: [10, 1], hints: [] },
+      request: { line: 5, entity: { kind: 'line', start: [0, 0], end: [40, 0] }, at: [10, 0], hints: [] },
     });
   });
 
@@ -114,6 +116,61 @@ describe('buildSplitPlan', () => {
     const bare = { entityId: 1, kind: 'line', obj: { sourceLocation: loc(5) } } as unknown as SolvedEntityView;
     const plan = buildSplitPlan(edgePick(bare, [10, 1]), makeModel([bare]));
     expect(plan.ok).toBe(false);
+  });
+
+  it('lands the cut on the snap mark the hover marker showed', () => {
+    const l = lineView(1, 5, [0, 0], [40, 0]);
+    const snapped = buildSplitPlan(edgePick(l, [18, 2]), makeModel([l]), 3);
+    expect(snapped.ok && snapped.request.at).toEqual([20, 0]);
+    const free = buildSplitPlan(edgePick(l, [18, 2]), makeModel([l]), 1);
+    expect(free.ok && free.request.at).toEqual([18, 0]);
+    const exact = buildSplitPlan(edgePick(l, [18, 2]), makeModel([l]));
+    expect(exact.ok && exact.request.at).toEqual([18, 0]);
+  });
+});
+
+describe('splitSnapPoints', () => {
+  it('marks a line midpoint, an arc midpoint on its drawn side and a circle quarter marks', () => {
+    expect(splitSnapPoints(lineView(1, 5, [0, 0], [40, 10]))).toEqual([[20, 5]]);
+    const cw = { entityId: 2, kind: 'arc', start: [10, 0], end: [0, 10], center: [0, 0], radius: 10, cw: true, obj: { sourceLocation: loc(6) } } as unknown as SolvedEntityView;
+    const [cwMid] = splitSnapPoints(cw);
+    expect(cwMid[0]).toBeCloseTo(-Math.SQRT1_2 * 10);
+    expect(cwMid[1]).toBeCloseTo(-Math.SQRT1_2 * 10);
+    const ccw = { ...cw, cw: false } as SolvedEntityView;
+    const [ccwMid] = splitSnapPoints(ccw);
+    expect(ccwMid[0]).toBeCloseTo(Math.SQRT1_2 * 10);
+    expect(ccwMid[1]).toBeCloseTo(Math.SQRT1_2 * 10);
+    expect(splitSnapPoints(circleView(3, 7, [5, 5], 4))).toEqual([[9, 5], [5, 9], [1, 5], [5, 1]]);
+    expect(splitSnapPoints(pointView(4, 8, [1, 1]))).toEqual([]);
+    expect(splitSnapPoints({ entityId: 9, kind: 'ellipse' } as unknown as SolvedEntityView)).toEqual([]);
+  });
+});
+
+describe('splitTargetOn', () => {
+  it('snaps within the tolerance and slides freely outside it', () => {
+    const l = lineView(1, 5, [0, 0], [40, 0]);
+    expect(splitTargetOn(l, [18, 3], 3)).toEqual({ at: [20, 0], snapped: true });
+    expect(splitTargetOn(l, [18, 3], 1)).toEqual({ at: [18, 0], snapped: false });
+    expect(splitTargetOn(l, [-5, 3], 3)).toEqual({ at: [0, 0], snapped: false });
+  });
+
+  it('measures the reach along the edge from the free cut point, not from the cursor', () => {
+    // The cursor sits 10 off the line but its foot is right on the midpoint.
+    const l = lineView(1, 5, [0, 0], [40, 0]);
+    expect(splitTargetOn(l, [20, 10], 1)).toEqual({ at: [20, 0], snapped: true });
+  });
+
+  it('picks the nearest quarter mark of a circle', () => {
+    const c = circleView(3, 7, [0, 0], 10);
+    expect(splitTargetOn(c, [1, 30], 2)).toEqual({ at: [0, 10], snapped: true });
+    expect(splitTargetOn(c, [-30, -1], 2)).toEqual({ at: [-10, 0], snapped: true });
+    const between = splitTargetOn(c, [10, 10], 2)!;
+    expect(between.snapped).toBe(false);
+    expect(between.at[0]).toBeCloseTo(Math.SQRT1_2 * 10);
+  });
+
+  it('refuses what splitPointOn refuses', () => {
+    expect(splitTargetOn({ entityId: 9, kind: 'ellipse' } as unknown as SolvedEntityView, [1, 1], 3)).toBeNull();
   });
 });
 

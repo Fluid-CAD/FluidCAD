@@ -2,7 +2,7 @@ import { splitSketchEntity } from '../api';
 import type { SolvedEntityView, SolvedSketchModel } from '../sketch-solver-client/model';
 import type { SolvedPick } from './sketch-hover-select-handler';
 import type { SketchOpDialog } from './sketch-op-service';
-import { buildSplitPlan, splitPointOn, splitRefusalFor } from './tools/split-plan';
+import { buildSplitPlan, splitRefusalFor, splitTargetOn, type SplitTarget } from './tools/split-plan';
 
 /** The Split tool's window onto the sketch session it acts in. */
 export type SketchSplitRail = {
@@ -11,6 +11,8 @@ export type SketchSplitRail = {
   model(): SolvedSketchModel | null;
   /** The active sketch's file and statement line; null outside a sketch. */
   sketch(): { filePath: string; sketchLine: number } | null;
+  /** The snap marks' reach in sketch units at the current zoom (SPLIT_SNAP_PX). */
+  snapTolerance(): number;
   clearSelection(): void;
   /** The transient toast under the navbar. */
   message(text: string): void;
@@ -31,6 +33,10 @@ export type SketchSplitRail = {
  * the same center, a `circle()` into one full-turn arc. What refuses, with
  * a toast: text, beziers, ellipses (not yet), points, projected references,
  * copy and mirror images, looped statements, and a click on a vertex.
+ *
+ * The cut point snaps to a line's midpoint, an arc's midpoint and a
+ * circle's four quarter marks; the hover marker and the click share one
+ * tolerance, so the split lands exactly where the marker showed it.
  */
 export class SketchSplitService implements SketchOpDialog {
   onVisibilityChange?: (visible: boolean) => void;
@@ -88,7 +94,7 @@ export class SketchSplitService implements SketchOpDialog {
       this.rail.message('Split needs a constrained sketch');
       return;
     }
-    const plan = buildSplitPlan(pick, model);
+    const plan = buildSplitPlan(pick, model, this.rail.snapTolerance());
     if (plan.ok === false) {
       this.rail.clearSelection();
       this.rail.message(plan.reason);
@@ -116,10 +122,11 @@ export class SketchSplitService implements SketchOpDialog {
 
   /**
    * The hover preview: where the cut would land for the cursor at `at` on
-   * the hovered entity — null for an entity the tool would refuse, so the
-   * marker never promises a split that cannot happen.
+   * the hovered entity, and whether it locked onto a snap mark — null for
+   * an entity the tool would refuse, so the marker never promises a split
+   * that cannot happen.
    */
-  markerFor(entity: SolvedEntityView, at: [number, number]): [number, number] | null {
+  markerFor(entity: SolvedEntityView, at: [number, number]): SplitTarget | null {
     if (!this.active || this.busy) {
       return null;
     }
@@ -132,6 +139,6 @@ export class SketchSplitService implements SketchOpDialog {
       ...(entity.copyInstance ? { copyInstance: entity.copyInstance } : {}),
       ...(entity.anchor ? { anchor: entity.anchor } : {}),
     });
-    return refusal === null ? splitPointOn(entity, at) : null;
+    return refusal === null ? splitTargetOn(entity, at, this.rail.snapTolerance()) : null;
   }
 }

@@ -12,9 +12,16 @@ import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/ty
 import type { SplittableEntityParam } from '../../api';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from '../../sketch-solver-client/model';
 import {
-  add, dist, entityFor, footOnLine, lineMid, pointOnCircumference, refPoint, scale, sub, tangencyPoint, type Vec2,
+  add, arcMidPoint, dist, entityFor, footOnLine, lineMid, pointOnCircumference, refPoint, scale, sub, tangencyPoint,
+  type Vec2,
 } from '../../sketch-solver-client/resolve';
 import type { SolvedPick } from '../sketch-hover-select-handler';
+
+/** How close (screen px) the free cut point must come to a snap mark to lock onto it. */
+export const SPLIT_SNAP_PX = 10;
+
+/** Where the cut would land for the cursor: at a snap mark, or free along the edge. */
+export type SplitTarget = { at: Vec2; snapped: boolean };
 
 export type SplitRequest = {
   /** 1-indexed line of the entity statement. */
@@ -69,7 +76,12 @@ export function splitRefusalFor(pick: SolvedPick): string | null {
   return null;
 }
 
-export function buildSplitPlan(pick: SolvedPick, model: SolvedSketchModel): SplitPlan {
+/**
+ * The plan for a click. `snapTolerance` (sketch units) is the reach of the
+ * snap marks — the same one the hover marker used, so the cut lands where
+ * the marker showed it; 0 splits exactly at the click's projection.
+ */
+export function buildSplitPlan(pick: SolvedPick, model: SolvedSketchModel, snapTolerance = 0): SplitPlan {
   const refusal = splitRefusalFor(pick);
   if (refusal !== null) {
     return refuse(refusal);
@@ -79,12 +91,16 @@ export function buildSplitPlan(pick: SolvedPick, model: SolvedSketchModel): Spli
   if (!view || !entity) {
     return refuse("The edge's geometry is not available");
   }
+  const target = splitTargetOn(view, pick.at!, snapTolerance);
+  if (!target) {
+    return refuse("The edge's geometry is not available");
+  }
   return {
     ok: true,
     request: {
       line: pick.sourceLocation!.line,
       entity,
-      at: pick.at!,
+      at: target.at,
       hints: view.kind === 'line' ? lineHints(view, model) : [],
     },
   };
@@ -196,4 +212,54 @@ export function splitPointOn(view: SolvedEntityView, p: Vec2): Vec2 | null {
     default:
       return null;
   }
+}
+
+/**
+ * The places a split likes to land: the midpoint of a line, the midpoint
+ * of an arc (on its drawn side), and the four quarter marks of a circle
+ * (where the sketch axes' directions cross it). Empty for anything else.
+ */
+export function splitSnapPoints(view: SolvedEntityView): Vec2[] {
+  switch (view.kind) {
+    case 'line': {
+      const m = lineMid(view);
+      return m ? [m] : [];
+    }
+    case 'arc': {
+      const m = arcMidPoint(view);
+      return m ? [m] : [];
+    }
+    case 'circle': {
+      if (!view.center || view.radius === undefined) {
+        return [];
+      }
+      const [cx, cy] = view.center;
+      const r = view.radius;
+      return [[cx + r, cy], [cx, cy + r], [cx - r, cy], [cx, cy - r]];
+    }
+    default:
+      return [];
+  }
+}
+
+/**
+ * Where a split lands for a cursor at `p`: the nearest snap mark when the
+ * free cut point ({@link splitPointOn}) comes within `snapTolerance` of
+ * one, else the free point itself. Null when the entity cannot be split.
+ */
+export function splitTargetOn(view: SolvedEntityView, p: Vec2, snapTolerance: number): SplitTarget | null {
+  const free = splitPointOn(view, p);
+  if (!free) {
+    return null;
+  }
+  let best: Vec2 | null = null;
+  let bestDist = snapTolerance;
+  for (const mark of splitSnapPoints(view)) {
+    const d = dist(free, mark);
+    if (d <= bestDist) {
+      best = mark;
+      bestDist = d;
+    }
+  }
+  return best ? { at: best, snapped: true } : { at: free, snapped: false };
 }

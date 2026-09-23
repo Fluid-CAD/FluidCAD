@@ -13,8 +13,9 @@ Split cuts a sketch edge in two at the point you click. The two pieces stay join
 ## In the viewport
 
 1. Click **Split** on the sketch toolbar (shortcut <kbd>sp</kbd>). It sits in the group with **Fillet** and **Offset**. There is no dialog: the tool arms and waits for a click.
-2. Click an edge where it should split. The edge is cut at the click, and a toast reports what was written: *Split l1 into l1 and l3*, or *Turned c1 into an arc* for a circle.
-3. The tool stays armed, so click the next edge for the next split. <kbd>Esc</kbd> leaves the tool.
+2. Hover an edge: a dot on the edge follows the cursor and shows where the cut would land. Near a common point the dot snaps to it and grows a ring: the midpoint of a line, the midpoint of an arc, or one of the four quarter marks of a circle (where its horizontal and vertical diameters meet the circumference). Move a little further along the edge to leave the snap.
+3. Click, and the edge is cut at the marker. A toast reports what was written: *Split l1 into l1 and l3*, or *Turned c1 into an arc* for a circle.
+4. The tool stays armed, so click the next edge for the next split. <kbd>Esc</kbd> leaves the tool.
 
 The tool does not write a `split()` call. It rewrites the source: the entity's statement keeps the first piece under its old variable name, so every `.start()` and `.center()` reference to it stays valid; a new `const` for the second piece is inserted right after it, under the next free name; and a `coincident(first.end(), second.start())` is appended to the sketch, which is the junction. Argument expressions you did not touch stay verbatim: `line([0, 0], [w, h])` split at x = 10 becomes `line([0, 0], [10, 0])` and `line([10, 0], [w, h])`.
 

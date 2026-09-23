@@ -7,6 +7,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   Object3D,
+  RingGeometry,
   Vector3,
 } from 'three';
 import { SceneContext } from '../scene/scene-context';
@@ -91,6 +92,9 @@ type HoveredVertex = {
  * constant-pixel scaler only needs it in the document's magnitude). */
 const CENTER_OVERLAY_RADIUS_MM = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
+/** The snapped hover marker's ring: outer radius in px, inner as a fraction of it. */
+const SNAP_MARKER_PX_RADIUS = 11;
+const SNAP_MARKER_RING_INNER = 0.8;
 /** Extra slack around a constraint badge's box before a hover counts. */
 const BADGE_HIT_SLACK_PX = 3;
 
@@ -153,11 +157,13 @@ export class SketchHoverSelectHandler {
   /**
    * Optional cut/point preview on the hovered edge: given the hovered solved
    * entity and the cursor's sketch position, the point ON the entity to mark
-   * (the Split tool's cut point), or null for no mark. Drawn as a vertex
-   * ring that follows the cursor along the edge.
+   * (the Split tool's cut point) and whether it locked onto a snap mark, or
+   * null for no mark. A free point draws as a vertex dot that follows the
+   * cursor along the edge; a snapped one adds a ring around the dot.
    */
-  hoverMarker?: (entity: SolvedEntityView, point2d: [number, number]) => [number, number] | null;
+  hoverMarker?: (entity: SolvedEntityView, point2d: [number, number]) => { at: [number, number]; snapped: boolean } | null;
   private hoverMarkerOverlay: Group | null = null;
+  private hoverMarkerKey: string | null = null;
   private hoveredBadge: BadgeHitTarget | null = null;
   /** Constraint statements tinted while a vertex pick stands for them (the
    * coincident ring behind a selected junction) — by render objId. */
@@ -797,10 +803,19 @@ export class SketchHoverSelectHandler {
   /** Re-place the hover marker for the edge under the cursor (see {@link hoverMarker}). */
   private updateHoverMarker(shapeId: string | null, point2d: [number, number]): void {
     const entity = shapeId !== null ? this.entityOfShape(shapeId) : undefined;
-    const at = entity && this.hoverMarker ? this.hoverMarker(entity, point2d) : null;
+    const target = entity && this.hoverMarker ? this.hoverMarker(entity, point2d) : null;
+    // A snapped marker sits still while the cursor roams its reach: rebuilding
+    // it every move is wasted work.
+    const key = target ? `${target.at[0]},${target.at[1]}:${target.snapped}` : null;
+    if (key === this.hoverMarkerKey) {
+      return;
+    }
     this.clearHoverMarker();
-    if (at) {
-      this.hoverMarkerOverlay = this.buildVertexOverlay(at, 0.9);
+    if (target) {
+      this.hoverMarkerOverlay = target.snapped
+        ? this.buildSnapMarkerOverlay(target.at)
+        : this.buildVertexOverlay(target.at, 0.9);
+      this.hoverMarkerKey = key;
       this.ctx.requestRender();
     }
   }
@@ -809,6 +824,7 @@ export class SketchHoverSelectHandler {
     if (this.hoverMarkerOverlay) {
       this.disposeVertexOverlay(this.hoverMarkerOverlay);
       this.hoverMarkerOverlay = null;
+      this.hoverMarkerKey = null;
       this.ctx.requestRender();
     }
   }
@@ -961,11 +977,39 @@ export class SketchHoverSelectHandler {
     return group;
   }
 
+  /**
+   * The hover marker locked onto a snap mark (a line's or arc's midpoint,
+   * a circle's quarter mark): the vertex dot inside a thin ring, both
+   * screen-constant, so a snapped cut point reads differently from one
+   * sliding freely along the edge.
+   */
+  private buildSnapMarkerOverlay(point2d: [number, number]): Group {
+    const group = this.buildVertexOverlay(point2d, 1);
+    const dot = group.children[0] as Mesh;
+    const radius = worldFromMm(CENTER_OVERLAY_RADIUS_MM);
+    const scale = SNAP_MARKER_PX_RADIUS / CENTER_OVERLAY_PX_RADIUS;
+    const ring = new Mesh(
+      new RingGeometry(radius * scale * SNAP_MARKER_RING_INNER, radius * scale, 32),
+      new MeshBasicMaterial({
+        color: themeColors.highlightColor,
+        side: DoubleSide,
+        depthTest: false,
+        transparent: true,
+        opacity: 1,
+      }),
+    );
+    ring.renderOrder = dot.renderOrder;
+    group.add(ring);
+    return group;
+  }
+
   private disposeVertexOverlay(group: Group): void {
     this.ctx.scene.remove(group);
-    const dot = group.children[0] as Mesh;
-    dot.geometry.dispose();
-    (dot.material as MeshBasicMaterial).dispose();
+    for (const child of group.children) {
+      const mesh = child as Mesh;
+      mesh.geometry.dispose();
+      (mesh.material as MeshBasicMaterial).dispose();
+    }
   }
 
   private clearVertexHover(): void {

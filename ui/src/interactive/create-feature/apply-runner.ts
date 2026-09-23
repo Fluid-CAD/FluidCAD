@@ -41,6 +41,12 @@ export class ApplyRunner<R extends object> {
     failMessage: () => string;
     /** Extra apply-only gate after `build` (checks previews tolerate). */
     validateApply?: () => { error: string } | null;
+    /**
+     * Runs on every {@link schedulePreview} — the form changed. Pickers that
+     * derive from the form re-sync here before the preview reads them (the
+     * region picker re-reads its profile).
+     */
+    onSchedule?: () => void;
     /** Gate preview refusal messages (default on) — extrude keeps create-mode
      * distance previews quiet so transient failures don't flash while
      * sketching. */
@@ -101,6 +107,7 @@ export class ApplyRunner<R extends object> {
     if (!this.opts.isArmed()) {
       return;
     }
+    this.opts.onSchedule?.();
     this.timer = window.setTimeout(() => {
       this.timer = null;
       void this.runPreview();

@@ -1,5 +1,6 @@
 import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
 
 /** A sketch slot's state, `keep` included (edit mode only). */
 export type SketchSlotSelection =
@@ -13,7 +14,9 @@ export type SketchSlotSelection =
  * re-matching the choice after re-renders (by kind + source location — scene
  * ids change every render), seeding/reverting to the edited statement's own
  * profile, and wearing the shared empty-slot prompts. The panel owns arming
- * policy.
+ * policy. `regions` adds the region row under the chip — the "Pick regions"
+ * link and pick count the swept features carry (a rib's spine has no
+ * regions to pick).
  */
 export class SketchSlotControl {
   /** The slot was clicked — the panel arms it as the pick target. */
@@ -21,18 +24,30 @@ export class SketchSlotControl {
   /** A gesture changed the selection (the chip's ✕). */
   onChange?: () => void;
 
+  /** The region row, for the dialogs that opted in; the service drives it. */
+  readonly regions: RegionPickControl | null;
+
   private readonly slot: PickSlot;
   private optionList: SketchProfileOption[] = [];
   private state: SketchSlotSelection | null = null;
   /** Edit mode: the statement's own profile text (null when implicit). */
   private keep: { label: string | null } | null = null;
 
-  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean } = {}) {
+  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean; regions?: boolean } = {}) {
     this.slot = new PickSlot(host, {
       label: opts.label ?? 'Sketch',
       multiple: false,
       boxed: opts.boxed,
     });
+    if (opts.regions) {
+      // Below the chip list, inside the slot host: a click on the row arms
+      // the slot like a click on the chip does.
+      const row = document.createElement('div');
+      host.appendChild(row);
+      this.regions = new RegionPickControl(row);
+    } else {
+      this.regions = null;
+    }
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => {
       // Create mode: back to the prompt; edit mode: back to the statement's

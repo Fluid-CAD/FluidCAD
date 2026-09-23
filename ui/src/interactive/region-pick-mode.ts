@@ -5,18 +5,16 @@ const HOVER_COLOR = '#64B5F6';
 const HOVER_OPACITY = 0.35;
 
 /**
- * Interactive mode for picking face regions in the sketch.
- *
- * Uses Three.js raycasting against meta face meshes (pick-region / pick-region-selected)
- * to detect hover and click on individual sketch regions. Each region group
- * carries its region key in `userData.metaData.key`; a click reports that key.
+ * Click and hover handling for a set of drawn sketch regions — the region
+ * picker's overlay. Raycasts the pick-region meshes under `root` (each group
+ * carries its region key in `userData.metaData.key` and its pick state in
+ * `userData.isPickRegionSelected`); a click reports the key as a pick or a
+ * removal, a hover tints the face. Scoped to `root` on purpose: a scene can
+ * hold other region meshes (a `.region()` statement's own), and those are
+ * not this picker's to toggle.
  */
 export class RegionPickMode {
   private canvas: HTMLCanvasElement;
-  private ctx: SceneContext;
-  private onPick: (key: string) => void;
-  private onRemove: (key: string) => void;
-  private onHighlight: (shapeId: string | null) => void;
 
   private highlightedMesh: Mesh | null = null;
   private highlightedOriginalColor: number | null = null;
@@ -30,17 +28,16 @@ export class RegionPickMode {
   private boundMouseMove: (e: MouseEvent) => void;
 
   constructor(
-    ctx: SceneContext,
-    onPick: (key: string) => void,
-    onRemove: (key: string) => void,
-    onHighlight: (shapeId: string | null) => void,
+    private ctx: SceneContext,
+    private root: Object3D,
+    private handlers: {
+      /** An unselected region was clicked. */
+      onPick: (key: string) => void;
+      /** A selected region was clicked. */
+      onRemove: (key: string) => void;
+    },
   ) {
     this.canvas = ctx.renderer.domElement;
-    this.ctx = ctx;
-    this.onPick = onPick;
-    this.onRemove = onRemove;
-    this.onHighlight = onHighlight;
-
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -59,6 +56,13 @@ export class RegionPickMode {
     this.restoreHighlight();
   }
 
+  /** The overlay was redrawn — the tinted mesh is gone with it. */
+  forgetHighlight(): void {
+    this.highlightedMesh = null;
+    this.highlightedOriginalColor = null;
+    this.highlightedOriginalOpacity = null;
+  }
+
   private handleMouseDown(e: MouseEvent): void {
     this.downX = e.clientX;
     this.downY = e.clientY;
@@ -71,7 +75,6 @@ export class RegionPickMode {
       return; // drag, not click
     }
 
-    // Raycast directly to find the region under the click
     const hit = this.raycastRegions(e.clientX, e.clientY);
     if (!hit) {
       return;
@@ -84,9 +87,9 @@ export class RegionPickMode {
     }
 
     if (hitGroup.userData.isPickRegionSelected === true) {
-      this.onRemove(key);
+      this.handlers.onRemove(key);
     } else {
-      this.onPick(key);
+      this.handlers.onPick(key);
     }
   }
 
@@ -95,38 +98,20 @@ export class RegionPickMode {
     const hitMesh = hit?.mesh ?? null;
 
     if (hitMesh === this.highlightedMesh) {
-      return; // Same mesh, no change
+      return;
     }
 
-    // Restore previous highlight
     this.restoreHighlight();
 
     if (hitMesh) {
-      // Apply hover highlight
       const mat = hitMesh.material as MeshBasicMaterial;
       this.highlightedOriginalColor = mat.color.getHex();
       this.highlightedOriginalOpacity = mat.opacity;
       mat.color.set(HOVER_COLOR);
       mat.opacity = HOVER_OPACITY;
       this.highlightedMesh = hitMesh;
-
-      // Find shapeId from parent group
-      let shapeId: string | null = null;
-      let obj: Object3D | null = hitMesh;
-      while (obj) {
-        if (obj.userData.shapeId) {
-          shapeId = obj.userData.shapeId;
-          break;
-        }
-        obj = obj.parent;
-      }
-      this.onHighlight(shapeId);
-      this.ctx.requestRender();
-    } else {
-      this.highlightedMesh = null;
-      this.onHighlight(null);
-      this.ctx.requestRender();
     }
+    this.ctx.requestRender();
   }
 
   private restoreHighlight(): void {
@@ -138,27 +123,23 @@ export class RegionPickMode {
       if (this.highlightedOriginalOpacity !== null) {
         mat.opacity = this.highlightedOriginalOpacity;
       }
-      this.highlightedMesh = null;
-      this.highlightedOriginalColor = null;
-      this.highlightedOriginalOpacity = null;
+      this.forgetHighlight();
     }
   }
 
-  /** Raycast against pick-region meta face meshes and return the closest hit Mesh + world point. */
+  /** The closest pick-region mesh under the pointer, with the hit point. */
   private raycastRegions(clientX: number, clientY: number): { mesh: Mesh; point: Vector3 } | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = this.canvas.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
     const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
 
-    // Collect all pick-region meshes from the scene
     const regionMeshes: Mesh[] = [];
-    this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj.userData.isPickRegion && obj.children) {
+    this.root.traverse((obj: Object3D) => {
+      if (obj.userData.isPickRegion) {
         for (const child of obj.children) {
-          if ((child as any).isMesh) {
+          if ((child as Mesh).isMesh) {
             regionMeshes.push(child as Mesh);
           }
         }

@@ -479,6 +479,15 @@ export class SketchHoverSelectHandler {
     }
 
     const badge = this.findBadgeAt(e.clientX, e.clientY);
+    if (badge) {
+      // Badges draw over the geometry — while one is hovered it owns the
+      // cursor and no edge hover competes. The edge hover goes BEFORE the
+      // badge tints the entities it references: an edge lit by both would
+      // otherwise have its hover bookkeeping reset over the highlight.
+      if (this.hoveredShapeId) {
+        this.clearHover();
+      }
+    }
     if (badge !== this.hoveredBadge) {
       this.clearBadgeHover();
       if (badge) {
@@ -486,11 +495,6 @@ export class SketchHoverSelectHandler {
       }
     }
     if (badge) {
-      // Badges draw over the geometry — while one is hovered it owns the
-      // cursor and no edge hover competes.
-      if (this.hoveredShapeId) {
-        this.clearHover();
-      }
       this.canvas.style.cursor = 'pointer';
       return;
     }
@@ -613,15 +617,24 @@ export class SketchHoverSelectHandler {
       return;
     }
 
+    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
+
     if (this.hoveredBadge) {
+      // A constraint pick replaces the geometry selection the way an edge
+      // pick does (Ctrl/Cmd and the toggle policy keep it). The selection
+      // change goes out first so the toolbar drops its old delete target
+      // before it notes the picked constraint.
+      if (!isMulti && this.hasSelection()) {
+        this.clearSelection();
+        this.ctx.requestRender();
+        this.onSelectionChange?.();
+      }
       this.onConstraintPick?.({
         objId: this.hoveredBadge.objId,
         sourceLocation: this.hoveredBadge.sourceLocation,
       });
       return;
     }
-
-    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
 
     if (this.hoveredVertex) {
       const key = this.hoveredVertex.key;
@@ -762,7 +775,12 @@ export class SketchHoverSelectHandler {
     }
     this.traverseShapeEdges(shapeId, (line) => {
       const color = SketchHoverSelectHandler.lineColor(line);
-      if (!color || line.userData.selectOriginalColor !== undefined) {
+      // A line already carrying a saved colour (selected, or hover-lit by
+      // another route — the edge hover and a badge hover both reach here)
+      // keeps it: saving again would record the highlight as the colour to
+      // restore, and the line would stay lit for good.
+      if (!color || line.userData.selectOriginalColor !== undefined
+        || line.userData.hoverOriginalColor !== undefined) {
         return;
       }
       line.userData.hoverOriginalColor = color.getHex();
@@ -893,6 +911,10 @@ export class SketchHoverSelectHandler {
       }
     }
     return undefined;
+  }
+
+  private hasSelection(): boolean {
+    return this.selectedShapeIds.size > 0 || this.selectedVertexPicks.size > 0 || this.selectedDatums.size > 0;
   }
 
   private clearSelection(): void {

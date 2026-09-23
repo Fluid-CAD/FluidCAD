@@ -412,7 +412,12 @@ export class SolvedConstraintToolbarService {
   private refreshDelete(): void {
     if (this.pickedConstraint) {
       this.view.setDeleteEnabled(true);
-      this.handler?.setPinnedBadges([]);
+      // The picked chip stays lit until the selection changes (an edge or
+      // vertex pick, an empty-space click) or another chip is picked —
+      // both routes replace `pickedConstraint` and land back here.
+      this.handler?.setPinnedBadges(
+        this.pickedConstraint.objId !== undefined ? [this.pickedConstraint.objId] : [],
+      );
       return;
     }
     const entities = this.entityDeletePlan();

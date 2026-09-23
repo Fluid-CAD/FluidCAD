@@ -5,7 +5,7 @@ import { coincident, distance, horizontal, vertical, symmetric } from "fluidcad/
 // A Ø60 tube, 100 long with a 6 mm wall — a thin extrude of one circle,
 // drawn on the yz plane so the tube runs along X, centred on the plane.
 sketch("yz", () => {
-    circle([0, 0], 60)
+    const c1 = circle([0, 0], 60)
 })
 const tube = extrude(100).symmetric().thin(6)
 

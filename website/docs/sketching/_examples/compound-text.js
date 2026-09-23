@@ -2,5 +2,5 @@
 import { sketch, text } from 'fluidcad/core';
 
 sketch("xy", () => {
-    text("Hello").size(20)
+    const t1 = text("Hello").size(20)
 })

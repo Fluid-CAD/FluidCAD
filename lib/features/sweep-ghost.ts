@@ -1,4 +1,5 @@
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
@@ -18,6 +19,13 @@ export type SweepGhostOptions = {
   extendStart?: number | null;
   /** `.extend('end', …)` run-out along the spine's end tangent, or null. */
   extendEnd?: number | null;
+  /**
+   * The picked `.region()` faces, already resolved from the profile's
+   * regions — swept in place of the profile's own regions. Ignored by a thin
+   * sweep, which offsets the whole profile (the kernel's own rule). Owned by
+   * the caller, who disposes them with the scratch.
+   */
+  faces?: Face[];
 };
 
 export type SweepGhostSolids = {
@@ -83,12 +91,7 @@ function collectSolids(
     return;
   }
 
-  // Thin profiles sweep their offset shell — for a cut too, where the thin
-  // faces are the tool's source (sweep.ts:65).
-  const faces = options.thin
-    ? ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces
-    : FaceMaker2.getRegions(geometries, plane, DRILL_HOLES);
-  scratch.push(...faces);
+  const faces = profileFaces(geometries, plane, options, scratch);
   if (faces.length === 0) {
     return;
   }
@@ -97,6 +100,31 @@ function collectSolids(
   // here, unlike the revolve: separate regions stay separate bodies through
   // the apply too, so the ghost has no coincident walls to merge away.
   solids.push(...SweepOps.makeSweep(extendedSpine(options), faces).solids);
+}
+
+/**
+ * The faces to sweep: the picked regions when the dialog named some, else
+ * the profile's own regions. Thin profiles sweep their offset shell — for a
+ * cut too, where the thin faces are the tool's source (sweep.ts:65). Faces
+ * made here land in `scratch`; picked ones stay the caller's.
+ */
+function profileFaces(
+  geometries: Edge[],
+  plane: Plane,
+  options: SweepGhostOptions,
+  scratch: Shape[],
+): Face[] {
+  if (options.thin) {
+    const faces = ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces;
+    scratch.push(...faces);
+    return faces;
+  }
+  if (options.faces) {
+    return options.faces;
+  }
+  const faces = FaceMaker2.getRegions(geometries, plane, DRILL_HOLES);
+  scratch.push(...faces);
+  return faces;
 }
 
 /**

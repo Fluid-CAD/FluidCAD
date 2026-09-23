@@ -28,6 +28,9 @@ import {
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
 import { Extrudable } from "../helpers/types.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
+import { RegionRequest, resolveRegions } from "../features/2d/regions/region-match.js";
+import { sourceRegions } from "../features/2d/regions/source-regions.js";
 import { throughAllLength } from "../helpers/through-all.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
@@ -84,6 +87,12 @@ export type ExtrudeGhostRequest = {
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
+  /**
+   * The dialog's `.region()` picks: the keys of the regions to build, in the
+   * grammar the statement takes. Absent builds every region; an empty list
+   * is the argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionRequest[];
 };
 
 export type RibGhostRequest = {
@@ -122,6 +131,12 @@ export type RevolveGhostRequest = {
   /** The producing statement of the profile to revolve. */
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
+  /**
+   * The dialog's `.region()` picks: the keys of the regions to build, in the
+   * grammar the statement takes. Absent builds every region; an empty list
+   * is the argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionRequest[];
 };
 
 /**
@@ -147,6 +162,12 @@ export type SweepGhostRequest = {
   extendStart?: number | null;
   /** `.extend('end', …)` run-out past the path, or null. */
   extendEnd?: number | null;
+  /**
+   * The dialog's `.region()` picks: the keys of the regions to build, in the
+   * grammar the statement takes. Absent builds every region; an empty list
+   * is the argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionRequest[];
 };
 
 /**
@@ -1901,31 +1922,82 @@ function buildProfileGhost(
 
   const geometries = profileEdges(profile);
   const source = { getGeometries: () => geometries, getPlane: () => plane };
+  const picked = pickedRegionFaces(profile, plane, request.regions);
 
-  if (request.feature === 'revolve') {
-    const axis = resolveGhostAxis(scene, request.axis);
-    if (!axis) {
-      return { reason: 'That axis is not in the rendered scene.' };
+  try {
+    if (request.feature === 'revolve') {
+      const axis = resolveGhostAxis(scene, request.axis);
+      if (!axis) {
+        return { reason: 'That axis is not in the rendered scene.' };
+      }
+      return withPickedScratch(buildRevolveGhostSolids(source, {
+        op: request.op,
+        angle: request.angle,
+        symmetric: request.symmetric,
+        thin: request.thin,
+        axis,
+        faces: picked?.faces,
+      }), picked);
     }
-    return buildRevolveGhostSolids(source, {
+    return withPickedScratch(buildExtrudeGhostSolids(source, {
       op: request.op,
-      angle: request.angle,
+      distance: request.distance,
+      distance2: request.distance2,
       symmetric: request.symmetric,
+      draft: request.draft,
+      endOffset: request.endOffset,
+      drill: request.drill,
       thin: request.thin,
-      axis,
-    });
+      throughAllLength: throughAllGhostLength(scene, geometries, plane),
+      faces: picked?.faces,
+    }), picked);
+  } catch (err) {
+    disposePicked(picked);
+    throw err;
   }
-  return buildExtrudeGhostSolids(source, {
-    op: request.op,
-    distance: request.distance,
-    distance2: request.distance2,
-    symmetric: request.symmetric,
-    draft: request.draft,
-    endOffset: request.endOffset,
-    drill: request.drill,
-    thin: request.thin,
-    throughAllLength: throughAllGhostLength(scene, geometries, plane),
-  });
+}
+
+/** The region faces a `.region()` pick resolved to, plus every other region face to free. */
+type PickedRegions = { faces: Face[]; scratch: Shape[] };
+
+/**
+ * Resolve the dialog's `.region()` keys against the profile's regions, the
+ * way `ExtrudeBase.resolveRegionFaces` does for the applied statement: the
+ * keys that match are the faces to build, the rest of the arrangement is
+ * scratch. Keys that do not resolve are dropped — the apply reports them,
+ * the ghost just shows what resolved. Null when the dialog picked nothing
+ * (every region builds, the kernel's default).
+ */
+function pickedRegionFaces(
+  profile: Extrudable,
+  plane: Plane,
+  keys: RegionRequest[] | undefined,
+): PickedRegions | null {
+  if (keys === undefined) {
+    return null;
+  }
+  const regions = sourceRegions(profile, plane, profileEdgesWithOwner(profile));
+  const { selected } = resolveRegions(keys, regions);
+  const faces = selected.map(region => region.face);
+  const scratch = regions.map(region => region.face).filter(face => !faces.includes(face));
+  return { faces, scratch };
+}
+
+/** Hand the picked regions' shapes to the build's scratch, so one disposal frees them all. */
+function withPickedScratch(
+  built: { solids: Shape[]; scratch: Shape[] },
+  picked: PickedRegions | null,
+): { solids: Shape[]; scratch: Shape[] } {
+  if (picked) {
+    built.scratch.push(...picked.faces, ...picked.scratch);
+  }
+  return built;
+}
+
+function disposePicked(picked: PickedRegions | null): void {
+  for (const shape of picked ? [...picked.faces, ...picked.scratch] : []) {
+    shape.dispose();
+  }
 }
 
 /**
@@ -2018,6 +2090,10 @@ function buildSweepGhost(scene: Scene, request: SweepGhostRequest): GhostBuild {
       return { reason: 'That path is not in the rendered scene.' };
     }
     const geometries = profileEdges(profile);
+    const picked = pickedRegionFaces(profile, plane, request.regions);
+    if (picked) {
+      scratch.push(...picked.faces, ...picked.scratch);
+    }
     const built = buildSweepGhostSolids(
       { getGeometries: () => geometries, getPlane: () => plane },
       {
@@ -2026,6 +2102,7 @@ function buildSweepGhost(scene: Scene, request: SweepGhostRequest): GhostBuild {
         path,
         extendStart: request.extendStart ?? null,
         extendEnd: request.extendEnd ?? null,
+        faces: picked?.faces,
       },
     );
     scratch.push(...built.scratch);
@@ -2329,7 +2406,7 @@ function orUndefined(value: number | null): number | undefined {
  * never share a line, but a container's children are walked too — a sketch
  * nested in a `part()` is only reachable through its parent in some scenes.
  */
-function findProfile(
+export function findProfile(
   scene: Scene,
   ref: { filePath: string; line: number },
 ): Extrudable | null {
@@ -2492,9 +2569,23 @@ function findShapeById(scene: Scene, shapeId: string): Shape | null {
  * dedupes the lazy-accessor and `select()` children, which share `Edge`
  * instances with the primitive that built them.
  */
-function profileEdges(profile: Extrudable): Edge[] {
+export function profileEdges(profile: Extrudable): Edge[] {
   const edges = profile.getGeometries();
   return edges.length > 0 ? edges : unconsumedEdges(profile);
+}
+
+/**
+ * The profile's edges with the statements that drew them — what a region
+ * arrangement is keyed on — read through the same blind spot as
+ * {@link profileEdges}: a sketch the edited statement has already consumed
+ * reads as if nothing had.
+ */
+export function profileEdgesWithOwner(profile: Extrudable): Map<Edge, GeometrySceneObject> {
+  const edges = profile.getGeometriesWithOwner();
+  if (edges.size > 0 || !(profile instanceof Sketch)) {
+    return edges;
+  }
+  return profile.getEdgesWithOwner(undefined, new Set<SceneObject>());
 }
 
 /**

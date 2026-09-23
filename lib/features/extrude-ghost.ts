@@ -28,6 +28,13 @@ export type ExtrudeGhostOptions = {
   thin: [number] | [number, number] | null;
   /** Ghost length for a through-all cut; the caller derives it from scene bounds. */
   throughAllLength: number;
+  /**
+   * The picked `.region()` faces, already resolved from the profile's
+   * regions — built in place of the profile's own regions. Ignored by a thin
+   * extrude, which offsets the whole profile (the kernel's own rule). Owned
+   * by the caller, who disposes them with the scratch.
+   */
+  faces?: Face[];
 };
 
 export type ExtrudeGhostSolids = {
@@ -83,12 +90,7 @@ function buildSolids(
     return [];
   }
 
-  // Thin profiles extrude their offset shell — for a cut too, where the thin
-  // faces are the tool's source (extrude.ts:43).
-  const faces = options.thin
-    ? ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces
-    : FaceMaker2.getRegions(geometries, plane, options.drill);
-  scratch.push(...faces);
+  const faces = profileFaces(geometries, plane, options, scratch);
   if (faces.length === 0) {
     return [];
   }
@@ -108,6 +110,31 @@ function buildSolids(
   }
 
   return new Extruder(faces, plane, span.to, draft).extrude();
+}
+
+/**
+ * The faces to sweep: the picked regions when the dialog named some, else
+ * the profile's own regions. Thin profiles extrude their offset shell — for a
+ * cut too, where the thin faces are the tool's source (extrude.ts:43). Faces
+ * made here land in `scratch`; picked ones stay the caller's.
+ */
+function profileFaces(
+  geometries: Edge[],
+  plane: Plane,
+  options: ExtrudeGhostOptions,
+  scratch: Shape[],
+): Face[] {
+  if (options.thin) {
+    const faces = ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces;
+    scratch.push(...faces);
+    return faces;
+  }
+  if (options.faces) {
+    return options.faces;
+  }
+  const faces = FaceMaker2.getRegions(geometries, plane, options.drill);
+  scratch.push(...faces);
+  return faces;
 }
 
 /**

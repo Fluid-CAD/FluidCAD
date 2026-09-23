@@ -267,9 +267,14 @@ export type RemovePointMessage = {
   sourceLocation: { line: number; column: number };
 };
 
-export type SetPickPointsMessage = {
-  type: 'set-pick-points';
-  points: [number, number][];
+/**
+ * Rewrite the region picks of a statement: the `.region(...)` call in its
+ * chain names exactly `keys` afterwards (an empty list keeps the
+ * argument-less `.region()`).
+ */
+export type SetRegionsMessage = {
+  type: 'set-regions';
+  keys: string[];
   sourceLocation: { line: number; column: number };
 };
 
@@ -283,13 +288,15 @@ export type ExportCompleteMessage = {
   posesSource?: 'live' | 'statement';
 };
 
-export type AddPickMessage = {
-  type: 'add-pick';
+/** Append `.region()` to a statement's chain: region picking goes on. */
+export type AddRegionMessage = {
+  type: 'add-region';
   sourceLocation: { line: number; column: number };
 };
 
-export type RemovePickMessage = {
-  type: 'remove-pick';
+/** Strip an argument-less `.region()` from a statement's chain. */
+export type RemoveRegionMessage = {
+  type: 'remove-region';
   sourceLocation: { line: number; column: number };
 };
 
@@ -431,9 +438,9 @@ export type ServerToExtensionMessage =
   | ImportCompleteMessage
   | InsertPointMessage
   | RemovePointMessage
-  | SetPickPointsMessage
-  | AddPickMessage
-  | RemovePickMessage
+  | SetRegionsMessage
+  | AddRegionMessage
+  | RemoveRegionMessage
   | AddBreakpointMessage
   | RemoveFeatureMessage
   | ClearBreakpointsMessage

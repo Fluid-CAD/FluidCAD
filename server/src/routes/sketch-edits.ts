@@ -10,11 +10,11 @@ import {
   removePoint,
   addGuide,
   removeGuide,
-  addPick,
-  removePick,
+  addRegion,
+  removeRegion,
   removeStatement,
   setFeatureName,
-  setPickPoints,
+  setRegions,
   insertGeometryCallWithVariable,
   insertLoadCall,
   updateSketchPositions,
@@ -33,6 +33,11 @@ import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
+
+/** The region keys of a set-regions body: an array of strings, nothing else. */
+function isRegionKeyList(input: unknown): input is string[] {
+  return Array.isArray(input) && input.every((key) => typeof key === 'string');
+}
 
 function validateOneNewVariable(input: unknown): { name: string; initializer: string } | false {
   if (typeof input !== 'object' || input === null) {
@@ -146,7 +151,7 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/add-pick', (req, res) => {
+  router.post('/add-region', (req, res) => {
     const { sourceLocation } = req.body;
     if (
       !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
@@ -155,13 +160,13 @@ export function createSketchEditsRouter(
       return;
     }
     sendToExtension({
-      type: 'add-pick',
+      type: 'add-region',
       sourceLocation,
     });
     res.json({ success: true });
   });
 
-  router.post('/remove-pick', (req, res) => {
+  router.post('/remove-region', (req, res) => {
     const { sourceLocation } = req.body;
     if (
       !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
@@ -170,7 +175,7 @@ export function createSketchEditsRouter(
       return;
     }
     sendToExtension({
-      type: 'remove-pick',
+      type: 'remove-region',
       sourceLocation,
     });
     res.json({ success: true });
@@ -206,18 +211,18 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/set-pick-points', (req, res) => {
-    const { points, sourceLocation } = req.body;
+  router.post('/set-regions', (req, res) => {
+    const { keys, sourceLocation } = req.body;
     if (
-      !Array.isArray(points) ||
+      !isRegionKeyList(keys) ||
       !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
     sendToExtension({
-      type: 'set-pick-points',
-      points: points as [number, number][],
+      type: 'set-regions',
+      keys,
       sourceLocation,
     });
     res.json({ success: true });
@@ -523,28 +528,28 @@ export function createSketchEditsRouter(
     }
   });
 
-  router.post('/code/add-pick', async (req, res) => {
+  router.post('/code/add-region', async (req, res) => {
     const { code, sourceLine } = req.body;
     if (typeof code !== 'string' || typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
     try {
-      const result = await addPick(code, sourceLine);
+      const result = await addRegion(code, sourceLine);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
   });
 
-  router.post('/code/remove-pick', async (req, res) => {
+  router.post('/code/remove-region', async (req, res) => {
     const { code, sourceLine } = req.body;
     if (typeof code !== 'string' || typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
     try {
-      const result = await removePick(code, sourceLine);
+      const result = await removeRegion(code, sourceLine);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -684,17 +689,17 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/code/set-pick-points', async (req, res) => {
-    const { code, sourceLine, points } = req.body;
+  router.post('/code/set-regions', async (req, res) => {
+    const { code, sourceLine, keys } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !Array.isArray(points)
+      !isRegionKeyList(keys)
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
     try {
-      const result = await setPickPoints(code, sourceLine, points as [number, number][]);
+      const result = await setRegions(code, sourceLine, keys);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

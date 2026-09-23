@@ -141,15 +141,31 @@ Forwards a remove-point command to the extension, which removes a point from the
 
 ---
 
-#### `POST /api/set-pick-points`
+#### `POST /api/add-region` / `POST /api/remove-region`
 
-Forwards a batch of pick points to the extension for source code insertion.
+Forwards a request to the extension to append `.region()` to the statement's chain (region picking on) or to strip an argument-less `.region()` from it.
 
 **Request body:**
 
 ```json
 {
-  "points": [[10, 20], [30, 40]],
+  "sourceLocation": { "line": 5, "column": 12 }
+}
+```
+
+**Response:** `200 { "success": true }` or `400` on invalid body.
+
+---
+
+#### `POST /api/set-regions`
+
+Forwards the statement's region picks to the extension, which rewrites the `.region(...)` call's arguments to exactly these keys (an empty list writes `.region()`).
+
+**Request body:**
+
+```json
+{
+  "keys": ["b r t l", "c1"],
   "sourceLocation": { "line": 5, "column": 12 }
 }
 ```
@@ -301,5 +317,7 @@ The server communicates with the editor extension via Node.js IPC (`process.send
 | `import-complete`  | File import result                                |
 | `insert-point`     | Request to insert a point in source code          |
 | `remove-point`     | Request to remove a point from source code        |
-| `set-pick-points`  | Request to set pick points in source code         |
+| `add-region`       | Request to append `.region()` to a statement      |
+| `remove-region`    | Request to strip an empty `.region()`             |
+| `set-regions`      | Request to set a statement's region keys          |
 | `export-complete`  | Export result (base64 data or error)              |

@@ -1,5 +1,6 @@
 import path from 'path';
-import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
+import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_NAME_HINTS } from './sketch-symbols.ts';
+import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 import { parseProjectUnit } from './project-config.ts';
 import { ASSEMBLY_UNIT_MESSAGE, unknownUnitMessage } from './unit-lint.ts';
 
@@ -158,8 +159,8 @@ export function* walkTree(node: TSNode): Generator<TSNode> {
  *
  * "Outermost" means: of all call_expression nodes starting on the resolved
  * row, return the one with the largest endIndex. That picks the whole
- * `.pick()` chain for `extrude(sk).pick()` and the only call on the row for
- * the multi-line case
+ * `.region()` chain for `extrude(sk).region()` and the only call on the row
+ * for the multi-line case
  *   fillet(4,
  *     edge().circle()
  *   )
@@ -213,15 +214,6 @@ function findMemberCallInChain(call: TSNode, memberName: string): TSNode | null 
     break;
   }
   return null;
-}
-
-/**
- * If `call` or any call in its `function` chain invokes `.pick(...)`, return
- * the call_expression for that `.pick()` invocation. Centralises the
- * "is this chain already picked?" check for addPick and removePick.
- */
-function findPickCallInChain(call: TSNode): TSNode | null {
-  return findMemberCallInChain(call, 'pick');
 }
 
 /**
@@ -330,20 +322,6 @@ function collectChainPointArgs(call: TSNode): TSNode[] {
 
 export function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
   return code.slice(0, startIndex) + replacement + code.slice(endIndex);
-}
-
-/**
- * For point edits (insertPoint / removePoint / setPickPoints), the target is
- * always the `.pick()` call if one exists in the chain — otherwise the
- * outermost call itself. Without this, a chain like
- *   extrude(sk).pick([1, 2]).symmetric([3, 4], [5, 6])
- * would drop new points into `.symmetric(...)` instead of `.pick(...)`,
- * because `findEditableCallAt` picks the outermost (largest endIndex) call.
- * The bezier draw-mode flow has no `.pick()` in its chain, so falling back
- * to the outermost keeps bezier(...) point edits working.
- */
-function resolvePointEditTarget(call: TSNode): TSNode {
-  return findPickCallInChain(call) ?? call;
 }
 
 /**
@@ -1021,6 +999,12 @@ function consumeLeadingSeparator(code: string, to: number): number {
   return to;
 }
 
+/**
+ * Append an `[x, y]` point to the call on the resolved row — the bezier
+ * draw-mode flow adding a control point to the `bezier(...)` it is drawing.
+ * The outermost call on the row is the target: a bezier chain has no
+ * trailing modifier that would take the point instead.
+ */
 export function insertPoint(
   code: string,
   sourceLine: number,
@@ -1031,8 +1015,7 @@ export function insertPoint(
     if (!call) {
       return null;
     }
-    const target = resolvePointEditTarget(call);
-    const args = getArgumentsNode(target);
+    const args = getArgumentsNode(call);
     if (!args) {
       return null;
     }
@@ -1044,13 +1027,19 @@ export function insertPoint(
   });
 }
 
-export function addPick(code: string, sourceLine: number): Promise<CodeEditResult> {
+/**
+ * Append `.region()` to the call chain on the resolved row — the extrude,
+ * cut, revolve, sweep and wrap dialogs turning region picking on for a
+ * statement that takes the whole sketch today. A chain that already has a
+ * `.region(` call, with or without keys, is left alone.
+ */
+export function addRegion(code: string, sourceLine: number): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call || findPickCallInChain(call)) {
+    if (!call || findMemberCallInChain(call, 'region')) {
       return null;
     }
-    return spliceCode(code, call.endIndex, call.endIndex, '.pick()');
+    return spliceCode(code, call.endIndex, call.endIndex, '.region()');
   });
 }
 
@@ -1072,7 +1061,7 @@ export function addGuide(code: string, sourceLine: number): Promise<CodeEditResu
 /**
  * Remove the `.guide()` call from the chain on the resolved row — the Guide
  * toggle converting selected construction geometry back to real geometry.
- * Only an argument-less `.guide()` is stripped, mirroring `removePick`.
+ * Only an argument-less `.guide()` is stripped, mirroring `removeRegion`.
  */
 export function removeGuide(code: string, sourceLine: number): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
@@ -1098,33 +1087,38 @@ export function removeGuide(code: string, sourceLine: number): Promise<CodeEditR
 }
 
 /**
- * Remove an empty `.pick()` call from the chain on the resolved row.
- * Calls with points are left untouched so concurrent/stale edits cannot
- * discard user data.
+ * Remove an empty `.region()` call from the chain on the resolved row — the
+ * dialogs turning region picking back off. A `.region(...)` that names
+ * regions is left untouched so a stale edit cannot discard the user's picks.
  */
-export function removePick(code: string, sourceLine: number): Promise<CodeEditResult> {
+export function removeRegion(code: string, sourceLine: number): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
     if (!call) {
       return null;
     }
-    const pickCall = findPickCallInChain(call);
-    if (!pickCall) {
+    const regionCall = findMemberCallInChain(call, 'region');
+    if (!regionCall) {
       return null;
     }
-    const pickArgs = getArgumentsNode(pickCall);
-    if (!pickArgs || pickArgs.namedChildren.length !== 0) {
+    const regionArgs = getArgumentsNode(regionCall);
+    if (!regionArgs || regionArgs.namedChildren.length !== 0) {
       return null;
     }
-    const member = pickCall.childForFieldName('function');
+    const member = regionCall.childForFieldName('function');
     const object = member ? member.childForFieldName('object') : null;
     if (!object) {
       return null;
     }
-    return spliceCode(code, object.endIndex, pickCall.endIndex, '');
+    return spliceCode(code, object.endIndex, regionCall.endIndex, '');
   });
 }
 
+/**
+ * Remove the `[x, y]` point nearest to `point` from the call on the resolved
+ * row — the bezier draw-mode flow taking a control point back. Like
+ * `insertPoint` it edits the outermost call on the row.
+ */
 export function removePoint(
   code: string,
   sourceLine: number,
@@ -1135,8 +1129,7 @@ export function removePoint(
     if (!call) {
       return null;
     }
-    const target = resolvePointEditTarget(call);
-    const args = getArgumentsNode(target);
+    const args = getArgumentsNode(call);
     if (!args || args.namedChildren.length === 0) {
       return null;
     }
@@ -1176,22 +1169,43 @@ export function removePoint(
   });
 }
 
-export function setPickPoints(
+/**
+ * A region key as a single-quoted JS string literal. Keys only ever hold
+ * `[\w$#\[\].\- ]`, but a quote or backslash that did slip in must not
+ * break the statement, so both are escaped.
+ */
+function quoteRegionKey(key: string): string {
+  return `'${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * Rewrite the region picks of the statement on the resolved row: the
+ * `.region(...)` call in the chain gets `keys` as its arguments, replacing
+ * whatever it named before, and a chain without one gets `.region(<keys>)`
+ * appended. The `.region()` call is edited wherever it sits in the chain —
+ * `extrude(sk).region('c1').symmetric()` keeps its `.symmetric()` — and an
+ * empty list writes the argument-less `.region()`, which keeps region
+ * picking on with nothing selected.
+ */
+export function setRegions(
   code: string,
   sourceLine: number,
-  points: [number, number][],
+  keys: string[],
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
     if (!call) {
       return null;
     }
-    const target = resolvePointEditTarget(call);
-    const args = getArgumentsNode(target);
+    const newArgs = keys.map(quoteRegionKey).join(', ');
+    const regionCall = findMemberCallInChain(call, 'region');
+    if (!regionCall) {
+      return spliceCode(code, call.endIndex, call.endIndex, `.region(${newArgs})`);
+    }
+    const args = getArgumentsNode(regionCall);
     if (!args) {
       return null;
     }
-    const newArgs = points.map((p) => `[${p[0]}, ${p[1]}]`).join(', ');
     return spliceCode(code, args.startIndex + 1, args.endIndex - 1, newArgs);
   });
 }
@@ -1592,10 +1606,38 @@ export async function ensureSymbolImport(
 }
 
 /**
+ * The drawn statement bound to a fresh variable — `const c2 = circle(…);`.
+ * A sketch region is keyed by the names of the statements on its boundary
+ * (`extrude(20).region('c2')`); an unbound statement only has an ordinal
+ * (`circle#2`) that shifts when an earlier circle goes and changes outright
+ * when the constraint rail hoists the statement later, so a statement gets
+ * its name the moment it is written. The name comes from the same allocator
+ * the hoist uses, past every binding the file holds. Only a bare,
+ * single-line call of a kind that allocator names (a statement kind with a
+ * name hint) qualifies: a statement already bound, a multi-line one, or a
+ * callee without a hint (a legacy pen statement) is written as given.
+ */
+function bindDrawnStatement(statement: string, used: Set<string>): string {
+  const trimmed = statement.trim();
+  if (trimmed.includes('\n') || /^(const|let|var)\s/.test(trimmed)) {
+    return statement;
+  }
+  const callee = trimmed.match(/^(\w+)\s*\(/)?.[1];
+  if (!callee || SOLVED_ENTITY_NAME_HINTS[callee] === undefined) {
+    return statement;
+  }
+  const name = allocateSolvedName(used, callee);
+  return `const ${name} = ${trimmed.endsWith(';') ? trimmed : `${trimmed};`}`;
+}
+
+/**
  * Insert a new geometry call expression at the end of a sketch's callback
  * body — before the body's first `breakpoint();` if it has one, since a
  * paused build never runs statements after the breakpoint and the drawn
- * geometry would silently vanish.
+ * geometry would silently vanish. The statement lands bound to a fresh
+ * variable (`bindDrawnStatement`) — it is always a new top-level statement
+ * of the body, never one inside a loop or helper, so the `const` is in
+ * scope for every constraint that names it later.
  *
  * @param code - Full source code
  * @param sketchSourceLine - 1-indexed line where the sketch() call starts

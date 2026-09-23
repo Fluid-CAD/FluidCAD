@@ -214,13 +214,13 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.insert_point(code, msg.sourceLocation.line, msg.point)
       end)
-    elseif msg.type == 'add-pick' then
+    elseif msg.type == 'add-region' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.add_pick(code, msg.sourceLocation.line)
+        return code_api.add_region(code, msg.sourceLocation.line)
       end)
-    elseif msg.type == 'remove-pick' then
+    elseif msg.type == 'remove-region' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.remove_pick(code, msg.sourceLocation.line)
+        return code_api.remove_region(code, msg.sourceLocation.line)
       end)
     elseif msg.type == 'add-guide' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
@@ -234,9 +234,9 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.remove_point(code, msg.sourceLocation.line, msg.point)
       end)
-    elseif msg.type == 'set-pick-points' then
+    elseif msg.type == 'set-regions' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.set_pick_points(code, msg.sourceLocation.line, msg.points)
+        return code_api.set_regions(code, msg.sourceLocation.line, msg.keys)
       end)
     elseif msg.type == 'update-insert-chain' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)

@@ -26,7 +26,6 @@ import { SketchEntityDelete, type SketchDeleteSpec } from './sketch-entity-delet
 import {
   applyDistanceTangency,
   applySolvedEmission,
-  collectIdentifiers,
   enclosingLoop,
   hoistSolvedStatement,
   solvedTargetCallee,
@@ -34,6 +33,7 @@ import {
   type DistanceTangencySpec,
   type SolvedEmissionSpec,
 } from './sketch-solved-edit.ts';
+import { collectIdentifiers } from './sketch-names.ts';
 import { renderSolvedTarget, type SketchExportRequest, type SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';

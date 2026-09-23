@@ -10,12 +10,11 @@
 
 import { ensureSymbolImport, splitLines, type SketchPositionEdit, type TSNode } from './code-editor.ts';
 import {
-  allocateSolvedName,
   applySolvedEmission,
-  collectIdentifiers,
   hoistSolvedStatement,
   type SolvedConstraintEmission,
 } from './sketch-solved-edit.ts';
+import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 import {
   LINE_RULES,
   ROUND_RULES,

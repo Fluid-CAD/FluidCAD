@@ -1661,6 +1661,7 @@ export async function insertGeometryCall(
     return { newCode: code };
   }
 
+  const bound = bindDrawnStatement(statement, collectIdentifiers(tree));
   const bodyChildren = body.namedChildren;
   let insertRow: number;
   let indent: string;
@@ -1697,12 +1698,13 @@ export async function insertGeometryCall(
     indent = indentOf(lines, body.startPosition.row) + '  ';
   }
 
-  const newLine = statement.split('\n').map(l => `${indent}${l}`).join('\n');
+  const newLine = bound.split('\n').map(l => `${indent}${l}`).join('\n');
   lines.splice(insertRow, 0, newLine);
   let result = joinLines(lines);
 
   // A multi-line statement (e.g. `move(…);\ntext(…)`) needs every line's
-  // callee imported, not just the first.
+  // callee imported, not just the first. The unbound text is scanned — the
+  // callee of a bound line no longer opens it.
   for (const stmtLine of statement.split('\n')) {
     const funcName = stmtLine.trim().match(/^(\w+)\s*\(/)?.[1];
     if (funcName) {

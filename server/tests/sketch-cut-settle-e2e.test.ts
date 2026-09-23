@@ -161,21 +161,23 @@ describe('cutting a constrained sketch keeps its geometry at rest', () => {
       settle,
     });
     expect(result.error).toBeUndefined();
-    expect(result.names).toEqual(['l7', 'l1']);
+    // The second piece is named past the sketch's highest line (l8) — a
+    // lower number nothing uses any more is never handed out again.
+    expect(result.names).toEqual(['l7', 'l9']);
     // Each new end is pinned to the circle that cut it.
     expect(plan.request.cutters).toEqual([{ line: 5, featureType: 'circle' }, { line: 5, featureType: 'circle' }]);
     expect(result.newCode).toContain(`coincident(l7.end(), c2);`);
-    expect(result.newCode).toContain(`coincident(l1.start(), c2);`);
+    expect(result.newCode).toContain(`coincident(l9.start(), c2);`);
     // The rewritten statements carry solved coordinates on both sides of the cut.
     expect(result.newCode).toContain(`const l7 = line([46.27, 17.03], [25.45, 17.03]);`);
-    expect(result.newCode).toContain(`const l1 = line([-25.45, 17.03], [-46.27, 17.03]);`);
+    expect(result.newCode).toContain(`const l9 = line([-25.45, 17.03], [-46.27, 17.03]);`);
     expect(result.newCode).toContain(`const c2 = circle([0, 0], 61.24);`);
 
     getSceneManager()!.startScene();
     const after = solvedModel(result.newCode);
     expect(maxDrift(model, after, 'l7')).toBeLessThan(REST_TOL);
     const first = byName(after, 'l7');
-    const second = byName(after, 'l1');
+    const second = byName(after, 'l9');
     expect(first.end![0]).toBeCloseTo(25.45, 2);
     expect(second.start![0]).toBeCloseTo(-25.45, 2);
     expect(second.end![0]).toBeCloseTo(-46.27, 2);
@@ -205,11 +207,11 @@ describe('cutting a constrained sketch keeps its geometry at rest', () => {
     });
     expect(arcResult.error).toBeUndefined();
     expect(arcResult.newCode).toMatch(/const c2 = arc\(\[-25\.45, 17\.03\], \[25\.45, 17\.03\], \[0, 0\]\);/);
-    expect(arcResult.newCode).toContain(`coincident(c2.start(), l1.start());`);
+    expect(arcResult.newCode).toContain(`coincident(c2.start(), l9.start());`);
     expect(arcResult.newCode).toContain(`coincident(c2.end(), l7.end());`);
     // The first trim's point-on-circle pins are superseded, not reported.
     expect(arcResult.newCode).not.toContain(`coincident(l7.end(), c2);`);
-    expect(arcResult.newCode).not.toContain(`coincident(l1.start(), c2);`);
+    expect(arcResult.newCode).not.toContain(`coincident(l9.start(), c2);`);
     expect(arcResult.removed).toBeUndefined();
   });
 
@@ -263,7 +265,7 @@ describe('cutting a constrained sketch keeps its geometry at rest', () => {
     getSceneManager()!.startScene();
     const after = solvedModel(result.newCode);
     expect(maxDrift(model, after, 'l7')).toBeLessThan(REST_TOL);
-    expect(byName(after, 'l1').end![0]).toBeCloseTo(-46.27, 2);
+    expect(byName(after, 'l9').end![0]).toBeCloseTo(-46.27, 2);
   });
 
   it('would let the geometry jump without the settle', async () => {

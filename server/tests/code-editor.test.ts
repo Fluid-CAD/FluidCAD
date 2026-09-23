@@ -555,7 +555,7 @@ describe('insertGeometryCall', () => {
       `import { sketch, line } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `})`,
       ``,
     ].join('\n'));
@@ -575,7 +575,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 3, 'circle([0, 0], 5)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  circle([0, 0], 5)`,
+      `  const c1 = circle([0, 0], 5);`,
       `  horizontal(a);`,
     ].join('\n'));
   });
@@ -594,7 +594,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
       `  horizontal(a);`,
-      `  offset(2, a)`,
+      `  const o1 = offset(2, a);`,
     ].join('\n'));
   });
 
@@ -612,7 +612,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 2, 'circle([0, 0], 5)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  circle([0, 0], 5)`,
+      `  const c1 = circle([0, 0], 5);`,
       `  const o = offset(2, a);`,
     ].join('\n'));
   });
@@ -629,7 +629,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 2, 'offset(2, a)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  offset(2, a)`,
+      `  const o1 = offset(2, a);`,
       `  return { a };`,
     ].join('\n'));
   });
@@ -647,7 +647,7 @@ describe('insertGeometryCall', () => {
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'line([10, 0], [20, 0])');
     expect(result.newCode).toContain([
-      `  line([10, 0], [20, 0])`,
+      `  const l1 = line([10, 0], [20, 0]);`,
       `  offset(2, a);`,
     ].join('\n'));
   });
@@ -666,7 +666,7 @@ describe('insertGeometryCall', () => {
       `import { sketch, line, breakpoint } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `  breakpoint()`,
       `})`,
       ``,
@@ -687,7 +687,7 @@ describe('insertGeometryCall', () => {
       `import { sketch, line, breakpoint } from 'fluidcad/core';`,
       `const s = sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `  breakpoint()`,
       `}).reusable();`,
       ``,
@@ -705,7 +705,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toBe([
       `import { circle, sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  circle([5, 5], 10)`,
+      `  const c1 = circle([5, 5], 10);`,
       `})`,
       ``,
     ].join('\n'));
@@ -734,7 +734,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toBe([
       `import { line } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  line([0, 0], [10, 10])`,
+      `  const l1 = line([0, 0], [10, 10]);`,
       `})`,
       ``,
     ].join('\n'));

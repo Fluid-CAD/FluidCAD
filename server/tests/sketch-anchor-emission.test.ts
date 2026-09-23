@@ -118,13 +118,14 @@ describe('applySolvedEmission — anchor-point targets', () => {
       ],
     });
     expect(result.error).toBeUndefined();
-    // The source bezier hoists like any entity statement; the new one binds
-    // under the bezier name hint; every row names control points.
-    expect(result.newCode).toContain('const bz1 = bezier([0, 0], [50, 50], a.end());');
-    expect(result.newCode).toContain('const bz2 = bezier([0, 0], [-50, 50], [-100, 0]);');
-    expect(result.newCode).toContain('symmetric(bz1.point(0), bz2.point(0), yAxis());');
-    expect(result.newCode).toContain('symmetric(bz1.point(1), bz2.point(1), yAxis());');
-    expect(result.newCode).toContain('symmetric(a.end(), bz2.point(2), yAxis());');
+    // The new bezier binds first under the bezier name hint; the source
+    // bezier then hoists like any entity statement; every row names control
+    // points.
+    expect(result.newCode).toContain('const bz1 = bezier([0, 0], [-50, 50], [-100, 0]);');
+    expect(result.newCode).toContain('const bz2 = bezier([0, 0], [50, 50], a.end());');
+    expect(result.newCode).toContain('symmetric(bz2.point(0), bz1.point(0), yAxis());');
+    expect(result.newCode).toContain('symmetric(bz2.point(1), bz1.point(1), yAxis());');
+    expect(result.newCode).toContain('symmetric(a.end(), bz1.point(2), yAxis());');
     const coreImport = result.newCode.split('\n')[0];
     expect(coreImport).toMatch(/^import \{[^}]*\} from "fluidcad\/core";$/);
     expect(coreImport).toMatch(/\bbezier\b/);
@@ -132,7 +133,7 @@ describe('applySolvedEmission — anchor-point targets', () => {
     // The new constraints import shifts the body by a line; the reported
     // geometry line points at the emitted bezier after that shift.
     expect(result.geometryLines).toHaveLength(1);
-    expect(result.newCode.split('\n')[result.geometryLines![0] - 1]).toContain('const bz2 = bezier(');
+    expect(result.newCode.split('\n')[result.geometryLines![0] - 1]).toContain('const bz1 = bezier(');
   });
 
   it('refuses a newIndex target that names an emitted bezier as a whole, or with the wrong featureType', async () => {

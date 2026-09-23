@@ -17,16 +17,15 @@ import {
   ensureSymbolImport, findEditableCallAt, splitLines, type SketchPositionEdit, type TSNode, type TSTree,
 } from './code-editor.ts';
 import {
-  allocateSolvedName,
   applySolvedEmission,
   boundVariableName,
   chainBase,
-  collectIdentifiers,
   enclosingStatement,
   hoistSolvedStatement,
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
 } from './sketch-solved-edit.ts';
+import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 import {
   LINE_RULES,
   ROUND_RULES,

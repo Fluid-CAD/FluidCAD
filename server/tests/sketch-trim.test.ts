@@ -251,10 +251,11 @@ describe('SketchTrim.apply', () => {
       cutters: [{ line: 6, featureType: 'line', role: 'start' }],
     });
     expect(result.error).toBeUndefined();
+    // The survivor hoists under a name past the highest line already there.
     expect(result.newCode).toBe(src(
-      `const l1 = line([0, 0], [10, 0]);`,
+      `const l3 = line([0, 0], [10, 0]);`,
       `const l2 = line([10, 0], [10, 20]);`,
-      `coincident(l1.end(), l2.start());`,
+      `coincident(l3.end(), l2.start());`,
     ));
   });
 

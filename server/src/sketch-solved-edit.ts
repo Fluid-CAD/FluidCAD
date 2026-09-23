@@ -31,7 +31,6 @@ import {
   joinLines,
   spliceCode,
   splitLines,
-  walkTree,
   type NewVariableDecl,
   type TSNode,
 } from './code-editor.ts';
@@ -40,11 +39,11 @@ import {
   MIRROR_CALLEES,
   SOLVED_CONSTRAINT_KINDS,
   SOLVED_ENTITY_CALLEES,
-  SOLVED_ENTITY_NAME_HINTS,
   SOLVED_GEOMETRY_CALLEES,
   type SolvedEntityKind,
   type SolvedGeometryKind,
 } from './sketch-symbols.ts';
+import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 
 import { renderSolvedTarget, type SolvedEmissionRole, type SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
 export type { SolvedEmissionRole, SolvedEmissionTarget } from '../../lib/dist/selection/sketch-target.js';
@@ -221,8 +220,9 @@ export type SolvedEmissionResult = {
   error?: string;
   /** 1-indexed line of each emitted geometry statement in newCode. */
   geometryLines?: number[];
-  /** Allocated binding name per geometry entry (null = emitted unbound). */
-  names?: (string | null)[];
+  /** The binding name allocated to each geometry entry — every emitted
+   * statement is bound (`const c2 = circle(…)`), referenced or not. */
+  names?: string[];
   /** 1-indexed line of the sketch() statement in newCode — added imports
    * shift it, and a chained follow-up emission must target the new line. */
   sketchLine?: number;
@@ -416,18 +416,6 @@ function followingPushArray(statement: TSNode, bound: string): string | null {
     : null;
 }
 
-export function collectIdentifiers(tree: { rootNode: TSNode }): Set<string> {
-  const names = new Set<string>();
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type === 'identifier'
-      || node.type === 'property_identifier'
-      || node.type === 'shorthand_property_identifier') {
-      names.add(node.text);
-    }
-  }
-  return names;
-}
-
 const VALID_ROLES = new Set<string>(['start', 'end', 'center', 'mid']);
 
 /**
@@ -608,18 +596,10 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
   return callee!;
 }
 
-/** The constraint toolbar and sketch exports share collision-free binding names. */
-export function allocateSolvedName(used: Set<string>, kind: string): string {
-  const hint = SOLVED_ENTITY_NAME_HINTS[kind] ?? 'e';
-  let n = 1;
-  while (used.has(`${hint}${n}`)) {
-    n++;
-  }
-  const name = `${hint}${n}`;
-  used.add(name);
-  return name;
-}
-
+/** Bind an unbound existing statement (`const l3 = line(…)`) so a
+ * constraint can reference it — the shared rail of the constraint toolbar,
+ * the split/trim tools and the sketch exports. A statement the drawing
+ * tools wrote is already bound; this is for hand-written ones. */
 export function hoistSolvedStatement(
   statement: TSNode,
   callee: string,
@@ -778,9 +758,14 @@ export async function applySolvedEmission(
   // referenced statement can legally sit BELOW the constraints region (a
   // copy() in the derived-ops tail, or a hand-written entity down there).
   const targetAnchors: { after: number; indentRow: number }[] = [];
-  const newNames: (string | null)[] = spec.geometry.map((): string | null => null);
-
-  const allocateName = (kind: string): string => allocateSolvedName(used, kind);
+  // Every emitted statement is bound from the start, referenced by a
+  // constraint or not: its name is its region key (`region('c2')`), where an
+  // unbound statement only has an ordinal that shifts under later edits.
+  // Names go to the new statements first, in emission order — a rectangle
+  // reads l1..l4 top to bottom whatever order its constraints name the
+  // sides in — and to hoisted existing statements after, as the targets
+  // reference them.
+  const newNames: string[] = spec.geometry.map(g => allocateSolvedName(used, g.kind));
 
   // Collector arrays read as the plural of what they collect — `lines`,
   // `arcs`, `projects`, `copies` — falling back to a numbered suffix on
@@ -812,8 +797,7 @@ export async function applySolvedEmission(
       }
       let name: string;
       if (typeof target.newIndex === 'number') {
-        name = newNames[target.newIndex]
-          ?? (newNames[target.newIndex] = allocateName(spec.geometry[target.newIndex].kind));
+        name = newNames[target.newIndex];
       } else {
         const line = target.line! + lineShift;
         const call = findEditableCallAt(tree, lines, line);
@@ -988,9 +972,8 @@ export async function applySolvedEmission(
   }
 
   const geometryTexts = spec.geometry.map((g, i) => {
-    const binding = newNames[i] ? `const ${newNames[i]} = ` : '';
     const guide = g.guide && !g.text.includes('.guide(') ? '.guide()' : '';
-    return `${geometryIndent}${binding}${g.text}${guide};`;
+    return `${geometryIndent}const ${newNames[i]} = ${g.text}${guide};`;
   });
 
   // Constraints splice first (the higher row), then geometry (lower or equal

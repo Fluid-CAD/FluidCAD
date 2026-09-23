@@ -54,8 +54,8 @@ describe('applySolvedEmission', () => {
     const lines = result.newCode.split('\n');
     // Geometry lands between the existing entities and horizontal(a); the
     // coincident appends after horizontal(a).
-    // Names allocate in constraint-target order: the new line (newIndex
-    // target) claims l1, the hoisted existing statement gets l2.
+    // New statements are named first, in emission order: the new line
+    // claims l1, the hoisted existing statement gets l2.
     const geomIdx = lines.findIndex(l => l.includes('const l1 = line([100, 50], [0, 50]);'));
     const horizIdx = lines.findIndex(l => l.includes('horizontal(a);'));
     const coincIdx = lines.findIndex(l => l.includes('coincident(l1.start(), l2.end());'));
@@ -224,15 +224,38 @@ describe('applySolvedEmission', () => {
     });
   });
 
-  it('leaves unreferenced geometry unbound and reports null names', async () => {
+  it('binds a drawn circle no constraint references and reports its name', async () => {
+    // The circle tool emits a bare circle with no constraints; the statement
+    // still lands bound — its name is its region key (`region('c1')`).
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,
       geometry: [{ kind: 'circle', text: 'circle([10, 10], 20)' }],
       constraints: [],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  circle([10, 10], 20);\n  horizontal(a);`);
-    expect(result.names).toEqual([null]);
+    expect(result.newCode).toContain(`  const c1 = circle([10, 10], 20);\n  horizontal(a);`);
+    expect(result.names).toEqual(['c1']);
+  });
+
+  it('never resurrects a freed name — the next number is past the highest one present', async () => {
+    const gapped = SKETCH
+      .replace('const a = ', 'const l1 = ')
+      .replace('  line([100, 0], [100, 50]);', '  const l3 = line([100, 0], [100, 50]);')
+      .replace('horizontal(a);', 'horizontal(l1);');
+    const result = await applySolvedEmission(gapped, {
+      sketchLine: 4,
+      geometry: [
+        { kind: 'line', text: 'line([100, 50], [0, 50])' },
+        { kind: 'line', text: 'line([0, 50], [0, 0])' },
+      ],
+      constraints: [],
+    });
+    expect(result.error).toBeUndefined();
+    // l2 was deleted at some point: a new line never takes its name, so a
+    // stale `region('l2')` cannot silently attach to the new statement.
+    expect(result.names).toEqual(['l4', 'l5']);
+    expect(result.newCode).toContain(`  const l4 = line([100, 50], [0, 50]);\n  const l5 = line([0, 50], [0, 0]);`);
+    expect(result.newCode).not.toContain('const l2 =');
   });
 
   it('appends .guide() per geometry entry', async () => {
@@ -244,9 +267,9 @@ describe('applySolvedEmission', () => {
       ],
       constraints: [],
     });
-    expect(result.newCode).toContain('circle([10, 10], 20).guide();');
+    expect(result.newCode).toContain('const c1 = circle([10, 10], 20).guide();');
     // Already-guided text is not double-suffixed.
-    expect(result.newCode).toContain('line([0, 0], [5, 5]).guide();');
+    expect(result.newCode).toContain('const l1 = line([0, 0], [5, 5]).guide();');
     expect(result.newCode).not.toContain('.guide().guide()');
   });
 
@@ -633,14 +656,14 @@ describe('applySolvedEmission: ellipse geometry', () => {
     expect(result.newCode).toContain('horizontal(el1);');
   });
 
-  it('lands an unreferenced ellipse unbound, with .guide() when asked', async () => {
+  it('binds an unreferenced ellipse too, with .guide() when asked', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,
       geometry: [{ kind: 'ellipse', text: 'ellipse([10, 10], rx, 12)', guide: true }],
       constraints: [],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  ellipse([10, 10], rx, 12).guide();\n  horizontal(a);`);
-    expect(result.names).toEqual([null]);
+    expect(result.newCode).toContain(`  const el1 = ellipse([10, 10], rx, 12).guide();\n  horizontal(a);`);
+    expect(result.names).toEqual(['el1']);
   });
 });

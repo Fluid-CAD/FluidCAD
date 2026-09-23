@@ -161,7 +161,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
       role: 'help',
       submenu: [
         ...(isMac ? [] : updateItems()),
-        { label: 'Documentation', click: () => void shell.openExternal('https://fluidcad.io/docs') },
+        { label: 'Documentation', click: () => void shell.openExternal('https://fluidcad.io/docs/introduction/') },
         {
           label: 'Report an Issue',
           click: () => void shell.openExternal('https://github.com/Fluid-CAD/FluidCAD/issues'),

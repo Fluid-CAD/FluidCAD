@@ -11,6 +11,7 @@ import { WrapPanel } from './wrap-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker, RegionProfileRef } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
@@ -52,6 +53,8 @@ export class WrapFeatureService {
   private editSceneStale = false;
   private runner: ApplyRunner<WrapApplyRequest | WrapEditOptions>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
 
   constructor(
     container: HTMLElement,
@@ -98,11 +101,25 @@ export class WrapFeatureService {
       this.refreshHighlight();
       this.runner.schedulePreview();
     };
+    this.panel.onArmedSlotChange = () => {
+      // The face slot took the viewport — region picking hands it over.
+      if (this.panel.armedSlot !== 'sketch') {
+        this.regions.stop();
+      }
+    };
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.regionProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applyWrapEdit(this.editTarget, { ...(request as WrapEditOptions), ...extras })
         : applyWrap({ ...(request as WrapApplyRequest), ...extras }),
@@ -197,6 +214,7 @@ export class WrapFeatureService {
     void this.relabeler.refresh(this.options);
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -235,6 +253,7 @@ export class WrapFeatureService {
     void this.relabeler.refresh(this.options);
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -259,6 +278,8 @@ export class WrapFeatureService {
     this.faceEntity = null;
     this.sourceSlots = null;
     this.editSceneStale = false;
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -298,6 +319,8 @@ export class WrapFeatureService {
       ? { sketch: result.sketch, face: result.face }
       : { sketch: { kind: 'opaque' }, face: { kind: 'opaque' } };
     this.refreshHighlight();
+    // The keep chip's sketch is now known — the region row can offer it.
+    this.regions.sync();
   }
 
   enter(): void {
@@ -308,6 +331,7 @@ export class WrapFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.faceEntity = null;
+    this.regions.reset();
     // Composing a wrap means picking a face on the solid, not looking down
     // the active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
@@ -344,6 +368,7 @@ export class WrapFeatureService {
     this.sourceSlots = null;
     this.editSceneStale = false;
     this.faceEntity = null;
+    this.regions.reset();
     this.syncButton();
     this.runner.cancelPreview();
     this.viewer.clearHighlight();
@@ -434,7 +459,25 @@ export class WrapFeatureService {
       thickness: values.thickness,
       sketch: { filePath: sketch.filePath, line: sketch.line, column: sketch.column },
       face: this.faceEntity,
+      regions: this.regions.keys,
     };
+  }
+
+  /**
+   * The sketch whose regions the picker reads: the chosen one, or an edit
+   * session's kept sketch once `loadEditSources` has resolved it. Null while
+   * neither is known — the region row then offers nothing to pick.
+   */
+  private regionProfile(): RegionProfileRef | null {
+    const selection = this.panel.sketchSelection();
+    if (selection?.kind === 'sketch') {
+      return selection.option.hasGeometry
+        ? { filePath: selection.option.filePath, line: selection.option.line }
+        : null;
+    }
+    return this.sourceSlots?.sketch.kind === 'sketch'
+      ? { filePath: this.sourceSlots.sketch.filePath, line: this.sourceSlots.sketch.line }
+      : null;
   }
 
   /**
@@ -469,6 +512,8 @@ export class WrapFeatureService {
       thickness: values.thickness,
       sketch,
       face,
+      // The dialog owns the chain it shows: the picks shown are the picks written.
+      regions: this.regions.keys,
       expectedStatement: this.session.expectedStatement,
       before: face?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
     };

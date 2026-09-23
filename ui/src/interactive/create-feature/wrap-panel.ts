@@ -6,6 +6,7 @@ import { EntitySlotControl, EntitySlotSelection } from './entity-slot';
 import { WrapOptionValues } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { RegionPickControl } from './region-pick-control';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type WrapValues = WrapOptionValues | { error: string };
@@ -23,6 +24,11 @@ export type WrapSketchSelection = SketchSlotSelection;
 export class WrapPanel extends FeaturePanel {
   /** The face chip's ✕ — the service owns the picked entity. */
   onRemoveFace?: () => void;
+  /** The armed slot changed — the service ends a region pick the sketch slot owned. */
+  onArmedSlotChange?: () => void;
+
+  /** The slot the active state sits on — the one last clicked or filled. */
+  armedSlot: 'sketch' | 'face' = 'face';
 
   private tabs: OpTabs;
   private thicknessField: ExpressionField;
@@ -54,7 +60,7 @@ export class WrapPanel extends FeaturePanel {
     ]);
     this.tabs.onChange = () => this.onChange?.();
 
-    this.sketchSlot = new SketchSlotControl(this.role('sketch-slot'));
+    this.sketchSlot = new SketchSlotControl(this.role('sketch-slot'), { regions: true });
     this.sketchSlot.onArm = () => this.armSlot('sketch');
     this.sketchSlot.onChange = () => this.onChange?.();
     this.faceSlot = new EntitySlotControl(this.role('face-slot'), {
@@ -112,6 +118,11 @@ export class WrapPanel extends FeaturePanel {
     return this.sketchSlot.selectedOption();
   }
 
+  /** The region row under the sketch slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.sketchSlot.regions!;
+  }
+
   /** The sketch slot's state, `keep` included (edit mode only). */
   sketchSelection(): WrapSketchSelection | null {
     return this.sketchSlot.selection();
@@ -163,7 +174,12 @@ export class WrapPanel extends FeaturePanel {
 
   /** Move the active (armed) state onto one slot exclusively. */
   private armSlot(slot: 'sketch' | 'face'): void {
+    const changed = this.armedSlot !== slot;
+    this.armedSlot = slot;
     this.sketchSlot.setArmed(slot === 'sketch');
     this.faceSlot.setArmed(slot === 'face');
+    if (changed) {
+      this.onArmedSlotChange?.();
+    }
   }
 }

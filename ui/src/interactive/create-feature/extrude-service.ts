@@ -13,6 +13,7 @@ import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
@@ -67,6 +68,8 @@ export class ExtrudeFeatureService {
   private sketchUI: SketchUISuspender;
   /** The translucent body the current values would build, drawn in the view. */
   private ghost: FeatureGhostOverlay;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
   private runner: ApplyRunner<ExtrudeApplyRequest | ExtrudeEditOptions>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
@@ -126,12 +129,24 @@ export class ExtrudeFeatureService {
       this.refreshScope();
       this.runner.schedulePreview();
     };
-    this.panel.onArmedPickChange = () => this.syncFacePickMode();
+    this.panel.onArmedPickChange = () => {
+      this.syncFacePickMode();
+      // A face or scope slot took the viewport — region picking hands it over.
+      this.regions.stop();
+    };
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.ghostProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applyExtrudeEdit(this.editTarget, { ...(request as ExtrudeEditOptions), ...extras })
         : applyExtrude({ ...(request as ExtrudeApplyRequest), ...extras }),
@@ -264,6 +279,7 @@ export class ExtrudeFeatureService {
     this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -316,6 +332,7 @@ export class ExtrudeFeatureService {
     this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -345,6 +362,8 @@ export class ExtrudeFeatureService {
     // from the pre-rollback scene, where the edited row still renders.
     this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
     this.scope.seedKeeps(parsed, target.filePath);
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -409,6 +428,7 @@ export class ExtrudeFeatureService {
     this.armed = true;
     this.toFaceEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     // Composing the extrude — and looking over its ghost preview — means the
     // whole scene, not the view down the active sketch plane: leave sketch
@@ -453,6 +473,7 @@ export class ExtrudeFeatureService {
     this.sourceToFace = null;
     this.toFaceEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     this.solidPick.set([]);
     this.editSceneStale = false;
@@ -683,6 +704,7 @@ export class ExtrudeFeatureService {
       drill: values.drill,
       thin: values.thin,
       profile,
+      regions: this.regions.ghostKeys(),
     }, signal);
   }
 
@@ -728,6 +750,7 @@ export class ExtrudeFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
+      regions: this.regions.keys,
     };
   }
 
@@ -773,6 +796,8 @@ export class ExtrudeFeatureService {
       // an explicit drop on New — `.new()` resets the fusion scope, so a
       // statement rewritten to a separate body must not keep one.
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
+      // Likewise the region list: the picks shown are the picks written.
+      regions: this.regions.keys,
     };
   }
 }

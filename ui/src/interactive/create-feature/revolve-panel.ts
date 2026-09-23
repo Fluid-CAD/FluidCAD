@@ -9,6 +9,7 @@ import { RevolveOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { PickSlotChip } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RevolveValues = RevolveOptionValues | { error: string };
@@ -84,7 +85,7 @@ export class RevolvePanel extends FeaturePanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'));
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { regions: true });
     this.profileSlot.onArm = () => this.armSlot('profile');
     this.profileSlot.onChange = () => this.onChange?.();
 
@@ -167,6 +168,11 @@ export class RevolvePanel extends FeaturePanel {
 
   selectedProfile(): SketchProfileOption | null {
     return this.profileSlot.selectedOption();
+  }
+
+  /** The region row under the profile slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.profileSlot.regions!;
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */

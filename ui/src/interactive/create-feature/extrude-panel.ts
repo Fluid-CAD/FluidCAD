@@ -8,6 +8,7 @@ import { ExtrudeFaceTarget, ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { PickSlotChip } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
 
 /**
  * How the extrusion distributes around the sketch plane. The last three end
@@ -136,7 +137,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'));
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { regions: true });
     this.profileSlot.onChange = () => this.onChange?.();
 
     this.faceSlotWrap = this.role('face-slot-wrap');
@@ -269,6 +270,11 @@ export class ExtrudePanel extends FeaturePanel {
 
   selectedOption(): SketchProfileOption | null {
     return this.profileSlot.selectedOption();
+  }
+
+  /** The region row under the profile slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.profileSlot.regions!;
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */

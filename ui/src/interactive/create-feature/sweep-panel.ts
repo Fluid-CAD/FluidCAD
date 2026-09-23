@@ -4,6 +4,7 @@ import { SketchProfileOption, keepChip, sourceChip } from './sketch-profiles';
 import { SketchSlotControl } from './sketch-slot';
 import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
@@ -105,7 +106,7 @@ export class SweepPanel extends FeaturePanel {
     this.thin.onSubmit = () => this.onApply?.();
 
     // Boxed like the path slot below so the two pickers stand equal height.
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { boxed: true });
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { boxed: true, regions: true });
     this.profileSlot.onArm = () => this.armSlot('profile');
     this.profileSlot.onChange = () => this.onChange?.();
     this.pathSlot = new PickSlot(this.role('path-slot'), { label: 'Path', multiple: true });
@@ -207,6 +208,11 @@ export class SweepPanel extends FeaturePanel {
 
   selectedProfile(): SketchProfileOption | null {
     return this.profileSlot.selectedOption();
+  }
+
+  /** The region row under the profile slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.profileSlot.regions!;
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */

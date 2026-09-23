@@ -15,6 +15,7 @@ import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
@@ -71,6 +72,8 @@ export class RevolveFeatureService {
   private relabeler: OptionRelabeler<{ profiles: SketchProfileOption[]; axes: AxisOption[] }>;
   /** The translucent body the current values would sweep. */
   private ghost: FeatureGhostOverlay;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
 
   constructor(
     container: HTMLElement,
@@ -118,18 +121,32 @@ export class RevolveFeatureService {
       this.axisEdgeEntity = null;
       this.refreshHighlight();
     };
-    this.panel.onArmedSlotChange = () => this.syncPickChannels();
+    this.panel.onArmedSlotChange = () => {
+      this.syncPickChannels();
+      // Another slot took the viewport — region picking hands it over.
+      if (this.panel.armedSlot !== 'profile') {
+        this.regions.stop();
+      }
+    };
     this.panel.onRemoveScope = (index) => {
       this.scope.removeAt(index);
       this.panel.setMessage(null);
       this.refreshScope();
       this.runner.schedulePreview();
     };
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.ghostProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applyRevolveEdit(this.editTarget, { ...(request as Parameters<typeof applyRevolveEdit>[1]), ...extras })
         : applyRevolve({ ...(request as RevolveApplyOptions), ...extras }),
@@ -250,6 +267,7 @@ export class RevolveFeatureService {
     this.refreshLabels();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -293,6 +311,7 @@ export class RevolveFeatureService {
     this.refreshLabels();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -321,6 +340,8 @@ export class RevolveFeatureService {
     // from the pre-rollback scene, where the edited row still renders.
     this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
     this.scope.seedKeeps(parsed, target.filePath);
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -373,6 +394,7 @@ export class RevolveFeatureService {
     this.armed = true;
     this.axisEdgeEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     // Composing a revolve means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
@@ -410,6 +432,7 @@ export class RevolveFeatureService {
     this.editSceneStale = false;
     this.axisEdgeEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     this.solidPick.set([]);
     this.syncButton();
@@ -577,6 +600,7 @@ export class RevolveFeatureService {
       thin: values.thin,
       profile,
       axis,
+      regions: this.regions.ghostKeys(),
     }, signal);
   }
 
@@ -676,6 +700,7 @@ export class RevolveFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
+      regions: this.regions.keys,
     };
   }
 
@@ -721,6 +746,8 @@ export class RevolveFeatureService {
       // The dialog owns the chain it shows: the full list on Add/Remove, an
       // explicit drop on New (`.new()` resets the fusion scope).
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
+      // Likewise the region list: the picks shown are the picks written.
+      regions: this.regions.keys,
       expectedStatement: this.session.expectedStatement,
       before: axis?.kind === 'edge' ? this.session.boundary ?? undefined : undefined,
     };

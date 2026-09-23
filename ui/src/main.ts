@@ -25,7 +25,6 @@ import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HISTORY_SHORTCUTS, HistoryToolbar } from './ui/history-toolbar';
 import { ShortcutManager } from './ui/shortcut-manager';
 import { SelectionContextMenu } from './interactive/selection-menu';
-import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick/modify-pick-service';
@@ -882,7 +881,6 @@ new AssemblyToolbar(navbar, {
   },
 });
 
-const regionService = new RegionPickService(viewer, navbar);
 // The Project sketch tool. It is armed from the sketch toolbar, but
 // its picks are solid edges and faces in the free 3D view, so the routing
 // below hands it viewport clicks while it is armed.
@@ -2071,9 +2069,6 @@ sketchService.onActiveChange = (active) => {
 };
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
-  if (regionService.state === 'picking-active') {
-    regionService.exit();
-  }
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
@@ -2740,15 +2735,13 @@ viewer.sceneContext.subscribeCameraChange(scheduleCameraStatePush);
 /**
  * The scope-sensitive service cascade every scene render runs (and a
  * timeline part-row click replays — see {@link refreshActivePartScope}):
- * the region pick triggers, the sketch toolbar, and each dialog
+ * the sketch toolbar, and each dialog
  * service's own scene handling, in the order the services expect.
  */
 function runSceneServices(result: SceneObjectRender[], renderStop: number, isRollback: boolean): void {
   if (isRollback) {
-    regionService.reset();
     sketchService.update([]);
   } else {
-    regionService.update(result);
     // While a pick mode has sketch editing suspended, the sketch
     // toolbar must not re-take the bar on incoming renders. An open
     // projection EDIT counts too (its session owns the rolled-back

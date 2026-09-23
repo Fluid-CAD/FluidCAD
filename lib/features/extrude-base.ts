@@ -544,19 +544,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   protected serializePickFields() {
-    const plane = this.getSourcePlane();
     const regions = this.getState('regions') as { key: string; index: number; selected: boolean }[] | undefined;
     return {
       regionPicking: this.isRegionPicking() || undefined,
       regionKeys: this.isRegionPicking() ? [...this._regionKeys] : undefined,
       regions: this.isRegionPicking() ? regions ?? [] : undefined,
-      trigger: this.isThin() ? undefined : 'region-picking' as const,
-      pickPlane: plane ? {
-        origin: plane.origin,
-        xDirection: plane.xDirection,
-        yDirection: plane.yDirection,
-        normal: plane.normal,
-      } : undefined,
     };
   }
 

@@ -6,10 +6,9 @@ import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
-import { Sketch } from "./2d/sketch.js";
 import { Plane } from "../math/plane.js";
-import { SketchRegion, SketchRegionBuilder } from "./2d/regions/region-builder.js";
-import { SketchStatementKeys } from "./2d/regions/statement-keys.js";
+import { SketchRegion } from "./2d/regions/region-builder.js";
+import { sourceRegions } from "./2d/regions/source-regions.js";
 import { RegionRequest, resolveRegions } from "./2d/regions/region-match.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
@@ -68,16 +67,6 @@ function dedupEdgesByMapExcluding(edges: Edge[], excluded: Edge[]): Edge[] {
   }
   map.delete();
   return result;
-}
-
-/** The sketch a statement sits in, or null for one outside any sketch. */
-function enclosingSketchOf(statement: SceneObject): Sketch | null {
-  for (let parent = statement.getParent(); parent; parent = parent.getParent()) {
-    if (parent instanceof Sketch) {
-      return parent;
-    }
-  }
-  return null;
 }
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
@@ -599,17 +588,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
    * gets ordinal keys.
    */
   protected buildSourceRegions(plane: Plane): SketchRegion[] {
-    const source = this.extrudable;
-    if (source instanceof Sketch) {
-      return source.buildRegions();
-    }
-    const owners = source.getGeometriesWithOwner();
-    const statements = [...new Set(owners.values())];
-    const sketch = statements.map(enclosingSketchOf).find((s): s is Sketch => s !== null) ?? null;
-    const keys = sketch
-      ? sketch.statementKeys()
-      : new SketchStatementKeys(statements, { sketchLocation: null, callbackSource: null });
-    return new SketchRegionBuilder(owners, plane, keys).build();
+    return sourceRegions(this.extrudable, plane);
   }
 
   /**

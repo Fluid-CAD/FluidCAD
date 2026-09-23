@@ -6,3 +6,4 @@ export { SketchRegionBuilder } from "./region-builder.js";
 export type { SketchRegion } from "./region-builder.js";
 export { resolveRegions } from "./region-match.js";
 export type { RegionRequest, RegionResolution } from "./region-match.js";
+export { sourceRegions, enclosingSketchOf } from "./source-regions.js";

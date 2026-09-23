@@ -116,7 +116,7 @@ Thin revolve works with partial revolutions and every tab.
 
 ## Region picking
 
-When the profile sketch has several regions, a **Pick Regions** button appears in the navbar after the revolve is applied. Click it, then click the regions to revolve: each click writes the region's key into `.region()`, clicking a selected region removes it, and **Exit** leaves the mode.
+When the profile sketch has several regions, click **Pick regions** under the Sketch picker of the revolve dialog and click the regions to revolve in the viewport: each click adds the region (the picker counts them, its **✕** clears them), clicking a selected region removes it, and **Done** leaves the mode. **Apply** writes the picks as `.region()` keys.
 
 ```js
 revolve("z").region('c1')         // the pick chose the disc inside circle c1

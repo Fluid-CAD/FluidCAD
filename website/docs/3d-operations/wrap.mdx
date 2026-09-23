@@ -108,7 +108,7 @@ wrap(2, decal, target).add().scope(c)   // fuse only with `c`
 
 ## Region picking
 
-Like extrude, the sketch is partitioned into regions first, nested profiles as holes. To wrap particular regions, click **Pick Regions** in the navbar after applying the wrap and click them in the viewport: each click writes the region's key into `.region()`, clicking a selected region removes it, and **Exit** leaves the mode. `.drill(false)` keeps nested profiles as regions of their own instead of holes:
+Like extrude, the sketch is partitioned into regions first, nested profiles as holes. To wrap particular regions, click **Pick regions** under the Sketch picker of the wrap dialog and click them in the viewport: each click adds the region (the picker counts them, its **✕** clears them), clicking a selected region removes it, and **Done** leaves the mode. **Apply** writes the picks as `.region()` keys. `.drill(false)` keeps nested profiles as regions of their own instead of holes:
 
 ```js
 wrap(2, decal, target).region('c1')        // the pick chose the region inside circle c1

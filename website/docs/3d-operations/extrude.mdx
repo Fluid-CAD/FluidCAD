@@ -225,14 +225,14 @@ Thin extrude works with all extrude modes — symmetric, draft, remove, two dist
 
 ## Region picking
 
-A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude particular regions, pick them in the viewport. The same works on cut, revolve, sweep and wrap.
+A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude particular regions, pick them from the dialog. The same works on cut, revolve, sweep and wrap.
 
 ### Picking in the viewport
 
-1. Apply the extrude. When its sketch has several regions, a **Pick Regions** button appears in the navbar.
-2. Click it. The statement gains an empty `.region()`, which builds nothing, and every region of the sketch shows as a face you can click.
-3. Click a region to add it: its key is written into `.region(...)` and the extrusion rebuilds with it. Click a selected region again to remove it.
-4. **Exit** leaves the mode. With nothing picked it takes the empty `.region()` off again, and the extrude is back to taking every region.
+1. Open the extrude dialog (or double-click an existing extrude in the timeline to edit it) and choose the sketch.
+2. Click **Pick regions** under the Sketch picker. Every region of the sketch shows in the viewport as a face you can click, and the ghost preview follows your picks.
+3. Click a region to add it; click a selected region again to remove it. The picker counts the picks (**2 regions**) and its **✕** clears them all.
+4. **Done** leaves the mode; the picks stay. **Apply** writes them as `.region(...)`, one key per pick — with nothing picked the extrude takes every region and no chain is written.
 
 Two concentric circles make two regions: the ring, and the disc inside the inner circle. Picking the ring writes `extrude(20).region('outer')`:
 

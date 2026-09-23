@@ -57,14 +57,6 @@ function M.remove_point(code, source_line, point)
   return post('remove-point', { code = code, sourceLine = source_line, point = point })
 end
 
-function M.add_region(code, source_line)
-  return post('add-region', { code = code, sourceLine = source_line })
-end
-
-function M.remove_region(code, source_line)
-  return post('remove-region', { code = code, sourceLine = source_line })
-end
-
 function M.add_guide(code, source_line)
   return post('add-guide', { code = code, sourceLine = source_line })
 end
@@ -84,13 +76,6 @@ function M.set_feature_name(code, source_line, name)
     name = vim.NIL
   end
   return post('set-feature-name', { code = code, sourceLine = source_line, name = name })
-end
-
---- `keys` is the statement's whole region pick list. An empty one arrives
---- from the bridge as an empty Lua table, which json_encode writes back as
---- the `[]` the route validates.
-function M.set_regions(code, source_line, keys)
-  return post('set-regions', { code = code, sourceLine = source_line, keys = keys or {} })
 end
 
 function M.update_insert_chain(code, source_line, edit)

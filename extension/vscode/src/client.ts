@@ -21,10 +21,7 @@ import {
   handleInsertPoint,
   handleAddGuide,
   handleRemoveGuide,
-  handleAddRegion,
-  handleRemoveRegion,
   handleRemovePoint,
-  handleSetRegions,
   handleGotoSource,
   handleUpdateInsertChain,
   handleInsertGeometry,
@@ -165,18 +162,10 @@ export class Client {
         });
         break;
       }
-      case 'set-regions': {
-        handleSetRegions(this, msg);
-        break;
-      }
       case 'update-insert-chain': {
         handleUpdateInsertChain(this, msg).catch((err) => {
           this.logger.appendLine(`[update-insert-chain] error: ${err?.stack || err}`);
         });
-        break;
-      }
-      case 'add-region': {
-        handleAddRegion(this, msg);
         break;
       }
       case 'add-guide': {
@@ -185,10 +174,6 @@ export class Client {
       }
       case 'remove-guide': {
         handleRemoveGuide(this, msg);
-        break;
-      }
-      case 'remove-region': {
-        handleRemoveRegion(this, msg);
         break;
       }
       case 'insert-geometry': {

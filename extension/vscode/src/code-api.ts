@@ -57,14 +57,6 @@ export function removePoint(
   return postCodeEdit<CodeEditResult>(serverUrl, 'remove-point', { code, sourceLine, point }, logger);
 }
 
-export function addRegion(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'add-region', { code, sourceLine }, logger);
-}
-
-export function removeRegion(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'remove-region', { code, sourceLine }, logger);
-}
-
 export function addGuide(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
   return postCodeEdit<CodeEditResult>(serverUrl, 'add-guide', { code, sourceLine }, logger);
 }
@@ -85,12 +77,6 @@ export function setFeatureName(
 
 export function insertLoad(serverUrl: string, code: string, fileName: string, logger: vscode.OutputChannel) {
   return postCodeEdit<CodeEditResult>(serverUrl, 'insert-load', { code, fileName }, logger);
-}
-
-export function setRegions(
-  serverUrl: string, code: string, sourceLine: number, keys: string[], logger: vscode.OutputChannel,
-) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'set-regions', { code, sourceLine, keys }, logger);
 }
 
 export type InsertChainEdit = {

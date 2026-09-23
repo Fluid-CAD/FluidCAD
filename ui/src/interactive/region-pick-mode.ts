@@ -1,6 +1,5 @@
 import { Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
-import { PlaneData } from '../types';
 
 const HOVER_COLOR = '#64B5F6';
 const HOVER_OPACITY = 0.35;
@@ -9,14 +8,14 @@ const HOVER_OPACITY = 0.35;
  * Interactive mode for picking face regions in the sketch.
  *
  * Uses Three.js raycasting against meta face meshes (pick-region / pick-region-selected)
- * to detect hover and click on individual sketch regions.
+ * to detect hover and click on individual sketch regions. Each region group
+ * carries its region key in `userData.metaData.key`; a click reports that key.
  */
 export class RegionPickMode {
   private canvas: HTMLCanvasElement;
   private ctx: SceneContext;
-  private plane: PlaneData;
-  private onPick: (point2d: [number, number]) => void;
-  private onRemove: (finalPoints: [number, number][]) => void;
+  private onPick: (key: string) => void;
+  private onRemove: (key: string) => void;
   private onHighlight: (shapeId: string | null) => void;
 
   private highlightedMesh: Mesh | null = null;
@@ -32,14 +31,12 @@ export class RegionPickMode {
 
   constructor(
     ctx: SceneContext,
-    plane: PlaneData,
-    onPick: (point2d: [number, number]) => void,
-    onRemove: (finalPoints: [number, number][]) => void,
+    onPick: (key: string) => void,
+    onRemove: (key: string) => void,
     onHighlight: (shapeId: string | null) => void,
   ) {
     this.canvas = ctx.renderer.domElement;
     this.ctx = ctx;
-    this.plane = plane;
     this.onPick = onPick;
     this.onRemove = onRemove;
     this.onHighlight = onHighlight;
@@ -74,11 +71,6 @@ export class RegionPickMode {
       return; // drag, not click
     }
 
-    const point2d = this.projectToSketch(e.clientX, e.clientY);
-    if (!point2d) {
-      return;
-    }
-
     // Raycast directly to find the region under the click
     const hit = this.raycastRegions(e.clientX, e.clientY);
     if (!hit) {
@@ -86,36 +78,16 @@ export class RegionPickMode {
     }
 
     const hitGroup = hit.mesh.parent;
-    const isSelected = hitGroup?.userData.isPickRegionSelected === true;
-
-    if (isSelected) {
-      // Collect all currently selected regions' pick points, minus the clicked one
-      const finalPoints = this.collectSelectedPickPoints(hitGroup!);
-      this.onRemove(finalPoints);
-    } else {
-      const rounded: [number, number] = [
-        Math.round(point2d[0] * 100) / 100,
-        Math.round(point2d[1] * 100) / 100,
-      ];
-      this.onPick(rounded);
+    const key = hitGroup?.userData.metaData?.key;
+    if (typeof key !== 'string') {
+      return;
     }
-  }
 
-  /**
-   * Collect pick points from ALL selected regions except the one being deselected.
-   * Each selected region's metaData.pickPoint holds its associated point.
-   */
-  private collectSelectedPickPoints(excludeGroup: Object3D): [number, number][] {
-    const points: [number, number][] = [];
-    this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj === excludeGroup) {
-        return;
-      }
-      if (obj.userData.isPickRegion && obj.userData.isPickRegionSelected && obj.userData.metaData?.pickPoint) {
-        points.push(obj.userData.metaData.pickPoint);
-      }
-    });
-    return points;
+    if (hitGroup.userData.isPickRegionSelected === true) {
+      this.onRemove(key);
+    } else {
+      this.onPick(key);
+    }
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -202,39 +174,5 @@ export class RegionPickMode {
       return null;
     }
     return { mesh: intersects[0].object as Mesh, point: intersects[0].point };
-  }
-
-  /** Project screen coordinates to 2D sketch plane coordinates. */
-  private projectToSketch(clientX: number, clientY: number): [number, number] | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
-
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-
-    const planeOrigin = new Vector3(this.plane.origin.x, this.plane.origin.y, this.plane.origin.z);
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-
-    const denom = rayDir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) {
-      return null;
-    }
-
-    const t = planeOrigin.clone().sub(rayOrigin).dot(planeNormal) / denom;
-    if (t < 0) {
-      return null;
-    }
-
-    const worldPoint = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
-
-    const rel = worldPoint.clone().sub(planeOrigin);
-    const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-    const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-
-    return [rel.dot(xDir), rel.dot(yDir)];
   }
 }

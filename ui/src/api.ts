@@ -265,17 +265,19 @@ export function insertPoint(point: [number, number], sourceLocation: SourceLocat
   postFireAndForget('/api/insert-point', { point, sourceLocation });
 }
 
-export function setPickPoints(points: [number, number][], sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/set-pick-points', { points, sourceLocation });
+/** Append an empty `.region()` to the statement at `sourceLocation` (enter region picking). */
+export function addRegion(sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/add-region', { sourceLocation });
 }
 
-export function addPick(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-pick', { sourceLocation });
+/** Strip an empty `.region()` from the statement at `sourceLocation` (leave region picking). */
+export function removeRegion(sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/remove-region', { sourceLocation });
 }
 
-
-export function removePick(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-pick', { sourceLocation });
+/** Rewrite the `.region(...)` arguments of the statement at `sourceLocation` to exactly `keys`. */
+export function setRegions(keys: string[], sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/set-regions', { keys, sourceLocation });
 }
 
 /** Append `.guide()` to the statement at `sourceLocation` (Guide toggle). */

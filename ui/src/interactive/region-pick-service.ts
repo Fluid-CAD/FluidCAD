@@ -1,12 +1,40 @@
 import { ICON_WAND } from '../ui/icons';
 import { RegionPickMode } from './region-pick-mode';
-import { insertPoint, setPickPoints, addPick, removePick } from '../api';
+import { addRegion, removeRegion, setRegions } from '../api';
 import { activeScopeObjects } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { Navbar } from '../ui/navbar';
 
 const EXTRUDABLE_TYPES = ['extrude', 'cut', 'cut-symmetric', 'revolve', 'sweep', 'wrap'];
+
+/** One region of the source sketch as the kernel reports it while picking. */
+type RegionEntry = { key: string; index: number; selected: boolean };
+
+/**
+ * The region-picking fields an extrude/cut/revolve/sweep/wrap object carries
+ * (`SceneObjectRender.object`).
+ */
+type RegionPickPayload = {
+  /** The statement carries a `.region(...)` chain. */
+  regionPicking?: true;
+  /** The keys written in source — strings, or ordinal positions. */
+  regionKeys?: (string | number)[];
+  /** Every region of the sketch, `selected` when a key resolved to it. */
+  regions?: RegionEntry[];
+  trigger?: string;
+  pickPlane?: PlaneData;
+  thin?: unknown;
+};
+
+/** The keys of the selected regions in index order. */
+function selectedRegionKeys(payload: RegionPickPayload | undefined): string[] {
+  const regions = payload?.regions ?? [];
+  return regions
+    .filter(region => region.selected)
+    .sort((a, b) => a.index - b.index)
+    .map(region => region.key);
+}
 
 export class RegionPickService {
   private viewer: Viewer;
@@ -74,14 +102,14 @@ export class RegionPickService {
   private updateImpl(sceneObjects: SceneObjectRender[]): void {
     const triggerInfo = this.hasRegionPickingTrigger(sceneObjects);
 
-    const hasPlane = (triggerInfo.extrudeObj as any)?.object?.pickPlane || triggerInfo.sketchObj?.object?.plane;
+    const hasPlane = this.payloadOf(triggerInfo.extrudeObj)?.pickPlane || triggerInfo.sketchObj?.object?.plane;
     if (!triggerInfo.hasTrigger || !triggerInfo.extrudeObj?.sourceLocation || !hasPlane) {
       this.reset();
       return;
     }
 
     this.lastInfo = { extrudeObj: triggerInfo.extrudeObj, sketchObj: triggerInfo.sketchObj };
-    const hasPicking = (triggerInfo.extrudeObj as any).object?.picking;
+    const hasPicking = this.payloadOf(triggerInfo.extrudeObj)?.regionPicking === true;
 
     if (this._state === 'picking-active') {
       if (hasPicking) {
@@ -104,10 +132,10 @@ export class RegionPickService {
       return;
     }
 
-    const hasPicking = (this.lastInfo.extrudeObj as any).object?.picking;
+    const hasPicking = this.payloadOf(this.lastInfo.extrudeObj)?.regionPicking === true;
 
     if (!hasPicking) {
-      addPick((this.lastInfo.extrudeObj as any).sourceLocation);
+      addRegion(this.lastInfo.extrudeObj.sourceLocation);
       this._state = 'picking-active';
       this.triggerBtn.classList.add('hidden');
       this.activeBar.classList.remove('hidden');
@@ -131,11 +159,12 @@ export class RegionPickService {
     this.viewer.toggleSketchMode(true);
     this.viewer.rebuildSceneMesh();
 
-    const extrudeObj = this.lastInfo?.extrudeObj as any;
-    const isPicking = extrudeObj?.object?.picking;
-    const pickPoints = extrudeObj?.object?.pickPoints as [number, number][] | undefined;
-    if (isPicking && (!pickPoints || pickPoints.length === 0) && extrudeObj?.sourceLocation) {
-      removePick(extrudeObj.sourceLocation);
+    const extrudeObj = this.lastInfo?.extrudeObj;
+    const payload = this.payloadOf(extrudeObj);
+    const isPicking = payload?.regionPicking === true;
+    const regionKeys = payload?.regionKeys;
+    if (isPicking && (!regionKeys || regionKeys.length === 0) && extrudeObj?.sourceLocation) {
+      removeRegion(extrudeObj.sourceLocation);
     }
 
     if (this.lastInfo) {
@@ -166,20 +195,36 @@ export class RegionPickService {
     this.syncGroup();
   }
 
-  private activateInteractive(info: { extrudeObj: any; sketchObj: any }): void {
+  private payloadOf(extrudeObj: SceneObjectRender | undefined): RegionPickPayload | undefined {
+    return extrudeObj?.object as RegionPickPayload | undefined;
+  }
+
+  /**
+   * The selected keys of the statement as last rendered. Read at click time:
+   * the mode outlives re-renders of the same line, and each render refreshes
+   * `lastInfo` with the kernel's current selection.
+   */
+  private currentSelectedKeys(): string[] {
+    return selectedRegionKeys(this.payloadOf(this.lastInfo?.extrudeObj));
+  }
+
+  private activateInteractive(info: { extrudeObj: SceneObjectRender & { sourceLocation?: any }; sketchObj: any }): void {
     this.deactivateHandler();
 
-    const plane: PlaneData = info.extrudeObj.object?.pickPlane ?? info.sketchObj.object.plane;
     const sourceLocation = info.extrudeObj.sourceLocation;
 
     this.activeMode = new RegionPickMode(
       this.viewer.sceneContext,
-      plane,
-      (point2d) => {
-        insertPoint(point2d, sourceLocation);
+      (key) => {
+        const keys = this.currentSelectedKeys();
+        if (!keys.includes(key)) {
+          keys.push(key);
+        }
+        setRegions(keys, sourceLocation);
       },
-      (finalPoints) => {
-        setPickPoints(finalPoints, sourceLocation);
+      (key) => {
+        const keys = this.currentSelectedKeys().filter(k => k !== key);
+        setRegions(keys, sourceLocation);
       },
       (_shapeId) => {},
     );

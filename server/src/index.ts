@@ -33,7 +33,7 @@ import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
 import { createAssemblyConnectorRouter } from './routes/assembly-connector.ts';
 import { createAssemblyReplicateRouter } from './routes/assembly-replicate.ts';
 import { createTextRouter } from './routes/text.ts';
-import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
+import { createFeatureGhostRouter } from './routes/feature-ghost/index.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { createFeatureGhostRouter } from '../../src/routes/feature-ghost.ts';
+import { createFeatureGhostRouter } from '../../src/routes/feature-ghost/index.ts';
 
 // The repeat and copy arms of the live-geometry endpoint: the contract between
 // each dialog's slots and the request the kernel receives. The kernel itself is

@@ -58,15 +58,8 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
     target: 'current',
     body: (msg) => ({ ...atSourceLine(msg), point: msg.point }),
   },
-  'add-region': { endpoint: 'add-region', target: 'current', body: atSourceLine },
-  'remove-region': { endpoint: 'remove-region', target: 'current', body: atSourceLine },
   'add-guide': { endpoint: 'add-guide', target: 'current', body: atSourceLine },
   'remove-guide': { endpoint: 'remove-guide', target: 'current', body: atSourceLine },
-  'set-regions': {
-    endpoint: 'set-regions',
-    target: 'current',
-    body: (msg) => ({ ...atSourceLine(msg), keys: msg.keys }),
-  },
   'insert-geometry': {
     endpoint: 'insert-geometry',
     target: 'current',

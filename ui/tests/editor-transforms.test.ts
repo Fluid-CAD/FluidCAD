@@ -30,18 +30,6 @@ const CASES: Record<string, Case> = {
     target: 'current',
     body: { sourceLine: 12, point: [4, 5] },
   },
-  'add-region': {
-    message: { sourceLocation: SOURCE_LOCATION },
-    endpoint: 'add-region',
-    target: 'current',
-    body: { sourceLine: 12 },
-  },
-  'remove-region': {
-    message: { sourceLocation: SOURCE_LOCATION },
-    endpoint: 'remove-region',
-    target: 'current',
-    body: { sourceLine: 12 },
-  },
   'add-guide': {
     message: { sourceLocation: SOURCE_LOCATION },
     endpoint: 'add-guide',
@@ -53,12 +41,6 @@ const CASES: Record<string, Case> = {
     endpoint: 'remove-guide',
     target: 'current',
     body: { sourceLine: 12 },
-  },
-  'set-regions': {
-    message: { keys: ['b r t l', 'c1'], sourceLocation: SOURCE_LOCATION },
-    endpoint: 'set-regions',
-    target: 'current',
-    body: { sourceLine: 12, keys: ['b r t l', 'c1'] },
   },
   'insert-geometry': {
     message: {
@@ -255,7 +237,7 @@ describe('editor host transform table', () => {
   });
 
   it('resolves the target file per target flavour', () => {
-    expect(targetPathOf(TRANSFORMS['add-region'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
+    expect(targetPathOf(TRANSFORMS['add-guide'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
     expect(targetPathOf(TRANSFORMS['remove-feature'], { filePath: '/ws/other.part.js', line: 2 })).toBe('/ws/other.part.js');
     expect(targetPathOf(TRANSFORMS['update-insert-chain'], {
       sourceLocation: { filePath: '/ws/robot.assembly.js', line: 3 },

@@ -82,6 +82,13 @@ export class FileTabs {
   private activePath: string | null = null;
   /** The model the scene belongs to — not necessarily the active tab. */
   private currentModelPath: string | null = null;
+  /**
+   * The active tab the strip last scrolled into view. A change of active tab
+   * scrolls to the new one — whether the user clicked it or the server
+   * switched to a file an agent is editing — while a re-render for a dirty
+   * dot or a rename leaves a hand-scrolled strip where it is.
+   */
+  private revealedPath: string | null = null;
   private renaming: Renaming | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: FileTabsHandlers, tabsEnabled: boolean) {
@@ -176,12 +183,25 @@ export class FileTabs {
     closeTabMenu();
     this.scroller.track.replaceChildren();
     let field: HTMLInputElement | null = null;
+    let active: HTMLElement | null = null;
     for (const tab of this.tabs) {
       const el = this.buildTab(tab);
       this.scroller.track.appendChild(el);
       field ??= el.querySelector<HTMLInputElement>('[data-rename-input]');
+      if (tab.absPath === this.activePath) {
+        active = el;
+      }
     }
-    this.scroller.refresh();
+    if (!active) {
+      // No active tab (or a closed one): the next activation is a fresh reveal.
+      this.revealedPath = null;
+      this.scroller.refresh();
+    } else if (this.activePath !== this.revealedPath) {
+      this.revealedPath = this.activePath;
+      this.scroller.reveal(active);
+    } else {
+      this.scroller.refresh();
+    }
     if (field && this.renaming) {
       // Focus after the field is in the document: a strip re-render mid-rename
       // rebuilt it, and the caret must land back where typing continues.

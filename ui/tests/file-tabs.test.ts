@@ -235,6 +235,76 @@ describe('FileTabs rename', () => {
   });
 });
 
+describe('FileTabs active-tab reveal', () => {
+  const VIEWPORT_WIDTH = 250;
+  const MANY: FileTab[] = Array.from({ length: 6 }, (_, i) => ({
+    absPath: `/ws/p${i}.part.js`,
+    relPath: `p${i}.part.js`,
+    kind: 'model' as const,
+    dirty: false,
+  }));
+
+  /** A strip too narrow for its tabs; each tab 100px wide, laid out in DOM order. */
+  function narrowStrip(): { tabs: FileTabs; track: HTMLElement; frame(): void } {
+    const h = mount();
+    const rafs: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => rafs.push(cb));
+    const tabs = new FileTabs(h.container, h.handlers, true);
+    const track = h.container.querySelectorAll<HTMLElement>('.w-max')[1];
+    const viewport = track.parentElement!;
+    Object.defineProperty(viewport, 'clientWidth', { get: () => VIEWPORT_WIDTH });
+    Object.defineProperty(track, 'scrollWidth', { get: () => track.children.length * TAB_WIDTH });
+    return {
+      tabs,
+      track,
+      // Lay out the tabs the strip just rendered, then run the measure frame.
+      frame: () => {
+        Array.from(track.children).forEach((child, index) => {
+          Object.defineProperty(child, 'offsetLeft', { get: () => index * TAB_WIDTH });
+          Object.defineProperty(child, 'offsetWidth', { get: () => TAB_WIDTH });
+        });
+        for (const cb of rafs.splice(0)) {
+          cb(0);
+        }
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('scrolls a hidden tab into view when it becomes active, and no further', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('0px');
+    // The server switched to the fifth tab (400..500px) — off the right edge.
+    s.tabs.setTabs(MANY, MANY[4].absPath, MANY[4].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe(`-${500 - VIEWPORT_WIDTH}px`);
+    // Back to the first tab, off the left edge now.
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('0px');
+  });
+
+  it('leaves the strip alone when the active tab is already visible or unchanged', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[4].absPath, MANY[4].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
+    // The fourth tab (300..400px) is inside the 250..500px window: no move.
+    s.tabs.setTabs(MANY, MANY[3].absPath, MANY[3].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
+    // A dirty-dot re-render of the same active tab doesn't scroll either.
+    s.tabs.setTabs(MANY.map((tab, i) => (i === 3 ? { ...tab, dirty: true } : tab)), MANY[3].absPath, MANY[3].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
+  });
+});
+
 describe('renamedBasename', () => {
   it('keeps a model suffix the field never showed', () => {
     expect(editableNameOf('bracket.part.js')).toBe('bracket');

@@ -39,6 +39,8 @@ export class ToolbarScroller {
   /** The largest useful offset: the width the track overruns the viewport by. */
   private maxOffset = 0;
   private pendingMeasure = 0;
+  /** An item to bring into view on the next measure, if it sits outside the viewport. */
+  private pendingReveal: HTMLElement | null = null;
 
   constructor(bar: HTMLElement) {
     this.viewport = document.createElement('div');
@@ -74,6 +76,18 @@ export class ToolbarScroller {
     this.scheduleMeasure();
   }
 
+  /**
+   * Scroll the least distance that brings `item` (a child of the track) fully
+   * into the viewport. Nothing moves when it is already visible, so a user who
+   * scrolled the bar by hand keeps their place unless the item they need is
+   * off-screen. Deferred to the next measure, which is when the layout the
+   * item was just rendered into is settled enough to read.
+   */
+  reveal(item: HTMLElement): void {
+    this.pendingReveal = item;
+    this.scheduleMeasure();
+  }
+
   private addArrow(bar: HTMLElement, direction: -1 | 1): HTMLButtonElement {
     const back = direction < 0;
     const arrow = document.createElement('button');
@@ -103,9 +117,34 @@ export class ToolbarScroller {
 
   private measure(): void {
     this.maxOffset = Math.max(0, this.track.scrollWidth - this.viewport.clientWidth);
+    const reveal = this.pendingReveal;
+    this.pendingReveal = null;
+    if (reveal && reveal.parentElement === this.track) {
+      this.scrollTo(this.offsetRevealing(reveal), true);
+      return;
+    }
     // Re-apply the current offset so a viewport that just grew (or content
     // that just shrank) pulls the track back into range.
     this.scrollTo(this.offset, false);
+  }
+
+  /**
+   * The offset closest to the current one at which `item` is wholly inside
+   * the viewport. The track is the item's offset parent, and `offsetLeft` is
+   * measured before the track's own `left` is applied, so it reads as a
+   * position on the unscrolled track.
+   */
+  private offsetRevealing(item: HTMLElement): number {
+    const start = item.offsetLeft;
+    const end = start + item.offsetWidth;
+    const visibleWidth = this.viewport.clientWidth;
+    if (start < this.offset) {
+      return start;
+    }
+    if (end > this.offset + visibleWidth) {
+      return end - visibleWidth;
+    }
+    return this.offset;
   }
 
   private page(direction: -1 | 1): void {

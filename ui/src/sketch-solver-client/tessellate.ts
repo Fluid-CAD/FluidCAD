@@ -40,6 +40,33 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
 }
 
 /**
+ * Whether `angle` lies on the arc sweeping `sweep` (signed radians —
+ * negative clockwise, see {@link arcSweep}) from `a0`, within `tol` of its
+ * ends. A hair before the start reads as the start rather than as a full
+ * turn away from it; a full-turn arc contains every angle.
+ */
+export function angleWithinSweep(a0: number, sweep: number, angle: number, tol = 1e-9): boolean {
+  const tau = 2 * Math.PI;
+  let rel = (angle - a0) % tau;
+  if (sweep >= 0) {
+    if (rel < 0) {
+      rel += tau;
+    }
+    if (rel > tau - tol) {
+      rel -= tau;
+    }
+    return rel <= sweep + tol;
+  }
+  if (rel > 0) {
+    rel -= tau;
+  }
+  if (rel < tol - tau) {
+    rel += tau;
+  }
+  return rel >= sweep - tol;
+}
+
+/**
  * Polyline through the entity's current geometry, in sketch-plane 2D.
  * Null for point entities (they render as dots, not edges) and for
  * incomplete views. An ellipse redraws from its live pose — center and

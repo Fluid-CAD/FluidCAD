@@ -6,7 +6,7 @@
 import type { PointRole, SolverRef } from '../../../lib/sketch-solver/types.js';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 import { Vec2, sub, norm } from './resolve';
-import { arcSweep } from './tessellate';
+import { angleWithinSweep, arcSweep } from './tessellate';
 
 export type SolvedVertexHit = {
   type: 'vertex';
@@ -122,21 +122,7 @@ function distSqToSegment(p: Vec2, a: Vec2, b: Vec2): number {
  * arcSweep convention — a full-turn arc contains every angle). */
 function angleOnArc(e: SolvedEntityView, angle: number): boolean {
   const arc = arcSweep(e);
-  if (!arc) {
-    return false;
-  }
-  const { a0, sweep } = arc;
-  let rel = angle - a0;
-  if (e.cw) {
-    while (rel > 0) {
-      rel -= 2 * Math.PI;
-    }
-    return rel >= sweep - 1e-9;
-  }
-  while (rel < 0) {
-    rel += 2 * Math.PI;
-  }
-  return rel <= sweep + 1e-9;
+  return arc !== null && angleWithinSweep(arc.a0, arc.sweep, angle);
 }
 
 function edgeDistSq(e: SolvedEntityView, p: Vec2): number | null {

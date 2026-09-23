@@ -21,6 +21,7 @@ import {
 } from './code-editor.ts';
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
 import { SketchSplit, type SketchSplitSpec } from './sketch-split.ts';
+import { SketchTrim, type SketchTrimSpec } from './sketch-trim.ts';
 import {
   applyDistanceTangency,
   applySolvedEmission,
@@ -245,6 +246,13 @@ export type ApplyFeatureEditSpec = {
    * other spec field is ignored.
    */
   sketchSplit?: SketchSplitSpec;
+  /**
+   * Sketch Trim tool (2D): delete one piece of an entity statement the
+   * kernel cut at its nearest intersections — rewrite the statement as what
+   * survives, re-home or drop the references to what went. Rides the same
+   * round trip as `sketchSplit`; every other spec field is ignored.
+   */
+  sketchTrim?: SketchTrimSpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1598,6 +1606,10 @@ async function applyFeatureEditTransform(
   }
   if (spec.sketchSplit) {
     const { newCode, error } = await SketchSplit.apply(code, spec.sketchSplit);
+    return { newCode, ...(error !== undefined ? { error } : {}) };
+  }
+  if (spec.sketchTrim) {
+    const { newCode, error } = await SketchTrim.apply(code, spec.sketchTrim);
     return { newCode, ...(error !== undefined ? { error } : {}) };
   }
   if (spec.paramEdit) {

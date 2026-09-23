@@ -148,6 +148,28 @@ describe('SketchSplit.apply', () => {
     expect(result.sketchLine).toBe(4);
   });
 
+  it('settles the sketch on the solved geometry before cutting', async () => {
+    const code = src(
+      `const l1 = line([0, 5], [40, 5]);`,
+      `horizontal(l1);`,
+    );
+    const result = await SketchSplit.apply(code, {
+      sketchLine: 4, line: 5, pieces: LINE_PIECES,
+      settle: [{ sourceLine: 5, points: [
+        { pointIndex: 0, position: [0, 0], expected: [0, 5] },
+        { pointIndex: 1, position: [40, 0], expected: [40, 5] },
+      ] }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(src(
+      `const l1 = line([0, 0], [10, 0]);`,
+      `const l2 = line([10, 0], [40, 0]);`,
+      `horizontal(l1);`,
+      `horizontal(l2);`,
+      `coincident(l1.end(), l2.start());`,
+    ));
+  });
+
   it('refuses a midpoint reference in geometry, a looped statement and a non-entity statement', async () => {
     const mid = await SketchSplit.apply(src(
       `const l1 = line([0, 0], [40, 0]);`,

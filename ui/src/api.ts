@@ -1892,27 +1892,74 @@ export type SplitSketchEntityResult = {
  * hint (where a whole-entity constraint touches the entity) to the piece
  * that keeps it, and the statement transform rewrites the source.
  */
-export async function splitSketchEntity(options: {
+export function splitSketchEntity(options: {
   sketchLine: number;
   filePath?: string;
   line: number;
   entity: SplittableEntityParam;
   at: [number, number];
   hints?: { line: number; locus: [number, number] }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
 }): Promise<SplitSketchEntityResult> {
+  return postSketchCut('/api/sketch/split', options);
+}
+
+export type TrimSketchEntityResult = {
+  success: boolean;
+  reason?: string;
+  /** Constraint statements the trim deleted — their geometry is gone. */
+  removed?: { line: number; kind: string }[];
+  /** The surviving pieces' binding names, in travel order. */
+  names?: string[];
+  /** The entity statement itself was deleted (nothing survived). */
+  deleted?: boolean;
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Trim tool: cut the entity statement at `line` at `cuts` (the
+ * nearest crossings around the click, in travel order — none deletes the
+ * whole entity) and delete piece `removed` of the result. The kernel does
+ * the geometry; the route resolves each hint to the piece it touches (a
+ * constraint on the removed piece goes with it); the statement transform
+ * rewrites the source as what survives.
+ */
+export function trimSketchEntity(options: {
+  sketchLine: number;
+  filePath?: string;
+  line: number;
+  entity: SplittableEntityParam;
+  cuts: [number, number][];
+  /** Per cut, the entity crossing there — the cut end is pinned to it — or null. */
+  cutters?: (SolvedEmissionTargetParam | null)[];
+  removed: number;
+  hints?: { line: number; locus: [number, number] }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<TrimSketchEntityResult> {
+  return postSketchCut('/api/sketch/trim', options);
+}
+
+/** The Split/Trim round trip: the route's body, or a `reason` for a refusal or a failed request. */
+async function postSketchCut<Result extends { success: boolean; reason?: string }>(
+  path: string,
+  options: object,
+): Promise<Result> {
   try {
-    const res = await fetch('/api/sketch/split', {
+    const res = await fetch(path, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` } as Result;
     }
-    return body ?? { success: false, reason: 'Empty server response' };
+    return body ?? ({ success: false, reason: 'Empty server response' } as Result);
   } catch {
-    return { success: false, reason: 'Could not reach the FluidCAD server' };
+    return { success: false, reason: 'Could not reach the FluidCAD server' } as Result;
   }
 }
 

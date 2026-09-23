@@ -36,6 +36,6 @@ export type { LiveEntityGeometry } from './live-system';
 export { solvedHitTest, datumHitTest, refFor } from './hit-test';
 export type { SolvedHit, SolvedVertexHit, SolvedEdgeHit, SolvedDatumHit, SketchDatumName } from './hit-test';
 export { tessellateSolvedEntity, tessellateBezier, arcSweep } from './tessellate';
-export { buildPositionWriteBack } from './write-back';
+export { buildPositionWriteBack, buildSettleWriteBack } from './write-back';
 export { updateDragTargets } from './drag-targets';
 export type { SolvedDragMode, SolvedDragTarget } from './drag-targets';

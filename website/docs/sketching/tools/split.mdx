@@ -8,7 +8,7 @@ import toolSplit from '!!raw-loader!../_examples/tool-split.js';
 
 # Split
 
-Split cuts a sketch edge in two at the point you click. The two pieces stay joined at the split point, which becomes a vertex you can drag, dimension or build a notch from.
+Split cuts a sketch edge in two at the point you click. The two pieces stay joined at the split point, which becomes a vertex you can drag, dimension or build a notch from. To remove part of an edge instead, use [Trim](/docs/sketching/tools/trim).
 
 ## In the viewport
 
@@ -18,6 +18,8 @@ Split cuts a sketch edge in two at the point you click. The two pieces stay join
 4. The tool stays armed, so click the next edge for the next split. <kbd>Esc</kbd> leaves the tool.
 
 The tool does not write a `split()` call. It rewrites the source: the entity's statement keeps the first piece under its old variable name, so every `.start()` and `.center()` reference to it stays valid; a new `const` for the second piece is inserted right after it, under the next free name; and a `coincident(first.end(), second.start())` is appended to the sketch, which is the junction. Argument expressions you did not touch stay verbatim: `line([0, 0], [w, h])` split at x = 10 becomes `line([0, 0], [10, 0])` and `line([10, 0], [w, h])`.
+
+The coordinates in a sketch statement are guesses; the constraints decide where the geometry ends up. So before it cuts, the tool writes the solved position of every entity in the sketch into its literals, the way finishing a drag does, and cuts that. The split point and the untouched coordinates then describe one sketch that is already solved, and nothing moves after the split.
 
 The split is a plain edit. **Undo** reverts it, and the pieces are drawn geometry like any other: drag them, dimension them, fillet them or delete one of them.
 

@@ -28,49 +28,9 @@ import {
   type VariableInfo,
 } from '../code-editor.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
+import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-
-/** One statement's worth of a solved-sketch drag write-back (P4). */
-function validateSketchPositionEdit(input: unknown): SketchPositionEdit | null {
-  if (typeof input !== 'object' || input === null) {
-    return null;
-  }
-  const obj = input as Record<string, unknown>;
-  if (typeof obj.sourceLine !== 'number') {
-    return null;
-  }
-  const edit: SketchPositionEdit = { sourceLine: obj.sourceLine };
-  if (obj.points !== undefined) {
-    if (!Array.isArray(obj.points)) {
-      return null;
-    }
-    const points: SketchPositionEdit['points'] = [];
-    for (const p of obj.points) {
-      if (typeof p !== 'object' || p === null
-        || typeof (p as any).pointIndex !== 'number'
-        || !validPoint((p as any).position)
-        || ((p as any).expected !== undefined && !validPoint((p as any).expected))) {
-        return null;
-      }
-      points.push({
-        pointIndex: (p as any).pointIndex,
-        position: (p as any).position,
-        ...((p as any).expected !== undefined ? { expected: (p as any).expected } : {}),
-      });
-    }
-    edit.points = points;
-  }
-  if (obj.scalar !== undefined) {
-    const s = obj.scalar as Record<string, unknown> | null;
-    if (typeof s !== 'object' || s === null || typeof s.value !== 'number'
-      || (s.expected !== undefined && typeof s.expected !== 'number')) {
-      return null;
-    }
-    edit.scalar = { value: s.value, ...(s.expected !== undefined ? { expected: s.expected as number } : {}) };
-  }
-  return edit;
-}
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -103,16 +63,6 @@ function validateNewVariable(
     return valid.length === 0 ? null : valid;
   }
   return validateOneNewVariable(input);
-}
-
-/** A [x, y] pair of finite numbers, or null for anything else. */
-function validPoint(input: unknown): [number, number] | null {
-  if (Array.isArray(input) && input.length === 2
-    && typeof input[0] === 'number' && Number.isFinite(input[0])
-    && typeof input[1] === 'number' && Number.isFinite(input[1])) {
-    return [input[0], input[1]];
-  }
-  return null;
 }
 
 export function createSketchEditsRouter(

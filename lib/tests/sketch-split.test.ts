@@ -27,11 +27,14 @@ describe("SketchEntitySplit.split", () => {
     const outcome = SketchEntitySplit.split({ kind: "line", start: [0, 0], end: [40, 0] }, [10, 3]);
     near(outcome.at, [10, 0]);
     expect(outcome.pieces).toHaveLength(2);
-    expect(outcome.pieces[0].kind).toBe("line");
-    near(outcome.pieces[0].start, [0, 0]);
-    near(outcome.pieces[0].end, [10, 0]);
-    near(outcome.pieces[1].start, [10, 0]);
-    near(outcome.pieces[1].end, [40, 0]);
+    const [first, second] = outcome.pieces;
+    if (first.kind !== "line" || second.kind !== "line") {
+      throw new Error("expected lines");
+    }
+    near(first.start, [0, 0]);
+    near(first.end, [10, 0]);
+    near(second.start, [10, 0]);
+    near(second.end, [40, 0]);
   });
 
   it("cuts a counter-clockwise arc into two arcs around the same center", () => {
@@ -100,6 +103,63 @@ describe("SketchEntitySplit.split", () => {
     const { pieces } = SketchEntitySplit.split({ kind: "line", start: [0, 0], end: [40, 0] }, [10, 0]);
     expect(SketchEntitySplit.nearestPiece(pieces, [3, 1])).toBe(0);
     expect(SketchEntitySplit.nearestPiece(pieces, [30, -1])).toBe(1);
+  });
+});
+
+describe("SketchEntitySplit.cut", () => {
+  it("cuts a line at several points in travel order, whatever order they come in", () => {
+    const pieces = SketchEntitySplit.cut({ kind: "line", start: [0, 0], end: [40, 0] }, [[30, 2], [10, -1]]);
+    expect(pieces.map(p => p.kind)).toEqual(["line", "line", "line"]);
+    const [a, b, c] = pieces as Extract<typeof pieces[number], { kind: "line" }>[];
+    near(a.start, [0, 0]);
+    near(a.end, [10, 0]);
+    near(b.start, [10, 0]);
+    near(b.end, [30, 0]);
+    near(c.start, [30, 0]);
+    near(c.end, [40, 0]);
+  });
+
+  it("leaves an entity cut nowhere as its one piece", () => {
+    const line = SketchEntitySplit.cut({ kind: "line", start: [0, 0], end: [40, 0] }, []);
+    expect(line).toHaveLength(1);
+    expect(line[0].kind).toBe("line");
+    const circle = SketchEntitySplit.cut({ kind: "circle", center: [5, 5], radius: 10 }, []);
+    expect(circle).toEqual([{ kind: "circle", center: [5, 5], radius: 10 }]);
+  });
+
+  it("cuts a clockwise arc along its sweep", () => {
+    // Clockwise from (10,0) to (0,10) is the long way round through the
+    // bottom: the cuts at the bottom and at the left come in that order.
+    const pieces = SketchEntitySplit.cut(
+      { kind: "arc", start: [10, 0], end: [0, 10], center: [0, 0], cw: true },
+      [[-9, 0], [0, -9]],
+    );
+    expect(pieces).toHaveLength(3);
+    const [a, b, c] = pieces as Extract<typeof pieces[number], { kind: "arc" }>[];
+    near(a.start, [10, 0]);
+    near(a.end, [0, -10]);
+    near(b.start, [0, -10]);
+    near(b.end, [-10, 0]);
+    near(c.start, [-10, 0]);
+    near(c.end, [0, 10]);
+    expect(pieces.every(p => p.kind === "arc" && p.cw)).toBe(true);
+  });
+
+  it("cuts a circle into arcs running counter-clockwise from the first cut", () => {
+    const pieces = SketchEntitySplit.cut({ kind: "circle", center: [0, 0], radius: 10 }, [[0, 10], [10, 0]]);
+    expect(pieces).toHaveLength(2);
+    const [a, b] = pieces as Extract<typeof pieces[number], { kind: "arc" }>[];
+    near(a.start, [0, 10]);
+    near(a.end, [10, 0]);
+    near(b.start, [10, 0]);
+    near(b.end, [0, 10]);
+    expect(a.cw).toBe(false);
+    expect(b.cw).toBe(false);
+  });
+
+  it("refuses two cuts on top of each other", () => {
+    expect(() => SketchEntitySplit.cut({ kind: "line", start: [0, 0], end: [40, 0] }, [[10, 0], [10.001, 0]]))
+      .toThrow(/coincide/);
   });
 });
 

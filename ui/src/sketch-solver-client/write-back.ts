@@ -144,6 +144,33 @@ export function buildPositionWriteBack(
   return { edits: [...editsByLine.values()], filePath };
 }
 
+/**
+ * The write-back that settles the whole sketch on the geometry the render
+ * reported: every literal guess that drifted from its entity's solved
+ * position, exactly as a drag ending there would write it. The cut tools
+ * (Split, Trim) send it ahead of their edit so the source they cut is
+ * already at rest and the re-solve has nothing to move. Empty when the
+ * render did not solve — failed positions are not worth keeping.
+ */
+export function buildSettleWriteBack(model: SolvedSketchModel): { edits: SketchPositionEditParam[]; filePath?: string } {
+  if (model.outcome !== 'solved') {
+    return { edits: [] };
+  }
+  return buildPositionWriteBack(model, id => {
+    const view = model.entities.get(id);
+    if (!view) {
+      return null;
+    }
+    const rest: LiveEntityGeometry = { kind: view.kind };
+    for (const key of ['point', 'start', 'end', 'center', 'radius', 'radii', 'theta'] as const) {
+      if (view[key] !== undefined) {
+        Object.assign(rest, { [key]: view[key] });
+      }
+    }
+    return rest;
+  });
+}
+
 /** Fold `edit` into the statement edit already collected for its line, if
  * any: point edits append (distinct chain-point indices per entity), the
  * scalar slots are owned by a single entity each and simply carry over. */

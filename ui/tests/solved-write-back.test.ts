@@ -183,3 +183,32 @@ describe('buildPositionWriteBack', () => {
     }]);
   });
 });
+
+describe('buildSettleWriteBack', () => {
+  it('writes every guess that drifted from its solved position, as a drag ending there would', async () => {
+    const { buildSettleWriteBack } = await import('../src/sketch-solver-client/write-back');
+    const line = view(1, 'line', {
+      start: [0, 0], end: [40, 0], guess: { start: [0, 5], end: [40, 5] },
+    }, 5);
+    const settled = view(2, 'circle', {
+      center: [5, 5], radius: 10, guess: { center: [5, 5], diameter: 20 },
+    }, 6);
+    const model = { ...modelWith([line, settled]), outcome: 'solved' as const };
+    expect(buildSettleWriteBack(model)).toEqual({
+      filePath: '/ws/m.fluid.js',
+      edits: [{
+        sourceLine: 5,
+        points: [
+          { pointIndex: 0, position: [0, 0], expected: [0, 5] },
+          { pointIndex: 1, position: [40, 0], expected: [40, 5] },
+        ],
+      }],
+    });
+  });
+
+  it('settles nothing when the render did not solve', async () => {
+    const { buildSettleWriteBack } = await import('../src/sketch-solver-client/write-back');
+    const line = view(1, 'line', { start: [0, 0], end: [40, 0], guess: { start: [0, 5], end: [40, 5] } }, 5);
+    expect(buildSettleWriteBack({ ...modelWith([line]), outcome: 'failed' as any }).edits).toEqual([]);
+  });
+});

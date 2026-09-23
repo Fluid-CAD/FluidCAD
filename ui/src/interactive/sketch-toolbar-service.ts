@@ -33,6 +33,8 @@ import {
 import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { SketchSplitService } from './sketch-split-service';
+import { SketchTrimService } from './sketch-trim-service';
+import type { SketchClickOpRail, SketchClickOpService } from './sketch-click-op-service';
 import { SPLIT_SNAP_PX } from './tools/split-plan';
 import { pixelToSketchThreshold } from './sketch-plane-utils';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
@@ -89,6 +91,9 @@ export class SketchToolbarService {
   private copyOp!: SketchCopyService;
   private mirrorOp!: SketchMirrorService;
   private splitOp!: SketchSplitService;
+  private trimOp!: SketchTrimService;
+  /** The click tools by toolbar id — the ones with a hover preview. */
+  private clickOps: Partial<Record<ToolId, SketchClickOpService<unknown>>> = {};
   private toolbar: SketchToolbar;
   /** The solved-sketch constraint bar (P4). */
   private solvedToolbar: SolvedConstraintToolbarService;
@@ -232,10 +237,10 @@ export class SketchToolbarService {
         },
       ],
     });
-    // The Split tool has no dialog: a single edge click is the whole input,
-    // so it rides the op-dialog surface (hover handler active, selection
-    // changes delivered) and acts on the click's own pick.
-    this.splitOp = new SketchSplitService({
+    // The Split and Trim tools have no dialog: a single edge click is the
+    // whole input, so they ride the op-dialog surface (hover handler active,
+    // selection changes delivered) and act on the click's own pick.
+    const clickRail: SketchClickOpRail = {
       picks: opRail.picks,
       model: opRail.model,
       sketch: () => this.activeSketchInfo
@@ -244,11 +249,10 @@ export class SketchToolbarService {
           sketchLine: this.solvedEmitSketchLine ?? this.activeSketchInfo.sourceLocation.line,
         }
         : null,
-      snapTolerance: () => pixelToSketchThreshold(this.viewer.sceneContext, SPLIT_SNAP_PX),
       clearSelection: opSelection.clear,
       message: (text) => this.showOpMessage(text),
       noteEdit: ({ sketchLine }) => {
-        // The rewrite added lines inside the body and may have added an
+        // The rewrite changed lines inside the body and may have added an
         // import: every pending emission's line is stale, and the sketch
         // statement may have moved.
         this.pendingEmissions = [];
@@ -256,13 +260,19 @@ export class SketchToolbarService {
           this.solvedEmitSketchLine = sketchLine;
         }
       },
+    };
+    this.splitOp = new SketchSplitService({
+      ...clickRail,
+      snapTolerance: () => pixelToSketchThreshold(this.viewer.sceneContext, SPLIT_SNAP_PX),
     });
+    this.trimOp = new SketchTrimService(clickRail);
+    this.clickOps = { split: this.splitOp, trim: this.trimOp };
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
       mirror: this.mirrorOp,
       offset: this.offsetOp,
-      split: this.splitOp,
+      ...this.clickOps,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
@@ -286,7 +296,7 @@ export class SketchToolbarService {
     return this.activeDrawingTool !== null;
   }
 
-  /** The op dialog (fillet, offset, copy, mirror, split) of the currently armed toolbar tool. */
+  /** The op dialog (fillet, offset, copy, mirror, split, trim) of the currently armed toolbar tool. */
   private activeOpService(): SketchOpDialog | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
@@ -848,9 +858,13 @@ export class SketchToolbarService {
       this.activeOpService()?.refresh();
       this.solvedToolbar.selectionChanged(this.activeHoverSelectHandler);
     };
-    // The Split tool previews its cut point on the hovered edge.
-    this.activeHoverSelectHandler.hoverMarker = (entity, point2d) =>
-      this.toolbar.activeTool === 'split' ? this.splitOp.markerFor(entity, point2d) : null;
+    // The click tools preview on the hovered edge what their click would do
+    // (the Split tool its cut point, the Trim tool the stretch it removes).
+    this.activeHoverSelectHandler.hoverPreview = (entity, point2d, model) => {
+      const tool = this.toolbar.activeTool;
+      const clickOp = tool ? this.clickOps[tool] : undefined;
+      return clickOp ? clickOp.previewFor(entity, point2d, model) : null;
+    };
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
       if (pick.sourceLocation) {
         gotoSource(pick.sourceLocation, { revealEditor: false });

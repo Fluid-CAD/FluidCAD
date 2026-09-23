@@ -10,6 +10,10 @@ import {
   RingGeometry,
   Vector3,
 } from 'three';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData, SceneObjectRender, SourceLocation } from '../types';
 import { SceneIndex } from '../helpers/scene-index';
@@ -28,6 +32,16 @@ import {
   solvedHitTest,
 } from '../sketch-solver-client';
 import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView } from '../sketch-solver-client';
+
+/**
+ * What a click tool shows on the hovered edge: the point where a cut would
+ * land (the Split tool — a vertex dot, ringed when it locked onto a snap
+ * mark) or the stretch of the edge that would go (the Trim tool — a
+ * polyline in the removal colour).
+ */
+export type HoverPreview =
+  | { kind: 'point'; at: [number, number]; snapped: boolean }
+  | { kind: 'segment'; points: [number, number][] };
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
 /** Grab radius for solved entity vertices. Deliberately equal to the edge
@@ -95,6 +109,8 @@ const CENTER_OVERLAY_PX_RADIUS = 6;
 /** The snapped hover marker's ring: outer radius in px, inner as a fraction of it. */
 const SNAP_MARKER_PX_RADIUS = 11;
 const SNAP_MARKER_RING_INNER = 0.8;
+/** The segment preview's line width (px) — heavier than the edge it sits on. */
+const SEGMENT_PREVIEW_WIDTH = 3;
 /** Extra slack around a constraint badge's box before a hover counts. */
 const BADGE_HIT_SLACK_PX = 3;
 
@@ -155,15 +171,15 @@ export class SketchHoverSelectHandler {
   /** Sketch-space click point per selected edge pick (see SolvedPick.at). */
   private edgePickAt = new Map<string, [number, number]>();
   /**
-   * Optional cut/point preview on the hovered edge: given the hovered solved
-   * entity and the cursor's sketch position, the point ON the entity to mark
-   * (the Split tool's cut point) and whether it locked onto a snap mark, or
-   * null for no mark. A free point draws as a vertex dot that follows the
-   * cursor along the edge; a snapped one adds a ring around the dot.
+   * Optional preview on the hovered edge for a click tool: given the hovered
+   * solved entity, the cursor's sketch position and the solved model, what
+   * to draw ({@link HoverPreview}), or null for nothing.
    */
-  hoverMarker?: (entity: SolvedEntityView, point2d: [number, number]) => { at: [number, number]; snapped: boolean } | null;
-  private hoverMarkerOverlay: Group | null = null;
-  private hoverMarkerKey: string | null = null;
+  hoverPreview?: (entity: SolvedEntityView, point2d: [number, number], model: SolvedSketchModel) => HoverPreview | null;
+  private hoverPreviewOverlay: Group | null = null;
+  private hoverPreviewKey: string | null = null;
+  /** The hovered shape whose tint a segment preview stands in for, if any. */
+  private hoverTintSuppressedFor: string | null = null;
   private hoveredBadge: BadgeHitTarget | null = null;
   /** Constraint statements tinted while a vertex pick stands for them (the
    * coincident ring behind a selected junction) — by render objId. */
@@ -564,10 +580,11 @@ export class SketchHoverSelectHandler {
         this.canvas.style.cursor = '';
       }
       this.hoveredShapeId = nearest;
+      this.hoverTintSuppressedFor = null;
       this.ctx.requestRender();
     }
 
-    this.updateHoverMarker(nearest !== null && !hit?.isCenter ? nearest : null, point2d);
+    this.updateHoverPreview(nearest !== null && !hit?.isCenter ? nearest : null, point2d);
 
     if (hit?.isCenter && hit.centerPoint) {
       const samePoint = this.hoveredCenterPoint
@@ -790,7 +807,8 @@ export class SketchHoverSelectHandler {
   }
 
   private clearHover(): void {
-    this.clearHoverMarker();
+    this.clearHoverPreview();
+    this.hoverTintSuppressedFor = null;
     if (this.hoveredShapeId) {
       this.removeHoverHighlight(this.hoveredShapeId);
       this.hoveredShapeId = null;
@@ -800,31 +818,69 @@ export class SketchHoverSelectHandler {
     }
   }
 
-  /** Re-place the hover marker for the edge under the cursor (see {@link hoverMarker}). */
-  private updateHoverMarker(shapeId: string | null, point2d: [number, number]): void {
+  /** Re-place the hover preview for the edge under the cursor (see {@link hoverPreview}). */
+  private updateHoverPreview(shapeId: string | null, point2d: [number, number]): void {
     const entity = shapeId !== null ? this.entityOfShape(shapeId) : undefined;
-    const target = entity && this.hoverMarker ? this.hoverMarker(entity, point2d) : null;
-    // A snapped marker sits still while the cursor roams its reach: rebuilding
-    // it every move is wasted work.
-    const key = target ? `${target.at[0]},${target.at[1]}:${target.snapped}` : null;
-    if (key === this.hoverMarkerKey) {
+    const preview = entity && this.solvedModel && this.hoverPreview
+      ? this.hoverPreview(entity, point2d, this.solvedModel)
+      : null;
+    // A snapped marker sits still while the cursor roams its reach, and a
+    // segment while the cursor roams its stretch: rebuilding either every
+    // move is wasted work.
+    const key = preview && entity ? SketchHoverSelectHandler.previewKey(entity, preview) : null;
+    if (key === this.hoverPreviewKey) {
       return;
     }
-    this.clearHoverMarker();
-    if (target) {
-      this.hoverMarkerOverlay = target.snapped
-        ? this.buildSnapMarkerOverlay(target.at)
-        : this.buildVertexOverlay(target.at, 0.9);
-      this.hoverMarkerKey = key;
+    this.syncHoverTint(shapeId, preview?.kind === 'segment');
+    this.clearHoverPreview();
+    if (preview) {
+      this.hoverPreviewOverlay = preview.kind === 'segment'
+        ? this.buildSegmentOverlay(preview.points)
+        : preview.snapped
+          ? this.buildSnapMarkerOverlay(preview.at)
+          : this.buildVertexOverlay(preview.at, 0.9);
+      this.hoverPreviewKey = key;
       this.ctx.requestRender();
     }
   }
 
-  private clearHoverMarker(): void {
-    if (this.hoverMarkerOverlay) {
-      this.disposeVertexOverlay(this.hoverMarkerOverlay);
-      this.hoverMarkerOverlay = null;
-      this.hoverMarkerKey = null;
+  /**
+   * A segment preview stands in for the hover tint: the entity keeps its own
+   * colour and only the stretch that would go turns red — a tinted entity
+   * under a red stretch reads as two colours fighting. The tint comes back
+   * the moment the preview is something else.
+   */
+  private syncHoverTint(shapeId: string | null, segmentShown: boolean): void {
+    if (segmentShown && shapeId !== null) {
+      if (this.hoverTintSuppressedFor !== shapeId) {
+        this.removeHoverHighlight(shapeId);
+        this.hoverTintSuppressedFor = shapeId;
+      }
+      return;
+    }
+    if (this.hoverTintSuppressedFor !== null) {
+      if (this.hoverTintSuppressedFor === this.hoveredShapeId) {
+        this.applyHoverHighlight(this.hoverTintSuppressedFor);
+      }
+      this.hoverTintSuppressedFor = null;
+    }
+  }
+
+  /** What a preview draws, as a string — equal keys need no rebuild. */
+  private static previewKey(entity: SolvedEntityView, preview: HoverPreview): string {
+    if (preview.kind === 'point') {
+      return `p:${preview.at[0]},${preview.at[1]}:${preview.snapped}`;
+    }
+    const first = preview.points[0];
+    const last = preview.points[preview.points.length - 1];
+    return `s:${entity.entityId}:${preview.points.length}:${first[0]},${first[1]}:${last[0]},${last[1]}`;
+  }
+
+  private clearHoverPreview(): void {
+    if (this.hoverPreviewOverlay) {
+      this.disposeVertexOverlay(this.hoverPreviewOverlay);
+      this.hoverPreviewOverlay = null;
+      this.hoverPreviewKey = null;
       this.ctx.requestRender();
     }
   }
@@ -1003,6 +1059,42 @@ export class SketchHoverSelectHandler {
     return group;
   }
 
+  /**
+   * The stretch of an edge a click would remove (the Trim tool): a heavier
+   * polyline over the edge in the removal colour, screen-constant width
+   * like the edges themselves.
+   */
+  private buildSegmentOverlay(points: [number, number][]): Group {
+    const positions: number[] = [];
+    for (const p of points) {
+      const world = localToWorld(p, this.plane);
+      positions.push(world.x, world.y, world.z);
+    }
+    const geometry = new LineGeometry();
+    geometry.setPositions(positions);
+    // Transparent (at full opacity) so it renders in the same pass as the
+    // sketch edges, after them by render order — an opaque line would draw
+    // first and the edge would paint over it.
+    const material = new LineMaterial({
+      color: themeColors.ghostRemoveEdgeColor.getHex(),
+      linewidth: SEGMENT_PREVIEW_WIDTH,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      depthTest: false,
+    });
+    LineResolutionRegistry.register(material);
+    const line = new Line2(geometry, material);
+    line.renderOrder = 6;
+    const group = new Group();
+    group.renderOrder = 6;
+    group.userData.isMetaShape = true;
+    group.add(line);
+    this.ctx.scene.add(group);
+    return group;
+  }
+
+  /** Tear down an overlay group built here (a vertex dot, a snap ring, a segment line). */
   private disposeVertexOverlay(group: Group): void {
     this.ctx.scene.remove(group);
     for (const child of group.children) {

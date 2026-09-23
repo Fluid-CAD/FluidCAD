@@ -158,8 +158,8 @@ When an operation consumes the sketch, the 2D geometry is turned into faces:
 
 ```js
 sketch("xy", () => {
-    circle([0, 0], 60)         // outer circle
-    circle([0, 0], 30)         // inner circle → a hole
+    const outer = circle([0, 0], 60)
+    const inner = circle([0, 0], 30)   // inside outer → a hole
 })
 
 extrude(20)                    // the ring between the two circles
@@ -171,7 +171,7 @@ To keep an inner shape solid instead of drilling it, chain `.drill(false)` on th
 extrude(20).drill(false)       // the inner circle is NOT treated as a hole
 ```
 
-When a sketch produces several separate regions, the operation dialogs let you pick the ones you want — see [region picking](/docs/3d-operations/extrude#region-picking).
+When a sketch produces several separate regions, the **Pick Regions** button lets an operation take only some of them. Each region you click writes its key into the statement — `extrude(20).region('outer')` is the ring above, `.region('inner')` the disc inside it — see [region picking](/docs/3d-operations/extrude#region-picking).
 
 ## Writing a sketch by hand
 

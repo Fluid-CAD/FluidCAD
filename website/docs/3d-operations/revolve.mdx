@@ -116,19 +116,14 @@ Thin revolve works with partial revolutions and every tab.
 
 ## Region picking
 
-When a sketch has multiple regions, use `.pick()` to select which one to revolve:
+When the profile sketch has several regions, a **Pick Regions** button appears in the navbar after the revolve is applied. Click it, then click the regions to revolve: each click writes the region's key into `.region()`, clicking a selected region removes it, and **Exit** leaves the mode.
 
 ```js
-revolve("z").pick([80, 0])
+revolve("z").region('c1')         // the pick chose the disc inside circle c1
+revolve("z").region('b r t l')    // the region closed by lines b, r, t, l
 ```
 
-:::tip[Interactive mode]
-Call `.pick()` with no arguments and click regions in the viewport.
-:::
-
-:::caution[Region picking can be fragile]
-The pick point is saved in your code. If the sketch dimensions change later, the point may fall outside the resized region and the model breaks. Prefer sketches that contain only the regions you need for parametric models.
-:::
+A key names the region by the entities on its outer loop, so it survives dimension edits and unrelated changes to the sketch. Reading a key, and what happens when a region's boundary is redrawn, is under [region picking](/docs/3d-operations/extrude#region-picking) on the Extrude page.
 
 ## Accessing geometry
 

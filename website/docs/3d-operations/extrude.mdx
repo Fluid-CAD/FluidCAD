@@ -225,20 +225,46 @@ Thin extrude works with all extrude modes — symmetric, draft, remove, two dist
 
 ## Region picking
 
-A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude a particular region, use `.pick()` with a point inside it:
+A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude particular regions, pick them in the viewport. The same works on cut, revolve, sweep and wrap.
+
+### Picking in the viewport
+
+1. Apply the extrude. When its sketch has several regions, a **Pick Regions** button appears in the navbar.
+2. Click it. The statement gains an empty `.region()`, which builds nothing, and every region of the sketch shows as a face you can click.
+3. Click a region to add it: its key is written into `.region(...)` and the extrusion rebuilds with it. Click a selected region again to remove it.
+4. **Exit** leaves the mode. With nothing picked it takes the empty `.region()` off again, and the extrude is back to taking every region.
+
+Two concentric circles make two regions: the ring, and the disc inside the inner circle. Picking the ring writes `extrude(20).region('outer')`:
 
 ![Region picking — ring extrusion](/img/docs/3d-operations/extrude-region-pick.png)
 
-<ExplainedCode code={extrudeRegionPick} />
+<ExplainedCode code={extrudeRegionPick}>
+The key is the ring's outer loop: the circle bound to `outer`. Nothing in it says how big the ring is, so resizing either circle leaves the pick intact.
+</ExplainedCode>
 
-:::tip[Interactive mode]
-Call `.pick()` with no arguments and click regions in the viewport to select them; the click points are written into the statement.
-:::
+### Reading a key
 
-:::caution[Region picking can be fragile]
-The pick point is saved in your code. If the sketch dimensions change later, the point may fall outside the resized region and the model breaks.
+A key names a region by the sketch entities on its outer loop, one after another with spaces between them. The entities are the variables the sketcher bound them to when you drew them (`const outer = circle(...)`), so a key reads like the sketch itself:
 
-This makes `.pick()` fine for fast prototyping or fixed dimensions. For parametric models, prefer sketches that contain only the regions you need, so no pick is required.
+- `'outer'` — the region whose outer loop is the circle `outer`. Holes never take part: the ring's key does not mention `inner`, and cutting a hole into a region later does not change its key. The hole is a region of its own, `'inner'`.
+- `'b r t l'` — the region closed by the four lines `b`, `r`, `t` and `l`. The order carries no meaning.
+- `'c1 c2-'` — a trailing `-` marks an edge the region lies on the far side of: on the right of the edge's own direction. A circle runs counter-clockwise, so `c2-` puts the region outside `c2`, and this key is the crescent inside `c1` and outside `c2`. `'c1 c2'` is the lens inside both.
+- `'r1.top'`, `'prj1.e3'` — one edge of a multi-edge statement: the top edge of the `rect()` macro `r1`, the third edge of the projection `prj1`.
+
+Each pick adds one key, so several regions read `.region('c1', 'c2')`.
+
+### Writing a key by hand
+
+A key is plain text, so a statement can be edited without going back to the viewport — after renaming a variable, say. A few forms only turn up in hand-written sketches:
+
+- A bare `r1` stands for every edge of `r1` on the region, so `'r1'` names the inside of a `rect()` without spelling out its sides.
+- A statement not bound to a variable is named by its callee and its position among that callee's calls in the sketch: `circle#2` is the second `circle()`. That position shifts when an earlier circle is deleted, so bind the statement instead. A call site inside a loop gives one entity per run: `l[0]`, `l[1]`.
+- A number picks by position in the sketch's region list: `extrude(20).region(0)`. It is quick to type, but it is a position, not an identity — a region added before it in the list shifts it.
+
+:::note[What a key survives]
+A key holds no coordinates, so a dimension change never moves a region away from its key. The key also survives an unrelated entity being added or deleted, and a hole being cut into the region.
+
+When the region's own boundary changes — a line drawn across it, a bounding entity deleted or redrawn — the feature takes the region that keeps most of the named boundary, as long as the match is clear. If it is not, the feature reports an error that lists the nearest keys. Copy the right one into the statement, or pick the region again.
 :::
 
 ## No-argument extrude

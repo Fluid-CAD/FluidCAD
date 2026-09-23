@@ -10,11 +10,8 @@ import {
   removePoint,
   addGuide,
   removeGuide,
-  addRegion,
-  removeRegion,
   removeStatement,
   setFeatureName,
-  setRegions,
   insertGeometryCallWithVariable,
   insertLoadCall,
   updateSketchPositions,
@@ -33,11 +30,6 @@ import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
-
-/** The region keys of a set-regions body: an array of strings, nothing else. */
-function isRegionKeyList(input: unknown): input is string[] {
-  return Array.isArray(input) && input.every((key) => typeof key === 'string');
-}
 
 function validateOneNewVariable(input: unknown): { name: string; initializer: string } | false {
   if (typeof input !== 'object' || input === null) {
@@ -151,36 +143,6 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/add-region', (req, res) => {
-    const { sourceLocation } = req.body;
-    if (
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'add-region',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/remove-region', (req, res) => {
-    const { sourceLocation } = req.body;
-    if (
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'remove-region',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
   router.post('/add-guide', (req, res) => {
     const { sourceLocation } = req.body;
     if (
@@ -206,23 +168,6 @@ export function createSketchEditsRouter(
     }
     sendToExtension({
       type: 'remove-guide',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/set-regions', (req, res) => {
-    const { keys, sourceLocation } = req.body;
-    if (
-      !isRegionKeyList(keys) ||
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'set-regions',
-      keys,
       sourceLocation,
     });
     res.json({ success: true });
@@ -528,34 +473,6 @@ export function createSketchEditsRouter(
     }
   });
 
-  router.post('/code/add-region', async (req, res) => {
-    const { code, sourceLine } = req.body;
-    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await addRegion(code, sourceLine);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/remove-region', async (req, res) => {
-    const { code, sourceLine } = req.body;
-    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await removeRegion(code, sourceLine);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
   router.post('/update-insert-chain', (req, res) => {
     const { sourceLocation, edit } = req.body;
     if (
@@ -687,23 +604,6 @@ export function createSketchEditsRouter(
       revealEditor: revealEditor !== false,
     });
     res.json({ success: true });
-  });
-
-  router.post('/code/set-regions', async (req, res) => {
-    const { code, sourceLine, keys } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !isRegionKeyList(keys)
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await setRegions(code, sourceLine, keys);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
   });
 
   router.post('/code/insert-geometry', async (req, res) => {

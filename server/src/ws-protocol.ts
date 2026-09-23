@@ -267,17 +267,6 @@ export type RemovePointMessage = {
   sourceLocation: { line: number; column: number };
 };
 
-/**
- * Rewrite the region picks of a statement: the `.region(...)` call in its
- * chain names exactly `keys` afterwards (an empty list keeps the
- * argument-less `.region()`).
- */
-export type SetRegionsMessage = {
-  type: 'set-regions';
-  keys: string[];
-  sourceLocation: { line: number; column: number };
-};
-
 export type ExportCompleteMessage = {
   type: 'export-complete';
   success: boolean;
@@ -286,18 +275,6 @@ export type ExportCompleteMessage = {
   error?: string;
   /** Assembly exports: whether live or statement poses were written. */
   posesSource?: 'live' | 'statement';
-};
-
-/** Append `.region()` to a statement's chain: region picking goes on. */
-export type AddRegionMessage = {
-  type: 'add-region';
-  sourceLocation: { line: number; column: number };
-};
-
-/** Strip an argument-less `.region()` from a statement's chain. */
-export type RemoveRegionMessage = {
-  type: 'remove-region';
-  sourceLocation: { line: number; column: number };
 };
 
 export type AddBreakpointMessage = {
@@ -438,9 +415,6 @@ export type ServerToExtensionMessage =
   | ImportCompleteMessage
   | InsertPointMessage
   | RemovePointMessage
-  | SetRegionsMessage
-  | AddRegionMessage
-  | RemoveRegionMessage
   | AddBreakpointMessage
   | RemoveFeatureMessage
   | ClearBreakpointsMessage

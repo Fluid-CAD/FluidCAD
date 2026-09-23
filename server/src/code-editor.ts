@@ -159,7 +159,7 @@ export function* walkTree(node: TSNode): Generator<TSNode> {
  *
  * "Outermost" means: of all call_expression nodes starting on the resolved
  * row, return the one with the largest endIndex. That picks the whole
- * `.region()` chain for `extrude(sk).region()` and the only call on the row
+ * `.guide()` chain for `line(…).guide()` and the only call on the row
  * for the multi-line case
  *   fillet(4,
  *     edge().circle()
@@ -1028,22 +1028,6 @@ export function insertPoint(
 }
 
 /**
- * Append `.region()` to the call chain on the resolved row — the extrude,
- * cut, revolve, sweep and wrap dialogs turning region picking on for a
- * statement that takes the whole sketch today. A chain that already has a
- * `.region(` call, with or without keys, is left alone.
- */
-export function addRegion(code: string, sourceLine: number): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call || findMemberCallInChain(call, 'region')) {
-      return null;
-    }
-    return spliceCode(code, call.endIndex, call.endIndex, '.region()');
-  });
-}
-
-/**
  * Append `.guide()` to the call chain on the resolved row — the Guide
  * toolbar toggle converting an already-drawn statement to construction
  * geometry.
@@ -1061,7 +1045,8 @@ export function addGuide(code: string, sourceLine: number): Promise<CodeEditResu
 /**
  * Remove the `.guide()` call from the chain on the resolved row — the Guide
  * toggle converting selected construction geometry back to real geometry.
- * Only an argument-less `.guide()` is stripped, mirroring `removeRegion`.
+ * Only an argument-less `.guide()` is stripped — a `.guide(...)` carrying
+ * arguments is not the toggle's to undo.
  */
 export function removeGuide(code: string, sourceLine: number): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
@@ -1083,34 +1068,6 @@ export function removeGuide(code: string, sourceLine: number): Promise<CodeEditR
       return null;
     }
     return spliceCode(code, object.endIndex, guideCall.endIndex, '');
-  });
-}
-
-/**
- * Remove an empty `.region()` call from the chain on the resolved row — the
- * dialogs turning region picking back off. A `.region(...)` that names
- * regions is left untouched so a stale edit cannot discard the user's picks.
- */
-export function removeRegion(code: string, sourceLine: number): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const regionCall = findMemberCallInChain(call, 'region');
-    if (!regionCall) {
-      return null;
-    }
-    const regionArgs = getArgumentsNode(regionCall);
-    if (!regionArgs || regionArgs.namedChildren.length !== 0) {
-      return null;
-    }
-    const member = regionCall.childForFieldName('function');
-    const object = member ? member.childForFieldName('object') : null;
-    if (!object) {
-      return null;
-    }
-    return spliceCode(code, object.endIndex, regionCall.endIndex, '');
   });
 }
 
@@ -1166,47 +1123,6 @@ export function removePoint(
     }
 
     return spliceCode(code, deleteStart, deleteEnd, '');
-  });
-}
-
-/**
- * A region key as a single-quoted JS string literal. Keys only ever hold
- * `[\w$#\[\].\- ]`, but a quote or backslash that did slip in must not
- * break the statement, so both are escaped.
- */
-function quoteRegionKey(key: string): string {
-  return `'${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-}
-
-/**
- * Rewrite the region picks of the statement on the resolved row: the
- * `.region(...)` call in the chain gets `keys` as its arguments, replacing
- * whatever it named before, and a chain without one gets `.region(<keys>)`
- * appended. The `.region()` call is edited wherever it sits in the chain —
- * `extrude(sk).region('c1').symmetric()` keeps its `.symmetric()` — and an
- * empty list writes the argument-less `.region()`, which keeps region
- * picking on with nothing selected.
- */
-export function setRegions(
-  code: string,
-  sourceLine: number,
-  keys: string[],
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const newArgs = keys.map(quoteRegionKey).join(', ');
-    const regionCall = findMemberCallInChain(call, 'region');
-    if (!regionCall) {
-      return spliceCode(code, call.endIndex, call.endIndex, `.region(${newArgs})`);
-    }
-    const args = getArgumentsNode(regionCall);
-    if (!args) {
-      return null;
-    }
-    return spliceCode(code, args.startIndex + 1, args.endIndex - 1, newArgs);
   });
 }
 

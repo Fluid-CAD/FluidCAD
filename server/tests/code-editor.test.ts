@@ -8,12 +8,9 @@ import {
   removePoint,
   addGuide,
   removeGuide,
-  addRegion,
-  removeRegion,
   removeStatement,
   setFeatureName,
   setSketchClosed,
-  setRegions,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -232,32 +229,6 @@ describe('insertPoint', () => {
   });
 });
 
-describe('addRegion', () => {
-  it('appends .region() after the last close paren on the line', async () => {
-    const code = `extrude(sk, 20)\n`;
-    const result = await addRegion(code, 1);
-    expect(result.newCode).toBe(`extrude(sk, 20).region()\n`);
-  });
-
-  it('appends after an existing chained call', async () => {
-    const code = `extrude(sk, 20).symmetric()\n`;
-    const result = await addRegion(code, 1);
-    expect(result.newCode).toBe(`extrude(sk, 20).symmetric().region()\n`);
-  });
-
-  it('is a no-op when .region( already exists on the line', async () => {
-    const code = `extrude(sk, 20).region()\n`;
-    const result = await addRegion(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-
-  it('is a no-op when the chain already names regions', async () => {
-    const code = `extrude(sk, 20).region('c1').symmetric()\n`;
-    const result = await addRegion(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-});
-
 describe('addGuide', () => {
   it('appends .guide() after the last close paren on the line', async () => {
     const code = `ellipse([0, 0], 10, 5)\n`;
@@ -298,32 +269,6 @@ describe('removeGuide', () => {
   });
 });
 
-describe('removeRegion', () => {
-  it('removes an empty .region() from the line', async () => {
-    const code = `extrude(sk).region()\n`;
-    const result = await removeRegion(code, 1);
-    expect(result.newCode).toBe(`extrude(sk)\n`);
-  });
-
-  it('removes a mid-chain .region(), keeping later calls', async () => {
-    const code = `extrude(sk).region().symmetric()\n`;
-    const result = await removeRegion(code, 1);
-    expect(result.newCode).toBe(`extrude(sk).symmetric()\n`);
-  });
-
-  it('leaves a .region() with keys untouched', async () => {
-    const code = `extrude(sk).region('c1')\n`;
-    const result = await removeRegion(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-
-  it('is a no-op when there is no .region() on the line', async () => {
-    const code = `extrude(sk)\n`;
-    const result = await removeRegion(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-});
-
 describe('removePoint', () => {
   it('removes the only point from a single-arg call', async () => {
     const code = `line([5, 5])\n`;
@@ -344,50 +289,6 @@ describe('removePoint', () => {
   });
 });
 
-describe('setRegions', () => {
-  it('replaces the .region() arguments with the keys as string literals', async () => {
-    const code = `extrude(sk, 20).region('c1')\n`;
-    const result = await setRegions(code, 1, ['b r t l', 'c1', 'circle#2-']);
-    expect(result.newCode).toBe(`extrude(sk, 20).region('b r t l', 'c1', 'circle#2-')\n`);
-  });
-
-  it('fills an argument-less .region()', async () => {
-    const code = `extrude(sk, 20).region()\n`;
-    const result = await setRegions(code, 1, ['c1']);
-    expect(result.newCode).toBe(`extrude(sk, 20).region('c1')\n`);
-  });
-
-  it('writes .region() for an empty list', async () => {
-    const code = `extrude(sk, 20).region('c1', 'c2')\n`;
-    const result = await setRegions(code, 1, []);
-    expect(result.newCode).toBe(`extrude(sk, 20).region()\n`);
-  });
-
-  it('appends .region(<keys>) when the chain has none', async () => {
-    const code = `extrude(sk, 20).symmetric()\n`;
-    const result = await setRegions(code, 1, ['c1', 'b r t l']);
-    expect(result.newCode).toBe(`extrude(sk, 20).symmetric().region('c1', 'b r t l')\n`);
-  });
-
-  it('appends .region() when the chain has none and the list is empty', async () => {
-    const code = `extrude(sk, 20)\n`;
-    const result = await setRegions(code, 1, []);
-    expect(result.newCode).toBe(`extrude(sk, 20).region()\n`);
-  });
-
-  it('escapes quotes and backslashes inside a key', async () => {
-    const code = `extrude(sk, 20).region()\n`;
-    const result = await setRegions(code, 1, [`it's`, `a\\b`]);
-    expect(result.newCode).toBe(`extrude(sk, 20).region('it\\'s', 'a\\\\b')\n`);
-  });
-
-  it('is a no-op when no call starts on the line', async () => {
-    const code = `const x = 1;\n`;
-    const result = await setRegions(code, 1, ['c1']);
-    expect(result.newCode).toBe(code);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Multi-line call coverage — the AST-based editor must handle calls that
 // span several rows (e.g. `offset(\n  edge().circle()\n)`) identically to
@@ -395,24 +296,24 @@ describe('setRegions', () => {
 // ---------------------------------------------------------------------------
 
 describe('multi-line calls', () => {
-  describe('addRegion', () => {
-    it('appends .region() after the closing paren on a later line', async () => {
-      const code = `extrude(\n  sk, 20\n)\n`;
-      const result = await addRegion(code, 1);
-      expect(result.newCode).toBe(`extrude(\n  sk, 20\n).region()\n`);
+  describe('addGuide', () => {
+    it('appends .guide() after the closing paren on a later line', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n)\n`;
+      const result = await addGuide(code, 1);
+      expect(result.newCode).toBe(`line(\n  [0, 0], [10, 0]\n).guide()\n`);
     });
 
-    it('is a no-op when .region() already exists on a later line', async () => {
-      const code = `extrude(\n  sk, 20\n).region()\n`;
-      const result = await addRegion(code, 1);
+    it('is a no-op when .guide() already exists on a later line', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n).guide()\n`;
+      const result = await addGuide(code, 1);
       expect(result.newCode).toBe(code);
     });
 
     it('finds the inner call when it is nested inside sk.add on a different row', async () => {
       const code = `sk.add(\n  offset(\n    edge().circle()\n  )\n)\n`;
-      const result = await addRegion(code, 2);
+      const result = await addGuide(code, 2);
       expect(result.newCode).toBe(
-        `sk.add(\n  offset(\n    edge().circle()\n  ).region()\n)\n`,
+        `sk.add(\n  offset(\n    edge().circle()\n  ).guide()\n)\n`,
       );
     });
   });
@@ -431,17 +332,11 @@ describe('multi-line calls', () => {
     });
   });
 
-  describe('removeRegion', () => {
-    it('strips a trailing .region() when the chain spans multiple lines', async () => {
-      const code = `extrude(\n  sk\n).region()\n`;
-      const result = await removeRegion(code, 1);
-      expect(result.newCode).toBe(`extrude(\n  sk\n)\n`);
-    });
-
-    it('leaves a multi-line .region() with keys untouched', async () => {
-      const code = `extrude(\n  sk\n).region('c1')\n`;
-      const result = await removeRegion(code, 1);
-      expect(result.newCode).toBe(code);
+  describe('removeGuide', () => {
+    it('strips a trailing .guide() when the chain spans multiple lines', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n).guide()\n`;
+      const result = await removeGuide(code, 1);
+      expect(result.newCode).toBe(`line(\n  [0, 0], [10, 0]\n)\n`);
     });
   });
 
@@ -453,50 +348,19 @@ describe('multi-line calls', () => {
     });
   });
 
-  describe('setRegions', () => {
-    it('replaces the argument span of a multi-line .region()', async () => {
-      const code = `extrude(\n  sk, 20\n).region(\n  'c1'\n)\n`;
-      const result = await setRegions(code, 1, ['c2', 'b r t l']);
-      expect(result.newCode).toBe(`extrude(\n  sk, 20\n).region('c2', 'b r t l')\n`);
-    });
-
-    it('appends after the closing paren on a later line when the chain has none', async () => {
-      const code = `extrude(\n  sk, 20\n)\n`;
-      const result = await setRegions(code, 1, ['c1']);
-      expect(result.newCode).toBe(`extrude(\n  sk, 20\n).region('c1')\n`);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
-// When `.region()` is not the last call in the chain (e.g. followed by
-// `.symmetric(...)`), region edits must still target `.region()` — the
-// outermost call is the wrong destination.
+// Chain-aware edits: a member call is edited where it sits in the chain
+// (`.guide()` ahead of a trailing `.symmetric()`), while point edits go to
+// the outermost call.
 // ---------------------------------------------------------------------------
 
-describe('region edits target .region() inside a longer chain', () => {
-  it('setRegions replaces .region() args, not a trailing .symmetric() args', async () => {
-    const code = `extrude(sk).region('c1').symmetric()\n`;
-    const result = await setRegions(code, 1, ['c2', 'b r t l']);
-    expect(result.newCode).toBe(`extrude(sk).region('c2', 'b r t l').symmetric()\n`);
-  });
-
-  it('setRegions empties .region(), keeping a trailing .symmetric()', async () => {
-    const code = `extrude(sk).region('c1').symmetric()\n`;
-    const result = await setRegions(code, 1, []);
-    expect(result.newCode).toBe(`extrude(sk).region().symmetric()\n`);
-  });
-
-  it('setRegions fills a mid-chain .region()', async () => {
-    const code = `extrude(sk).region().symmetric()\n`;
-    const result = await setRegions(code, 1, ['c1']);
-    expect(result.newCode).toBe(`extrude(sk).region('c1').symmetric()\n`);
-  });
-
-  it('removeRegion leaves a mid-chain .region() with keys untouched', async () => {
-    const code = `extrude(sk).region('c1').symmetric()\n`;
-    const result = await removeRegion(code, 1);
-    expect(result.newCode).toBe(code);
+describe('edits inside a longer chain', () => {
+  it('removeGuide strips a mid-chain .guide(), keeping a trailing call', async () => {
+    const code = `line([0, 0], [10, 0]).guide().name('base')\n`;
+    const result = await removeGuide(code, 1);
+    expect(result.newCode).toBe(`line([0, 0], [10, 0]).name('base')\n`);
   });
 
   it('point edits go to the outermost call (the bezier draw-mode flow)', async () => {

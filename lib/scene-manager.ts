@@ -7,6 +7,8 @@ import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { RenderChangeTracker } from "./rendering/render-changes.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
+import { buildSketchRegions } from "./rendering/sketch-regions.js";
+import type { SketchRegionsRequest, SketchRegionsResult } from "./rendering/sketch-regions.js";
 import { buildTextPathPreview } from "./rendering/text-path-preview.js";
 import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
 import { MESH_PRESETS, DEFAULT_MESH_QUALITY } from "./oc/mesh.js";
@@ -510,6 +512,15 @@ class SceneManager {
    */
   buildFeatureGhost(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
     return buildFeatureGhost(scene, request, this.meshQuality);
+  }
+
+  /**
+   * The region picker's faces: every closed region of a profile, keyed and
+   * meshed, with the dialog's current picks marked. Read-only over the scene
+   * like the feature ghost; nothing is registered or cached.
+   */
+  buildSketchRegions(scene: Scene, request: SketchRegionsRequest): SketchRegionsResult {
+    return buildSketchRegions(scene, request, this.meshQuality);
   }
 
   /** Resolve a 2D statement's target arguments onto the active sketch's edges. */

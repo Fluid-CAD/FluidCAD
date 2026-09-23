@@ -1,6 +1,6 @@
 // Parsing the repeat, copy, mirror and rotate ghost requests (3D and in-sketch).
 
-import type { GhostAxisRef, GhostPlaneRef, GhostSketchAxisRef } from '../../fluidcad-server.ts';
+import type { GhostAxisRef, GhostPlaneRef, GhostSketchAxisRef } from '../../fluidcad-server/index.ts';
 import {
   MAX_COPY_TARGETS,
   MAX_MIRROR_TARGETS,

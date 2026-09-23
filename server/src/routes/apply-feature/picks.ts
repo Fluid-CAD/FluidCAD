@@ -1,6 +1,6 @@
 // Pick payloads: the {shapeId, sub} references the UI sends and their validators.
 
-import type { SelectionBoundary } from '../../fluidcad-server.ts';
+import type { SelectionBoundary } from '../../fluidcad-server/index.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 

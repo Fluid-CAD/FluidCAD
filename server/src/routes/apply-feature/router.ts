@@ -1,7 +1,7 @@
 // The apply-feature router: builds the shared services and mounts every endpoint group.
 
 import { Router, type Response } from 'express';
-import type { FluidCadServer } from '../../fluidcad-server.ts';
+import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';

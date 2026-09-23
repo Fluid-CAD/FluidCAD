@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import {
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec,

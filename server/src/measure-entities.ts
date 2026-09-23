@@ -1,4 +1,4 @@
-import type { MeasureRef } from './fluidcad-server.ts';
+import type { MeasureRef } from './fluidcad-server/index.ts';
 import type { ResolveSelectionErrorCode, ResolveSelectionResult, ResolvedSelectionMatch, SelectionScopeInput } from '../../lib/dist/index.js';
 
 /** A measure entity named by a filter expression instead of an index. */

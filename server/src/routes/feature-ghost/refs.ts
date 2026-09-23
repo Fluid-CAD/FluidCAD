@@ -9,7 +9,7 @@ import type {
   GhostPlaneRef,
   GhostSectionRef,
   GhostSketchAxisRef,
-} from '../../fluidcad-server.ts';
+} from '../../fluidcad-server/index.ts';
 import { STANDARD_AXES, STANDARD_PLANES, type GhostBody } from './vocabulary.ts';
 
 /**

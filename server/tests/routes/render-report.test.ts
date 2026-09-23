@@ -9,7 +9,7 @@ import http from 'http';
 import { createParamsRouter } from '../../src/routes/params.ts';
 import { createTimelineRouter } from '../../src/routes/timeline.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
-import type { FluidCadServer, ObjectBuildError, SceneRenderedData } from '../../src/fluidcad-server.ts';
+import type { FluidCadServer, ObjectBuildError, SceneRenderedData } from '../../src/fluidcad-server/index.ts';
 
 const BUILD_ERROR: ObjectBuildError = {
   index: 2,

@@ -1,6 +1,6 @@
 // loft request validation: profiles, guides, conditions and connections (create and edit).
 
-import type { FluidCadServer, SelectionBoundary } from '../../../fluidcad-server.ts';
+import type { FluidCadServer, SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import {
   extractNumericParams,
   makeProducerBindable,

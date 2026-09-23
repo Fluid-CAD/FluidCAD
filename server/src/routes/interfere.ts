@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { InterferenceRequest } from '../../../lib/dist/index.js';
 import { PoseRequests } from './measure.ts';
 

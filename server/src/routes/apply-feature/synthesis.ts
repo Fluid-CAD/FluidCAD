@@ -1,7 +1,7 @@
 // Selector synthesis helpers: pick synthesizers, producer merging and variable allocation.
 
 import type { Response } from 'express';
-import type { FluidCadServer } from '../../fluidcad-server.ts';
+import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import {
   extractNumericParams,
   makeProducerBindable,

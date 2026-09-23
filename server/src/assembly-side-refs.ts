@@ -1,6 +1,6 @@
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import type { FluidCadServer } from './fluidcad-server.ts';
+import type { FluidCadServer } from './fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { resolveExportKey } from './assembly-mate-edit.ts';
 import type { MateConnectorRef, MateFrameRef, MateGeometryRef } from './assembly-chain-tools.ts';

@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { sceneUnitFields } from '../fluidcad-server.ts';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import { sceneUnitFields } from '../fluidcad-server/index.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { setDocumentUnit } from '../code-editor/index.ts';
 import { detectKind } from '../file-kind.ts';
 import { parseProjectUnit, writeProjectUnit } from '../project-config.ts';

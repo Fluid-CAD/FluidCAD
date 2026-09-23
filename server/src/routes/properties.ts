@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { getMaterials } from '../../../lib/dist/common/materials.js';
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 
 // A workspace with no `init.js` has no engine, so every render path returns
 // null. That null used to reach the UI as *nothing at all* — no

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { FluidCadServer } from '../../src/fluidcad-server.ts';
+import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { createPropertiesRouter } from '../../src/routes/properties.ts';
 import { createMeasureRouter } from '../../src/routes/measure.ts';
 

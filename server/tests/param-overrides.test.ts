@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
 import param from '../../lib/dist/core/param.js';

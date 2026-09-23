@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
-import { sceneUnitFields } from '../fluidcad-server.ts';
+import { sceneUnitFields } from '../fluidcad-server/index.ts';
 import { UI_APPLY_WAIT_MS } from './render.ts';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import {

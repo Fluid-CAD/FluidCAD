@@ -5,7 +5,7 @@ import { setupOC, render } from '../../../lib/tests/setup.ts';
 import sketch from '../../../lib/core/sketch.ts';
 import extrude from '../../../lib/core/extrude.ts';
 import { circle } from '../../../lib/core/2d/index.ts';
-import { FluidCadServer } from '../../src/fluidcad-server.ts';
+import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { createSceneRouter } from '../../src/routes/scene.ts';
 
 const FIXTURE_FILE = '/tmp/fluidcad-scene-test.fluid.js';

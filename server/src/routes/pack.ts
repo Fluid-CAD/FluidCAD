@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { packModel } from '../model-package/pack.ts';
 import type { ModelPackageCamera } from '../model-package/types.ts';
 import { readProjectConfig } from '../project-config.ts';

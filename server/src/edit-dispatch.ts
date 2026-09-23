@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import type { FluidCadServer } from './fluidcad-server.ts';
+import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
 

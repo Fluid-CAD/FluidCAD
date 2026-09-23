@@ -1,7 +1,7 @@
 // Read-only selection and statement endpoints: attribution, sketch names, feature sources, connector anchors and statement parsing.
 
 import type { Router } from 'express';
-import type { SelectionBoundary } from '../../../fluidcad-server.ts';
+import type { SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import {
   parseFeatureStatement,
   parseOffsetTargetDescriptors,

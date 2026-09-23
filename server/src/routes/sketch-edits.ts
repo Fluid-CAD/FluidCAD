@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { describeOcException } from '../../../lib/dist/index.js';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import {
   addBreakpoint,
   removeBreakpoint,

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { getParamRegistry } from '../../lib/dist/index.js';

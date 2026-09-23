@@ -13,7 +13,7 @@ import type {
   GhostEntityRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
-} from '../../fluidcad-server.ts';
+} from '../../fluidcad-server/index.ts';
 import { MAX_COPY_TARGETS, validateRegionKeys } from '../apply-feature/index.ts';
 import { augmentDerivedParams, resolveExpr } from './expressions.ts';
 import { parseCondition, parseLoftConnections } from './loft.ts';

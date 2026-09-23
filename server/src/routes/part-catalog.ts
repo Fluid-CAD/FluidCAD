@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { relativeSpecifier } from '../files/relative-specifier.ts';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { normalizePath } from '../normalize-path.ts';

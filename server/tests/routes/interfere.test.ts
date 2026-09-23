@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { FluidCadServer } from '../../src/fluidcad-server.ts';
+import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { createInterfereRouter, InterfereRequests } from '../../src/routes/interfere.ts';
 
 let server: http.Server;

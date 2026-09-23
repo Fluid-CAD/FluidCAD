@@ -1,7 +1,7 @@
 // The services and per-request fields the apply-feature endpoints and feature handlers share.
 
 import type { Response } from 'express';
-import type { FluidCadServer } from '../../fluidcad-server.ts';
+import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';

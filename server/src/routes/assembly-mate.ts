@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { parseFeatureStatement, type ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import {

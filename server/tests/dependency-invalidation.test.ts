@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 
 // The per-file render caches (dedup + renderingCache) must not outlive a

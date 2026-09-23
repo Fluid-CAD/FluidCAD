@@ -1,7 +1,9 @@
 import crypto from 'crypto';
+import { nativeImage } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { thumbnailsDir } from './engine/paths';
+import { opaqueBounds, padRect } from './thumbnail-bounds';
 
 /**
  * Start-screen previews, one PNG per project under `~/.fluidcad/thumbnails/`.
@@ -23,10 +25,13 @@ import { thumbnailsDir } from './engine/paths';
  */
 
 /**
- * Rendered square and then auto-cropped to the model's bounds: the fit the
- * engine does on its own is a conservative bounding-diagonal one, and without
- * the crop a flat part would sit small in the middle of a card. Large enough
- * that the cropped result stays crisp on a HiDPI display.
+ * Rendered square and then cropped to the model's pixels: the fit the engine
+ * does on its own is a conservative bounding-diagonal one, and its own
+ * autoCrop is the model's bounding box projected to the screen — which, from
+ * an iso view of anything thin (a bicycle, a plate), still leaves wide empty
+ * bands around the drawn pixels, and the card would show the model small. So
+ * the capture is trimmed here to its opaque pixels plus a margin. Rendered
+ * large enough that the trimmed result stays crisp on a HiDPI display.
  */
 const RENDER_SIZE = 1024;
 const CROP_MARGIN_PX = 16;
@@ -96,8 +101,8 @@ export async function captureThumbnail(url: string, workspacePath: string): Prom
       console.warn(`[shell] thumbnail for ${workspacePath}: ${response.status} ${await response.text()}`);
       return false;
     }
-    const png = Buffer.from(await response.arrayBuffer());
-    if (png.length === 0) {
+    const png = trimToModel(Buffer.from(await response.arrayBuffer()));
+    if (!png) {
       return false;
     }
     writeAtomically(thumbnailFileFor(workspacePath), png);
@@ -122,6 +127,31 @@ async function hasRenderedSolid(url: string): Promise<boolean> {
   }
   const list: any = await response.json();
   return Array.isArray(list?.shapes) && list.shapes.some((s: any) => s?.type === 'solid');
+}
+
+/**
+ * The capture cropped to its opaque pixels plus {@link CROP_MARGIN_PX}. Null
+ * for a blank capture — an empty PNG, or one without a single opaque pixel —
+ * so the caller keeps the previous preview instead of caching a blank card.
+ */
+function trimToModel(png: Buffer): Buffer | null {
+  if (png.length === 0) {
+    return null;
+  }
+  const image = nativeImage.createFromBuffer(png);
+  const { width, height } = image.getSize();
+  if (width === 0 || height === 0) {
+    return null;
+  }
+  const bounds = opaqueBounds(image.toBitmap(), width, height);
+  if (!bounds) {
+    return null;
+  }
+  const rect = padRect(bounds, CROP_MARGIN_PX, width, height);
+  if (rect.width === width && rect.height === height) {
+    return png;
+  }
+  return image.crop(rect).toPNG();
 }
 
 function writeAtomically(file: string, data: Buffer): void {

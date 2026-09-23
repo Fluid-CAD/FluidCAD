@@ -157,15 +157,23 @@
       .card:hover, .card:focus-visible { background: var(--panel-hover); border-color: #ffffff33; }
       .card:focus-visible { box-shadow: 0 0 0 2px #4f9cf966; }
       .card.busy { pointer-events: none; opacity: 0.6; }
+      /* Square previews. A project's preview is an iso render cropped to the
+         model, as often tall as it is wide, and a tutorial's is cropped square
+         by the feed admin — so a square box shows either whole, with no crop
+         of its own. */
       .preview {
-        aspect-ratio: 16 / 10;
+        position: relative;
+        aspect-ratio: 1 / 1;
         background: var(--preview);
         display: grid;
         place-items: center;
         border-bottom: 1px solid var(--line);
         overflow: hidden;
       }
-      .preview img { width: 100%; height: 100%; object-fit: contain; display: block; padding: 14px; }
+      /* Absolute against the box on purpose: a percentage height inside a
+         grid area whose height comes from aspect-ratio does not resolve, so
+         the picture ran at its natural size and the box clipped it. */
+      .preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; padding: 12px; }
       .preview .placeholder { color: var(--faint); font-size: 12px; text-align: center; display: grid; gap: 6px; justify-items: center; }
       .preview .placeholder svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.4; opacity: 0.7; }
       .meta { padding: 10px 12px 11px; display: grid; gap: 2px; min-width: 0; }
@@ -338,10 +346,11 @@
       #learn h2 { margin-top: 28px; }
       .tutorials {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
         gap: 14px;
       }
-      .tutorial .preview img { object-fit: cover; padding: 0; }
+      /* The feed's thumbnails are already composed square; show them whole. */
+      .tutorial .preview img { padding: 0; }
       .tutorial .meta { padding: 9px 12px 10px; }
       .tutorial .t-title { font-weight: 600; font-size: 13px; }
       .tutorial .t-desc {

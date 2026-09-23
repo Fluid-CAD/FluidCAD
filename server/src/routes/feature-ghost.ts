@@ -6,7 +6,9 @@ import type {
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
   GhostSketchAxisRef,
 } from '../fluidcad-server.ts';
-import { MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS, MAX_ROTATE_TARGETS } from './apply-feature.ts';
+import {
+  MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS, MAX_ROTATE_TARGETS, validateRegionKeys,
+} from './apply-feature.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -71,6 +73,7 @@ type GhostBody = {
   close?: unknown;
   entities?: unknown;
   center?: unknown;
+  regions?: unknown;
 };
 
 const FEATURES = [
@@ -1102,6 +1105,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       }
       profileRef = { filePath: profile.filePath, line: profile.line };
     }
+    // The dialog's region picks — absent means every region. Validated by
+    // the apply path's own rule so a ghost can't build what the apply refuses.
+    let regions: (string | number)[] | undefined;
+    if (PROFILE_FEATURES.includes(body.feature) && body.regions !== undefined && body.regions !== null) {
+      const parsed = validateRegionKeys(body);
+      if ('error' in parsed) {
+        res.status(400).json({ success: false, reason: parsed.error });
+        return;
+      }
+      regions = parsed.regions;
+    }
     const isRib = body.feature === 'rib';
     let spineRef: { filePath: string; line: number } | null = null;
     let ribScope: { filePath: string; line: number }[] = [];
@@ -1427,6 +1441,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         path: path!,
         extendStart,
         extendEnd,
+        regions,
       };
     } else if (isRib) {
       if (thickness === null || thickness === 0) {
@@ -1483,6 +1498,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         thin,
         profile: profileRef!,
         axis: axis!,
+        regions,
       };
     } else {
       request = {
@@ -1496,6 +1512,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         drill: body.drill !== false,
         thin,
         profile: profileRef!,
+        regions,
       };
     }
 
@@ -1511,6 +1528,35 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       return;
     }
     res.json({ success: true, solids: result.solids });
+  });
+
+  /**
+   * The region picker's faces: every closed region of a profile, keyed and
+   * meshed, with the dialog's current picks marked — what the feature dialogs
+   * draw over the sketch when the user clicks "Pick regions". Read-only, the
+   * ghost's sibling: nothing here writes code or scene state.
+   */
+  router.post('/sketch-regions', async (req, res) => {
+    const body = (req.body ?? {}) as { profile?: { filePath?: unknown; line?: unknown }; keys?: unknown };
+    const profile = body.profile;
+    if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
+      res.status(400).json({ success: false, reason: 'Invalid profile reference' });
+      return;
+    }
+    const keys = validateRegionKeys({ regions: body.keys });
+    if ('error' in keys) {
+      res.status(400).json({ success: false, reason: keys.error });
+      return;
+    }
+    const result = await fluidCadServer.sketchRegions({
+      profile: { filePath: profile.filePath, line: profile.line },
+      keys: keys.regions,
+    });
+    if (!result.regions) {
+      res.status(result.status).json({ success: false, reason: result.reason });
+      return;
+    }
+    res.json({ success: true, regions: result.regions });
   });
 
   return router;

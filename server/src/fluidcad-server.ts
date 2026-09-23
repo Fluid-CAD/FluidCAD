@@ -284,6 +284,8 @@ type SceneManager = {
   resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
   // Optional: predates the live dialog geometry preview ("ghost").
   buildFeatureGhost?(scene: any, request: FeatureGhostRequest): any;
+  // Optional: predates the dialog region picker.
+  buildSketchRegions?(scene: any, request: SketchRegionsRequest): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -421,6 +423,12 @@ export type ExtrudeGhostRequest = {
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
+  /**
+   * The dialog's `.region()` picks — the keys of the regions to build. Absent
+   * builds every region; an empty list is the bare `.region()`, which builds
+   * nothing.
+   */
+  regions?: (string | number)[];
 };
 
 export type RibGhostRequest = {
@@ -450,6 +458,12 @@ export type RevolveGhostRequest = {
   /** The producing statement of the profile to revolve. */
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
+  /**
+   * The dialog's `.region()` picks — the keys of the regions to build. Absent
+   * builds every region; an empty list is the bare `.region()`, which builds
+   * nothing.
+   */
+  regions?: (string | number)[];
 };
 
 /**
@@ -474,6 +488,12 @@ export type SweepGhostRequest = {
   extendStart?: number | null;
   /** `.extend('end', …)` run-out past the path, or null. */
   extendEnd?: number | null;
+  /**
+   * The dialog's `.region()` picks — the keys of the regions to build. Absent
+   * builds every region; an empty list is the bare `.region()`, which builds
+   * nothing.
+   */
+  regions?: (string | number)[];
 };
 
 /**
@@ -816,6 +836,26 @@ export type GhostSolid = {
  * dialog hits while simply typing (a superseded request, a profile not in the
  * scene yet) stays a 200 the client silently clears on rather than an error.
  */
+/** The region picker's request: a profile by call site and the dialog's current picks. */
+export type SketchRegionsRequest = {
+  profile: { filePath: string; line: number };
+  keys: (string | number)[];
+};
+
+/** One region of the profile as the picker draws it — see lib `SketchRegionPreview`. */
+export type SketchRegionPreview = {
+  key: string;
+  index: number;
+  selected: boolean;
+  meshes: any[];
+};
+
+export type SketchRegionsOutcome = {
+  status: number;
+  regions?: SketchRegionPreview[];
+  reason?: string;
+};
+
 export type FeatureGhostOutcome = {
   status: number;
   solids?: GhostSolid[];
@@ -1867,6 +1907,33 @@ export class FluidCadServer {
         // A profile OCC can't sweep at the current values is an ordinary
         // mid-typing state — the dialog just shows no ghost.
         return { status: 200, reason: err?.message ?? 'Could not build the preview geometry.' };
+      }
+    });
+  }
+
+  /**
+   * The region picker's faces for a profile — every closed region, keyed and
+   * meshed, the dialog's current picks marked. Read-only over the rendered
+   * scene, serialized against renders like the ghost; the answer goes back
+   * to the one client that asked.
+   */
+  async sketchRegions(request: SketchRegionsRequest): Promise<SketchRegionsOutcome> {
+    return this.serialized(async () => {
+      if (!this.sceneManager?.buildSketchRegions) {
+        return { status: 422, reason: 'This workspace kernel has no region picker.' };
+      }
+      const scene = this.previousScenes.get(this.currentFileName);
+      if (!scene) {
+        return { status: 422, reason: 'No rendered scene' };
+      }
+      try {
+        const result = this.sceneManager.buildSketchRegions(scene, request);
+        if (result?.ok) {
+          return { status: 200, regions: (result.regions ?? []) as SketchRegionPreview[] };
+        }
+        return { status: 422, reason: result?.reason ?? 'Could not build the sketch regions.' };
+      } catch (err: any) {
+        return { status: 200, reason: err?.message ?? 'Could not build the sketch regions.' };
       }
     });
   }

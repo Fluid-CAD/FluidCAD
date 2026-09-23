@@ -24,6 +24,10 @@ const fakeServer = {
     received = request;
     return { status: 200, solids: [] };
   },
+  sketchRegions: async (request: unknown) => {
+    received = request;
+    return { status: 200, regions: [{ key: 'c1', index: 0, selected: true, meshes: [] }] };
+  },
 };
 
 /** A linear repeat exactly as the dialog sends it. */
@@ -986,5 +990,54 @@ describe('feature-ghost route — loft connections', () => {
     const result = await postGhost({ ...body(), connections });
     expect(result.status).toBe(400);
     expect(received).toBeUndefined();
+  });
+});
+
+describe('feature-ghost route — region picks', () => {
+  useGhostRoute();
+
+  const extrudeBody = {
+    feature: 'extrude', op: 'add', distance: 10, distance2: null, symmetric: false, draft: null,
+    endOffset: null, drill: true, thin: null, profile: { filePath: FILE, line: 3 },
+  };
+
+  it('passes the dialog\'s region keys through to the extrude ghost', async () => {
+    const { status } = await postGhost({ ...extrudeBody, regions: ['outer', 1] });
+    expect(status).toBe(200);
+    expect(received.regions).toEqual(['outer', 1]);
+  });
+
+  it('leaves the keys absent when the dialog picked nothing', async () => {
+    const { status } = await postGhost(extrudeBody);
+    expect(status).toBe(200);
+    expect(received.regions).toBeUndefined();
+  });
+
+  it('refuses a key that is neither a string nor a region number', async () => {
+    const { status } = await postGhost({ ...extrudeBody, regions: [{ key: 'c1' }] });
+    expect(status).toBe(400);
+  });
+
+  it('serves the region picker its faces for a profile', async () => {
+    const res = await fetch(`${baseUrl}/api/sketch-regions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: { filePath: FILE, line: 3 }, keys: ['c1'] }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      success: true,
+      regions: [{ key: 'c1', index: 0, selected: true, meshes: [] }],
+    });
+    expect(received).toEqual({ profile: { filePath: FILE, line: 3 }, keys: ['c1'] });
+  });
+
+  it('refuses a region request without a profile', async () => {
+    const res = await fetch(`${baseUrl}/api/sketch-regions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: [] }),
+    });
+    expect(res.status).toBe(400);
   });
 });

@@ -13,22 +13,8 @@
 
 import { describe, it, expect } from "vitest";
 import { setupOC } from "./setup.js";
-import * as core from "../core/index.js";
-import * as filters from "../filters/index.js";
-import * as math from "../math/index.js";
-import * as constraints from "../core/constraints/index.js";
 import { SceneObject, SourceLocation } from "../common/scene-object.js";
-
-const FILE = "/ws/model.fluid.js";
-
-function runFluid(code: string): Record<string, SceneObject> {
-  const globals: Record<string, unknown> = { ...core, ...filters, ...math, ...constraints };
-  const paramNames = Object.keys(globals);
-  const paramValues = paramNames.map((n) => globals[n]);
-  const wrapped = `"use strict";\n${code}\n//# sourceURL=${FILE}`;
-  const fn = new Function(...paramNames, wrapped);
-  return fn(...paramValues) as Record<string, SceneObject>;
-}
+import { runFluid, FLUID_FILE as FILE } from "./helpers/run-fluid.js";
 
 function loc(obj: SceneObject): SourceLocation {
   const location = obj.getSourceLocation();

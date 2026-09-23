@@ -11,12 +11,16 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { SketchSolverContext } from "./solved/solver-context.js";
 import { isReferenceProducer } from "./solved/reference.js";
 import { isMacroProducer } from "./solved/macros/finalize.js";
+import { SketchStatementKeys } from "./regions/statement-keys.js";
+import { SketchRegionBuilder, SketchRegion } from "./regions/region-builder.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
   private _solver: SketchSolverContext | null;
   private _solveDone = false;
   private _closed = false;
+  private _callbackSource: string | null = null;
+  private _statementKeys: SketchStatementKeys | null = null;
 
   constructor(public planeObj: PlaneObjectBase) {
     super();
@@ -25,6 +29,43 @@ export class Sketch extends SceneObject implements Extrudable {
 
   solver(): SketchSolverContext | null {
     return this._solver;
+  }
+
+  /** The sketch callback's source text (`sketcher.toString()`), set by the
+   * sketch() command — the statement keys read binding names from it. */
+  setCallbackSource(source: string | null): void {
+    this._callbackSource = source;
+    this._statementKeys = null;
+  }
+
+  getCallbackSource(): string | null {
+    return this._callbackSource;
+  }
+
+  /**
+   * The identity of every statement of this sketch — what region keys are
+   * written in. Computed once the callback has run (the children are then
+   * final); a cloned sketch reads its clone source's, whose text and
+   * locations it shares.
+   */
+  statementKeys(): SketchStatementKeys {
+    if (!this._statementKeys) {
+      const statements = this.getChildren().filter(child => !child.isLazy() && !child.isSelection());
+      this._statementKeys = new SketchStatementKeys(statements, {
+        sketchLocation: this.getSourceLocation(),
+        callbackSource: this._callbackSource,
+      });
+    }
+    return this._statementKeys;
+  }
+
+  /**
+   * The closed regions the sketch's live edges cut its plane into, each
+   * named by the statements on its outer loop — see SketchRegionBuilder.
+   * Built on demand: only a `.region()` consumer needs them.
+   */
+  buildRegions(): SketchRegion[] {
+    return new SketchRegionBuilder(this.getEdgesWithOwner(), this.getPlane(), this.statementKeys()).build();
   }
 
   /**
@@ -204,7 +245,9 @@ export class Sketch extends SceneObject implements Extrudable {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const planeObj = (remap.get(this.planeObj) as PlaneObjectBase) || this.planeObj;
-    return new Sketch(planeObj);
+    const copy = new Sketch(planeObj);
+    copy.setCallbackSource(this._callbackSource);
+    return copy;
   }
 
   compareTo(other: Sketch): boolean {

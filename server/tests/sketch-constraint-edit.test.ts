@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applySketchConstraint } from '../src/sketch-constraint-edit.ts';
-import { applyDistanceTangency, applySolvedEmission } from '../src/sketch-solved-edit.ts';
+import { applyDistanceTangency, applySolvedEmission } from '../src/sketch-solved-edit/index.ts';
 
 // Constraint emission for solved sketches (sketch-rewrite P4): hoisting of
 // unbound entity statements + body-end insertion + constraints import, all

@@ -17,7 +17,7 @@ import {
   hoistSolvedStatement,
   solvedTargetCallee,
   targetError,
-} from '../sketch-solved-edit.ts';
+} from '../sketch-solved-edit/index.ts';
 import { collectIdentifiers } from '../sketch-names.ts';
 import {
   renderSolvedTarget,

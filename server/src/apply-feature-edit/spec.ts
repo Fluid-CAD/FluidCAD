@@ -4,7 +4,7 @@ import type { SketchConstraintEditSpec } from '../sketch-constraint-edit.ts';
 import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
 import type { SketchDeleteSpec } from '../sketch-entity-delete.ts';
-import type { DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit.ts';
+import type { DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit/index.ts';
 import type { ParamEditSpec } from '../param-edit.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';

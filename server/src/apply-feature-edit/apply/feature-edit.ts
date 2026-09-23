@@ -5,7 +5,7 @@ import { applySketchConstraint } from '../../sketch-constraint-edit.ts';
 import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
-import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit.ts';
+import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { RemoveFeature } from '../../remove-feature.ts';

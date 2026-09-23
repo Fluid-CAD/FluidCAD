@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySolvedEmission } from '../src/sketch-solved-edit.ts';
+import { applySolvedEmission } from '../src/sketch-solved-edit/index.ts';
 
 // Solved-sketch emission transform (sketch-rewrite P5): geometry + constraint
 // statements in one edit, geometry before the body's first constraint

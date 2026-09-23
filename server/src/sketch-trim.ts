@@ -24,7 +24,7 @@ import {
   hoistSolvedStatement,
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
-} from './sketch-solved-edit.ts';
+} from './sketch-solved-edit/index.ts';
 import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 import {
   LINE_RULES,

@@ -16,7 +16,7 @@
 // user saw.
 
 import type { SketchPositionEdit, TSNode } from './code-editor/index.ts';
-import { calleeName, chainBase } from './sketch-solved-edit.ts';
+import { calleeName, chainBase } from './sketch-solved-edit/index.ts';
 import { SketchEntityRewrite, fmt, type Edit } from './sketch-entity-rewrite.ts';
 
 export type SketchDeleteSpec = {

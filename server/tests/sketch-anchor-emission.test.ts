@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySolvedEmission } from '../src/sketch-solved-edit.ts';
+import { applySolvedEmission } from '../src/sketch-solved-edit/index.ts';
 
 // Anchor-point constraint targets (sketch-rewrite P8): text anchors and
 // bezier control points address their owning statement and render the

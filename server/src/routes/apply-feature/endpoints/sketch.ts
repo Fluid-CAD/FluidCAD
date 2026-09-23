@@ -9,7 +9,7 @@ import {
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
   type SolvedGeometryEmission,
-} from '../../../sketch-solved-edit.ts';
+} from '../../../sketch-solved-edit/index.ts';
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../../../sketch-symbols.ts';
 import { SketchSplit, type SketchSplitSpec } from '../../../sketch-split.ts';
 import { SketchTrim, type SketchTrimSpec } from '../../../sketch-trim.ts';

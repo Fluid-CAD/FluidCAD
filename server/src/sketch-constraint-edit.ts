@@ -9,7 +9,7 @@
 import {
   applySolvedEmission,
   type SolvedEmissionRole,
-} from './sketch-solved-edit.ts';
+} from './sketch-solved-edit/index.ts';
 import type { SolvedEntityKind } from './sketch-symbols.ts';
 import type { NewVariableDecl } from './code-editor/index.ts';
 

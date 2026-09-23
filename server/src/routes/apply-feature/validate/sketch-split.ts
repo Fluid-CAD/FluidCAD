@@ -1,6 +1,6 @@
 // Sketch split/trim payload sanitizers.
 
-import { sanitizeEmissionTarget } from '../../../sketch-solved-edit.ts';
+import { sanitizeEmissionTarget } from '../../../sketch-solved-edit/index.ts';
 import {
   SketchEntitySplit,
   type SplitPiece,

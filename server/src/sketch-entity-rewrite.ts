@@ -24,7 +24,7 @@ import {
   chainBase,
   enclosingLoop,
   enclosingStatement,
-} from './sketch-solved-edit.ts';
+} from './sketch-solved-edit/index.ts';
 import { SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
 

@@ -13,7 +13,7 @@ import {
   applySolvedEmission,
   hoistSolvedStatement,
   type SolvedConstraintEmission,
-} from './sketch-solved-edit.ts';
+} from './sketch-solved-edit/index.ts';
 import { allocateSolvedName, collectIdentifiers } from './sketch-names.ts';
 import {
   LINE_RULES,

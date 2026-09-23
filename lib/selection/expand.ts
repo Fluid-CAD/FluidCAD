@@ -38,26 +38,46 @@ function toPickRefs(ref: PickRef, indices: number[]): PickRef[] {
 }
 
 /**
- * A bucket's surviving members on the rendered solid, as pick refs. Bucket
- * members are as-built wrappers; the `IsSame`-consistent hash keys bridge
- * them onto the picked solid's mesh-order universe, so members a later
- * boolean consumed are skipped naturally.
+ * Every solid the scene renders, in scene order. Removals count when their
+ * remover is in the scene: a boundary-scoped view keeps the solids a later
+ * statement consumes, exactly as its rollback draws them.
  */
-export function bucketMembersOnSolid(
-  index: SelectionIndex,
-  bucket: BucketRecord,
-  solid: Shape,
-  ref: PickRef,
-): PickRef[] {
+function renderedSolids(scene: SelectionScene): Shape[] {
+  const objects = scene.getAllSceneObjects();
+  const removalScope = new Set(objects);
+  return objects
+    .filter(obj => !obj.isContainer())
+    .flatMap(obj => obj.getShapes({}, 'solid', removalScope));
+}
+
+/**
+ * Every face (or edge) the scene renders, as the pick ref that names it and
+ * its `IsSame`-consistent key, in scene then mesh order — built once, then
+ * shared by every bucket lookup of one query.
+ */
+export type PickUniverse = { ref: PickRef; key: number }[];
+
+export function buildPickUniverse(scene: SelectionScene, index: SelectionIndex, kind: PickSubRef['type']): PickUniverse {
+  const universe: PickUniverse = [];
+  for (const solid of renderedSolids(scene)) {
+    pickUniverse(solid, kind).forEach((shape, universeIndex) => {
+      universe.push({ ref: { shapeId: solid.id, sub: { type: kind, index: universeIndex } }, key: index.keyOf(shape) });
+    });
+  }
+  return universe;
+}
+
+/**
+ * A bucket's surviving members across every rendered solid, as pick refs in
+ * universe order. The accessor the bucket backs (`e.startFaces()`) names
+ * every member wherever it lives, so a feature that built several bodies at
+ * once (a region extrude) expands to all of them. Bucket members are
+ * as-built wrappers; the hash keys bridge them onto each solid's mesh-order
+ * universe, so members a later boolean consumed are skipped naturally.
+ */
+export function bucketMembers(universe: PickUniverse, bucket: BucketRecord): PickRef[] {
   const memberKeys = new Set(bucket.memberKeys);
-  const universe = pickUniverse(solid, ref.sub.type);
-  const indices: number[] = [];
-  universe.forEach((shape, universeIndex) => {
-    if (memberKeys.has(index.keyOf(shape))) {
-      indices.push(universeIndex);
-    }
-  });
-  return toPickRefs(ref, indices);
+  return universe.filter(entry => memberKeys.has(entry.key)).map(entry => entry.ref);
 }
 
 /**
@@ -97,7 +117,8 @@ export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandT
 
 /**
  * Expand a picked edge (or face) to its whole classified bucket — the
- * double-click gesture ("the whole top rim").
+ * double-click gesture ("the whole top rim") — across every rendered solid
+ * that carries members of it.
  */
 export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketResult {
   const index = new SelectionIndex(scene);
@@ -110,9 +131,9 @@ export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketR
       return { ok: false, reason: 'this pick has no classified bucket to expand to' };
     }
 
-    const members = bucketMembersOnSolid(index, attr.producer.bucket, attr.solidShape!, ref);
+    const members = bucketMembers(buildPickUniverse(scene, index, ref.sub.type), attr.producer.bucket);
     if (members.length === 0) {
-      return { ok: false, reason: 'no bucket member survives on the current solid' };
+      return { ok: false, reason: 'no bucket member survives on the current solids' };
     }
 
     return {

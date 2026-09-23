@@ -5,6 +5,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { SelectionIndex } from "../../selection/selection-index.js";
 import { listSelectionGroups } from "../../selection/selection-groups.js";
+import { expandBucket } from "../../selection/expand.js";
 import { runFluid } from "../helpers/run-fluid.js";
 import { findSolids } from "./pick-helpers.js";
 
@@ -81,8 +82,9 @@ describe("classified buckets on a two-region extrude with a seam-split solid", (
     }
   });
 
-  it("offers the extrude's other buckets on the seam-split solid's top face", () => {
+  it("offers the extrude's buckets across both solids from either top face", () => {
     const { scene, solids } = build();
+    const solidIds = solids.map(s => s.id).sort();
 
     for (const solid of solids) {
       const faces = Explorer.findFacesWrapped(solid);
@@ -92,11 +94,36 @@ describe("classified buckets on a two-region extrude with a seam-split solid", (
       const result = listSelectionGroups(scene, { shapeId: solid.id, sub: { type: 'face', index: top } });
       expect(result.ok).toBe(true);
       const groups = result.ok ? result.groups : [];
+      // The pick's own bucket spans both bodies, so it is a real group here.
+      const own = groups.find(g => g.kind === 'classified')!;
+      expect(own.label).toBe('Extrude End Faces');
+      expect(own.members.map(m => m.shapeId).sort()).toEqual(solidIds);
+      expect(own.members.some(m => m.shapeId === solid.id && m.sub.index === top)).toBe(true);
+
       const siblings = groups.filter(g => g.kind === 'sibling');
       expect(siblings.map(g => [g.label, g.members.length])).toEqual([
-        ['Extrude Start Faces', 1],
-        ['Extrude Side Faces', 4],
+        ['Extrude Start Faces', 2],
+        ['Extrude Side Faces', 8],
       ]);
+      const starts = siblings[0].members;
+      expect(starts.map(m => m.shapeId).sort()).toEqual(solidIds);
+      for (const member of starts) {
+        const face = Explorer.findFacesWrapped(solids.find(s => s.id === member.shapeId)!)[member.sub.index];
+        expect(face.center().z).toBeCloseTo(0, 6);
+      }
+    }
+  });
+
+  it("double-click expansion of a start face reaches the other solid's start face", () => {
+    const { scene, solids } = build();
+    const solid = solids[0];
+    const bottom = Explorer.findFacesWrapped(solid).findIndex(face => Math.abs(face.center().z) < 1e-6);
+
+    const result = expandBucket(scene, { shapeId: solid.id, sub: { type: 'face', index: bottom } });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.accessor).toBe('startFaces');
+      expect(result.members.map(m => m.shapeId).sort()).toEqual(solids.map(s => s.id).sort());
     }
   });
 });

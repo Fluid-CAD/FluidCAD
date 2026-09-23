@@ -3,7 +3,7 @@ import { Explorer } from "../oc/explorer.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import type { EdgeProperties } from "../oc/edge-props.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
-import { bucketMembersOnSolid, expandTangentChain } from "./expand.js";
+import { bucketMembers, buildPickUniverse, expandTangentChain } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
 import { PickRef, SelectionScene } from "./types.js";
 import { mmTol } from "../units/tolerance.js";
@@ -18,7 +18,11 @@ export type SelectionGroup = {
   kind: SelectionGroupKind;
   /** Menu label, e.g. `Extrude End Edges`, `All Arcs`, `Equal Radius Arcs`. */
   label: string;
-  /** Every member on the picked shape, seed included, in mesh order. */
+  /**
+   * Every member, seed included: tangent and geometric groups run over the
+   * picked solid in mesh order, classified and sibling groups over every
+   * rendered solid that carries bucket members, in scene then mesh order.
+   */
   members: PickRef[];
 };
 
@@ -111,6 +115,8 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
  * The pick's own classified bucket, plus the producing feature's other
  * buckets of the same sub-shape kind as `sibling` groups — the "Select
  * other" section (a startEdges pick offers End Edges, Side Edges, …).
+ * Both span every solid the feature built: the top of one region-extrude
+ * body offers the start faces of all its bodies, as `e.startFaces()` would.
  * Siblings keep single-member buckets: unlike the seed's own bucket, they
  * select edges the pick doesn't already imply. Sibling labels carry the
  * feature prefix like the own label does: a cut's start/end run sketch-side
@@ -128,7 +134,8 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
     const groups: SelectionGroup[] = [];
     const producer = attr.producer.bucket;
     const feature = featureLabel(producer.feature.getType());
-    const members = bucketMembersOnSolid(index, producer, attr.solidShape!, ref);
+    const universe = buildPickUniverse(scene, index, ref.sub.type);
+    const members = bucketMembers(universe, producer);
     if (members.length > 1) {
       groups.push({
         kind: 'classified',
@@ -141,7 +148,7 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
       if (bucket.feature !== producer.feature || bucket === producer || bucket.def.kind !== ref.sub.type) {
         continue;
       }
-      const siblingMembers = bucketMembersOnSolid(index, bucket, attr.solidShape!, ref);
+      const siblingMembers = bucketMembers(universe, bucket);
       if (siblingMembers.length > 0) {
         groups.push({
           kind: 'sibling',

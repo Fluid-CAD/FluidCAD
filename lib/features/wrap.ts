@@ -28,7 +28,7 @@ export class Wrap extends ExtrudeBase implements IWrap {
 
     const plane = p.record('Get source plane', () => this.getSourcePlane());
 
-    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolveRegionFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }

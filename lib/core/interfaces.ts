@@ -1,5 +1,5 @@
 import type { LazyVertex } from "../features/lazy-vertex.js";
-import type { Point2DLike, PointLike } from "../math/point.js";
+import type { PointLike } from "../math/point.js";
 import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
@@ -668,10 +668,14 @@ export interface IExtrude extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts extrusion to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to extrude.
+   * Restricts extrusion to particular regions of the sketch. A region is
+   * named by the sketch entities on its outer loop — `'b r t l'` for the
+   * rectangle those four lines close, `'c1 c2-'` for the ring inside `c1`
+   * and outside `c2` — or by its position in the sketch's region list.
+   * The region pick mode writes the keys.
+   * @param keys - Region keys, or positions in the sketch's region list.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
 
   /**
    * Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
@@ -744,10 +748,12 @@ export interface ICut extends ISceneObject {
   internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
-   * Restricts the cut to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to cut.
+   * Restricts the cut to particular regions of the sketch, named by the
+   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+   * sketch's region list. See `IExtrude.region`.
+   * @param keys - Region keys, or positions in the sketch's region list.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
 
   /**
    * Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
@@ -772,10 +778,12 @@ export interface IRevolve extends IBooleanOperation {
    */
   symmetric(): this;
   /**
-   * Restricts the revolve to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to revolve.
+   * Restricts the revolve to particular regions of the sketch, named by the
+   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+   * sketch's region list. See `IExtrude.region`.
+   * @param keys - Region keys, or positions in the sketch's region list.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
 
   /**
    * Enables thin revolve mode — offsets the profile edges to create a thin-walled
@@ -1030,10 +1038,12 @@ export interface ISweep extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts the sweep to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to sweep.
+   * Restricts the sweep to particular regions of the profile sketch, named
+   * by the sketch entities on their outer loop (`'c1 c2-'`) or by position
+   * in the sketch's region list. See `IExtrude.region`.
+   * @param keys - Region keys, or positions in the sketch's region list.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
 
   /**
    * Enables thin sweep mode — offsets the profile edges to create a thin-walled
@@ -1400,10 +1410,12 @@ export interface IWrap extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts wrapping to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to wrap.
+   * Restricts wrapping to particular regions of the sketch, named by the
+   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+   * sketch's region list. See `IExtrude.region`.
+   * @param keys - Region keys, or positions in the sketch's region list.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
 }
 
 export type ShellJoinType = 'arc' | 'intersection' | 'tangent';

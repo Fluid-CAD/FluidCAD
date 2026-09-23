@@ -57,7 +57,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
     const p = context.getProfiler();
     const plane = this.extrudable.getPlane();
 
-    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolveRegionFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }

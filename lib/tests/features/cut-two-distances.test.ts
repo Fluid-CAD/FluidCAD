@@ -128,7 +128,7 @@ describe("cut two distances", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
           testRect(100, 100);
@@ -139,7 +139,7 @@ describe("cut two distances", () => {
           circle([25, 25], 30);
           circle([75, 25], 30);
         });
-      const c = cut(20, 10).pick([25, 25]) as ExtrudeBase;
+      const c = cut(20, 10).region('circle#1') as ExtrudeBase;
 
       render();
 

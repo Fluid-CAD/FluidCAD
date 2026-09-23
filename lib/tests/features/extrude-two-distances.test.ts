@@ -362,14 +362,14 @@ describe("extrude two distances", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
           circle([100, 0], 60);
         });
 
-      const e = extrude(20, 10).pick([0, 0]) as ExtrudeTwoDistances;
+      const e = extrude(20, 10).region('circle#1') as ExtrudeTwoDistances;
 
       render();
 
@@ -378,12 +378,12 @@ describe("extrude two distances", () => {
       expect(shapes[0].getType()).toBe("solid");
     });
 
-    it("should produce no solid when pick point is outside all regions", () => {
+    it("should produce no solid when the key names no region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20, 10).pick([500, 500]) as ExtrudeTwoDistances;
+      const e = extrude(20, 10).region('circle#9') as ExtrudeTwoDistances;
 
       render();
 

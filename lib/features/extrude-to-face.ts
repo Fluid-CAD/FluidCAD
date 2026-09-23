@@ -30,7 +30,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     const sceneObjects = this.resolveFusionScope(allSceneObjects);
     const plane = this.getSourcePlane();
 
-    const pickedFaces = this.resolvePickedFaces(plane);
+    const pickedFaces = this.resolveRegionFaces(plane);
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }

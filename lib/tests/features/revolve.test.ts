@@ -233,14 +233,14 @@ describe("revolve", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only revolve the picked region", () => {
       sketch("xz", () => {
           circle([20, 0], 16);
           circle([20, 30], 16);
         });
 
-      const r = revolve("z", 360).pick([20, 0]) as Revolve;
+      const r = revolve("z", 360).region('circle#1') as Revolve;
 
       render();
 

@@ -654,7 +654,7 @@ describe("extrude", () => {
           testRect(100, 50);
         });
 
-      const e = extrude(30).pick([50, 25]) as Extrude;
+      const e = extrude(30).region('line#1 line#2 line#3 line#4') as Extrude;
 
       render();
 
@@ -664,15 +664,15 @@ describe("extrude", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
           circle([100, 0], 60);
         });
 
-      // Pick point inside the first circle only
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      // The first circle's region only
+      const e = extrude(20).region('circle#1') as Extrude;
 
       render();
 
@@ -687,8 +687,8 @@ describe("extrude", () => {
           circle([100, 0], 60);
         });
 
-      // Pick points inside both circles
-      const e = extrude(20).pick([0, 0], [100, 0]) as Extrude;
+      // Both circles' regions
+      const e = extrude(20).region('circle#1', 'circle#2') as Extrude;
 
       render();
 
@@ -702,8 +702,8 @@ describe("extrude", () => {
         circle([20, 0], 80);
       });
 
-      // Pick at the center — inside the intersection of both circles
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      // The lens: on the left (inside) of both circles
+      const e = extrude(20).region('circle#1 circle#2') as Extrude;
 
       render();
 
@@ -716,12 +716,12 @@ describe("extrude", () => {
       expect(solidWidth).toBeLessThan(80);
     });
 
-    it("should produce no solid when pick point is outside all regions", () => {
+    it("should produce no solid when the key names no region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20).pick([500, 500]) as Extrude;
+      const e = extrude(20).region('circle#9') as Extrude;
 
       render();
 
@@ -735,7 +735,7 @@ describe("extrude", () => {
           circle([100, 0], 60);
         });
 
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      const e = extrude(20).region('circle#1') as Extrude;
 
       render();
 

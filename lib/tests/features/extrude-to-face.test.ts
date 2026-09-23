@@ -470,7 +470,7 @@ describe("extrude to face", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
           testRect(100, 50);
@@ -481,7 +481,7 @@ describe("extrude to face", () => {
           circle([200, 0], 60);
           circle([200, 100], 60);
         });
-      const e2 = extrude(e1.endFaces()).pick([200, 0]) as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()).region('circle#1') as ExtrudeToFace;
 
       render();
 

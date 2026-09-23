@@ -152,7 +152,7 @@ describe("cut symmetric", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
           testRect(100, 100);
@@ -163,7 +163,7 @@ describe("cut symmetric", () => {
           circle([25, 25], 30);
           circle([75, 25], 30);
         });
-      const c = extrude(20).symmetric().remove().pick([25, 25]) as ExtrudeBase;
+      const c = extrude(20).symmetric().remove().region('circle#1') as ExtrudeBase;
 
       render();
 

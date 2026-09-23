@@ -97,3 +97,24 @@ cut(4);
 ## Keep sketches small
 
 One sketch per feature idea. A sketch holding the outline, the holes and the slots collapses them into geometry nothing downstream can select individually; separate sketches give separate features, each with its own faces and edges for filters. A sketch is consumed once; `.reusable()` when two features need it, and `remove()` it when they are done.
+
+## Picking a region of an overlapping sketch
+
+Shapes that cross each other cut the plane into several regions; by default an operation takes them all (nested shapes as holes). To take particular ones, chain `.region(...keys)` on the operation. Get the keys from the kernel rather than composing them: call `.region()` with no keys — it builds nothing and lists every region's key in the feature's `regions` parameter (visible in `get_scene_summary`) — then write the ones you want. A key that no longer resolves fails the feature with the current keys in its message; copy the right one from there.
+
+A key reads as the sketch entities on the region's outer loop (holes never count), by the variable each is bound to:
+
+```js
+const outer = circle([0, 0], 60);
+const inner = circle([0, 0], 30);
+extrude(20).region('outer');         // the ring: its outer loop is `outer`, `inner` is its hole
+extrude(20).region('inner');         // the disc
+
+const a = circle([-20, 0], 80);
+const b = circle([20, 0], 80);
+extrude(20).region('a b');           // the lens: inside both
+extrude(20).region('a b-');          // the crescent inside a, outside b (`-` = the far side of that edge)
+extrude(20).region('b r t l');       // a rectangle drawn as lines b, r, t, l
+```
+
+A key is topological — no coordinate in it — so it survives dimension edits, dragged geometry, and unrelated entities added or removed. Bind every entity (`const c1 = circle(...)`) and never reuse a name: an unbound statement is written by its ordinal (`circle#2`, the sketch's second circle), which shifts when an earlier circle is deleted. `.region(0)` is a position in the `regions` list, not an identity: use keys in files you leave behind.

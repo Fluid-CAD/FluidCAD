@@ -30,15 +30,15 @@ const CASES: Record<string, Case> = {
     target: 'current',
     body: { sourceLine: 12, point: [4, 5] },
   },
-  'add-pick': {
+  'add-region': {
     message: { sourceLocation: SOURCE_LOCATION },
-    endpoint: 'add-pick',
+    endpoint: 'add-region',
     target: 'current',
     body: { sourceLine: 12 },
   },
-  'remove-pick': {
+  'remove-region': {
     message: { sourceLocation: SOURCE_LOCATION },
-    endpoint: 'remove-pick',
+    endpoint: 'remove-region',
     target: 'current',
     body: { sourceLine: 12 },
   },
@@ -54,11 +54,11 @@ const CASES: Record<string, Case> = {
     target: 'current',
     body: { sourceLine: 12 },
   },
-  'set-pick-points': {
-    message: { points: [[1, 2], [3, 4]], sourceLocation: SOURCE_LOCATION },
-    endpoint: 'set-pick-points',
+  'set-regions': {
+    message: { keys: ['b r t l', 'c1'], sourceLocation: SOURCE_LOCATION },
+    endpoint: 'set-regions',
     target: 'current',
-    body: { sourceLine: 12, points: [[1, 2], [3, 4]] },
+    body: { sourceLine: 12, keys: ['b r t l', 'c1'] },
   },
   'insert-geometry': {
     message: {
@@ -255,7 +255,7 @@ describe('editor host transform table', () => {
   });
 
   it('resolves the target file per target flavour', () => {
-    expect(targetPathOf(TRANSFORMS['add-pick'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
+    expect(targetPathOf(TRANSFORMS['add-region'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
     expect(targetPathOf(TRANSFORMS['remove-feature'], { filePath: '/ws/other.part.js', line: 2 })).toBe('/ws/other.part.js');
     expect(targetPathOf(TRANSFORMS['update-insert-chain'], {
       sourceLocation: { filePath: '/ws/robot.assembly.js', line: 3 },

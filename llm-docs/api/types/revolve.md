@@ -11,7 +11,7 @@ seeAlso: [api/revolve, api/types/boolean-operation]
 ```ts
 interface Revolve extends BooleanOperation {
   symmetric(): this;
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
   internalFaces(...args: (number | FaceFilter)[]): ISelection;
@@ -29,13 +29,15 @@ Extends [[api/types/boolean-operation]].
 
 Enables symmetric mode — revolves equally in both directions from the sketch plane.
 
-### `pick()`
+### `region()`
 
-Restricts the revolve to only the sketch regions containing the given points.
+Restricts the revolve to particular regions of the sketch, named by the
+sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+sketch's region list. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to revolve. *(optional)* |
+| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
 
 ### `thin()`
 

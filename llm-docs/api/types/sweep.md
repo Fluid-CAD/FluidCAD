@@ -22,7 +22,7 @@ interface Sweep extends BooleanOperation {
   endOffset(value: NumberParam): this;
   extend(side: SweepSide, amount: NumberParam): this;
   drill(value?: boolean): this;
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
   capFaces(...args: (number | FaceFilter)[]): ISelection;
@@ -149,13 +149,15 @@ Enables or disables drill mode.
 | --- | --- | --- |
 | `value` | `boolean` | `true` to enable (default), `false` to disable. *(optional)* |
 
-### `pick()`
+### `region()`
 
-Restricts the sweep to only the sketch regions containing the given points.
+Restricts the sweep to particular regions of the profile sketch, named
+by the sketch entities on their outer loop (`'c1 c2-'`) or by position
+in the sketch's region list. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to sweep. *(optional)* |
+| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
 
 ### `thin()`
 

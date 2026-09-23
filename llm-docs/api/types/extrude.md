@@ -24,7 +24,7 @@ interface Extrude extends BooleanOperation {
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
   drill(value?: boolean): this;
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
 }
@@ -164,13 +164,17 @@ before extruding.
 | --- | --- | --- |
 | `value` | `boolean` | `true` to enable (default), `false` to disable. *(optional)* |
 
-### `pick()`
+### `region()`
 
-Restricts extrusion to only the sketch regions containing the given points.
+Restricts extrusion to particular regions of the sketch. A region is
+named by the sketch entities on its outer loop — `'b r t l'` for the
+rectangle those four lines close, `'c1 c2-'` for the ring inside `c1`
+and outside `c2` — or by its position in the sketch's region list.
+The region pick mode writes the keys.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to extrude. *(optional)* |
+| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
 
 ### `thin()`
 

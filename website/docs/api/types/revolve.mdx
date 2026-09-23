@@ -105,17 +105,19 @@ Enables symmetric mode — revolves equally in both directions from the sketch p
 
 ---
 
-### pick()
+### region()
 
 ```ts
-pick(...points: Point2DLike[]): this
+region(...keys: (string | number)[]): this
 ```
 
-Restricts the revolve to only the sketch regions containing the given points.
+Restricts the revolve to particular regions of the sketch, named by the
+sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+sketch's region list. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to revolve. *(optional)* |
+| `...keys` | (string \| number)[] | Region keys, or positions in the sketch's region list. *(optional)* |
 
 ---
 

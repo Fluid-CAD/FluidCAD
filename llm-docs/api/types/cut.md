@@ -18,7 +18,7 @@ interface Cut extends SceneObject {
   endEdges(...args: (number | EdgeFilter)[]): ISelection;
   internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   internalFaces(...args: (number | FaceFilter)[]): ISelection;
-  pick(...points: Point2DLike[]): this;
+  region(...keys: (string | number)[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
 }
@@ -102,13 +102,15 @@ Selects internal faces exposed by the cut — newly created surfaces not from th
 | --- | --- | --- |
 | `...args` | (`number` \| `FaceFilter`)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
 
-### `pick()`
+### `region()`
 
-Restricts the cut to only the sketch regions containing the given points.
+Restricts the cut to particular regions of the sketch, named by the
+sketch entities on their outer loop (`'c1 c2-'`) or by position in the
+sketch's region list. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to cut. *(optional)* |
+| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
 
 ### `thin()`
 

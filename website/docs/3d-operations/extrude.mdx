@@ -65,6 +65,10 @@ A rectangle on the ground plane, pulled up 30:
 
 Everything the dialog can do is a chained method on the statement it writes. The sections below go through the dialog controls one by one and show the code each one produces.
 
+### Using a sketch again
+
+An extrude takes its sketch off the screen, but the sketch is not used up. The Sketch picker lists every sketch a feature already used, named after that feature (`s · used by Extrude`); click its row in the timeline to pick it, and the dialog draws its wires for as long as it holds it. **Apply** binds the sketch to a variable if it has none and writes `extrude(20, s)`. With [region picking](#region-picking) the same sketch drives one feature per region. To see a used sketch outside a dialog, click the eye on its timeline row.
+
 ## Symmetric
 
 Choose **Symmetric** under **Direction**. The profile grows the given distance on both sides of the sketch plane, so the sketch plane ends up in the middle of the solid.

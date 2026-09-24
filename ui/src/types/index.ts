@@ -226,6 +226,18 @@ export type SceneObjectRender = {
    * row's source selection) — shown on demand as a highlight.
    */
   referencedShapes?: SceneObjectPart[];
+  /**
+   * A sketch entity's shapes its consumer hid (display-only consumption):
+   * off the screen in this world, still readable by later features. Drawn
+   * when the sketch is shown again (the timeline eye, a dialog revealing
+   * its picked sketch). Absent when nothing is hidden.
+   */
+  hiddenShapes?: SceneObjectPart[];
+  /**
+   * On a sketch row its consumer hid: the id of the feature that took it
+   * first in this world. Absent while the sketch still renders.
+   */
+  consumedBy?: string;
   ownShapes: SceneObjectPart[];
   visible?: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */

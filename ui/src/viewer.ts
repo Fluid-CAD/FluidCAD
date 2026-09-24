@@ -30,7 +30,7 @@ import { VertexPicking, type VertexPickScope } from './interactive/vertex-pickin
 import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
-import { findActiveSketch, isSceneEmpty } from './helpers/scene-utils';
+import { findActiveSketch, isSceneEmpty, sourceLocKey } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
@@ -309,6 +309,20 @@ export class Viewer {
   private renderedWhileSuspended = false;
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
+  /**
+   * Consumed sketches drawn anyway, by source-location key (scene ids change
+   * every render): the ones the timeline eye showed, and the ones an open
+   * dialog reveals while they are its pick. View state only — nothing in the
+   * file changes.
+   */
+  private shownSketchKeys = new Set<string>();
+  private revealedSketchKeys = new Set<string>();
+  /**
+   * Consumed sketches a highlight asked for: a dialog lighting up the wires
+   * of the sketch it holds (an edit session's own profile, a create pick)
+   * draws that sketch for as long as the highlight stands.
+   */
+  private highlightRevealedKeys = new Set<string>();
   private shapeOpacities = new Map<string, number>();
   private assemblyController: AssemblyController | null = null;
   /**
@@ -1365,7 +1379,7 @@ export class Viewer {
         : null;
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback);
+    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownSketchIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
@@ -1663,6 +1677,15 @@ export class Viewer {
   }
 
   clearHighlight(): void {
+    this.clearHighlightState();
+    if (this.highlightRevealedKeys.size > 0) {
+      this.highlightRevealedKeys = new Set();
+      this.rebuildSceneMesh();
+    }
+  }
+
+  /** Drop every highlight; the sketches a highlight revealed stay drawn (the caller decides). */
+  private clearHighlightState(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
       && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0
@@ -1736,7 +1759,14 @@ export class Viewer {
     planeQuadShapeIds: string[] = [],
     instanceId: string | null = null,
   ): void {
-    this.clearHighlight();
+    this.clearHighlightState();
+    // A wire of a consumed sketch has no mesh until the sketch is drawn:
+    // reveal the sketches these wires belong to first, then highlight.
+    const reveal = this.sketchKeysOfHiddenWires(sketchWireShapeIds);
+    if (reveal.size !== this.highlightRevealedKeys.size || [...reveal].some(k => !this.highlightRevealedKeys.has(k))) {
+      this.highlightRevealedKeys = reveal;
+      this.rebuildSceneMesh();
+    }
     this.highlightedInstanceId = instanceId;
     for (const entity of entities) {
       // An entity's own instance wins over the call-wide one: a measure
@@ -2314,6 +2344,10 @@ export class Viewer {
       for (const part of obj.sceneShapes) {
         if (part.shapeId === shapeId) return part;
       }
+      // A shown sketch's wires — only ever hit when the sketch is drawn.
+      for (const part of obj.hiddenShapes ?? []) {
+        if (part.shapeId === shapeId) return part;
+      }
     }
     return undefined;
   }
@@ -2384,7 +2418,7 @@ export class Viewer {
       return;
     }
     this.removeCompiledMesh();
-    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback);
+    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownSketchIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
@@ -2413,6 +2447,72 @@ export class Viewer {
 
   isShapeHidden(shapeId: string): boolean {
     return this.hiddenShapeIds.has(shapeId);
+  }
+
+  /** Whether the timeline eye shows this consumed sketch (by its source-location key). */
+  isSketchShown(key: string): boolean {
+    return this.shownSketchKeys.has(key);
+  }
+
+  /** The timeline eye: draw (or stop drawing) a consumed sketch. */
+  setSketchShown(key: string, shown: boolean): void {
+    if (shown) {
+      this.shownSketchKeys.add(key);
+    } else {
+      this.shownSketchKeys.delete(key);
+    }
+    this.rebuildSceneMesh();
+  }
+
+  /**
+   * The consumed sketches open dialogs reveal while they are their pick, as
+   * a whole set — replaces the previous one; rebuilds only when it changed.
+   */
+  setRevealedSketches(keys: readonly string[]): void {
+    const next = new Set(keys);
+    if (next.size === this.revealedSketchKeys.size && [...next].every(k => this.revealedSketchKeys.has(k))) {
+      return;
+    }
+    this.revealedSketchKeys = next;
+    this.rebuildSceneMesh();
+  }
+
+  /** The scene ids of the shown and revealed sketches in the current render. */
+  private shownSketchIds(): Set<string> {
+    const ids = new Set<string>();
+    if (this.shownSketchKeys.size === 0 && this.revealedSketchKeys.size === 0 && this.highlightRevealedKeys.size === 0) {
+      return ids;
+    }
+    for (const obj of this.sceneObjects ?? []) {
+      if (obj.type !== 'sketch' || !obj.sourceLocation) {
+        continue;
+      }
+      const key = sourceLocKey(obj.sourceLocation);
+      if (this.shownSketchKeys.has(key) || this.revealedSketchKeys.has(key) || this.highlightRevealedKeys.has(key)) {
+        ids.add(obj.id);
+      }
+    }
+    return ids;
+  }
+
+  /** The source-location keys of the consumed sketches these wire ids are hidden shapes of. */
+  private sketchKeysOfHiddenWires(shapeIds: string[]): Set<string> {
+    const keys = new Set<string>();
+    if (shapeIds.length === 0 || !this.sceneObjects) {
+      return keys;
+    }
+    const wanted = new Set(shapeIds);
+    const index = SceneIndex.of(this.sceneObjects);
+    for (const obj of this.sceneObjects) {
+      if (!obj.hiddenShapes?.some(part => part.shapeId !== undefined && wanted.has(part.shapeId))) {
+        continue;
+      }
+      const sketch = index.parent(obj);
+      if (sketch?.type === 'sketch' && sketch.sourceLocation) {
+        keys.add(sourceLocKey(sketch.sourceLocation));
+      }
+    }
+    return keys;
   }
 
   private applyVisibilityForId(shapeId: string, visible: boolean): void {

@@ -11,6 +11,30 @@ import { SceneIndex } from './scene-index';
  * Shared with hosts that walk the build the way the panel does (the browser
  * viewer's replay), so "what counts as a step" has one definition.
  */
+/** A source location's identity across renders (scene ids change every render). */
+export function sourceLocKey(loc: SourceLocation): string {
+  return `${loc.filePath}:${loc.line}:${loc.column}`;
+}
+
+/**
+ * A consumed sketch's rows as its shown form: every entity row under the
+ * sketch draws its hidden shapes too, and the sketch reads visible. The
+ * other rows are the same objects. For the sketch mesh of a sketch the user
+ * showed again (the timeline eye) or a dialog revealed.
+ */
+export function withHiddenSketchShapes(sketch: SceneObjectRender, sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
+  const children = new Set(SceneIndex.of(sceneObjects).children(sketch.id));
+  return sceneObjects.map(obj => {
+    if (obj === sketch) {
+      return obj.visible === false ? { ...obj, visible: true } : obj;
+    }
+    if (!children.has(obj) || !obj.hiddenShapes?.length) {
+      return obj;
+    }
+    return { ...obj, visible: true, sceneShapes: [...obj.sceneShapes, ...obj.hiddenShapes] };
+  });
+}
+
 export function isHiddenTimelineRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }

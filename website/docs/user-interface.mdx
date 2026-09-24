@@ -52,7 +52,7 @@ Project settings, such as the engine pin and the project unit in `fluidcad.json`
 
 ## The History panel
 
-The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows).
+The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows). A sketch a feature has used is dimmed — the feature took it off the screen — and carries an eye on hover: click it to draw the sketch again, and again to hide it. The eye is view state only; nothing in the file changes.
 
 - **Single click** a row to roll the model back to that feature. The viewport shows the model as it was right after that row, and the toolbar shrinks to what makes sense there. Click the last row, or edit the file, to come back.
 - **Double-click** a row to edit the feature: a breakpoint is placed after it, so the model rolls back to that point, and the feature's dialog opens with its current values. Apply writes the change into the existing statement.

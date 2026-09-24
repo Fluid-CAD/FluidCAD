@@ -21,14 +21,21 @@ export type SketchProfileOption = {
   column: number;
   /** False while the sketch has nothing drawn — Apply is refused with a hint. */
   hasGeometry: boolean;
+  /**
+   * The display name of the feature that consumed the sketch (hid it) in
+   * this world — the option is a sketch drawn no more, which the dialog
+   * reveals while it holds it. Absent for a sketch still on screen.
+   */
+  consumer?: string;
 };
 
 /**
  * The sketches a feature could consume right now: the active sketch (the
- * active scope's last object, while sketch mode is on) plus every other
- * sketch still rendering geometry — a consumed sketch's shapes are removed
- * by its consumer, so "has visible shapes" is exactly "unconsumed". The
- * active sketch is offered even while empty; Apply refuses it with a hint.
+ * active scope's last object, while sketch mode is on) first, then every
+ * other sketch in scene order — those still rendering geometry and those a
+ * feature already used (their consumer hid them, but a sketch is never used
+ * up, so each is offered again, named after that consumer). The active
+ * sketch is offered even while empty; Apply refuses it with a hint.
  */
 export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
   const tip = findActiveSketch(sceneObjects);
@@ -42,10 +49,11 @@ export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): Sketch
     if (obj === active || obj.type !== 'sketch' || !obj.sourceLocation) {
       continue;
     }
-    if (!hasRenderedGeometry(obj, sceneObjects)) {
-      continue;
+    if (hasRenderedGeometry(obj, sceneObjects)) {
+      options.push(toOption(obj, 'other', sceneObjects));
+    } else if (obj.consumedBy !== undefined && hasHiddenGeometry(obj, sceneObjects)) {
+      options.push(toConsumedOption(obj, sceneObjects));
     }
-    options.push(toOption(obj, 'other', sceneObjects));
   }
   return options;
 }
@@ -138,9 +146,14 @@ export async function labelWithSketchNames(options: SketchProfileOption[]): Prom
     }
     return {
       ...option,
-      label: option.kind === 'active' ? `Last Sketch — ${name}` : name,
+      label: option.kind === 'active' ? `Last Sketch — ${name}` : consumedLabel(name, option.consumer),
     };
   });
+}
+
+/** "s2 · used by Extrude" for a consumed sketch; the plain name otherwise. */
+function consumedLabel(name: string, consumer: string | undefined): string {
+  return consumer ? `${name} · used by ${consumer}` : name;
 }
 
 /**
@@ -211,7 +224,9 @@ export function resolveSketchByShapeId(
   shapeId: string,
   sceneObjects: SceneObjectRender[],
 ): SceneObjectRender | undefined {
-  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId));
+  // A shown consumed sketch draws its hidden wires — a click lands on those.
+  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId)
+    || o.hiddenShapes?.some(s => s.shapeId === shapeId));
   return owner ? resolveSketchRow(owner, sceneObjects) : undefined;
 }
 
@@ -293,7 +308,10 @@ function wireShapeParts(
   if (source.type === 'helix' || source.type === 'offset') {
     return drawn(source.sceneShapes);
   }
-  return SceneIndex.of(sceneObjects).children(source.id).flatMap(obj => drawn(obj.sceneShapes));
+  // A consumed sketch's wires are its hidden shapes — the dialog that holds
+  // it reveals them, so they are the highlight targets too.
+  return SceneIndex.of(sceneObjects).children(source.id)
+    .flatMap(obj => drawn(obj.sceneShapes).concat(drawn(obj.hiddenShapes)));
 }
 
 /**
@@ -339,6 +357,18 @@ function toOption(
   };
 }
 
+/** A consumed sketch as an option: the consumer's display name rides along for the label. */
+function toConsumedOption(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): SketchProfileOption {
+  const consumer = sceneObjects.find(o => o.id === obj.consumedBy);
+  const name = consumer?.name || 'a feature';
+  return {
+    ...toOption(obj, 'other', sceneObjects),
+    label: consumedLabel('Sketch', name),
+    hasGeometry: true,
+    consumer: name,
+  };
+}
+
 /**
  * A sketch's drawn geometry renders on its child objects (each entity — rect,
  * circle, line — is its own scene object under the sketch), so the whole
@@ -346,4 +376,10 @@ function toOption(
  */
 function hasRenderedGeometry(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
   return SceneIndex.of(sceneObjects).hasRenderedGeometry(obj);
+}
+
+/** A consumed sketch whose entities carry the wires their consumer hid. */
+function hasHiddenGeometry(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
+  return SceneIndex.of(sceneObjects).children(obj.id)
+    .some(child => (child.hiddenShapes ?? []).some(s => !s.isMetaShape && !s.isGuide && (s.meshes?.length ?? 0) > 0));
 }

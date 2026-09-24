@@ -15,6 +15,7 @@ import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import type { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SceneObjectRender } from '../../types';
 import { SceneIndex } from '../../helpers/scene-index';
+import { withHiddenSketchShapes } from '../../helpers/scene-utils';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
@@ -96,8 +97,16 @@ export class SketchMesh extends Group {
   private layoutAttached = false;
   private detachedFrames = 0;
 
-  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera, isRollback = false) {
+  /**
+   * `shown` draws a consumed sketch anyway (the timeline eye, a dialog
+   * revealing its picked sketch): the entity rows contribute the shapes
+   * their consumer hid, exactly as they drew before it.
+   */
+  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera, isRollback = false, shown = false) {
     super();
+    if (shown) {
+      allObjects = withHiddenSketchShapes(sceneObject, allObjects);
+    }
     this.userData.isSketchRoot = true;
     this.userData.sketchObjectId = sceneObject.id;
     this.isRollback = isRollback;

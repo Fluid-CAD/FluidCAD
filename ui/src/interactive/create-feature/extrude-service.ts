@@ -602,7 +602,7 @@ export class ExtrudeFeatureService {
     const loc = sketch.sourceLocation!;
     const index = this.options.findIndex(o => o.filePath === loc.filePath && o.line === loc.line);
     if (index < 0) {
-      this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be extruded.');
+      this.panel.setMessage('That sketch cannot be extruded here — pick one in the active part.');
       return;
     }
     this.panel.selectProfile(index);

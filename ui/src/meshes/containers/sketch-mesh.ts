@@ -82,12 +82,15 @@ export class SketchMesh extends Group {
   private readonly showBezierHandles: boolean;
   /** The current glyph groups — replaced wholesale on live updates. */
   private solvedGlyphGroups: Group[] = [];
-  /** Constraint badges and dimensions belong to the sketch being edited.
-   * Sketch-edit mode keeps every other sketch on screen for reference, but
-   * their annotations would crowd — and be picked alongside — the active
-   * sketch's own, so only the active sketch draws them. Outside sketch mode
-   * (no active sketch) every visible sketch still annotates itself. */
-  private readonly showConstraints: boolean;
+  /** This mesh is the sketch being edited. Constraint annotations — badges,
+   * dots, dimension readouts — are its alone. Sketch-edit mode keeps every
+   * other sketch on screen for reference, but their annotations would crowd
+   * (and be picked alongside) the active sketch's own; outside sketch mode a
+   * sketch reads as plain geometry. */
+  private readonly isActiveSketch: boolean;
+  /** A capture override (see rebuildSolvedGlyphs): draw the annotations
+   * even though this sketch is not being edited. */
+  private annotateInactive = false;
   /** True when this mesh renders a truncated rollback preview — annotations
    * drop to dimensions only (see rebuildSolvedGlyphs). */
   private readonly isRollback: boolean;
@@ -110,8 +113,8 @@ export class SketchMesh extends Group {
     this.userData.isSketchRoot = true;
     this.userData.sketchObjectId = sceneObject.id;
     this.isRollback = isRollback;
-    this.showConstraints = !activeSketchId || sceneObject.id === activeSketchId;
-    this.showBezierHandles = sceneObject.id === activeSketchId;
+    this.isActiveSketch = sceneObject.id === activeSketchId;
+    this.showBezierHandles = this.isActiveSketch;
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
@@ -365,14 +368,17 @@ export class SketchMesh extends Group {
 
   /** Re-derive the constraint annotations from the model and the current
    * visibility settings — the sketch dialog's dimensional/positional
-   * toggles call this on the live mesh (a full render replaces it anyway). */
-  refreshConstraintGlyphs(): void {
+   * toggles call this on the live mesh (a full render replaces it anyway).
+   * `annotateInactive` is the screenshot capture's override: a shot taken
+   * outside sketch mode still wants the annotations it asked for. */
+  refreshConstraintGlyphs(annotateInactive = false): void {
+    this.annotateInactive = annotateInactive;
     this.rebuildSolvedGlyphs();
   }
 
   private rebuildSolvedGlyphs(): void {
     const model = this.solvedModel;
-    if (!model || !this.showConstraints) {
+    if (!model || !(this.isActiveSketch || this.annotateInactive)) {
       return;
     }
     this.glyphLayout?.dispose();
@@ -718,9 +724,6 @@ export class SketchMesh extends Group {
   }
 
   private addConstraintIcons(): void {
-    if (!this.showConstraints) {
-      return;
-    }
     if (this.solvedModel) {
       // Same path as a live-drag refresh: build the glyphs, hand them to the
       // layout, and let the frame hook place them (screen-space hit test —

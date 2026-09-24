@@ -1148,9 +1148,9 @@ export class TimelinePanel {
    * Rows whose one-click rollback targets their last descendant instead of
    * themselves: hide-children containers (a repeat stands in for its hidden
    * clones) and sketches — a sketch's geometry lives in its element children,
-   * so stopping ON the sketch row would render its constraint glyphs (drawn
-   * from the row's own solved snapshot) with no curves under them. Clicking
-   * either previews the scene with the whole feature applied.
+   * so stopping ON the sketch row would show the sketch with none of its
+   * curves. Clicking either previews the scene with the whole feature
+   * applied.
    */
   private static rollsBackToLastDescendant(obj: SceneObjectRender): boolean {
     return obj.hideChildren === true || obj.type === 'sketch';

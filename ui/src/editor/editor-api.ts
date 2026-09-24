@@ -64,7 +64,15 @@ function post<T>(url: string, body: unknown): Promise<T> {
   return request<T>(url, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
 }
 
-export function listWorkspaceFiles(): Promise<{ workspacePath: string; files: WorkspaceFileEntry[]; truncated: boolean }> {
+export type WorkspaceListing = {
+  workspacePath: string;
+  files: WorkspaceFileEntry[];
+  /** Every folder, workspace-relative — including empty ones, which no file path implies. */
+  folders: string[];
+  truncated: boolean;
+};
+
+export function listWorkspaceFiles(): Promise<WorkspaceListing> {
   return request('/api/files/tree');
 }
 
@@ -88,6 +96,11 @@ export function closeWorkspaceFile(path: string): Promise<{ success: boolean; ab
 
 export function createWorkspaceFile(path: string, content = ''): Promise<WorkspaceFileEntry> {
   return post('/api/files/create', { path, content });
+}
+
+/** Create an empty folder; one that already exists is left as is. */
+export function createWorkspaceFolder(path: string): Promise<{ success: boolean; path: string; absPath: string }> {
+  return post('/api/files/mkdir', { path });
 }
 
 export type SpecifierReplacement = { from: string; to: string };

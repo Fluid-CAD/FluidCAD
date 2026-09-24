@@ -1,4 +1,4 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_PLUS } from '../ui/icons';
+import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
 import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
@@ -22,7 +22,12 @@ export interface QuickOpenHandlers {
   onOpen(entry: { path: string; absPath: string; kind: FileKind }): void;
   /** Create `relPath` and open it. */
   onCreate(relPath: string): void;
+  /** Create the folder `relPath`; resolves once it exists on disk. */
+  onCreateFolder(relPath: string): Promise<void>;
 }
+
+/** What the query offers to create when nothing answers to it yet. */
+type CreateTarget = { kind: 'file' | 'folder'; path: string };
 
 /** Subsequence match — the same shape of matching every quick-open uses. */
 function fuzzyScore(candidate: string, query: string): number | null {
@@ -59,7 +64,9 @@ const MAX_RESULTS = 12;
 
 export class QuickOpen {
   private popover: HTMLDivElement | null = null;
+  private input: HTMLInputElement | null = null;
   private files: WorkspaceFileEntry[] = [];
+  private folders: string[] = [];
   private query = '';
   private highlighted = 0;
   private results: WorkspaceFileEntry[] = [];
@@ -73,6 +80,7 @@ export class QuickOpen {
   close(): void {
     this.popover?.remove();
     this.popover = null;
+    this.input = null;
     document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
   }
 
@@ -107,11 +115,17 @@ export class QuickOpen {
 
     document.body.appendChild(popover);
     this.popover = popover;
+    this.input = input;
     this.query = '';
     this.highlighted = 0;
     document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
 
     input.addEventListener('input', () => {
+      // Paths are workspace-relative, so a leading slash means nothing here —
+      // drop it as typed rather than offering to create "/x".
+      if (input.value.startsWith('/')) {
+        input.value = input.value.replace(/^\/+/, '');
+      }
       this.query = input.value;
       this.highlighted = 0;
       this.renderResults(list);
@@ -121,10 +135,12 @@ export class QuickOpen {
 
     this.renderResults(list); // Something to look at while the listing loads.
     try {
-      const { files } = await listWorkspaceFiles();
+      const { files, folders } = await listWorkspaceFiles();
       this.files = files.filter((file) => file.kind !== 'other');
+      this.folders = folders;
     } catch {
       this.files = [];
+      this.folders = [];
     }
     if (this.popover === popover) {
       this.renderResults(list);
@@ -155,26 +171,35 @@ export class QuickOpen {
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      this.activate(this.highlighted);
+      this.activate(this.highlighted, list);
     }
   }
 
   /**
-   * A query that names a file which doesn't exist is an offer to create it —
-   * file creation lives here rather than in a separate dialog.
+   * A query that names something which doesn't exist is an offer to create
+   * it — creation lives here rather than in a separate dialog. A trailing
+   * slash names a folder; anything else a file, with `a/b` landing in folder
+   * `a` (created on the way if need be).
    */
-  private createTarget(): string | null {
+  private createTarget(): CreateTarget | null {
     const name = this.query.trim();
-    if (name === '' || name.endsWith('/')) {
+    if (name === '') {
       return null;
+    }
+    if (name.endsWith('/')) {
+      const folder = name.replace(/\/+$/, '');
+      if (folder === '' || this.folders.includes(folder)) {
+        return null;
+      }
+      return { kind: 'folder', path: folder };
     }
     if (this.files.some((file) => file.path === name)) {
       return null;
     }
-    return /\.[a-z0-9]+$/i.test(name) ? name : `${name}.part.js`;
+    return { kind: 'file', path: /\.[a-z0-9]+$/i.test(name) ? name : `${name}.part.js` };
   }
 
-  private activate(index: number): void {
+  private activate(index: number, list: HTMLElement): void {
     const entry = this.results[index];
     if (entry) {
       this.close();
@@ -182,10 +207,41 @@ export class QuickOpen {
       return;
     }
     const target = this.createTarget();
-    if (target && index === this.results.length) {
-      this.close();
-      this.handlers.onCreate(target);
+    if (!target || index !== this.results.length) {
+      return;
     }
+    if (target.kind === 'file') {
+      this.close();
+      this.handlers.onCreate(target.path);
+      return;
+    }
+    // A folder is somewhere to put a file, so the picker stays open with the
+    // folder typed in: the next keystrokes name the file inside it.
+    void this.createFolder(target.path, list);
+  }
+
+  private async createFolder(folder: string, list: HTMLElement): Promise<void> {
+    const popover = this.popover;
+    try {
+      await this.handlers.onCreateFolder(folder);
+    } catch {
+      return;
+    }
+    if (this.popover !== popover) {
+      return;
+    }
+    // `a/b/c` brought `a` and `a/b` into being too; every prefix now exists.
+    const segments = folder.split('/');
+    for (let depth = 1; depth <= segments.length; depth++) {
+      const prefix = segments.slice(0, depth).join('/');
+      if (!this.folders.includes(prefix)) {
+        this.folders.push(prefix);
+      }
+    }
+    this.highlighted = 0;
+    this.renderResults(list);
+    // A click on the row took focus; the next keystrokes belong in the input.
+    this.input?.focus();
   }
 
   private renderResults(list: HTMLElement): void {
@@ -218,17 +274,17 @@ export class QuickOpen {
         label: basename,
         detail: file.path,
         highlighted: index === this.highlighted,
-        onPick: () => this.activate(index),
+        onPick: () => this.activate(index, list),
       }));
     }
 
     const createTarget = this.createTarget();
     if (createTarget) {
       list.appendChild(this.buildRow({
-        icon: QuickOpen.buildIcon(ICON_PLUS),
-        label: `Create ${createTarget}`,
+        icon: QuickOpen.buildIcon(createTarget.kind === 'folder' ? ICON_FOLDER_PLUS : ICON_PLUS),
+        label: createTarget.kind === 'folder' ? `Create folder ${createTarget.path}/` : `Create ${createTarget.path}`,
         highlighted: this.highlighted === this.results.length,
-        onPick: () => this.activate(this.results.length),
+        onPick: () => this.activate(this.results.length, list),
       }));
     }
 
@@ -239,7 +295,11 @@ export class QuickOpen {
     if (this.results.length === 0 && !createTarget) {
       const empty = document.createElement('div');
       empty.className = 'px-3 py-2 text-xs text-base-content/40';
-      empty.textContent = this.files.length === 0 ? 'No files in this workspace.' : 'No matches.';
+      const name = this.query.trim();
+      const folder = name.endsWith('/') && this.folders.includes(name.replace(/\/+$/, '')) ? name : null;
+      empty.textContent = folder
+        ? `Type a name to create a file in ${folder}`
+        : this.files.length === 0 ? 'No files in this workspace.' : 'No matches.';
       list.appendChild(empty);
     }
   }

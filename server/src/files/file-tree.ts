@@ -45,18 +45,25 @@ export function classifyFile(filePath: string): FileKind {
 
 export type ListWorkspaceFilesResult = {
   files: FileTreeEntry[];
+  /**
+   * Every directory the walk entered, workspace-relative and sorted. Listed
+   * separately from `files` because an empty folder — one the `+` picker just
+   * created — has no file to be inferred from.
+   */
+  folders: string[];
   /** True when the walk hit {@link MAX_ENTRIES} and stopped early. */
   truncated: boolean;
 };
 
 export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesResult {
   if (!workspacePath) {
-    return { files: [], truncated: false };
+    return { files: [], folders: [], truncated: false };
   }
   // Built per call rather than cached: a `.gitignore` edit must take effect on
   // the next listing, and the walk re-reads them anyway.
   const workspaceIgnore = createWorkspaceIgnore(workspacePath);
   const files: FileTreeEntry[] = [];
+  const folders: string[] = [];
   let truncated = false;
 
   const queue: string[] = [''];
@@ -80,6 +87,7 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
         continue;
       }
       if (entry.isDirectory()) {
+        folders.push(relPath);
         queue.push(relPath);
         continue;
       }
@@ -120,5 +128,7 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
     return a.path.localeCompare(b.path);
   });
 
-  return { files, truncated };
+  folders.sort((a, b) => a.localeCompare(b));
+
+  return { files, folders, truncated };
 }

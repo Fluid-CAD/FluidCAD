@@ -6,6 +6,7 @@ import { QuickOpen } from './quick-open';
 import type { FileTab } from './tabs';
 import {
   createWorkspaceFile,
+  createWorkspaceFolder,
   fetchWorkspaceEditorState,
   closeWorkspaceFile,
   openWorkspaceFile,
@@ -72,6 +73,7 @@ export class EditorSurface {
     this.quickOpen = new QuickOpen({
       onOpen: (entry) => void this.openFile(entry.absPath),
       onCreate: (relPath) => void this.createFile(relPath),
+      onCreateFolder: (relPath) => this.createFolder(relPath),
     });
     this.diagnostics = new Diagnostics(this.models);
     this.breakpoints = new Breakpoints({
@@ -343,6 +345,15 @@ export class EditorSurface {
     // from disk, keeps whatever is unsaved on screen.
     if (wasCurrentModel) {
       this.host.scheduleLiveRender(next.absPath);
+    }
+  }
+
+  private async createFolder(relPath: string): Promise<void> {
+    try {
+      await createWorkspaceFolder(relPath);
+    } catch (err) {
+      console.warn(`FluidCAD: could not create folder ${relPath}:`, err);
+      throw err;
     }
   }
 

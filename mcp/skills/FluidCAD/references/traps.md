@@ -50,7 +50,7 @@ Read before a fillet, chamfer, shell, cut, repeat, `plane()` offset, a sketch on
 
 - **Signature.** `select(edge().verticalTo("xy"))`, then a `color()` or another statement, then `fillet(3)`: the fillet reports `fillet: no edges selected — nothing was filleted.`, or rounds the wrong edges.
 - **Evidence.** `concepts/last-selection`: "A selection is good for the very next op."
-- **Fix.** Pass the target explicitly: `fillet(3, e.endEdges())` or `fillet(3, select(...))` captured in a variable. The same rule applies to sketches: a sketch is consumed once; `.reusable()` to extrude it twice.
+- **Fix.** Pass the target explicitly: `fillet(3, e.endEdges())` or `fillet(3, select(...))` captured in a variable. A sketch is different: its consumer hides it but any later feature can still take it by variable (`extrude(20, s)`), no chain needed.
 
 ## `"x"` inside a sketch is the world X axis
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
@@ -211,9 +211,8 @@ describe("sweep", () => {
 
       sweep(path, profile);
 
-      render();
-
-      expect(profile.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, profile);
     });
 
     it("should remove path shapes", () => {
@@ -228,9 +227,11 @@ describe("sweep", () => {
 
       sweep(path, profile);
 
-      render();
+      const scene = render();
 
-      expect(path.getShapes()).toHaveLength(0);
+      // Display-only consumption: hidden from the render, kept for readers.
+      expect(path.getShapes(undefined, undefined, new Set(scene.getAllSceneObjects()))).toHaveLength(0);
+      expect(path.getShapes().length).toBeGreaterThan(0);
     });
   });
 

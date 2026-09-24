@@ -296,10 +296,13 @@ export class SelectionResolver {
   private static viewBefore(
     scene: Scene,
     before: number | undefined,
-  ): { ok: true; scene: SelectionScene; objects: SceneObject[]; removalScope?: Set<SceneObject> } | { ok: false; code: 'invalid-boundary'; reason: string } {
+  ): { ok: true; scene: SelectionScene; objects: SceneObject[]; removalScope: Set<SceneObject>; bounded: boolean } | { ok: false; code: 'invalid-boundary'; reason: string } {
     const all = scene.getAllSceneObjects();
     if (before === undefined) {
-      return { ok: true, scene, objects: all };
+      // The full render's world: every removal counts, display-only ones
+      // included, so a sketch its extrude hid is no more pickable here than
+      // it is on screen.
+      return { ok: true, scene, objects: all, removalScope: new Set(all), bounded: false };
     }
     if (!Number.isInteger(before) || before < 1 || before > all.length) {
       return {
@@ -314,17 +317,17 @@ export class SelectionResolver {
     // there, exactly as the rollback render shows it.
     const scoped = scopedSceneBefore(scene, before);
     const objects = scoped.getAllSceneObjects();
-    return { ok: true, scene: scoped, objects, removalScope: new Set(objects) };
+    return { ok: true, scene: scoped, objects, removalScope: new Set(objects), bounded: true };
   }
 
   private static resolveExpression(
     scene: Scene,
     expression: string,
-    view: { objects: SceneObject[]; removalScope?: Set<SceneObject> },
+    view: { objects: SceneObject[]; removalScope: Set<SceneObject>; bounded: boolean },
     scope: Extract<ScopeResolution, { ok: true }>,
     solids: SolidEntry[],
   ): { ok: true; matches: ResolvedSelectionMatch[]; warning?: string } | Extract<ResolveSelectionResult, { ok: false }> {
-    const before = view.removalScope ? view.objects.length : undefined;
+    const before = view.bounded ? view.objects.length : undefined;
     let evaluated: EvaluatedExpression;
     try {
       evaluated = SelectionExpression.evaluate(expression, SelectionResolver.objectsById(view.objects), before,

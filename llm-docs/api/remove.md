@@ -1,7 +1,7 @@
 ---
 id: api/remove
 title: remove(...objects)
-summary: Deletes scene objects. Most useful after `.reusable()` once a profile is no longer needed.
+summary: Deletes scene objects. Takes a `.reusable()` layout sketch or selection off the screen, or drops a sketch from later feature reads.
 tags: [api, utility]
 symbols: [remove]
 seeAlso: [api/sketch]
@@ -15,8 +15,11 @@ Imported from `fluidcad/core`.
 remove(...objects: SceneObject[])
 ```
 
-Removes objects from the scene. The common pattern is cleaning up a
-`.reusable()` profile once every consumer has been built.
+Removes objects from the scene for good: off the screen and out of every
+later feature's reach. A sketch does not need it after use — its consumer
+already hides it — so `remove()` is for the objects that stay on purpose:
+a `.reusable()` layout sketch or a `.reusable()` selection once nothing
+else draws against it.
 
 ## Example
 
@@ -24,14 +27,14 @@ Removes objects from the scene. The common pattern is cleaning up a
 import { circle, extrude, origin, remove, sketch } from "fluidcad/core";
 import { coincident, diameter } from "fluidcad/constraints";
 
-const profile = sketch("xy", () => {
+const layout = sketch("xy", () => {
   const c = circle([0, 0], 40);
   coincident(c.center(), origin());
   diameter(c, 40);
-}).reusable();
-extrude(20);
-extrude(40);
-remove(profile);                                 // clean up the profile
+}).reusable();                                   // stays on screen
+extrude(20, layout);
+extrude(40, layout);
+remove(layout);                                  // off the screen from here
 ```
 
 See [[api/sketch]] for `.reusable()`.

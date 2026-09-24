@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { circle, region } from "../../core/2d/index.js";
@@ -33,9 +33,8 @@ describe("extrude two distances", () => {
 
       extrude(20, 10);
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
   });
 

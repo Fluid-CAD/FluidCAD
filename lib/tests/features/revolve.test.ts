@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import revolve from "../../core/revolve.js";
 import { circle, region } from "../../core/2d/index.js";
@@ -210,9 +210,8 @@ describe("revolve", () => {
 
       revolve("z");
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
 
     it("should revolve a specific extrudable", () => {

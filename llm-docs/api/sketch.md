@@ -83,8 +83,9 @@ sketch("xy", () => {
 extrude(20);  // consumes the sketch above
 ```
 
-A consumed sketch is gone. To reuse a sketch across multiple operations,
-mark it `.reusable()`:
+Consumption is a display rule: the sketch leaves the screen from its first
+consumer on (and shows again when the timeline is scrubbed before it), but
+it stays available. Any later feature takes it by variable — no chain needed:
 
 ```fluid.js
 import { circle, extrude, origin, sketch } from "fluidcad/core";
@@ -94,10 +95,15 @@ const profile = sketch("xy", () => {
   const c = circle([0, 0], 40);
   coincident(c.center(), origin());
   diameter(c, 40);
-}).reusable();
+});
 extrude(30, profile);
-extrude(-10, profile);  // still available
+extrude(-10, profile);  // the same sketch again
 ```
+
+With `region()` declarations the same sketch drives one feature per region
+(`extrude(20, s).region('ring')`, `extrude(50, s).region('disc')`). A
+sketch marked `.reusable()` stays on screen after its consumers — a layout
+sketch other features are drawn against; `remove(s)` takes it off again.
 
 ## Sketching on a face
 

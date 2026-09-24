@@ -52,7 +52,9 @@ fillet(3);                                // picks up the selection
 
 ## When the implicit form bites
 
-- A sketch is consumed exactly once. To use it twice, mark it `.reusable()`.
+- A sketch is hidden by its first consumer, not used up: pass it by
+  variable (`extrude(20, s)`) to any later feature. `.reusable()` only keeps
+  it on screen.
 - A selection is good for the very next op. If you do anything between
   `select(...)` and the consumer, capture the selection in a variable.
 - For multi-step pipelines, explicit arguments are clearer than relying

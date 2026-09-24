@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
@@ -92,9 +92,8 @@ describe("loft guides", () => {
 
       loft(s1, s2).guides(guide);
 
-      render();
-
-      expect(guide.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, guide);
     });
 
     it("classifies start and end faces", () => {

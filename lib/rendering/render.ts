@@ -26,12 +26,22 @@ import { topologyFaceVertices, topologyVertices } from "../selection/vertex-pick
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
+  /** Shapes a display-only consumer hid in this world — see `SceneObjectRender.hiddenShapes`. */
+  hiddenShapes?: RenderedShape[];
   visible: boolean;
   hasError: boolean;
   errorMessage?: string;
   buildDurationMs?: number;
   profiler?: Profiler;
   scope?: Set<SceneObject>;
+};
+
+/** One object's drawn shapes for the payload, plus the hidden ones a shown sketch would draw. */
+type PreparedShapes = {
+  renderedSceneShapes: RenderedShape[];
+  hiddenShapes?: RenderedShape[];
+  ownShapeCount: number;
+  prepError?: string;
 };
 
 // 0-based execution index per object for call sites that ran more than once
@@ -187,7 +197,7 @@ export class SceneRenderer {
     // which call getShapes() scope-less, keep seeing those shapes.
     const renderScope = new Set<SceneObject>(sceneObjects);
 
-    const prepared = new Map<SceneObject, { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string }>();
+    const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
       const profiler = profilers.get(object);
       const start = performance.now();
@@ -208,6 +218,7 @@ export class SceneRenderer {
         prepared.get(object) ?? { renderedSceneShapes: [], ownShapeCount: 0 },
         buildDurations.get(object),
         profilers.get(object),
+        renderScope,
       );
     }
 
@@ -251,6 +262,8 @@ export class SceneRenderer {
 
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
       const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj.getUnit()));
+      const hiddenShapes = this.hiddenSketchShapes(obj, sceneShapes)
+        .map(s => this.toRenderedShape(s, obj.getUnit()));
 
       // A rollback re-emits already-built objects rather than rebuilding them,
       // but an object that failed to build still carries its error — dropping
@@ -259,6 +272,7 @@ export class SceneRenderer {
       const errorMessage = obj.getError();
       this.emitRendered(obj, scene, {
         sceneShapes: renderedSceneShapes,
+        hiddenShapes: hiddenShapes.length > 0 ? hiddenShapes : undefined,
         visible: this.computeVisibility(obj, scene, sceneShapes.length, scope),
         hasError: !!errorMessage,
         errorMessage: errorMessage || undefined,
@@ -342,7 +356,7 @@ export class SceneRenderer {
     obj: SceneObject,
     profiler: Profiler | undefined,
     renderScope: Set<SceneObject>,
-  ): { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string } {
+  ): PreparedShapes {
     const renderedSceneShapes: RenderedShape[] = [];
     if (obj.isLazy()) {
       return { renderedSceneShapes, ownShapeCount: 0 };
@@ -355,7 +369,11 @@ export class SceneRenderer {
           renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
         }
       }
-      return { renderedSceneShapes, ownShapeCount: sceneShapes.length };
+      const hidden = this.hiddenSketchShapes(obj, sceneShapes);
+      const hiddenShapes = hidden.length > 0
+        ? hidden.map(shape => this.toRenderedShape(shape, obj.getUnit(), profiler))
+        : undefined;
+      return { renderedSceneShapes, hiddenShapes, ownShapeCount: sceneShapes.length };
     } catch (error) {
       const message = describeError(error);
       console.error(`Error rendering object ${obj.getUniqueType()}:`, message);
@@ -366,9 +384,10 @@ export class SceneRenderer {
   private emitRenderObject(
     obj: SceneObject,
     scene: Scene,
-    prepared: { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string },
+    prepared: PreparedShapes,
     buildDurationMs: number | undefined,
     profiler: Profiler | undefined,
+    renderScope: Set<SceneObject>,
   ): void {
     if (prepared.prepError) {
       this.emitRendered(obj, scene, {
@@ -385,7 +404,11 @@ export class SceneRenderer {
     const errorMessage = obj.getError();
     this.emitRendered(obj, scene, {
       sceneShapes: prepared.renderedSceneShapes,
-      visible: this.computeVisibility(obj, scene, prepared.ownShapeCount),
+      hiddenShapes: prepared.hiddenShapes,
+      // The same scope the shapes were collected through: a container whose
+      // children were soft-consumed (a sketch after its extrude) rendered
+      // nothing, and its row must say so.
+      visible: this.computeVisibility(obj, scene, prepared.ownShapeCount, renderScope),
       hasError: !!errorMessage,
       errorMessage: errorMessage || undefined,
       buildDurationMs,
@@ -573,6 +596,40 @@ export class SceneRenderer {
   }
 
   /**
+   * A sketch entity's shapes a display-only consumer hid in this world: what
+   * the scope-less read (hard removals only) still serves beyond the scoped
+   * one the render drew. Only sketch children carry these — the payload
+   * exists for the viewer to draw a consumed sketch again on request, and an
+   * exposure's hidden selection already rides `referencedShapes`.
+   */
+  private hiddenSketchShapes(obj: SceneObject, drawn: Shape[]): Shape[] {
+    if (!(obj instanceof GeometrySceneObject) || !(obj.getParent() instanceof Sketch)) {
+      return [];
+    }
+    const shown = new Set(drawn);
+    return obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }).filter(s => !shown.has(s));
+  }
+
+  /**
+   * The feature that hid a consumed sketch in this world: the remover of the
+   * first display-only removal on any of its entities that the scope holds.
+   * Undefined for a sketch that still renders, or that a hard removal took.
+   */
+  private sketchConsumer(obj: SceneObject, opts: RenderEmit): string | undefined {
+    if (!(obj instanceof Sketch) || opts.visible) {
+      return undefined;
+    }
+    for (const child of obj.getChildren()) {
+      for (const record of child.getRemovedShapes()) {
+        if (record.soft && (!opts.scope || opts.scope.has(record.removedBy))) {
+          return record.removedBy.id;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * An exposure's published shapes (its source selection, hidden from the
    * display by the expose itself) — read scope-less, the way every consumer
    * of the exposure reads them. Only for rows the render actually reached:
@@ -630,6 +687,8 @@ export class SceneRenderer {
       object: serialized,
       sceneShapes: opts.sceneShapes,
       referencedShapes: this.referencedShapes(obj, opts),
+      hiddenShapes: opts.hiddenShapes,
+      consumedBy: this.sketchConsumer(obj, opts),
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
       interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch

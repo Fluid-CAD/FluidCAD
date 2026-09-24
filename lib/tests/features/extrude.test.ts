@@ -48,17 +48,20 @@ describe("extrude", () => {
       expect(e.extrudable).toBe(s1);
     });
 
-    it("should remove the extrudable", () => {
+    it("should hide the extrudable from the render, keeping it for readers", () => {
       const s = sketch("xy", () => {
           testRect(100, 50);
         }) as Sketch;
 
       extrude();
 
-      render();
+      const scene = render();
 
-      const sketchShapes = s.getShapes();
-      expect(sketchShapes).toHaveLength(0);
+      // Display-only consumption: the scoped (render) read is empty, the
+      // scope-less (feature) read still serves the wires.
+      expect(s.getShapes(undefined, undefined, new Set(scene.getAllSceneObjects()))).toHaveLength(0);
+      expect(s.getShapes().length).toBeGreaterThan(0);
+      expect(scene.getRenderedObject(s)!.visible).toBe(false);
     });
   });
 

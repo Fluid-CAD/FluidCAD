@@ -52,6 +52,18 @@ export type SceneObjectRender = {
    * The UI shows them on demand (a timeline-row click) as a highlight.
    */
   referencedShapes?: RenderedShape[];
+  /**
+   * A sketch entity's shapes its consumer hid (display-only consumption):
+   * off the screen in this world, still readable by later features. The
+   * viewer draws them when the sketch is shown again (the timeline eye, a
+   * dialog revealing its picked sketch). Absent when nothing is hidden.
+   */
+  hiddenShapes?: RenderedShape[];
+  /**
+   * On a sketch row its consumer hid: the id of the feature that took it
+   * first in this world. Absent while the sketch still renders.
+   */
+  consumedBy?: string;
   visible: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */
   reusable?: boolean;
@@ -370,7 +382,18 @@ export class Scene {
     if (!part) {
       return this.getActiveSceneObjectsUpTo(obj);
     }
-    return this.getPartScopedObjectsUpTo(obj).filter(f => f.hasShapes());
+    return Scene.activeAmong(this.getPartScopedObjectsUpTo(obj));
+  }
+
+  /**
+   * The objects of `prefix` still contributing shapes at its end: the prefix
+   * itself is the removal scope, so a source consumed (hard or display-only)
+   * by a statement inside it is inactive, and one consumed only by a later
+   * statement is still active there.
+   */
+  private static activeAmong(prefix: SceneObject[]): SceneObject[] {
+    const scope = new Set(prefix);
+    return prefix.filter(f => f.hasShapes(scope));
   }
 
   /** The part and everything nested in it, in scene order. Callers get a copy. */
@@ -400,7 +423,7 @@ export class Scene {
   }
 
   getActiveSceneObjectsUpTo(obj: SceneObject): SceneObject[] {
-    return this.sceneObjects.slice(0, this.indexOf(obj)).filter(f => f.hasShapes());
+    return Scene.activeAmong(this.sceneObjects.slice(0, this.indexOf(obj)));
   }
 
   getSceneObjectsUpTo(obj: SceneObject): SceneObject[] {

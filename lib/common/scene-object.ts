@@ -145,17 +145,23 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._internal;
   }
 
-  hasShapes(): boolean {
+  /**
+   * Whether this object (or, for a container, any child) still owns shapes.
+   * With a `scope`, removals by any remover in it count — soft ones too —
+   * so a sketch consumed for display reads as shape-less from its consumer
+   * on, exactly as the render sees it (see `getOwnShapes`).
+   */
+  hasShapes(scope?: Set<SceneObject>): boolean {
     if (this.isContainer()) {
       for (const child of this.children) {
-        const ownShapes = child.getOwnShapes();
+        const ownShapes = child.getOwnShapes(undefined, scope);
         if (ownShapes.length > 0) {
           return true;
         }
       }
     }
 
-    return this.getOwnShapes().length > 0;
+    return this.getOwnShapes(undefined, scope).length > 0;
   }
 
   addChildObject(child: SceneObject) {

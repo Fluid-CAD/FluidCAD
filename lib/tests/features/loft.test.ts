@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
@@ -196,10 +196,9 @@ describe("loft", () => {
 
       loft(s1, s2);
 
-      render();
-
-      expect(s1.getShapes()).toHaveLength(0);
-      expect(s2.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s1);
+      expectDisplayConsumed(scene, s2);
     });
   });
 

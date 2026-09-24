@@ -15,10 +15,12 @@ export interface ISceneObject {
   name(value: string): this;
 
   /**
-   * Marks this object as reusable. Reusable objects retain their shapes when
-   * consumed by features (e.g., extrude, revolve), allowing multiple features
-   * to reference the same source geometry. Use `remove(obj)` to force-remove
-   * shapes from a reusable object.
+   * Keeps this object's shapes in the scene after a feature uses them. A
+   * sketch never needs it to be used twice — a feature hides a sketch from
+   * the screen without taking it away from later features — so on a sketch
+   * it means "stay on screen" (a layout sketch). A selection or a sketch
+   * geometry used by a feature is consumed for good unless marked reusable.
+   * `remove(obj)` takes a reusable object out of the scene.
    */
   reusable(): this;
 }

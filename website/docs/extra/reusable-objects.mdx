@@ -4,47 +4,66 @@ title: "Reusable Objects"
 ---
 
 import CodeBlock from '@theme/CodeBlock';
-import reusableCircles from '!!raw-loader!./_examples/reusable-circles.js';
+import sketchRegions from '!!raw-loader!./_examples/sketch-regions.js';
 import reusableSketch from '!!raw-loader!./_examples/reusable-sketch.js';
 
 # Reusable Objects
 
-Most features in FluidCAD **consume** their inputs. When you `extrude()` a sketch, the sketch geometry is removed from the scene so it can't accidentally be picked up by the next feature. The same applies to selections used by `shell()`, `cut()`, `sweep()`, and so on.
+Most features in FluidCAD **consume** their inputs. A selection used by `shell()`, `fillet()` or `project()` is gone afterwards, so it can't accidentally be picked up by the next feature.
 
-Calling `.reusable()` on an object tells FluidCAD to keep that object alive, so a later feature can use it again.
+A sketch is different: its first consumer only takes it **off the screen**. The wires disappear from that feature on (and come back when you scrub the timeline before it), but the sketch stays available to every later feature. Pass it by variable and it is used again, no marker needed.
 
-## Extruding parts of a sketch at different heights
+## Using one sketch twice
 
-A common use case is drawing several shapes in one sketch and extruding each to its own height. Each geometry inside a `sketch()` is its own object, so you can mark some of them `.reusable()` and consume them one at a time:
-
-<CodeBlock language="js">{reusableCircles}</CodeBlock>
-
-The first `extrude()` picks up the 100-unit circle and pushes it to the default height. The 50-unit circle survives because it's marked reusable, so the next `extrude(50)` finds it waiting on the same sketch and extrudes it to 50 units. Without `.reusable()`, the first `extrude()` would consume both circles and the second call would have nothing to work with.
-
-## Reusing a whole sketch
-
-You can also mark an entire sketch as reusable. This is useful when the same profile drives more than one feature — for example, extruding the same outline at two different heights without redrawing it:
+The same profile drives two features here — an extrude up and another one down — by handing the sketch to both:
 
 <CodeBlock language="js">{reusableSketch}</CodeBlock>
 
-`extrude()` always picks up the most recent sketch, so you don't need to keep a reference — marking the sketch reusable is enough to keep it around for the next call.
+The first `extrude(20, s)` hides the sketch; the second `extrude(-50, s)` takes it again and fuses with the first. `extrude()` with no sketch argument always picks up the most recent sketch, consumed or not, so a bare `extrude(20); extrude(-50);` after one sketch does the same.
+
+## Extruding parts of a sketch at different heights
+
+When one sketch holds several closed shapes, declare each one as a `region()` and name it on each feature. The sketch is used once per region:
+
+<CodeBlock language="js">{sketchRegions}</CodeBlock>
+
+The **Pick regions** link of the extrude, revolve, sweep and wrap dialogs writes these declarations for you — see [region picking](/docs/3d-operations/extrude#region-picking).
+
+## Keeping a sketch on screen with `.reusable()`
+
+A layout sketch — a reference drawing other features are built against — is worth seeing for the whole model. Mark it `.reusable()` and its consumers leave it on screen:
+
+```js
+const layout = sketch("xy", () => {
+    const c = circle([0, 0], 60);
+    coincident(c.center(), origin());
+    diameter(c, 60);
+  }).reusable();
+
+extrude(20, layout);
+extrude(50, layout);
+```
+
+`.reusable()` changes nothing about what later features can do with the sketch — only whether it stays visible after they run.
 
 ## Cleaning up with `remove()`
 
-A reusable object stays in the scene until you explicitly dispose of it. If you need to clean one up before later operations pick it up by accident, keep a reference and call `remove()`:
+A reusable object stays in the scene until you explicitly dispose of it. To take a layout sketch off the screen once it has done its job, or to drop a reusable selection before later operations pick it up by accident, keep a reference and call `remove()`:
 
 ```js
-const profile = sketch("xy", () => {
-    circle([0, 0], 60)
+const layout = sketch("xy", () => {
+    const c = circle([0, 0], 60);
+    coincident(c.center(), origin());
+    diameter(c, 60);
   }).reusable();
 
-extrude(20);
-extrude(50);
+extrude(20, layout);
+extrude(50, layout);
 
-remove(profile);
+remove(layout);
 ```
 
-Without this, a reusable sketch or selection can leak into later operations and cause unexpected results.
+`remove()` is final: the object leaves the screen and every later feature's reach.
 
 ## Units across files
 
@@ -52,12 +71,12 @@ Reuse across files follows the [units](/docs/extra/units) rule: a part is built 
 
 ## Where `.reusable()` applies
 
-`.reusable()` works on any scene object whose shapes would otherwise be consumed:
+`.reusable()` works on any scene object a feature would otherwise consume:
 
-- **Sketch geometries** — individual shapes inside a `sketch()` block
-- **Whole sketches** — the object returned by `sketch(...)`
-- **Selections** — the object returned by `select(...)`, when the same selection drives multiple features (e.g. a sketch plane *and* a `project()` source)
+- **Selections** — the object returned by `select(...)`, when the same selection drives multiple features (e.g. a sketch plane *and* a `project()` source). Without it, the second feature finds nothing.
+- **Whole sketches** — the object returned by `sketch(...)`, to keep it on screen after use. A sketch never needs it to be used twice.
+- **Sketch geometries** — individual shapes inside a `sketch()` block, likewise to keep them on screen. Prefer `region()` declarations when the goal is to extrude parts of a sketch separately.
 
 :::tip
-If you find yourself re-selecting or re-sketching the same thing twice in a row, that's usually a sign to mark the first one `.reusable()` and pass it to both features instead.
+If you find yourself re-selecting the same faces twice in a row, mark the first selection `.reusable()` and pass it to both features. If you find yourself re-sketching the same profile, just pass the sketch to both.
 :::

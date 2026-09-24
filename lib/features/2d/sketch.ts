@@ -77,6 +77,24 @@ export class Sketch extends SceneObject implements Extrudable {
     return this._closed;
   }
 
+  /**
+   * A feature consumes a sketch for display only. The wires leave the
+   * rendered scene from the consumer's timeline position on (and return when
+   * the timeline is scrubbed before it), but scope-less readers keep seeing
+   * them: any later feature may take the same sketch again — `extrude(20, s)`,
+   * `.region('b')`, `project(s)` — with no `.reusable()`. That chain keeps its
+   * one remaining effect, staying on screen after use (a layout sketch).
+   * `remove(s)` forces the hard removal, dropping the sketch for readers too.
+   * See `removeShapesFromDisplay` for the read-kind rule.
+   */
+  override removeShapes(removedBy: SceneObject, force?: boolean): void {
+    if (force) {
+      super.removeShapes(removedBy, force);
+      return;
+    }
+    this.removeShapesFromDisplay(removedBy);
+  }
+
   override restoreState(state: Map<string, any>): void {
     super.restoreState(state);
     const snapshot = state.get('solver-system');

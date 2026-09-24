@@ -44,6 +44,13 @@ export class RegionPicker {
       profile: () => RegionProfileRef | null;
       /** The picks changed — the dialog re-previews. */
       onChange: () => void;
+      /**
+       * Viewport region picking turned on or off. A dialog whose other slots
+       * also pick in 3D quiets them while it is on: the viewer's own picking
+       * is suspended, so their armed border would promise clicks that go
+       * nowhere.
+       */
+      onActiveChange?: (active: boolean) => void;
     },
   ) {
     this.overlay = new RegionPickOverlay(viewer);
@@ -133,6 +140,7 @@ export class RegionPicker {
     this.mode.activate();
     void this.fetch();
     this.render();
+    this.hooks.onActiveChange?.(true);
     // The ghost reads the mode too (see ghostPicks) — re-preview.
     this.hooks.onChange();
   }
@@ -149,6 +157,7 @@ export class RegionPicker {
     this.overlay.clear();
     this.viewer.isRegionPicking = false;
     this.render();
+    this.hooks.onActiveChange?.(false);
     this.hooks.onChange();
   }
 

@@ -130,9 +130,10 @@ export class ExtrudeFeatureService {
       this.runner.schedulePreview();
     };
     this.panel.onArmedPickChange = () => {
-      this.syncFacePickMode();
-      // A face or scope slot took the viewport — region picking hands it over.
+      // A face or scope slot took the viewport — region picking hands it
+      // over (the panel re-arms the slot as the picker reports it off).
       this.regions.stop();
+      this.syncFacePickMode();
     };
     this.regions = new RegionPicker(viewer, this.panel.regionControl, {
       profile: () => this.ghostProfile(),
@@ -140,6 +141,11 @@ export class ExtrudeFeatureService {
         this.panel.setMessage(null);
         this.runner.schedulePreview();
       },
+      // The extrude panel keeps its profile slot armed alongside the solid
+      // slots (sketch picks never compete with face picks), so region
+      // picking cannot quiet them by arming the profile slot the way the
+      // other swept dialogs do — it tells the panel outright.
+      onActiveChange: (active) => this.panel.setRegionPickLive(active),
     });
 
     this.runner = new ApplyRunner({

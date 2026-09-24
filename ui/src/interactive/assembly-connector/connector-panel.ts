@@ -33,7 +33,6 @@ export class AssemblyConnectorPanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-assembly-connector-panel',
-      escapeAnywhere: false,
       title: 'Assembly connector',
       icon: '/icons/assembly-connector.png',
       bodyHtml: `

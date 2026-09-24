@@ -83,7 +83,6 @@ export class MatePanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-mate-panel',
-      escapeAnywhere: false,
       title: 'Mate',
       icon: '/icons/joint-fastened.png',
       bodyHtml: `

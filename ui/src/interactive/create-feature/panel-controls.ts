@@ -1,3 +1,4 @@
+import { isEditableTarget } from '../../keyboard-bridge';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
 import { ExpressionField, ExpressionFieldResult, collectNewVariables } from '../../ui/expression-field';
@@ -425,6 +426,41 @@ export const DIALOG_FOOTER_CLASS =
   + 'group-data-overflow:shadow-[0_-6px_8px_-6px_rgba(0,0,0,0.35)]';
 
 /**
+ * Where a dialog hears Escape. `'inside'` closes it only while focus is in
+ * it: the sketch-mode dialogs, whose drawing tools and the sketch toolbar
+ * own the global Escape, and the modify dialogs, whose service listens on
+ * the document itself. `'anywhere'` also closes it from the viewport — a
+ * pick moves focus out of the dialog, and Escape must still dismiss it.
+ */
+export type EscapeScope = 'inside' | 'anywhere';
+
+/**
+ * The dialogs open with `escape: 'anywhere'`, in opening order. One document
+ * listener serves them all: an Escape closes the most recently opened one —
+ * a connector editor docked beside the mate dialog goes first, the mate
+ * dialog on the next press. Escapes another handler already consumed
+ * (`defaultPrevented`) or typed into a foreign input / the code editor stay
+ * theirs; one from inside a dialog never gets here, its shell stops it.
+ */
+const openEscapeAnywhere: PanelShell[] = [];
+let escapeListenerInstalled = false;
+
+function installEscapeListener(): void {
+  if (escapeListenerInstalled) {
+    return;
+  }
+  escapeListenerInstalled = true;
+  document.addEventListener('keydown', (e) => {
+    const top = openEscapeAnywhere[openEscapeAnywhere.length - 1];
+    if (!top || e.key !== 'Escape' || e.defaultPrevented || isEditableTarget(e.target)) {
+      return;
+    }
+    e.preventDefault();
+    top.onEscape?.();
+  });
+}
+
+/**
  * The floating dialog chrome the create-feature panels share: the docked
  * container, the box with its pinned title row and pinned footer, and the
  * statement-preview and error rows below the box. Panels append their
@@ -449,7 +485,13 @@ export class PanelShell {
   private iconImg: HTMLImageElement;
   private readonly defaultTitle: string;
 
-  constructor(container: HTMLElement, id: string, title: string, iconSrc: string) {
+  constructor(
+    container: HTMLElement,
+    id: string,
+    title: string,
+    iconSrc: string,
+    private readonly escape: EscapeScope,
+  ) {
     this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
@@ -475,9 +517,8 @@ export class PanelShell {
     this.titleText = this.root.querySelector('[data-role="title"]')!;
     this.iconImg = this.root.querySelector('[data-role="icon"]')!;
 
-    // Escape from inside the dialog closes it. FeaturePanel also listens on
-    // the document (see its `escapeAnywhere`); the sketch panels don't — in
-    // sketch mode the drawing tools own the global Escape.
+    // Escape from inside the dialog closes it whatever its scope; stopped
+    // here so the document listener (`'anywhere'`) doesn't close it twice.
     this.root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -554,6 +595,7 @@ export class PanelShell {
     this.setPreview(null);
     this.root.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.root.id, true);
+    this.listenForEscapeAnywhere(true);
   }
 
   hide(): void {
@@ -561,12 +603,29 @@ export class PanelShell {
     this.setMessage(null);
     this.setPreview(null);
     viewportChrome.setDialogOpen(this.root.id, false);
+    this.listenForEscapeAnywhere(false);
   }
 
   /** Remove the dialog from the DOM (for panels owned by short-lived tools). */
   destroy(): void {
     viewportChrome.setDialogOpen(this.root.id, false);
+    this.listenForEscapeAnywhere(false);
     this.root.remove();
+  }
+
+  /** Join (or leave) the open-dialog order the document Escape serves; a re-show moves to the top. */
+  private listenForEscapeAnywhere(open: boolean): void {
+    if (this.escape !== 'anywhere') {
+      return;
+    }
+    const at = openEscapeAnywhere.indexOf(this);
+    if (at !== -1) {
+      openEscapeAnywhere.splice(at, 1);
+    }
+    if (open) {
+      installEscapeListener();
+      openEscapeAnywhere.push(this);
+    }
   }
 
   setPreview(text: string | null): void {

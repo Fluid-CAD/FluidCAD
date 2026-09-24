@@ -66,7 +66,8 @@ export class TextPanel {
   private pendingFont: string | null = null;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-text-panel', 'Text', '/icons/text.png');
+    // A sketch tool's dialog: the sketch toolbar's Escape exits the tool.
+    this.shell = new PanelShell(container, 'fluidcad-text-panel', 'Text', '/icons/text.png', 'inside');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <label class="flex flex-col gap-1.5">

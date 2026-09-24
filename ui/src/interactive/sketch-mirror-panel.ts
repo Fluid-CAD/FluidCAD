@@ -47,7 +47,7 @@ export class SketchMirrorPanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-sketch-mirror-panel',
-      escapeAnywhere: false,
+      escape: 'inside',
       title: 'Mirror',
       icon: '/icons/mirror2d.png',
       exitLabel: 'Cancel',

@@ -124,9 +124,11 @@ export class AssemblyGizmoDriver {
     this.bindings = bindings;
 
     // Dismiss-on-Escape must observe the gizmo's session *before* the
-    // gizmo's own Escape handler clears it (first Escape cancels the drag,
-    // the second dismisses the triad) — so this listener registers first.
-    window.addEventListener('keydown', this.handleKeyDown);
+    // gizmo's own (window) Escape handler clears it — first Escape cancels
+    // the drag, the second dismisses the triad — and must claim the key
+    // before the feature dialogs' document listener would close a dialog on
+    // it. Document capture runs ahead of both.
+    document.addEventListener('keydown', this.handleKeyDown, true);
 
     const ctx = bindings.viewer.sceneContext;
     this.gizmo = new TransformGizmo(
@@ -691,13 +693,15 @@ export class AssemblyGizmoDriver {
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.gizmo.isVisible) {
+    if (e.key !== 'Escape' || !this.gizmo.isVisible || isEditableTarget(e.target)) {
       return;
     }
-    // An active gesture's Escape belongs to the gizmo (cancel the drag);
-    // this listener registered first, so the session is still observable
-    // here. Escapes typed into foreign inputs stay theirs.
-    if (this.gizmo.hasActiveGesture || isEditableTarget(e.target)) {
+    // The visible triad owns this Escape either way — marked consumed so an
+    // open dialog leaves it alone (Escapes typed into foreign inputs stay
+    // theirs). An active gesture's press belongs to the gizmo, which cancels
+    // the drag in its own handler; otherwise it dismisses the triad.
+    e.preventDefault();
+    if (this.gizmo.hasActiveGesture) {
       return;
     }
     this.detach();

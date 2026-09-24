@@ -2066,6 +2066,7 @@ finishSketchButton.onClick = () => {
 sketchService.onActiveChange = (active) => {
   finishSketchButton.setVisible(active);
   breakpointIndicator.setSketchActive(active);
+  errorBanner.setSketchActive(active);
 };
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {

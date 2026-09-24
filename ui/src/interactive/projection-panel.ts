@@ -33,6 +33,7 @@ export class ProjectionPanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-projection-panel',
+      escapeAnywhere: false,
       title: PROJECTION_OP_SPECS.project.title,
       icon: PROJECTION_OP_SPECS.project.icon,
       exitLabel: 'Cancel',

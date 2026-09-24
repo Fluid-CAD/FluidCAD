@@ -1,4 +1,5 @@
 import { PanelShell } from './panel-controls';
+import { isEditableTarget } from '../../keyboard-bridge';
 import { ExpressionField } from '../../ui/expression-field';
 import { applyUnitDefaults } from '../../units/apply-unit-defaults';
 import { sceneUnit } from '../../units/scene-unit';
@@ -26,10 +27,27 @@ export abstract class FeaturePanel {
       id: string; title: string; icon: string; bodyHtml: string;
       /** Footer's dismiss label; 'Cancel' for the one-shot sketch tools. */
       exitLabel?: string;
+      /**
+       * Whether Escape closes the open dialog wherever focus is (default), not
+       * only from inside it — picking in the viewport moves focus out. Sketch
+       * and gizmo panels pass false: their tools own the global Escape.
+       */
+      escapeAnywhere?: boolean;
     },
   ) {
     this.shell = new PanelShell(container, opts.id, opts.title, opts.icon);
     this.shell.onEscape = () => this.onExit?.();
+    if (opts.escapeAnywhere ?? true) {
+      // An Escape from inside the dialog was handled (and stopped) by the
+      // shell; one typed into another input or the code editor stays theirs.
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.shell.isVisible && this.body.isConnected
+          && !e.defaultPrevented && !isEditableTarget(e.target)) {
+          e.preventDefault();
+          this.onExit?.();
+        }
+      });
+    }
     this.body = this.shell.body;
     this.body.insertAdjacentHTML('beforeend', opts.bodyHtml);
     this.shell.footer.insertAdjacentHTML('beforeend', `

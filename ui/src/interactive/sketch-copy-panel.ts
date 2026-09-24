@@ -109,6 +109,7 @@ export class SketchCopyPanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-sketch-copy-panel',
+      escapeAnywhere: false,
       title: 'Copy',
       icon: '/icons/copy-linear2d.png',
       exitLabel: 'Cancel',

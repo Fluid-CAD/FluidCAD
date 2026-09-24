@@ -36,6 +36,7 @@ class ConnectorPropsPanel extends FeaturePanel {
   constructor(container: HTMLElement) {
     super(container, {
       id: 'fluidcad-connector-props-panel',
+      escapeAnywhere: false,
       title: 'Connector',
       icon: '/icons/mate-connector.png',
       bodyHtml: `

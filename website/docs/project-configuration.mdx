@@ -74,7 +74,7 @@ The project's length unit. It is the unit of every part file that does not decla
 npx fluidcad init --unit in
 ```
 
-writes `"unit": "in"`. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
+writes `"unit": "in"`. Without the flag, `init` uses the unit for new projects chosen in the Settings dialog (the gear in the top bar, under Units); that is `mm` unless you change it. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
 
 Numbers in a file are in that file's unit. A part file can opt out of the project unit with a single statement at the top:
 

@@ -8,9 +8,13 @@ import { createPointMarker } from '../meshes/point-marker';
 import { onThemeChange, themeColors } from '../scene/theme-colors';
 import { worldFromMm } from '../units/scene-scale';
 import { collectPickCandidates, type VertexCandidate } from './pick-candidates';
+import { viewerSettings } from '../scene/viewer-settings';
 
 /** Same grab radius as solved sketch vertices. */
-export const VERTEX_PICK_PX = 12;
+/** The live pick radius, screen px — the `pickRadiusPx` preference. */
+export function vertexPickPx(): number {
+  return viewerSettings.current.pickRadiusPx;
+}
 type VertexEntity = SelectedEntity & { sub: Extract<SubSelection, { type: 'vertex' }> };
 type PointGroup = { position: Vector3; members: VertexCandidate[] };
 type MarkerState = 'candidate' | 'hover' | 'selected';
@@ -119,7 +123,7 @@ export class VertexPicking {
     }
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     let best: PointGroup | null = null;
-    let bestDistance = VERTEX_PICK_PX ** 2;
+    let bestDistance = vertexPickPx() ** 2;
     let bestDepth = Infinity;
     for (const group of this.visibleGroups()) {
       const projected = group.position.clone().project(this.ctx.camera);

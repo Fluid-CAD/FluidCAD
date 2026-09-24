@@ -1,11 +1,19 @@
 import { Router } from 'express';
 import {
+  EDITOR_FONT_SIZE_RANGE,
   GRID_MAJOR_EVERY_RANGE,
   GRID_MIN_CELL_PX_RANGE,
   MEASURE_LENGTH_UNITS,
+  PICK_RADIUS_PX_RANGE,
+  SNAP_RADIUS_PX_RANGE,
   loadPreferences,
+  resetPreferences,
   savePreferences,
 } from '../preferences.ts';
+
+/** Bounds an editor font family: one line of plain text, no CSS injection surface. */
+const MAX_FONT_FAMILY_CHARS = 120;
+const FONT_FAMILY_PATTERN = /^[\w \-'",.]*$/;
 
 /** A finite number clamped into `[min, max]`, or null when not a number. */
 function clampedNumber(value: unknown, [min, max]: [number, number]): number | null {
@@ -92,10 +100,47 @@ export function createPreferencesRouter(): Router {
         if (typeof body.editorWidth === 'number' && Number.isFinite(body.editorWidth)) {
           current.editorWidth = body.editorWidth;
         }
+        if (
+          typeof body.editorFontFamily === 'string' &&
+          body.editorFontFamily.length <= MAX_FONT_FAMILY_CHARS &&
+          FONT_FAMILY_PATTERN.test(body.editorFontFamily)
+        ) {
+          current.editorFontFamily = body.editorFontFamily.trim();
+        }
+        const fontSize = clampedNumber(body.editorFontSize, EDITOR_FONT_SIZE_RANGE);
+        if (fontSize !== null) {
+          current.editorFontSize = Math.round(fontSize);
+        }
+        if (typeof body.editorWordWrap === 'boolean') {
+          current.editorWordWrap = body.editorWordWrap;
+        }
+        const snapRadius = clampedNumber(body.snapRadiusPx, SNAP_RADIUS_PX_RANGE);
+        if (snapRadius !== null) {
+          current.snapRadiusPx = Math.round(snapRadius);
+        }
+        const pickRadius = clampedNumber(body.pickRadiusPx, PICK_RADIUS_PX_RANGE);
+        if (pickRadius !== null) {
+          current.pickRadiusPx = Math.round(pickRadius);
+        }
+        if (MEASURE_LENGTH_UNITS.includes(body.defaultProjectUnit)) {
+          current.defaultProjectUnit = body.defaultProjectUnit;
+        }
         await savePreferences(current);
         return current;
       });
       res.json(saved);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  // "Reset all to defaults": the whole file goes back to the built-in
+  // values. Serialized with the merges above so a save racing the reset
+  // cannot resurrect the old file.
+  router.post('/preferences/reset', async (_req, res) => {
+    try {
+      const prefs = await serialized(() => resetPreferences());
+      res.json(prefs);
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
     }

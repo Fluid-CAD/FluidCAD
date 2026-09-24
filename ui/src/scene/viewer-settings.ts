@@ -35,7 +35,16 @@ export interface ViewerSettings {
   /** Tangent (G1) edges drawn dimmed toward the face colour. Off: they draw
    *  like every other model edge. The `dimTangentEdges` preference. */
   dimTangentEdges: boolean;
+  /** Sketch snapping: the cursor snaps to a vertex, axis or grid line within
+   *  this many screen pixels. The `snapRadiusPx` preference. */
+  snapRadiusPx: number;
+  /** Sketch picking: an entity or vertex within this many screen pixels of
+   *  the cursor is hovered and selectable. The `pickRadiusPx` preference. */
+  pickRadiusPx: number;
 }
+
+export const DEFAULT_SNAP_RADIUS_PX = 15;
+export const DEFAULT_PICK_RADIUS_PX = 12;
 
 type Listener = (settings: ViewerSettings) => void;
 
@@ -54,6 +63,8 @@ const defaults: ViewerSettings = {
   gridFixedSpacing: { ...DEFAULT_GRID_FIXED_SPACING },
   gridMajorEvery: DEFAULT_GRID_MAJOR_EVERY,
   dimTangentEdges: false,
+  snapRadiusPx: DEFAULT_SNAP_RADIUS_PX,
+  pickRadiusPx: DEFAULT_PICK_RADIUS_PX,
 };
 
 class ViewerSettingsStore {
@@ -86,5 +97,7 @@ export function applyPreferences(prefs: UserPreferences): void {
     ...(prefs.gridFixedSpacing ? { gridFixedSpacing: { ...DEFAULT_GRID_FIXED_SPACING, ...prefs.gridFixedSpacing } } : {}),
     ...(typeof prefs.gridMajorEvery === 'number' ? { gridMajorEvery: prefs.gridMajorEvery } : {}),
     ...(typeof prefs.dimTangentEdges === 'boolean' ? { dimTangentEdges: prefs.dimTangentEdges } : {}),
+    ...(typeof prefs.snapRadiusPx === 'number' ? { snapRadiusPx: prefs.snapRadiusPx } : {}),
+    ...(typeof prefs.pickRadiusPx === 'number' ? { pickRadiusPx: prefs.pickRadiusPx } : {}),
   });
 }

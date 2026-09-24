@@ -53,11 +53,13 @@ The command refuses to run if `init.js` already exists, so it can't clobber a pr
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | `mm` |
+| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | the unit for new projects from the Settings dialog, `mm` unless changed |
 
 ```bash
 npx fluidcad init --unit in        # an inch project
 ```
+
+Without the flag, the unit comes from **Settings ▸ Units ▸ Unit for new projects** in the FluidCAD UI (the gear in the top bar). The desktop app's New Project uses the same setting.
 
 See [Project configuration](/docs/project-configuration) for what `fluidcad.json` holds.
 

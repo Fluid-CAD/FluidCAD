@@ -194,6 +194,18 @@ export interface UserPreferences {
   editorOpen?: boolean;
   /** Code-editor pane width, in px. */
   editorWidth?: number;
+  /** Code-editor font family; empty or absent means the editor's own default stack. */
+  editorFontFamily?: string;
+  /** Code-editor font size, px. Default 13. */
+  editorFontSize?: number;
+  /** Code-editor lines wrap at the pane edge. Default false. */
+  editorWordWrap?: boolean;
+  /** Sketch snap radius, screen px. Default 15. */
+  snapRadiusPx?: number;
+  /** Sketch hover/pick radius, screen px. Default 12. */
+  pickRadiusPx?: number;
+  /** The unit a new project is scaffolded in. Default mm. */
+  defaultProjectUnit?: LengthUnit;
 }
 
 // ---------------------------------------------------------------------------
@@ -5107,4 +5119,9 @@ export function savePreference<K extends keyof UserPreferences>(
   value: UserPreferences[K],
 ): void {
   postFireAndForget('/api/preferences', { [key]: value });
+}
+
+/** Put every preference back to its default; resolves to the defaults the server now holds. */
+export async function resetPreferences(): Promise<UserPreferences | null> {
+  return postJson<UserPreferences>('/api/preferences/reset', {});
 }

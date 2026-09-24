@@ -36,6 +36,20 @@ With the code editor open, the file sits between the rail and the panels. Edits 
 
 ![The workspace with the code editor open](/img/docs/ui/overview-editor.png)
 
+## Settings
+
+The gear in the top bar, just before the light/dark switch, opens the global settings. They are yours rather than the project's, and they apply everywhere FluidCAD runs for you: the browser, the VS Code extension and the desktop app. Edits wait for **Save**; a tab with an unsaved edit shows a dot, and Cancel drops the edits.
+
+| Tab | What it holds |
+|-----|---------------|
+| Appearance | Dark or light theme. The sun and moon button in the top bar switches it too. |
+| Editor | The code editor's font, picked from the monospace fonts installed on the computer, its size, word wrap, and whether the editor pane opens when FluidCAD starts (off by default). |
+| Sketch | The snap radius and the pick radius, in screen pixels: how close the cursor has to be for the sketcher to snap to a vertex, axis or grid line, and for a line, arc or vertex to highlight under it. |
+| Units | The unit new projects are created in. Existing projects keep theirs; change those from the unit chip at the bottom of the viewport. |
+| Advanced | Reset every setting to its default, after a confirmation. This one acts at once rather than on Save. |
+
+Project settings, such as the engine pin and the project unit in `fluidcad.json`, are not here; see [Project configuration](/docs/project-configuration).
+
 ## The History panel
 
 The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows).

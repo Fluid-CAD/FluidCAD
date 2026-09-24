@@ -51,7 +51,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
@@ -66,6 +66,9 @@ import type { ConnectorData, SceneObjectRender } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
+import { applyEditorPreferences } from './editor/editor-prefs';
+import { SettingsModal } from './ui/settings';
+import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -129,8 +132,9 @@ function startEditorSurface(): void {
       onEditRefused: (message) => showToast(message),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
-      onOpenChange: (open) => {
-        savePreference('editorOpen', open);
+      // Whether the pane opens at startup is a Settings choice, not the last
+      // state the pane was left in — so nothing is saved here.
+      onOpenChange: () => {
         // Ctrl+B, the desktop menu and the restored preference all land here,
         // so the rail's latch follows the pane however it was opened.
         panelRail.sync();
@@ -204,22 +208,33 @@ viewerSettings.subscribe((s) => {
 // a session that had it open comes back with it open.
 const editorPreferences = { open: false, width: 420 };
 
+/**
+ * Apply a full preference set to the page: at startup, and again after the
+ * Settings dialog resets everything — the same routine, so a reset leaves
+ * the page exactly as a fresh start would.
+ */
+function applyLoadedPreferences(prefs: UserPreferences): void {
+  // The server pre-applies the saved theme when it serves index.html;
+  // re-setting the same value would still fire the theme MutationObserver
+  // and trigger a needless full scene re-mesh.
+  if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
+    document.documentElement.setAttribute('data-theme', prefs.theme);
+  }
+  applyPreferences(prefs);
+  applyEditorPreferences(prefs);
+  applyNewProjectPreferences(prefs);
+  pendingShowBuildTimings = !!prefs.showBuildTimings;
+  if (currentRail?.kind === 'part') {
+    currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
+  }
+  measureController.applyPreferences(prefs);
+  editorPreferences.open = prefs.editorOpen === true;
+  editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+}
+
 loadPreferences().then((prefs) => {
   if (prefs) {
-    // The server pre-applies the saved theme when it serves index.html;
-    // re-setting the same value would still fire the theme MutationObserver
-    // and trigger a needless full scene re-mesh.
-    if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
-      document.documentElement.setAttribute('data-theme', prefs.theme);
-    }
-    applyPreferences(prefs);
-    pendingShowBuildTimings = !!prefs.showBuildTimings;
-    if (currentRail?.kind === 'part') {
-      currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
-    }
-    measureController.applyPreferences(prefs);
-    editorPreferences.open = prefs.editorOpen === true;
-    editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+    applyLoadedPreferences(prefs);
   }
 });
 
@@ -692,6 +707,14 @@ currentRail = initialRail;
 
 // Top application bar (logo, workspace, file tabs) and the secondary tool bar
 // below it (host for conditionally-visible tool groups).
+// The global Settings dialog — part of the page in every host; only a
+// viewport-only host (`?editor=0`, an embed) leaves the gear off the bar.
+const settingsModal = new SettingsModal(container, {
+  savePreference,
+  resetPreferences,
+  applyPreferences: applyLoadedPreferences,
+});
+
 const topBar = new TopBar(container, {
   // A viewport-only host gets no tab affordances: the handler set is absent,
   // which is what removes them.
@@ -706,6 +729,7 @@ const topBar = new TopBar(container, {
     onRename: (absPath, newBasename) => void editorSurface?.renameTab(absPath, newBasename),
   } : undefined,
   saveTheme: (theme) => savePreference('theme', theme),
+  onSettings: editorSurfaceEnabled ? () => settingsModal.show() : undefined,
   // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
   // the choice — or, in an assembly, the whole assembly where it sits;
   // File ▸ Export stays the whole-scene path.

@@ -475,8 +475,9 @@ export class PanelShell {
     this.titleText = this.root.querySelector('[data-role="title"]')!;
     this.iconImg = this.root.querySelector('[data-role="icon"]')!;
 
-    // Escape closes the dialog only from inside it — in sketch mode the
-    // drawing tools own the global Escape.
+    // Escape from inside the dialog closes it. FeaturePanel also listens on
+    // the document (see its `escapeAnywhere`); the sketch panels don't — in
+    // sketch mode the drawing tools own the global Escape.
     this.root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();

@@ -375,6 +375,12 @@ export async function getShareFiles(): Promise<ShareFiles> {
   return body;
 }
 
+/** The version of the engine serving this page, or null when the server doesn't answer. */
+export async function getEngineVersion(): Promise<string | null> {
+  const data = await getJson<{ version?: string }>('/api/health');
+  return typeof data?.version === 'string' ? data.version : null;
+}
+
 export async function getFontFamilies(): Promise<string[]> {
   const data = await getJson<{ families: string[] }>('/api/fonts');
   return data?.families ?? [];

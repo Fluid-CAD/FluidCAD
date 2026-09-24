@@ -1,7 +1,7 @@
 // wrap(): option types and statement rendering.
 
 import { renderOpChains, renderRegionChain } from '../render/chains.ts';
-import { formatValue, type RegionKey, type ValueExpr } from '../value-expr.ts';
+import { formatValue, type RegionName, type RegionPickSpec, type ValueExpr } from '../value-expr.ts';
 
 /**
  * How a wrap statement is rendered and placed: `wrap(<thickness>, <sketch>,
@@ -17,10 +17,20 @@ export type WrapEditOptions = {
   thickness: ValueExpr;
   sketch: { producer: number };
   /**
-   * The `.region(…)` picks — the keys of the profile regions the operation
-   * builds. Absent or empty writes no chain (every region).
+   * The `.region(…)` chain — the names of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region). The transform
+   * derives them from `regionPicks`; a caller that already knows the names
+   * (a rendered preview) passes them directly.
    */
-  regions?: RegionKey[];
+  regions?: RegionName[];
+  /**
+   * The dialog's region picks. The transform declares each picked boundary
+   * in the profile sketch (`region('r1', …)`, reusing a declaration that
+   * already lists it) and writes the names into `regions`.
+   */
+  regionPicks?: RegionPickSpec[];
+  /** The profile sketch statement the picks belong to — where their declarations are written. */
+  regionSketch?: { line: number; column: number };
 };
 
 /**

@@ -1,9 +1,9 @@
 // wrap request validation.
 
-import { validValueExpr, type RegionKey, type ValueExpr } from '../../../apply-feature-edit/index.ts';
+import { validValueExpr, type RegionPickSpec, type ValueExpr } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick } from '../picks.ts';
-import { validateRegionKeys } from '../regions.ts';
+import { validateRegionPicks } from '../regions.ts';
 
 /**
  * The wrap request's shape: the sketch is always an explicit input (wrap()
@@ -16,8 +16,8 @@ type WrapRequest = {
   thickness: ValueExpr;
   sketch: SketchLoc;
   face: Pick;
-  /** The picked sketch regions; empty writes no `.region(…)`. */
-  regions: RegionKey[];
+  /** The picked sketch regions, declared in the sketch on apply; empty writes no `.region(…)`. */
+  regions: RegionPickSpec[];
 };
 
 export function validateWrap(body: any): WrapRequest | { error: string } {
@@ -36,7 +36,7 @@ export function validateWrap(body: any): WrapRequest | { error: string } {
   if (!pick || pick.sub.type !== 'face') {
     return { error: 'face must be a {shapeId, sub:{type:"face", index}} pick' };
   }
-  const regionResult = validateRegionKeys(body);
+  const regionResult = validateRegionPicks(body);
   if ('error' in regionResult) {
     return regionResult;
   }

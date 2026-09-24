@@ -9,13 +9,14 @@
 // place, the accessor replaced by the argument the deleted statement drew
 // that point from (a literal, a parameter expression, or another entity's
 // point, followed through when that entity goes too); a list with other
-// members just drops the deleted one. A borrowed point nothing stands for
+// members just drops the deleted one, and so does a region() declaration,
+// which goes only when its last entity does. A borrowed point nothing stands for
 // (an arc's midpoint, a text anchor) refuses the delete rather than leave
 // or take geometry the user did not pick. The sketch is settled on its
 // solved positions first, so the substituted literals agree with what the
 // user saw.
 
-import type { SketchPositionEdit, TSNode } from './code-editor/index.ts';
+import { isRegionDeclarationStatement, type SketchPositionEdit, type TSNode } from './code-editor/index.ts';
 import { calleeName, chainBase } from './sketch-solved-edit/index.ts';
 import { SketchEntityRewrite, fmt, type Edit } from './sketch-entity-rewrite.ts';
 
@@ -122,6 +123,10 @@ export class SketchEntityDelete extends SketchEntityRewrite {
     // the entity and goes — its own names swept in turn.
     const edits: Edit[] = [];
     const listDrops = new Map<number, { list: TSNode; statement: TSNode; dropped: Set<number> }>();
+    // A region declaration lists its entities like a list literal: the
+    // deleted one drops out (with its `far()` wrapper), the row goes when
+    // no entity is left.
+    const regionDrops = new Map<number, { list: TSNode; statement: TSNode; dropped: Set<number> }>();
     const sweep = (statement: TSNode): void => {
       const entry = doom(statement, 'dependent', SketchEntityDelete.kindOf(statement));
       if (entry) {
@@ -138,6 +143,18 @@ export class SketchEntityDelete extends SketchEntityRewrite {
           const constraintKind = SketchEntityDelete.constraintKindOf(ref.statement);
           if (constraintKind !== null) {
             doom(ref.statement, 'constraint', constraintKind);
+            continue;
+          }
+          const regionArg = SketchEntityDelete.regionArgumentOf(ref.node, ref.statement);
+          if (regionArg) {
+            const drop = regionDrops.get(ref.statement.startIndex)
+              ?? { list: regionArg.list, statement: ref.statement, dropped: new Set<number>() };
+            drop.dropped.add(regionArg.arg.startIndex);
+            regionDrops.set(ref.statement.startIndex, drop);
+            // The first argument is the name; the rest are the entities.
+            if (drop.dropped.size >= regionArg.list.namedChildren.length - 1) {
+              doom(ref.statement, 'constraint', 'region');
+            }
             continue;
           }
           if (ref.role !== null) {
@@ -164,7 +181,7 @@ export class SketchEntityDelete extends SketchEntityRewrite {
         }
       }
     }
-    for (const { list, statement, dropped } of listDrops.values()) {
+    for (const { list, statement, dropped } of [...listDrops.values(), ...regionDrops.values()]) {
       if (!doomed.has(statement.startIndex)) {
         edits.push(...SketchEntityDelete.dropFromList(list, dropped));
       }
@@ -185,6 +202,29 @@ export class SketchEntityDelete extends SketchEntityRewrite {
       ...(removed.length > 0 ? { removed } : {}),
       ...(dependents.length > 0 ? { dependents } : {}),
     };
+  }
+
+  /**
+   * When `statement` is a `region('name', …)` declaration and `node` is a
+   * reference inside its argument list: the arguments node and the whole
+   * top-level argument the reference sits in (`l1`, `far(l1)`, `r1.top()`,
+   * `far(r1.top())`). Null otherwise.
+   */
+  private static regionArgumentOf(node: TSNode, statement: TSNode): { list: TSNode; arg: TSNode } | null {
+    if (!isRegionDeclarationStatement(statement)) {
+      return null;
+    }
+    const call = statement.namedChild(0)!;
+    const list = call.childForFieldName('arguments');
+    if (!list) {
+      return null;
+    }
+    for (const arg of list.namedChildren) {
+      if (node.startIndex >= arg.startIndex && node.endIndex <= arg.endIndex) {
+        return { list, arg };
+      }
+    }
+    return null;
   }
 
   /** The root call of a `const x = f(…).g()` or `f(…).g();` statement, else null. */

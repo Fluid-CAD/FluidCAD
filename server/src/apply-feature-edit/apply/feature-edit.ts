@@ -24,6 +24,7 @@ import { applyProjectForeign, applySketchForeign } from './foreign.ts';
 import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
 import { LoftConnections } from '../loft-connections.ts';
+import { RegionDeclarations } from '../region-declarations.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 
 /**
@@ -58,6 +59,18 @@ async function applyFeatureEditTransform(
 ): Promise<ApplyFeatureEditResult> {
   if (spec.feature === 'loft' && LoftConnections.hasExports(spec)) {
     const staged = await LoftConnections.prepare(code, spec);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
+  // Region picks become declarations in the profile sketch first; the
+  // statement then renders the names. Like the loft exports, a refusal
+  // never returns a partially edited buffer.
+  if (RegionDeclarations.workOf(spec)) {
+    const staged = await RegionDeclarations.prepare(code, spec);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }

@@ -180,6 +180,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         })
         : sketchRef(request.extrudeProfile, 's');
       edit.extrude!.profile = { kind: 'sketch', producer };
+      edit.extrude!.regionSketch = { line: request.extrudeProfile.line, column: request.extrudeProfile.column };
     }
     if (request.extrudeToFace) {
       const synthesis = synthesizeSlot([request.extrudeToFace], 'extrude', undefined, []);
@@ -242,9 +243,11 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     }
     if (request.sweepProfile) {
       edit.sweep!.profile = { kind: 'sketch', producer: sketchRef(request.sweepProfile, 's') };
+      edit.sweep!.regionSketch = { line: request.sweepProfile.line, column: request.sweepProfile.column };
     }
     if (request.wrapSketch) {
       edit.wrap!.sketch = { kind: 'sketch', producer: sketchRef(request.wrapSketch, 's') };
+      edit.wrap!.regionSketch = { line: request.wrapSketch.line, column: request.wrapSketch.column };
     }
     if (request.wrapFace) {
       const synthesis = synthesizeSlot([request.wrapFace], 'wrap', undefined, []);
@@ -262,6 +265,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     }
     if (request.revolveProfile) {
       edit.revolve!.profile = { kind: 'sketch', producer: sketchRef(request.revolveProfile, 's') };
+      edit.revolve!.regionSketch = { line: request.revolveProfile.line, column: request.revolveProfile.column };
     }
     if (request.revolveAxis) {
       if (request.revolveAxis.kind === 'standard') {

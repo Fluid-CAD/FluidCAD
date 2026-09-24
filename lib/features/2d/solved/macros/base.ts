@@ -195,7 +195,7 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
       const params = this._ctx.entityParams(rec.entityId);
       solvedState[slot] = params;
       // Each edge wears its slot as its role — what `edge('top')` selects
-      // by and what a region key names it as (`r1.top`).
+      // by and what a region declaration names it as (`r1.top()`).
       let edge: Edge;
       if (rec.kind === 'line') {
         const start = new Point2D(params[0], params[1]);

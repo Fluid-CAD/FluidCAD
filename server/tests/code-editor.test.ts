@@ -372,7 +372,7 @@ describe('edits inside a longer chain', () => {
 
 describe('insertGeometryCall', () => {
   // Every drawn statement lands bound (`const c1 = circle(…);`): its name is
-  // its region key, where an unbound statement only has a fragile ordinal.
+  // what constraints and region declarations reference it by.
   it('binds a drawn circle from the start, past the highest number of its hint', async () => {
     const code = [
       `import { sketch, circle } from 'fluidcad/core';`,

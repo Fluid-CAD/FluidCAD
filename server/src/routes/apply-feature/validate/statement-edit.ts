@@ -18,6 +18,7 @@ import {
 } from '../locations.ts';
 import { validateChains, validatePick, validatePicks, validateSketchPicks, type Pick } from '../picks.ts';
 import { validateRegionEdits } from '../regions.ts';
+import { normalizePath } from '../../../normalize-path.ts';
 import { validateBooleanEdit } from './boolean.ts';
 import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './common.ts';
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
@@ -193,6 +194,18 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
   }
   const kind = feature as ApplyFeatureEditSpec['feature'];
   const base = { feature: kind, target, edit, needsPicks: false };
+  // The profile sketch the region picks belong to when the statement keeps
+  // its profile — the dialog reads it from the scene. Ignored across files.
+  let regionSketch: { line: number; column: number } | undefined;
+  if (body?.regionSketch !== undefined && body?.regionSketch !== null) {
+    const loc = validateSketchLoc(body.regionSketch);
+    if (!loc) {
+      return { error: 'regionSketch must be the {filePath, line, column} of the profile sketch statement' };
+    }
+    if (normalizePath(loc.filePath) === normalizePath(target.filePath)) {
+      regionSketch = { line: loc.line, column: loc.column };
+    }
+  }
 
   if (feature === 'extrude') {
     // The toFace field is NOT a keep-or-absent slot: absent means the
@@ -216,7 +229,8 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if ('error' in regionResult) {
       return regionResult;
     }
-    edit.extrude.regions = regionResult.regions;
+    edit.extrude.regionPicks = regionResult.regions;
+    edit.extrude.regionSketch = regionSketch;
     if (hasToFace) {
       if (toFaceRaw.kind === 'keep' || toFaceRaw.kind === 'first-face' || toFaceRaw.kind === 'last-face') {
         edit.extrude.toFace = { kind: toFaceRaw.kind };
@@ -278,7 +292,8 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if ('error' in regionResult) {
       return regionResult;
     }
-    edit.wrap.regions = regionResult.regions;
+    edit.wrap.regionPicks = regionResult.regions;
+    edit.wrap.regionSketch = regionSketch;
     if (!isKeepSlot(body?.face)) {
       if (body.face?.kind !== 'face') {
         return { error: 'face must be {kind: "keep"} or {kind: "face", entity}' };
@@ -358,7 +373,8 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if ('error' in regionResult) {
       return regionResult;
     }
-    edit.revolve.regions = regionResult.regions;
+    edit.revolve.regionPicks = regionResult.regions;
+    edit.revolve.regionSketch = regionSketch;
     if (!isKeepSlot(body?.axis)) {
       const axis = validateRevolveAxis(body.axis);
       if ('error' in axis) {
@@ -453,7 +469,8 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
       if ('error' in regionResult) {
         return regionResult;
       }
-      edit.sweep.regions = regionResult.regions;
+      edit.sweep.regionPicks = regionResult.regions;
+      edit.sweep.regionSketch = regionSketch;
       if (!isKeepSlot(body?.path)) {
         if (body.path?.kind === 'sketch') {
           const loc = validateSketchLoc(body.path);

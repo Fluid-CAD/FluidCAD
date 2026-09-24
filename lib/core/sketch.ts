@@ -67,9 +67,6 @@ function build(context: SceneParserContext): SketchFunction {
     }
 
     const sketch = new Sketch(planeObj);
-    // The callback's own text is what lets the kernel read the binding names
-    // its statements were written with — see SketchStatementKeys.
-    sketch.setCallbackSource(typeof sketcher === 'function' ? Function.prototype.toString.call(sketcher) : null);
 
     context.startProgressiveContainer(sketch);
     const extensions = sketcher();

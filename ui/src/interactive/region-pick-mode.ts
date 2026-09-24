@@ -7,7 +7,7 @@ const HOVER_OPACITY = 0.35;
 /**
  * Click and hover handling for a set of drawn sketch regions — the region
  * picker's overlay. Raycasts the pick-region meshes under `root` (each group
- * carries its region key in `userData.metaData.key` and its pick state in
+ * carries its region label in `userData.metaData.key` and its pick state in
  * `userData.isPickRegionSelected`); a click reports the key as a pick or a
  * removal, a hover tints the face. Scoped to `root` on purpose: a scene can
  * hold other region meshes (a `.region()` statement's own), and those are

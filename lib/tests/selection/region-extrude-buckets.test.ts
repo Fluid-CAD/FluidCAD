@@ -47,8 +47,10 @@ describe("classified buckets on a two-region extrude with a seam-split solid", (
         coincident(l5.start(), c1);
         coincident(l1.end(), c1);
         coincident(l6.start(), c1);
+        region('left', l1, far(c1), l5, l4);
+        region('right', l6, l2, l3, far(c1));
       }).close();
-      const e = extrude(25, s).region('l1 c1- l5 l4', 'l6 l2 l3 c1-');
+      const e = extrude(25, s).region('left', 'right');
       return { e };
     `) as { e: SceneObject };
     const scene = render();

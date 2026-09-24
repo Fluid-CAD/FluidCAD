@@ -2043,13 +2043,13 @@ describe('parseFeatureStatement', () => {
     expect(result).toMatchObject({ ok: false });
   });
 
-  it('reads the region picks of an extrude, keys and positions alike', async () => {
-    const code = `${editBase}\nextrude(20, s).region('outer', 1).symmetric()\n`;
+  it('reads the region names of an extrude', async () => {
+    const code = `${editBase}\nextrude(20, s).region('outer', 'inner').symmetric()\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'extrude', symmetric: true, profileText: 's', regions: ['outer', 1] },
-      statement: `extrude(20, s).region('outer', 1).symmetric()`,
+      parsed: { feature: 'extrude', symmetric: true, profileText: 's', regions: ['outer', 'inner'] },
+      statement: `extrude(20, s).region('outer', 'inner').symmetric()`,
     });
   });
 
@@ -2072,7 +2072,7 @@ describe('parseFeatureStatement', () => {
     });
   });
 
-  it('refuses a region argument that is neither a key string nor a position', async () => {
+  it('refuses a region argument that is not a name string', async () => {
     const code = `${editBase}\nextrude(20).region(k)\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({ ok: false });
@@ -2469,13 +2469,13 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
   });
 
   it('keeps the region picks of an extrude the dialog did not touch', async () => {
-    const code = `${editBase}\nextrude(20, s).region('outer', 1).symmetric()\n`;
+    const code = `${editBase}\nextrude(20, s).region('outer', 'inner').symmetric()\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
       line: 4, column: 0,
       extrude: extrudeEditOptions({ distance: 30, symmetric: true }),
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`extrude(30, s).region('outer', 1).symmetric()`);
+    expect(result.newCode).toContain(`extrude(30, s).region('outer', 'inner').symmetric()`);
   });
 
   it('rewrites the region picks of an extrude and drops the chain on an empty list', async () => {
@@ -2507,10 +2507,10 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     const revolveCode = `${editBase}\nrevolve('z', s).thin(1)\n`;
     const revolved = await applyFeatureEdit(revolveCode, editSpec('revolve', {
       line: 4, column: 0,
-      revolve: { op: 'add', angle: 360, symmetric: false, thin: [1], regions: [0] },
+      revolve: { op: 'add', angle: 360, symmetric: false, thin: [1], regions: ['r1'] },
     }));
     expect(revolved.error).toBeUndefined();
-    expect(revolved.newCode).toContain(`revolve('z', s).region(0).thin(1)\n`);
+    expect(revolved.newCode).toContain(`revolve('z', s).region('r1').thin(1)\n`);
 
     const sweepCode = `${editBase}\nsweep(p, s)\n`;
     const swept = await applyFeatureEdit(sweepCode, editSpec('sweep', {

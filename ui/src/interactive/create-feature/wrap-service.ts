@@ -459,7 +459,7 @@ export class WrapFeatureService {
       thickness: values.thickness,
       sketch: { filePath: sketch.filePath, line: sketch.line, column: sketch.column },
       face: this.faceEntity,
-      regions: this.regions.keys,
+      regions: this.regions.picks,
     };
   }
 
@@ -513,7 +513,8 @@ export class WrapFeatureService {
       sketch,
       face,
       // The dialog owns the chain it shows: the picks shown are the picks written.
-      regions: this.regions.keys,
+      regions: this.regions.picks,
+      regionSketch: this.regionProfile() ?? undefined,
       expectedStatement: this.session.expectedStatement,
       before: face?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
     };

@@ -5,7 +5,7 @@ import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import plane from "../../core/plane.js";
 import cylinder from "../../core/cylinder.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
@@ -302,10 +302,11 @@ describe("cut", () => {
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-          circle([25, 25], 30);
+          const a = circle([25, 25], 30);
           circle([75, 25], 30);
+          region('a', a);
         });
-      const c = cut(20).region('circle#1') as ExtrudeBase;
+      const c = cut(20).region('a') as ExtrudeBase;
 
       render();
 

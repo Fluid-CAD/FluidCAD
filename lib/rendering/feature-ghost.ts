@@ -29,8 +29,8 @@ import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
 import { Extrudable } from "../helpers/types.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
-import { RegionRequest, resolveRegions } from "../features/2d/regions/region-match.js";
-import { sourceRegions } from "../features/2d/regions/source-regions.js";
+import type { RegionPick } from "../features/2d/regions/region-wire.js";
+import { resolveRegionPicks, sourceRegionContext } from "../features/2d/regions/source-regions.js";
 import { throughAllLength } from "../helpers/through-all.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
@@ -88,11 +88,11 @@ export type ExtrudeGhostRequest = {
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
   /**
-   * The dialog's `.region()` picks: the keys of the regions to build, in the
-   * grammar the statement takes. Absent builds every region; an empty list
-   * is the argument-less `.region()`, which builds nothing.
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
    */
-  regions?: RegionRequest[];
+  regions?: RegionPick[];
 };
 
 export type RibGhostRequest = {
@@ -132,11 +132,11 @@ export type RevolveGhostRequest = {
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
   /**
-   * The dialog's `.region()` picks: the keys of the regions to build, in the
-   * grammar the statement takes. Absent builds every region; an empty list
-   * is the argument-less `.region()`, which builds nothing.
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
    */
-  regions?: RegionRequest[];
+  regions?: RegionPick[];
 };
 
 /**
@@ -163,11 +163,11 @@ export type SweepGhostRequest = {
   /** `.extend('end', …)` run-out past the path, or null. */
   extendEnd?: number | null;
   /**
-   * The dialog's `.region()` picks: the keys of the regions to build, in the
-   * grammar the statement takes. Absent builds every region; an empty list
-   * is the argument-less `.region()`, which builds nothing.
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
    */
-  regions?: RegionRequest[];
+  regions?: RegionPick[];
 };
 
 /**
@@ -1961,23 +1961,24 @@ function buildProfileGhost(
 type PickedRegions = { faces: Face[]; scratch: Shape[] };
 
 /**
- * Resolve the dialog's `.region()` keys against the profile's regions, the
- * way `ExtrudeBase.resolveRegionFaces` does for the applied statement: the
- * keys that match are the faces to build, the rest of the arrangement is
- * scratch. Keys that do not resolve are dropped — the apply reports them,
+ * Resolve the dialog's region picks against the profile's regions, the way
+ * `ExtrudeBase.resolveRegionFaces` does for the applied statement: the
+ * picks that match are the faces to build, the rest of the arrangement is
+ * scratch. Picks that do not resolve are dropped — the apply reports them,
  * the ghost just shows what resolved. Null when the dialog picked nothing
  * (every region builds, the kernel's default).
  */
 function pickedRegionFaces(
   profile: Extrudable,
   plane: Plane,
-  keys: RegionRequest[] | undefined,
+  picks: RegionPick[] | undefined,
 ): PickedRegions | null {
-  if (keys === undefined) {
+  if (picks === undefined) {
     return null;
   }
-  const regions = sourceRegions(profile, plane, profileEdgesWithOwner(profile));
-  const { selected } = resolveRegions(keys, regions);
+  const context = sourceRegionContext(profile, plane, profileEdgesWithOwner(profile));
+  const regions = context.regions;
+  const { selected } = resolveRegionPicks(context, picks);
   const faces = selected.map(region => region.face);
   const scratch = regions.map(region => region.face).filter(face => !faces.includes(face));
   return { faces, scratch };

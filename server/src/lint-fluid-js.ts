@@ -42,6 +42,8 @@ const CORE_SYMBOLS = new Set<string>([
   'bezier', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
+  // Region declarations inside a sketch and their far-side wrapper.
+  'region', 'far',
   // Document unit declaration — metadata, not a feature (unit-lint.ts).
   'unit',
 ]);

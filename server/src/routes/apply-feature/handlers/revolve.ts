@@ -9,6 +9,7 @@ import {
   type ApplyFeatureEditSpec,
   type RevolveEditOptions,
 } from '../../../apply-feature-edit/index.ts';
+import { RegionDeclarations } from '../../../apply-feature-edit/region-declarations.ts';
 import { scopeCrossFileError } from '../locations.ts';
 import { allocateProducerVars, mergeScopeProducers } from '../synthesis.ts';
 import { validateRevolve } from '../validate/revolve.ts';
@@ -106,7 +107,10 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
       profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
       axis,
       scope,
-      regions: request.regions,
+      regionPicks: request.regions,
+      regionSketch: { line: request.profile.line, column: request.profile.column },
+      // The preview shows the names the transform will write.
+      regions: await RegionDeclarations.planNames(code, request.profile.line, request.regions),
     };
 
     // Truthful preview names: the same resolution the transform runs

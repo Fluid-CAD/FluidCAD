@@ -11,6 +11,7 @@ import {
   isBreakpointStatement,
   isDerivedOpStatement,
   isExpressionText,
+  isRegionDeclarationStatement,
   isSolvedConstraintStatement,
   joinLines,
   spliceCode,
@@ -19,16 +20,8 @@ import {
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../sketch-symbols.ts';
 import { allocateSolvedName, collectIdentifiers } from '../sketch-names.ts';
 import { renderSolvedTarget, type SolvedEmissionTarget } from '../../../lib/dist/selection/sketch-target.js';
-import {
-  boundVariableName,
-  calleeName,
-  chainBase,
-  enclosingLoop,
-  enclosingStatement,
-  followingPushArray,
-  hoistSolvedStatement,
-  pushCall,
-} from './ast.ts';
+import { calleeName, chainBase, enclosingLoop, enclosingStatement } from './ast.ts';
+import { StatementBinder } from './statement-binder.ts';
 import { VARIADIC_CONSTRAINT_KINDS } from './constraint-arity.ts';
 import {
   EmissionRefusal,
@@ -37,10 +30,6 @@ import {
   type SolvedEmissionSpec,
 } from './emission-spec.ts';
 import { DATUM_COMMANDS, solvedTargetCallee, targetError } from './emission-targets.ts';
-
-/** Collector-array irregular plurals — a loop of copy() statements collects
- * into `copies`, never `copys`. Everything else takes a bare `s`. */
-const IRREGULAR_PLURALS: Record<string, string> = { copy: 'copies' };
 
 export async function applySolvedEmission(
   code: string,
@@ -167,46 +156,19 @@ export async function applySolvedEmission(
   const used = collectIdentifiers(tree);
   // Every source edit is a pure insertion resolved against the original tree
   // and applied back-to-front by byte index. Const hoists are same-line
-  // prefix splices; the loop-collector edits add WHOLE rows, tracked in
-  // insertedRows so the placement row math below can compensate.
-  const edits: { start: number; text: string }[] = [];
-  const insertedRows: number[] = [];
-  // Two targets can name the same statement (a line's length is
-  // distance(l.start(), l.end(), …)) — hoist it once and reuse the name.
-  const hoistedNames = new Map<number, string>();
-  // Loop-instance targets on the same statement share one collector array
-  // (distinct occurrences become distinct indices into it).
-  const loopArrays = new Map<number, string>();
-  // Line-addressed targets pin the constraint's placement: rows (pre-edit,
-  // shiftRow-corrected later) just past each referenced statement — or its
-  // enclosing loop — plus the row whose indent the constraint copies. The
-  // constraint must execute after every binding it references, and a
-  // referenced statement can legally sit BELOW the constraints region (a
-  // copy() in the derived-ops tail, or a hand-written entity down there).
-  const targetAnchors: { after: number; indentRow: number }[] = [];
+  // prefix splices; the loop-collector edits add WHOLE rows, tracked by the
+  // binder so the placement row math below can compensate. Two targets can
+  // name the same statement (a line's length is distance(l.start(), l.end(),
+  // …)) — the binder hoists it once and reuses the name; loop-instance
+  // targets on the same statement share one collector array.
+  const binder = new StatementBinder(tree, lines, body, used);
   // Every emitted statement is bound from the start, referenced by a
-  // constraint or not: its name is its region key (`region('c2')`), where an
-  // unbound statement only has an ordinal that shifts under later edits.
-  // Names go to the new statements first, in emission order — a rectangle
-  // reads l1..l4 top to bottom whatever order its constraints name the
-  // sides in — and to hoisted existing statements after, as the targets
-  // reference them.
+  // constraint or not: a bound entity is what a region() declaration and a
+  // later constraint reference by name. Names go to the new statements
+  // first, in emission order — a rectangle reads l1..l4 top to bottom
+  // whatever order its constraints name the sides in — and to hoisted
+  // existing statements after, as the targets reference them.
   const newNames: string[] = spec.geometry.map(g => allocateSolvedName(used, g.kind));
-
-  // Collector arrays read as the plural of what they collect — `lines`,
-  // `arcs`, `projects`, `copies` — falling back to a numbered suffix on
-  // collision.
-  const allocateArrayName = (callee: string): string => {
-    const base = IRREGULAR_PLURALS[callee] ?? `${callee}s`;
-    let name = base;
-    let n = 1;
-    while (used.has(name)) {
-      n++;
-      name = `${base}${n}`;
-    }
-    used.add(name);
-    return name;
-  };
 
   const datumImports = new Set<string>();
   const constraintTexts: string[] = [];
@@ -221,80 +183,15 @@ export async function applySolvedEmission(
         datumImports.add(command);
         return `${command}()`;
       }
-      let name: string;
       if (typeof target.newIndex === 'number') {
-        name = newNames[target.newIndex];
-      } else {
-        const line = target.line! + lineShift;
-        const call = findEditableCallAt(tree, lines, line);
-        if (!call) {
-          throw new EmissionRefusal(`no statement at line ${target.line} — the source changed since the picks were made`);
-        }
-        const statement = enclosingStatement(call);
-        const loop = enclosingLoop(call, body);
-        // A previous loop-instance emission wrapped the entity call in
-        // `<collector>.push(…)` — findEditableCallAt returns the outermost
-        // call on the row, so unwrap it for the callee checks and reuse the
-        // collector below.
-        const wrapped = loop ? pushCall(call) : null;
-        const entityCall = wrapped && wrapped.argument.type === 'call_expression'
-          ? wrapped.argument
-          : call;
-        const callee = solvedTargetCallee(entityCall, target);
-        if (loop) {
-          // Loop-instance rail: the statement executes once per iteration, so
-          // a `const` hoisted inside the loop body would be out of scope at
-          // the constraint row — collect the instances into an array hoisted
-          // before the OUTERMOST enclosing loop and index it per target.
-          let arrayName = loopArrays.get(statement.startIndex);
-          if (arrayName === undefined) {
-            const bound = boundVariableName(statement);
-            const existing = wrapped
-              ? wrapped.arrayName
-              : bound !== null ? followingPushArray(statement, bound) : null;
-            if (existing !== null) {
-              arrayName = existing;
-            } else {
-              arrayName = allocateArrayName(callee!);
-              const loopRow = loop.startPosition.row;
-              edits.push({
-                start: loop.startIndex - loop.startPosition.column,
-                text: `${indentOf(lines, loopRow)}const ${arrayName} = [];\n`,
-              });
-              insertedRows.push(loopRow);
-              if (bound !== null) {
-                // Keep the binding (intra-loop uses stay valid) and feed the
-                // collector on a new statement right after it.
-                const stmtIndent = indentOf(lines, statement.startPosition.row);
-                edits.push({
-                  start: statement.endIndex,
-                  text: `\n${stmtIndent}${arrayName}.push(${bound});`,
-                });
-                insertedRows.push(statement.endPosition.row + 1);
-              } else {
-                edits.push({ start: call.startIndex, text: `${arrayName}.push(` });
-                edits.push({ start: call.endIndex, text: ')' });
-              }
-            }
-            loopArrays.set(statement.startIndex, arrayName);
-          }
-          name = `${arrayName}[${target.occurrence ?? 0}]`;
-        } else if (target.occurrence !== undefined) {
-          throw new EmissionRefusal(`line ${target.line} runs more than once (helper function) — collect its results into an array to constrain one instance`);
-        } else {
-          name = hoistSolvedStatement(statement, callee, used, hoistedNames, edits);
-        }
-        // Record the placement anchor: the constraint must land after this
-        // statement's binding exists — the whole loop for loop-rail targets
-        // (the collector only fills as the loop runs), the statement itself
-        // otherwise.
-        const anchor = loop ?? statement;
-        targetAnchors.push({
-          after: anchor.endPosition.row + 1,
-          indentRow: anchor.startPosition.row,
-        });
+        return newNames[target.newIndex];
       }
-      return name;
+      return binder.bind(
+        target.line! + lineShift,
+        target.occurrence,
+        entityCall => solvedTargetCallee(entityCall, target),
+        `no statement at line ${target.line} — the source changed since the picks were made`,
+      );
     };
     for (const target of c.targets) {
       let name: string;
@@ -324,15 +221,16 @@ export async function applySolvedEmission(
   // their line) — shiftRow maps a row computed from the pre-edit tree to its
   // post-edit position, so the placement math below still holds.
   let result = working;
-  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+  for (const edit of [...binder.edits].sort((a, b) => b.start - a.start)) {
     result = spliceCode(result, edit.start, edit.start, edit.text);
   }
-  const shiftRow = (row: number): number =>
-    row + insertedRows.reduce((shift, at) => shift + (at <= row ? 1 : 0), 0);
+  const shiftRow = (row: number): number => binder.shiftRow(row);
+  const targetAnchors = binder.anchors;
 
   // Placement (locked §0.2, amended P6): the body reads geometry →
-  // constraints → derived ops. Constraints append at the end of their region
-  // — before the first derived-op statement when one exists — and geometry
+  // constraints → derived ops → region declarations. Constraints append at
+  // the end of their region — before the first derived-op or region
+  // declaration statement when one exists — and geometry
   // inserts before the body's first constraint statement; everything lands
   // before an active breakpoint (a paused build never runs statements after
   // it).
@@ -352,7 +250,7 @@ export async function applySolvedEmission(
   const bodyChildren = body.namedChildren;
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
   const firstConstraintStmt = bodyChildren.find(isSolvedConstraintStatement);
-  const firstDerivedStmt = bodyChildren.find(isDerivedOpStatement);
+  const firstDerivedStmt = bodyChildren.find(s => isDerivedOpStatement(s) || isRegionDeclarationStatement(s));
 
   let constraintRow: number;
   let constraintIndent: string;

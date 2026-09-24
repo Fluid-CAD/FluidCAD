@@ -13,7 +13,30 @@ export type ValueExpr = number | string;
  * One `.region()` argument: a key naming a region by the statements on its
  * outer loop (`'b r t l'`), or a position in the sketch's region list.
  */
-export type RegionKey = string | number;
+/** One `.region(…)` argument: the name a `region()` declaration in the sketch gave the region. */
+export type RegionName = string;
+
+/** One half-edge of a picked region's boundary, by source location — the lib's `RegionItemRef`. */
+export type RegionItemRefSpec = {
+  /** 1-indexed line of the statement that drew the edge. */
+  line: number;
+  /** 0-based run index when a loop executed the statement's call site more than once. */
+  occurrence?: number;
+  /** The statement's callee (`line`, `circle`, `rect`, `project`) — verified against the source. */
+  callee: string;
+  /** Sub-edge of a multi-edge statement: a macro slot (`top`) or `e<n>`. */
+  edge?: string;
+  /** The region lies on the far side of the edge — rendered `far(entity)`. */
+  far: boolean;
+};
+
+/**
+ * One region a dialog picked — the lib's `RegionPick`: by the name a
+ * `region()` declaration already gives it, by its boundary, or both. The
+ * transform turns picks into declarations in the sketch body and names in
+ * the statement's `.region(…)` chain.
+ */
+export type RegionPickSpec = { name?: string; items?: RegionItemRefSpec[] };
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
 export function validCountValue(value: unknown): value is ValueExpr {

@@ -9,4 +9,5 @@ export { default as intersect } from './intersect.js';
 export { default as bezier } from './bezier.js';
 export { default as text } from './text.js';
 export { origin, xAxis, yAxis } from './datum.js';
+export { default as region, far } from './region.js';
 export type { SketchDatum } from '../../features/2d/solved/datum.js';

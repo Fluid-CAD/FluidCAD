@@ -600,7 +600,7 @@ export class RevolveFeatureService {
       thin: values.thin,
       profile,
       axis,
-      regions: this.regions.ghostKeys(),
+      regions: this.regions.ghostPicks(),
     }, signal);
   }
 
@@ -700,7 +700,7 @@ export class RevolveFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
-      regions: this.regions.keys,
+      regions: this.regions.picks,
     };
   }
 
@@ -747,7 +747,8 @@ export class RevolveFeatureService {
       // explicit drop on New (`.new()` resets the fusion scope).
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
       // Likewise the region list: the picks shown are the picks written.
-      regions: this.regions.keys,
+      regions: this.regions.picks,
+      regionSketch: this.ghostProfile() ?? undefined,
       expectedStatement: this.session.expectedStatement,
       before: axis?.kind === 'edge' ? this.session.boundary ?? undefined : undefined,
     };

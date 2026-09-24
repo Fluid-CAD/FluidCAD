@@ -3,7 +3,7 @@
 import { renderOpChains, renderRegionChain } from '../render/chains.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
-import { formatValue, type RegionKey, type ValueExpr } from '../value-expr.ts';
+import { formatValue, type RegionName, type RegionPickSpec, type ValueExpr } from '../value-expr.ts';
 
 /**
  * One revolve axis: a standard world axis (renders as its string literal, no
@@ -39,10 +39,20 @@ export type RevolveEditOptions = {
   /** Producer indices of the `.scope(…)` targets, in pick order. */
   scope?: number[];
   /**
-   * The `.region(…)` picks — the keys of the profile regions the operation
-   * builds. Absent or empty writes no chain (every region).
+   * The `.region(…)` chain — the names of the profile regions the operation
+   * builds. Absent or empty writes no chain (every region). The transform
+   * derives them from `regionPicks`; a caller that already knows the names
+   * (a rendered preview) passes them directly.
    */
-  regions?: RegionKey[];
+  regions?: RegionName[];
+  /**
+   * The dialog's region picks. The transform declares each picked boundary
+   * in the profile sketch (`region('r1', …)`, reusing a declaration that
+   * already lists it) and writes the names into `regions`.
+   */
+  regionPicks?: RegionPickSpec[];
+  /** The profile sketch statement the picks belong to — where their declarations are written. */
+  regionSketch?: { line: number; column: number };
 };
 
 /**

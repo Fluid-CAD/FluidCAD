@@ -49,7 +49,7 @@ import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
-import type { RegionKey, ValueExpr } from './value-expr.ts';
+import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
 
 /**
  * Mirror of `lib/selection/types.ts` `ApplyFeatureEditSpec` — the wire
@@ -390,7 +390,21 @@ export type FeatureStatementEditTarget = {
      */
     scope?: RepeatEditTargetSource[];
     /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
-    regions?: RegionKey[];
+    regions?: RegionName[];
+    /**
+     * The dialog's region picks, replacing the chain outright: the transform
+     * declares new boundaries in the profile sketch, reuses the declarations
+     * that already list a pick, drops the declarations the statement alone
+     * referenced, and writes the names into `regions`. Absent keeps the
+     * chain; `[]` drops it.
+     */
+    regionPicks?: RegionPickSpec[];
+    /**
+     * The profile sketch the picks belong to when the statement keeps its
+     * profile (`profile` absent) — the dialog knows it from the scene. With a
+     * re-sourced profile the producer is the sketch.
+     */
+    regionSketch?: { line: number; column: number };
   };
   rib?: {
     op: 'add' | 'remove' | 'new';
@@ -422,7 +436,21 @@ export type FeatureStatementEditTarget = {
     /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
     scope?: RepeatEditTargetSource[];
     /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
-    regions?: RegionKey[];
+    regions?: RegionName[];
+    /**
+     * The dialog's region picks, replacing the chain outright: the transform
+     * declares new boundaries in the profile sketch, reuses the declarations
+     * that already list a pick, drops the declarations the statement alone
+     * referenced, and writes the names into `regions`. Absent keeps the
+     * chain; `[]` drops it.
+     */
+    regionPicks?: RegionPickSpec[];
+    /**
+     * The profile sketch the picks belong to when the statement keeps its
+     * profile (`profile` absent) — the dialog knows it from the scene. With a
+     * re-sourced profile the producer is the sketch.
+     */
+    regionSketch?: { line: number; column: number };
   };
   wrap?: {
     op: 'add' | 'remove' | 'new';
@@ -435,7 +463,21 @@ export type FeatureStatementEditTarget = {
      */
     face?: { kind: 'selector' };
     /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
-    regions?: RegionKey[];
+    regions?: RegionName[];
+    /**
+     * The dialog's region picks, replacing the chain outright: the transform
+     * declares new boundaries in the profile sketch, reuses the declarations
+     * that already list a pick, drops the declarations the statement alone
+     * referenced, and writes the names into `regions`. Absent keeps the
+     * chain; `[]` drops it.
+     */
+    regionPicks?: RegionPickSpec[];
+    /**
+     * The profile sketch the picks belong to when the statement keeps its
+     * profile (`profile` absent) — the dialog knows it from the scene. With a
+     * re-sourced profile the producer is the sketch.
+     */
+    regionSketch?: { line: number; column: number };
   };
   shell?: {
     joinType: ShellJoinKind;
@@ -495,7 +537,21 @@ export type FeatureStatementEditTarget = {
     /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
     scope?: RepeatEditTargetSource[];
     /** Full replacement `.region(…)` list; absent keeps, `[]` drops the chain. */
-    regions?: RegionKey[];
+    regions?: RegionName[];
+    /**
+     * The dialog's region picks, replacing the chain outright: the transform
+     * declares new boundaries in the profile sketch, reuses the declarations
+     * that already list a pick, drops the declarations the statement alone
+     * referenced, and writes the names into `regions`. Absent keeps the
+     * chain; `[]` drops it.
+     */
+    regionPicks?: RegionPickSpec[];
+    /**
+     * The profile sketch the picks belong to when the statement keeps its
+     * profile (`profile` absent) — the dialog knows it from the scene. With a
+     * re-sourced profile the producer is the sketch.
+     */
+    regionSketch?: { line: number; column: number };
   };
   /**
    * Helix options. The chained geometry configurators edit in place; the

@@ -7,7 +7,7 @@ import type { LoftConditionSpec } from '../features/loft.ts';
 import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinKind } from '../features/shell.ts';
-import type { RegionKey, ValueExpr } from '../value-expr.ts';
+import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
 export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector';
@@ -28,8 +28,8 @@ export type ParsedScopeChain = {
 };
 
 export type ParsedRegionChain = {
-  /** `.region(…)` arguments — keys and positions; empty when the chain is absent or bare. */
-  regions: RegionKey[];
+  /** `.region(…)` arguments — declared region names; empty when the chain is absent or bare. */
+  regions: RegionName[];
 };
 
 /**

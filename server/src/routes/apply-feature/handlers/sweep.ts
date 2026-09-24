@@ -9,6 +9,7 @@ import {
   type ApplyFeatureEditSpec,
   type SweepEditOptions,
 } from '../../../apply-feature-edit/index.ts';
+import { RegionDeclarations } from '../../../apply-feature-edit/region-declarations.ts';
 import { scopeCrossFileError } from '../locations.ts';
 import { allocateProducerVars, mergeScopeProducers } from '../synthesis.ts';
 import { validateSweep } from '../validate/sweep.ts';
@@ -107,7 +108,10 @@ export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request,
     const options: SweepEditOptions = {
       op: request.op, thin: request.thin,
       extendStart: request.extendStart, extendEnd: request.extendEnd,
-      profile, path, scope, regions: request.regions,
+      profile, path, scope, regionPicks: request.regions,
+      regionSketch: { line: request.profile.line, column: request.profile.column },
+      // The preview shows the names the transform will write.
+      regions: await RegionDeclarations.planNames(code, request.profile.line, request.regions),
     };
     const pathExpr = path.kind === 'sketch' ? producerVars[path.producer] ?? 'p' : pathArgs!;
     const statement = renderSweepStatement(

@@ -1,5 +1,7 @@
 // Feature ghost (live preview) requests, their geometry references, and the sketch-region preview contracts.
 
+import type { RegionItemRefSpec, RegionPickSpec } from '../apply-feature-edit/value-expr.ts';
+
 /**
  * A live dialog geometry request ("ghost"), every dialog value already
  * resolved to a number — expression resolution happens in the route, where
@@ -39,11 +41,11 @@ export type ExtrudeGhostRequest = {
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the bare
+   * `.region()`, which builds nothing.
    */
-  regions?: (string | number)[];
+  regions?: RegionPickSpec[];
 };
 
 export type RibGhostRequest = {
@@ -74,11 +76,11 @@ export type RevolveGhostRequest = {
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the bare
+   * `.region()`, which builds nothing.
    */
-  regions?: (string | number)[];
+  regions?: RegionPickSpec[];
 };
 
 /**
@@ -104,11 +106,11 @@ export type SweepGhostRequest = {
   /** `.extend('end', …)` run-out past the path, or null. */
   extendEnd?: number | null;
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the bare
+   * `.region()`, which builds nothing.
    */
-  regions?: (string | number)[];
+  regions?: RegionPickSpec[];
 };
 
 /**
@@ -454,13 +456,17 @@ export type GhostSolid = {
 /** The region picker's request: a profile by call site and the dialog's current picks. */
 export type SketchRegionsRequest = {
   profile: { filePath: string; line: number };
-  keys: (string | number)[];
+  picks: RegionPickSpec[];
 };
 
 /** One region of the profile as the picker draws it — see lib `SketchRegionPreview`. */
 export type SketchRegionPreview = {
   key: string;
   index: number;
+  /** The name a declaration of the sketch already gives this boundary, or null. */
+  name: string | null;
+  /** The boundary a pick writes into a `region()` declaration. */
+  items: RegionItemRefSpec[];
   selected: boolean;
   meshes: any[];
 };

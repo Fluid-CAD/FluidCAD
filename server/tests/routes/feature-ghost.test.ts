@@ -26,7 +26,7 @@ const fakeServer = {
   },
   sketchRegions: async (request: unknown) => {
     received = request;
-    return { status: 200, regions: [{ key: 'c1', index: 0, selected: true, meshes: [] }] };
+    return { status: 200, regions: [{ key: 'circle#1', index: 0, name: 'c1', items: [{ line: 4, callee: 'circle', far: false }], selected: true, meshes: [] }] };
   },
 };
 
@@ -1001,42 +1001,45 @@ describe('feature-ghost route — region picks', () => {
     endOffset: null, drill: true, thin: null, profile: { filePath: FILE, line: 3 },
   };
 
-  it('passes the dialog\'s region keys through to the extrude ghost', async () => {
-    const { status } = await postGhost({ ...extrudeBody, regions: ['outer', 1] });
+  const picks = [{ name: 'outer' }, { items: [{ line: 4, callee: 'circle', far: true }] }];
+
+  it('passes the dialog\'s region picks through to the extrude ghost', async () => {
+    const { status } = await postGhost({ ...extrudeBody, regions: picks });
     expect(status).toBe(200);
-    expect(received.regions).toEqual(['outer', 1]);
+    expect(received.regions).toEqual(picks);
   });
 
-  it('leaves the keys absent when the dialog picked nothing', async () => {
+  it('leaves the picks absent when the dialog picked nothing', async () => {
     const { status } = await postGhost(extrudeBody);
     expect(status).toBe(200);
     expect(received.regions).toBeUndefined();
   });
 
-  it('refuses a key that is neither a string nor a region number', async () => {
-    const { status } = await postGhost({ ...extrudeBody, regions: [{ key: 'c1' }] });
-    expect(status).toBe(400);
+  it('refuses a pick that names neither a region nor a boundary', async () => {
+    expect((await postGhost({ ...extrudeBody, regions: ['outer'] })).status).toBe(400);
+    expect((await postGhost({ ...extrudeBody, regions: [{ key: 'c1' }] })).status).toBe(400);
+    expect((await postGhost({ ...extrudeBody, regions: [{ items: [{ line: 0, callee: 'circle', far: false }] }] })).status).toBe(400);
   });
 
   it('serves the region picker its faces for a profile', async () => {
     const res = await fetch(`${baseUrl}/api/sketch-regions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: { filePath: FILE, line: 3 }, keys: ['c1'] }),
+      body: JSON.stringify({ profile: { filePath: FILE, line: 3 }, picks: [{ name: 'c1' }] }),
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       success: true,
-      regions: [{ key: 'c1', index: 0, selected: true, meshes: [] }],
+      regions: [{ key: 'circle#1', index: 0, name: 'c1', items: [{ line: 4, callee: 'circle', far: false }], selected: true, meshes: [] }],
     });
-    expect(received).toEqual({ profile: { filePath: FILE, line: 3 }, keys: ['c1'] });
+    expect(received).toEqual({ profile: { filePath: FILE, line: 3 }, picks: [{ name: 'c1' }] });
   });
 
   it('refuses a region request without a profile', async () => {
     const res = await fetch(`${baseUrl}/api/sketch-regions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keys: [] }),
+      body: JSON.stringify({ picks: [] }),
     });
     expect(res.status).toBe(400);
   });

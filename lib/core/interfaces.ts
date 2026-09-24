@@ -350,6 +350,18 @@ export interface IMacroEdge {
 }
 
 /**
+ * An entity of a `region()` declaration: a sketch entity statement (a
+ * line, circle, arc, rect, projection…), one edge of a multi-edge statement
+ * (`r.top()`, `p.ref(i)`, `o.edge(i)`), or either wrapped in `far()`.
+ */
+export type IRegionTarget = ISceneObject | IMacroEdge | IReferenceEntity | IRegionSide;
+
+/** A `far(entity)` wrapper — the region lies on the entity's far side. */
+export interface IRegionSide {
+  readonly target: unknown;
+}
+
+/**
  * A `rect()` macro shape (fluidcad/shapes): an axis-aligned rectangle as
  * one atomic, self-constrained statement. All arguments are guesses — a
  * bare rect keeps 4 degrees of freedom (5 with `.radius()`); pin and
@@ -668,14 +680,13 @@ export interface IExtrude extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts extrusion to particular regions of the sketch. A region is
-   * named by the sketch entities on its outer loop — `'b r t l'` for the
-   * rectangle those four lines close, `'c1 c2-'` for the ring inside `c1`
-   * and outside `c2` — or by its position in the sketch's region list.
-   * The region pick mode writes the keys.
-   * @param keys - Region keys, or positions in the sketch's region list.
+   * Restricts the extrusion to particular regions of the sketch, by the
+   * names their `region()` declarations gave them inside the sketch
+   * callback — `region('r1', l1, l2, c1)` declares, `.region('r1')`
+   * selects. The Pick regions link of the dialog writes both.
+   * @param names - Names of regions the sketch declares.
    */
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
@@ -748,12 +759,11 @@ export interface ICut extends ISceneObject {
   internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
-   * Restricts the cut to particular regions of the sketch, named by the
-   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
-   * sketch's region list. See `IExtrude.region`.
-   * @param keys - Region keys, or positions in the sketch's region list.
+   * Restricts the cut to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
@@ -778,12 +788,11 @@ export interface IRevolve extends IBooleanOperation {
    */
   symmetric(): this;
   /**
-   * Restricts the revolve to particular regions of the sketch, named by the
-   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
-   * sketch's region list. See `IExtrude.region`.
-   * @param keys - Region keys, or positions in the sketch's region list.
+   * Restricts the revolve to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin revolve mode — offsets the profile edges to create a thin-walled
@@ -1038,12 +1047,11 @@ export interface ISweep extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts the sweep to particular regions of the profile sketch, named
-   * by the sketch entities on their outer loop (`'c1 c2-'`) or by position
-   * in the sketch's region list. See `IExtrude.region`.
-   * @param keys - Region keys, or positions in the sketch's region list.
+   * Restricts the sweep to particular regions of the profile sketch, by the
+   * names their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin sweep mode — offsets the profile edges to create a thin-walled
@@ -1410,12 +1418,11 @@ export interface IWrap extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts wrapping to particular regions of the sketch, named by the
-   * sketch entities on their outer loop (`'c1 c2-'`) or by position in the
-   * sketch's region list. See `IExtrude.region`.
-   * @param keys - Region keys, or positions in the sketch's region list.
+   * Restricts wrapping to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 }
 
 export type ShellJoinType = 'arc' | 'intersection' | 'tangent';

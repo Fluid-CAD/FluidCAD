@@ -1,9 +1,9 @@
 // revolve request validation, including the axis inputs other features reuse.
 
-import { validValueExpr, type RegionKey, type ValueExpr } from '../../../apply-feature-edit/index.ts';
+import { validValueExpr, type RegionPickSpec, type ValueExpr } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick } from '../picks.ts';
-import { validateRegionKeys } from '../regions.ts';
+import { validateRegionPicks } from '../regions.ts';
 import { validateThinOffsets } from './common.ts';
 
 /**
@@ -31,8 +31,8 @@ type RevolveRequest = {
   axis: RevolveAxisInput;
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
-  /** The picked profile regions; empty writes no `.region(…)`. */
-  regions: RegionKey[];
+  /** The picked profile regions, declared in the sketch on apply; empty writes no `.region(…)`. */
+  regions: RegionPickSpec[];
 };
 
 /** One revolve axis field: standard string, axis statement, or edge pick. */
@@ -91,7 +91,7 @@ export function validateRevolve(body: any): RevolveRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
-  const regionResult = validateRegionKeys(body);
+  const regionResult = validateRegionPicks(body);
   if ('error' in regionResult) {
     return regionResult;
   }

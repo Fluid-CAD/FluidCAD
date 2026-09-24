@@ -3,7 +3,7 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
@@ -160,10 +160,11 @@ describe("cut symmetric", () => {
       extrude(50).symmetric();
 
       sketch("xy", () => {
-          circle([25, 25], 30);
+          const a = circle([25, 25], 30);
           circle([75, 25], 30);
+          region('a', a);
         });
-      const c = extrude(20).symmetric().remove().region('circle#1') as ExtrudeBase;
+      const c = extrude(20).symmetric().remove().region('a') as ExtrudeBase;
 
       render();
 

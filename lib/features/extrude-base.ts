@@ -8,8 +8,8 @@ import { IExtrude } from "../core/interfaces.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { Plane } from "../math/plane.js";
 import { SketchRegion } from "./2d/regions/region-builder.js";
-import { sourceRegions } from "./2d/regions/source-regions.js";
-import { RegionRequest, resolveRegions } from "./2d/regions/region-match.js";
+import { declaredNameOf, sourceRegionContext } from "./2d/regions/source-regions.js";
+import { resolveRegions } from "./2d/regions/region-match.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
@@ -69,6 +69,9 @@ function dedupEdgesByMapExcluding(edges: Edge[], excluded: Edge[]): Edge[] {
   return result;
 }
 
+/** One region of the source in the feature's payload — the picker reads these. */
+type SerializedRegion = { key: string; index: number; name: string | null; selected: boolean };
+
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
   protected _faceSource: SceneObject | null = null;
@@ -76,7 +79,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _endOffset?: number;
   protected _drill?: boolean = true;
   protected _regionPicking: boolean = false;
-  protected _regionKeys: RegionRequest[] = [];
+  protected _regionNames: string[] = [];
   protected _thin?: [number] | [number, number];
 
   constructor(source?: Extrudable | SceneObject) {
@@ -544,24 +547,22 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   protected serializePickFields() {
-    const regions = this.getState('regions') as { key: string; index: number; selected: boolean }[] | undefined;
+    const regions = this.getState('regions') as SerializedRegion[] | undefined;
     return {
       regionPicking: this.isRegionPicking() || undefined,
-      regionKeys: this.isRegionPicking() ? [...this._regionKeys] : undefined,
+      regionNames: this.isRegionPicking() ? [...this._regionNames] : undefined,
       regions: this.isRegionPicking() ? regions ?? [] : undefined,
     };
   }
 
   /**
-   * Restrict the operation to particular regions of the sketch. A key names
-   * a region by the statements on its outer loop (`'b r t l'`, `'c1 c2-'`);
-   * a number is a position in the sketch's canonical region list. With no
-   * arguments the operation makes nothing and shows every region for
-   * picking.
+   * Restrict the operation to particular regions of the sketch, by the names
+   * their `region()` declarations gave them inside the sketch callback. With
+   * no arguments the operation makes nothing and lists every region.
    */
-  region(...keys: RegionRequest[]): this {
+  region(...names: string[]): this {
     this._regionPicking = true;
-    this._regionKeys = keys;
+    this._regionNames = names;
     return this;
   }
 
@@ -569,26 +570,26 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this._regionPicking;
   }
 
-  getRegionKeys(): RegionRequest[] {
-    return this._regionKeys;
+  getRegionNames(): string[] {
+    return this._regionNames;
   }
 
   /**
-   * The regions of the source sketch, keyed by their boundary statements.
-   * A primitive passed straight to the operation (`extrude(10, c)`) reads
-   * its keys from the sketch it belongs to; a source outside any sketch
-   * gets ordinal keys.
+   * The regions of the source sketch. A primitive passed straight to the
+   * operation (`extrude(10, c)`) reads the declarations of the sketch it
+   * belongs to.
    */
   protected buildSourceRegions(plane: Plane): SketchRegion[] {
-    return sourceRegions(this.extrudable, plane);
+    return sourceRegionContext(this.extrudable, plane).regions;
   }
 
   /**
-   * Resolves region mode: partitions the sketch into its regions, matches
-   * the requested keys, adds every region and its edges as meta shapes for
-   * the pick overlay (selected ones marked), and returns the faces to build.
-   * Returns null when the operation is not in region mode. Keys that do not
-   * resolve become the feature's error; what did resolve still builds.
+   * Resolves region mode: partitions the sketch into its regions, resolves
+   * the named declarations against them, adds every region and its edges as
+   * meta shapes for the pick overlay (selected ones marked), and returns the
+   * faces to build. Returns null when the operation is not in region mode.
+   * Names that do not resolve become the feature's error; what did resolve
+   * still builds.
    */
   protected resolveRegionFaces(plane: Plane): Face[] | null {
     if (!this.isRegionPicking()) {
@@ -599,15 +600,21 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return [];
     }
 
-    const regions = this.buildSourceRegions(plane);
-    const { selected, problems } = resolveRegions(this._regionKeys, regions);
+    const context = sourceRegionContext(this.extrudable, plane);
+    const { regions, declarations, labels } = context;
+    if (!context.sketch && this._regionNames.length > 0) {
+      this.setError('region() needs a sketch source — the profile is not inside a sketch, so it declares no regions');
+    }
+    const requests = this._regionNames.map(name => ({ name }));
+    const { selected, problems } = resolveRegions(requests, regions, declarations, labels);
     if (problems.length > 0) {
       this.setError(problems.join('\n'));
     }
 
-    this.setState('regions', regions.map(region => ({
+    this.setState('regions', regions.map((region): SerializedRegion => ({
       key: region.key,
       index: region.index,
+      name: declaredNameOf(declarations, region.items),
       selected: selected.includes(region),
     })));
 
@@ -670,7 +677,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._operationMode = other._operationMode;
     this._symmetric = other._symmetric;
     this._regionPicking = other._regionPicking;
-    this._regionKeys = other._regionKeys;
+    this._regionNames = other._regionNames;
     this._thin = other._thin;
     this._drill = other._drill;
     return this;
@@ -750,12 +757,12 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return false;
     }
 
-    if (this._regionKeys.length !== other._regionKeys.length) {
+    if (this._regionNames.length !== other._regionNames.length) {
       return false;
     }
 
-    for (let i = 0; i < this._regionKeys.length; i++) {
-      if (this._regionKeys[i] !== other._regionKeys[i]) {
+    for (let i = 0; i < this._regionNames.length; i++) {
+      if (this._regionNames[i] !== other._regionNames[i]) {
         return false;
       }
     }

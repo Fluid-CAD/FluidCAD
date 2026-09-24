@@ -4,7 +4,7 @@
 export { allocateExposeName } from '../foreign-exposure.ts';
 export { MAX_SCOPE_TARGETS } from './locations.ts';
 export { validatePick } from './picks.ts';
-export { MAX_REGION_KEYS, validateRegionKeys } from './regions.ts';
+export { MAX_REGION_PICKS, validateRegionPicks } from './regions.ts';
 export { createApplyFeatureRouter, type ApplyFeatureRouterOptions } from './router.ts';
 export { makeSynthesisOptionsForFile } from './synthesis.ts';
 export { MAX_COPY_TARGETS } from './validate/copy.ts';

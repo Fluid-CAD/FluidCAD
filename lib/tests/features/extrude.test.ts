@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
+import { rect } from "../../core/shapes/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extruder } from "../../features/simple-extruder.js";
 import { Extrude } from "../../features/extrude.js";
@@ -650,11 +651,12 @@ describe("extrude", () => {
     });
 
     it("should include meta shapes when filter is disabled", () => {
-      sketch("xy", () => {
-          testRect(100, 50);
+      const s = sketch("xy", () => {
+          const r = rect([0, 0], 100, 50);
+          region('r', r);
         });
 
-      const e = extrude(30).region('line#1 line#2 line#3 line#4') as Extrude;
+      const e = extrude(30, s).region('r') as Extrude;
 
       render();
 
@@ -667,12 +669,13 @@ describe("extrude", () => {
   describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
       // The first circle's region only
-      const e = extrude(20).region('circle#1') as Extrude;
+      const e = extrude(20).region('a') as Extrude;
 
       render();
 
@@ -683,12 +686,14 @@ describe("extrude", () => {
 
     it("should extrude multiple picked regions", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
-          circle([100, 0], 60);
+          const a = circle([0, 0], 60);
+          const b = circle([100, 0], 60);
+          region('a', a);
+          region('b', b);
         });
 
       // Both circles' regions
-      const e = extrude(20).region('circle#1', 'circle#2') as Extrude;
+      const e = extrude(20).region('a', 'b') as Extrude;
 
       render();
 
@@ -698,12 +703,13 @@ describe("extrude", () => {
 
     it("should extrude only the intersection region of two overlapping circles", () => {
       sketch("xy", () => {
-        circle([-20, 0], 80);
-        circle([20, 0], 80);
+        const a = circle([-20, 0], 80);
+        const b = circle([20, 0], 80);
+        region('lens', a, b);
       });
 
       // The lens: on the left (inside) of both circles
-      const e = extrude(20).region('circle#1 circle#2') as Extrude;
+      const e = extrude(20).region('lens') as Extrude;
 
       render();
 
@@ -721,7 +727,7 @@ describe("extrude", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20).region('circle#9') as Extrude;
+      const e = extrude(20).region('gone') as Extrude;
 
       render();
 
@@ -731,11 +737,12 @@ describe("extrude", () => {
 
     it("should add meta shapes for all cells", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      const e = extrude(20).region('circle#1') as Extrude;
+      const e = extrude(20).region('a') as Extrude;
 
       render();
 

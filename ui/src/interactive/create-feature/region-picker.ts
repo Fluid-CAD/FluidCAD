@@ -1,4 +1,4 @@
-import { fetchSketchRegions, RegionKey, SketchRegionEntry } from '../../api';
+import { fetchSketchRegions, RegionPick, SketchRegionEntry } from '../../api';
 import { Viewer } from '../../viewer';
 import { RegionPickMode } from '../region-pick-mode';
 import { RegionPickControl } from './region-pick-control';
@@ -8,8 +8,8 @@ import { RegionPickOverlay } from './region-pick-overlay';
 export type RegionProfileRef = { filePath: string; line: number };
 
 /**
- * The `.region()` picks of a swept-feature dialog (extrude, revolve, sweep,
- * wrap): the keys the statement will carry, the viewport mode that picks
+ * The region picks of a swept-feature dialog (extrude, revolve, sweep,
+ * wrap): the regions the statement will name, the viewport mode that picks
  * them, and the row under the profile slot that shows them.
  *
  * The picks are dialog state like the scope chips — nothing is written
@@ -17,18 +17,20 @@ export type RegionProfileRef = { filePath: string; line: number };
  * from the server's side channel, draws them as a translucent overlay and
  * routes viewport clicks to it (the viewer's own picking is suspended for
  * the duration — a click on a region must not also land on the face behind
- * it); a click toggles the region's key, "Done" or arming another slot ends
- * the mode. The picks follow the profile: choosing a different sketch drops
- * them (its keys mean nothing there), and an edit session's seed — the
- * statement's own picks — comes back when the slot returns to that sketch.
+ * it); a click toggles the region, "Done" or arming another slot ends the
+ * mode. A pick travels as the region's declared name when the sketch
+ * already declares it, else as its boundary, which Apply declares. The
+ * picks follow the profile: choosing a different sketch drops them (its
+ * regions mean nothing there), and an edit session's seed — the statement's
+ * own names — comes back when the slot returns to that sketch.
  */
 export class RegionPicker {
-  private picked: RegionKey[] = [];
+  private picked: RegionPick[] = [];
   private profile: RegionProfileRef | null = null;
   private active = false;
   private regions: SketchRegionEntry[] = [];
   /** Edit mode: the statement's own picks, and the profile they belong to once known. */
-  private seeded: { keys: RegionKey[]; profile: RegionProfileRef | null } | null = null;
+  private seeded: { picks: RegionPick[]; profile: RegionProfileRef | null } | null = null;
   private overlay: RegionPickOverlay;
   private mode: RegionPickMode | null = null;
   private abort: AbortController | null = null;
@@ -49,20 +51,20 @@ export class RegionPicker {
     this.control.onClear = () => this.clear();
   }
 
-  /** The picked keys, in pick order — what the apply writes; empty writes no chain. */
-  get keys(): RegionKey[] {
-    return [...this.picked];
+  /** The picks, in pick order — what the apply writes; empty writes no chain. */
+  get picks(): RegionPick[] {
+    return this.picked.map(pick => ({ ...pick, ...(pick.items ? { items: pick.items.map(item => ({ ...item })) } : {}) }));
   }
 
   /**
-   * The keys for a ghost request. Absent while nothing is picked and the
+   * The picks for a ghost request. Absent while nothing is picked and the
    * mode is off (every region builds — what Apply writes). While picking is
    * live an empty list travels instead, so the ghost builds nothing until a
    * region is clicked: the overlay is the thing to look at, and a full
    * extrusion drawn over it would say the opposite of what the picks do.
    */
-  ghostKeys(): RegionKey[] | undefined {
-    return this.active || this.picked.length > 0 ? this.keys : undefined;
+  ghostPicks(): RegionPick[] | undefined {
+    return this.active || this.picked.length > 0 ? this.picks : undefined;
   }
 
   get isActive(): boolean {
@@ -70,13 +72,14 @@ export class RegionPicker {
   }
 
   /**
-   * Edit mode: start from the statement's own picks. Their profile is not
-   * known yet (the keep chip resolves it asynchronously); the first profile
-   * {@link sync} sees is theirs.
+   * Edit mode: start from the statement's own region names. Their profile
+   * is not known yet (the keep chip resolves it asynchronously); the first
+   * profile {@link sync} sees is theirs.
    */
-  seed(keys: RegionKey[]): void {
-    this.seeded = { keys: [...keys], profile: this.profile };
-    this.picked = [...keys];
+  seed(names: string[]): void {
+    const picks = names.map(name => ({ name }));
+    this.seeded = { picks, profile: this.profile };
+    this.picked = picks.map(pick => ({ ...pick }));
     this.render();
   }
 
@@ -96,7 +99,7 @@ export class RegionPicker {
     if (this.seeded && this.seeded.profile === null && prev === null && next) {
       this.seeded.profile = next;
     } else if (prev && next) {
-      this.picked = this.seeded && sameProfile(this.seeded.profile, next) ? [...this.seeded.keys] : [];
+      this.picked = this.seeded && sameProfile(this.seeded.profile, next) ? this.seeded.picks.map(pick => ({ ...pick })) : [];
     }
     this.regions = [];
     if (this.active) {
@@ -130,7 +133,7 @@ export class RegionPicker {
     this.mode.activate();
     void this.fetch();
     this.render();
-    // The ghost reads the mode too (see ghostKeys) — re-preview.
+    // The ghost reads the mode too (see ghostPicks) — re-preview.
     this.hooks.onChange();
   }
 
@@ -182,9 +185,11 @@ export class RegionPicker {
 
   /**
    * A region was clicked. The new list is the regions currently lit plus or
-   * minus that one — a seeded key that no longer names a region drops out
-   * the first time the user touches the set, exactly as the kernel would
-   * have ignored it.
+   * minus that one — a seeded name that no longer resolves to a region
+   * drops out the first time the user touches the set, exactly as the
+   * kernel would have ignored it. A lit region travels by its declared name
+   * when it has one, else by its boundary; a region whose boundary cannot
+   * be written (no source locations) is left unpicked.
    */
   private togglePick(key: string, picked: boolean): void {
     for (const region of this.regions) {
@@ -192,7 +197,12 @@ export class RegionPicker {
         region.selected = picked;
       }
     }
-    this.picked = this.regions.filter(region => region.selected).map(region => region.key);
+    this.picked = this.regions
+      .filter(region => region.selected && (region.name !== null || region.items.length > 0))
+      .map(region => ({
+        ...(region.name !== null ? { name: region.name } : {}),
+        ...(region.items.length > 0 ? { items: region.items } : {}),
+      }));
     this.redraw();
     this.render();
     this.hooks.onChange();
@@ -209,7 +219,7 @@ export class RegionPicker {
     this.abort = abort;
     let regions: SketchRegionEntry[] | null;
     try {
-      regions = await fetchSketchRegions({ profile, keys: this.picked }, abort.signal);
+      regions = await fetchSketchRegions({ profile, picks: this.picks }, abort.signal);
     } catch {
       return; // aborted
     }

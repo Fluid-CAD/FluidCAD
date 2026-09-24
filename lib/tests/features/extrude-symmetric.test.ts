@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -351,11 +351,12 @@ describe("extrude symmetric", () => {
   describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      const e = extrude(20).symmetric().region('circle#1') as Extrude;
+      const e = extrude(20).symmetric().region('a') as Extrude;
 
       render();
 
@@ -369,7 +370,7 @@ describe("extrude symmetric", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20).symmetric().region('circle#9') as Extrude;
+      const e = extrude(20).symmetric().region('gone') as Extrude;
 
       render();
 

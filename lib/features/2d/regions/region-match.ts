@@ -1,29 +1,31 @@
-// Resolving what `.region(...)` asked for against the regions a sketch has
-// now — the part that survives edits.
+// Resolving a declared region against the regions a sketch has now — the
+// part that survives edits.
 //
-// A key written by the UI lists every half-edge of the region's outer loop.
-// After the sketch changes, the same region may carry a different loop: a
-// line drawn across it took part of its boundary, an entity it touched was
-// deleted, a new hole gave it an inner loop (which never counts). So a key
-// is matched like other CAD systems match a profile:
+// A declaration lists the half-edges of the region's outer loop as it was
+// picked. After the sketch changes, the same region may carry a different
+// loop: a line drawn across it took part of its boundary, an entity it
+// touched was deleted (which the declaration reports at compile time, the
+// reference being gone), a new hole gave it an inner loop (which never
+// counts). So a declaration is matched like other CAD systems match a
+// profile:
 //
 //   1. exactly — the loop is what it was;
-//   2. as a subset — every item the key names bounds exactly one region
-//      (a hand-written `'c1'` for the disc, an old key for a region that
-//      only grew);
-//   3. by best overlap — the region sharing most of the key's boundary,
+//   2. as a subset — every item the declaration names bounds exactly one
+//      region (a hand-written `region('disc', c1)`, a region that only grew);
+//   3. by best overlap — the region sharing most of the declared boundary,
 //      when that region is clearly ahead (at least half in common, and no
 //      runner-up as close);
-//   4. otherwise the region is lost: the error names the nearest keys, so
-//      the fix is a re-pick or a copy from the message.
-//
-// An integer selects by canonical position instead — quick to type, but it
-// is a position, not an identity.
+//   4. otherwise the region is lost: the error names the nearest regions in
+//      the form a declaration would take, so the fix is a re-pick or a paste.
 
-import { SketchRegion } from "./region-builder.js";
-import { RegionKeyError, RegionKeyItem, itemCovers, parseRegionKey } from "./region-key.js";
+import type { SketchRegion } from "./region-builder.js";
+import { RegionItem, itemCovers } from "./region-ref.js";
+import type { StatementLabels } from "./statement-label.js";
 
-export type RegionRequest = string | number;
+/** One way a consumer asks for a region: a declared name, or a boundary given directly. */
+export type RegionRequest =
+  | { name: string }
+  | { name?: string; items: RegionItem[] };
 
 export type RegionResolution = {
   /** The regions found, in the order they were asked for, without repeats. */
@@ -32,10 +34,24 @@ export type RegionResolution = {
   problems: string[];
 };
 
+/** A declaration as the matcher needs it: its name, its items, or why it is unusable. */
+export type DeclaredRegion = { name: string; items: RegionItem[]; error: string | null };
+
 /** The overlap a best-match needs to count as the same region. */
 const MIN_OVERLAP = 0.5;
 
-export function resolveRegions(requests: RegionRequest[], regions: SketchRegion[]): RegionResolution {
+/**
+ * Resolve the requests: a name looks up the sketch's declaration first; a
+ * request carrying its own items (the picker's unnamed picks) matches them
+ * directly. Names nobody declared, unusable declarations and boundaries
+ * that no longer pin one region each become a problem sentence.
+ */
+export function resolveRegions(
+  requests: RegionRequest[],
+  regions: SketchRegion[],
+  declarations: Map<string, DeclaredRegion>,
+  labels: StatementLabels,
+): RegionResolution {
   const selected: SketchRegion[] = [];
   const problems: string[] = [];
   const take = (region: SketchRegion) => {
@@ -45,25 +61,33 @@ export function resolveRegions(requests: RegionRequest[], regions: SketchRegion[
   };
 
   for (const request of requests) {
-    if (typeof request === 'number') {
-      const region = Number.isInteger(request) ? regions[request] : undefined;
-      if (region) {
-        take(region);
-      } else {
-        problems.push(`region(${request}): the sketch has ${describeCount(regions.length)}, numbered from 0`);
+    let items: RegionItem[];
+    let label: string;
+    if ('items' in request && request.items) {
+      items = request.items;
+      label = request.name ? `'${request.name}'` : `'${labels.formatItems(items)}'`;
+    } else {
+      const name = request.name!;
+      if (typeof name !== 'string' || name.length === 0) {
+        problems.push(`region(${JSON.stringify(name)}): a region is named by the string a region() declaration gave it`);
+        continue;
       }
-      continue;
+      const declared = declarations.get(name);
+      if (!declared) {
+        const known = [...declarations.keys()];
+        problems.push(`region '${name}' is not declared in the sketch — add region('${name}', …) inside the sketch callback`
+          + (known.length > 0 ? `; declared: ${known.map(k => `'${k}'`).join(', ')}` : ''));
+        continue;
+      }
+      if (declared.error) {
+        problems.push(`region '${name}': ${declared.error}`);
+        continue;
+      }
+      items = declared.items;
+      label = `'${name}'`;
     }
 
-    let items: RegionKeyItem[];
-    try {
-      items = parseRegionKey(request);
-    } catch (error) {
-      problems.push(error instanceof RegionKeyError ? error.message : String(error));
-      continue;
-    }
-
-    const match = matchKey(items, regions);
+    const match = matchItems(items, regions, labels, label);
     if (match.region) {
       take(match.region);
     } else {
@@ -76,15 +100,27 @@ export function resolveRegions(requests: RegionRequest[], regions: SketchRegion[
 
 type Scored = { region: SketchRegion; named: number; covered: number; score: number };
 
-function matchKey(items: RegionKeyItem[], regions: SketchRegion[]): { region?: SketchRegion; problem?: string } {
-  const text = items.map(i => [i.entity, ...i.path].join('.') + (i.right ? '-' : '')).join(' ');
+/**
+ * The one region a boundary names, or the sentence saying why there is
+ * none. `label` is how the request reads in that sentence.
+ */
+export function matchItems(
+  items: RegionItem[],
+  regions: SketchRegion[],
+  labels: StatementLabels,
+  label: string = `'${labels.formatItems(items)}'`,
+): { region?: SketchRegion; problem?: string } {
   if (regions.length === 0) {
-    return { problem: `region '${text}': the sketch has no closed regions` };
+    return { problem: `region ${label}: the sketch has no closed regions` };
+  }
+  if (items.length === 0) {
+    return { problem: `region ${label} names no entity` };
   }
 
   const scored: Scored[] = regions.map(region => score(items, region));
+  const describe = (s: Scored) => `[${labels.formatItems(s.region.items)}]`;
 
-  const exact = scored.filter(s => s.named === items.length && s.covered === region_size(s.region));
+  const exact = scored.filter(s => s.named === items.length && s.covered === s.region.items.length);
   if (exact.length === 1) {
     return { region: exact[0].region };
   }
@@ -95,8 +131,9 @@ function matchKey(items: RegionKeyItem[], regions: SketchRegion[]): { region?: S
   }
   if (subset.length > 1) {
     return {
-      problem: `region '${text}' is ambiguous — it lies on ${subset.length} regions: `
-        + subset.map(s => `'${s.region.key}'`).join(', '),
+      problem: `region ${label} is ambiguous — its entities bound ${subset.length} regions; `
+        + `add far() to the entities the region lies on the far side of: `
+        + subset.map(describe).join(', '),
     };
   }
 
@@ -110,28 +147,28 @@ function matchKey(items: RegionKeyItem[], regions: SketchRegion[]): { region?: S
   const nearest = ranked.filter(s => s.score > 0).slice(0, 3);
   if (nearest.length === 0) {
     return {
-      problem: `region '${text}' not found — none of its entities bound a region now. Regions: `
-        + regions.map(r => `'${r.key}'`).join(', '),
+      problem: `region ${label} not found — none of its entities bound a region now. Regions: `
+        + scored.map(describe).join(', '),
     };
   }
   if (runnerUp && runnerUp.score === best.score && best.score >= MIN_OVERLAP) {
     return {
-      problem: `region '${text}' now matches ${nearest.length} regions equally well — pick one: `
-        + nearest.map(s => `'${s.region.key}'`).join(', '),
+      problem: `region ${label} now matches ${nearest.length} regions equally well — pick one: `
+        + nearest.map(describe).join(', '),
     };
   }
   return {
-    problem: `region '${text}' not found — its boundary changed too much. Nearest: `
-      + nearest.map(s => `'${s.region.key}' (${Math.round(s.score * 100)}%)`).join(', '),
+    problem: `region ${label} not found — its boundary changed too much. Nearest: `
+      + nearest.map(s => `${describe(s)} (${Math.round(s.score * 100)}%)`).join(', '),
   };
 }
 
 /**
- * How well a key describes a region: `named` counts the key's items that
- * lie on the region, `covered` the region's half-edges the key names, and
+ * How well a boundary describes a region: `named` counts the items that
+ * lie on the region, `covered` the region's half-edges the items name, and
  * `score` their Jaccard overlap.
  */
-function score(items: RegionKeyItem[], region: SketchRegion): Scored {
+function score(items: RegionItem[], region: SketchRegion): Scored {
   let named = 0;
   const coveredSet = new Set<number>();
   for (const item of items) {
@@ -149,12 +186,4 @@ function score(items: RegionKeyItem[], region: SketchRegion): Scored {
   const covered = coveredSet.size;
   const union = region.items.length + (items.length - named);
   return { region, named, covered, score: union === 0 ? 0 : covered / union };
-}
-
-function region_size(region: SketchRegion): number {
-  return region.items.length;
-}
-
-function describeCount(n: number): string {
-  return n === 1 ? '1 region' : `${n} regions`;
 }

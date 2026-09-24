@@ -72,3 +72,11 @@ export const MIRROR_CALLEES = new Set<string>(['mirror']);
  * featureType-derived accessor.
  */
 export const ANCHOR_CALLEES = new Set<string>(['text', 'bezier']);
+
+/**
+ * The region declaration statement (`region('r1', l1, far(c1))`): the tail
+ * of a solved sketch body after the derived ops — it references geometry
+ * and derived ops alike, so it lands after both. `far` is its side wrapper.
+ */
+export const REGION_DECLARATION_CALLEE = 'region';
+export const REGION_SIDE_CALLEE = 'far';

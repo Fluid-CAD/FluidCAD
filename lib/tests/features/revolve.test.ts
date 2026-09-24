@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import revolve from "../../core/revolve.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Revolve } from "../../features/revolve.js";
 import { Solid } from "../../common/solid.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
@@ -236,11 +236,12 @@ describe("revolve", () => {
   describe("region", () => {
     it("should only revolve the picked region", () => {
       sketch("xz", () => {
-          circle([20, 0], 16);
+          const a = circle([20, 0], 16);
           circle([20, 30], 16);
+          region('a', a);
         });
 
-      const r = revolve("z", 360).region('circle#1') as Revolve;
+      const r = revolve("z", 360).region('a') as Revolve;
 
       render();
 

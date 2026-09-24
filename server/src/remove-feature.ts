@@ -25,6 +25,7 @@ import { isReferenceUse } from './lint-fluid-js.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
 import { SketchDeleteSweep } from './sketch-delete-sweep.ts';
 import type { ApplyFeatureEditResult } from './apply-feature-edit/index.ts';
+import { RegionDeclarations } from './apply-feature-edit/region-declarations.ts';
 
 export type RemoveFeatureSpec = {
   /** The deleted statement, by timeline source line, with its drift guard. */
@@ -91,7 +92,31 @@ export class RemoveFeature extends StatementAnalysis {
     for (const e of edits) {
       newCode = spliceCode(newCode, e.start, e.end, e.text);
     }
-    return { newCode };
+    // The region declarations only the removed statements consumed go too:
+    // a `region('r1', …)` row nobody names any more is noise in the sketch.
+    const regionNames = resolved.doomed.flatMap(RemoveFeature.regionNamesOf);
+    return { newCode: await RegionDeclarations.pruneUnreferenced(newCode, regionNames) };
+  }
+
+  /** The names a statement's `.region(…)` chains carry. */
+  private static regionNamesOf(statement: TSNode): string[] {
+    const names: string[] = [];
+    for (const node of walkTree(statement)) {
+      if (node.type !== 'call_expression') {
+        continue;
+      }
+      const fn = node.childForFieldName('function');
+      if (!fn || fn.type !== 'member_expression' || fn.childForFieldName('property')?.text !== 'region') {
+        continue;
+      }
+      for (const arg of node.childForFieldName('arguments')?.namedChildren ?? []) {
+        if (arg.type === 'string') {
+          const fragment = arg.namedChildren.find(c => c.type === 'string_fragment');
+          names.push(fragment ? fragment.text : '');
+        }
+      }
+    }
+    return names;
   }
 
   private static async resolve(code: string, spec: RemoveFeatureSpec): Promise<ResolvedRemoval | { error: string }> {

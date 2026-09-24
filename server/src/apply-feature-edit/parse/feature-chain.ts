@@ -30,29 +30,25 @@ import {
   type ParsedRegionChain,
   type ParsedScopeChain,
 } from './parsed-statement.ts';
-import type { RegionKey, ValueExpr } from '../value-expr.ts';
+import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /**
- * The `.region(…)` chain's arguments: string keys and non-negative integer
- * positions, the two forms the kernel resolves. Anything else (a variable, an
+ * The `.region(…)` chain's arguments: the names of the sketch's `region()`
+ * declarations, as string literals. Anything else (a variable, an
  * expression) is not a form the dialog can show, so the parse refuses.
  */
 function parseRegionSegment(recognized: Map<string, ChainSegment>): ParsedRegionChain | { error: string } {
-  const regions: RegionKey[] = [];
+  const regions: RegionName[] = [];
   for (const arg of recognized.get('region')?.args ?? []) {
     if (arg.type === 'string') {
-      const key = stringArgValue(arg);
-      if (key === null) {
-        return { error: 'a .region() key is not a plain string — edit it in the source' };
+      const name = stringArgValue(arg);
+      if (name === null) {
+        return { error: 'a .region() name is not a plain string — edit it in the source' };
       }
-      regions.push(key);
+      regions.push(name);
       continue;
     }
-    if (arg.type === 'number' && Number.isInteger(Number(arg.text)) && Number(arg.text) >= 0) {
-      regions.push(Number(arg.text));
-      continue;
-    }
-    return { error: 'a .region() argument is not a key string or a region number — edit it in the source' };
+    return { error: 'a .region() argument is not a region name — edit it in the source' };
   }
   return { regions };
 }

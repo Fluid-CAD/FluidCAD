@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import rotate from "../../core/rotate.js";
-import { arc, circle, line } from "../../core/2d/index.js";
+import { arc, circle, line, region } from "../../core/2d/index.js";
 import { coincident } from "../../core/constraints/index.js";
 import plane from "../../core/plane.js";
 import { ShapeProps } from "../../oc/props.js";
@@ -478,10 +478,11 @@ describe("extrude to face", () => {
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-          circle([200, 0], 60);
+          const a = circle([200, 0], 60);
           circle([200, 100], 60);
+          region('a', a);
         });
-      const e2 = extrude(e1.endFaces()).region('circle#1') as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()).region('a') as ExtrudeToFace;
 
       render();
 

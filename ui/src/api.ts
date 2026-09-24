@@ -410,11 +410,26 @@ export type FeatureGhostRequest =
   | Copy2DGhostRequest
   | Mirror2DGhostRequest;
 
+/** One half-edge of a region's boundary, by the source line of the statement that drew it. */
+export type RegionItemRef = {
+  line: number;
+  /** 0-based run index when a loop executed the statement more than once. */
+  occurrence?: number;
+  /** The statement's callee (`line`, `circle`, `rect`, `project`). */
+  callee: string;
+  /** Sub-edge of a multi-edge statement: a macro slot (`top`) or `e<n>`. */
+  edge?: string;
+  /** The region lies on the far side of the edge — written `far(entity)`. */
+  far: boolean;
+};
+
 /**
- * One `.region()` argument: a key naming a region by the statements on its
- * outer loop (`'b r t l'`), or a position in the sketch's region list.
+ * One region a dialog picked: by the name a `region()` declaration of the
+ * sketch already gives it, by its boundary (a clicked region, declared or
+ * not), or both. Apply declares the boundaries that have no declaration
+ * yet and writes the names into `.region(…)`.
  */
-export type RegionKey = string | number;
+export type RegionPick = { name?: string; items?: RegionItemRef[] };
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -430,11 +445,10 @@ export type ExtrudeGhostRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
 };
 
 export type RibGhostRequest = {
@@ -467,11 +481,10 @@ export type RevolveGhostRequest = {
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
 };
 
 /**
@@ -497,11 +510,10 @@ export type SweepGhostRequest = {
   /** `.extend('end', …)` run-out past the path, or null. */
   extendEnd?: ValueExpr | null;
   /**
-   * The dialog's `.region()` picks — the keys of the regions to build. Absent
-   * builds every region; an empty list is the bare `.region()`, which builds
-   * nothing.
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
 };
 
 /**
@@ -935,13 +947,17 @@ export async function fetchFeatureGhostResult(
   }
 }
 
-/** One region of a profile as the picker draws it: its key, position, pick state and mesh. */
+/** One region of a profile as the picker draws it: its label, name, boundary, pick state and mesh. */
 export type SketchRegionEntry = {
-  /** The region's key, as `.region()` accepts it — what a pick writes. */
+  /** A readable label of the boundary — the overlay's toggle key, display only. */
   key: string;
-  /** Position in the canonical region list — what `.region(2)` selects. */
+  /** Position in the canonical region list. */
   index: number;
-  /** One of the request's keys resolved to this region. */
+  /** The name a `region()` declaration of the sketch already gives this boundary, or null. */
+  name: string | null;
+  /** The boundary a pick writes into a declaration; empty when the region cannot be declared from the dialog. */
+  items: RegionItemRef[];
+  /** One of the request's picks resolved to this region. */
   selected: boolean;
   meshes: SceneObjectMesh[];
 };
@@ -953,7 +969,7 @@ export type SketchRegionEntry = {
  * an abort propagates, matching the ghost fetch.
  */
 export async function fetchSketchRegions(
-  request: { profile: { filePath: string; line: number }; keys: RegionKey[] },
+  request: { profile: { filePath: string; line: number }; picks: RegionPick[] },
   signal: AbortSignal,
 ): Promise<SketchRegionEntry[] | null> {
   try {
@@ -2093,8 +2109,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   toFace?: ApplyFeatureEntity | ExtrudeFaceTarget;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
-  /** The picked profile regions — the `.region(…)` chain; empty writes no chain. */
-  regions?: RegionKey[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2202,8 +2218,8 @@ export type RevolveApplyOptions = RevolveOptionValues & {
   axis: RevolveAxisRef;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
-  /** The picked profile regions — the `.region(…)` chain; empty writes no chain. */
-  regions?: RegionKey[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2309,8 +2325,8 @@ export type SweepApplyOptions = {
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] };
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
-  /** The picked profile regions — the `.region(…)` chain; empty writes no chain. */
-  regions?: RegionKey[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2351,8 +2367,8 @@ export type WrapApplyOptions = WrapOptionValues & {
   sketch: SketchSourceRef;
   /** The target face to wrap onto, synthesized into a face selector. */
   face: ApplyFeatureEntity;
-  /** The picked profile regions — the `.region(…)` chain; empty writes no chain. */
-  regions?: RegionKey[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2865,10 +2881,10 @@ export type ParsedScopeChain = {
  * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
  * paths, selector args) arrive as verbatim source text.
  */
-/** The `.region(…)` chain of a parsed swept statement — keys and positions. */
+/** The `.region(…)` chain of a parsed swept statement — the declared region names. */
 export type ParsedRegionChain = {
   /** Empty when the chain is absent or bare. */
-  regions: RegionKey[];
+  regions: string[];
 };
 
 export type ParsedFeatureStatement =
@@ -3227,10 +3243,13 @@ export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
    */
   scope?: ScopeTargetRef[];
   /**
-   * Full replacement `.region(…)` list; omitted keeps the statement's own
-   * chain, an empty list drops it (back to every region).
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3258,6 +3277,7 @@ export async function applyExtrudeEdit(
     toFace: options.toFace,
     scope: options.scope,
     regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3316,10 +3336,13 @@ export type SweepEditOptions = EditSessionFields & {
    */
   scope?: ScopeTargetRef[];
   /**
-   * Full replacement `.region(…)` list; omitted keeps the statement's own
-   * chain, an empty list drops it (back to every region).
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3343,6 +3366,7 @@ export async function applySweepEdit(
     profile: options.profile,
     scope: options.scope,
     regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3356,10 +3380,13 @@ export type WrapEditOptions = WrapOptionValues & EditSessionFields & {
    */
   face?: { kind: 'keep' } | { kind: 'face'; entity: ApplyFeatureEntity };
   /**
-   * Full replacement `.region(…)` list; omitted keeps the statement's own
-   * chain, an empty list drops it (back to every region).
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3380,6 +3407,7 @@ export async function applyWrapEdit(
     sketch: options.sketch,
     face: options.face,
     regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3395,10 +3423,13 @@ export type RevolveEditOptions = RevolveOptionValues & EditSessionFields & {
    */
   scope?: ScopeTargetRef[];
   /**
-   * Full replacement `.region(…)` list; omitted keeps the statement's own
-   * chain, an empty list drops it (back to every region).
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
    */
-  regions?: RegionKey[];
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3422,6 +3453,7 @@ export async function applyRevolveEdit(
     axis: options.axis,
     scope: options.scope,
     regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }

@@ -36,7 +36,7 @@ import {
   validNonzeroOrNull,
   validValueExpr,
   validValueExprOrNull,
-  type RegionKey,
+  type RegionName,
 } from '../value-expr.ts';
 
 /**
@@ -61,7 +61,7 @@ import {
  * it sent one (an empty list drops the chain), else the statement's own
  * picks, kept verbatim.
  */
-function editedRegions(edited: RegionKey[] | undefined, parsed: RegionKey[]): RegionKey[] {
+function editedRegions(edited: RegionName[] | undefined, parsed: RegionName[]): RegionName[] {
   return edited ?? parsed;
 }
 

@@ -1,5 +1,5 @@
 // Builds the regions of a sketch — the cells its edges cut the plane into —
-// and names each one by the statements on its outer loop.
+// and describes each one by the statements on its outer loop.
 //
 // The arrangement is OCCT's: BOPAlgo_CellsBuilder splits every edge at its
 // crossings, BRepAlgoAPI_Splitter partitions a bounded plane face by the
@@ -11,7 +11,9 @@
 // direction says left or right.
 //
 // The result is a topological description of each region — nothing in it
-// depends on where the geometry sits, only on which statements bound it.
+// depends on where the geometry sits, only on which statements bound it. The
+// statements are held as the objects they are; a `region()` declaration is
+// matched against them by identity (region-match.ts).
 
 import type { TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { Edge } from "../../../common/edge.js";
@@ -27,24 +29,24 @@ import { EdgeOps } from "../../../oc/edge-ops.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
 import { mmTol } from "../../../units/tolerance.js";
 import { GeometrySceneObject } from "../geometry.js";
-import { SketchStatementKeys } from "./statement-keys.js";
-import { RegionKeyItem, formatRegionKey, formatRegionKeyItem } from "./region-key.js";
+import { RegionItem } from "./region-ref.js";
+import { StatementLabels } from "./statement-label.js";
 
 export type SketchRegion = {
   /** The cell, holes included — its inner loops are the shapes drawn inside it. */
   face: Face;
-  /** The region's key, as `.region()` accepts it. */
+  /** A readable label of the boundary (`circle#1 far(circle#2)`) — display only. */
   key: string;
-  /** The key's items in loop order, starting from the oldest statement. */
-  items: RegionKeyItem[];
-  /** Position in the canonical order — what `.region(2)` selects. */
+  /** The half-edges of the outer loop in loop order, starting from the oldest statement. */
+  items: RegionItem[];
+  /** Position in the canonical order. */
   index: number;
 };
 
 /** Edge roles that only say "the statement's one edge" — no sub-key needed. */
 const DEFAULT_ROLES = new Set(['body', 'perimeter']);
 
-type HalfEdge = RegionKeyItem & { order: number };
+type HalfEdge = RegionItem & { order: number };
 
 type PieceTable = {
   /** Hashed by IsSame — piece i (1-based) was cut from `sources[i]`. */
@@ -62,7 +64,7 @@ export class SketchRegionBuilder {
   constructor(
     edgesWithOwner: Map<Edge, GeometrySceneObject>,
     private readonly plane: Plane,
-    private readonly keys: SketchStatementKeys,
+    private readonly labels: StatementLabels,
   ) {
     this.ownerOf = edgesWithOwner;
   }
@@ -76,7 +78,7 @@ export class SketchRegionBuilder {
     try {
       const faces = this.partitionPlane(pieces);
       const regions = faces.map(face => this.describe(face, pieces));
-      return canonicalize(regions);
+      return canonicalize(regions, this.labels);
     } finally {
       pieces.dispose();
     }
@@ -265,7 +267,7 @@ export class SketchRegionBuilder {
           }
           const agrees = traversalAgreesWithSource(edge, oc.TopoDS.Edge(source.getShape()), traversalForward);
           const halfEdge: HalfEdge = { ...label, right: cellLeftOfTraversal !== agrees };
-          const text = formatRegionKeyItem(halfEdge);
+          const text = this.labels.formatItem(halfEdge);
           if (!seen.has(text)) {
             seen.add(text);
             halfEdges.push(halfEdge);
@@ -300,8 +302,8 @@ export class SketchRegionBuilder {
     return [];
   }
 
-  /** The statement identity of a source edge plus its sub-key inside a
-   * multi-edge statement; null when the owner has no key (never for a
+  /** The statement a source edge belongs to plus its sub-key inside a
+   * multi-edge statement; null for an edge without an owner (never for a
    * sketch child, kept for safety). */
   private labelOf(source: Edge): HalfEdge | null {
     const cached = this.labelCache.get(source);
@@ -309,16 +311,15 @@ export class SketchRegionBuilder {
       return cached;
     }
     const owner = this.ownerOf.get(source);
-    const entity = owner ? this.keys.keyOf(owner) : null;
-    if (!owner || !entity) {
+    if (!owner) {
       this.labelCache.set(source, null);
       return null;
     }
     const label: HalfEdge = {
-      entity,
+      owner,
       path: edgePath(owner, source),
       right: false,
-      order: this.keys.orderOf(owner),
+      order: this.labels.orderOf(owner),
     };
     this.labelCache.set(source, label);
     return label;
@@ -482,12 +483,13 @@ class EdgeGeometry {
  * Order the regions and their items canonically. Items sort by the age of
  * their statement (sketch order), then sub-key, then side; a region's items
  * are rotated to start at its oldest half-edge and regions sort by their
- * item lists — so `.region(0)` is the region on the sketch's first-drawn
+ * item lists — so the first region is the one on the sketch's first-drawn
  * geometry, new shapes drawn in empty space take the last positions, and
  * existing regions keep their relative order (a position only shifts when
- * a new region sorts before it: a split of older geometry).
+ * a new region sorts before it: a split of older geometry). The order is
+ * what the picker lists; nothing selects by it.
  */
-function canonicalize(regions: { face: Face; halfEdges: HalfEdge[] }[]): SketchRegion[] {
+function canonicalize(regions: { face: Face; halfEdges: HalfEdge[] }[], labels: StatementLabels): SketchRegion[] {
   const compareItems = (a: HalfEdge, b: HalfEdge) => {
     if (a.order !== b.order) {
       return a.order - b.order;
@@ -524,8 +526,8 @@ function canonicalize(regions: { face: Face; halfEdges: HalfEdge[] }[]): SketchR
   });
 
   return described.map(({ face, loopOrder }, index) => {
-    const items = loopOrder.map(({ entity, path, right }) => ({ entity, path, right }));
-    return { face, items, key: formatRegionKey(items), index };
+    const items = loopOrder.map(({ owner, path, right }) => ({ owner, path, right }));
+    return { face, items, key: labels.formatItems(items), index };
   });
 }
 

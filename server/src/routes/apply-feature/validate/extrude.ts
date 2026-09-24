@@ -3,12 +3,12 @@
 import {
   validValueExpr,
   type ExtrudeFaceTarget,
-  type RegionKey,
+  type RegionPickSpec,
   type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick } from '../picks.ts';
-import { validateRegionKeys } from '../regions.ts';
+import { validateRegionPicks } from '../regions.ts';
 import { validateProfileFeature, validateThinOffsets } from './common.ts';
 
 /** The dialog-editable extrude options, shared by the create and edit paths. */
@@ -35,8 +35,8 @@ type ExtrudeRequest = ExtrudeOptionSet & {
   toFace?: Pick | ExtrudeFaceTarget;
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
-  /** The picked profile regions; empty writes no `.region(…)`. */
-  regions: RegionKey[];
+  /** The picked profile regions, declared in the sketch on apply; empty writes no `.region(…)`. */
+  regions: RegionPickSpec[];
 };
 
 /**
@@ -130,7 +130,7 @@ export function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   if ('error' in scopeResult) {
     return scopeResult;
   }
-  const regionResult = validateRegionKeys(body);
+  const regionResult = validateRegionPicks(body);
   if ('error' in regionResult) {
     return regionResult;
   }

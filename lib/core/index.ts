@@ -3,7 +3,7 @@ export type {
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
   IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance,
+  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide,
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";

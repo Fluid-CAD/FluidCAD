@@ -45,6 +45,7 @@ export {
   insertGeometryCall,
   insertLoadCall,
   isDerivedOpStatement,
+  isRegionDeclarationStatement,
   isSolvedConstraintStatement,
   isSolvedSketchCall,
   removeStatement,

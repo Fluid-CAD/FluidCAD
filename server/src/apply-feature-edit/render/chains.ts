@@ -1,6 +1,6 @@
 // Shared chain fragments: .scope(), .region() and the cut/remove/new operation chains.
 
-import { formatValue, type RegionKey, type ValueExpr } from '../value-expr.ts';
+import { formatValue, type RegionName, type ValueExpr } from '../value-expr.ts';
 
 /** The `.thin(…)` / `.remove()` / `.new()` chains shared by sweep and loft. */
 /**
@@ -14,25 +14,25 @@ export function renderScopeChain(scopeExprs: string[]): string {
 }
 
 /**
- * A region key as a single-quoted JS string literal. Keys only ever hold
- * `[\w$#\[\].\- ]`, but a quote or backslash that did slip in must not
- * break the statement, so both are escaped.
+ * A region name as a single-quoted JS string literal. Names are plain
+ * identifiers in practice, but a quote or backslash that did slip in must
+ * not break the statement, so both are escaped.
  */
-function quoteRegionKey(key: string): string {
-  return `'${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+export function quoteRegionName(name: string): string {
+  return `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
 /**
  * The `.region(…)` chain of a swept feature — the picked regions of its
- * profile, keys quoted and positions bare, right after the call so it reads
- * as what the operation builds before how it builds it. Absent or empty
- * writes nothing: the operation takes every region.
+ * profile by the names their declarations gave them, right after the call
+ * so it reads as what the operation builds before how it builds it. Absent
+ * or empty writes nothing: the operation takes every region.
  */
-export function renderRegionChain(keys: RegionKey[] | undefined): string {
-  if (!keys || keys.length === 0) {
+export function renderRegionChain(names: RegionName[] | undefined): string {
+  if (!names || names.length === 0) {
     return '';
   }
-  return `.region(${keys.map(key => typeof key === 'number' ? String(key) : quoteRegionKey(key)).join(', ')})`;
+  return `.region(${names.map(quoteRegionName).join(', ')})`;
 }
 
 export function renderOpChains(opts: {

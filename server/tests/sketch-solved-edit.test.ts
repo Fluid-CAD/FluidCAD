@@ -226,7 +226,7 @@ describe('applySolvedEmission', () => {
 
   it('binds a drawn circle no constraint references and reports its name', async () => {
     // The circle tool emits a bare circle with no constraints; the statement
-    // still lands bound — its name is its region key (`region('c1')`).
+    // still lands bound — its name is what a region declaration references.
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,
       geometry: [{ kind: 'circle', text: 'circle([10, 10], 20)' }],

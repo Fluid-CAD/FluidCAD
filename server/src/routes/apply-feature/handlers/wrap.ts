@@ -9,6 +9,7 @@ import {
   type ApplyFeatureEditSpec,
   type WrapEditOptions,
 } from '../../../apply-feature-edit/index.ts';
+import { RegionDeclarations } from '../../../apply-feature-edit/region-declarations.ts';
 import { validateWrap } from '../validate/wrap.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
@@ -76,7 +77,10 @@ export async function handleWrap(ctx: ApplyFeatureRequestContext, req: Request, 
       op: request.op,
       thickness: request.thickness,
       sketch: { producer: 0 },
-      regions: request.regions,
+      regionPicks: request.regions,
+      regionSketch: { line: request.sketch.line, column: request.sketch.column },
+      // The preview shows the names the transform will write.
+      regions: await RegionDeclarations.planNames(code, request.sketch.line, request.regions),
     };
     // Truthful preview name for the sketch: the same resolution the
     // transform runs (reused const, collision-suffixed hint).

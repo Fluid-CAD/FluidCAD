@@ -1,6 +1,6 @@
 // Feature and sketch statements: removing them, naming features, closing sketches, inserting geometry and load calls.
 
-import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_NAME_HINTS } from '../sketch-symbols.ts';
+import { DERIVED_OP_CALLEES, REGION_DECLARATION_CALLEE, SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_NAME_HINTS } from '../sketch-symbols.ts';
 import { allocateSolvedName, collectIdentifiers } from '../sketch-names.ts';
 import { isBreakpointStatement } from './breakpoints.ts';
 import { ensureSymbolImport } from './imports.ts';
@@ -50,6 +50,23 @@ export function isSolvedConstraintStatement(node: TSNode): boolean {
  * derived ops). Derived ops may be const-bound (their result is a pickable
  * producer), so both statement forms qualify.
  */
+/**
+ * Recognise a region declaration (`region('r1', l1, far(c1));`) — the tail of
+ * a solved sketch body: geometry and constraints insert before it, like
+ * before a derived op.
+ */
+export function isRegionDeclarationStatement(node: TSNode): boolean {
+  if (node.type !== 'expression_statement') {
+    return false;
+  }
+  const call = node.namedChild(0);
+  if (!call || call.type !== 'call_expression') {
+    return false;
+  }
+  const fn = chainBaseCall(call).childForFieldName('function');
+  return !!fn && fn.type === 'identifier' && fn.text === REGION_DECLARATION_CALLEE;
+}
+
 export function isDerivedOpStatement(node: TSNode): boolean {
   let call: TSNode | null = null;
   if (node.type === 'expression_statement') {
@@ -252,12 +269,10 @@ export function findSketchBody(call: TSNode): TSNode | null {
 
 /**
  * The drawn statement bound to a fresh variable — `const c2 = circle(…);`.
- * A sketch region is keyed by the names of the statements on its boundary
- * (`extrude(20).region('c2')`); an unbound statement only has an ordinal
- * (`circle#2`) that shifts when an earlier circle goes and changes outright
- * when the constraint rail hoists the statement later, so a statement gets
- * its name the moment it is written. The name comes from the same allocator
- * the hoist uses, past every binding the file holds. Only a bare,
+ * Constraints and region declarations reference a statement by its
+ * variable, so a statement gets its name the moment it is written rather
+ * than when the binding rail hoists it later. The name comes from the same
+ * allocator the hoist uses, past every binding the file holds. Only a bare,
  * single-line call of a kind that allocator names (a statement kind with a
  * name hint) qualifies: a statement already bound, a multi-line one, or a
  * callee without a hint (a legacy pen statement) is written as given.
@@ -312,23 +327,25 @@ export async function insertGeometryCall(
   let indent: string;
 
   // Solved-sketch layout convention (plan §0.2, amended P6): the body reads
-  // geometry → constraints → derived ops. Geometry inserts before the first
-  // constraint OR derived-op statement; a derived op appends at the true body
-  // end (a pause-before edit of it then sees the fully solved sketch). Both
-  // land before an active breakpoint and before a trailing return —
-  // statements after either never run. Legacy sketches keep the old body-end
-  // behavior: pen statements are order-sensitive.
+  // geometry → constraints → derived ops → region declarations. Geometry
+  // inserts before the first constraint, derived-op or region statement; a
+  // derived op appends after the last derived op, before the first region
+  // declaration (a pause-before edit of it then sees the fully solved
+  // sketch). Both land before an active breakpoint and before a trailing
+  // return — statements after either never run. Legacy sketches keep the old
+  // body-end behavior: pen statements are order-sensitive.
   const solved = isSolvedSketchCall(call);
   const stmtCallee = statement.trim().match(/^(\w+)\s*\(/)?.[1];
   const insertingDerivedOp = solved && !!stmtCallee && DERIVED_OP_CALLEES.has(stmtCallee);
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
-  const firstRegionStmt = insertingDerivedOp
-    ? undefined
-    : bodyChildren.find(s => isSolvedConstraintStatement(s) || (solved && isDerivedOpStatement(s)));
-  if (firstRegionStmt
-    && (!breakpointStmt || firstRegionStmt.startPosition.row < breakpointStmt.startPosition.row)) {
-    insertRow = firstRegionStmt.startPosition.row;
-    indent = indentOf(lines, firstRegionStmt.startPosition.row);
+  const firstTailStmt = insertingDerivedOp
+    ? bodyChildren.find(s => isRegionDeclarationStatement(s))
+    : bodyChildren.find(s => isSolvedConstraintStatement(s)
+      || (solved && (isDerivedOpStatement(s) || isRegionDeclarationStatement(s))));
+  if (firstTailStmt
+    && (!breakpointStmt || firstTailStmt.startPosition.row < breakpointStmt.startPosition.row)) {
+    insertRow = firstTailStmt.startPosition.row;
+    indent = indentOf(lines, firstTailStmt.startPosition.row);
   } else if (breakpointStmt) {
     insertRow = breakpointStmt.startPosition.row;
     indent = indentOf(lines, breakpointStmt.startPosition.row);

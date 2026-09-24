@@ -34,6 +34,7 @@ import { horizontal } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
 import { runFluid, FLUID_FILE } from "./helpers/run-fluid.js";
 import { buildSketchRegions } from "../rendering/sketch-regions.js";
+import type { RegionPick } from "../features/2d/regions/region-wire.js";
 
 const FILE = '/tmp/ghost-test.fluid.js';
 
@@ -223,40 +224,50 @@ describe("feature ghost — regions", () => {
   setupOC();
 
   /**
-   * Two concentric circles bound to variables, drawn from `.fluid.js` source
-   * so the statements carry the locations their keys are read from: the
-   * ring (`outer`) and the disc inside it (`inner`).
+   * Two concentric circles drawn from `.fluid.js` source so the statements
+   * carry source lines: the ring (declared `outer`) and the disc inside it
+   * (undeclared — a pick of it travels by its boundary).
    */
   function concentric(): { line: number; scene: Scene } {
     const { s } = runFluid(`
       const s = sketch("xy", () => {
         const outer = circle([0, 0], 40);
         const inner = circle([0, 0], 20);
+        region('outer', outer);
       });
       return { s };
     `) as { s: Sketch };
     return { line: s.getSourceLocation()!.line, scene: render() };
   }
 
-  const ghostWithRegions = (scene: Scene, line: number, regions: (string | number)[] | undefined) =>
+  /** The disc by its boundary: the inner circle's statement, two lines below the sketch call. */
+  const discPick = (line: number) => ({ items: [{ line: line + 2, callee: 'circle', far: false }] });
+
+  const ghostWithRegions = (scene: Scene, line: number, regions: RegionPick[] | undefined) =>
     buildFeatureGhost(
       scene,
       { ...BASE, regions, profile: { filePath: FLUID_FILE, line } },
       DEFAULT_MESH_CONFIG,
     );
 
-  it("lists every region of the profile, keyed, with the picks marked", () => {
+  it("lists every region of the profile with its name, its writable boundary and the picks marked", () => {
     const { line, scene } = concentric();
 
-    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, keys: ['inner'] }, DEFAULT_MESH_CONFIG);
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, picks: [discPick(line)] }, DEFAULT_MESH_CONFIG);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.regions.map(r => r.key).sort()).toEqual(['inner', 'outer']);
-    expect(result.regions.find(r => r.key === 'inner')!.selected).toBe(true);
-    expect(result.regions.find(r => r.key === 'outer')!.selected).toBe(false);
+    expect(result.regions.map(r => r.key).sort()).toEqual(['circle#1', 'circle#2']);
+    const ring = result.regions.find(r => r.key === 'circle#1')!;
+    const disc = result.regions.find(r => r.key === 'circle#2')!;
+    expect(ring.name).toBe('outer');
+    expect(ring.items).toEqual([{ line: line + 1, callee: 'circle', far: false }]);
+    expect(ring.selected).toBe(false);
+    expect(disc.name).toBeNull();
+    expect(disc.items).toEqual([{ line: line + 2, callee: 'circle', far: false }]);
+    expect(disc.selected).toBe(true);
     for (const region of result.regions) {
       expect(region.meshes.length).toBeGreaterThan(0);
       expect(region.meshes[0].indices.length).toBeGreaterThan(0);
@@ -268,6 +279,7 @@ describe("feature ghost — regions", () => {
       const s = sketch("xy", () => {
         const outer = circle([0, 0], 40);
         const inner = circle([0, 0], 20);
+        region('outer', outer);
       });
       extrude(10, s).region('outer');
       return { s };
@@ -275,25 +287,25 @@ describe("feature ghost — regions", () => {
     const line = s.getSourceLocation()!.line;
     const scene = render();
 
-    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, keys: ['outer'] }, DEFAULT_MESH_CONFIG);
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, picks: [{ name: 'outer' }] }, DEFAULT_MESH_CONFIG);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.regions.map(r => [r.key, r.selected]).sort()).toEqual([['inner', false], ['outer', true]]);
+    expect(result.regions.map(r => [r.key, r.selected]).sort()).toEqual([['circle#1', true], ['circle#2', false]]);
   });
 
   it("refuses a profile the scene doesn't hold", () => {
     const { scene } = concentric();
-    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line: 99 }, keys: [] }, DEFAULT_MESH_CONFIG);
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line: 99 }, picks: [] }, DEFAULT_MESH_CONFIG);
     expect(result.ok).toBe(false);
   });
 
   it("builds only the picked regions, and nothing for the bare .region()", () => {
     const { line, scene } = concentric();
 
-    const disc = ghostWithRegions(scene, line, ['inner']);
+    const disc = ghostWithRegions(scene, line, [discPick(line)]);
     expect(disc.ok).toBe(true);
     if (!disc.ok) {
       return;
@@ -305,7 +317,7 @@ describe("feature ghost — regions", () => {
     expect(box.maxX).toBeCloseTo(10, 0);
     expect(box.minX).toBeCloseTo(-10, 0);
 
-    const ring = ghostWithRegions(scene, line, ['outer']);
+    const ring = ghostWithRegions(scene, line, [{ name: 'outer' }]);
     expect(ring.ok).toBe(true);
     if (!ring.ok) {
       return;
@@ -320,9 +332,9 @@ describe("feature ghost — regions", () => {
     expect(nothing.solids).toHaveLength(0);
   });
 
-  it("shows what resolved when a key names no region", () => {
+  it("shows what resolved when a pick names no region", () => {
     const { line, scene } = concentric();
-    const result = ghostWithRegions(scene, line, ['inner', 'gone']);
+    const result = ghostWithRegions(scene, line, [discPick(line), { name: 'gone' }]);
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;

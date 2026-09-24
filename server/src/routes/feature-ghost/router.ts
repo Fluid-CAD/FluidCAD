@@ -14,7 +14,8 @@ import type {
   GhostPlaneBaseRef,
   GhostRepeatDirection,
 } from '../../fluidcad-server/index.ts';
-import { MAX_COPY_TARGETS, validateRegionKeys } from '../apply-feature/index.ts';
+import { MAX_COPY_TARGETS, validateRegionPicks } from '../apply-feature/index.ts';
+import type { RegionPickSpec } from '../../apply-feature-edit/index.ts';
 import { augmentDerivedParams, resolveExpr } from './expressions.ts';
 import { parseCondition, parseLoftConnections } from './loft.ts';
 import {
@@ -130,9 +131,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     }
     // The dialog's region picks — absent means every region. Validated by
     // the apply path's own rule so a ghost can't build what the apply refuses.
-    let regions: (string | number)[] | undefined;
+    let regions: RegionPickSpec[] | undefined;
     if (PROFILE_FEATURES.includes(body.feature) && body.regions !== undefined && body.regions !== null) {
-      const parsed = validateRegionKeys(body);
+      const parsed = validateRegionPicks(body);
       if ('error' in parsed) {
         res.status(400).json({ success: false, reason: parsed.error });
         return;
@@ -560,20 +561,20 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
    * ghost's sibling: nothing here writes code or scene state.
    */
   router.post('/sketch-regions', async (req, res) => {
-    const body = (req.body ?? {}) as { profile?: { filePath?: unknown; line?: unknown }; keys?: unknown };
+    const body = (req.body ?? {}) as { profile?: { filePath?: unknown; line?: unknown }; picks?: unknown };
     const profile = body.profile;
     if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
       res.status(400).json({ success: false, reason: 'Invalid profile reference' });
       return;
     }
-    const keys = validateRegionKeys({ regions: body.keys });
-    if ('error' in keys) {
-      res.status(400).json({ success: false, reason: keys.error });
+    const picks = validateRegionPicks({ regions: body.picks });
+    if ('error' in picks) {
+      res.status(400).json({ success: false, reason: picks.error });
       return;
     }
     const result = await fluidCadServer.sketchRegions({
       profile: { filePath: profile.filePath, line: profile.line },
-      keys: keys.regions,
+      picks: picks.regions,
     });
     if (!result.regions) {
       res.status(result.status).json({ success: false, reason: result.reason });

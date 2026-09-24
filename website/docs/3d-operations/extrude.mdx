@@ -232,39 +232,31 @@ A sketch with overlapping shapes contains several closed regions. By default the
 1. Open the extrude dialog (or double-click an existing extrude in the timeline to edit it) and choose the sketch.
 2. Click **Pick regions** under the Sketch picker. Every region of the sketch shows in the viewport as a face you can click, and the ghost preview follows your picks.
 3. Click a region to add it; click a selected region again to remove it. The picker counts the picks (**2 regions**) and its **✕** clears them all.
-4. **Done** leaves the mode; the picks stay. **Apply** writes them as `.region(...)`, one key per pick — with nothing picked the extrude takes every region and no chain is written.
+4. **Done** leaves the mode; the picks stay. **Apply** declares each picked region inside the sketch with `region()` and names them on the extrude with `.region(...)` — with nothing picked the extrude takes every region and nothing is written.
 
-Two concentric circles make two regions: the ring, and the disc inside the inner circle. Picking the ring writes `extrude(20).region('outer')`:
+Two concentric circles make two regions: the ring, and the disc inside the inner circle. Picking the ring writes a `region('r1', outer)` declaration into the sketch and `extrude(20, s).region('r1')`:
 
 ![Region picking — ring extrusion](/img/docs/3d-operations/extrude-region-pick.png)
 
 <ExplainedCode code={extrudeRegionPick}>
-The key is the ring's outer loop: the circle bound to `outer`. Nothing in it says how big the ring is, so resizing either circle leaves the pick intact.
+The declaration lists the ring's outer loop: the circle `outer`, passed as the variable itself. Nothing in it says how big the ring is, so resizing either circle leaves the pick intact.
 </ExplainedCode>
 
-### Reading a key
+### Reading a declaration
 
-A key names a region by the sketch entities on its outer loop, one after another with spaces between them. The entities are the variables the sketcher bound them to when you drew them (`const outer = circle(...)`), so a key reads like the sketch itself:
+`region(name, ...entities)` sits inside the sketch callback and names a region by the sketch entities on its outer loop — the variables themselves, not their names in a string, so the editor checks them and renames them with the rest of the file:
 
-- `'outer'` — the region whose outer loop is the circle `outer`. Holes never take part: the ring's key does not mention `inner`, and cutting a hole into a region later does not change its key. The hole is a region of its own, `'inner'`.
-- `'b r t l'` — the region closed by the four lines `b`, `r`, `t` and `l`. The order carries no meaning.
-- `'c1 c2-'` — a trailing `-` marks an edge the region lies on the far side of: on the right of the edge's own direction. A circle runs counter-clockwise, so `c2-` puts the region outside `c2`, and this key is the crescent inside `c1` and outside `c2`. `'c1 c2'` is the lens inside both.
-- `'r1.top'`, `'prj1.e3'` — one edge of a multi-edge statement: the top edge of the `rect()` macro `r1`, the third edge of the projection `prj1`.
+- `region('ring', outer)` — the region whose outer loop is the circle `outer`. Holes never take part: the ring's declaration does not mention `inner`, and cutting a hole into a region later does not change it. The hole is a region of its own, `region('disc', inner)`.
+- `region('plate', b, r, t, l)` — the region closed by the four lines `b`, `r`, `t` and `l`. The order carries no meaning.
+- `region('crescent', c1, far(c2))` — `far()` marks an entity the region lies on the far side of: on the right of the edge's own direction. A circle runs counter-clockwise, so `far(c2)` puts the region outside `c2`, and this is the crescent inside `c1` and outside `c2`. `region('lens', c1, c2)` is the lens inside both. The picker writes `far()` wherever it applies; you never work it out yourself.
+- `region('corner', r.top(), r.right(), far(l))` — one edge of a multi-edge statement: the top and right edges of the `rect()` `r`. A bare `r` stands for every edge of `r` on the region, so `region('inside', r)` names the inside of a rectangle without spelling out its sides. Projected edges read `p.ref(2)`, offset edges `o.edge(0)`.
 
-Each pick adds one key, so several regions read `.region('c1', 'c2')`.
+The extrude names the regions it takes: `extrude(20, s).region('lens', 'crescent')`. The picker reuses a declaration that already lists the region it clicked and allocates `r1`, `r2`, … for the rest; rename them in the source if you like, in both places.
 
-### Writing a key by hand
+:::note[What a declaration survives]
+A declaration holds no coordinates, so a dimension change never moves a region away from it. It also survives an unrelated entity being added or deleted, and a hole being cut into the region. Deleting an entity it names is a compile error at the declaration, and the sketcher's Delete key drops the entity from the declaration for you.
 
-A key is plain text, so a statement can be edited without going back to the viewport — after renaming a variable, say. A few forms only turn up in hand-written sketches:
-
-- A bare `r1` stands for every edge of `r1` on the region, so `'r1'` names the inside of a `rect()` without spelling out its sides.
-- A statement not bound to a variable is named by its callee and its position among that callee's calls in the sketch: `circle#2` is the second `circle()`. That position shifts when an earlier circle is deleted, so bind the statement instead. A call site inside a loop gives one entity per run: `l[0]`, `l[1]`.
-- A number picks by position in the sketch's region list: `extrude(20).region(0)`. It is quick to type, but it is a position, not an identity — a region added before it in the list shifts it.
-
-:::note[What a key survives]
-A key holds no coordinates, so a dimension change never moves a region away from its key. The key also survives an unrelated entity being added or deleted, and a hole being cut into the region.
-
-When the region's own boundary changes — a line drawn across it, a bounding entity deleted or redrawn — the feature takes the region that keeps most of the named boundary, as long as the match is clear. If it is not, the feature reports an error that lists the nearest keys. Copy the right one into the statement, or pick the region again.
+When the region's own boundary changes — a line drawn across it, a bounding entity redrawn — the feature takes the region that keeps most of the declared boundary, as long as the match is clear. If it is not, the feature reports an error that lists the nearest regions in the same `far()` form. Pick the region again, or paste the right boundary into the declaration.
 :::
 
 ## No-argument extrude

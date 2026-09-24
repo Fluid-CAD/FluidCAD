@@ -26,8 +26,8 @@ Returns `Cut`. Always subtractive — equivalent to `extrude(...).remove()`.
 Same chain set as `extrude` except no `.add()` / `.new()`: `.symmetric()`,
 `.draft()`, `.endOffset()`, `.thin()`, `.region()`, `.scope()`, plus
 `.startEdges()`, `.endEdges()`, `.internalEdges()`, `.internalFaces()`.
-`.region()` keys come from the `regions` list the feature reports when
-called with no keys — see [[api/extrude]].
+`.region(name)` selects a region the sketch declares with `region()` —
+see [[api/region]] and [[api/extrude]].
 
 ## Direction convention
 

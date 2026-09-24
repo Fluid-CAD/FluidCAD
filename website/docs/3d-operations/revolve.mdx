@@ -116,14 +116,19 @@ Thin revolve works with partial revolutions and every tab.
 
 ## Region picking
 
-When the profile sketch has several regions, click **Pick regions** under the Sketch picker of the revolve dialog and click the regions to revolve in the viewport: each click adds the region (the picker counts them, its **✕** clears them), clicking a selected region removes it, and **Done** leaves the mode. **Apply** writes the picks as `.region()` keys.
+When the profile sketch has several regions, click **Pick regions** under the Sketch picker of the revolve dialog and click the regions to revolve in the viewport: each click adds the region (the picker counts them, its **✕** clears them), clicking a selected region removes it, and **Done** leaves the mode. **Apply** declares each pick inside the sketch with `region()` and names it on the revolve.
 
 ```js
-revolve("z").region('c1')         // the pick chose the disc inside circle c1
-revolve("z").region('b r t l')    // the region closed by lines b, r, t, l
+const s = sketch("xz", () => {
+  const c1 = circle([20, 0], 16);
+  const b = line(...), r = line(...), t = line(...), l = line(...);
+  region('disc', c1);             // written by the pick: the disc inside circle c1
+  region('plate', b, r, t, l);    // the region closed by lines b, r, t, l
+});
+revolve("z", 360, s).region('disc')
 ```
 
-A key names the region by the entities on its outer loop, so it survives dimension edits and unrelated changes to the sketch. Reading a key, and what happens when a region's boundary is redrawn, is under [region picking](/docs/3d-operations/extrude#region-picking) on the Extrude page.
+A declaration names the region by the entities on its outer loop, so it survives dimension edits and unrelated changes to the sketch. Reading a declaration, and what happens when a region's boundary is redrawn, is under [region picking](/docs/3d-operations/extrude#region-picking) on the Extrude page.
 
 ## Accessing geometry
 

@@ -24,7 +24,7 @@ interface Extrude extends BooleanOperation {
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
   drill(value?: boolean): this;
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
 }
@@ -166,15 +166,14 @@ before extruding.
 
 ### `region()`
 
-Restricts extrusion to particular regions of the sketch. A region is
-named by the sketch entities on its outer loop — `'b r t l'` for the
-rectangle those four lines close, `'c1 c2-'` for the ring inside `c1`
-and outside `c2` — or by its position in the sketch's region list.
-The region pick mode writes the keys.
+Restricts the extrusion to particular regions of the sketch, by the
+names their `region()` declarations gave them inside the sketch
+callback — `region('r1', l1, l2, c1)` declares, `.region('r1')`
+selects. The Pick regions link of the dialog writes both.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
+| `...names` | `string`[] | Names of regions the sketch declares. *(optional)* |
 
 ### `thin()`
 

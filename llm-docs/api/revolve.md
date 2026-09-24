@@ -18,8 +18,8 @@ revolve(axis: AxisLike, angle: number, target?)       // partial revolution
 
 Returns `Revolve` (extends `BooleanOperation`). Chain: `.symmetric()`,
 `.thin()`, `.region()`, plus the standard boolean scope methods.
-`.region()` keys come from the `regions` list the feature reports when
-called with no keys — see [[api/extrude]].
+`.region(name)` selects a region the sketch declares with `region()` —
+see [[api/region]] and [[api/extrude]].
 
 The **sketch plane must contain the axis**: to revolve around `"z"`,
 sketch on `"xz"` or `"yz"`.

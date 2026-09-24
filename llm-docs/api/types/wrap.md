@@ -19,7 +19,7 @@ interface Wrap extends BooleanOperation {
   internalFaces(...args: (number | FaceFilter)[]): ISelection;
   internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   drill(value?: boolean): this;
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
 }
 ```
 
@@ -118,13 +118,12 @@ before wrapping.
 
 ### `region()`
 
-Restricts wrapping to particular regions of the sketch, named by the
-sketch entities on their outer loop (`'c1 c2-'`) or by position in the
-sketch's region list. See `IExtrude.region`.
+Restricts wrapping to particular regions of the sketch, by the names
+their `region()` declarations gave them. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
+| `...names` | `string`[] | Names of regions the sketch declares. *(optional)* |
 
 ## Inherited
 

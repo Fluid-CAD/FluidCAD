@@ -11,7 +11,7 @@ seeAlso: [api/revolve, api/types/boolean-operation]
 ```ts
 interface Revolve extends BooleanOperation {
   symmetric(): this;
-  region(...keys: (string | number)[]): this;
+  region(...names: string[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
   internalFaces(...args: (number | FaceFilter)[]): ISelection;
@@ -31,13 +31,12 @@ Enables symmetric mode — revolves equally in both directions from the sketch p
 
 ### `region()`
 
-Restricts the revolve to particular regions of the sketch, named by the
-sketch entities on their outer loop (`'c1 c2-'`) or by position in the
-sketch's region list. See `IExtrude.region`.
+Restricts the revolve to particular regions of the sketch, by the names
+their `region()` declarations gave them. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...keys` | (`string` \| `number`)[] | Region keys, or positions in the sketch's region list. *(optional)* |
+| `...names` | `string`[] | Names of regions the sketch declares. *(optional)* |
 
 ### `thin()`
 

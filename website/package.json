@@ -14,6 +14,7 @@
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
     "typecheck": "tsc",
+    "check:viewer": "node scripts/check-viewer-examples.mjs",
     "generate-api-docs": "npx tsx scripts/generate-api-docs.ts",
     "prebuild": "npm run generate-api-docs",
     "version:create": "docusaurus docs:version"

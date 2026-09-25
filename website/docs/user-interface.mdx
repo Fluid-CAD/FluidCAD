@@ -45,6 +45,7 @@ The gear in the top bar, just before the light/dark switch, opens the global set
 | Appearance | Dark or light theme. The sun and moon button in the top bar switches it too. |
 | Editor | The code editor's font, picked from the monospace fonts installed on the computer, its size, word wrap, and whether the editor pane opens when FluidCAD starts (off by default). |
 | Sketch | The snap radius and the pick radius, in screen pixels: how close the cursor has to be for the sketcher to snap to a vertex, axis or grid line, and for a line, arc or vertex to highlight under it. |
+| Timeline | Which rows the History panel lists under a sketch: all of its children or only the editable features (the ones with an edit dialog, such as offset, projection and intersect), whether its *N constraints* group shows (on by default), and whether its *N regions* group shows (off by default). |
 | Units | The unit new projects are created in. Existing projects keep theirs; change those from the unit chip at the bottom of the viewport. |
 | Advanced | Reset every setting to its default, after a confirmation. This one acts at once rather than on Save. |
 
@@ -52,7 +53,7 @@ Project settings, such as the engine pin and the project unit in `fluidcad.json`
 
 ## The History panel
 
-The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows). A sketch, plane or axis a feature has used is dimmed — the feature took it off the screen — and carries an eye on hover: click it to draw the object again, and again to hide it. The eye is view state only; nothing in the file changes.
+The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry, an *N constraints* group and an *N regions* group (the [region declarations](/docs/3d-operations/extrude#region-picking) for extrude-family picks; the group is off by default), parts fold their features plus *N connectors* and *N exposed* groups. The Timeline tab of the [settings](#settings) picks which of a sketch's rows are listed. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows). A sketch, plane or axis a feature has used is dimmed — the feature took it off the screen — and carries an eye on hover: click it to draw the object again, and again to hide it. The eye is view state only; nothing in the file changes.
 
 
 - **Single click** a row to roll the model back to that feature. The viewport shows the model as it was right after that row, and the toolbar shrinks to what makes sense there. Click the last row, or edit the file, to come back.

@@ -8,6 +8,7 @@ import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './obj
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
 import { RAIL_PANEL_CLASS } from './rail-styles';
+import { viewerSettings, type ViewerSettings } from '../scene/viewer-settings';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -33,29 +34,47 @@ function isConstraintRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType?.startsWith('constraint-') === true;
 }
 
+/** A sketch's `region('name', …)` declarations: names for the extrude-family region picks, no geometry of their own. */
+function isRegionRow(obj: SceneObjectRender): boolean {
+  return obj.type === 'region';
+}
+
 /**
- * Child rows a part folds into their own sub-container instead of listing
- * inline with its features: mate connectors (`connector(…)`) and published
- * selections (`expose(…)`). Both are references rather than geometry, so a
- * part with a dozen of them would otherwise bury its modeling history. Each
- * kind renders behind one "N connectors" / "N exposed" toggle row, collapsed
- * by default — the same shape the solved-sketch constraint group uses.
+ * Child rows a container folds into their own sub-container instead of
+ * listing inline: a part's mate connectors (`connector(…)`) and published
+ * selections (`expose(…)`), a sketch's region declarations (`region(…)`).
+ * All are references rather than geometry, so a container with a dozen of
+ * them would otherwise bury its modeling history. Each kind renders behind
+ * one "N connectors" / "N exposed" / "N regions" toggle row, collapsed by
+ * default — the same shape the solved-sketch constraint group uses.
  */
-interface PartGroupKind {
-  /** Key into expandedGroupKeys (`<partId>:<key>`). */
+interface GroupKind {
+  /** Key into expandedGroupKeys (`<containerId>:<key>`). */
   key: string;
+  /** The container type the group sits under. */
+  parent: 'part' | 'sketch';
   type: string;
   label: (count: number) => string;
   icon: string;
 }
 
-const PART_GROUP_KINDS: readonly PartGroupKind[] = [
-  { key: 'connectors', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
-  { key: 'exposed', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+const GROUP_KINDS: readonly GroupKind[] = [
+  { key: 'connectors', parent: 'part', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
+  { key: 'exposed', parent: 'part', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+  { key: 'regions', parent: 'sketch', type: 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
 ];
 
-function partGroupOf(obj: SceneObjectRender): PartGroupKind | undefined {
-  return PART_GROUP_KINDS.find((kind) => obj.type === kind.type);
+function groupOf(parent: SceneObjectRender | undefined, obj: SceneObjectRender): GroupKind | undefined {
+  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && obj.type === kind.type);
+}
+
+/**
+ * The display settings that decide which child rows the timeline lists —
+ * the Settings dialog's Timeline tab. Read from the live store on every
+ * render; a change re-renders.
+ */
+function timelineDisplayOf(s: ViewerSettings): Pick<ViewerSettings, 'timelineSketchChildren' | 'timelineShowConstraints' | 'timelineShowRegions'> {
+  return { timelineSketchChildren: s.timelineSketchChildren, timelineShowConstraints: s.timelineShowConstraints, timelineShowRegions: s.timelineShowRegions };
 }
 
 /** Per-render inputs shared by every renderSubtree call. */
@@ -70,7 +89,7 @@ interface ParkedRowState {
 interface RenderContext {
   items: SceneObjectRender[];
   rollbackStop: number;
-  /** Ids of every non-hidden object that has at least one non-hidden child. */
+  /** Ids of every object that has at least one listed child (see listsRow). */
   parentIds: Set<string>;
   /** Ids of every container with an errored descendant at any depth. */
   erroredIds: Set<string>;
@@ -278,6 +297,8 @@ export class TimelinePanel {
   private showBuildTimings = false;
   private readonly showStatusMarks: boolean;
   private readonly showChildren: boolean;
+  private timelineDisplay = timelineDisplayOf(viewerSettings.current);
+  private readonly unsubscribeSettings: () => void;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
 
@@ -295,6 +316,19 @@ export class TimelinePanel {
   ) {
     this.showStatusMarks = options.status !== false;
     this.showChildren = options.children !== false;
+    this.unsubscribeSettings = viewerSettings.subscribe((s) => {
+      const next = timelineDisplayOf(s);
+      const prev = this.timelineDisplay;
+      if (next.timelineSketchChildren === prev.timelineSketchChildren
+        && next.timelineShowConstraints === prev.timelineShowConstraints
+        && next.timelineShowRegions === prev.timelineShowRegions) {
+        return;
+      }
+      this.timelineDisplay = next;
+      if (this.loaded) {
+        this.renderTimeline();
+      }
+    });
     this.panel = document.createElement('div');
     // Docked in the scene's left gutter, below the host chrome and any inset
     // an embedding host has claimed (see RAIL_PANEL_CLASS).
@@ -596,7 +630,7 @@ export class TimelinePanel {
         if (isConstraintRow(row)) {
           this.expandedConstraintIds.add(row.parentId);
         }
-        const group = partGroupOf(row);
+        const group = groupOf(SceneIndex.of(this.sceneObjects).parent(row), row);
         if (group) {
           this.expandedGroupKeys.add(`${row.parentId}:${group.key}`);
         }
@@ -633,13 +667,39 @@ export class TimelinePanel {
   }
 
   /**
+   * Whether the timeline lists `obj` at all. The scene's own hidden rows
+   * never show. A constraint or region row shows while its Timeline setting
+   * is on. Any other child of a sketch shows unless only editable features
+   * are wanted and this one has no edit dialog — a host that never says
+   * which rows are editable keeps listing them all. Errors still climb out
+   * of an unlisted row (see erroredAncestorIds), so a failing hidden
+   * constraint keeps flagging its sketch.
+   */
+  private listsRow(obj: SceneObjectRender, parent: SceneObjectRender | undefined): boolean {
+    if (isHiddenRow(obj)) {
+      return false;
+    }
+    if (isConstraintRow(obj)) {
+      return this.timelineDisplay.timelineShowConstraints;
+    }
+    if (isRegionRow(obj)) {
+      return this.timelineDisplay.timelineShowRegions;
+    }
+    if (parent?.type === 'sketch' && this.timelineDisplay.timelineSketchChildren === 'editable' && this.isFeatureEditable) {
+      return this.isFeatureEditable(obj);
+    }
+    return true;
+  }
+
+  /**
    * Nesting depth at which renderTimeline emits a row for this object
-   * (0 = top level), or null when it never gets one: hidden rows, rows under
-   * a hidden or hide-children ancestor, and rows nested deeper than
-   * MAX_RENDER_DEPTH. Collapse state is not considered.
+   * (0 = top level), or null when it never gets one: hidden and unlisted
+   * rows, rows under a hidden or hide-children ancestor, and rows nested
+   * deeper than MAX_RENDER_DEPTH. Collapse state is not considered.
    */
   private renderedDepth(obj: SceneObjectRender): number | null {
-    if (isHiddenRow(obj)) {
+    const index = SceneIndex.of(this.sceneObjects);
+    if (!this.listsRow(obj, index.parent(obj))) {
       return null;
     }
     const visited = new Set<string>();
@@ -650,8 +710,8 @@ export class TimelinePanel {
         return null;
       }
       visited.add(cur.parentId);
-      const parent = SceneIndex.of(this.sceneObjects).parent(cur);
-      if (!parent || isHiddenRow(parent) || parent.hideChildren === true) {
+      const parent = index.parent(cur);
+      if (!parent || !this.listsRow(parent, index.parent(parent)) || parent.hideChildren === true) {
         return null;
       }
       depth++;
@@ -778,8 +838,9 @@ export class TimelinePanel {
       && findActiveSketch(items) !== undefined;
 
     const parentIds = new Set<string>();
+    const sceneIndex = SceneIndex.of(items);
     for (const obj of items) {
-      if (!isHiddenRow(obj) && obj.parentId) {
+      if (obj.parentId && this.listsRow(obj, sceneIndex.parent(obj))) {
         parentIds.add(obj.parentId);
       }
     }
@@ -842,9 +903,10 @@ export class TimelinePanel {
           this.renderTimeline();
           return;
         }
-        if (obj && partGroupOf(obj) && this.onFeatureShow) {
+        if (obj && groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part' && this.onFeatureShow) {
           // Connector / exposed rows show what they publish instead of
-          // rolling back — they are references, not modeling steps.
+          // rolling back — they are references, not modeling steps. (A
+          // region row is a statement of its sketch and rolls back like one.)
           this.onFeatureShow(obj);
           this.goToSource(obj);
           return;
@@ -1059,7 +1121,8 @@ export class TimelinePanel {
   /**
    * Ids of every container with an errored descendant (own error excluded,
    * any depth). A failing constraint marks its sketch AND the part around
-   * it, so a collapsed ancestor still flags the failure.
+   * it, so a collapsed ancestor still flags the failure — and so does a
+   * row the Timeline settings leave unlisted, which is otherwise invisible.
    */
   private erroredAncestorIds(items: SceneObjectRender[]): Set<string> {
     const out = new Set<string>();
@@ -1078,8 +1141,9 @@ export class TimelinePanel {
 
   /**
    * The row for the object at `index` plus, when it is an expanded container
-   * above the depth cap, its children — constraints and part sub-groups
-   * behind their summary rows, everything else recursing one level deeper.
+   * above the depth cap, its listed children — constraints and the grouped
+   * kinds behind their summary rows, everything else recursing one level
+   * deeper.
    * A hide-children container (e.g. a repeat) always shows as a single leaf
    * row; a container at the last rendered depth does too, with no chevron.
    */
@@ -1103,7 +1167,7 @@ export class TimelinePanel {
     const grouped = new Map<string, number[]>();
     const sceneIndex = SceneIndex.of(items);
     for (const child of sceneIndex.children(obj.id)) {
-      if (isHiddenRow(child)) {
+      if (!this.listsRow(child, obj)) {
         continue;
       }
       const j = sceneIndex.position(child);
@@ -1111,7 +1175,7 @@ export class TimelinePanel {
         constraintRows.push(j);
         continue;
       }
-      const group = obj.type === 'part' ? partGroupOf(items[j]) : undefined;
+      const group = groupOf(obj, items[j]);
       if (group) {
         const list = grouped.get(group.key) ?? [];
         list.push(j);
@@ -1130,7 +1194,7 @@ export class TimelinePanel {
         }
       }
     }
-    for (const kind of PART_GROUP_KINDS) {
+    for (const kind of GROUP_KINDS) {
       const rows = grouped.get(kind.key);
       if (!rows || rows.length === 0) {
         continue;
@@ -1208,12 +1272,12 @@ export class TimelinePanel {
   }
 
   /**
-   * The "N connectors" / "N exposed" toggle row of a part sub-container.
-   * Carries no data-index on purpose: it is not a statement — no rollback,
-   * rename or context menu — only the show/hide toggle for the grouped rows
-   * below it.
+   * The "N connectors" / "N exposed" / "N regions" toggle row of a
+   * sub-container. Carries no data-index on purpose: it is not a statement —
+   * no rollback, rename or context menu — only the show/hide toggle for the
+   * grouped rows below it.
    */
-  private renderGroupSummaryRow(groupKey: string, kind: PartGroupKind, count: number, shown: boolean, anyError: boolean, depth: number): string {
+  private renderGroupSummaryRow(groupKey: string, kind: GroupKind, count: number, shown: boolean, anyError: boolean, depth: number): string {
     const rotation = shown ? 'rotate-90' : '';
     const textClass = anyError ? 'text-error' : 'text-base-content/60';
     const errorDot = anyError
@@ -1244,8 +1308,9 @@ export class TimelinePanel {
     // "hidden shape" about something that cannot be shown or hidden and
     // grayscale the constraint artwork out of the row it labels. An exposure
     // is likewise a reference, not geometry — dimming it would read as
-    // "consumed" about something nothing can consume.
-    const isInvisible = obj.visible === false && !isConstraintRow(obj) && obj.type !== 'exposed';
+    // "consumed" about something nothing can consume. A region declaration
+    // is a name for a pick, with no shapes of its own, so it stays lit too.
+    const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
     const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
@@ -1396,6 +1461,7 @@ export class TimelinePanel {
   }
 
   dispose(): void {
+    this.unsubscribeSettings();
     if (this.activeDropdown) {
       this.activeDropdown.remove();
       this.activeDropdown = null;

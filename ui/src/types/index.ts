@@ -98,7 +98,9 @@ export type ObjectType =
   // Assembly mate connectors
   | 'connector'
   // Named geometry publications (`expose('name', …)`) — shapeless pass-throughs
-  | 'exposed';
+  | 'exposed'
+  // A sketch's region declarations (`region('name', …)`) — shapeless names for region picks
+  | 'region';
 
 // ---------------------------------------------------------------------------
 // Shape types — the geometric representation of a scene object

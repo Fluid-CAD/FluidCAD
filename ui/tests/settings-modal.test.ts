@@ -14,7 +14,7 @@ import type { UserPreferences } from '../src/api';
 afterEach(() => {
   document.body.innerHTML = '';
   document.documentElement.removeAttribute('data-theme');
-  viewerSettings.update({ snapRadiusPx: 15, pickRadiusPx: 12 });
+  viewerSettings.update({ snapRadiusPx: 15, pickRadiusPx: 12, timelineSketchChildren: 'all', timelineShowConstraints: true, timelineShowRegions: false });
   editorPrefs.update({ fontFamily: '', fontSize: 13, wordWrap: false, openAtStartup: false });
   newProjectDefaults.update({ unit: 'mm' });
 });
@@ -59,10 +59,10 @@ function typeNumber(input: HTMLInputElement, value: string): void {
 }
 
 describe('SettingsModal', () => {
-  it('lists the five tabs, opens on Appearance, switches on click, and has a fixed-height box', () => {
+  it('lists the six tabs, opens on Appearance, switches on click, and has a fixed-height box', () => {
     const { modal, overlay } = mount();
     expect(Array.from(overlay.querySelectorAll('[data-tab]')).map((b) => b.textContent)).toEqual([
-      'Appearance', 'Editor', 'Sketch', 'Units', 'Advanced',
+      'Appearance', 'Editor', 'Sketch', 'Timeline', 'Units', 'Advanced',
     ]);
     expect(overlay.querySelector('[data-ref="box"]')!.className).toMatch(/\bh-\[480px\]/);
     expect(modal.isOpen()).toBe(false);
@@ -161,6 +161,35 @@ describe('SettingsModal', () => {
     expect(savePreference).toHaveBeenCalledWith('editorFontSize', 16);
     expect(savePreference).toHaveBeenCalledWith('editorWordWrap', true);
     expect(savePreference).toHaveBeenCalledWith('editorOpen', true);
+  });
+
+  it('Timeline offers the sketch-children choice and the constraints and regions switches, and saves only what changed', () => {
+    const { modal, overlay, savePreference } = mount();
+    modal.show('timeline');
+    const timeline = panel(overlay, 'timeline');
+    const select = timeline.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Show all', 'Show only editable features']);
+    expect(select.value).toBe('all');
+    const [constraints, regions] = Array.from(timeline.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(constraints.checked).toBe(true);
+    expect(regions.checked).toBe(false);
+
+    select.value = 'editable';
+    select.dispatchEvent(new Event('change'));
+    regions.checked = true;
+    regions.dispatchEvent(new Event('change'));
+    expect(dotVisible(overlay, 'timeline')).toBe(true);
+    expect(viewerSettings.current.timelineSketchChildren).toBe('all');
+    expect(viewerSettings.current.timelineShowRegions).toBe(false);
+
+    saveButton(overlay).click();
+    expect(viewerSettings.current.timelineSketchChildren).toBe('editable');
+    expect(viewerSettings.current.timelineShowConstraints).toBe(true);
+    expect(viewerSettings.current.timelineShowRegions).toBe(true);
+    expect(savePreference).toHaveBeenCalledWith('timelineSketchChildren', 'editable');
+    expect(savePreference).toHaveBeenCalledWith('timelineShowRegions', true);
+    expect(savePreference).not.toHaveBeenCalledWith('timelineShowConstraints', expect.anything());
+    expect(dotVisible(overlay, 'timeline')).toBe(false);
   });
 
   it('Units lists every unit and saves the pick for new projects', () => {

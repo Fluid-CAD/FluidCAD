@@ -6,6 +6,7 @@ import {
   MEASURE_LENGTH_UNITS,
   PICK_RADIUS_PX_RANGE,
   SNAP_RADIUS_PX_RANGE,
+  TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
   resetPreferences,
   savePreferences,
@@ -124,6 +125,15 @@ export function createPreferencesRouter(): Router {
         }
         if (MEASURE_LENGTH_UNITS.includes(body.defaultProjectUnit)) {
           current.defaultProjectUnit = body.defaultProjectUnit;
+        }
+        if (TIMELINE_SKETCH_CHILDREN.includes(body.timelineSketchChildren)) {
+          current.timelineSketchChildren = body.timelineSketchChildren;
+        }
+        if (typeof body.timelineShowConstraints === 'boolean') {
+          current.timelineShowConstraints = body.timelineShowConstraints;
+        }
+        if (typeof body.timelineShowRegions === 'boolean') {
+          current.timelineShowRegions = body.timelineShowRegions;
         }
         await savePreferences(current);
         return current;

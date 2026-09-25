@@ -5,6 +5,7 @@ import { AppearanceTab } from './appearance-tab';
 import { EditorTab } from './editor-tab';
 import type { SettingsContext, SettingsTab } from './settings-tab';
 import { SketchTab } from './sketch-tab';
+import { TimelineTab } from './timeline-tab';
 import { UnitsTab } from './units-tab';
 
 export interface SettingsModalHandlers {
@@ -44,7 +45,7 @@ export class SettingsModal {
   private readonly ctx: SettingsContext;
 
   constructor(container: HTMLElement, private readonly handlers: SettingsModalHandlers) {
-    this.tabs = [new AppearanceTab(), new EditorTab(), new SketchTab(), new UnitsTab(), new AdvancedTab()];
+    this.tabs = [new AppearanceTab(), new EditorTab(), new SketchTab(), new TimelineTab(), new UnitsTab(), new AdvancedTab()];
     this.activeId = this.tabs[0].id;
     this.ctx = {
       changed: () => this.refreshDirty(),

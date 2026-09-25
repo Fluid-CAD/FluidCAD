@@ -50,7 +50,16 @@ export interface Preferences {
   pickRadiusPx: number;
   /** The unit `fluidcad init` writes into a new project when none is asked for. */
   defaultProjectUnit: MeasureLengthUnit;
+  /** Which of a sketch's children the timeline lists: every row, or only the features that have an edit dialog. */
+  timelineSketchChildren: TimelineSketchChildren;
+  /** The timeline lists a sketch's constraints (behind their "N constraints" group). Default true. */
+  timelineShowConstraints: boolean;
+  /** The timeline lists a sketch's region declarations (behind their "N regions" group). Default false. */
+  timelineShowRegions: boolean;
 }
+
+export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
+export type TimelineSketchChildren = (typeof TIMELINE_SKETCH_CHILDREN)[number];
 
 const DEFAULTS: Preferences = {
   theme: 'fluidcad-dark',
@@ -72,6 +81,9 @@ const DEFAULTS: Preferences = {
   snapRadiusPx: 15,
   pickRadiusPx: 12,
   defaultProjectUnit: 'mm',
+  timelineSketchChildren: 'all',
+  timelineShowConstraints: true,
+  timelineShowRegions: false,
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */

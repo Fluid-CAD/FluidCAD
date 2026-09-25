@@ -206,7 +206,16 @@ export interface UserPreferences {
   pickRadiusPx?: number;
   /** The unit a new project is scaffolded in. Default mm. */
   defaultProjectUnit?: LengthUnit;
+  /** Which of a sketch's children the timeline lists. Default 'all'. */
+  timelineSketchChildren?: TimelineSketchChildren;
+  /** The timeline lists a sketch's constraints. Default true. */
+  timelineShowConstraints?: boolean;
+  /** The timeline lists a sketch's region declarations. Default false. */
+  timelineShowRegions?: boolean;
 }
+
+/** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
+export type TimelineSketchChildren = 'all' | 'editable';
 
 // ---------------------------------------------------------------------------
 // Helpers

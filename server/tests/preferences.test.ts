@@ -60,6 +60,9 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
     expect(prefs.pickRadiusPx).toBe(12);
     expect(prefs.defaultProjectUnit).toBe('mm');
     expect(prefs.editorOpen).toBe(false);
+    expect(prefs.timelineSketchChildren).toBe('all');
+    expect(prefs.timelineShowConstraints).toBe(true);
+    expect(prefs.timelineShowRegions).toBe(false);
   });
 
   it('merges one key per POST, clamps the numbers and refuses a font family that is not a plain name', async () => {
@@ -81,6 +84,14 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
       expect(prefs.defaultProjectUnit).toBe('in');
       prefs = await post(`${base}/preferences`, { defaultProjectUnit: 'furlong' });
       expect(prefs.defaultProjectUnit).toBe('in');
+      prefs = await post(`${base}/preferences`, { timelineSketchChildren: 'editable', timelineShowConstraints: false, timelineShowRegions: true });
+      expect(prefs.timelineSketchChildren).toBe('editable');
+      expect(prefs.timelineShowConstraints).toBe(false);
+      expect(prefs.timelineShowRegions).toBe(true);
+      prefs = await post(`${base}/preferences`, { timelineSketchChildren: 'some', timelineShowConstraints: 'no', timelineShowRegions: 1 });
+      expect(prefs.timelineSketchChildren).toBe('editable');
+      expect(prefs.timelineShowConstraints).toBe(false);
+      expect(prefs.timelineShowRegions).toBe(true);
       // Every earlier key survived the later merges.
       expect(prefs.editorFontSize).toBe(40);
       expect(prefs.snapRadiusPx).toBe(2);

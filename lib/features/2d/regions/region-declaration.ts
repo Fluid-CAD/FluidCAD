@@ -24,6 +24,13 @@ export class SketchRegionDeclaration extends SceneObject {
 
   constructor(readonly regionName: string) {
     super();
+    // The row is the name: "r1" says which region this is, "Region" does
+    // not. Same as a connector row, which reads its connector name. A bad
+    // name (missing, not a string) keeps the type as the label; register()
+    // reports it.
+    if (typeof regionName === 'string' && regionName.length > 0) {
+      this.name(regionName);
+    }
   }
 
   /** Resolve the targets and register the name with the sketch (statement time). */

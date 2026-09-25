@@ -2,6 +2,7 @@ import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { Matrix4 } from "../math/matrix4.js";
+import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
 export interface ShapeFilter {
   excludeMeta?: boolean;
@@ -33,6 +34,17 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   private meshes: SceneObjectMesh[]
   private _meshSource: { shape: Shape; matrix: Matrix4 } | null = null;
   private _released: boolean = false;
+  /** Independently owned native handles: rewrapped/cached paths do not depend on a source wrapper's lifetime. */
+  private _helixEdges: { edge: TopoDS_Shape; geometry: ResolvedHelixGeometry }[] = [];
+
+  getHelixEdges(): readonly { edge: TopoDS_Shape; geometry: ResolvedHelixGeometry }[] {
+    return this._helixEdges;
+  }
+
+  recordHelixGeometry(edge: TopoDS_Shape, geometry: ResolvedHelixGeometry): void {
+    if (this._helixEdges.some(entry => entry.edge.IsSame(edge))) return;
+    this._helixEdges.push({ edge: edge.Oriented(edge.Orientation()), geometry });
+  }
 
   constructor(private shape: T) {
     // globalThis.crypto works in Node >= 19 and the browser; node:crypto does not.
@@ -104,6 +116,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
       return;
     }
     this._released = true;
+    for (const entry of this._helixEdges) entry.edge.delete();
+    this._helixEdges = [];
     this.shape?.delete();
     this.shape = null;
   }
@@ -127,6 +141,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     }
     this._released = true;
     this.deleteOwnedHandles(retainedRaw, deletedRaw);
+    this._helixEdges = [];
     this.shape = null;
     this.meshes = null;
     this._meshSource = null;
@@ -144,6 +159,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     for (const entry of this.colorMap) {
       out.add(entry.shape);
     }
+    for (const entry of this._helixEdges) out.add(entry.edge);
   }
 
   /**
@@ -160,6 +176,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     for (const entry of this.colorMap) {
       Shape.deleteRawHandle(entry.shape, retainedRaw, deletedRaw);
     }
+    for (const entry of this._helixEdges) Shape.deleteRawHandle(entry.edge, retainedRaw, deletedRaw);
   }
 
   protected static deleteRawHandle(

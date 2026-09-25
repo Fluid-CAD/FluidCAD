@@ -33,21 +33,19 @@ describe("subtractive cylindrical sweep release gate", () => {
   let fixture: OrientationFixture;
   let automatic: SweepResult;
   let axial: SweepResult;
-  let legacyMetrics: ReturnType<typeof sectionMetrics>;
-  let legacyBoundaryError: number;
+  let automaticMetrics: ReturnType<typeof sectionMetrics>;
+  let automaticBoundaryError: number;
 
-  // Build outside it.fails: a kernel/fixture error must fail setup, never
-  // masquerade as the expected geometric defect. Remove .fails as each
-  // automatic-policy gate is fixed; an unexpected pass already fails CI.
+  // Build once for independent topology, section and fitted-surface checks.
   beforeAll(() => {
     fixture = orientationFixture();
-    legacyMetrics = sectionMetrics(fixture, fixture.automatic);
+    automaticMetrics = sectionMetrics(fixture, fixture.automatic);
     automatic = SweepOps.buildResolved(fixture.automatic);
     axial = SweepOps.buildResolved(fixture.axial);
-    legacyBoundaryError = boundaryError(fixture, automatic.solids[0].getShape());
-    expect(Number.isFinite(legacyMetrics.maxVertexError)).toBe(true);
-    expect(Number.isFinite(legacyMetrics.maxRollDegrees)).toBe(true);
-    expect(Number.isFinite(legacyBoundaryError)).toBe(true);
+    automaticBoundaryError = boundaryError(fixture, automatic.solids[0].getShape());
+    expect(Number.isFinite(automaticMetrics.maxVertexError)).toBe(true);
+    expect(Number.isFinite(automaticMetrics.maxRollDegrees)).toBe(true);
+    expect(Number.isFinite(automaticBoundaryError)).toBe(true);
   });
   afterAll(() => {
     if (automatic) disposeSweep(automatic);
@@ -65,16 +63,16 @@ describe("subtractive cylindrical sweep release gate", () => {
     }
   });
 
-  it.fails("automatic transport preserves the authored section under screw motion", () => {
-    expect(legacyMetrics.maxVertexError).toBeLessThanOrEqual(SECTION_TOLERANCE);
+  it("automatic transport preserves the authored section under screw motion", () => {
+    expect(automaticMetrics.maxVertexError).toBeLessThanOrEqual(SECTION_TOLERANCE);
   });
 
-  it.fails("automatic transport stays within 0.01 degrees of screw motion at every station", () => {
-    expect(legacyMetrics.maxRollDegrees).toBeLessThanOrEqual(ROLL_TOLERANCE_DEG);
+  it("automatic transport stays within 0.01 degrees of screw motion at every station", () => {
+    expect(automaticMetrics.maxRollDegrees).toBeLessThanOrEqual(ROLL_TOLERANCE_DEG);
   });
 
-  it.fails("the automatically built cutter boundary follows the analytic screw surface", () => {
-    expect(legacyBoundaryError).toBeLessThanOrEqual(SECTION_TOLERANCE);
+  it("the automatically built cutter boundary follows the analytic screw surface", () => {
+    expect(automaticBoundaryError).toBeLessThanOrEqual(SECTION_TOLERANCE);
   });
 
   it("qualifies explicit axial transport with the drawn profile at the start vertex", () => {
@@ -104,7 +102,7 @@ describe("subtractive cylindrical sweep release gate", () => {
       expect(ShapeValidator.signedVolume(ghost.solids[0].getShape())).toBeCloseTo(
         ShapeValidator.signedVolume(automatic.solids[0].getShape()), 5,
       );
-      expect(boundaryError(fixture, ghost.solids[0].getShape())).toBeCloseTo(legacyBoundaryError, 6);
+      expect(boundaryError(fixture, ghost.solids[0].getShape())).toBeCloseTo(automaticBoundaryError, 6);
     } finally {
       [...ghost.solids, ...ghost.scratch].forEach(shape => shape.dispose());
     }
@@ -147,14 +145,16 @@ describe("subtractive cylindrical sweep release gate", () => {
   });
 });
 
-describe("explicit axial section qualification", () => {
+describe("automatic cylindrical section qualification", () => {
   it.each([
-    [10, 5, false], [26, 5, false], [27, 5, false], [28, 5, false], [40, 5, false],
-    [10, 32, false], [10, 64, false], [28, 1.25, true], [28, 5, true],
+    [10, 5, false], [26, 5, false], [27, 5, false], [28, 5, false], [40, 5, false], [28, 1, false],
+    [10, 31, false], [10, 32, false], [10, 33, false], [10, 63, false],
+    [10, 64, false], [10, 65, false], [28, 1.25, true], [28, 5, true],
   ] as const)("pitch %s, turns %s, ccw %s", (pitch, turns, ccw) => {
     const fixture = orientationFixture(pitch, turns, ccw);
     try {
-      const metrics = sectionMetrics(fixture, fixture.axial);
+      expect(fixture.automatic.transport.kind).toBe("helix");
+      const metrics = sectionMetrics(fixture, fixture.automatic);
       expect(metrics.maxVertexError).toBeLessThanOrEqual(SECTION_TOLERANCE);
       expect(metrics.maxRollDegrees).toBeLessThanOrEqual(ROLL_TOLERANCE_DEG);
     } finally {
@@ -167,7 +167,8 @@ describe("explicit axial section qualification", () => {
     const frame = new CoordinateSystem(new Point(40, -17, 8), axis, Vector3d.unitX().cross(axis).normalize());
     const fixture = orientationFixture(28, 1.25, true, frame);
     try {
-      const metrics = sectionMetrics(fixture, fixture.axial);
+      expect(fixture.automatic.transport.kind).toBe("helix");
+      const metrics = sectionMetrics(fixture, fixture.automatic);
       expect(metrics.maxVertexError).toBeLessThanOrEqual(SECTION_TOLERANCE);
       expect(metrics.maxRollDegrees).toBeLessThanOrEqual(ROLL_TOLERANCE_DEG);
     } finally {
@@ -219,7 +220,7 @@ describe("fully constrained open-model integration fixture", () => {
     expect(retainedVolume).toBeGreaterThan(0);
   });
 
-  it.fails("retains the stock outside the intended one-millimetre groove", () => {
+  it("retains the stock outside the intended one-millimetre groove", () => {
     const expected = Math.PI * 25 ** 2 * 120 - analyticRemovedVolume();
     expect(Math.abs(retainedVolume - expected)).toBeLessThan(0.05);
   });

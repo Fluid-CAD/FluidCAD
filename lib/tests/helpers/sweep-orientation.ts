@@ -82,9 +82,11 @@ export function sectionMetrics(fixture: OrientationFixture, spec: ResolvedSweepS
   const placement = spec.placement;
   return PipeRun.withBuilder(spec.spine.wire, {
     wire: fixture.profile.getShape(),
-    placed: placement.kind === "atVertex",
+    placed: placement.kind !== "legacyAutomatic",
     withCorrection: placement.kind === "legacyAutomatic" && placement.withCorrection,
     location: placement.kind === "atVertex" ? placement.vertex : undefined,
+    atStart: placement.kind === "atStart",
+    transform: placement.kind === "atStart" ? placement.transform : undefined,
   }, spec.transport, pipe => {
     const count = Math.max(5, Math.ceil(fixture.geometry.turns * 4) + 1);
     const sections = new (getOC().TopTools_ListOfShape)();
@@ -145,7 +147,7 @@ export function sectionMetrics(fixture: OrientationFixture, spec: ResolvedSweepS
 }
 
 /** Distance to a shell (a solid would return zero for points in its interior). */
-export function boundaryError(fixture: OrientationFixture, solid: TopoDS_Shape): number {
+export function boundaryError(fixture: OrientationFixture, solid: TopoDS_Shape, transform?: Matrix4): number {
   const oc = getOC();
   const shells = Explorer.findShapes(solid, oc.TopAbs_ShapeEnum.TopAbs_SHELL);
   if (shells.length !== 1) throw new Error("Expected one cutter shell.");
@@ -159,7 +161,8 @@ export function boundaryError(fixture: OrientationFixture, solid: TopoDS_Shape):
     ]);
     for (const fraction of [0.07, 0.23, 0.47, 0.71, 0.93]) {
       for (const sample of profileSamples) {
-        const point = screwPoint(fixture, sample, fraction);
+        const expected = screwPoint(fixture, sample, fraction);
+        const point = transform ? transform.transformPoint(expected) : expected;
         const pnt = new oc.gp_Pnt(point.x, point.y, point.z);
         const maker = new oc.BRepBuilderAPI_MakeVertex(pnt);
         const vertex = maker.Vertex();
@@ -183,14 +186,14 @@ export function boundaryError(fixture: OrientationFixture, solid: TopoDS_Shape):
 }
 
 /**
- * Independent removed volume for the R25/pitch28/height120 fixture. Integrate
+ * Independent removed volume for the R25/height120 fixture at the given pitch. Integrate
  * the screw-map Jacobian over the part of the trapezoid inside the cylinder.
  * The 10 mm end overshoots cover every section's axial tilt; turns do not
  * overlap. Simpson quadrature uses no OCCT geometry or measured cut volumes.
  */
-export function analyticRemovedVolume(intervals = 20000): number {
+export function analyticRemovedVolume(intervals = 20000, pitch = 28): number {
   const radius = 25 - 1e-6;
-  const lead = 28 / (2 * Math.PI);
+  const lead = pitch / (2 * Math.PI);
   const a = radius / Math.hypot(radius, lead);
   const b = lead / Math.hypot(radius, lead);
   const low = radius - 25;

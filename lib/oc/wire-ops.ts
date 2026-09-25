@@ -9,6 +9,7 @@ import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
 import { ShapeOps } from "./shape-ops.js";
 import { mmTol } from "../units/tolerance.js";
+import { inheritHelixGeometry } from "./helix-metadata.js";
 
 export class WireOps {
   static isCW(wire: Wire, normal: Vector3d): boolean {
@@ -16,15 +17,15 @@ export class WireOps {
   }
 
   static makeWireFromEdges(edges: Edge[]): Wire {
-    return Wire.fromTopoDSWire(WireOps.makeWireFromEdgesRaw(edges.map(e => e.getShape() as TopoDS_Edge)));
+    return inheritHelixGeometry(Wire.fromTopoDSWire(WireOps.makeWireFromEdgesRaw(edges.map(e => e.getShape() as TopoDS_Edge))), edges);
   }
 
   static reverseWire(wire: Wire): Wire {
-    return Wire.fromTopoDSWire(WireOps.reverseWireRaw(wire.getShape() as TopoDS_Wire));
+    return inheritHelixGeometry(Wire.fromTopoDSWire(WireOps.reverseWireRaw(wire.getShape() as TopoDS_Wire)), [wire]);
   }
 
   static buildWire(edges: Edge[]): Wire {
-    return Wire.fromTopoDSWire(WireOps.buildWireRaw(edges.map(e => e.getShape() as TopoDS_Edge)));
+    return inheritHelixGeometry(Wire.fromTopoDSWire(WireOps.buildWireRaw(edges.map(e => e.getShape() as TopoDS_Edge))), edges);
   }
 
   static offsetWire(shape: Wire | Edge, distance: number, isOpen: boolean, plane?: Plane): Wire {
@@ -132,7 +133,7 @@ export class WireOps {
     const wires: Wire[] = [];
     const sequence = handle.Sequence();
     for (let i = 1; i <= sequence.Length(); i++) {
-      wires.push(Wire.fromTopoDSWire(oc.TopoDS.Wire(sequence.Value(i))));
+      wires.push(inheritHelixGeometry(Wire.fromTopoDSWire(oc.TopoDS.Wire(sequence.Value(i))), edges));
     }
 
     input.delete();

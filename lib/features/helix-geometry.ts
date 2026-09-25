@@ -10,6 +10,8 @@ import { CoordinateSystem } from "../math/coordinate-system.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Axis } from "../math/axis.js";
 import { mmTol } from "../units/tolerance.js";
+import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
+export type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
 const DEFAULT_RADIUS = 20;
 const DEFAULT_HEIGHT = 50;
@@ -55,24 +57,6 @@ export type HelixDimensions = {
 };
 
 /**
- * Authored geometry before B-spline approximation. Curve parameter u runs
- * from 0 to parameterEnd; angle = winding * u and axial/radial advance is
- * linear in u. Keep this separate from edge construction so sweep transport
- * can eventually use the authored axis instead of recognizing sampled curves.
- * This descriptor is not yet propagated through selected/copied edges.
- */
-export interface ResolvedHelixGeometry {
-  readonly frame: CoordinateSystem;
-  readonly startRadius: number;
-  readonly endRadius: number;
-  readonly zStart: number;
-  readonly zEnd: number;
-  readonly turns: number;
-  readonly winding: 1 | -1;
-  readonly parameterEnd: number;
-}
-
-/**
  * The helical edge a source and a set of dimensions describe.
  *
  * `warn` reports the option combinations a source overrides (a face fixes its
@@ -91,7 +75,9 @@ export function buildHelixEdge(
 /** Build exactly the dimensions that were resolved for this source. */
 export function buildResolvedHelixEdge(geometry: ResolvedHelixGeometry): Edge {
   const { frame, startRadius, endRadius, zStart, zEnd, turns, winding } = geometry;
-  return HelixOps.makeHelix(frame, startRadius, endRadius, zStart, zEnd, turns, winding === 1);
+  const edge = HelixOps.makeHelix(frame, startRadius, endRadius, zStart, zEnd, turns, winding === 1);
+  edge.recordHelixGeometry(edge.getShape(), geometry);
+  return edge;
 }
 
 export function resolveHelixGeometry(

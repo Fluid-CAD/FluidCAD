@@ -39,6 +39,8 @@ export interface PlaneTransformOptions {
 }
 
 export class Plane {
+  /** Authored station from plane(path, position), before local profile offsets/rotations. */
+  pathStation?: { point: Point; tangent: Vector3d };
   public readonly yDirection: Vector3d;
   public readonly xAxis: Axis;
   public readonly yAxis: Axis;
@@ -69,11 +71,15 @@ export class Plane {
 
   offset(distance: number): Plane {
     const newOrigin = this.origin.add(this.normal.multiply(distance));
-    return new Plane(newOrigin, this.xDirection, this.normal);
+    const plane = new Plane(newOrigin, this.xDirection, this.normal);
+    plane.pathStation = this.pathStation;
+    return plane;
   }
 
   transform(options: PlaneTransformOptions): Plane {
-    return this.applyMatrix(this.getTransformMatrix(options));
+    const plane = this.applyMatrix(this.getTransformMatrix(options));
+    plane.pathStation = this.pathStation;
+    return plane;
   }
 
   getTransformMatrix(options: PlaneTransformOptions): Matrix4 {
@@ -128,12 +134,17 @@ export class Plane {
   }
 
   applyMatrix(matrix: Matrix4): Plane {
-    return new Plane(
+    const plane = new Plane(
       matrix.transformPoint(this.origin),
       matrix.transformDirection(this.xDirection),
       matrix.transformDirection(this.normal),
       matrix.transformDirection(this.yDirection)
     );
+    if (this.pathStation) plane.pathStation = {
+      point: matrix.transformPoint(this.pathStation.point),
+      tangent: matrix.transformDirection(this.pathStation.tangent),
+    };
+    return plane;
   }
 
   translateAlongNormal(distance: number): Plane {

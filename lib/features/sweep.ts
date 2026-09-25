@@ -1,6 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Explorer } from "../oc/explorer.js";
-import { SweepOps } from "../oc/sweep-ops.js";
+import { SweepOps, type SweepResult } from "../oc/sweep-ops.js";
 import { WireExtendOps } from "../oc/wire-extend-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
@@ -15,6 +15,11 @@ import { cutWithSceneObjects, wireFromSceneObjectEdges } from "../helpers/scene-
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { requireShapes } from "../common/operand-check.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
+import { EdgeOps } from "../oc/edge-ops.js";
+import { mmTol } from "../units/tolerance.js";
+import type { Point } from "../math/point.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
@@ -80,7 +85,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
   /** Plain sweep: classify by inner-wire detection on the start face. */
   private buildSweep(profileFaces: Face[], plane: Plane, context: BuildSceneObjectContext) {
     const swept = this.runSweep(profileFaces, context);
-    const classified = this.classifySweepByInnerWires(swept, plane);
+    const classified = this.classifySweepByInnerWires(swept);
     this.dispatchFinalize(swept.solids, classified, plane, context);
   }
 
@@ -89,14 +94,28 @@ export class Sweep extends ExtrudeBase implements ISweep {
     const swept = this.runSweep(thinResult.faces, context);
 
     let classified: ClassifiedFaces;
-    if (thinResult.inwardEdges.length > 0) {
-      const reclass = this.reclassifyThinFaces(
-        swept.sideFaces,
-        swept.startFaces,
-        plane,
-        thinResult.inwardEdges,
-        thinResult.outwardEdges,
-      );
+    if (thinResult.inwardEdges.length > 0 && swept.generatedFaces.length > 0) {
+      const inward = thinResult.inwardEdges.map(edge => plane.worldToLocal(EdgeOps.getEdgeMidPoint(edge)));
+      const outward = thinResult.outwardEdges.map(edge => plane.worldToLocal(EdgeOps.getEdgeMidPoint(edge)));
+      classified = { startFaces: swept.startFaces, endFaces: swept.endFaces,
+        sideFaces: [], internalFaces: [], capFaces: [] };
+      for (const { face, profileMidpoint } of swept.generatedFaces) {
+        const midpoint = plane.worldToLocal(profileMidpoint);
+        if (inward.some(p => p.distanceTo(midpoint) < mmTol(1e-4))) classified.internalFaces.push(face);
+        else if (outward.some(p => p.distanceTo(midpoint) < mmTol(1e-4))) classified.sideFaces.push(face);
+        else classified.capFaces.push(face);
+      }
+    } else if (thinResult.inwardEdges.length > 0) {
+      const transform = swept.profileTransform;
+      const inward = transform ? thinResult.inwardEdges.map(e => ShapeOps.transform(e, transform) as Edge) : thinResult.inwardEdges;
+      const outward = transform ? thinResult.outwardEdges.map(e => ShapeOps.transform(e, transform) as Edge) : thinResult.outwardEdges;
+      let reclass: ReturnType<Sweep["reclassifyThinFaces"]>;
+      try {
+        reclass = this.reclassifyThinFaces(swept.sideFaces, swept.startFaces,
+          transform ? plane.applyMatrix(transform) : plane, inward, outward);
+      } finally {
+        if (transform) [...inward, ...outward].forEach(edge => edge.dispose());
+      }
       classified = {
         startFaces: swept.startFaces,
         endFaces: swept.endFaces,
@@ -105,7 +124,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
         capFaces: reclass.capFaces,
       };
     } else {
-      classified = this.classifySweepByInnerWires(swept, plane);
+      classified = this.classifySweepByInnerWires(swept);
     }
 
     this.dispatchFinalize(swept.solids, classified, plane, context);
@@ -123,45 +142,57 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
     const p = context.getProfiler();
     const spineWire = p.record('Get spine wire', () => this.getSpineWire(this._path));
-    const sweepResult = p.record('Make sweep', () => SweepOps.makeSweep(spineWire, profileFaces));
+    let sweepResult: SweepResult;
+    try {
+      sweepResult = p.record('Make sweep', () => SweepOps.makeSweep(spineWire, profileFaces, this.extrudable.getPlane()));
+    } finally {
+      spineWire.dispose();
+    }
     const solids = sweepResult.solids;
 
     const startFaces: Face[] = [];
     const endFaces: Face[] = [];
     const sideFaces: Face[] = [];
-    const firstShapeFromOC = sweepResult.firstShape;
-    const lastShapeFromOC = sweepResult.lastShape;
+    const generatedFaces: { face: Face; profileMidpoint: Point; internal: boolean }[] = [];
 
-    for (const shape of solids) {
-      for (const f of Explorer.findFacesWrapped(shape)) {
-        const raw = f.getShape();
-        if (firstShapeFromOC && raw.IsSame(firstShapeFromOC)) {
-          startFaces.push(f as Face);
-        } else if (lastShapeFromOC && raw.IsSame(lastShapeFromOC)) {
-          endFaces.push(f as Face);
+    for (let solidIndex = 0; solidIndex < solids.length; solidIndex++) {
+      const faces = Explorer.findFacesWrapped(solids[solidIndex]);
+      for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
+        const f = faces[faceIndex];
+        const role = sweepResult.faceRoles.find(role => role.solidIndex === solidIndex && role.faceIndex === faceIndex)!;
+        if (role.kind === "start") {
+          startFaces.push(f);
+        } else if (role.kind === "end") {
+          endFaces.push(f);
         } else {
-          sideFaces.push(f as Face);
+          sideFaces.push(f);
+          if (role.profileMidpoint) generatedFaces.push({ face: f, profileMidpoint: role.profileMidpoint, internal: role.kind === "inner" });
         }
       }
     }
 
-    return { solids, startFaces, endFaces, sideFaces };
+    return { solids, startFaces, endFaces, sideFaces, generatedFaces, profileTransform: sweepResult.profileTransform };
   }
 
   /** Inner-wire classification used by both regular sweep and closed thin profiles. */
   private classifySweepByInnerWires(
     swept: ReturnType<Sweep['runSweep']>,
-    plane: Plane,
   ): ClassifiedFaces {
+    if (swept.generatedFaces.length > 0) {
+      const inner = new Set(swept.generatedFaces.filter(entry => entry.internal).map(entry => entry.face));
+      return { startFaces: swept.startFaces, endFaces: swept.endFaces,
+        sideFaces: swept.sideFaces.filter(face => !inner.has(face)), internalFaces: [...inner], capFaces: [] };
+    }
     const innerWireEdges: Edge[] = [];
     for (const sf of swept.startFaces) {
-      for (const wire of sf.getWires()) {
-        if (!wire.isCW(plane.normal)) {
-          for (const edge of wire.getEdges()) {
-            innerWireEdges.push(edge);
+      const outer = FaceOps.outerWireRaw(sf.getShape());
+      try {
+        for (const wire of sf.getWires()) {
+          if (!wire.getShape().IsSame(outer)) {
+            innerWireEdges.push(...wire.getEdges());
           }
         }
-      }
+      } finally { outer.delete(); }
     }
 
     const sideFaces: Face[] = [];
@@ -222,13 +253,18 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
   private getSpineWire(pathObj: SceneObject): Wire {
     let wire = wireFromSceneObjectEdges(pathObj, "sweep path");
-    if (this._extendStart !== undefined) {
-      wire = WireExtendOps.extendWire(wire, "start", this._extendStart);
+    try {
+      for (const [side, amount] of [["start", this._extendStart], ["end", this._extendEnd]] as const) {
+        if (amount === undefined) continue;
+        const extended = WireExtendOps.extendWire(wire, side, amount);
+        if (extended !== wire) wire.dispose();
+        wire = extended;
+      }
+      return wire;
+    } catch (error) {
+      wire.dispose();
+      throw error;
     }
-    if (this._extendEnd !== undefined) {
-      wire = WireExtendOps.extendWire(wire, "end", this._extendEnd);
-    }
-    return wire;
   }
 
   override getDependencies(): SceneObject[] {

@@ -26,6 +26,30 @@ The path is typically a reusable sketch (open or closed wire) or an
 edge selection. The profile is whatever sketch was last opened — usually
 on a plane perpendicular to the path's start tangent.
 
+For an authored constant-radius `helix`, automatic transport rotates the
+profile about the stored helix axis. A profile on `plane(path, position)`
+keeps that station, including interior positions and tangent extensions.
+Its initial alignment is normal to the actual path tangent; either sketch
+normal sign is accepted without changing an already aligned profile. The
+profile's size and offset are preserved through the subsequent screw motion.
+Copied, selected and mirrored helix edges retain this behavior.
+
+The helical surface is built in spans of at most one revolution. This avoids
+a kernel intersection failure on long helical faces that can leave only
+edges on a cylinder instead of cutting the groove. Smooth span seams can
+add faces/edges; the profile and transport remain the same.
+
+Without a path-plane association, the profile's area centroid is localized
+to the nearest path station. Equally close distinct stations are rejected;
+use `plane(path, position)` to resolve the ambiguity. Unknown non-planar
+paths use corrected Frenet transport. Tapered helices still use approximate
+axis-binormal transport and have not been qualified for exact radial/axial
+profile preservation.
+
+This changes earlier cylindrical sweeps that accumulated unwanted profile
+roll, especially near the old pitch threshold or at high turn counts.
+Existing saved sources rebuild with the repaired automatic policy.
+
 ## Example
 
 ```fluid.js

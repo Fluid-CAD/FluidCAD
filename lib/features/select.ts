@@ -162,7 +162,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope);
+    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope, fromObjects);
     let scopeHasher: ShapeHasher | null = null;
     if (type === "edge") {
       scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
@@ -267,8 +267,19 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return objects;
   }
 
-  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>) {
+  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>, fromObjects: SceneObject[] = []) {
     const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid', removalScope).map(s => s.getSubShapes(type)).flat());
+    // A borrowed path can be a standalone helix/sketch or a copy of one.
+    // Include curves explicitly named by .from(); unscoped edge filters keep
+    // their existing solid-only universe, so construction curves do not leak
+    // into an unrelated fillet/chamfer selection.
+    if (type === "edge") {
+      for (const obj of fromObjects) {
+        scopeShapes.push(...obj.getShapes({}, undefined, removalScope)
+          .filter(shape => shape.isEdge() || shape.isWire())
+          .flatMap(shape => shape.getSubShapes("edge")));
+      }
+    }
     const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(type));
     if (flatExcluded.length === 0) {
       return scopeShapes;
@@ -374,5 +385,4 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     }
   }
 }
-
 

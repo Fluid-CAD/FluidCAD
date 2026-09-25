@@ -2,11 +2,17 @@ import type { TopoDS_Vertex } from "ocjs-fluidcad";
 import type { Face } from "../../common/face.js";
 import type { Wire } from "../../common/wire.js";
 import type { Vector3d } from "../../math/vector3d.js";
+import type { Matrix4 } from "../../math/matrix4.js";
+import type { Point } from "../../math/point.js";
+import type { Plane } from "../../math/plane.js";
+import type { ResolvedHelixGeometry } from "../../math/helix-geometry.js";
 import { SpineAnalysis } from "./spine-analysis.js";
+import { placeCylindricalProfile } from "./helix-placement.js";
 
 /** Kernel transport laws; true Frenet and corrected Frenet are distinct. */
 export type SweepTransport =
   | { kind: "binormal"; axis: Vector3d }
+  | { kind: "helix"; geometry: ResolvedHelixGeometry }
   | { kind: "frenet" }
   | { kind: "correctedFrenet" };
 
@@ -17,7 +23,8 @@ export type SweepTransport =
  */
 export type SweepPlacement =
   | { kind: "legacyAutomatic"; withCorrection: boolean }
-  | { kind: "atVertex"; vertex: TopoDS_Vertex };
+  | { kind: "atVertex"; vertex: TopoDS_Vertex }
+  | { kind: "atStart"; transform: Matrix4; station: Point };
 
 export interface SweepTolerancePolicy {
   /** Legacy lengths are in document/kernel units, not a physical mm budget. */
@@ -42,32 +49,46 @@ export interface ResolvedSweepSpec {
 }
 
 /**
- * Shared by commit and ghost through SweepOps. This first-stage resolver
- * records existing automatic decisions without changing existing geometry.
+ * Shared by commit and ghost through SweepOps. Authored cylindrical paths
+ * use their exact axis, independent of pitch, winding and sample count.
  * Explicit options are internal qualification hooks, not public API controls.
  */
 export function resolveSweepSpec(
   wire: Wire,
   profileFaces: readonly Face[],
-  options: { transport?: SweepTransport; placement?: SweepPlacement } = {},
+  options: { transport?: SweepTransport; placement?: SweepPlacement; profilePlane?: Plane } = {},
 ): ResolvedSweepSpec {
   if (profileFaces.length === 0) {
     throw new Error("Could not extract profile faces from extrudable.");
   }
   const spine = new SpineAnalysis(wire);
-  const plane = profileFaces[0].getPlane();
-  const placement = options.placement ?? {
+  const plane = options.profilePlane ?? profileFaces[0].getPlane();
+  const descriptors = spine.edges.map(edge => wire.getHelixEdges().find(entry => entry.edge.IsSame(edge.edge))?.geometry);
+  const helixIndex = descriptors.findIndex(Boolean);
+  const geometry = descriptors[helixIndex];
+  // One authored helix, optionally continued by tangent lines. Tapers retain
+  // the approximate axis-binormal transport and legacy placement until their
+  // separate qualification; do not advertise that as exact screw motion.
+  const helixRun = geometry && !spine.hasCorners
+    && spine.edges.every((edge, i) => i === helixIndex || (edge.isLine && !descriptors[i]));
+  const cylindrical = helixRun && geometry.startRadius === geometry.endRadius;
+  const transport = options.transport ?? (cylindrical
+    ? { kind: "helix" as const, geometry }
+    : helixRun ? { kind: "binormal" as const, axis: geometry.frame.mainDirection } : spine.trihedron(plane));
+  const placement = options.placement ?? (transport.kind === "helix" && cylindrical ? {
+    kind: "atStart" as const, ...placeCylindricalProfile(spine, helixIndex, geometry, plane, profileFaces),
+  } : {
     kind: "legacyAutomatic",
     withCorrection: plane.normal.dot(spine.startTangent) >= -0.999,
-  };
+  });
   // Corner overshoots change the run's vertices. Do not silently discard an
   // explicit station until the corner builder can carry it through its joins.
-  if (spine.hasCorners && placement.kind === "atVertex") {
+  if (spine.hasCorners && placement.kind !== "legacyAutomatic") {
     throw new Error("Explicit sweep stations are currently supported only on smooth paths.");
   }
   return {
     spine, profileFaces: [...profileFaces], placement,
-    transport: options.transport ?? spine.trihedron(plane),
+    transport,
     tolerances: LEGACY_SWEEP_TOLERANCES,
   };
 }

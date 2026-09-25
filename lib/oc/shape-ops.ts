@@ -19,6 +19,7 @@ import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
 import { DirectFaces } from "./direct-faces.js";
+import { transformHelixGeometry } from "../math/helix-geometry.js";
 
 /**
  * A cleanShape result that preserves UnifySameDomain lineage so callers can
@@ -46,6 +47,17 @@ export class ShapeOps {
     transformer.Perform(shape.getShape(), true);
     const raw = transformer.Shape();
     const transformed = ShapeFactory.fromShape(raw);
+
+    for (const entry of shape.getHelixEdges()) {
+      const geometry = transformHelixGeometry(entry.geometry, matrix);
+      if (!geometry) continue;
+      const edge = transformer.ModifiedShape(entry.edge);
+      try {
+        if (!edge.IsNull()) transformed.recordHelixGeometry(edge, geometry);
+      } finally {
+        edge.delete();
+      }
+    }
 
     if (shape.hasColors()) {
       const sourceFaces = shape.getSubShapes("face");

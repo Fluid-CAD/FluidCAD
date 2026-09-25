@@ -10,6 +10,7 @@ import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import type { SweepTransport } from "./sweep-spec.js";
+import { mmTol } from "../../units/tolerance.js";
 
 /** How two G1 runs of a spine are joined where they meet at a sharp corner. */
 export type CornerJoin = "mitre" | "round";
@@ -59,12 +60,6 @@ export class SpineAnalysis {
 
   /** A junction turning this far (rad) folds the spine back on itself: no pipe can cross it. */
   static readonly CUSP_ANGLE = Math.PI - 0.025;
-
-  /**
-   * How nearly every sampled tangent-rotation vector must line up with their
-   * mean for the mean to serve as a fixed binormal: |cos| = 0.985 is 10°.
-   */
-  private static readonly MAX_AXIS_DEVIATION = 0.985;
 
   // How nearly a candidate binormal may line up with the spine's tangent
   // before `Normal = BiNormal × Tangent` stops being a usable direction:
@@ -170,19 +165,25 @@ export class SpineAnalysis {
   }
 
   /**
-   * Legacy automatic policy, retained during the specification refactor.
-   * The sampled-axis heuristic is NOT a helix recognizer: it switches modes
-   * with pitch and aliases at high turn counts. Authored path metadata and a
-   * proven planarity test must replace it before the cylindrical release gate.
-   * See docs/subtractive-sweep-research-plan.md.
+   * General paths: constant frame on straight lines, fixed binormal on a
+   * kernel-verified plane, otherwise explicit corrected Frenet. Helix axes
+   * come only from geometry provenance in resolveSweepSpec, never sampling.
    */
   trihedron(profilePlane: Plane): SpineTrihedron {
-    const rotation = this.tangentRotationAxis();
-    if (rotation === "twisted") {
-      return { kind: "correctedFrenet" };
+    if (this.edges.every(edge => edge.isLine && edge.startTangent.cross(this.startTangent).length() < 1e-9)) {
+      return { kind: "binormal", axis: SpineAnalysis.straightSpineBinormal(profilePlane, this.startTangent) };
     }
-    const axis = rotation ?? SpineAnalysis.straightSpineBinormal(profilePlane, this.edges[0].startTangent);
-    return { kind: "binormal", axis };
+    const oc = getOC();
+    const finder = new oc.BRepBuilderAPI_FindPlane(this.wire, mmTol(1e-6));
+    try {
+      if (!finder.Found()) return { kind: "correctedFrenet" };
+      const plane = finder.Plane();
+      const axis = plane.Axis();
+      const dir = axis.Direction();
+      try {
+        return { kind: "binormal", axis: new Vector3d(dir.X(), dir.Y(), dir.Z()) };
+      } finally { dir.delete(); axis.delete(); plane.delete(); }
+    } finally { finder.delete(); }
   }
 
   /** Unit tangent of the spine at its start. */
@@ -236,59 +237,6 @@ export class SpineAnalysis {
       // leg's surface has no such mirror image; a round join fills that gap.
       join: before.isLine && after.isLine ? "mitre" : "round",
     };
-  }
-
-  /**
-   * The axis the spine's tangent rotates around, = normalize(Σ ±Tᵢ × Tᵢ₊₁)
-   * over tangents sampled along the spine, each term flipped to agree with
-   * the first so an S-bend's opposite turns reinforce rather than cancel.
-   * For a non-aliased planar spine this estimates the plane normal. On a
-   * helix the cross products also contain rotating transverse components;
-   * their alignment cannot establish a coil axis.
-   * Returns null for a straight spine (every cross product vanishes) and
-   * "twisted" when the sampled axes disagree (a non-planar polyline).
-   */
-  private tangentRotationAxis(): Vector3d | null | "twisted" {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_CompCurve(this.wire, false);
-    const u0 = adaptor.FirstParameter();
-    const u1 = adaptor.LastParameter();
-    const SAMPLES = 64;
-
-    const tangents: Vector3d[] = [];
-    const pnt = new oc.gp_Pnt();
-    const vec = new oc.gp_Vec();
-    for (let i = 0; i <= SAMPLES; i++) {
-      const u = u0 + ((u1 - u0) * i) / SAMPLES;
-      adaptor.D1(u, pnt, vec);
-      const t = new Vector3d(vec.X(), vec.Y(), vec.Z());
-      if (t.length() > 1e-9) {
-        tangents.push(t.normalize());
-      }
-    }
-    pnt.delete();
-    vec.delete();
-    adaptor.delete();
-
-    // unit: dimensionless (unit-tangent cross products)
-    const turns: Vector3d[] = [];
-    for (let i = 0; i + 1 < tangents.length; i++) {
-      const turn = tangents[i].cross(tangents[i + 1]);
-      if (turn.length() > 1e-6) {
-        turns.push(turn);
-      }
-    }
-    if (turns.length === 0) {
-      return null;
-    }
-
-    let axis = Vector3d.zero();
-    for (const turn of turns) {
-      axis = axis.add(turn.dot(turns[0]) < 0 ? turn.negate() : turn);
-    }
-    axis = axis.normalize();
-    const aligned = turns.every(turn => Math.abs(turn.normalize().dot(axis)) >= SpineAnalysis.MAX_AXIS_DEVIATION);
-    return aligned ? axis : "twisted";
   }
 
   /**

@@ -99,7 +99,7 @@ function collectSolids(
   // One body per region, as the kernel builds them (sweep-ops.ts:70) — no fuse
   // here, unlike the revolve: separate regions stay separate bodies through
   // the apply too, so the ghost has no coincident walls to merge away.
-  solids.push(...SweepOps.makeSweep(extendedSpine(options), faces).solids);
+  solids.push(...SweepOps.makeSweep(extendedSpine(options, scratch), faces, plane).solids);
 }
 
 /**
@@ -130,15 +130,16 @@ function profileFaces(
 /**
  * The spine with the dialog's lead-in/run-out applied, as `Sweep.getSpineWire`
  * builds it (sweep.ts). `extendWire` returns its input untouched for a
- * closed wire or a non-positive length, so nothing here needs disposing.
+ * closed wire or a non-positive length. Newly allocated wires belong to the
+ * scratch list, including their independently owned analytic descriptors.
  */
-function extendedSpine(options: SweepGhostOptions): Wire {
+function extendedSpine(options: SweepGhostOptions, scratch: Shape[]): Wire {
   let wire = options.path;
-  if (options.extendStart != null) {
-    wire = WireExtendOps.extendWire(wire, "start", options.extendStart);
-  }
-  if (options.extendEnd != null) {
-    wire = WireExtendOps.extendWire(wire, "end", options.extendEnd);
+  for (const [side, amount] of [["start", options.extendStart], ["end", options.extendEnd]] as const) {
+    if (amount == null) continue;
+    const extended = WireExtendOps.extendWire(wire, side, amount);
+    if (extended !== wire) scratch.push(extended);
+    wire = extended;
   }
   return wire;
 }

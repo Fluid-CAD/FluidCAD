@@ -1368,7 +1368,7 @@ const EDITABLE_ROW_TYPES = new Set([
 ]);
 
 /**
- * Each sketch's consumed state (`!visible || reusable`) from the last COMPLETE
+ * Each sketch's consumed state (`!visible`) from the last COMPLETE
  * build, keyed by source location. Read when a double-click opens a sketch for
  * editing to decide the Finish Sketch button's behavior — the timeline's own
  * row can't be trusted at that moment, because the gesture's first click rolls
@@ -1619,7 +1619,7 @@ async function enterSketchEdit(
   const row = viewer.currentSceneObjects.find(o =>
     o.type === 'sketch' && o.sourceLocation && sketchLocKey(o.sourceLocation) === sketchLocKey(loc));
   const consumed = sketchConsumedByKey.get(sketchLocKey(loc))
-    ?? (row?.visible === false || row?.reusable === true);
+    ?? row?.visible === false;
   const closed = closedHint ?? row?.closed === true;
   if (closed) {
     const result = await setSketchClosed(loc, false);
@@ -2952,7 +2952,7 @@ function applySceneRendered(msg: any): void {
         sketchConsumedByKey.clear();
         for (const o of msg.result as SceneObjectRender[]) {
           if (o.type === 'sketch' && o.sourceLocation) {
-            sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+            sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false);
           }
         }
       }

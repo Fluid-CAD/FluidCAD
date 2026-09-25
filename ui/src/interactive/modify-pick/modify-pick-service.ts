@@ -57,7 +57,7 @@ type SketchSession = {
   breakpoint: boolean;
   /**
    * The sketch is consumed by a later feature (in the full model it was hidden
-   * — its shapes removed — or marked `.reusable()`). Captured when the
+   * — its shapes removed). Captured when the
    * double-click edit opens, from the full-model row before the breakpoint
    * truncates it. Only meaningful with {@link breakpoint}: a consumed sketch
    * being edited finishes by removing the breakpoint (the downstream feature

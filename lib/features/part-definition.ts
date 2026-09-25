@@ -76,15 +76,6 @@ export class PartDefinition<T = unknown> {
     return this;
   }
 
-  /**
-   * No-op — a definition isn't consumable geometry, so there is nothing to
-   * keep alive. Present so definitions satisfy the `ISceneObject` structural
-   * surface everywhere a built part used to flow.
-   */
-  reusable(): this {
-    return this;
-  }
-
   private variantsIn(scene: Scene): Map<string, Part> {
     let variants = this.variantsByScene.get(scene);
     if (!variants) {

@@ -71,7 +71,7 @@ describe("part() definitions", () => {
 
   it("serves expose() sources as features (auto-materializing)", () => {
     const def = part("feat", () => {
-      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); });
       expose("profile", s);
     });
     expect(def.features.profile.getType()).toBe("sketch");
@@ -292,7 +292,7 @@ describe("definition reads in assembly scenes", () => {
     getSceneManager().startAssemblyScene();
     const def = part("p", () => {
       param("Length", 100);
-      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); });
       expose("profile", s);
     });
     expect(Object.keys(def.features)).toEqual(["profile"]);
@@ -315,7 +315,7 @@ describe("definition reads in assembly scenes", () => {
   it("insert() then a features read serves the inserted template's sources", () => {
     getSceneManager().startAssemblyScene();
     const def = part("p", () => {
-      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); });
       expose("profile", s);
     });
     const inst = insert(def);

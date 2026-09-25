@@ -710,7 +710,6 @@ export class SceneRenderer {
       unit: obj.getUnit(),
       fromCache: scene.isCached(obj),
       visible: opts.visible,
-      reusable: obj.isReusable() || undefined,
       closed: obj instanceof Sketch && obj.isClosed() ? true : undefined,
       internal: obj.isInternal() || undefined,
       isContainer: obj.isContainer(),

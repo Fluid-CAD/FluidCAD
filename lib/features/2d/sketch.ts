@@ -82,9 +82,8 @@ export class Sketch extends SceneObject implements Extrudable {
    * rendered scene from the consumer's timeline position on (and return when
    * the timeline is scrubbed before it), but scope-less readers keep seeing
    * them: any later feature may take the same sketch again — `extrude(20, s)`,
-   * `.region('b')`, `project(s)` — with no `.reusable()`. That chain keeps its
-   * one remaining effect, staying on screen after use (a layout sketch).
-   * `remove(s)` forces the hard removal, dropping the sketch for readers too.
+   * `.region('b')`, `project(s)`. `remove(s)` forces the hard removal,
+   * dropping the sketch for readers too.
    * See `removeShapesFromDisplay` for the read-kind rule.
    */
   override consumedForDisplayOnly(): boolean {

@@ -121,7 +121,7 @@ export function sameItem(a: RegionItem, b: RegionItem): boolean {
   return a.owner === b.owner && a.right === b.right && a.path.join('.') === b.path.join('.');
 }
 
-/** Remap the statements of items after a clone (a reusable sketch consumed twice). */
+/** Remap the statements of items after a clone (a sketch consumed twice). */
 export function remapItems(items: RegionItem[], remap: Map<SceneObject, SceneObject>): RegionItem[] {
   return items.map(item => ({
     ...item,

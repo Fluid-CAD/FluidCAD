@@ -22,7 +22,7 @@ describe("repeat circular of a sweep with a borrowed in-sketch path", () => {
     const pathSketch = sketch("front", () => {
         const up = line([0, 0], [0, 20]);
         const across = line([0, 20], [20, 20]);
-        const corner = fillet(5, up, across).reusable();
+        const corner = fillet(5, up, across);
         vertical(up);
         coincident(up.end(), across.start());
         horizontal(across);

@@ -91,7 +91,6 @@ export class AnchoredLazyVertex extends LazyVertex {
    * point (`select(…).end()`, `e.endFaces().center()`), so once the consumer
    * has read the position its highlight must not linger in the scene. Call
    * it after the point is resolved — a consumed selection reads as empty.
-   * Reusable selections stay, as with every consumption.
    */
   consumeFor(consumer: SceneObject): void {
     this.removeShapes(consumer);

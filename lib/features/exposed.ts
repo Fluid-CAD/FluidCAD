@@ -43,8 +43,6 @@ export class Exposed extends SceneObject {
     // timeline is scrubbed before this statement) while every scope-less
     // reader — contact classification, sourceServes pick matching, the
     // cross-part sketch/extrude consumers — still sees the shapes.
-    // Reusable sources (`.reusable()` sketches) stay visible, mirroring
-    // the hard-consumption guard.
     this.source.removeShapesFromDisplay(this);
   }
 

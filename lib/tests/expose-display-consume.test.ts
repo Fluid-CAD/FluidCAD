@@ -65,19 +65,4 @@ describe("expose() display consumption", () => {
     expect(serialized.seed?.form).toBe("plane");
   });
 
-  it("keeps reusable sketch sources fully visible (they are shared geometry)", () => {
-    part("donor", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
-      extrude(10, s);
-      expose("profile", s);
-    });
-    const scene = render();
-    const exposed = findExposed(scene);
-
-    // The reusable guard skips the display removal, mirroring removeShapes.
-    const shapes = exposed.source.getShapes(
-      { excludeGuide: false }, undefined, fullScope(scene),
-    );
-    expect(shapes.length).toBeGreaterThan(0);
-  });
 });

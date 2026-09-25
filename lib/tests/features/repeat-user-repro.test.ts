@@ -42,7 +42,7 @@ describe("repeat circular with axis-from-sketch-line and cut-of-slot targets", (
       tangent(up, bend);
       tangent(bend, topSegment);
       return { topSegment };
-    }).reusable();
+    });
 
     const profile = sketch("top", () => {
         const innerPipe = circle([0, 0], 1.5);

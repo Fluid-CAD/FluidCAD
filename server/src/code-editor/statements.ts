@@ -195,7 +195,7 @@ export function setFeatureName(
  * sketch mode without a consuming feature), and reopening that sketch for
  * editing takes the chain off again so the paused build re-enters it. The
  * chain appends after the last call of the statement so other trailing
- * chains (`.name('…')`, `.reusable()`) keep their place; an existing
+ * chains (`.name('…')`) keep their place; an existing
  * argument-less `.close()` is stripped along with whatever whitespace led
  * up to it, so a chain broken onto its own line leaves no dangling
  * indentation. Both directions are idempotent.
@@ -243,8 +243,8 @@ export function setSketchClosed(
  * Find the callback body (statement_block) inside a sketch() call.
  * Looks for the last arrow_function or function argument, walking down a
  * member chain when the outermost call is a chained modifier — for
- * `sketch('xz', () => {...}).reusable()` the callback belongs to
- * `sketch(...)`, not to the `.reusable()` call the line resolves to.
+ * `sketch('xz', () => {...}).name('spine')` the callback belongs to
+ * `sketch(...)`, not to the `.name(...)` call the line resolves to.
  */
 export function findSketchBody(call: TSNode): TSNode | null {
   let current: TSNode | null = call;

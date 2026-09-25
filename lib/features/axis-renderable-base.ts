@@ -30,8 +30,8 @@ export abstract class AxisObjectBase extends SceneObject implements IAxis {
   /**
    * A feature consumes an axis for display only: the dashed line leaves the
    * rendered scene from the consumer on (a revolve, a circular repeat, a
-   * rotation), but any later feature may take the same axis again with no
-   * `.reusable()`. `remove(a)` drops it for good.
+   * rotation), but any later feature may take the same axis again.
+   * `remove(a)` drops it for good.
    */
   override consumedForDisplayOnly(): boolean {
     return true;

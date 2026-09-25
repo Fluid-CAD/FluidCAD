@@ -15,7 +15,7 @@ import { testRect } from "./helpers/profiles.js";
 
 // Mirrors the server's per-render module reload: every render creates fresh
 // part definitions and a fresh assembly scene, then inserts both parts. The
-// consumer part references the donor's reusable sketch — the cross-part
+// consumer part references the donor's sketch — the cross-part
 // dependency AssemblyCompare must account for.
 function buildAssembly(withExtraRect: boolean): AssemblyScene {
   const scene = getSceneManager().startAssemblyScene();
@@ -26,7 +26,7 @@ function buildAssembly(withExtraRect: boolean): AssemblyScene {
         // Legacy pen landed at (20, 20) after the first rect.
         testRect(5, 5, { at: [20, 20] });
       }
-    }).reusable();
+    });
     expose("profile", s);
   });
   const consumer = part("Consumer", () => {

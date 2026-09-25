@@ -43,7 +43,7 @@ describe("repeat circular cache-compare on unbuilt axis source", () => {
       tangent(up, bend);
       tangent(bend, topSegment);
       return { topSegment };
-    }).reusable();
+    });
 
     const profile = sketch("top", () => {
         const innerPipe = circle([0, 0], 1.5);

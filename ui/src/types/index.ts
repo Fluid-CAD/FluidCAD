@@ -243,8 +243,6 @@ export type SceneObjectRender = {
 
   ownShapes: SceneObjectPart[];
   visible?: boolean;
-  /** The object carries a `.reusable()` chain — kept visible when consumed. */
-  reusable?: boolean;
   /**
    * A sketch carrying a `.close()` chain: finished, so a scope ending in it
    * does not enter sketch mode. Only ever set on sketch rows.

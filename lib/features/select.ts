@@ -46,15 +46,14 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * `plane(select(...))`. Its shapes belong to that feature once it builds, so
    * a later bare `color()` / `fillet(2)` must not fall back to it as the
    * implicit "last selection": that only fails at build time with a
-   * consumed-geometry error naming the feature. Reusable selections keep
-   * their shapes through consumption and stay eligible.
+   * consumed-geometry error naming the feature.
    */
   markClaimed(): void {
     this._claimed = true;
   }
 
   isClaimed(): boolean {
-    return this._claimed && !this.isReusable();
+    return this._claimed;
   }
 
   /**

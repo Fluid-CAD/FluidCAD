@@ -543,7 +543,7 @@ describe('insertGeometryCall', () => {
       `const s = sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
       `  breakpoint()`,
-      `}).reusable();`,
+      `}).name('s');`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
@@ -553,7 +553,7 @@ describe('insertGeometryCall', () => {
       `  line([0, 0], [10, 10])`,
       `  const l1 = line([10, 10], [20, 20]);`,
       `  breakpoint()`,
-      `}).reusable();`,
+      `}).name('s');`,
       ``,
     ].join('\n'));
   });
@@ -884,9 +884,9 @@ describe('setSketchClosed', () => {
   });
 
   it('appends after existing chains, keeping them in place', async () => {
-    const code = `sketch('xy', () => {}).name('Profile').reusable();\n`;
+    const code = `sketch('xy', () => {}).name('Profile').guide();\n`;
     const result = await setSketchClosed(code, 1, true);
-    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile').reusable().close();\n`);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile').guide().close();\n`);
   });
 
   it('is a no-op when the sketch is already closed', async () => {

@@ -87,15 +87,12 @@ describe('loft connections API', () => {
     const e = extrude(20, base);
     const top = sketch(plane('xy', { offset: 80 }), () => testRect(40, 40));
     const sel = select(edge().onPlane('xy', 20).nearest('y'));
-    const kept = select(edge().onPlane('xy', 20).nearest('y')).reusable();
     const result = loft(e.endFaces(), top)
-      .connect(sel.start(), top.geometries.b.start())
-      .connect(kept.end(), top.geometries.r.start()).new() as Loft;
+      .connect(sel.start(), top.geometries.b.start()).new() as Loft;
     render();
     expect(result.getError()).toBeNull();
     expect(result.getShapes()).toHaveLength(1);
     expect((sel as unknown as SceneObject).getShapes()).toHaveLength(0);
-    expect((kept as unknown as SceneObject).getShapes()).toHaveLength(1);
   });
 
   it('reports a selection written inside .connect() as created after the loft', () => {

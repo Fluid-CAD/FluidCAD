@@ -14,7 +14,7 @@ interface ExposeFunction {
    * through `def.features.<name>`:
    *
    *     export const p1 = part('Part1', () => {
-   *       const s = sketch('xz', () => { ... }).reusable();
+   *       const s = sketch('xz', () => { ... });
    *       expose('profile', s);
    *     });
    *

@@ -111,9 +111,6 @@ export function cloneWithTransform(
     remap.set(source, copy);
     copy.setTransform(transform);
     copy.setCloneSource(source);
-    if (source.isReusable()) {
-      copy.reusable();
-    }
     allCloned.push(copy);
   };
 

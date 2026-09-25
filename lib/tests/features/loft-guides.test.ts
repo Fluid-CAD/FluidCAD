@@ -139,7 +139,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       const l = loft(p1, p2).guides(g1) as Loft;
       const sides = l.sideFaces();
@@ -182,7 +182,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       const l = loft(p1, p2).guides(g1) as Loft;
       const sideEdges = l.sideEdges();
@@ -284,7 +284,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       // `.new()` — the two variants overlap almost everywhere; fusing two
       // nearly-coincident B-spline solids is exactly the boolean OCC hates.

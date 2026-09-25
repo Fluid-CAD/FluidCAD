@@ -15,8 +15,8 @@ import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 // A 3D feature consumes its sketch for display only. The wires leave the
 // rendered scene from the consumer on (and return when the timeline is
 // scrubbed before it), but scope-less readers keep seeing them, so a later
-// feature can take the same sketch again with no `.reusable()`. `remove()`
-// is the one hard removal left.
+// feature can take the same sketch again. `remove()` is the one hard
+// removal left.
 describe("sketch display consumption", () => {
   setupOC();
 
@@ -81,7 +81,7 @@ describe("sketch display consumption", () => {
     }
   });
 
-  it("lets a later feature take a consumed sketch again without .reusable()", () => {
+  it("lets a later feature take a consumed sketch again", () => {
     const s = sketch("xy", () => { testRect(40, 20); }) as unknown as Sketch;
     const first = extrude(10, s) as Extrude;
     const second = extrude(-10, s) as Extrude;
@@ -110,15 +110,6 @@ describe("sketch display consumption", () => {
     expect(ring.getError()).toBeNull();
     expect(disc.getError()).toBeNull();
     expect(disc.getShapes()).toHaveLength(1);
-  });
-
-  it("keeps a reusable sketch on screen after use", () => {
-    const s = sketch("xy", () => { testRect(40, 20); }).reusable() as unknown as Sketch;
-    extrude(10, s);
-    const scene = render();
-
-    expect(s.getShapes(undefined, undefined, fullScope(scene)).length).toBeGreaterThan(0);
-    expect(scene.getRenderedObject(s)!.visible).toBe(true);
   });
 
   it("remove() still drops the sketch for readers", () => {

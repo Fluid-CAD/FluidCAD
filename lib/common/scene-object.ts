@@ -66,7 +66,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string | null = null;
   private _guide: boolean = false;
-  private _reusable: boolean = false;
   private _internal: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
@@ -264,7 +263,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   compareTo(other: SceneObject): boolean {
-    const match = this._guide === other._guide && this._reusable === other._reusable;
+    const match = this._guide === other._guide;
 
     if (!match) {
       return false;
@@ -527,20 +526,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * Whether a feature's use of this object hides it from the display instead
    * of consuming it. Sketches, planes and axes are datums other features are
    * built against: `removeShapes` takes them off the screen from the
-   * consumer on, but any later feature may take them again with no
-   * `.reusable()` (see `removeShapesFromDisplay`). A selection or a sketch
-   * geometry a feature uses is consumed for good. `remove(obj)` forces the
-   * hard removal on every object.
+   * consumer on, but any later feature may take them again (see
+   * `removeShapesFromDisplay`). A selection or a sketch geometry a feature
+   * uses is consumed for good. `remove(obj)` forces the hard removal on
+   * every object.
    */
   consumedForDisplayOnly(): boolean {
     return false;
   }
 
   removeShapes(removedBy: SceneObject, force?: boolean) {
-    if (this._reusable && !force) {
-      return;
-    }
-
     if (this.consumedForDisplayOnly() && !force) {
       this.removeShapesFromDisplay(removedBy);
       return;
@@ -570,18 +565,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * when the timeline is scrubbed before the publication), while contact
    * classification, pick matching (`sourceServes`) and cross-part
    * consumers — which all read the source without a scope — keep working.
-   * Reusable sources stay fully visible, mirroring `removeShapes`.
    *
    * The datums (sketches, planes, axes — see `consumedForDisplayOnly`) route
    * every plain `removeShapes` here, so a feature's use of one never takes it
    * away from later features.
    */
   removeShapesFromDisplay(removedBy: SceneObject) {
-
-    if (this._reusable) {
-      return;
-    }
-
     if (this.isContainer()) {
       for (const child of this.children) {
         child.removeShapesFromDisplay(removedBy);
@@ -816,15 +805,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   isGuide(): boolean {
     return this._guide;
-  }
-
-  reusable(): this {
-    this._reusable = true;
-    return this;
-  }
-
-  isReusable(): boolean {
-    return this._reusable;
   }
 
   setSourceLocation(loc: SourceLocation) {

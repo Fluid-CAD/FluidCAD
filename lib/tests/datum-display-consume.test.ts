@@ -24,7 +24,7 @@ import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 // only. The quad or the dashed line leaves the rendered scene from the
 // consumer on (and returns when the timeline is scrubbed before it), but
 // scope-less readers keep seeing it, so a later feature can take the same
-// datum again with no `.reusable()`. `remove()` is the one hard removal left.
+// datum again. `remove()` is the one hard removal left.
 describe("plane and axis display consumption", () => {
   setupOC();
 
@@ -73,7 +73,7 @@ describe("plane and axis display consumption", () => {
       expect(row.sceneShapes).toHaveLength(1);
     });
 
-    it("lets two sketches share one plane without .reusable()", () => {
+    it("lets two sketches share one plane", () => {
       const p = plane("xy", 20) as PlaneObjectBase;
       const s1 = sketch(p, () => { testRect(40, 20); }) as unknown as Sketch;
       const e1 = extrude(10, s1) as Extrude;
@@ -105,15 +105,6 @@ describe("plane and axis display consumption", () => {
 
       expect(m.getError()).toBeNull();
       expect(m.getShapes().length).toBeGreaterThan(0);
-    });
-
-    it("keeps a reusable plane on screen after use", () => {
-      const p = plane("xy", 20).reusable() as PlaneObjectBase;
-      sketch(p, () => { testRect(40, 20); });
-      const scene = render();
-
-      expect(p.getShapes(ALL, undefined, fullScope(scene))).toHaveLength(1);
-      expect(scene.getRenderedObject(p)!.visible).toBe(true);
     });
 
     it("remove() still drops a plane for readers", () => {
@@ -148,7 +139,7 @@ describe("plane and axis display consumption", () => {
       expect(a.getShapes(ALL, undefined, beforeRevolve)).toHaveLength(1);
     });
 
-    it("lets two revolves share one axis without .reusable()", () => {
+    it("lets two revolves share one axis", () => {
       const a = axis("z") as AxisObjectBase;
       sketch("xz", profileOffAxis);
       const r1 = revolve(a, 180) as Revolve;
@@ -163,16 +154,6 @@ describe("plane and axis display consumption", () => {
       expect(r1.getError()).toBeNull();
       expect(r2.getError()).toBeNull();
       expect(r2.getShapes().length).toBeGreaterThan(0);
-    });
-
-    it("keeps a reusable axis on screen after use", () => {
-      const a = axis("z").reusable() as AxisObjectBase;
-      sketch("xz", profileOffAxis);
-      revolve(a);
-      const scene = render();
-
-      expect(a.getShapes(ALL, undefined, fullScope(scene))).toHaveLength(1);
-      expect(scene.getRenderedObject(a)!.visible).toBe(true);
     });
 
     it("remove() still drops an axis for readers", () => {

@@ -13,18 +13,6 @@ export interface ISceneObject {
    * @param value - The display name to assign.
    */
   name(value: string): this;
-
-  /**
-   * Keeps this object's shapes in the scene after a feature uses them. A
-   * sketch, a plane or an axis never needs it to be used twice — a feature
-   * hides these datums from the screen without taking them away from later
-   * features — so on them it means "stay on screen" (a layout sketch, a
-   * plane kept as a landmark). A selection or a sketch geometry used by a
-   * feature is consumed for good unless marked reusable. `remove(obj)` takes
-   * a reusable object out of the scene.
-
-   */
-  reusable(): this;
 }
 
 export interface ISketch extends ISceneObject {

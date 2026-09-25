@@ -24,7 +24,7 @@ describe("expose scope", () => {
   it("throws at assembly scope with a pointed error", () => {
     getSceneManager().startAssemblyScene();
     const p = part("block", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
     insert(p);
@@ -63,7 +63,7 @@ describe("expose scope", () => {
     for (const bad of ["", "top left", "1st", "a-b"]) {
       expect(() => {
         part(`bad-name-${bad}`, () => {
-          const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+          const s = sketch("xy", () => { testRect(20, 20); });
           expose(bad, s);
         }).materialize();
       }).toThrow(/identifier/i);
@@ -73,7 +73,7 @@ describe("expose scope", () => {
   it("rejects a source passed where the name belongs (positional mixup)", () => {
     expect(() => {
       part("no-name", () => {
-        const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+        const s = sketch("xy", () => { testRect(20, 20); });
         // @ts-expect-error — source in the name slot on purpose
         expose(s);
       }).materialize();
@@ -83,7 +83,7 @@ describe("expose scope", () => {
   it("throws on a duplicate name within the same part", () => {
     expect(() => {
       part("dup-names", () => {
-        const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+        const s = sketch("xy", () => { testRect(20, 20); });
         expose("profile", s);
         expose("profile", s);
       }).materialize();
@@ -92,11 +92,11 @@ describe("expose scope", () => {
 
   it("allows the same name in two different parts", () => {
     const a = part("same-name-a", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
     const b = part("same-name-b", () => {
-      const s = sketch("xy", () => { testRect(30, 10); }).reusable();
+      const s = sketch("xy", () => { testRect(30, 10); });
       expose("profile", s);
     });
 
@@ -107,7 +107,7 @@ describe("expose scope", () => {
 
   it("registers an Exposed child on the part, named after the exposure", () => {
     const def = part("registered", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
 
@@ -120,7 +120,7 @@ describe("expose scope", () => {
 
   it("features serves the SOURCE, not the Exposed wrapper", () => {
     const def = part("sources", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
 
@@ -130,7 +130,7 @@ describe("expose scope", () => {
 
   it("a consumer part extrudes an exposed sketch into real geometry", () => {
     const donor = part("Donor", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
     part("Consumer", () => {
@@ -148,7 +148,7 @@ describe("expose scope", () => {
 
   it("build() never consumes the source — the exposed sketch keeps its shapes", () => {
     const donor = part("keeps-source", () => {
-      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); });
       expose("profile", s);
     });
 

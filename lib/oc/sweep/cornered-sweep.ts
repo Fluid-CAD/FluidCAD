@@ -13,6 +13,7 @@ import { mmTol } from "../../units/tolerance.js";
 import { CornerJoins } from "./corner-joins.js";
 import { PipeRun, type PipeRunResult, type PipeSection } from "./pipe-run.js";
 import type { SpineAnalysis, SpineCorner, SpineTrihedron } from "./spine-analysis.js";
+import { LEGACY_SWEEP_TOLERANCES } from "./sweep-spec.js";
 
 /** The pipe over one run, with the overshoot its corners asked for. */
 interface Leg extends PipeRunResult {
@@ -35,6 +36,7 @@ export class CorneredSweep {
     profile: TopoDS_Wire,
     trihedron: SpineTrihedron,
     withCorrection: boolean,
+    tolerances = LEGACY_SWEEP_TOLERANCES,
   ): PipeRunResult {
     const radius = spine.sectionRadius(profile);
     const extensions = CorneredSweep.cornerExtensions(spine, radius);
@@ -50,13 +52,13 @@ export class CorneredSweep {
       // bare run first and re-sweep it with that section moved out to the
       // overshoot.
       if (k === 0 && startExtension > 0) {
-        const bare = PipeRun.sweep(spine.runWire(0, 0, 0), section, trihedron);
+        const bare = PipeRun.sweep(spine.runWire(0, 0, 0), section, trihedron, tolerances);
         section = CorneredSweep.placed(
           CorneredSweep.translated(FaceOps.outerWireRaw(Explorer.toFace(bare.firstFace)), spine.startTangent, -startExtension),
         );
       }
 
-      const run = PipeRun.sweep(spine.runWire(k, startExtension, endExtension), section, trihedron);
+      const run = PipeRun.sweep(spine.runWire(k, startExtension, endExtension), section, trihedron, tolerances);
       legs.push({ ...run, startExtension, endExtension });
 
       const corner = spine.endCorner(k);

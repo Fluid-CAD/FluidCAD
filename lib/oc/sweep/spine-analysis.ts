@@ -9,6 +9,7 @@ import { Wire } from "../../common/wire.js";
 import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
+import type { SweepTransport } from "./sweep-spec.js";
 
 /** How two G1 runs of a spine are joined where they meet at a sharp corner. */
 export type CornerJoin = "mitre" | "round";
@@ -43,15 +44,10 @@ export interface SpineCorner {
 }
 
 /**
- * The frame law MakePipeShell should carry the section with. A fixed binormal
- * (the spine's tangent-rotation axis) keeps the section from twisting on
- * planar spines and helices; a spine whose tangent turns about several axes
- * (a non-planar polyline) has no such axis and falls back to OCCT's corrected
- * Frenet frame.
+ * Compatibility name used by the corner builder. Transport selection and
+ * profile placement are recorded separately in ResolvedSweepSpec.
  */
-export type SpineTrihedron =
-  | { kind: "binormal"; axis: Vector3d }
-  | { kind: "frenet" };
+export type SpineTrihedron = SweepTransport;
 
 /**
  * Reads a sweep spine as a sequence of G1 runs separated by sharp corners,
@@ -174,27 +170,16 @@ export class SpineAnalysis {
   }
 
   /**
-   * Fixed binormal for MakePipeShell's `SetMode`: it locks the section's
-   * "up", so the profile keeps a constant angle to it instead of twisting
-   * along the spine. The correct direction is the axis the spine's tangent
-   * rotates around — the plane normal for a planar spine, the coil axis for a
-   * helix. The tangent keeps a constant, non-zero angle to that axis, so the
-   * section never flips and the result is a clean coil.
-   *
-   * The profile plane's own "up" only works when it happens to equal that
-   * axis — true for a profile sketched on a world plane, but NOT for a plane
-   * built off a helix, whose in-plane axes are arbitrary. A wrong (e.g.
-   * roughly horizontal) binormal lets the helix tangent rotate into it,
-   * collapsing `Normal = BiNormal × Tangent` ~twice per turn and shredding
-   * the section into a self-intersecting ribbon. A straight spine has no
-   * rotation axis (the cross products vanish); its binormal is picked off
-   * the profile plane instead — see `straightSpineBinormal`. A spine that
-   * turns about several axes has no usable binormal at all.
+   * Legacy automatic policy, retained during the specification refactor.
+   * The sampled-axis heuristic is NOT a helix recognizer: it switches modes
+   * with pitch and aliases at high turn counts. Authored path metadata and a
+   * proven planarity test must replace it before the cylindrical release gate.
+   * See docs/subtractive-sweep-research-plan.md.
    */
   trihedron(profilePlane: Plane): SpineTrihedron {
     const rotation = this.tangentRotationAxis();
     if (rotation === "twisted") {
-      return { kind: "frenet" };
+      return { kind: "correctedFrenet" };
     }
     const axis = rotation ?? SpineAnalysis.straightSpineBinormal(profilePlane, this.edges[0].startTangent);
     return { kind: "binormal", axis };
@@ -257,7 +242,9 @@ export class SpineAnalysis {
    * The axis the spine's tangent rotates around, = normalize(Σ ±Tᵢ × Tᵢ₊₁)
    * over tangents sampled along the spine, each term flipped to agree with
    * the first so an S-bend's opposite turns reinforce rather than cancel.
-   * For a planar spine this is the plane normal; for a helix the coil axis.
+   * For a non-aliased planar spine this estimates the plane normal. On a
+   * helix the cross products also contain rotating transverse components;
+   * their alignment cannot establish a coil axis.
    * Returns null for a straight spine (every cross product vanishes) and
    * "twisted" when the sampled axes disagree (a non-planar polyline).
    */

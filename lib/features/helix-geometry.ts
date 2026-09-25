@@ -55,6 +55,24 @@ export type HelixDimensions = {
 };
 
 /**
+ * Authored geometry before B-spline approximation. Curve parameter u runs
+ * from 0 to parameterEnd; angle = winding * u and axial/radial advance is
+ * linear in u. Keep this separate from edge construction so sweep transport
+ * can eventually use the authored axis instead of recognizing sampled curves.
+ * This descriptor is not yet propagated through selected/copied edges.
+ */
+export interface ResolvedHelixGeometry {
+  readonly frame: CoordinateSystem;
+  readonly startRadius: number;
+  readonly endRadius: number;
+  readonly zStart: number;
+  readonly zEnd: number;
+  readonly turns: number;
+  readonly winding: 1 | -1;
+  readonly parameterEnd: number;
+}
+
+/**
  * The helical edge a source and a set of dimensions describe.
  *
  * `warn` reports the option combinations a source overrides (a face fixes its
@@ -67,6 +85,20 @@ export function buildHelixEdge(
   dimensions: HelixDimensions,
   warn?: (message: string) => void,
 ): Edge {
+  return buildResolvedHelixEdge(resolveHelixGeometry(source, dimensions, warn));
+}
+
+/** Build exactly the dimensions that were resolved for this source. */
+export function buildResolvedHelixEdge(geometry: ResolvedHelixGeometry): Edge {
+  const { frame, startRadius, endRadius, zStart, zEnd, turns, winding } = geometry;
+  return HelixOps.makeHelix(frame, startRadius, endRadius, zStart, zEnd, turns, winding === 1);
+}
+
+export function resolveHelixGeometry(
+  source: HelixSourceKind,
+  dimensions: HelixDimensions,
+  warn?: (message: string) => void,
+): ResolvedHelixGeometry {
   const { pitch, turns: requestedTurns, height, radius, endRadius: requestedEndRadius } = dimensions;
   const startOffset = dimensions.startOffset ?? 0;
   const endOffset = dimensions.endOffset ?? 0;
@@ -203,7 +235,11 @@ export function buildHelixEdge(
     );
   }
 
-  return HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns, dimensions.ccw ?? false);
+  return {
+    frame: cs, startRadius, endRadius, zStart, zEnd, turns,
+    winding: dimensions.ccw ? 1 : -1,
+    parameterEnd: 2 * Math.PI * turns,
+  };
 }
 
 /** A cylindrical or conical face, read as the frame a helix coils around. */

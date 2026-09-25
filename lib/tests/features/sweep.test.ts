@@ -561,7 +561,7 @@ describe("sweep", () => {
     // A tapered helical spine (endRadius ≠ radius) produces a swept surface
     // that needs many approximation spans; at MakePipeShell's small default
     // segment budget the build silently fails (PipeNotDone). SweepOps raises
-    // the budget (MAX_PIPE_SEGMENTS), so these build with the fixed binormal.
+    // the budget (resolved sweep tolerances), so these build with the fixed binormal.
     it("sweeps a circle along an outward-tapering helix", () => {
       const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
       const profile = sketch("left", () => {

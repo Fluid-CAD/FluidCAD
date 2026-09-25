@@ -5,9 +5,10 @@ import { ShapeOps } from "./shape-ops.js";
 import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
-import { SpineAnalysis, type SpineTrihedron } from "./sweep/spine-analysis.js";
+import type { SpineAnalysis, SpineTrihedron } from "./sweep/spine-analysis.js";
 import { PipeRun, type PipeRunResult } from "./sweep/pipe-run.js";
 import { CorneredSweep } from "./sweep/cornered-sweep.js";
+import { resolveSweepSpec, type ResolvedSweepSpec, type SweepPlacement, type SweepTolerancePolicy } from "./sweep/sweep-spec.js";
 
 export interface SweepResult {
   solids: Solid[];
@@ -17,24 +18,17 @@ export interface SweepResult {
 
 export class SweepOps {
   static makeSweep(spineWire: Wire, profileFaces: Face[]): SweepResult {
+    return SweepOps.buildResolved(resolveSweepSpec(spineWire, profileFaces));
+  }
+
+  static buildResolved(spec: ResolvedSweepSpec): SweepResult {
     const oc = getOC();
 
     const allSolids: Solid[] = [];
     let firstShape: TopoDS_Shape | null = null;
     let lastShape: TopoDS_Shape | null = null;
 
-    const profilePlane = profileFaces[0].getPlane();
-    const spine = new SpineAnalysis(spineWire);
-    const trihedron = spine.trihedron(profilePlane);
-
-    // `Add(_, false, true)` (no contact, with correction) rotates the profile
-    // to sit perpendicular to the spine tangent, about an axis given by
-    // `profile.normal × spine.tangent`. That axis is undefined when the two are
-    // anti-parallel — but then the profile plane is *already* perpendicular to
-    // the spine (its normal is ∥ -tangent), so no correction is needed: skip it
-    // and keep the profile's drawn position.
-    const isAntiParallel = profilePlane.normal.dot(spine.startTangent) < -0.999;
-    const withCorrection = !isAntiParallel;
+    const { spine, profileFaces, transport, placement, tolerances } = spec;
 
     for (const face of profileFaces) {
       const ocFace = oc.TopoDS.Face(face.getShape());
@@ -43,14 +37,14 @@ export class SweepOps {
         .map(w => w.getShape())
         .filter(w => !w.IsSame(outerWire));
 
-      const outer = SweepOps.sweepWire(spine, outerWire, trihedron, withCorrection);
+      const outer = SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances);
 
       let resultSolid = outer.solid;
       let resultFirst = outer.firstFace;
       let resultLast = outer.lastFace;
 
       for (const innerWire of innerWires) {
-        const inner = SweepOps.sweepWire(spine, oc.TopoDS.Wire(innerWire), trihedron, withCorrection);
+        const inner = SweepOps.sweepWire(spine, oc.TopoDS.Wire(innerWire), transport, placement, tolerances);
 
         const stockList = new oc.TopTools_ListOfShape();
         stockList.Append(resultSolid);
@@ -116,11 +110,19 @@ export class SweepOps {
     spine: SpineAnalysis,
     profile: TopoDS_Wire,
     trihedron: SpineTrihedron,
-    withCorrection: boolean,
+    placement: SweepPlacement,
+    tolerances: SweepTolerancePolicy,
   ): PipeRunResult {
+    const withCorrection = placement.kind === "legacyAutomatic" && placement.withCorrection;
     if (!spine.hasCorners) {
-      return PipeRun.sweep(spine.wire, { wire: profile, placed: false, withCorrection }, trihedron);
+      return PipeRun.sweep(spine.wire, {
+        wire: profile, placed: placement.kind === "atVertex", withCorrection,
+        location: placement.kind === "atVertex" ? placement.vertex : undefined,
+      }, trihedron, tolerances);
     }
-    return CorneredSweep.build(spine, profile, trihedron, withCorrection);
+    if (placement.kind === "atVertex") {
+      throw new Error("Explicit sweep stations are currently supported only on smooth paths.");
+    }
+    return CorneredSweep.build(spine, profile, trihedron, withCorrection, tolerances);
   }
 }

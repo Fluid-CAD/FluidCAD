@@ -42,7 +42,7 @@ const path = sketch("xy", () => {
   tangent(run, bend);
   radius(bend, 100);
   horizontal(bend.center(), bend.end());   // a quarter turn
-}).reusable();
+});
 
 sketch("yz", () => {
   const c = circle([0, 0], 8);

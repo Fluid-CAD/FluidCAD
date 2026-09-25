@@ -20,4 +20,4 @@ Extends [[api/types/geometry]].
 
 From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

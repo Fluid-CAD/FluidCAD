@@ -12,7 +12,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={customElbowFinal} entry="custom-elbow.fluid.js" />
 
-In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reusable spine sketches, tangent-arc paths built from constraints, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
+In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reused spine sketches, tangent-arc paths built from constraints, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
 
 Create a new file called `custom-elbow.fluid.js` in your project.
 
@@ -52,7 +52,7 @@ const spine = sketch("front", () => {
     return {
         topSegment
     }
-}).reusable();
+});
 ```
 
 The `true` after the callback makes this a **constraint sketch**: the geometry statements are guesses, and the constraint statements below them decide where everything actually lands. `line` and `arc` take fully-specified coordinates — an arc is given by its start, end, and center — and the solver adjusts them to satisfy the constraints.
@@ -61,7 +61,7 @@ The path itself is three connected segments. The two `coincident` constraints ch
 
 We return `topSegment` from the sketch callback — whatever the callback returns is attached as `.geometries` on the sketch, so `spine.geometries.topSegment` gives us a named handle on that last straight segment. We'll turn it into the pattern axis in the final step.
 
-Normally the next 3D operation consumes a sketch. This spine is used three times, so `.reusable()` keeps it alive across all of them.
+A 3D operation only takes a sketch off the screen, so this spine can drive all three of its consumers by variable.
 
 ![Spine sketch](/img/docs/tutorials/custom-elbow-step1.png)
 
@@ -186,7 +186,7 @@ So far the pipe is a solid rod, and both flanges block its ends. One sweep opens
 sweep(spine, profile.geometries.innerPipe).remove()
 ```
 
-This sweeps the 1.5-diameter `innerPipe` region along the same reusable spine, and `.remove()` turns the sweep into a subtraction — instead of adding the swept solid, it carves it out of everything it passes through. The pipe wall, the base plate, and the upper flange all get bored in a single operation.
+This sweeps the 1.5-diameter `innerPipe` region along the same spine, and `.remove()` turns the sweep into a subtraction — instead of adding the swept solid, it carves it out of everything it passes through. The pipe wall, the base plate, and the upper flange all get bored in a single operation.
 
 ![Bored elbow](/img/docs/tutorials/custom-elbow-step5.png)
 
@@ -284,7 +284,7 @@ remove(spine);
 
 `axis(spine.geometries.topSegment)` builds an axis from the spine's straight exit segment — the segment we named back in step 1. That line is the pipe's centerline through the upper flange, exactly the axis the bolt pattern revolves around. `repeat("circular", a, { count: 4, angle: 360 }, s1, s2)` repeats both cuts 4 times evenly around it, giving four stepped slots at 90° spacing.
 
-Finally, `remove(spine)` deletes the reusable spine sketch from the scene — every consumer is done with it, so it shouldn't linger in the rendered model.
+Finally, `remove(spine)` drops the spine sketch for good — every consumer is done with it, so no later operation can take it and it no longer shows when the timeline is scrubbed back.
 
 ![Finished 45 degree custom elbow](/img/docs/tutorials/custom-elbow-final.png)
 
@@ -297,7 +297,7 @@ Finally, `remove(spine)` deletes the reusable spine sketch from the scene — ev
 ## What you practiced
 
 - **`sketch(plane, callback)`** — constraint sketches: fully-specified geometry guesses pinned down by constraint statements
-- **`sketch().reusable()`** — keeping one path sketch alive for multiple consumers (two sweeps and an axis)
+- **reusing a sketch** — one path sketch driving several consumers (two sweeps and an axis) by variable
 - **returning shapes from a sketch** — attaching named `.geometries` handles to geometry for later reference
 - **`tangent(a, b)`** — blending lines and arcs into a smooth path, so the exit leg leaves the bend at exactly 45°
 - **`arc(start, end, center).cw()`** — choosing the sweep side of an arc so the bend curls the right way
@@ -312,4 +312,4 @@ Finally, `remove(spine)` deletes the reusable spine sketch from the scene — ev
 - **`cut(depth, sketch)`** — cutting two stacked slot sketches to different depths
 - **`axis(segment)`** — turning a named sketch segment into a pattern axis
 - **`repeat("circular", axis, options, ...features)`** — patterning multiple cut features around an axis
-- **`remove()`** — clearing a reusable sketch once every consumer is done with it
+- **`remove()`** — dropping a sketch for good once every consumer is done with it

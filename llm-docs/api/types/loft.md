@@ -200,4 +200,4 @@ Selects edges on the cap faces of a thin-walled loft from open profiles.
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

@@ -194,4 +194,4 @@ instead of extruding filled faces. Positive values offset outward, negative valu
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

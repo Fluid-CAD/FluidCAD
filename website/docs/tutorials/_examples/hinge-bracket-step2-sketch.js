@@ -10,7 +10,7 @@ const spine = sketch("front", () => {
     hLine(-78)
     hLine(-40)
     fillet(34)
-}).reusable();
+});
 
 let base = extrude(80).thin(26).symmetric();
 

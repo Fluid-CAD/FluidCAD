@@ -9,15 +9,15 @@ export const flange = part('Flange', () => {
         circle([0, 0], 60);
     });
     extrude(6);
-    // The bore and the bolt pattern in one sketch. .reusable() keeps it
-    // alive after the cut consumes it, so it can be published below.
+    // The bore and the bolt pattern in one sketch. The cut only hides it,
+    // so it can still be published below.
     const holes = sketch('xy', () => {
         circle([0, 0], 20);
         circle([22, 0], 6);
         circle([0, 22], 6);
         circle([-22, 0], 6);
         circle([0, -22], 6);
-    }).reusable();
+    });
     cut(-6, holes);   // negative: cut along the sketch normal, up through the disc
 
     // highlight-start

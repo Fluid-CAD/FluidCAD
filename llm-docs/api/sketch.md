@@ -101,9 +101,8 @@ extrude(-10, profile);  // the same sketch again
 ```
 
 With `region()` declarations the same sketch drives one feature per region
-(`extrude(20, s).region('ring')`, `extrude(50, s).region('disc')`). A
-sketch marked `.reusable()` stays on screen after its consumers — a layout
-sketch other features are drawn against; `remove(s)` takes it off again.
+(`extrude(20, s).region('ring')`, `extrude(50, s).region('disc')`).
+`remove(s)` drops a sketch for good once nothing else will use it.
 
 ## Sketching on a face
 

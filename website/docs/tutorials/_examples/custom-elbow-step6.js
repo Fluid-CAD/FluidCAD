@@ -22,7 +22,7 @@ const spine = sketch("front", () => {
     return {
         topSegment
     }
-}).reusable();
+});
 
 const profile = sketch("top", () => {
     const innerPipe = circle([0, 0], 1.5);

@@ -128,4 +128,4 @@ instead of cutting filled faces. Positive values offset outward, negative values
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

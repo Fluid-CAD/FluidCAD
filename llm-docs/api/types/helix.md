@@ -109,4 +109,4 @@ clockwise (left-handed) winding.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

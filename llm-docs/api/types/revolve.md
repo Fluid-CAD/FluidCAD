@@ -100,4 +100,4 @@ Selects edges on the cap faces of a thin-walled revolve from an open profile.
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

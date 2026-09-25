@@ -68,7 +68,7 @@ Rules that trip up every first attempt:
 - A connector's source must resolve to **exactly one** face, edge or vertex, or be a plane; a raw point is refused inside a part. `resolve_selection` the expression at the part's scope and confirm `count` is 1 before writing it.
 - A face connector sits at the face center with Z along the outward normal; a circular edge gives center plus axis; a straight edge gives midpoint plus tangent. `.offset(x, y, z)` and `.rotate(axis, deg)` move it in its own axes, in call order.
 - Face frames point Z **out of the solid**, and a mate places the second Z against the first by default, so connectors on the touching faces of two parts put the parts on each other with no options.
-- A sketch consumed by a feature must be `.reusable()` to still exist for `expose()`.
+- A sketch a feature used is only hidden, never consumed, so it can still be passed to `expose()`.
 
 A standoff with its mating interface at the origin:
 

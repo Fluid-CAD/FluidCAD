@@ -46,4 +46,4 @@ The center of an arc edge (an offset arc or a rounded outward corner); an error 
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

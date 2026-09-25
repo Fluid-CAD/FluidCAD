@@ -51,4 +51,4 @@ Sets the join type used at inner-wall corners.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

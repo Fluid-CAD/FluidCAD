@@ -28,4 +28,4 @@ removes it again when the sketch is reopened for editing.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

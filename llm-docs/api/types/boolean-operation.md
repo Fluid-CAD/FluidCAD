@@ -47,4 +47,4 @@ Must be chained after `.add()` or `.remove()`.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

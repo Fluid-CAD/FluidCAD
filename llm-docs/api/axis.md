@@ -54,8 +54,7 @@ revolve(raised);
 
 An axis is consumed for display only: the revolve (or repeat, rotation,
 helix) hides its line from that feature on, and any later feature takes the
-same axis again by variable — no `.reusable()`. `remove(raised)` drops it for
-good.
+same axis again by variable. `remove(raised)` drops it for good.
 
 See [[api/plane]] for planar references. Inside a sketch, the sketch's
 

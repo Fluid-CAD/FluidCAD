@@ -50,4 +50,4 @@ different vertex, as any index-based reference does.
 
 From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

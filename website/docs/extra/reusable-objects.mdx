@@ -30,34 +30,16 @@ When one sketch holds several closed shapes, declare each one as a `region()` an
 
 The **Pick regions** link of the extrude, revolve, sweep and wrap dialogs writes these declarations for you — see [region picking](/docs/3d-operations/extrude#region-picking).
 
-## Keeping a sketch on screen with `.reusable()`
-
-A layout sketch — a reference drawing other features are built against — is worth seeing for the whole model. Mark it `.reusable()` and its consumers leave it on screen:
-
-```js
-const layout = sketch("xy", () => {
-    const c = circle([0, 0], 60);
-    coincident(c.center(), origin());
-    diameter(c, 60);
-  }).reusable();
-
-extrude(20, layout);
-extrude(50, layout);
-```
-
-`.reusable()` changes nothing about what later features can do with the sketch — only whether it stays visible after they run. A plane or an axis takes the same marker for the same reason: `plane("xy", 40).reusable()` keeps its quad on screen through the sketches drawn on it.
-
-
 ## Cleaning up with `remove()`
 
-A reusable object stays in the scene until you explicitly dispose of it. To take a layout sketch off the screen once it has done its job, or to drop a reusable selection before later operations pick it up by accident, keep a reference and call `remove()`:
+A sketch, a plane or an axis stays within reach of every later feature until you explicitly dispose of it. To drop one for good — so no later feature can take it and it no longer comes back when the timeline is scrubbed — keep a reference and call `remove()`:
 
 ```js
 const layout = sketch("xy", () => {
     const c = circle([0, 0], 60);
     coincident(c.center(), origin());
     diameter(c, 60);
-  }).reusable();
+  });
 
 extrude(20, layout);
 extrude(50, layout);
@@ -71,16 +53,12 @@ remove(layout);
 
 Reuse across files follows the [units](/docs/extra/units) rule: a part is built in the unit of the file that defines it. An assembly's own lengths (mate offsets, limits, translations) are in the project unit, parts inserted into it are scaled into that unit automatically, and parameter overrides such as `insert(def, { width: 10 })` are read in the part's unit, not the assembly's.
 
-## Where `.reusable()` applies
+## What can be used again
 
-`.reusable()` works on any scene object a feature would otherwise consume:
-
-- **Selections** — the object returned by `select(...)`, when the same selection drives multiple features (e.g. a sketch plane *and* a `project()` source). Without it, the second feature finds nothing.
-- **Whole sketches** — the object returned by `sketch(...)`, to keep it on screen after use. A sketch never needs it to be used twice.
-- **Planes and axes** — the objects returned by `plane(...)` and `axis(...)`, likewise to keep them on screen. Two sketches on one plane, or two revolves around one axis, need no marker.
-
-- **Sketch geometries** — individual shapes inside a `sketch()` block, likewise to keep them on screen. Prefer `region()` declarations when the goal is to extrude parts of a sketch separately.
+- **Whole sketches** — the object returned by `sketch(...)`: pass it to as many features as you like, as a profile, a `project()` source or a `.region()` host.
+- **Planes and axes** — the objects returned by `plane(...)` and `axis(...)`: two sketches on one plane, or two revolves around one axis, by variable.
+- **Selections** — the object returned by `select(...)` is consumed by the first feature that uses it. To drive two features from the same faces, select them again for the second one.
 
 :::tip
-If you find yourself re-selecting the same faces twice in a row, mark the first selection `.reusable()` and pass it to both features. If you find yourself re-sketching the same profile, just pass the sketch to both.
+If you find yourself re-sketching the same profile, just pass the sketch to both features. If you find yourself re-selecting the same faces, that is the intended pattern — a consumed selection can't leak into a later feature by accident.
 :::

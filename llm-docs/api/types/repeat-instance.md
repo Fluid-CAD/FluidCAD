@@ -148,4 +148,4 @@ The repeated feature's section edges at this instance, by index.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

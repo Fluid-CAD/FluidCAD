@@ -96,7 +96,7 @@ cut(4);
 
 ## Keep sketches small
 
-One sketch per feature idea. A sketch holding the outline, the holes and the slots collapses them into geometry nothing downstream can select individually; separate sketches give separate features, each with its own faces and edges for filters. A sketch used by two features is passed by variable to both (`extrude(20, s)`, `cut(5, s)`); its first consumer hides it, nothing removes it. `.reusable()` only keeps it on screen.
+One sketch per feature idea. A sketch holding the outline, the holes and the slots collapses them into geometry nothing downstream can select individually; separate sketches give separate features, each with its own faces and edges for filters. A sketch used by two features is passed by variable to both (`extrude(20, s)`, `cut(5, s)`); its first consumer hides it, nothing removes it.
 
 ## Picking a region of an overlapping sketch
 

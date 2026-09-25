@@ -20,5 +20,16 @@ export abstract class PlaneObjectBase extends SceneObject implements IPlane {
   getType(): string {
     return 'plane';
   }
+
+  /**
+   * A feature consumes a plane for display only: the quad leaves the rendered
+   * scene from the consumer on (a sketch drawn on it, a mirror across it, a
+   * mid plane between it and another), but any later feature may take the
+   * same plane again with no `.reusable()`. `remove(p)` drops it for good.
+   */
+  override consumedForDisplayOnly(): boolean {
+    return true;
+  }
 }
+
 

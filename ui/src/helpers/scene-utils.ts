@@ -17,23 +17,40 @@ export function sourceLocKey(loc: SourceLocation): string {
 }
 
 /**
- * A consumed sketch's rows as its shown form: every entity row under the
- * sketch draws its hidden shapes too, and the sketch reads visible. The
- * other rows are the same objects. For the sketch mesh of a sketch the user
- * showed again (the timeline eye) or a dialog revealed.
+ * Whether a row can be drawn again after its consumer hid it: a sketch, plane
+ * or axis a feature used (`consumedBy`), and a statement of its own — an
+ * internal object (the plane a sketch builds for itself, a plane written
+ * inline in another call) has no row to show it from and shares its call's
+ * source location.
  */
-export function withHiddenSketchShapes(sketch: SceneObjectRender, sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
-  const children = new Set(SceneIndex.of(sceneObjects).children(sketch.id));
-  return sceneObjects.map(obj => {
-    if (obj === sketch) {
-      return obj.visible === false ? { ...obj, visible: true } : obj;
-    }
-    if (!children.has(obj) || !obj.hiddenShapes?.length) {
-      return obj;
-    }
-    return { ...obj, visible: true, sceneShapes: [...obj.sceneShapes, ...obj.hiddenShapes] };
-  });
+export function isShowableConsumedRow(obj: SceneObjectRender): boolean {
+  return obj.consumedBy !== undefined && obj.internal !== true && obj.sourceLocation !== undefined;
 }
+
+/**
+ * A consumed row as its shown form: it reads visible and draws the shapes its
+ * consumer hid (a plane's quad, an axis's line) along with any it still
+ * draws. The same object when nothing changes.
+ */
+export function rowWithHiddenShapes(obj: SceneObjectRender): SceneObjectRender {
+  if (obj.hiddenShapes?.length) {
+    return { ...obj, visible: true, sceneShapes: [...obj.sceneShapes, ...obj.hiddenShapes] };
+  }
+  return obj.visible === false ? { ...obj, visible: true } : obj;
+}
+
+/**
+ * A consumed row and its children as their shown form: the row reads
+ * visible, and every row under it draws its hidden shapes too (a sketch's
+ * removal lands on its entity rows). The other rows are the same objects.
+ * For the mesh of an object the user showed again (the timeline eye) or a
+ * dialog revealed.
+ */
+export function withHiddenShapes(row: SceneObjectRender, sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
+  const children = new Set(SceneIndex.of(sceneObjects).children(row.id));
+  return sceneObjects.map(obj => obj === row || children.has(obj) ? rowWithHiddenShapes(obj) : obj);
+}
+
 
 export function isHiddenTimelineRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;

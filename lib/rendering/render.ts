@@ -27,6 +27,7 @@ import { topologyFaceVertices, topologyVertices } from "../selection/vertex-pick
 type RenderEmit = {
   sceneShapes: RenderedShape[];
   /** Shapes a display-only consumer hid in this world — see `SceneObjectRender.hiddenShapes`. */
+
   hiddenShapes?: RenderedShape[];
   visible: boolean;
   hasError: boolean;
@@ -36,7 +37,7 @@ type RenderEmit = {
   scope?: Set<SceneObject>;
 };
 
-/** One object's drawn shapes for the payload, plus the hidden ones a shown sketch would draw. */
+/** One object's drawn shapes for the payload, plus the hidden ones it would draw when shown again. */
 type PreparedShapes = {
   renderedSceneShapes: RenderedShape[];
   hiddenShapes?: RenderedShape[];
@@ -262,7 +263,7 @@ export class SceneRenderer {
 
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
       const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj.getUnit()));
-      const hiddenShapes = this.hiddenSketchShapes(obj, sceneShapes)
+      const hiddenShapes = this.hiddenShapes(obj, sceneShapes)
         .map(s => this.toRenderedShape(s, obj.getUnit()));
 
       // A rollback re-emits already-built objects rather than rebuilding them,
@@ -369,7 +370,7 @@ export class SceneRenderer {
           renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
         }
       }
-      const hidden = this.hiddenSketchShapes(obj, sceneShapes);
+      const hidden = this.hiddenShapes(obj, sceneShapes);
       const hiddenShapes = hidden.length > 0
         ? hidden.map(shape => this.toRenderedShape(shape, obj.getUnit(), profiler))
         : undefined;
@@ -596,31 +597,42 @@ export class SceneRenderer {
   }
 
   /**
-   * A sketch entity's shapes a display-only consumer hid in this world: what
-   * the scope-less read (hard removals only) still serves beyond the scoped
-   * one the render drew. Only sketch children carry these — the payload
-   * exists for the viewer to draw a consumed sketch again on request, and an
-   * exposure's hidden selection already rides `referencedShapes`.
+   * The shapes a display-only consumer hid in this world: what the scope-less
+   * read (hard removals only) still serves beyond the scoped one the render
+   * drew. Only the objects consumed for display carry these — a plane, an
+   * axis, a sketch's entities (the sketch's removal lands on them) — since the
+   * payload exists for the viewer to draw a consumed datum again on request;
+   * an exposure's hidden selection already rides `referencedShapes`.
    */
-  private hiddenSketchShapes(obj: SceneObject, drawn: Shape[]): Shape[] {
-    if (!(obj instanceof GeometrySceneObject) || !(obj.getParent() instanceof Sketch)) {
+  private hiddenShapes(obj: SceneObject, drawn: Shape[]): Shape[] {
+    if (!SceneRenderer.drawsForDisplayConsumer(obj)) {
       return [];
     }
     const shown = new Set(drawn);
     return obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }).filter(s => !shown.has(s));
   }
 
+  /** Whether `obj` draws the shapes of an object consumed for display only: itself, or its sketch. */
+  private static drawsForDisplayConsumer(obj: SceneObject): boolean {
+    if (obj.consumedForDisplayOnly()) {
+      return !obj.isContainer();
+    }
+    return obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch;
+  }
+
   /**
-   * The feature that hid a consumed sketch in this world: the remover of the
-   * first display-only removal on any of its entities that the scope holds.
-   * Undefined for a sketch that still renders, or that a hard removal took.
+   * The feature that hid an object consumed for display only in this world:
+   * the remover of the first display-only removal the scope holds — on the
+   * object itself (a plane, an axis) or on any of its children (a sketch).
+   * Undefined for an object that still renders, or that a hard removal took.
    */
-  private sketchConsumer(obj: SceneObject, opts: RenderEmit): string | undefined {
-    if (!(obj instanceof Sketch) || opts.visible) {
+  private displayConsumer(obj: SceneObject, opts: RenderEmit): string | undefined {
+    if (!obj.consumedForDisplayOnly() || opts.visible) {
       return undefined;
     }
-    for (const child of obj.getChildren()) {
-      for (const record of child.getRemovedShapes()) {
+    const owners = obj.isContainer() ? obj.getChildren() : [obj];
+    for (const owner of owners) {
+      for (const record of owner.getRemovedShapes()) {
         if (record.soft && (!opts.scope || opts.scope.has(record.removedBy))) {
           return record.removedBy.id;
         }
@@ -628,6 +640,7 @@ export class SceneRenderer {
     }
     return undefined;
   }
+
 
   /**
    * An exposure's published shapes (its source selection, hidden from the
@@ -688,7 +701,7 @@ export class SceneRenderer {
       sceneShapes: opts.sceneShapes,
       referencedShapes: this.referencedShapes(obj, opts),
       hiddenShapes: opts.hiddenShapes,
-      consumedBy: this.sketchConsumer(obj, opts),
+      consumedBy: this.displayConsumer(obj, opts),
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
       interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch

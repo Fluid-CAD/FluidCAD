@@ -60,6 +60,12 @@ sketch(top, () => {
 extrude(10);
 ```
 
+A plane is consumed for display only: the sketch drawn on it (or the mirror
+across it, the mid plane built from it) hides its quad from that feature on,
+and any later feature takes the same plane again by variable — two
+`sketch(top, …)` calls need no `.reusable()`. `remove(top)` drops it for good.
+
 See [[api/axis]] for the axis counterpart and
+
 [[concepts/coordinate-system]] for the sketch's own axes (`xAxis()` /
 `yAxis()`).

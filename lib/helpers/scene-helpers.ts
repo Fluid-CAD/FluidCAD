@@ -17,12 +17,21 @@ import { Wire } from "../common/wire.js";
 import { WireOps } from "../oc/wire-ops.js";
 
 /**
+ * The edges of the object's geometry, for the inputs that build a curve from
+ * them. Meta shapes are never geometry — an axis datum's dashed line inside
+ * the sketch (`mirror(yAxis())`) stays readable after the mirror hid it, and
+ * must not become part of the curve.
+ */
+export function curveEdgesOf(obj: SceneObject): Edge[] {
+  return obj.getShapes().flatMap(s => s.getSubShapes('edge')) as Edge[];
+}
+
+/**
  * Collects every edge of the object's shapes into one connected wire.
  * Used by path-style inputs that need a single curve (sweep paths).
  */
 export function wireFromSceneObjectEdges(obj: SceneObject, label: string): Wire {
-  const shapes = obj.getShapes({ excludeMeta: false });
-  const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
+  const edges = curveEdgesOf(obj);
   if (edges.length === 0) {
     throw new Error(`${label} has no edges to build a curve from.`);
   }
@@ -35,13 +44,13 @@ export function wireFromSceneObjectEdges(obj: SceneObject, label: string): Wire 
  * sketch holding a curve and its mirror).
  */
 export function wiresFromSceneObjectEdges(obj: SceneObject, label: string): Wire[] {
-  const shapes = obj.getShapes({ excludeMeta: false });
-  const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
+  const edges = curveEdgesOf(obj);
   if (edges.length === 0) {
     throw new Error(`${label} has no edges to build a curve from.`);
   }
   return WireOps.connectEdgesToWires(edges);
 }
+
 
 export function fuseWithSceneObjects(
   sceneObjects: SceneObject[],

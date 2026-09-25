@@ -1,7 +1,7 @@
 import { isEditableTarget } from '../../keyboard-bridge';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
-import { sketchReveal } from './sketch-reveal';
+import { consumedReveal } from './consumed-reveal';
 import { ExpressionField, ExpressionFieldResult, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { NewVariable, ValueExpr } from '../../api';
@@ -597,7 +597,7 @@ export class PanelShell {
     this.root.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.root.id, true);
     this.listenForEscapeAnywhere(true);
-    sketchReveal.refresh();
+    consumedReveal.refresh();
   }
 
   hide(): void {
@@ -606,7 +606,7 @@ export class PanelShell {
     this.setPreview(null);
     viewportChrome.setDialogOpen(this.root.id, false);
     this.listenForEscapeAnywhere(false);
-    sketchReveal.refresh();
+    consumedReveal.refresh();
   }
 
   /** Remove the dialog from the DOM (for panels owned by short-lived tools). */
@@ -614,7 +614,7 @@ export class PanelShell {
     viewportChrome.setDialogOpen(this.root.id, false);
     this.listenForEscapeAnywhere(false);
     this.root.remove();
-    sketchReveal.refresh();
+    consumedReveal.refresh();
   }
 
   /** Join (or leave) the open-dialog order the document Escape serves; a re-show moves to the top. */

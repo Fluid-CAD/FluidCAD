@@ -227,17 +227,18 @@ export type SceneObjectRender = {
    */
   referencedShapes?: SceneObjectPart[];
   /**
-   * A sketch entity's shapes its consumer hid (display-only consumption):
-   * off the screen in this world, still readable by later features. Drawn
-   * when the sketch is shown again (the timeline eye, a dialog revealing
-   * its picked sketch). Absent when nothing is hidden.
+   * The shapes a consumer hid (display-only consumption) — a plane's quad, an
+   * axis's line, a sketch entity's wires: off the screen in this world, still
+   * readable by later features. Drawn when the object is shown again (the
+   * timeline eye, a dialog revealing its pick). Absent when nothing is hidden.
    */
   hiddenShapes?: SceneObjectPart[];
   /**
-   * On a sketch row its consumer hid: the id of the feature that took it
-   * first in this world. Absent while the sketch still renders.
+   * On the row of a sketch, plane or axis its consumer hid: the id of the
+   * feature that took it first in this world. Absent while it still renders.
    */
   consumedBy?: string;
+
   ownShapes: SceneObjectPart[];
   visible?: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */

@@ -258,8 +258,12 @@ export class MirrorShape2D extends GeometrySceneObject implements DerivedEntityP
     else {
       // The target-less walk takes every previous sibling — in a solved
       // sketch that includes constraint statements, which own no shapes and
-      // only add noise to the transform loop.
-      targetObjects = objects.filter(obj => obj.getShapes({ excludeMeta: false, excludeGuide: false }).length > 0);
+      // only add noise to the transform loop, and axis datums (`yAxis()`,
+      // `axis(l)`), which are transform inputs: their dashed line stays
+      // readable after a transform hid it and is never a target.
+      targetObjects = objects.filter(obj => !(obj instanceof AxisObjectBase)
+        && obj.getShapes({ excludeMeta: false, excludeGuide: false }).length > 0);
+
     }
 
     // Duplicates follow their sources AND the mirror line — the viewport

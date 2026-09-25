@@ -18,7 +18,7 @@ import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
-  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
@@ -477,7 +477,7 @@ export class RotateFeatureService {
       }
       const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return;
       }
       this.pickAxis(option);
@@ -514,7 +514,7 @@ export class RotateFeatureService {
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return true;
       }
       this.pickAxis(option);

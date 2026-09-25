@@ -28,7 +28,8 @@ A few UI habits you will use throughout:
 - The **constraint bar** appears under the toolbar while you sketch. Its buttons are icons; hover one for its name. A button lights up only when the current selection makes sense for it.
 - The **DOF pill** at the bottom of the viewport counts the degrees of freedom left in a sketch and turns into *Fully constrained* when you are done. Every sketch in this tutorial ends there.
 - Every feature dialog shows the **statement** it is about to write, just under the dialog. **Apply** (or <kbd>Enter</kbd>) writes it; **Exit** / **Cancel** (or <kbd>Escape</kbd>) discards it.
-- A construction plane you create is pickable only while it is the newest one. Once a sketch has consumed it, it leaves the pick set — so make a plane and sketch on it in one go, as each of Steps 1 and 4 does.
+- A construction plane you create leaves the viewport once a sketch has used it. It stays pickable from its timeline row, and the eye on that row draws it again; this tutorial simply makes a plane and sketches on it in one go, as each of Steps 1 and 4 does.
+
 
 ## Step 1: The middle body
 
@@ -264,7 +265,8 @@ The listing below is that file, plus the four hand-typed statements from Step 5.
 ## What you practiced
 
 - The **Polygon** tool with a typed diameter and side count, and its **Inscribed** option, which decides whether the diameter is measured across the corners or across the flats
-- **Plane** at an offset, three times, as scaffolding for geometry that does not sit on an origin plane — and the rule that a plane is only pickable until a sketch consumes it
+- **Plane** at an offset, three times, as scaffolding for geometry that does not sit on an origin plane — and the rule that a plane leaves the viewport once a sketch uses it, while its timeline row keeps it pickable
+
 - **Draft** on an extrusion, and the **New** tab, which keeps a solid separate so its faces stay easy to reference
 - **Shell** by picking the faces to remove, with a negative thickness that grows the wall inward
 - **Project** to bring a model face into a sketch as fixed reference geometry, and **Guide** to keep it out of the profile

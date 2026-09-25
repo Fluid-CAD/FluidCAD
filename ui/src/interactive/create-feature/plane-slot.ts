@@ -1,6 +1,8 @@
 import { PlaneOption } from './plane-bases';
 import { keepChip, sourceChip } from './sketch-profiles';
+import { consumedReveal } from './consumed-reveal';
 import { PickSlot } from '../pick-slot';
+
 
 export type StandardPlane = 'xy' | 'xz' | 'yz';
 
@@ -38,7 +40,8 @@ export class PlaneSlotControl {
   /** The picked-face chip label the service pushed. */
   private faceLabel: string | null = null;
 
-  constructor(slotHost: HTMLElement, opts: { label?: string } = {}) {
+  constructor(private readonly slotHost: HTMLElement, opts: { label?: string } = {}) {
+
     this.slot = new PickSlot(slotHost, { label: opts.label ?? 'Plane', multiple: false });
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => {
@@ -138,7 +141,10 @@ export class PlaneSlotControl {
   /** The slot: one chip (the chosen plane), or the pick prompt. */
   private render(): void {
     const state = this.state;
+    // A consumed plane picked here is drawn for as long as the slot holds it.
+    consumedReveal.set(this, this.slotHost, state?.kind === 'plane' && state.option.consumer ? state.option : null);
     if (state?.kind === 'keep') {
+
       this.slot.setChips([keepChip(this.keepLabel ?? '')]);
       this.slot.setPrompt(null);
     } else if (state?.kind === 'standard') {

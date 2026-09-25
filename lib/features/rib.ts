@@ -1,5 +1,4 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
@@ -12,6 +11,7 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
+import { curveEdgesOf } from "../helpers/scene-helpers.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
 import { mmTol } from "../units/tolerance.js";
@@ -262,10 +262,9 @@ export class Rib extends ExtrudeBase implements IRib {
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
-    const shapes = pathObj.getShapes({ excludeMeta: false });
-    const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
-    return WireOps.makeWireFromEdges(edges);
+    return WireOps.makeWireFromEdges(curveEdgesOf(pathObj));
   }
+
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];

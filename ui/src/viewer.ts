@@ -30,7 +30,7 @@ import { VertexPicking, type VertexPickScope } from './interactive/vertex-pickin
 import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
-import { findActiveSketch, isSceneEmpty, sourceLocKey } from './helpers/scene-utils';
+import { findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
@@ -310,19 +310,21 @@ export class Viewer {
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
   /**
-   * Consumed sketches drawn anyway, by source-location key (scene ids change
-   * every render): the ones the timeline eye showed, and the ones an open
-   * dialog reveals while they are its pick. View state only — nothing in the
-   * file changes.
+   * Consumed sketches, planes and axes drawn anyway, by source-location key
+   * (scene ids change every render): the ones the timeline eye showed, and
+   * the ones an open dialog reveals while they are its pick. View state only
+   * — nothing in the file changes.
    */
-  private shownSketchKeys = new Set<string>();
-  private revealedSketchKeys = new Set<string>();
+  private shownKeys = new Set<string>();
+  private revealedKeys = new Set<string>();
   /**
-   * Consumed sketches a highlight asked for: a dialog lighting up the wires
-   * of the sketch it holds (an edit session's own profile, a create pick)
-   * draws that sketch for as long as the highlight stands.
+   * Consumed rows a highlight asked for: a dialog lighting up the wires of
+   * the sketch it holds, the line of its axis or the quad of its plane (an
+   * edit session's own pick, a create pick) draws that row for as long as
+   * the highlight stands.
    */
   private highlightRevealedKeys = new Set<string>();
+
   private shapeOpacities = new Map<string, number>();
   private assemblyController: AssemblyController | null = null;
   /**
@@ -1379,7 +1381,7 @@ export class Viewer {
         : null;
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownSketchIds());
+    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
@@ -1684,7 +1686,8 @@ export class Viewer {
     }
   }
 
-  /** Drop every highlight; the sketches a highlight revealed stay drawn (the caller decides). */
+  /** Drop every highlight; the rows a highlight revealed stay drawn (the caller decides). */
+
   private clearHighlightState(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
@@ -1760,9 +1763,11 @@ export class Viewer {
     instanceId: string | null = null,
   ): void {
     this.clearHighlightState();
-    // A wire of a consumed sketch has no mesh until the sketch is drawn:
-    // reveal the sketches these wires belong to first, then highlight.
-    const reveal = this.sketchKeysOfHiddenWires(sketchWireShapeIds);
+    // A consumed sketch's wire, axis line or plane quad has no mesh until
+    // its row is drawn: reveal the rows these shapes belong to first, then
+    // highlight.
+    const reveal = this.keysOfHiddenShapes([...sketchWireShapeIds, ...planeQuadShapeIds]);
+
     if (reveal.size !== this.highlightRevealedKeys.size || [...reveal].some(k => !this.highlightRevealedKeys.has(k))) {
       this.highlightRevealedKeys = reveal;
       this.rebuildSceneMesh();
@@ -2344,8 +2349,9 @@ export class Viewer {
       for (const part of obj.sceneShapes) {
         if (part.shapeId === shapeId) return part;
       }
-      // A shown sketch's wires — only ever hit when the sketch is drawn.
+      // A shown row's hidden shapes — only ever hit when the row is drawn.
       for (const part of obj.hiddenShapes ?? []) {
+
         if (part.shapeId === shapeId) return part;
       }
     }
@@ -2418,7 +2424,7 @@ export class Viewer {
       return;
     }
     this.removeCompiledMesh();
-    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownSketchIds());
+    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
@@ -2449,54 +2455,58 @@ export class Viewer {
     return this.hiddenShapeIds.has(shapeId);
   }
 
-  /** Whether the timeline eye shows this consumed sketch (by its source-location key). */
-  isSketchShown(key: string): boolean {
-    return this.shownSketchKeys.has(key);
+  /** Whether the timeline eye shows this consumed row (by its source-location key). */
+  isShown(key: string): boolean {
+    return this.shownKeys.has(key);
   }
 
-  /** The timeline eye: draw (or stop drawing) a consumed sketch. */
-  setSketchShown(key: string, shown: boolean): void {
+  /** The timeline eye: draw (or stop drawing) a consumed sketch, plane or axis. */
+  setShown(key: string, shown: boolean): void {
     if (shown) {
-      this.shownSketchKeys.add(key);
+      this.shownKeys.add(key);
     } else {
-      this.shownSketchKeys.delete(key);
+      this.shownKeys.delete(key);
     }
     this.rebuildSceneMesh();
   }
 
   /**
-   * The consumed sketches open dialogs reveal while they are their pick, as
-   * a whole set — replaces the previous one; rebuilds only when it changed.
+   * The consumed rows open dialogs reveal while they are their pick, as a
+   * whole set — replaces the previous one; rebuilds only when it changed.
    */
-  setRevealedSketches(keys: readonly string[]): void {
+  setRevealed(keys: readonly string[]): void {
     const next = new Set(keys);
-    if (next.size === this.revealedSketchKeys.size && [...next].every(k => this.revealedSketchKeys.has(k))) {
+    if (next.size === this.revealedKeys.size && [...next].every(k => this.revealedKeys.has(k))) {
       return;
     }
-    this.revealedSketchKeys = next;
+    this.revealedKeys = next;
     this.rebuildSceneMesh();
   }
 
-  /** The scene ids of the shown and revealed sketches in the current render. */
-  private shownSketchIds(): Set<string> {
+  /** The scene ids of the shown and revealed consumed rows in the current render. */
+  private shownIds(): Set<string> {
     const ids = new Set<string>();
-    if (this.shownSketchKeys.size === 0 && this.revealedSketchKeys.size === 0 && this.highlightRevealedKeys.size === 0) {
+    if (this.shownKeys.size === 0 && this.revealedKeys.size === 0 && this.highlightRevealedKeys.size === 0) {
       return ids;
     }
     for (const obj of this.sceneObjects ?? []) {
-      if (obj.type !== 'sketch' || !obj.sourceLocation) {
+      if (!isShowableConsumedRow(obj)) {
         continue;
       }
-      const key = sourceLocKey(obj.sourceLocation);
-      if (this.shownSketchKeys.has(key) || this.revealedSketchKeys.has(key) || this.highlightRevealedKeys.has(key)) {
+      const key = sourceLocKey(obj.sourceLocation!);
+      if (this.shownKeys.has(key) || this.revealedKeys.has(key) || this.highlightRevealedKeys.has(key)) {
         ids.add(obj.id);
       }
     }
     return ids;
   }
 
-  /** The source-location keys of the consumed sketches these wire ids are hidden shapes of. */
-  private sketchKeysOfHiddenWires(shapeIds: string[]): Set<string> {
+  /**
+   * The source-location keys of the consumed rows these shape ids are hidden
+   * shapes of: the plane or axis row itself, or the sketch whose entity row
+   * carries the wire.
+   */
+  private keysOfHiddenShapes(shapeIds: string[]): Set<string> {
     const keys = new Set<string>();
     if (shapeIds.length === 0 || !this.sceneObjects) {
       return keys;
@@ -2507,13 +2517,14 @@ export class Viewer {
       if (!obj.hiddenShapes?.some(part => part.shapeId !== undefined && wanted.has(part.shapeId))) {
         continue;
       }
-      const sketch = index.parent(obj);
-      if (sketch?.type === 'sketch' && sketch.sourceLocation) {
-        keys.add(sourceLocKey(sketch.sourceLocation));
+      const row = obj.consumedBy !== undefined ? obj : index.parent(obj);
+      if (row && isShowableConsumedRow(row)) {
+        keys.add(sourceLocKey(row.sourceLocation!));
       }
     }
     return keys;
   }
+
 
   private applyVisibilityForId(shapeId: string, visible: boolean): void {
     this.ctx.scene.traverse((child) => {

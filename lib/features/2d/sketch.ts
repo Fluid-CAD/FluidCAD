@@ -87,13 +87,10 @@ export class Sketch extends SceneObject implements Extrudable {
    * `remove(s)` forces the hard removal, dropping the sketch for readers too.
    * See `removeShapesFromDisplay` for the read-kind rule.
    */
-  override removeShapes(removedBy: SceneObject, force?: boolean): void {
-    if (force) {
-      super.removeShapes(removedBy, force);
-      return;
-    }
-    this.removeShapesFromDisplay(removedBy);
+  override consumedForDisplayOnly(): boolean {
+    return true;
   }
+
 
   override restoreState(state: Map<string, any>): void {
     super.restoreState(state);

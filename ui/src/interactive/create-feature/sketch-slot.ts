@@ -1,7 +1,8 @@
 import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { RegionPickControl } from './region-pick-control';
-import { sketchReveal } from './sketch-reveal';
+import { consumedReveal } from './consumed-reveal';
+
 
 /** A sketch slot's state, `keep` included (edit mode only). */
 export type SketchSlotSelection =
@@ -162,7 +163,8 @@ export class SketchSlotControl {
   private render(): void {
     const state = this.state;
     // A consumed sketch picked here is drawn for as long as the slot holds it.
-    sketchReveal.set(this, this.host, state?.kind === 'sketch' ? state.option : null);
+    consumedReveal.set(this, this.host, state?.kind === 'sketch' && state.option.consumer ? state.option : null);
+
     if (state?.kind === 'keep') {
       this.slot.setChips([keepSketchChip(this.keep?.label ?? null)]);
       this.slot.setPrompt(null);

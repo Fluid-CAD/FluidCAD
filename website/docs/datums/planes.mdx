@@ -40,6 +40,9 @@ mirror("yz")                     // mirror the model across the YZ plane
 4. Enter the **Distance** (Offset type) or the **position** along the edge from 0 to 1 (From edge type). Offset and Mid planes also take a rotation per axis, in degrees, and a choice of which axes the turns are around: **Local** (the plane's own X, Y and normal, so it tilts in place) or **World** (the world X, Y and Z axes through the origin, so an offset plane swings around them).
 5. Click **Apply**. The plane appears as a translucent quad in the viewport and as a row in the timeline, and a `plane()` statement is written to the file. Clicking that quad later picks the plane for a sketch or a mirror.
 
+A plane is not used up by the feature that takes it. A sketch drawn on it or a mirror across it takes the quad off the screen from that feature on, but the plane stays available: every plane slot lists it, named after the feature that used it (`top · used by Sketch`), click its row in the timeline to pick it, and the dialog draws the quad again for as long as it holds it. To see a used plane outside a dialog, click the eye on its timeline row.
+
+
 A translucent ghost of the plane follows the fields while the dialog is open. Double-click the plane's timeline row to reopen the dialog and edit it.
 
 ## Offset planes
@@ -89,7 +92,8 @@ A plane halfway between two others, oriented like them. Pick two plane rows in t
 
 <ExplainedCode code={planeMid} fileName="mid.part.js" />
 
-The two source planes are folded into the result: after **Apply** only the mid plane shows in the viewport. It keeps tracking its bases — move either one and the mid plane re-centres.
+The two source planes are folded into the result: after **Apply** only the mid plane shows in the viewport, and the bases stay available to later features like any used plane. It keeps tracking its bases — move either one and the mid plane re-centres.
+
 
 ### Between two faces
 
@@ -138,4 +142,7 @@ At `'start'` (0) the normal faces away from the edge body so both ends read like
 | Loft or sweep profiles | each profile is a sketch on its own plane — see [Loft](/docs/3d-operations/loft) |
 | Filter by it | `face().onPlane("xy", 30)`, `edge().parallelTo("xz")` — see [Selection & Filters](/docs/3d-operations/selection-and-filters) |
 
+The same plane can serve several of these in a row — two sketches on one offset plane, then a mirror across it — by variable, with no marker: its first user only hides the quad. See [Reusable Objects](/docs/extra/reusable-objects).
+
 A sketch plane's coordinates are the plane's own 2D frame: `[0, 0]` is the plane origin, X and Y its in-plane axes. Inside the sketch, `xAxis()` / `yAxis()` name those axes — as constraint targets and as directions for the 2D transforms — see [Axes](/docs/datums/axes).
+

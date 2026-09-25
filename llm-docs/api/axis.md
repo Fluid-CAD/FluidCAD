@@ -52,6 +52,12 @@ const raised = axis("z", { offsetX: 50 });           // Z axis shifted +50 along
 revolve(raised);
 ```
 
+An axis is consumed for display only: the revolve (or repeat, rotation,
+helix) hides its line from that feature on, and any later feature takes the
+same axis again by variable — no `.reusable()`. `remove(raised)` drops it for
+good.
+
 See [[api/plane]] for planar references. Inside a sketch, the sketch's
+
 own axes are the datums `xAxis()` / `yAxis()` ([[api/constraints]],
 [[concepts/coordinate-system]]) — not `axis("x")`, which is world X.

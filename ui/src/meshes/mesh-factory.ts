@@ -7,9 +7,11 @@ import { AxisMesh } from './containers/axis-mesh';
 import { ConnectorMesh } from './containers/connector-mesh';
 import { ShapeGroup } from './containers/shape-group';
 import { themeColors } from '../scene/theme-colors';
+import { rowWithHiddenShapes } from '../helpers/scene-utils';
 
-/** Ids of the consumed sketches to draw anyway — the viewer's eye and dialog reveals. */
-const NO_SHOWN_SKETCHES: ReadonlySet<string> = new Set();
+/** Ids of the consumed rows (sketches, planes, axes) to draw anyway — the viewer's eye and dialog reveals. */
+const NO_SHOWN_ROWS: ReadonlySet<string> = new Set();
+
 
 // ---------------------------------------------------------------------------
 // Preset render options for special object types
@@ -68,27 +70,29 @@ export function buildObjectMesh(
   isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
   isRollback: boolean = false,
-  shownSketchIds: ReadonlySet<string> = NO_SHOWN_SKETCHES,
+  shownIds: ReadonlySet<string> = NO_SHOWN_ROWS,
 ): Object3D {
   // Drop invisible objects (e.g. children of a part hidden by `remove(part)`).
   // The container types — connector/plane/axis/sketch — build their visuals
   // from `obj.object` rather than `obj.sceneShapes`, so they need this guard
   // to honor the `visible` flag the renderer set. Active-sketch edit mode
   // keeps sketches visible regardless, mirroring `buildSceneMesh` above, and
-  // so does a consumed sketch the user showed again.
-  const shownSketch = obj.type === 'sketch' && shownSketchIds.has(obj.id);
-  if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shownSketch) {
+  // so does a consumed sketch, plane or axis the user showed again.
+  const shown = shownIds.has(obj.id);
+  if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shown) {
     return new Group();
   }
 
   // --- dedicated mesh classes for construction geometry ---
+  // A shown plane or axis draws the quad or line its consumer hid.
   switch (obj.type) {
     case 'sketch':
-      return new SketchMesh(obj, allObjects, activeSketchId, camera, isRollback, shownSketch);
+      return new SketchMesh(obj, allObjects, activeSketchId, camera, isRollback, shown);
     case 'plane':
-      return new PlaneMesh(obj, camera);
+      return new PlaneMesh(shown ? rowWithHiddenShapes(obj) : obj, camera);
     case 'axis':
-      return new AxisMesh(obj);
+      return new AxisMesh(shown ? rowWithHiddenShapes(obj) : obj);
+
     case 'connector':
       return new ConnectorMesh(obj, camera);
   }
@@ -103,7 +107,8 @@ export function buildObjectMesh(
   if (children.length > 0) {
     const group = new Group();
     for (const child of children) {
-      group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options, isRollback, shownSketchIds));
+      group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options, isRollback, shownIds));
+
     }
     result = group;
   } else {
@@ -135,17 +140,17 @@ export function buildSceneMesh(
   camera: Camera,
   isRegionPicking: boolean = false,
   isRollback: boolean = false,
-  shownSketchIds: ReadonlySet<string> = NO_SHOWN_SKETCHES,
+  shownIds: ReadonlySet<string> = NO_SHOWN_ROWS,
 ): Object3D {
   const container = new Group();
   container.name = 'compiledMesh';
 
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
-    const shownSketch = obj.type === 'sketch' && shownSketchIds.has(obj.id);
-    if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shownSketch) continue;
-    container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking, undefined, isRollback, shownSketchIds));
+    if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shownIds.has(obj.id)) continue;
+    container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking, undefined, isRollback, shownIds));
   }
+
 
   return container;
 }

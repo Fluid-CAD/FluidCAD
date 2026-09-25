@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
-import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow } from '../helpers/scene-utils';
+import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
@@ -149,12 +149,13 @@ export class TimelinePanel {
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
   /**
-   * The eye on a consumed sketch row: whether the viewer draws that sketch
-   * again, and the toggle. View state only — the file never changes. Unset,
-   * sketch rows carry no eye.
+   * The eye on a consumed row (a sketch, plane or axis a feature used):
+   * whether the viewer draws that object again, and the toggle. View state
+   * only — the file never changes. Unset, consumed rows carry no eye.
    */
-  isSketchShown?: (obj: SceneObjectRender) => boolean;
-  onToggleSketchShown?: (obj: SceneObjectRender) => void;
+  isRowShown?: (obj: SceneObjectRender) => boolean;
+  onToggleRowShown?: (obj: SceneObjectRender) => void;
+
 
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
@@ -813,10 +814,11 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         const rollbackIndex = parseInt(el.dataset.rollbackIndex ?? el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
-        if ((e.target as HTMLElement).closest('[data-sketch-eye]')) {
+        if ((e.target as HTMLElement).closest('[data-show-eye]')) {
           // The eye is its own control: no rollback, no selection change.
           if (obj) {
-            this.onToggleSketchShown?.(obj);
+            this.onToggleRowShown?.(obj);
+
             this.renderTimeline();
           }
           return;
@@ -855,7 +857,8 @@ export class TimelinePanel {
         this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
-        if ((e.target as HTMLElement).closest('[data-toggle]') || (e.target as HTMLElement).closest('[data-sketch-eye]')) {
+        if ((e.target as HTMLElement).closest('[data-toggle]') || (e.target as HTMLElement).closest('[data-show-eye]')) {
+
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
@@ -1305,17 +1308,18 @@ export class TimelinePanel {
       chevron = '<span class="w-4"></span>';
     }
 
-    // A consumed sketch (one a feature hid in this world) carries an eye:
-    // shown sketches wear it always, hidden ones reveal it on hover — the
-    // shapes panel's own eye convention.
+    // A consumed sketch, plane or axis (one a feature hid in this world)
+    // carries an eye: shown ones wear it always, hidden ones reveal it on
+    // hover — the shapes panel's own eye convention.
     let eyeBtn = '';
-    if (obj.type === 'sketch' && obj.consumedBy !== undefined && this.onToggleSketchShown) {
-      const shown = this.isSketchShown?.(obj) === true;
+    if (isShowableConsumedRow(obj) && this.onToggleRowShown) {
+      const shown = this.isRowShown?.(obj) === true;
       const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-      const eyeTitle = shown ? 'Hide the sketch again' : 'Show the sketch (a feature used it)';
-      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-sketch-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+      const eyeTitle = shown ? `Hide the ${obj.type} again` : `Show the ${obj.type} (a feature used it)`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
     }
+
 
     // The eye, when present, is what pushes the right-aligned cluster over;
     // otherwise the duration (or the status mark) does.

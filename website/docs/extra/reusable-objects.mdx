@@ -11,7 +11,8 @@ import reusableSketch from '!!raw-loader!./_examples/reusable-sketch.js';
 
 Most features in FluidCAD **consume** their inputs. A selection used by `shell()`, `fillet()` or `project()` is gone afterwards, so it can't accidentally be picked up by the next feature.
 
-A sketch is different: its first consumer only takes it **off the screen**. The wires disappear from that feature on (and come back when you scrub the timeline before it), but the sketch stays available to every later feature. Pass it by variable and it is used again, no marker needed.
+Sketches, planes and axes are different: their first consumer only takes them **off the screen**. The wires, the quad or the dashed line disappear from that feature on (and come back when you scrub the timeline before it), but the object stays available to every later feature. Pass it by variable and it is used again, no marker needed.
+
 
 ## Using one sketch twice
 
@@ -44,7 +45,8 @@ extrude(20, layout);
 extrude(50, layout);
 ```
 
-`.reusable()` changes nothing about what later features can do with the sketch — only whether it stays visible after they run.
+`.reusable()` changes nothing about what later features can do with the sketch — only whether it stays visible after they run. A plane or an axis takes the same marker for the same reason: `plane("xy", 40).reusable()` keeps its quad on screen through the sketches drawn on it.
+
 
 ## Cleaning up with `remove()`
 
@@ -75,6 +77,8 @@ Reuse across files follows the [units](/docs/extra/units) rule: a part is built 
 
 - **Selections** — the object returned by `select(...)`, when the same selection drives multiple features (e.g. a sketch plane *and* a `project()` source). Without it, the second feature finds nothing.
 - **Whole sketches** — the object returned by `sketch(...)`, to keep it on screen after use. A sketch never needs it to be used twice.
+- **Planes and axes** — the objects returned by `plane(...)` and `axis(...)`, likewise to keep them on screen. Two sketches on one plane, or two revolves around one axis, need no marker.
+
 - **Sketch geometries** — individual shapes inside a `sketch()` block, likewise to keep them on screen. Prefer `region()` declarations when the goal is to extrude parts of a sketch separately.
 
 :::tip

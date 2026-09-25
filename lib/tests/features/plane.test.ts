@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import plane from "../../core/plane.js";
@@ -377,21 +377,22 @@ describe("plane", () => {
       expect(pl.normal.z).toBeCloseTo(1);
     });
 
-    it("should consume the two source planes", () => {
+    it("should hide the two source planes, keeping them for later features", () => {
       const p1 = plane("xy") as PlaneObjectBase;
       const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
       const mid = plane(p1, p2) as PlaneObjectBase;
 
-      render();
+      const scene = render();
 
       // Plane faces are meta shapes, so the filter has to admit them.
       const filter = { excludeMeta: false, excludeGuide: false };
 
-      // Only the mid plane survives — the originals were consumed.
-      expect(p1.getShapes(filter).length).toBe(0);
-      expect(p2.getShapes(filter).length).toBe(0);
+      // Only the mid plane renders — the originals are consumed for display.
+      expectDisplayConsumed(scene, p1);
+      expectDisplayConsumed(scene, p2);
       expect(mid.getShapes(filter).length).toBe(1);
     });
+
 
     it("should mark the mid plane face as a meta shape, like any other plane", () => {
       const ref = plane("xy") as PlaneObjectBase;

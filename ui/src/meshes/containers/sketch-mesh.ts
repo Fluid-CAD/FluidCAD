@@ -15,7 +15,7 @@ import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import type { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SceneObjectRender } from '../../types';
 import { SceneIndex } from '../../helpers/scene-index';
-import { withHiddenSketchShapes } from '../../helpers/scene-utils';
+import { withHiddenShapes } from '../../helpers/scene-utils';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
@@ -108,7 +108,7 @@ export class SketchMesh extends Group {
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera, isRollback = false, shown = false) {
     super();
     if (shown) {
-      allObjects = withHiddenSketchShapes(sceneObject, allObjects);
+      allObjects = withHiddenShapes(sceneObject, allObjects);
     }
     this.userData.isSketchRoot = true;
     this.userData.sketchObjectId = sceneObject.id;

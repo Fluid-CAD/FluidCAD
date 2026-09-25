@@ -1,6 +1,8 @@
 import { AxisOption } from './axis-options';
 import { keepChip, sourceChip } from './sketch-profiles';
+import { consumedReveal } from './consumed-reveal';
 import { PickSlot } from '../pick-slot';
+
 
 export type StandardAxis = 'x' | 'y' | 'z';
 
@@ -46,8 +48,9 @@ export class AxisSlotControl {
   private edgeLabel: string | null = null;
 
   constructor(
-    slotHost: HTMLElement,
+    private readonly slotHost: HTMLElement,
     private readonly opts: {
+
       label?: string;
       /** The chosen-standard chip's label; default `World X axis`. */
       chipLabel?: (axis: StandardAxis) => string;
@@ -186,7 +189,10 @@ export class AxisSlotControl {
   /** The slot: one chip (the chosen axis), or the pick prompt. */
   private render(): void {
     const state = this.state;
+    // A consumed axis picked here is drawn for as long as the slot holds it.
+    consumedReveal.set(this, this.slotHost, state?.kind === 'axis' && state.option.consumer ? state.option : null);
     if (state?.kind === 'keep') {
+
       this.slot.setChips([keepChip(this.keepLabel ?? '')]);
       this.slot.setPrompt(null);
     } else if (state?.kind === 'standard') {

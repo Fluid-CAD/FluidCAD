@@ -54,7 +54,7 @@ import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
-import { sketchReveal } from './interactive/create-feature/sketch-reveal';
+import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
@@ -349,10 +349,11 @@ function disposeRail(): void {
   currentRail = null;
 }
 
-// A create dialog holding a consumed sketch reveals its wires in the viewport
-// for as long as it holds it (see SketchSlotControl); the registry hands the
-// viewer the whole set whenever it changes.
-sketchReveal.onChange = (keys) => viewer.setRevealedSketches(keys);
+// A create dialog holding a consumed sketch, plane or axis reveals it in the
+// viewport for as long as it holds it (see the sketch, plane and axis slot
+// controls); the registry hands the viewer the whole set whenever it changes.
+consumedReveal.onChange = (keys) => viewer.setRevealed(keys);
+
 
 function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
   const timeline = new TimelinePanel(
@@ -1261,16 +1262,18 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     refreshActivePartScope();
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
-  // The eye on a consumed sketch row: view state in the viewer, keyed by
-  // source location so it survives re-renders. Never written to the file.
-  panel.isSketchShown = (obj) => obj.sourceLocation !== undefined && viewer.isSketchShown(sourceLocKey(obj.sourceLocation));
-  panel.onToggleSketchShown = (obj) => {
+  // The eye on a consumed sketch, plane or axis row: view state in the
+  // viewer, keyed by source location so it survives re-renders. Never
+  // written to the file.
+  panel.isRowShown = (obj) => obj.sourceLocation !== undefined && viewer.isShown(sourceLocKey(obj.sourceLocation));
+  panel.onToggleRowShown = (obj) => {
     if (!obj.sourceLocation) {
       return;
     }
     const key = sourceLocKey(obj.sourceLocation);
-    viewer.setSketchShown(key, !viewer.isSketchShown(key));
+    viewer.setShown(key, !viewer.isShown(key));
   };
+
   // Connector / exposed rows are references, not modeling steps: a click
   // shows what they publish in the viewer instead of a rollback preview.
   panel.onFeatureShow = (obj) => {

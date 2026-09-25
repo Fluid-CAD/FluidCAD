@@ -28,8 +28,9 @@ Sets a custom display name for this object, overriding the default type-based na
 ### `reusable()`
 
 Keeps this object's shapes in the scene after a feature uses them. A
-sketch never needs it to be used twice — a feature hides a sketch from
-the screen without taking it away from later features — so on a sketch
-it means "stay on screen" (a layout sketch). A selection or a sketch
-geometry used by a feature is consumed for good unless marked reusable.
-`remove(obj)` takes a reusable object out of the scene.
+sketch, a plane or an axis never needs it to be used twice — a feature
+hides these datums from the screen without taking them away from later
+features — so on them it means "stay on screen" (a layout sketch, a
+plane kept as a landmark). A selection or a sketch geometry used by a
+feature is consumed for good unless marked reusable. `remove(obj)` takes
+a reusable object out of the scene.

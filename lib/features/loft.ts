@@ -341,7 +341,10 @@ export class Loft extends ExtrudeBase implements ILoft {
   }
 
   private getWiresFromSceneObject(obj: SceneObject): Wire[] {
-    const shapes = obj.getShapes({ excludeMeta: false });
+    // Meta shapes are never geometry: a plane's quad or an axis's line a
+    // consumer hid stays readable, and is no profile.
+    const shapes = obj.getShapes();
+
 
     // If shapes are faces, extract their outer wires
     const faceShapes = shapes.filter(s => s.isFace()) as Face[];

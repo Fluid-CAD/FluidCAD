@@ -3,6 +3,7 @@ import { SceneIndex } from '../../helpers/scene-index';
 import { findActiveSketch, isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
+import { consumedLabel, consumerName } from './consumed-option';
 
 /** A sketch, helix or offset a create-feature dialog can consume (profile or path). */
 export type SketchProfileOption = {
@@ -151,10 +152,6 @@ export async function labelWithSketchNames(options: SketchProfileOption[]): Prom
   });
 }
 
-/** "s2 · used by Extrude" for a consumed sketch; the plain name otherwise. */
-function consumedLabel(name: string, consumer: string | undefined): string {
-  return consumer ? `${name} · used by ${consumer}` : name;
-}
 
 /**
  * A pick chip for a source-backed option (a sketch, axis or plane): its label
@@ -359,9 +356,9 @@ function toOption(
 
 /** A consumed sketch as an option: the consumer's display name rides along for the label. */
 function toConsumedOption(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): SketchProfileOption {
-  const consumer = sceneObjects.find(o => o.id === obj.consumedBy);
-  const name = consumer?.name || 'a feature';
+  const name = consumerName(obj, sceneObjects) ?? 'a feature';
   return {
+
     ...toOption(obj, 'other', sceneObjects),
     label: consumedLabel('Sketch', name),
     hasGeometry: true,
@@ -383,3 +380,4 @@ function hasHiddenGeometry(obj: SceneObjectRender, sceneObjects: SceneObjectRend
   return SceneIndex.of(sceneObjects).children(obj.id)
     .some(child => (child.hiddenShapes ?? []).some(s => !s.isMetaShape && !s.isGuide && (s.meshes?.length ?? 0) > 0));
 }
+

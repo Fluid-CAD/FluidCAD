@@ -94,9 +94,10 @@ export interface TimelinePanelOptions {
   /** The "Shapes" accordion below the feature rows. */
   shapes?: boolean;
   /**
-   * The per-row rebuild marks (cached vs rebuilt this render). They answer a
-   * question only someone editing the model is asking; a host showing the
-   * tree as a picture of the build turns them off.
+   * The per-row rebuild marks (cached vs rebuilt this render), drawn while
+   * "Show execution time" is on. They answer a question only someone editing
+   * the model is asking; a host showing the tree as a picture of the build
+   * turns them off.
    */
   status?: boolean;
   /**
@@ -1332,8 +1333,10 @@ export class TimelinePanel {
     const statusIconClass = showDuration
       ? 'shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4'
       : `${pushRight}shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4`;
+    // The marks ride along with "Show execution time": a cached row's check
+    // explains why it carries no duration, and off the toggle they are noise.
     let statusIcon = '';
-    if (this.showStatusMarks) {
+    if (this.showStatusMarks && this.showBuildTimings) {
       statusIcon = obj.fromCache
         ? `<span class="${statusIconClass}">${ICON_CIRCLE_CHECK}</span>`
         : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;

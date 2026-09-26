@@ -9,7 +9,8 @@ import { Explorer } from "../../oc/explorer.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { Extrude } from "../../features/extrude.js";
 import { listSelectionGroups, SelectionGroup, SelectionGroupKind } from "../../selection/selection-groups.js";
-import { edgeRefsWhere, faceRefsWhere, findSolid } from "./pick-helpers.js";
+import { Solid } from "../../common/solid.js";
+import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids } from "./pick-helpers.js";
 import { testRect } from "../helpers/profiles.js";
 
 function groupsFor(result: ReturnType<typeof listSelectionGroups>): SelectionGroup[] {
@@ -127,6 +128,50 @@ describe("selection groups (right-click multi-select menu)", () => {
     const equal = byKind(groups, 'equal')!;
     expect(equal.label).toBe('Equal Radius Circles');
     expect(equal.members).toHaveLength(2);
+  });
+
+  it("never counts a cylinder's seam in the same-type or equal-length groups", () => {
+    // A spoke half as tall as its round boss, joined at the boss's +X side:
+    // above the spoke the boss's face still wraps all the way round, so its
+    // seam survives there as a 15 mm line — as long as the spoke's vertical
+    // edges, but never drawn. A group counting it would select more than the
+    // viewport shows (the handwheel's "17 of 16 spoke junctions").
+    sketch("xy", () => {
+      circle([0, 0], 40);
+    });
+    extrude(30);
+    sketch("xy", () => {
+      testRect(40, 10, { at: [10, -5] });
+    });
+    extrude(15);
+
+    const scene = render();
+    expect(findSolids(scene)).toHaveLength(1);
+    const solid = findSolid(scene) as Solid;
+    const raw = Explorer.findEdgesWrapped(solid);
+    const isLine15 = (index: number) => {
+      const props = EdgeProps.getProperties(raw[index].getShape());
+      return props.curveType === 'line' && Math.abs(props.length! - 15) < 1e-6;
+    };
+    const seams = raw.map((_, i) => i).filter(i => isLine15(i) && solid.isHiddenEdge(raw[i].getShape()));
+    expect(seams).toHaveLength(1);
+
+    // The spoke's outer corner at (50, -5).
+    const seeds = edgeRefsWhere(solid, m => Math.abs(m.x - 50) < 1e-6 && Math.abs(m.y + 5) < 1e-6 && Math.abs(m.z - 7.5) < 1e-6);
+    expect(seeds).toHaveLength(1);
+    const groups = groupsFor(listSelectionGroups(scene, seeds[0]));
+
+    const sameType = byKind(groups, 'same-type')!;
+    expect(sameType.members.some(m => m.sub.index === seams[0])).toBe(false);
+
+    // The spoke's two outer corners and its two junctions with the boss.
+    const equal = byKind(groups, 'equal')!;
+    expect(equal.label).toBe('Equal Length Lines');
+    expect(equal.members).toHaveLength(4);
+    for (const m of equal.members) {
+      expect(isLine15(m.sub.index)).toBe(true);
+      expect(solid.isHiddenEdge(raw[m.sub.index].getShape())).toBe(false);
+    }
   });
 
   it("offers face groups (classified only) for a face pick", () => {

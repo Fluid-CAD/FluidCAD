@@ -239,7 +239,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this, skipSimplify: true });
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this, skipSimplify: true, validateResult: true });
       return;
     }
 
@@ -248,7 +248,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
     // SimplifyResult's face unification can iterate forever on the resulting
     // topology — skip it for sweep ops; downstream classification doesn't
     // need same-domain face merging.
-    this.finalizeAndFuse(solids, classified, context, { skipSimplify: true });
+    this.finalizeAndFuse(solids, classified, context, { skipSimplify: true, validateResult: true });
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

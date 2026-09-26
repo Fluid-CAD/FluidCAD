@@ -3,7 +3,7 @@ import { BooleanOps } from "../boolean-ops.js";
 import { Explorer } from "../explorer.js";
 import { FaceOps } from "../face-ops.js";
 import { ShapeOps } from "../shape-ops.js";
-import { ShapeValidator } from "../shape-validator.js";
+import { requireValidSolid } from "../solid-validation.js";
 import { Shape } from "../../common/shape.js";
 import { ShapeFactory } from "../../common/shape-factory.js";
 import { Wire } from "../../common/wire.js";
@@ -106,10 +106,7 @@ export class CorneredSweep {
       if (joined.length !== 1) {
         throw new Error(`Sweep corner join failed: the legs did not fuse into one solid (${joined.length} pieces).`);
       }
-      const validation = ShapeValidator.validate(joined[0]);
-      if (validation.findings.length > 0) {
-        throw new Error(`Sweep corner join produced an invalid solid: ${validation.findings.map(f => f.message).join("; ")}`);
-      }
+      requireValidSolid(joined[0], "Sweep corner join", 1);
       return {
         solid: joined[0],
         firstFace: ShapeOps.trackFace(fused.maker, legs[0].firstFace, joined[0]),

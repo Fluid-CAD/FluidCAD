@@ -12,6 +12,7 @@ import { resolveSweepSpec, type ResolvedSweepSpec, type SweepPlacement, type Swe
 import type { Plane } from "../math/plane.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { Point } from "../math/point.js";
+import { BooleanOps } from "./boolean-ops.js";
 
 export interface SweepFaceRole {
   solidIndex: number;
@@ -48,105 +49,77 @@ export class SweepOps {
 
     const { spine, profileFaces, transport, placement, tolerances } = spec;
 
-    for (const face of profileFaces) {
-      const ocFace = oc.TopoDS.Face(face.getShape());
-      const outerWire = oc.BRepTools.OuterWire(ocFace);
-      const innerWires = face.getWires()
-        .map(w => w.getShape())
-        .filter(w => !w.IsSame(outerWire));
+    // Every temporary native handle is owned here, including abandoned
+    // regions when a later hole or validation fails. Returned solids/caps
+    // receive independent handles before this scope releases its copies.
+    const owned = new Set<TopoDS_Shape>();
+    const own = <T extends TopoDS_Shape>(shape: T): T => { owned.add(shape); return shape; };
+    const ownPipe = (pipe: PipeRunResult) => {
+      own(pipe.solid); own(pipe.firstFace); own(pipe.lastFace);
+      pipe.generatedFaces?.forEach(entry => entry.faces.forEach(own));
+      diagnostics.push(...pipe.diagnostics);
+      return pipe;
+    };
+    try {
+      for (const face of profileFaces) {
+        const ocFace = own(oc.TopoDS.Face(face.getShape()));
+        const outerWire = own(oc.BRepTools.OuterWire(ocFace));
+        const innerWires = face.getWires().map(w => w.getShape()).filter(w => !w.IsSame(outerWire));
+        const outer = ownPipe(SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances));
+        let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
+        let resultSolid = outer.solid;
+        let resultFirst = outer.firstFace;
+        let resultLast = outer.lastFace;
 
-      const outer = SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances);
-      diagnostics.push(...outer.diagnostics);
-      let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
-
-      let resultSolid = outer.solid;
-      let resultFirst = outer.firstFace;
-      let resultLast = outer.lastFace;
-
-      for (const innerWire of innerWires) {
-        const inner = SweepOps.sweepWire(spine, oc.TopoDS.Wire(innerWire), transport, placement, tolerances);
-        diagnostics.push(...inner.diagnostics);
-        origins.push(...(inner.generatedFaces ?? []).map(entry => ({ ...entry, internal: true })));
-
-        const stockList = new oc.TopTools_ListOfShape();
-        stockList.Append(resultSolid);
-        const toolList = new oc.TopTools_ListOfShape();
-        toolList.Append(inner.solid);
-
-        const cut = new oc.BRepAlgoAPI_Cut();
-        cut.SetArguments(stockList);
-        cut.SetTools(toolList);
-
-        const progress = new oc.Message_ProgressRange();
-        cut.Build(progress);
-        progress.delete();
-
-        if (!cut.IsDone()) {
-          cut.delete();
-          stockList.delete();
-          toolList.delete();
-          throw new Error("Sweep hole cut failed.");
+        for (const innerWire of innerWires) {
+          const inner = ownPipe(SweepOps.sweepWire(spine, own(oc.TopoDS.Wire(innerWire)), transport, placement, tolerances));
+          origins.push(...(inner.generatedFaces ?? []).map(entry => ({ ...entry, internal: true })));
+          const hole = BooleanOps.cutWithHistory([resultSolid], [inner.solid], { validate: true, stage: "Sweep hole cut" });
+          const newSolid = own(hole.result);
+          try {
+            if (hole.empty) throw new Error("Sweep hole cut removed the entire profile.");
+            resultFirst = own(ShapeOps.trackFace(hole.maker, resultFirst, newSolid));
+            resultLast = own(ShapeOps.trackFace(hole.maker, resultLast, newSolid));
+            // Carry every lateral span through the hole cut, including reversed
+            // tool walls. Start-cap adjacency loses the later bounded spans.
+            origins = origins.map(entry => ({ ...entry, faces: entry.faces.flatMap(face => {
+              const modified = ShapeOps.shapeListToArray(hole.maker.Modified(face)).map(own);
+              if (modified.length > 0) return modified;
+              return hole.maker.IsDeleted(face) ? [] : [face];
+            }) }));
+            resultSolid = newSolid;
+          } finally { hole.dispose(); }
         }
 
-        const newSolid = cut.Shape();
-
-        // Track first/last faces through the cut. The outer's start/end
-        // face becomes a hole-bearing face after cutting through it.
-        resultFirst = ShapeOps.trackFace(cut, resultFirst, newSolid);
-        resultLast = ShapeOps.trackFace(cut, resultLast, newSolid);
-
-        // Carry every lateral span through the hole cut, including the
-        // reversed images of the inner tool walls. Start-cap adjacency only
-        // identifies the first span and loses the rest of a segmented wall.
-        origins = origins.map(entry => ({ ...entry, faces: entry.faces.flatMap(face => {
-          const modified = ShapeOps.shapeListToArray(cut.Modified(face));
-          if (modified.length > 0) { face.delete(); return modified; }
-          if (cut.IsDeleted(face)) { face.delete(); return []; }
-          return [face];
-        }) }));
-
-        cut.delete();
-        stockList.delete();
-        toolList.delete();
-
-        resultSolid = newSolid;
-      }
-
-      if (!firstShape) {
-        firstShape = resultFirst;
-        lastShape = resultLast;
-      }
-
-      const solids = Explorer.findShapes(resultSolid, Explorer.getOcShapeType("solid"));
-      for (const s of solids) {
-        const faces = Explorer.findShapes(s, Explorer.getOcShapeType("face"));
-        faces.forEach((face, faceIndex) => {
-          const origin = origins.find(entry => entry.faces.some(generated => generated.IsSame(face)));
-          faceRoles.push({
-            solidIndex: allSolids.length, faceIndex,
-            kind: face.IsSame(resultFirst) ? "start" : face.IsSame(resultLast) ? "end"
-              : origin?.internal ? "inner" : "side",
-            profileMidpoint: origin?.profileMidpoint,
+        if (!firstShape) { firstShape = resultFirst; lastShape = resultLast; }
+        const solids = Explorer.findShapes(resultSolid, Explorer.getOcShapeType("solid")).map(own);
+        for (const solid of solids) {
+          const faces = Explorer.findShapes(solid, Explorer.getOcShapeType("face")).map(own);
+          faces.forEach((face, faceIndex) => {
+            const origin = origins.find(entry => entry.faces.some(generated => generated.IsSame(face)));
+            faceRoles.push({
+              solidIndex: allSolids.length, faceIndex,
+              kind: face.IsSame(resultFirst) ? "start" : face.IsSame(resultLast) ? "end"
+                : origin?.internal ? "inner" : "side",
+              profileMidpoint: origin?.profileMidpoint,
+            });
           });
-          face.delete();
-        });
-        allSolids.push(Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+          allSolids.push(Solid.fromTopoDSSolid(Explorer.toSolid(solid)));
+        }
       }
-      origins.forEach(entry => entry.faces.forEach(face => face.delete()));
-    }
 
-    if (allSolids.length === 0) {
-      throw new Error("Sweep produced no solids.");
-    }
-
-    return {
-      solids: allSolids,
-      firstShape: firstShape!,
-      lastShape: lastShape!,
-      profileTransform: placement.kind === "atStart" ? placement.transform : undefined,
-      faceRoles,
-      diagnostics,
-    };
+      if (allSolids.length === 0) throw new Error("Sweep produced no solids.");
+      return {
+        solids: allSolids,
+        firstShape: firstShape!.Oriented(firstShape!.Orientation()),
+        lastShape: lastShape!.Oriented(lastShape!.Orientation()),
+        profileTransform: placement.kind === "atStart" ? placement.transform : undefined,
+        faceRoles, diagnostics,
+      };
+    } catch (error) {
+      allSolids.forEach(solid => solid.dispose());
+      throw error;
+    } finally { owned.forEach(shape => shape.delete()); }
   }
 
   /**

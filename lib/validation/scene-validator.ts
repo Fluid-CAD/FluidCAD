@@ -60,7 +60,7 @@ export type SceneValidationReport = {
   skipped: SkippedShape[];
   /** The checks that ran, so a clean report says what "clean" covered. */
   checks: ShapeFindingKind[];
-  /** Checks a caller might expect that this kernel build cannot run. */
+  /** Checks a caller might expect that this basic inspection does not request. */
   notChecked: Record<string, string>;
   unit: LengthUnit;
 };

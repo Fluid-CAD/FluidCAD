@@ -11,6 +11,7 @@ import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
 import { mmTol, mmTol3 } from "../units/tolerance.js";
 import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
+import { requireValidSolid } from "./solid-validation.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -118,150 +119,155 @@ export class BooleanOps {
     return result;
   }
 
-  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0) {
+  /** Shared feature/hole cut policy and history. Caller owns result and dispose(). */
+  static cutWithHistory(stocks: TopoDS_Shape[], tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string } = {}) {
     const oc = getOC();
-    const inputs = BooleanOps.normalizeMixedInputs([...stocks, ...tools].map(s => s.getShape()));
+    const stage = options.stage ?? "Cut result";
+    const inputs = BooleanOps.normalizeMixedInputs([...stocks, ...tools]);
     const stockRaws = inputs.raws.slice(0, stocks.length);
-    const toolRaws = inputs.raws.slice(stocks.length);
     const stockList = new oc.TopTools_ListOfShape();
-    for (const raw of stockRaws) {
-      stockList.Append(raw);
-    }
-
     const toolList = new oc.TopTools_ListOfShape();
-    for (const raw of toolRaws) {
-      toolList.Append(raw);
-    }
-
     const progress = new oc.Message_ProgressRange();
     const builder = new oc.BRepAlgoAPI_Cut();
-    const cutMaker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
-    builder.SetArguments(stockList);
-    builder.SetTools(toolList);
-    builder.SetNonDestructive(true);
-    builder.SetRunParallel(true);
-    builder.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
-    builder.Build(progress);
-
-    // An unchecked failure here does not surface as a failure: the result is
-    // still a shape, just an invalid one, and the ShapeFix pass downstream then
-    // shreds it into a handful of unmeshable faces. Refuse it at the source.
-    if (!cutMaker.IsDone() || cutMaker.HasErrors()) {
-      cutMaker.delete();
-      progress.delete();
-      stockList.delete();
-      toolList.delete();
-      inputs.direct?.dispose();
-      throw new Error("Cut failed: the boolean operation reported an error.");
-    }
-    if (cutMaker.HasWarnings()) {
-      console.warn("Cut completed with kernel warnings — the result may be imprecise.");
-    }
-
-    const result = cutMaker.Shape();
-    const resultSolids = Explorer.findShapes(result, Explorer.getOcShapeType("solid"));
-    const wrappedResult = resultSolids.length > 0
-      ? Solid.fromTopoDSSolid(Explorer.toSolid(resultSolids[0]))
-      : ShapeFactory.fromShape(result);
-    const modified = (shape: Shape) =>
-      ShapeOps.shapeListToArray(cutMaker.Modified(shape.getShape()))
-        .map(s => ShapeFactory.fromShape(s));
-
-    // Build maps of all edges and faces that came from the original stocks (unchanged or modified).
-    // Any result edge/face not in these maps is new, created by the cut.
-    const stockEdgeMap = new oc.TopTools_MapOfShape();
-    const stockFaceMap = new oc.TopTools_MapOfShape();
-    for (const stockRaw of stockRaws) {
-      const rawEdges = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("edge"));
-      for (const rawEdge of rawEdges) {
-        stockEdgeMap.Add(rawEdge);
-        // Also track modified versions of this edge so we don't misidentify them as new.
-        const modifiedList = cutMaker.Modified(rawEdge);
-        while (modifiedList.Size() > 0) {
-          stockEdgeMap.Add(modifiedList.First());
-          modifiedList.RemoveFirst();
-        }
-        modifiedList.delete();
-      }
-
-      const rawFaces = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("face"));
-      for (const rawFace of rawFaces) {
-        stockFaceMap.Add(rawFace);
-        const modifiedList = cutMaker.Modified(rawFace);
-        while (modifiedList.Size() > 0) {
-          stockFaceMap.Add(modifiedList.First());
-          modifiedList.RemoveFirst();
-        }
-        modifiedList.delete();
-      }
-    }
-
-    const resultRawEdges = Explorer.findShapes(result, Explorer.getOcShapeType("edge"));
-    const sectionEdges = resultRawEdges
-      .filter(re => !stockEdgeMap.Contains(re))
-      .map(re => Edge.fromTopoDSEdge(Explorer.toEdge(re)));
-
-    // Classify section edges into start, end, and internal groups using signed
-    // distance from the cut plane. Through-all cuts use min/max projection.
-    const startEdges: Edge[] = [];
-    const endEdges: Edge[] = [];
-    const internalEdges: Edge[] = [];
-
-    if (plane && sectionEdges.length > 0) {
-      const tolerance = oc.Precision.Confusion();
-      const isThroughAll = cutDistance === 0;
-
-      const dists = sectionEdges.map(edge => ({
-        edge,
-        d: plane.signedDistanceToPoint(EdgeOps.getEdgeMidPoint(edge))
-      }));
-
-      const startDist = isThroughAll ? Math.max(...dists.map(e => e.d)) : 0;
-      const endDist = isThroughAll ? Math.min(...dists.map(e => e.d)) : -cutDistance;
-
-      for (const { edge, d } of dists) {
-        if (Math.abs(d - startDist) < tolerance) {
-          startEdges.push(edge);
-        } else if (Math.abs(d - endDist) < tolerance) {
-          endEdges.push(edge);
-        } else {
-          internalEdges.push(edge);
-        }
-      }
-    }
-
-    const resultRawFaces = Explorer.findShapes(result, Explorer.getOcShapeType("face"));
-    const internalFaces = resultRawFaces
-      .filter(rf => !stockFaceMap.Contains(rf))
-      .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
-
-    stockEdgeMap.delete();
-    stockFaceMap.delete();
-    stockList.delete();
-    toolList.delete();
-
+    const maker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
     let disposed = false;
     const dispose = () => {
-      if (disposed) {
-        return;
-      }
+      if (disposed) return;
       disposed = true;
-      cutMaker.delete();
-      progress.delete();
-      inputs.direct?.dispose();
+      builder.delete(); progress.delete(); stockList.delete(); toolList.delete(); inputs.direct?.dispose();
     };
+    let result: TopoDS_Shape | undefined;
+    try {
+      stockRaws.forEach(shape => stockList.Append(shape));
+      inputs.raws.slice(stocks.length).forEach(shape => toolList.Append(shape));
+      builder.SetArguments(stockList); builder.SetTools(toolList);
+      builder.SetNonDestructive(true); builder.SetRunParallel(true);
+      builder.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
+      builder.Build(progress);
+      if (!builder.IsDone() || builder.HasErrors()) throw new Error(`${stage}: the boolean operation reported an error.`);
+      if (builder.HasWarnings()) console.warn(`${stage}: kernel warnings reported.`);
+      result = builder.Shape();
+      if (result.IsNull()) throw new Error(`${stage}: the boolean operation returned a null shape.`);
+      const contents = new oc.TopoDS_Iterator(result, true, true);
+      let empty: boolean;
+      try { empty = result.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_COMPOUND && !contents.More(); }
+      finally { contents.delete(); }
+      // An empty, successful CUT is valid only when its history deletes every
+      // stock. No solid wrappers are constructed for complete removal.
+      if (empty && !stocks.every(stock => maker.IsDeleted(stock))) {
+        throw new Error(`${stage}: empty result without complete stock-removal history.`);
+      }
+      if (options.validate && !empty) requireValidSolid(result, stage);
+      return { result, maker, stockRaws, empty, dispose };
+    } catch (error) {
+      result?.delete(); dispose();
+      throw error;
+    }
+  }
 
-    return {
-      result: wrappedResult,
-      modified,
-      sectionEdges,
-      startEdges,
-      endEdges,
-      internalEdges,
-      internalFaces,
-      maker: cutMaker,
-      dispose,
-    };
+  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0, options: { validate?: boolean; stage?: string } = {}) {
+    const oc = getOC();
+    const cut = BooleanOps.cutWithHistory(stocks.map(s => s.getShape()), tools.map(s => s.getShape()), options);
+    const { result, maker: cutMaker, stockRaws } = cut;
+    const modified = (shape: Shape) =>
+      ShapeOps.shapeListToArray(cutMaker.Modified(shape.getShape())).map(raw => {
+        try { return ShapeFactory.fromShape(raw); }
+        finally { raw.delete(); }
+      });
+    const owned: TopoDS_Shape[] = [];
+    const own = (raw: TopoDS_Shape) => { owned.push(raw); return raw; };
+    const stockEdgeMap = new oc.TopTools_MapOfShape();
+    const stockFaceMap = new oc.TopTools_MapOfShape();
+    try {
+
+      // Build maps of all edges and faces that came from the original stocks (unchanged or modified).
+      // Any result edge/face not in these maps is new, created by the cut.
+      for (const stockRaw of stockRaws) {
+        const rawEdges = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("edge")).map(own);
+        for (const rawEdge of rawEdges) {
+          stockEdgeMap.Add(rawEdge);
+          // Also track modified versions of this edge so we don't misidentify them as new.
+          const modifiedList = cutMaker.Modified(rawEdge);
+          while (modifiedList.Size() > 0) {
+            stockEdgeMap.Add(own(modifiedList.First()));
+            modifiedList.RemoveFirst();
+          }
+          modifiedList.delete();
+        }
+
+        const rawFaces = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("face")).map(own);
+        for (const rawFace of rawFaces) {
+          stockFaceMap.Add(rawFace);
+          const modifiedList = cutMaker.Modified(rawFace);
+          while (modifiedList.Size() > 0) {
+            stockFaceMap.Add(own(modifiedList.First()));
+            modifiedList.RemoveFirst();
+          }
+          modifiedList.delete();
+        }
+      }
+
+      const resultRawEdges = Explorer.findShapes(result, Explorer.getOcShapeType("edge")).map(own);
+      const sectionEdges = resultRawEdges
+        .filter(re => !stockEdgeMap.Contains(re))
+        .map(re => Edge.fromTopoDSEdge(Explorer.toEdge(re)));
+
+      // Classify section edges into start, end, and internal groups using signed
+      // distance from the cut plane. Through-all cuts use min/max projection.
+      const startEdges: Edge[] = [];
+      const endEdges: Edge[] = [];
+      const internalEdges: Edge[] = [];
+
+      if (plane && sectionEdges.length > 0) {
+        const tolerance = oc.Precision.Confusion();
+        const isThroughAll = cutDistance === 0;
+
+        const dists = sectionEdges.map(edge => ({
+          edge,
+          d: plane.signedDistanceToPoint(EdgeOps.getEdgeMidPoint(edge))
+        }));
+
+        const startDist = isThroughAll ? Math.max(...dists.map(e => e.d)) : 0;
+        const endDist = isThroughAll ? Math.min(...dists.map(e => e.d)) : -cutDistance;
+
+        for (const { edge, d } of dists) {
+          if (Math.abs(d - startDist) < tolerance) {
+            startEdges.push(edge);
+          } else if (Math.abs(d - endDist) < tolerance) {
+            endEdges.push(edge);
+          } else {
+            internalEdges.push(edge);
+          }
+        }
+      }
+
+      const resultRawFaces = Explorer.findShapes(result, Explorer.getOcShapeType("face")).map(own);
+      const internalFaces = resultRawFaces
+        .filter(rf => !stockFaceMap.Contains(rf))
+        .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
+
+      let disposed = false;
+      return {
+        empty: cut.empty,
+        modified,
+        sectionEdges,
+        startEdges,
+        endEdges,
+        internalEdges,
+        internalFaces,
+        maker: cutMaker,
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          result.delete(); cut.dispose();
+        },
+      };
+    } catch (error) {
+      result.delete(); cut.dispose();
+      throw error;
+    } finally {
+      owned.forEach(shape => shape.delete()); stockEdgeMap.delete(); stockFaceMap.delete();
+    }
   }
 
   /**

@@ -17,12 +17,14 @@ import { Explorer } from "./explorer.js";
  *   compound: +1000 and -1000 must not cancel.
  * - `noSolid`: the shape contains no solid at all (a face, a wire, a shell
  *   left un-solidified).
+ * - `nonFiniteGeometry`: geometry bounds are void/unbounded/non-finite, or
+ *   signed-volume integration returned a non-finite value.
  *
- * `selfIntersecting` is NOT in this vocabulary: native self-interference
- * checks are not yet integrated into this validator. A check that is not
- * run is not reported.
+ * `selfIntersecting` is NOT in this vocabulary: the basic validator
+ * does not request native self-interference analysis. Runtime sweep validation
+ * additionally calls `checkNativeShape`. A check that is not run is not reported.
  */
-export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid';
+export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid' | 'nonFiniteGeometry';
 
 export type ShapeFinding = { kind: ShapeFindingKind; message: string };
 
@@ -35,7 +37,7 @@ export type ShapeValidation = {
   validTopology: boolean;
   /** Every shell is closed. Vacuously true for a shape without shells. */
   closed: boolean;
-  /** Signed volume per solid, in the kernel's (mm) units cubed. Never aggregated. */
+  /** Signed volume per solid, in the document unit cubed. Never aggregated. */
   solidVolumes: number[];
   findings: ShapeFinding[];
 };
@@ -47,12 +49,12 @@ export type ShapeValidation = {
  */
 export class ShapeValidator {
 
-  /** The checks this validator runs, in report order. */
-  static readonly CHECKS: readonly ShapeFindingKind[] = ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid'];
+  /** The checks this basic validator runs. */
+  static readonly CHECKS: readonly ShapeFindingKind[] = ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid', 'nonFiniteGeometry'];
 
   /** Checks a caller might expect that this validator does not run, with the reason. */
   static readonly UNAVAILABLE: Readonly<Record<string, string>> = {
-    selfIntersecting: 'not checked: BRepAlgoAPI_Check/BOPAlgo_ArgumentAnalyzer self-interference analysis is not yet integrated into this validator',
+    selfIntersecting: 'not checked: basic validation does not run BRepAlgoAPI_Check self-interference analysis; runtime sweep validation runs it separately',
   };
 
   /**
@@ -68,52 +70,72 @@ export class ShapeValidator {
     const SHELL = oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum;
     const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum;
 
-    const faces = Explorer.findShapes(shape, FACE).length;
-    const edges = Explorer.findShapes(shape, EDGE).length;
-    const shells = Explorer.findShapes(shape, SHELL);
-    const solids = ShapeValidator.solidsOf(shape, SOLID);
+    const owned: TopoDS_Shape[] = [];
+    const own = (shapes: TopoDS_Shape[]) => { owned.push(...shapes); return shapes; };
+    try {
+      const faces = own(Explorer.findShapes(shape, FACE)).length;
+      const edges = own(Explorer.findShapes(shape, EDGE)).length;
+      const shells = own(Explorer.findShapes(shape, SHELL));
+      const solids = own(ShapeValidator.solidsOf(shape, SOLID));
 
-    const findings: ShapeFinding[] = [];
+      const findings: ShapeFinding[] = [];
 
-    const validTopology = ShapeValidator.isValidTopology(shape);
-    if (!validTopology) {
-      findings.push({ kind: 'invalidTopology', message: 'BRepCheck_Analyzer reports a topology or parametrization defect' });
-    }
-
-    const openShells = ShapeValidator.openShellIndexes(shells);
-    for (const index of openShells) {
-      findings.push({
-        kind: 'openShell',
-        message: shells.length === 1
-          ? 'the shell is not closed (a free edge; the surface does not enclose a volume)'
-          : `shell ${index + 1} of ${shells.length} is not closed (a free edge; the surface does not enclose a volume)`,
-      });
-    }
-
-    const solidVolumes = solids.map(solid => ShapeValidator.signedVolume(solid));
-    for (let i = 0; i < solidVolumes.length; i++) {
-      const volume = solidVolumes[i];
-      if (volume <= 0) {
-        const which = solids.length === 1 ? 'the solid' : `solid ${i + 1} of ${solids.length}`;
-        const why = volume < 0 ? 'reversed orientation (inside-out); BRepCheck_Analyzer does not catch this' : 'degenerate (zero volume)';
-        findings.push({ kind: 'nonPositiveVolume', message: `${which} has volume ${volume}: ${why}` });
+      // Finite bounds are a geometry check, independent of a positive volume.
+      if (faces || edges) {
+        const bounds = new oc.Bnd_Box();
+        try {
+          oc.BRepBndLib.AddOptimal(shape, bounds, false, false);
+          const values = bounds.IsVoid() || bounds.IsOpen() ? null : [
+            bounds.GetXMin(), bounds.GetXMax(), bounds.GetYMin(), bounds.GetYMax(), bounds.GetZMin(), bounds.GetZMax(),
+          ];
+          if (!values || !values.every(Number.isFinite)) {
+            findings.push({ kind: 'nonFiniteGeometry', message: 'geometry has void, unbounded or non-finite bounds' });
+          }
+        } finally { bounds.delete(); }
       }
-    }
 
-    if (solids.length === 0) {
-      findings.push({ kind: 'noSolid', message: `the shape contains no solid (${ShapeValidator.describeContents(faces, edges, shells.length)})` });
-    }
+      const validTopology = ShapeValidator.isValidTopology(shape);
+      if (!validTopology) {
+        findings.push({ kind: 'invalidTopology', message: 'BRepCheck_Analyzer reports a topology or parametrization defect' });
+      }
 
-    return {
-      faces,
-      edges,
-      shells: shells.length,
-      solids: solids.length,
-      validTopology,
-      closed: openShells.length === 0,
-      solidVolumes,
-      findings,
-    };
+      const openShells = ShapeValidator.openShellIndexes(shells);
+      for (const index of openShells) {
+        findings.push({
+          kind: 'openShell',
+          message: shells.length === 1
+            ? 'the shell is not closed (a free edge; the surface does not enclose a volume)'
+            : `shell ${index + 1} of ${shells.length} is not closed (a free edge; the surface does not enclose a volume)`,
+        });
+      }
+
+      const solidVolumes = solids.map(solid => ShapeValidator.signedVolume(solid));
+      for (let i = 0; i < solidVolumes.length; i++) {
+        const volume = solidVolumes[i];
+        if (!Number.isFinite(volume)) {
+          findings.push({ kind: 'nonFiniteGeometry', message: `solid ${i + 1} has non-finite signed volume ${volume}` });
+        } else if (volume <= 0) {
+          const which = solids.length === 1 ? 'the solid' : `solid ${i + 1} of ${solids.length}`;
+          const why = volume < 0 ? 'reversed orientation (inside-out); BRepCheck_Analyzer does not catch this' : 'degenerate (zero volume)';
+          findings.push({ kind: 'nonPositiveVolume', message: `${which} has volume ${volume}: ${why}` });
+        }
+      }
+
+      if (solids.length === 0) {
+        findings.push({ kind: 'noSolid', message: `the shape contains no solid (${ShapeValidator.describeContents(faces, edges, shells.length)})` });
+      }
+
+      return {
+        faces,
+        edges,
+        shells: shells.length,
+        solids: solids.length,
+        validTopology,
+        closed: openShells.length === 0,
+        solidVolumes,
+        findings,
+      };
+    } finally { owned.forEach(item => item.delete()); }
   }
 
   /**

@@ -76,7 +76,7 @@ describe("subtractive helix turn-count regression", () => {
         }
       } finally { classifier.delete(); }
     }
-  });
+  }, 90_000); // Four rebuilds include native self-interference checks.
 
   it("keeps the ten-turn cutter on the analytic screw surface after bounding its faces", () => {
     const fixture = orientationFixture(14, 10);

@@ -45,8 +45,22 @@ the document unit at build time. Sweep boundary tolerance is also
 0.0001 mm; angular tolerance is 0.01 radians. A rejected fit reports its
 stage, kernel status, transport/placement, requested tolerances, and input
 dimensions. The builder does not retry with another orientation or larger
-tolerances. These approximation checks do not certify topology or absence
-of self-intersection.
+tolerances.
+
+Each swept cutter also passes finite-bounds/volume, topology, closed-shell,
+positive signed-volume, solid-count, and native OCCT self-interference
+checks. Hole cuts and feature cut/fuse results are validated before adoption;
+changed cleanup geometry is checked again. A cleanup that needs a repair
+without trustworthy face/edge history is rejected. Errors name the failing
+stage. A cut that misses the stock leaves it unchanged; successful complete
+removal deletes the stock and returns no replacement solid.
+
+Native self-interference checking requires the rebuilt `ocjs-fluidcad`
+bindings (`BRepAlgoAPI_Check`). If absent, the build reports the missing
+binding and fails instead of substituting another check. These checks can
+add seconds to cylindrical sweeps and over a minute to complex tapered
+sweeps. They are distinct from the basic inspection
+`validate` report, which does not request native self-interference analysis.
 
 Without a path-plane association, the profile's area centroid is localized
 to the nearest path station. Equally close distinct stations are rejected;

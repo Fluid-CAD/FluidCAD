@@ -9,6 +9,7 @@ import { boundedHelixSpine } from "./helix-spans.js";
 import { Explorer } from "../explorer.js";
 import { EdgeOps } from "../edge-ops.js";
 import { ShapeOps } from "../shape-ops.js";
+import { requireValidSolid } from "../solid-validation.js";
 
 /** One MakePipeShell result: the pipe and the section faces at its two ends. */
 export interface PipeRunResult {
@@ -113,16 +114,35 @@ export class PipeRun {
       if (!madeSolid) {
         throw new SweepBuildError("solid", diagnostics, "kernel did not produce a solid");
       }
-      const generatedFaces = trihedron.kind === "helix"
-        ? Explorer.findShapes(section.wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE).map(raw => {
-          const edge = oc.TopoDS.Edge(raw);
-          const image = profileImage(edge);
+      const solid = pipe.Shape();
+      const generatedFaces: NonNullable<PipeRunResult["generatedFaces"]> = [];
+      let firstFace: TopoDS_Shape | undefined;
+      let lastFace: TopoDS_Shape | undefined;
+      try {
+        requireValidSolid(solid, "Sweep cutter", 1);
+        if (trihedron.kind === "helix") {
+          const edges = Explorer.findShapes(section.wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
           try {
-            return { profileMidpoint: EdgeOps.getEdgeMidPointRaw(edge),
-              faces: ShapeOps.shapeListToArray(pipe.Generated(image)) };
-          } finally { image.delete(); edge.delete(); raw.delete(); }
-        }) : undefined;
-      return { solid: pipe.Shape(), firstFace: pipe.FirstShape(), lastFace: pipe.LastShape(), generatedFaces, diagnostics: [diagnostics] };
+            for (const raw of edges) {
+              const edge = oc.TopoDS.Edge(raw);
+              try {
+                const image = profileImage(edge);
+                try {
+                  generatedFaces.push({ profileMidpoint: EdgeOps.getEdgeMidPointRaw(edge),
+                    faces: ShapeOps.shapeListToArray(pipe.Generated(image)) });
+                } finally { image.delete(); }
+              } finally { edge.delete(); }
+            }
+          } finally { edges.forEach(edge => edge.delete()); }
+        }
+        firstFace = pipe.FirstShape();
+        lastFace = pipe.LastShape();
+        return { solid, firstFace, lastFace, generatedFaces, diagnostics: [diagnostics] };
+      } catch (error) {
+        solid.delete(); firstFace?.delete(); lastFace?.delete();
+        generatedFaces.forEach(entry => entry.faces.forEach(face => face.delete()));
+        throw error;
+      }
     }, tolerances);
   }
 

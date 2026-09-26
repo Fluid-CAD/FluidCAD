@@ -221,7 +221,7 @@ export class ShapeOps {
    */
   static cleanShapeWithLineage(
     shape: Shape,
-    opts?: { skipSimplify?: boolean; unifyEdges?: boolean },
+    opts?: { skipSimplify?: boolean; unifyEdges?: boolean; requireLineage?: boolean },
   ): CleanShapeLineage {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
@@ -247,6 +247,9 @@ export class ShapeOps {
       opts?.skipSimplify ? false : true,
       false,
     );
+    // Strict callers may reuse validation only for an identical returned
+    // shape (including orientation). Make copying of changed input explicit.
+    if (opts?.requireLineage) unify.SetSafeInputMode(true);
     unify.Build();
     const cleanedRaw = unify.Shape();
 
@@ -267,6 +270,10 @@ export class ShapeOps {
     checker.delete();
 
     if (!valid) {
+      if (opts?.requireLineage) {
+        unify.delete(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
+        throw new Error("Sweep cleanup validation failed: invalid topology would require ShapeFix without trustworthy history.");
+      }
       // ShapeFix_Shape creates new TShapes without recording history.
       // Lineage is lost here — remap returns [face] best-effort for
       // faces the cleanup saw, null otherwise.

@@ -1,0 +1,244 @@
+---
+sidebar_position: 14
+title: "3D Printable Handwheel"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import finalCode from '!!raw-loader!./_examples/handwheel-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+
+# Building a 3D Printable Handwheel
+
+<ViewerEmbed code={finalCode} entry="handwheel.fluid.js" />
+
+Build a small handwheel with four spokes, a raised hub, and twelve finger grips. A hexagonal pocket holds a bolt head, so turning the wheel turns the bolt. The underside stays flat for printing.
+
+The construction uses simple sketches: two circles for the rim, one rectangle for a spoke, and separate sketches for the hub and hardware. You will repeat the spoke around the center, then repeat a grip cut **together with its fillet**. Rounding that cut before patterning it gives the final top fillet a smooth outline to follow.
+
+You can follow the whole tutorial in the workspace UI. The screenshots include the toolbar, History, and operation dialogs; the [complete model](#full-code) is available at the end.
+
+## Before you start
+
+Click **+** in the top bar and create `handwheel.fluid.js`. Use **mm** as the document unit. The screenshots use the light theme.
+
+The main dimensions are:
+
+| Feature | Size |
+| --- | --- |
+| Rim | Ø75 outside, Ø59 inside, 10 high |
+| One spoke | 33.5 long × 8 wide × 5 high |
+| Hub | Ø24 × 16 high |
+| Bolt bore | Ø6.6, through all |
+| Hex pocket | 10.4 across flats, 4.5 deep |
+| Grip cut | Ø12, centered 42 from the wheel axis |
+
+The hardware dimensions are a starting point for an M6 hex-head bolt. Check your bolt and printer's fit before making a batch.
+
+A few controls you will use throughout:
+
+- **Ctrl+click** adds to a selection. Rotate the view to reach edges on the far side.
+- While sketching, typed sizes become dimensions. Use the constraint bar until the bottom pill reads **Fully constrained**.
+- Click **Finish Sketch**, then choose a 3D operation from the toolbar.
+- **Apply** commits a feature; **Exit** closes its dialog. You can double-click a History row to revisit its settings—the screenshots of those dialogs show the same inputs and previews.
+- Right-click a History row and choose **Rename**. The short names below help you find the right feature when creating the patterns.
+
+## Step 1: Make the rim
+
+### Draw two concentric circles
+
+Click **Sketch**, then pick the **XY** plane. Select **Circle**, click the origin, type `75`, and press <kbd>Enter</kbd>. Draw a second circle at the same center with diameter `59`.
+
+Keep **Infer while drawing** enabled so snapping to the origin constrains the centers. If a circle can still move, select its center and the origin, then apply **Coincident**. Both diameters must be constrained, and the pill should read **Fully constrained**.
+
+![Two dimensioned concentric circles in the full workspace, with the Fully constrained pill](/img/docs/tutorials/handwheel-ui-01-rim-sketch.png)
+
+Rename the sketch **Rim sketch**.
+
+### Extrude the ring
+
+Click **Finish Sketch**, then **Extrude**. Keep **Add** selected, set **Distance** to `10`, and leave **Drill holes** on. The inner circle makes the opening; the preview should be a ring.
+
+![Extrude dialog with a 10 mm annular preview](/img/docs/tutorials/handwheel-ui-02-rim-preview.png)
+
+Click **Apply** and rename the feature **Rim**.
+
+![The finished rim and its History rows](/img/docs/tutorials/handwheel-ui-03-rim.png)
+
+## Step 2: Add one spoke and repeat it
+
+### Sketch a rectangle on XY
+
+Start another sketch on the **XY** plane. This keeps the spoke's underside level with the rim's underside. The sketch's section view makes the rim appear as a flat reference.
+
+Use **Rectangle** to draw from `(0, -4)` toward positive X. Enter a width of `33.5` and a height of `8`. The left edge is centered on the origin; the right end extends halfway into the rim so the extrusion will fuse with it.
+
+To place the first corner accurately, click the grid-spacing value at the bottom right and use a fixed spacing of `1` mm with **Snap to grid** enabled. Place the corner four grid intervals below the origin on the vertical axis. Select that corner and use **Fix** if its position is not already constrained. Keep the rectangle's typed dimensions and horizontal/vertical constraints.
+
+![The fully constrained 33.5 by 8 mm spoke rectangle on the rim's bottom plane](/img/docs/tutorials/handwheel-ui-04-spoke-sketch.png)
+
+Name it **Spoke sketch**. Click **Finish Sketch**, then **Extrude**. Use **Add**, set **Distance** to `5`, and check that the green preview meets the rim.
+
+![A 5 mm spoke extrusion joining the inside of the rim](/img/docs/tutorials/handwheel-ui-05-spoke-preview.png)
+
+Click **Apply** and name the feature **Spoke**.
+
+### Repeat the spoke four times
+
+Click **Repeat** and set **Type** to **Circular**. Click **Spoke** in History to put it in the **Features** slot. Use **World Z axis**, set **Total Count** to `4`, and use a total angle of `360`.
+
+The count includes the first spoke: the preview adds three more at 90° intervals. Pick the **Spoke** extrusion, not its sketch or the entire solid.
+
+![Circular Repeat dialog with the Spoke feature, Z axis, and four total instances](/img/docs/tutorials/handwheel-ui-06-spokes-preview.png)
+
+Click **Apply** and name the repeat **Spokes**.
+
+![Four rectangular spokes joined to the rim](/img/docs/tutorials/handwheel-ui-07-spokes.png)
+
+## Step 3: Raise the hub
+
+Start a new sketch on **XY**. Draw a circle centered on the origin with diameter `24`. Constrain the center and diameter, and name the sketch **Hub sketch**.
+
+![The fully constrained hub circle on XY](/img/docs/tutorials/handwheel-ui-08-hub-sketch.png)
+
+Finish the sketch and extrude it **16 mm** in **Add** mode. This is the hub's total height from the underside, not an extra 16 mm above the spokes.
+
+![The hub's 16 mm extrusion preview](/img/docs/tutorials/handwheel-ui-09-hub-preview.png)
+
+Apply and name it **Hub**. The circle fills the meeting point of the spokes and leaves four openings between the hub and rim.
+
+![The hub, spokes, and rim before adding the hardware pockets](/img/docs/tutorials/handwheel-ui-10-hub.png)
+
+## Step 4: Cut the bolt bore
+
+### Reference the hub's center
+
+Click **Sketch** and pick the hub's top face. Choose **Project**, select the hub's outer circular top edge, and apply the projection. Use **Guide** on the projected geometry so it acts as a reference without becoming a cutting profile.
+
+Draw a circle approximately at its center and enter diameter `6.6`. Select the new circle and the projected circle, then apply **Concentric**. This locates the bore from the hub itself, rather than assuming the face sketch's origin is at its center.
+
+![The bore circle constrained to the projected hub edge](/img/docs/tutorials/handwheel-ui-11-bore-sketch.png)
+
+Name the sketch **Bore sketch** and finish it.
+
+### Remove through all
+
+Open **Extrude**, select **Remove**, and switch on **Through all**. The cut runs down into the hub from its top face. The statement uses `cut(...)`.
+
+![Extrude in Remove mode with Through all enabled for the bolt bore](/img/docs/tutorials/handwheel-ui-12-bore-preview.png)
+
+Apply and name the feature **Bore**.
+
+## Step 5: Make the hexagonal head pocket
+
+Start another sketch on the hub's top face. Project its outer circular edge again and make the projection a **Guide**.
+
+Choose **Polygon** and leave its mode on **Circumscribed**. Place its center at the center of the projected circle. Type `10.4` for the diameter and `6` for the side count, pressing <kbd>Enter</kbd> after each value. In this mode the diameter is measured **across the flats**.
+
+The Polygon tool creates the guide circle and the relationships that keep the hexagon regular. If its center was not snapped to the reference, select its guide circle and the projected circle and apply **Concentric**. Select the upper side and apply **Horizontal** to fix the remaining rotation. The pill must read **Fully constrained**.
+
+![A fully constrained six-sided polygon with a 10.4 mm guide circle inside the hub](/img/docs/tutorials/handwheel-ui-13-head-sketch.png)
+
+Name the sketch **Head sketch**. Finish it and open **Extrude** in **Remove** mode. Turn **Through all** off and enter a **Distance** of `4.5`.
+
+![The 4.5 mm hexagonal pocket removal preview](/img/docs/tutorials/handwheel-ui-14-head-preview.png)
+
+Apply and name it **Head pocket**. The pocket has a flat seat around the smaller through-hole. A bolt enters from the top, with its shank pointing through the underside.
+
+![The hexagonal head seat and smaller central bore](/img/docs/tutorials/handwheel-ui-15-head-pocket.png)
+
+## Step 6: Cut, round, and repeat the grip
+
+### Locate the first grip circle
+
+Start a sketch on the rim's top face. Project the **outer** circular edge and make it a **Guide**. Draw a circle to the right of the wheel with diameter `12`.
+
+Constrain the new circle's center horizontally with the projected circle's center using **Horizontal**, then dimension the distance between those centers to `42`. Dimension the **center points**, not the circumferences.
+
+This places the near side of the circle at 36 mm from the wheel axis. The rim's outside radius is 37.5 mm, so the cut takes a shallow 1.5 mm bite from the edge.
+
+![The fully constrained grip circle, Ø12 with its center 42 mm from the wheel axis](/img/docs/tutorials/handwheel-ui-16-grip-sketch.png)
+
+Name it **Grip sketch**. Finish the sketch, open **Extrude**, choose **Remove**, and enable **Through all**.
+
+![The first shallow grip cut preview at the outside of the rim](/img/docs/tutorials/handwheel-ui-17-grip-cut-preview.png)
+
+Apply and name it **Grip cut**.
+
+### Round its two vertical edges first
+
+Open **Fillet**. Pick the two vertical edges where the new cut meets the outside of the rim. Use **Ctrl+click** for the second edge and set **Radius** to `2`.
+
+These are the two edges running from the bottom to the top of the rim. Leave the upper and lower curved edges out of this selection. The preview should blend the notch into the circumference on both sides.
+
+![Fillet dialog with the grip cut's two vertical edges selected and a 2 mm radius](/img/docs/tutorials/handwheel-ui-18-grip-fillet-preview.png)
+
+Apply and name the feature **Grip fillet**.
+
+### Repeat both features together
+
+Open **Repeat** and choose **Circular**. In History, pick **Grip cut** and **Grip fillet** so **both** appear in the Features slot. Use **World Z axis**, **Total Count** `12`, and total angle `360`.
+
+![Circular Repeat with both Grip cut and Grip fillet selected, making twelve total grips](/img/docs/tutorials/handwheel-ui-19-grip-pattern-preview.png)
+
+Apply and name the feature **Grip pattern**. Each instance repeats the cut followed by its two edge fillets. Repeating only the cut would leave eleven sharp notches.
+
+![Twelve grip notches with blended vertical transitions](/img/docs/tutorials/handwheel-ui-20-grip-pattern.png)
+
+## Step 7: Round the remaining edges
+
+### Blend the spoke junctions
+
+Open **Fillet** and select the short vertical edges where the spokes join the hub and the rim: four per opening, sixteen in total. Orbit the model and use **Ctrl+click** to add the far-side edges. Set **Radius** to `2`.
+
+![The sixteen spoke junction edges selected for a 2 mm fillet](/img/docs/tutorials/handwheel-ui-21-spoke-fillets-preview.png)
+
+Apply and name this feature **Spoke fillets**.
+
+### Soften the top of the grip
+
+Open **Fillet** again. Select the rim's outer **upper** perimeter, including the grip notches and their small blends, then add the inner circular upper edge. Double-click an edge to expand its selection to its group, and check the preview goes all the way around. Set **Radius** to `1.5`.
+
+The earlier vertical fillets make the outer perimeter tangent through each notch, giving this top fillet smooth transitions to follow.
+
+![A continuous 1.5 mm fillet preview around the rim's upper inner and outer edges](/img/docs/tutorials/handwheel-ui-22-rim-fillet-preview.png)
+
+Apply and name it **Rim fillet**.
+
+### Finish the hub and pocket entrance
+
+Fillet the hub's outer top circle with radius `1`. Keep the hex pocket's edges out of this selection. Name it **Hub fillet**.
+
+![The hub's outer top edge selected for a 1 mm fillet](/img/docs/tutorials/handwheel-ui-23-hub-fillet-preview.png)
+
+Then open **Chamfer**, select the six edges at the hex pocket's mouth, and use **Equal distance** with **Distance** `0.4`. This adds a small lead-in while leaving the pocket walls at 10.4 mm across flats. Apply and name it **Pocket chamfer**.
+
+![A 0.4 mm equal-distance chamfer at the six edges of the hex pocket entrance](/img/docs/tutorials/handwheel-ui-24-pocket-chamfer-preview.png)
+
+The completed example is colored steel blue; color does not affect the geometry.
+
+![The finished handwheel in the full FluidCAD workspace](/img/docs/tutorials/handwheel-ui-25-final.png)
+
+For printing, use the top-bar **Export** control to export the solid as STL. Place the flat underside on the bed, with the hex pocket opening upward. Check the sliced model and hardware fit before using the wheel; this example has been checked as a CAD solid, not physically test-printed.
+
+## Full code
+
+The listing below builds the same part, with named dimensions and short feature names. The hexagon uses the constraints emitted by the circumscribed Polygon tool. Your clicked coordinates and generated variable names may differ; the dimensions and constraints determine the final geometry.
+
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{finalCode}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={finalCode} entry="handwheel.fluid.js" />
+
+## What you practiced
+
+- Simple, fully constrained circle, rectangle, and polygon sketches.
+- Sketching on an origin plane and on a face, with projected guides to locate hardware.
+- Additive extrusions, a through bore, and a blind pocket.
+- A circular repeat of one spoke and a second repeat containing both a cut and its fillet.
+- Choosing the fillet order: vertical grip transitions first, then the upper rim.
+- Keeping the hardware seat precise while rounding the surfaces you handle.

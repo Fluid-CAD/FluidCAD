@@ -8,6 +8,9 @@ import type { Plane } from "../../math/plane.js";
 import type { ResolvedHelixGeometry } from "../../math/helix-geometry.js";
 import { SpineAnalysis } from "./spine-analysis.js";
 import { placeCylindricalProfile } from "./helix-placement.js";
+import { resolveSweepTolerances, type SweepTolerancePolicy } from "./tolerances.js";
+
+export type { SweepTolerancePolicy } from "./tolerances.js";
 
 /** Kernel transport laws; true Frenet and corrected Frenet are distinct. */
 export type SweepTransport =
@@ -25,20 +28,6 @@ export type SweepPlacement =
   | { kind: "legacyAutomatic"; withCorrection: boolean }
   | { kind: "atVertex"; vertex: TopoDS_Vertex }
   | { kind: "atStart"; transform: Matrix4; station: Point };
-
-export interface SweepTolerancePolicy {
-  /** Legacy lengths are in document/kernel units, not a physical mm budget. */
-  readonly policy: "legacyKernelUnits";
-  readonly linear3d: number;
-  readonly boundary: number;
-  readonly angular: number;
-  readonly maxSegments: number;
-}
-
-/** Preserve existing settings during the refactor; physical tolerances are a later gate. */
-export const LEGACY_SWEEP_TOLERANCES: SweepTolerancePolicy = Object.freeze({
-  policy: "legacyKernelUnits", linear3d: 1e-4, boundary: 1e-4, angular: 1e-2, maxSegments: 1000,
-});
 
 export interface ResolvedSweepSpec {
   readonly spine: SpineAnalysis;
@@ -89,6 +78,6 @@ export function resolveSweepSpec(
   return {
     spine, profileFaces: [...profileFaces], placement,
     transport,
-    tolerances: LEGACY_SWEEP_TOLERANCES,
+    tolerances: resolveSweepTolerances(),
   };
 }

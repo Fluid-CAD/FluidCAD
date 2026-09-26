@@ -6,7 +6,7 @@ import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import type { SpineAnalysis, SpineTrihedron } from "./sweep/spine-analysis.js";
-import { PipeRun, type PipeRunResult } from "./sweep/pipe-run.js";
+import { PipeRun, type PipeRunResult, type PipeRunDiagnostics } from "./sweep/pipe-run.js";
 import { CorneredSweep } from "./sweep/cornered-sweep.js";
 import { resolveSweepSpec, type ResolvedSweepSpec, type SweepPlacement, type SweepTolerancePolicy } from "./sweep/sweep-spec.js";
 import type { Plane } from "../math/plane.js";
@@ -28,6 +28,8 @@ export interface SweepResult {
   profileTransform?: Matrix4;
   /** Numeric references into the returned solids; no additional native handles. */
   faceRoles: SweepFaceRole[];
+  /** Fit evidence for each outer/inner run, before hole cuts or corner joins. */
+  diagnostics: PipeRunDiagnostics[];
 }
 
 export class SweepOps {
@@ -40,6 +42,7 @@ export class SweepOps {
 
     const allSolids: Solid[] = [];
     const faceRoles: SweepFaceRole[] = [];
+    const diagnostics: PipeRunDiagnostics[] = [];
     let firstShape: TopoDS_Shape | null = null;
     let lastShape: TopoDS_Shape | null = null;
 
@@ -53,6 +56,7 @@ export class SweepOps {
         .filter(w => !w.IsSame(outerWire));
 
       const outer = SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances);
+      diagnostics.push(...outer.diagnostics);
       let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
 
       let resultSolid = outer.solid;
@@ -61,6 +65,7 @@ export class SweepOps {
 
       for (const innerWire of innerWires) {
         const inner = SweepOps.sweepWire(spine, oc.TopoDS.Wire(innerWire), transport, placement, tolerances);
+        diagnostics.push(...inner.diagnostics);
         origins.push(...(inner.generatedFaces ?? []).map(entry => ({ ...entry, internal: true })));
 
         const stockList = new oc.TopTools_ListOfShape();
@@ -140,6 +145,7 @@ export class SweepOps {
       lastShape: lastShape!,
       profileTransform: placement.kind === "atStart" ? placement.transform : undefined,
       faceRoles,
+      diagnostics,
     };
   }
 

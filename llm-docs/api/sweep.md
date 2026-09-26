@@ -39,6 +39,15 @@ a kernel intersection failure on long helical faces that can leave only
 edges on a cylinder instead of cutting the groove. Smooth span seams can
 add faces/edges; the profile and transport remain the same.
 
+Helix curve and swept-surface approximation errors must be finite,
+nonnegative, and within a physical **0.0001 mm** fit budget, converted to
+the document unit at build time. Sweep boundary tolerance is also
+0.0001 mm; angular tolerance is 0.01 radians. A rejected fit reports its
+stage, kernel status, transport/placement, requested tolerances, and input
+dimensions. The builder does not retry with another orientation or larger
+tolerances. These approximation checks do not certify topology or absence
+of self-intersection.
+
 Without a path-plane association, the profile's area centroid is localized
 to the nearest path station. Equally close distinct stations are rejected;
 use `plane(path, position)` to resolve the ambiguity. Unknown non-planar

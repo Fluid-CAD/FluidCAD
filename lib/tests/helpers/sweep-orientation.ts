@@ -26,17 +26,18 @@ export function orientationFixture(
   turns = 5,
   ccw = false,
   frame = new CoordinateSystem(Point.origin(), Vector3d.unitZ(), Vector3d.unitX()),
+  scale = 1,
 ) {
   const geometry = resolveHelixGeometry({
-    kind: "cylinder-face", cs: frame, radius: 25, vMin: 0, vMax: pitch * turns,
-  }, { turns, startOffset: -10, endOffset: -10, ccw });
+    kind: "cylinder-face", cs: frame, radius: 25 * scale, vMin: 0, vMax: pitch * turns,
+  }, { turns, startOffset: -10 * scale, endOffset: -10 * scale, ccw });
   const edge = buildResolvedHelixEdge(geometry);
   const wire = WireOps.makeWireFromEdges([edge]);
   const tangent = EdgeOps.getEdgeTangentAtStartRaw(edge.getShape());
   const origin = EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(edge.getShape()));
   const plane = new Plane(origin, frame.xDirection.cross(tangent).normalize(), tangent.negate());
   const points = TRAPEZOID.map(([u, v]) =>
-    origin.add(plane.xDirection.multiply(u)).add(plane.yDirection.multiply(v)),
+    origin.add(plane.xDirection.multiply(u * scale)).add(plane.yDirection.multiply(v * scale)),
   );
   const edges = points.map((p, i) => EdgeOps.makeLineEdge(p, points[(i + 1) % points.length]));
   const profile = WireOps.makeWireFromEdges(edges);

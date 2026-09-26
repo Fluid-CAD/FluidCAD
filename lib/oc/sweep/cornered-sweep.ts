@@ -13,7 +13,7 @@ import { mmTol } from "../../units/tolerance.js";
 import { CornerJoins } from "./corner-joins.js";
 import { PipeRun, type PipeRunResult, type PipeSection } from "./pipe-run.js";
 import type { SpineAnalysis, SpineCorner, SpineTrihedron } from "./spine-analysis.js";
-import { LEGACY_SWEEP_TOLERANCES } from "./sweep-spec.js";
+import { resolveSweepTolerances } from "./tolerances.js";
 
 /** The pipe over one run, with the overshoot its corners asked for. */
 interface Leg extends PipeRunResult {
@@ -36,7 +36,7 @@ export class CorneredSweep {
     profile: TopoDS_Wire,
     trihedron: SpineTrihedron,
     withCorrection: boolean,
-    tolerances = LEGACY_SWEEP_TOLERANCES,
+    tolerances = resolveSweepTolerances(),
   ): PipeRunResult {
     const radius = spine.sectionRadius(profile);
     const extensions = CorneredSweep.cornerExtensions(spine, radius);
@@ -114,6 +114,7 @@ export class CorneredSweep {
         solid: joined[0],
         firstFace: ShapeOps.trackFace(fused.maker, legs[0].firstFace, joined[0]),
         lastFace: ShapeOps.trackFace(fused.maker, legs[legs.length - 1].lastFace, joined[0]),
+        diagnostics: legs.flatMap(leg => leg.diagnostics),
       };
     } finally {
       fused.dispose();

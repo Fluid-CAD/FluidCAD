@@ -18,10 +18,9 @@ import { Explorer } from "./explorer.js";
  * - `noSolid`: the shape contains no solid at all (a face, a wire, a shell
  *   left un-solidified).
  *
- * `selfIntersecting` is NOT in this vocabulary: this ocjs build exposes
- * neither `BRepAlgoAPI_Check` nor `BOPAlgo_ArgumentAnalyzer` (see
- * {@link ShapeValidator.UNAVAILABLE}), and a check that is not run is not
- * reported.
+ * `selfIntersecting` is NOT in this vocabulary: native self-interference
+ * checks are not yet integrated into this validator. A check that is not
+ * run is not reported.
  */
 export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid';
 
@@ -51,9 +50,9 @@ export class ShapeValidator {
   /** The checks this validator runs, in report order. */
   static readonly CHECKS: readonly ShapeFindingKind[] = ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid'];
 
-  /** Checks a caller might expect that this kernel build cannot run, with the reason. */
+  /** Checks a caller might expect that this validator does not run, with the reason. */
   static readonly UNAVAILABLE: Readonly<Record<string, string>> = {
-    selfIntersecting: 'not checked: this ocjs build exposes neither BRepAlgoAPI_Check nor BOPAlgo_ArgumentAnalyzer',
+    selfIntersecting: 'not checked: BRepAlgoAPI_Check/BOPAlgo_ArgumentAnalyzer self-interference analysis is not yet integrated into this validator',
   };
 
   /**

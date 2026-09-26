@@ -12,6 +12,7 @@ import { Plane } from "../math/plane.js";
 import { mmTol, mmTol3 } from "../units/tolerance.js";
 import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
 import { requireValidSolid } from "./solid-validation.js";
+import { ShapeValidator } from "./shape-validator.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -156,6 +157,21 @@ export class BooleanOps {
       // stock. No solid wrappers are constructed for complete removal.
       if (empty && !stocks.every(stock => maker.IsDeleted(stock))) {
         throw new Error(`${stage}: empty result without complete stock-removal history.`);
+      }
+      if (empty) {
+        // OCCT can also return an empty compound AND deletion history after
+        // a failed intersection. The tools' total volume must at least cover
+        // each stock. Compare individually: distinct stocks may overlap.
+        const available = tools.reduce((sum, tool) => sum + Math.abs(ShapeValidator.signedVolume(tool)), 0);
+        for (const stock of stocks) {
+          const required = Math.abs(ShapeValidator.signedVolume(stock));
+          // Numerical allowance for adaptive volume integration, not added
+          // geometric/boolean fuzz. This is only a necessary condition.
+          const errorBudget = Math.max(mmTol3(1e-6), required * 1e-5);
+          if (!Number.isFinite(available) || !Number.isFinite(required) || required - available > errorBudget) {
+            throw new Error(`${stage}: empty result is inconsistent with cutter volume (${available}) and stock volume (${required}).`);
+          }
+        }
       }
       if (options.validate && !empty) requireValidSolid(result, stage);
       return { result, maker, stockRaws, empty, dispose };

@@ -10,6 +10,7 @@ import { Explorer } from "../explorer.js";
 import { EdgeOps } from "../edge-ops.js";
 import { ShapeOps } from "../shape-ops.js";
 import { requireValidSolid } from "../solid-validation.js";
+import type { ResolvedHelixGeometry } from "../../math/helix-geometry.js";
 
 /** One MakePipeShell result: the pipe and the section faces at its two ends. */
 export interface PipeRunResult {
@@ -70,7 +71,9 @@ export class PipeRun {
     section: PipeSection,
     trihedron: SpineTrihedron,
     tolerances = resolveSweepTolerances(),
+    helixGeometry?: ResolvedHelixGeometry,
   ): PipeRunResult {
+    const geometry = helixGeometry ?? (trihedron.kind === "helix" ? trihedron.geometry : undefined);
     return PipeRun.withBuilder(spine, section, trihedron, (pipe, profileImage) => {
       const oc = getOC();
       const diagnostics: PipeRunDiagnostics = {
@@ -80,9 +83,9 @@ export class PipeRun {
         tolerances, status: pipe.GetStatus(), surfaceError: null,
         profileBounds: ShapeOps.getBoundingBoxRaw(section.wire),
         spineBounds: ShapeOps.getBoundingBoxRaw(spine),
-        helix: trihedron.kind === "helix" ? {
-          startRadius: trihedron.geometry.startRadius, endRadius: trihedron.geometry.endRadius,
-          height: trihedron.geometry.zEnd - trihedron.geometry.zStart, turns: trihedron.geometry.turns,
+        helix: geometry ? {
+          startRadius: geometry.startRadius, endRadius: geometry.endRadius,
+          height: geometry.zEnd - geometry.zStart, turns: geometry.turns,
         } : undefined,
       };
       const progress = new oc.Message_ProgressRange();
@@ -120,7 +123,7 @@ export class PipeRun {
       let lastFace: TopoDS_Shape | undefined;
       try {
         requireValidSolid(solid, "Sweep cutter", 1);
-        if (trihedron.kind === "helix") {
+        if (geometry) {
           const edges = Explorer.findShapes(section.wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
           try {
             for (const raw of edges) {
@@ -143,7 +146,7 @@ export class PipeRun {
         generatedFaces.forEach(entry => entry.faces.forEach(face => face.delete()));
         throw error;
       }
-    }, tolerances);
+    }, tolerances, geometry);
   }
 
   /**
@@ -158,9 +161,17 @@ export class PipeRun {
     trihedron: SpineTrihedron,
     run: (pipe: BRepOffsetAPI_MakePipeShell, profileImage: (edge: TopoDS_Shape) => TopoDS_Shape) => T,
     tolerances: SweepTolerancePolicy = resolveSweepTolerances(),
+    helixGeometry?: ResolvedHelixGeometry,
   ): T {
     const oc = getOC();
-    const boundedSpine = trihedron.kind === "helix" ? boundedHelixSpine(spine) : spine;
+    const geometry = helixGeometry ?? (trihedron.kind === "helix" ? trihedron.geometry : undefined);
+    // Construction follows path provenance, not transport. Tapers use the
+    // existing binormal law but need bounded faces too. Forty-five-degree
+    // patches reduce the native check's cost on the cut cone; whole-turn
+    // patches fix its boolean but leave much slower interference checks.
+    const tapered = geometry && geometry.startRadius !== geometry.endRadius;
+    const boundedSpine = geometry ? boundedHelixSpine(spine,
+      tapered ? Math.PI / 4 : 2 * Math.PI, !!tapered) : spine;
     let pipe: BRepOffsetAPI_MakePipeShell | undefined;
     const disposers: (() => void)[] = [];
     try {

@@ -3,14 +3,18 @@ import { getOC } from "../init.js";
 import { WireOps } from "../wire-ops.js";
 
 /**
- * Bound each cylindrical helical face to one revolution. OCCT can return a
+ * Bound each authored helical face to at most one revolution. OCCT can return a
  * valid but unchanged cut when a single fitted face winds repeatedly through
  * a cylinder (R25, pitch14, ten turns). Trimming the SAME spine curve before
  * sweeping fixes that intersection failure without changing transport/fuzz.
- * Called only for a resolved cylindrical helix plus optional tangent lines.
+ * The supplied angular budget may be smaller for tapered helices. Only use
+ * this on an authored helix (curve parameter is angle) plus tangent lines.
  * The caller owns the returned wire when it differs from the input.
  */
-export function boundedHelixSpine(spine: TopoDS_Wire): TopoDS_Wire {
+export function boundedHelixSpine(spine: TopoDS_Wire, maxSpanAngle = 2 * Math.PI, avoidPeriodicSeams = false): TopoDS_Wire {
+  if (!Number.isFinite(maxSpanAngle) || maxSpanAngle <= 0 || maxSpanAngle > 2 * Math.PI) {
+    throw new Error("Helix sweep span must be positive and at most one revolution.");
+  }
   const oc = getOC();
   const explorer = new oc.BRepTools_WireExplorer(spine);
   const edges: TopoDS_Edge[] = [];
@@ -29,7 +33,11 @@ export function boundedHelixSpine(spine: TopoDS_Wire): TopoDS_Wire {
           try {
             // Authored helix curve parameter is angle in radians. The tiny
             // relative allowance avoids a sliver at an exact whole turn.
-            const spans = Math.max(1, Math.ceil((curve.Last - curve.First) / (2 * Math.PI) - 1e-12));
+            let spans = Math.max(1, Math.ceil((curve.Last - curve.First) / maxSpanAngle - 1e-12));
+            // For a full-turn cone, 8*turns+1 equal spans avoid placing the
+            // internal seams on its quarter-turn meridians. Aligned seams
+            // made OCCT return a falsely empty cut in the cone-circle case.
+            if (avoidPeriodicSeams && spans > 1) spans++;
             changed ||= spans > 1;
             const reversed = edge.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
             for (let i = 0; i < spans; i++) {

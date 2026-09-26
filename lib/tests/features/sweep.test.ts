@@ -531,7 +531,7 @@ describe("sweep", () => {
       expect(sShapes.length).toBe(1);
       expect(totalVol).toBeGreaterThan(60000);
       expect(totalVol).toBeLessThan(64000);
-    }, 180_000); // Native SI on long tapered faces is expensive in sequential WASM.
+    });
 
     it(".remove() with helix on cone face cuts a groove", () => {
       sketch("xy", () => {
@@ -554,7 +554,7 @@ describe("sweep", () => {
       expect(sShapes.length).toBe(1);
       expect(totalVol).toBeGreaterThan(56000);
       expect(totalVol).toBeLessThan(62000);
-    }, 180_000); // Keep the native check enabled; only the test budget is larger.
+    });
   });
 
   describe("conical (tapered) helix sweep", () => {

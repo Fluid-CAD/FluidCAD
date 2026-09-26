@@ -144,7 +144,7 @@ export function sectionMetrics(fixture: OrientationFixture, spec: ResolvedSweepS
     } finally {
       sections.delete();
     }
-  }, spec.tolerances);
+  }, spec.tolerances, spec.helixGeometry);
 }
 
 /** Distance to a shell (a solid would return zero for points in its interior). */

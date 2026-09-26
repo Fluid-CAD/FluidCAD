@@ -439,8 +439,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         '`nonPositiveVolume` (signed volume <= 0 — inversion is caught by the volume sign ONLY, because the analyzer accepts a ' +
         'reversed solid as valid; measured per solid, never summed, so +1000 and -1000 cannot cancel); `noSolid` (the shape holds ' +
         'no solid at all); `nonFiniteGeometry` (unbounded/non-finite geometry bounds or signed volume). Self-intersection is NOT checked ' +
-        'by this basic inspection, as stated under `notChecked`; runtime sweep validation runs native self-interference analysis ' +
-        'separately. Do not infer a self-interference verdict from this report. Result: `ok` (true only with zero ' +
+        'by this basic inspection, as stated under `notChecked`; expensive native self-interference analysis is reserved for ' +
+        'explicit diagnostics. Do not infer a self-interference verdict from this report. Result: `ok` (true only with zero ' +
         'findings), `checked` (shapes examined), `findings`, `shapes` (per shape: faces, edges, solids, signed `volume` in the ' +
         'document unit cubed, finding kinds), `skipped` (shapes that could not be examined, with why), `checks` (what ran), `unit`. ' +
         'Default is every solid the scene renders (a solid a later cut consumed is not rendered, so not checked). `shapeIds` ' +

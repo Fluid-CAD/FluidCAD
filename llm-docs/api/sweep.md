@@ -34,9 +34,12 @@ normal sign is accepted without changing an already aligned profile. The
 profile's size and offset are preserved through the subsequent screw motion.
 Copied, selected and mirrored helix edges retain this behavior.
 
-The helical surface is built in spans of at most one revolution. This avoids
+Authored cylindrical and tapered helical surfaces are built in bounded
+spans independently of their transport mode. Cylinders use at most one
+revolution per span. Tapers use a 45-degree budget and an extra span to
+avoid aligning internal seams with the cone's periodic meridians. This avoids
 a kernel intersection failure on long helical faces that can leave only
-edges on a cylinder instead of cutting the groove. Smooth span seams can
+edges on the stock instead of cutting the groove. Smooth span seams can
 add faces/edges; the profile and transport remain the same.
 
 Helix curve and swept-surface approximation errors must be finite,
@@ -48,19 +51,20 @@ dimensions. The builder does not retry with another orientation or larger
 tolerances.
 
 Each swept cutter also passes finite-bounds/volume, topology, closed-shell,
-positive signed-volume, solid-count, and native OCCT self-interference
-checks. Hole cuts and feature cut/fuse results are validated before adoption;
+positive signed-volume and solid-count checks. Hole cuts and feature
+cut/fuse results are validated before adoption;
 changed cleanup geometry is checked again. A cleanup that needs a repair
 without trustworthy face/edge history is rejected. Errors name the failing
 stage. A cut that misses the stock leaves it unchanged; successful complete
-removal deletes the stock and returns no replacement solid.
+removal deletes the stock and returns no replacement solid. An empty result
+must have deletion history and enough cutter volume to cover each stock;
+otherwise it is rejected as an inconsistent kernel result.
 
-Native self-interference checking requires the rebuilt `ocjs-fluidcad`
-bindings (`BRepAlgoAPI_Check`). If absent, the build reports the missing
-binding and fails instead of substituting another check. These checks can
-add seconds to cylindrical sweeps and over a minute to complex tapered
-sweeps. They are distinct from the basic inspection
-`validate` report, which does not request native self-interference analysis.
+Expensive native self-interference analysis is reserved for explicit engine
+diagnostics; automatic builds and previews do not run it. Those diagnostics
+require `BRepAlgoAPI_Check` in the installed `ocjs-fluidcad` build and report
+a missing binding if unavailable. A successful build or basic `validate`
+report does not certify absence of self-interference.
 
 Without a path-plane association, the profile's area centroid is localized
 to the nearest path station. Equally close distinct stations are rejected;

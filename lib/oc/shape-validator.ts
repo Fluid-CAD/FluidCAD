@@ -21,8 +21,8 @@ import { Explorer } from "./explorer.js";
  *   signed-volume integration returned a non-finite value.
  *
  * `selfIntersecting` is NOT in this vocabulary: the basic validator
- * does not request native self-interference analysis. Runtime sweep validation
- * additionally calls `checkNativeShape`. A check that is not run is not reported.
+ * does not request native self-interference analysis. That expensive check
+ * is available only through explicit diagnostics. A check that is not run is not reported.
  */
 export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid' | 'nonFiniteGeometry';
 
@@ -54,7 +54,7 @@ export class ShapeValidator {
 
   /** Checks a caller might expect that this validator does not run, with the reason. */
   static readonly UNAVAILABLE: Readonly<Record<string, string>> = {
-    selfIntersecting: 'not checked: basic validation does not run BRepAlgoAPI_Check self-interference analysis; runtime sweep validation runs it separately',
+    selfIntersecting: 'not checked: BRepAlgoAPI_Check self-interference analysis is an explicit diagnostic, not an automatic build or inspection check',
   };
 
   /**

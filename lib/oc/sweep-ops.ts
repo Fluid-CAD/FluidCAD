@@ -13,6 +13,7 @@ import type { Plane } from "../math/plane.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { Point } from "../math/point.js";
 import { BooleanOps } from "./boolean-ops.js";
+import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
 export interface SweepFaceRole {
   solidIndex: number;
@@ -47,7 +48,7 @@ export class SweepOps {
     let firstShape: TopoDS_Shape | null = null;
     let lastShape: TopoDS_Shape | null = null;
 
-    const { spine, profileFaces, transport, placement, tolerances } = spec;
+    const { spine, profileFaces, transport, placement, tolerances, helixGeometry } = spec;
 
     // Every temporary native handle is owned here, including abandoned
     // regions when a later hole or validation fails. Returned solids/caps
@@ -65,14 +66,14 @@ export class SweepOps {
         const ocFace = own(oc.TopoDS.Face(face.getShape()));
         const outerWire = own(oc.BRepTools.OuterWire(ocFace));
         const innerWires = face.getWires().map(w => w.getShape()).filter(w => !w.IsSame(outerWire));
-        const outer = ownPipe(SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances));
+        const outer = ownPipe(SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances, helixGeometry));
         let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
         let resultSolid = outer.solid;
         let resultFirst = outer.firstFace;
         let resultLast = outer.lastFace;
 
         for (const innerWire of innerWires) {
-          const inner = ownPipe(SweepOps.sweepWire(spine, own(oc.TopoDS.Wire(innerWire)), transport, placement, tolerances));
+          const inner = ownPipe(SweepOps.sweepWire(spine, own(oc.TopoDS.Wire(innerWire)), transport, placement, tolerances, helixGeometry));
           origins.push(...(inner.generatedFaces ?? []).map(entry => ({ ...entry, internal: true })));
           const hole = BooleanOps.cutWithHistory([resultSolid], [inner.solid], { validate: true, stage: "Sweep hole cut" });
           const newSolid = own(hole.result);
@@ -132,6 +133,7 @@ export class SweepOps {
     trihedron: SpineTrihedron,
     placement: SweepPlacement,
     tolerances: SweepTolerancePolicy,
+    helixGeometry?: ResolvedHelixGeometry,
   ): PipeRunResult {
     const withCorrection = placement.kind === "legacyAutomatic" && placement.withCorrection;
     if (!spine.hasCorners) {
@@ -140,7 +142,7 @@ export class SweepOps {
         location: placement.kind === "atVertex" ? placement.vertex : undefined,
         atStart: placement.kind === "atStart",
         transform: placement.kind === "atStart" ? placement.transform : undefined,
-      }, trihedron, tolerances);
+      }, trihedron, tolerances, helixGeometry);
     }
     if (placement.kind !== "legacyAutomatic") {
       throw new Error("Explicit sweep stations are currently supported only on smooth paths.");

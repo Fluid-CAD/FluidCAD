@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../../oc/init.js";
 import { checkNativeShape } from "../../oc/native-shape-check.js";
-import { requireValidSolid, SolidValidationError } from "../../oc/solid-validation.js";
+import { requireValidSolid } from "../../oc/solid-validation.js";
 import { ShapeValidator } from "../../oc/shape-validator.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Explorer } from "../../oc/explorer.js";
 import { ShapeFactory } from "../../common/shape-factory.js";
 import { SweepOps } from "../../oc/sweep-ops.js";
+import { buildSweepGhostSolids } from "../../features/sweep-ghost.js";
 import { orientationFixture } from "../helpers/sweep-orientation.js";
 
 const owned: { delete(): void }[] = [];
@@ -44,13 +45,13 @@ describe("runtime solid validation", () => {
     expect(native.valid).toBe(false);
     expect(native.faults.some(f => f.status === getOC().BOPAlgo_CheckStatus.BOPAlgo_SelfIntersect)).toBe(true);
     expect(native.faults.some(f => f.subshapes > 0)).toBe(true);
-    expect(() => requireValidSolid(shape, "test cutter")).toThrow(/test cutter validation failed.*BOPAlgo_SelfIntersect/);
+    expect(() => requireValidSolid(shape, "test cutter", undefined, { selfInterference: true })).toThrow(/test cutter validation failed.*BOPAlgo_SelfIntersect/);
   });
 
   it("rejects reversed volume before running the native argument check", () => {
     const shape = keep(cylinder().Reversed());
     const perform = vi.spyOn(getOC().BRepAlgoAPI_Check.prototype, "Perform");
-    expect(() => requireValidSolid(shape, "test cutter")).toThrow(/nonPositiveVolume/);
+    expect(() => requireValidSolid(shape, "test cutter", undefined, { selfInterference: true })).toThrow(/nonPositiveVolume/);
     expect(perform).not.toHaveBeenCalled();
   });
 
@@ -74,7 +75,7 @@ describe("runtime solid validation", () => {
     const oc = getOC();
     vi.spyOn(oc.BRepAlgoAPI_Check.prototype, "HasErrors").mockReturnValue(true);
     const release = vi.spyOn(oc.BRepAlgoAPI_Check.prototype, "delete");
-    expect(() => requireValidSolid(cylinder(), "test cut result")).toThrow(/test cut result validation failed.*failed to complete/);
+    expect(() => requireValidSolid(cylinder(), "test cut result", undefined, { selfInterference: true })).toThrow(/test cut result validation failed.*failed to complete/);
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -83,7 +84,7 @@ describe("runtime solid validation", () => {
     const shape = compound([cylinder(), cylinder(1)]);
     vi.spyOn(oc.BOPAlgo_CheckResult.prototype, "GetCheckStatus")
       .mockReturnValue(oc.BOPAlgo_CheckStatus.BOPAlgo_OperationAborted);
-    expect(() => requireValidSolid(shape, "test cutter"))
+    expect(() => requireValidSolid(shape, "test cutter", undefined, { selfInterference: true }))
       .toThrow(/analysis did not complete: BOPAlgo_OperationAborted/);
   });
 
@@ -91,7 +92,7 @@ describe("runtime solid validation", () => {
     const oc = getOC();
     const original = oc.BRepAlgoAPI_Check;
     Object.assign(oc, { BRepAlgoAPI_Check: undefined });
-    try { expect(() => requireValidSolid(cylinder(), "test cutter")).toThrow(/Missing WASM binding: BRepAlgoAPI_Check/); }
+    try { expect(() => requireValidSolid(cylinder(), "test cutter", undefined, { selfInterference: true })).toThrow(/Missing WASM binding: BRepAlgoAPI_Check/); }
     finally { Object.assign(oc, { BRepAlgoAPI_Check: original }); }
   });
 
@@ -113,9 +114,21 @@ describe("runtime solid validation", () => {
     } finally { shape.dispose(); }
   });
 
-  it("rejects an overlapping-turn cutter in the production sweep pipeline", () => {
-    const fixture = orientationFixture(2, 2);
-    try { expect(() => SweepOps.buildResolved(fixture.automatic)).toThrow(SolidValidationError); }
-    finally { fixture.dispose(); }
+  it("never runs native self-interference analysis for automatic sweeps or previews", () => {
+    const perform = vi.spyOn(getOC().BRepAlgoAPI_Check.prototype, "Perform").mockImplementation(() => {
+      throw new Error("Expensive native diagnostics must not run automatically");
+    });
+    const fixture = orientationFixture(28, 1);
+    try {
+      const built = SweepOps.buildResolved(fixture.automatic);
+      try { expect(built.solids).toHaveLength(1); }
+      finally { built.solids.forEach(s => s.dispose()); built.firstShape.delete(); built.lastShape.delete(); }
+      const ghost = buildSweepGhostSolids({ getPlane: () => fixture.plane, getGeometries: () => fixture.profile.getEdges() }, {
+        op: "remove", thin: null, path: fixture.wire, faces: [...fixture.automatic.profileFaces],
+      });
+      try { expect(ghost.solids).toHaveLength(1); }
+      finally { [...ghost.solids, ...ghost.scratch].forEach(s => s.dispose()); }
+      expect(perform).not.toHaveBeenCalled();
+    } finally { fixture.dispose(); }
   });
 });

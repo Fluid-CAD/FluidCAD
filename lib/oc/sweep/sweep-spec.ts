@@ -31,6 +31,8 @@ export type SweepPlacement =
 
 export interface ResolvedSweepSpec {
   readonly spine: SpineAnalysis;
+  /** Authored path geometry is independent of the selected transport law. */
+  readonly helixGeometry?: ResolvedHelixGeometry;
   readonly profileFaces: readonly Face[];
   readonly transport: SweepTransport;
   readonly placement: SweepPlacement;
@@ -76,7 +78,7 @@ export function resolveSweepSpec(
     throw new Error("Explicit sweep stations are currently supported only on smooth paths.");
   }
   return {
-    spine, profileFaces: [...profileFaces], placement,
+    spine, helixGeometry: helixRun ? geometry : undefined, profileFaces: [...profileFaces], placement,
     transport,
     tolerances: resolveSweepTolerances(),
   };

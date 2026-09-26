@@ -62,12 +62,15 @@ describe("validated sweep subtraction", () => {
     expect(cut.getShapes()).toHaveLength(0);
   });
 
-  it("rejects a failed native result check before replacing the stock", () => {
+  it("rejects an invalid result before replacing the stock", () => {
     const original = stock();
     const cut = remove(0, 2);
-    // First native check is the cutter, second is the cut result.
-    vi.spyOn(getOC().BRepAlgoAPI_Check.prototype, "HasErrors")
-      .mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const validate = ShapeValidator.validate;
+    let checks = 0;
+    vi.spyOn(ShapeValidator, "validate").mockImplementation(shape => {
+      const report = validate(shape);
+      return ++checks === 2 ? { ...report, findings: [{ kind: "invalidTopology", message: "Invalid cut result" }] } : report;
+    });
     const scene = render();
     expect(String(cut.getError())).toMatch(/sweep cut result validation failed/);
     expect(original.getShapes({}, "solid", new Set(scene.getAllSceneObjects()))).toHaveLength(1);
@@ -97,5 +100,20 @@ describe("validated sweep subtraction", () => {
     const scene = render();
     expect(String(cut.getError())).toMatch(/sweep cut cleanup validation failed.*nonPositiveVolume/);
     expect(original.getShapes({}, "solid", new Set(scene.getAllSceneObjects()))).toHaveLength(1);
+  });
+
+  it("rejects impossible complete removal even when the kernel supplies deletion history", () => {
+    const oc = getOC();
+    const original = stock();
+    const cut = remove(0, 2); // The cutter volume is smaller than the stock.
+    const empty = ShapeOps.makeCompoundRaw([]);
+    vi.spyOn(oc.BRepAlgoAPI_Cut.prototype, "Shape")
+      .mockImplementation(() => empty.Oriented(empty.Orientation()));
+    vi.spyOn(oc.BRepAlgoAPI_Cut.prototype, "IsDeleted").mockReturnValue(true);
+    try {
+      const scene = render();
+      expect(String(cut.getError())).toMatch(/empty result is inconsistent with cutter volume/);
+      expect(original.getShapes({}, "solid", new Set(scene.getAllSceneObjects()))).toHaveLength(1);
+    } finally { empty.delete(); }
   });
 });

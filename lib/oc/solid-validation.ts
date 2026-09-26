@@ -14,8 +14,15 @@ export class SolidValidationError extends Error {
   }
 }
 
-/** Validate a solid before adoption. Does not repair or mutate the input. */
-export function requireValidSolid(shape: TopoDS_Shape, stage: string, expectedSolids?: number): ShapeValidation {
+/**
+ * Validate a solid before adoption. Native self-interference analysis is an
+ * explicit diagnostic option, never part of automatic builds or previews.
+ * Does not repair or mutate the input.
+ */
+export function requireValidSolid(
+  shape: TopoDS_Shape, stage: string, expectedSolids?: number,
+  options: { selfInterference?: boolean } = {},
+): ShapeValidation {
   try {
     if (shape.IsNull()) throw new SolidValidationError(stage, "kernel returned a null shape");
     const validation = ShapeValidator.validate(shape);
@@ -25,15 +32,17 @@ export function requireValidSolid(shape: TopoDS_Shape, stage: string, expectedSo
     if (expectedSolids !== undefined && validation.solids !== expectedSolids) {
       throw new SolidValidationError(stage, `expected ${expectedSolids} solid(s), received ${validation.solids}`, validation);
     }
-    const native = checkNativeShape(shape);
-    if (native.errors.length) {
-      throw new SolidValidationError(stage,
-        `BRepAlgoAPI_Check analysis did not complete: ${native.errors.join(", ")}`, validation, native);
-    }
-    if (!native.valid) {
-      throw new SolidValidationError(stage,
-        `BRepAlgoAPI_Check rejected the shape (${native.faultCount} fault(s)): ` +
-        native.faults.map(f => `${f.status}, ${f.subshapes} subshape(s)`).join("; "), validation, native);
+    if (options.selfInterference) {
+      const native = checkNativeShape(shape);
+      if (native.errors.length) {
+        throw new SolidValidationError(stage,
+          `BRepAlgoAPI_Check analysis did not complete: ${native.errors.join(", ")}`, validation, native);
+      }
+      if (!native.valid) {
+        throw new SolidValidationError(stage,
+          `BRepAlgoAPI_Check rejected the shape (${native.faultCount} fault(s)): ` +
+          native.faults.map(f => `${f.status}, ${f.subshapes} subshape(s)`).join("; "), validation, native);
+      }
     }
     return validation;
   } catch (error) {

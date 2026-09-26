@@ -20,6 +20,7 @@ import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
 import { DirectFaces } from "./direct-faces.js";
 import { transformHelixGeometry } from "../math/helix-geometry.js";
+import { RenderSeams } from "./render-seams.js";
 
 /**
  * A cleanShape result that preserves UnifySameDomain lineage so callers can
@@ -47,6 +48,7 @@ export class ShapeOps {
     transformer.Perform(shape.getShape(), true);
     const raw = transformer.Shape();
     const transformed = ShapeFactory.fromShape(raw);
+    RenderSeams.map(transformed, [shape], edge => [transformer.ModifiedShape(edge)]);
 
     for (const entry of shape.getHelixEdges()) {
       const geometry = transformHelixGeometry(entry.geometry, matrix);
@@ -231,6 +233,7 @@ export class ShapeOps {
     // rebuild the left-handed ones first, and route every remap through the
     // rebuild so callers' pre-clean faces still resolve — see DirectFaces.
     const inputRaw = shape.getShape();
+    const sourceShape = shape;
     const direct = DirectFaces.hasMixedHandedness(inputRaw) ? DirectFaces.applyRaw(inputRaw) : null;
     const through = (raw: TopoDS_Shape): TopoDS_Shape | null => (direct ? direct.modifiedOrNull(raw) : raw);
     if (direct) {
@@ -286,6 +289,9 @@ export class ShapeOps {
       progress.delete();
 
       const wrapped = ShapeFactory.fromShape(fixed);
+      // ShapeFix supplies no history: only exact surviving identities can
+      // retain display provenance, and their normals are checked again.
+      RenderSeams.map(wrapped, [sourceShape]);
       const fixedFaces = new OrientedFaces(fixed);
       let disposed = false;
       const dispose = () => {
@@ -335,8 +341,15 @@ export class ShapeOps {
       direct?.dispose();
     };
 
+    const wrapped = ShapeFactory.fromShape(cleanedRaw);
+    RenderSeams.map(wrapped, [sourceShape], edge => {
+      const raw = through(edge);
+      if (!raw || history.IsRemoved(raw)) return [];
+      const images = ShapeOps.shapeListToArray(history.Modified(raw));
+      return images.length ? images : [raw.Oriented(raw.Orientation())];
+    });
     return {
-      shape: ShapeFactory.fromShape(cleanedRaw),
+      shape: wrapped,
       remapFace: (face) => {
         if (!knownFaces.Contains(face.getShape())) {
           return null;

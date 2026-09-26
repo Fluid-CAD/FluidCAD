@@ -9,7 +9,7 @@ import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 
 /** Exact constraints and guesses from the user's five-turn drafted-cone report. */
-export function coneSweepModel(turns = 5, draft = 8, withSweep = true) {
+export function coneSweepModel(turns = 5, draft = 8, withSweep = true, operation: "remove" | "new" | "add" = "remove") {
   part("Box", () => {
     const s = sketch("xy", () => {
       const c1 = circle([0, 0], 50);
@@ -28,7 +28,7 @@ export function coneSweepModel(turns = 5, draft = 8, withSweep = true) {
       coincident(l2.start(), l1.end()); coincident(l4.end(), l1.start()); horizontal(l1);
       distance(l1.start(), l1.end(), 5); symmetric(l1.start(), l2.start(), yAxis()); distance(l3, origin(), 2);
     }).close();
-    if (withSweep) sweep(e2, s2).remove();
+    if (withSweep) sweep(e2, s2)[operation]();
   });
 }
 

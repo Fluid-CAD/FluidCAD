@@ -14,6 +14,7 @@ import type { Matrix4 } from "../math/matrix4.js";
 import type { Point } from "../math/point.js";
 import { BooleanOps } from "./boolean-ops.js";
 import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
+import { RenderSeams } from "./render-seams.js";
 
 export interface SweepFaceRole {
   solidIndex: number;
@@ -105,7 +106,9 @@ export class SweepOps {
               profileMidpoint: origin?.profileMidpoint,
             });
           });
-          allSolids.push(Solid.fromTopoDSSolid(Explorer.toSolid(solid)));
+          const wrapped = Solid.fromTopoDSSolid(Explorer.toSolid(solid));
+          allSolids.push(wrapped);
+          RenderSeams.fromFaceGroups(wrapped, origins.map(origin => origin.faces));
         }
       }
 

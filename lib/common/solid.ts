@@ -168,6 +168,7 @@ export class Solid extends Shape<TopoDS_Solid> {
 
   override copy(): Shape {
     const copied = new Solid(this.getShape());
+    for (const edge of this.getRenderSeams()) copied.recordRenderSeam(edge);
     for (const entry of this.colorMap) {
       copied.colorMap.push({ shape: entry.shape, color: entry.color });
     }

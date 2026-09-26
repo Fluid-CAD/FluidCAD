@@ -42,6 +42,12 @@ a kernel intersection failure on long helical faces that can leave only
 edges on the stock instead of cutting the groove. Smooth span seams can
 add faces/edges; the profile and transport remain the same.
 
+Smooth joins introduced by those spans are suppressed in solid line rendering,
+including after `.new()`, `.add()` and `.remove()`. Genuine corners and cap
+boundaries remain visible. The underlying faces and edges are retained for
+modeling, explicit selections and export; this is a display change, not a
+face merge.
+
 Helix curve and swept-surface approximation errors must be finite,
 nonnegative, and within a physical **0.0001 mm** fit budget, converted to
 the document unit at build time. Sweep boundary tolerance is also

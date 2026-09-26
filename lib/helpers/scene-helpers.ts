@@ -16,6 +16,7 @@ import { Profiler } from "../common/profiler.js";
 import { Wire } from "../common/wire.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { requireValidSolid } from "../oc/solid-validation.js";
+import { RenderSeams } from "../oc/render-seams.js";
 
 /**
  * The edges of the object's geometry, for the inputs that build a curve from
@@ -127,6 +128,7 @@ export function fuseWithSceneObjects(
     const runCleanups = () => {
       for (const shape of shapesToAdd) {
         if (opts?.validateResult) requireValidSolid(shape.getShape(), "Sweep fuse result");
+        RenderSeams.throughHistory(shape, [...sceneShapes, ...extrusions], maker);
         const cleanup = ShapeOps.cleanShapeWithLineage(shape, { skipSimplify, unifyEdges: true, requireLineage: opts?.validateResult });
         cleanups.push(cleanup);
         if (opts?.validateResult && !cleanup.shape.getShape().IsEqual(shape.getShape())) {
@@ -599,6 +601,7 @@ export function cutWithSceneObjects(
         // caller asked to or when the stock is flagged, and re-flag the result.
         const skipSimplify = options?.skipSimplify || shape.noSimplify();
         for (const newShape of list) {
+          RenderSeams.throughHistory(newShape, [...stock, ...toolShapes], cutResult.maker);
           const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify, unifyEdges: true,
             requireLineage: options?.validateResult });
           cleanups.push(cleanup);

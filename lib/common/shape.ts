@@ -36,6 +36,18 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   private _released: boolean = false;
   /** Independently owned native handles: rewrapped/cached paths do not depend on a source wrapper's lifetime. */
   private _helixEdges: { edge: TopoDS_Shape; geometry: ResolvedHelixGeometry }[] = [];
+  /** Independently owned span boundaries suppressed only in solid line rendering. */
+  private _renderSeams: TopoDS_Shape[] = [];
+
+  getRenderSeams(): readonly TopoDS_Shape[] {
+    return this._renderSeams;
+  }
+
+  recordRenderSeam(edge: TopoDS_Shape): void {
+    if (!this._renderSeams.some(existing => existing.IsSame(edge))) {
+      this._renderSeams.push(edge.Oriented(edge.Orientation()));
+    }
+  }
 
   getHelixEdges(): readonly { edge: TopoDS_Shape; geometry: ResolvedHelixGeometry }[] {
     return this._helixEdges;
@@ -118,6 +130,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this._released = true;
     for (const entry of this._helixEdges) entry.edge.delete();
     this._helixEdges = [];
+    for (const edge of this._renderSeams) edge.delete();
+    this._renderSeams = [];
     this.shape?.delete();
     this.shape = null;
   }
@@ -142,6 +156,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this._released = true;
     this.deleteOwnedHandles(retainedRaw, deletedRaw);
     this._helixEdges = [];
+    this._renderSeams = [];
     this.shape = null;
     this.meshes = null;
     this._meshSource = null;
@@ -160,6 +175,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
       out.add(entry.shape);
     }
     for (const entry of this._helixEdges) out.add(entry.edge);
+    for (const edge of this._renderSeams) out.add(edge);
   }
 
   /**
@@ -177,6 +193,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
       Shape.deleteRawHandle(entry.shape, retainedRaw, deletedRaw);
     }
     for (const entry of this._helixEdges) Shape.deleteRawHandle(entry.edge, retainedRaw, deletedRaw);
+    for (const edge of this._renderSeams) Shape.deleteRawHandle(edge, retainedRaw, deletedRaw);
   }
 
   protected static deleteRawHandle(

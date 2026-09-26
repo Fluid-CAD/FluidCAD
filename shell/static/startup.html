@@ -1,4 +1,14 @@
 <!doctype html>
+<!--
+  The shell's fallback page: what a window shows when the start screen cannot
+  be used — the app has no built-in engine page, it failed to load, its
+  renderer kept crashing, it never said hello, or it speaks another protocol
+  (the reason is logged to the terminal). It has to work with no engine at
+  all, which is why it lives in the shell and is plain HTML.
+
+  It speaks the same `window.fluidcadShell.start` contract as the real start
+  screen, so the window's opening progress and errors show here as well.
+-->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -7,11 +17,27 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #1c1c1c;
+        --bg: #1e1e1e;
         --fg: #e7e7e7;
         --muted: #9a9a9a;
-        --accent: #4f9cf9;
+        --accent: #4a9eff;
         --error: #ff8b8b;
+        --track: #ffffff14;
+        --button: #ffffff14;
+        --button-hover: #ffffff24;
+        --button-border: #ffffff26;
+      }
+      :root[data-theme="fluidcad-light"] {
+        color-scheme: light;
+        --bg: #ffffff;
+        --fg: #1f2937;
+        --muted: #6b7280;
+        --accent: #2563eb;
+        --error: #dc2626;
+        --track: #0000000f;
+        --button: #0000000a;
+        --button-hover: #00000014;
+        --button-border: #00000026;
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; margin: 0; }
@@ -36,7 +62,7 @@
       .track {
         height: 4px;
         border-radius: 999px;
-        background: #ffffff14;
+        background: var(--track);
         overflow: hidden;
         margin: 18px 0 4px;
       }
@@ -55,82 +81,120 @@
         0% { transform: translateX(-100%); }
         100% { transform: translateX(300%); }
       }
-      .error { color: var(--error); text-align: left; white-space: pre-wrap; margin-top: 10px; }
+      .error {
+        color: var(--error);
+        text-align: left;
+        white-space: pre-wrap;
+        margin-top: 10px;
+        -webkit-user-select: text;
+        user-select: text;
+      }
       .actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
       button {
         font: inherit;
         color: var(--fg);
-        background: #ffffff14;
-        border: 1px solid #ffffff26;
+        background: var(--button);
+        border: 1px solid var(--button-border);
         border-radius: 7px;
         padding: 6px 14px;
         cursor: pointer;
       }
-      button:hover { background: #ffffff24; }
+      button:hover { background: var(--button-hover); }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <main>
       <div class="mark">FluidCAD</div>
-      <div id="status" class="status">Starting…</div>
-      <div id="track" class="track indeterminate"><div id="bar" class="bar"></div></div>
+      <div id="status" class="status"></div>
+      <div id="track" class="track indeterminate" hidden><div id="bar" class="bar"></div></div>
       <div id="detail" class="detail"></div>
       <div id="error" class="error" hidden></div>
-      <div id="actions" class="actions" hidden>
-        <button id="retry">Try again</button>
-        <button id="open">Open another project…</button>
+      <div class="actions">
+        <button id="open" hidden>Open project…</button>
+        <button id="cancel" hidden>Cancel</button>
+        <button id="back" hidden>Back</button>
+        <button id="retry" hidden>Try again</button>
       </div>
     </main>
     <script>
-      const status = document.getElementById('status');
-      const detail = document.getElementById('detail');
-      const track = document.getElementById('track');
-      const bar = document.getElementById('bar');
-      const error = document.getElementById('error');
-      const actions = document.getElementById('actions');
+      const theme = new URLSearchParams(location.search).get('theme');
+      if (theme === 'fluidcad-light') {
+        document.documentElement.dataset.theme = theme;
+      }
 
-      document.getElementById('retry').onclick = () => window.fluidcadShell?.retry();
-      document.getElementById('open').onclick = () => window.fluidcadShell?.openProject();
+      const api = window.fluidcadShell?.start;
+      const $ = (id) => document.getElementById(id);
+      const status = $('status');
+      const detail = $('detail');
+      const track = $('track');
+      const bar = $('bar');
+      const error = $('error');
+      const buttons = { open: $('open'), cancel: $('cancel'), back: $('back'), retry: $('retry') };
+
+      buttons.open.onclick = () => api?.openDialog();
+      buttons.cancel.onclick = () => api?.cancelOpen();
+      buttons.back.onclick = () => api?.cancelOpen();
+      buttons.retry.onclick = () => api?.retryOpen();
 
       const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-      window.fluidcadShell?.onStatus((state) => {
-        error.hidden = true;
-        actions.hidden = true;
-        track.hidden = false;
+      function show(...names) {
+        for (const [name, button] of Object.entries(buttons)) {
+          button.hidden = !names.includes(name);
+        }
+      }
 
-        if (state.phase === 'resolving') {
-          status.textContent = 'Opening project…';
-          detail.textContent = state.workspacePath;
-          track.classList.add('indeterminate');
-          bar.style.width = '';
-        } else if (state.phase === 'downloading') {
-          status.textContent = `Downloading engine ${state.version}…`;
-          if (state.totalBytes) {
-            track.classList.remove('indeterminate');
-            bar.style.width = `${Math.round((state.receivedBytes / state.totalBytes) * 100)}%`;
-            detail.textContent = `${mb(state.receivedBytes)} of ${mb(state.totalBytes)}`;
-          } else {
-            track.classList.add('indeterminate');
-            detail.textContent = state.receivedBytes ? mb(state.receivedBytes) : 'This project pins a version that is not installed yet.';
-          }
-        } else if (state.phase === 'starting') {
-          status.textContent = `Starting engine ${state.version}…`;
-          detail.textContent = state.source === 'project'
-            ? "Using this project's own install."
-            : '';
-          track.classList.add('indeterminate');
-          bar.style.width = '';
-        } else if (state.phase === 'error') {
-          status.textContent = 'This project could not be opened.';
-          detail.textContent = '';
-          track.hidden = true;
+      function progress(fraction) {
+        track.hidden = false;
+        track.classList.toggle('indeterminate', fraction === null);
+        bar.style.width = fraction === null ? '' : `${Math.round(fraction * 100)}%`;
+      }
+
+      function render(state) {
+        error.hidden = true;
+        track.hidden = true;
+        detail.textContent = '';
+        if (state.phase === 'home') {
+          status.textContent = 'The start screen is not available. You can still open a project.';
+          show('open');
+          return;
+        }
+        if (state.phase === 'failed') {
+          status.textContent = `${state.project.name} could not be opened.`;
           error.hidden = false;
           error.textContent = state.message;
-          actions.hidden = false;
+          show('back', 'retry');
+          return;
         }
-      });
+        show('cancel');
+        const step = state.status;
+        if (step.step === 'resolving') {
+          status.textContent = `Opening ${state.project.name}…`;
+          detail.textContent = state.project.path;
+          progress(null);
+        } else if (step.step === 'downloading') {
+          status.textContent = `Downloading engine ${step.version}…`;
+          if (step.totalBytes) {
+            progress(step.receivedBytes / step.totalBytes);
+            detail.textContent = `${mb(step.receivedBytes)} of ${mb(step.totalBytes)}`;
+          } else {
+            progress(null);
+            detail.textContent = step.receivedBytes
+              ? mb(step.receivedBytes)
+              : 'This project pins a version that is not installed yet.';
+          }
+        } else if (step.step === 'starting') {
+          status.textContent = `Starting engine ${step.version}…`;
+          detail.textContent = step.source === 'project' ? "Using this project's own install." : '';
+          progress(null);
+        }
+      }
+
+      if (api) {
+        api.onWindowState(render);
+        api.windowState().then(render);
+      }
     </script>
   </body>
 </html>

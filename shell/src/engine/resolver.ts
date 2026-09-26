@@ -196,6 +196,11 @@ export async function resolveEngine(
     try {
       downloaded = await downloadEngine(pin.engine, options);
     } catch (err) {
+      // A cancelled open is not a failed fetch: the user stopped it, and the
+      // pin must stay exactly where it was.
+      if (options.signal?.aborted) {
+        throw err;
+      }
       const shipped = repinToShipped(workspacePath, pin.engine);
       if (!shipped) {
         throw err;

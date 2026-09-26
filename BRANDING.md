@@ -16,7 +16,7 @@ After editing the SVG, run from the repository root:
 python3 ../FluidCAD-Logo/export.py --project .
 ```
 
-The exporter needs Python 3 and ImageMagick 7 (`magick`, with SVG support). It refreshes the website and CAD UI SVGs/PNGs, both favicons, the desktop package/window icons and inline start-screen logo, both VS Code logo copies, and the website share image. PNGs are generated from a 2048px vector render; the ICO contains 16–256px frames.
+The exporter needs Python 3 and ImageMagick 7 (`magick`, with SVG support). It refreshes the website and CAD UI SVGs/PNGs, both favicons, the desktop package/window icons, both VS Code logo copies, and the website share image. PNGs are generated from a 2048px vector render; the ICO contains 16–256px frames.
 
 To refresh the editable Blender file after an SVG change:
 

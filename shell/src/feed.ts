@@ -102,8 +102,14 @@ export class FeedService {
 
   /** What this app version shows: not expired, and not gated to a newer app. */
   private static visible(feed: StartFeed): StartFeed {
-    const now = Date.now();
-    const version = app.getVersion();
+    return FeedService.visibleTo(feed, app.getVersion());
+  }
+
+  /**
+   * `feed` as app `version` shows it at `now`. Public so the start screen's
+   * contract test can build a real feed payload without an Electron app.
+   */
+  static visibleTo(feed: StartFeed, version: string, now: number = Date.now()): StartFeed {
     return {
       tutorials: feed.tutorials,
       notifications: feed.notifications.filter((entry) => {
@@ -133,7 +139,7 @@ export class FeedService {
   }
 
   /** Accept only what the page knows how to render; drop anything malformed. */
-  private static parseFeed(raw: unknown): StartFeed {
+  static parseFeed(raw: unknown): StartFeed {
     const source = (raw ?? {}) as { tutorials?: unknown; notifications?: unknown };
     const tutorials: FeedTutorial[] = [];
     for (const entry of Array.isArray(source.tutorials) ? source.tutorials : []) {

@@ -6,7 +6,6 @@ import { serverEntryFor } from './engine/paths';
 import { projectInstalledEngine, readProjectPin, writeProjectPin } from './engine/project-pin';
 import { isEngineManagedLink, type ResolvedEngine } from './engine/resolver';
 import { UpgradeDiffer, type UpgradeDiff } from './engine/upgrade-diff';
-import type { ProjectWindow } from './project-window';
 import { upgradePromptPreference } from './state';
 
 /**
@@ -32,10 +31,17 @@ export type UpgradeCandidate = { from: string; to: string };
 
 export type UpgradePreview = { diff?: UpgradeDiff; error?: string };
 
+/** A window that has the project open, as a pin change needs it. */
+export type ReopenTarget = {
+  /** Ask about unsaved buffers first; false when the user chose Cancel. */
+  confirmTeardown(): Promise<boolean>;
+  /** Close the project and open it again, in the same window, on whatever it now pins. */
+  reopenProject(): Promise<void>;
+};
+
 export type ApplyDeps = {
-  /** The window currently showing the project, if any; it is reopened on the new pin. */
-  openWindow: ProjectWindow | undefined;
-  openProject: (target: string) => Promise<unknown>;
+  /** The window that has `workspacePath` open, if any. */
+  openWindowFor(workspacePath: string): ReopenTarget | null;
 };
 
 export class EngineUpgrade {
@@ -129,8 +135,10 @@ export class EngineUpgrade {
 
   /**
    * Commit the pin. Separate from the preview on purpose. An open project is
-   * reopened, so the user never sees a window whose title says one version
-   * and whose geometry came from another.
+   * reopened in its own window, so the user never sees a project whose title
+   * says one version and whose geometry came from another — and it is asked
+   * about unsaved buffers *before* the pin moves, so a Cancel leaves both the
+   * pin and the running engine exactly as they were.
    */
   static async apply(workspacePath: string, version: string, deps: ApplyDeps): Promise<{ ok: boolean; error?: string }> {
     try {
@@ -138,10 +146,13 @@ export class EngineUpgrade {
       if (incompatible) {
         return { ok: false, error: incompatible };
       }
+      const window = deps.openWindowFor(workspacePath);
+      if (window && !(await window.confirmTeardown())) {
+        return { ok: false, error: 'The switch was cancelled. The project still runs its current engine.' };
+      }
       writeProjectPin(workspacePath, version);
-      if (deps.openWindow) {
-        await deps.openWindow.close({ reopening: true });
-        await deps.openProject(workspacePath);
+      if (window) {
+        await window.reopenProject();
       }
       return { ok: true };
     } catch (err: any) {

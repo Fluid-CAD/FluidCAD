@@ -4,16 +4,20 @@ import { contextBridge, ipcRenderer } from 'electron';
  * The renderer bridge — two APIs, and which one a page gets is decided by
  * where the page came from:
  *
- * - `file:` pages are the shell's own (the startup splash, the start screen).
- *   They exist for the moments when there is no engine to talk to yet, and
- *   they get `window.fluidcadShell`.
- * - everything else is the engine's page, served over HTTP from localhost. It
- *   gets `window.fluidcadDesktop`: native gestures the page cannot do for
- *   itself, and nothing more.
+ * - `fluidcad-app:` is the start screen, rendered by the engine that ships
+ *   with the app and served by the shell; `file:` is the shell's own fallback
+ *   page for when that one cannot be used. They get `window.fluidcadShell`:
+ *   the recents, the feed, opening projects, moving a project's engine.
+ * - `http:` is an engine's page, served from localhost by whichever engine the
+ *   project pins. It gets `window.fluidcadDesktop`: native gestures the page
+ *   cannot do for itself, and nothing more.
  *
- * The split matters. The engine's page is engine-versioned and may be much
- * older than the shell; it must not be able to drive the engine cache. And the
- * same page build runs in a browser tab from `npx fluidcad serve`, where
+ * The split matters more now that one window shows both kinds of page in turn.
+ * An engine's page is engine-versioned and may be much older than the shell;
+ * it must never reach the engine cache or open projects. Main checks every
+ * `shell:start-*` call's sender as well, and cancels any navigation a page
+ * starts, so the split holds even for a page that tried to get around it.
+ * The same engine page runs in a browser tab from `npx fluidcad serve`, where
  * `window.fluidcadDesktop` is simply undefined — so the page treats every one
  * of these as optional.
  */
@@ -78,54 +82,58 @@ const desktopApi = {
   },
 };
 
-const shellApi = {
-  onStatus: (handler: (status: unknown) => void): void => {
-    ipcRenderer.on('shell:status', (_event, status: unknown) => handler(status));
+/**
+ * `window.fluidcadShell.start` — the start screen's contract with the shell.
+ * The page's side, with the types and the runtime guards every reply goes
+ * through, is `ui/src/start/host.ts`; `tests/start-contract.test.ts` keeps the
+ * two in step.
+ */
+const startApi = {
+  hello: (protocol: number): Promise<unknown> => ipcRenderer.invoke('shell:start-hello', protocol),
+  windowState: (): Promise<unknown> => ipcRenderer.invoke('shell:start-window-state'),
+  onWindowState: (handler: (state: unknown) => void): void => {
+    ipcRenderer.on('shell:window-state', (_event, state: unknown) => handler(state));
   },
+  cancelOpen: (): Promise<void> => ipcRenderer.invoke('shell:start-cancel-open'),
+  retryOpen: (): Promise<void> => ipcRenderer.invoke('shell:start-retry-open'),
+  appearance: (): Promise<unknown> => ipcRenderer.invoke('shell:start-appearance'),
 
-  retry: (): Promise<void> => ipcRenderer.invoke('shell:retry'),
-  openProject: (): Promise<void> => ipcRenderer.invoke('shell:open-project'),
+  list: (): Promise<unknown> => ipcRenderer.invoke('shell:start-list'),
+  /** Tutorials + notifications from the feed worker (cached, offline-safe). */
+  feed: (): Promise<unknown> => ipcRenderer.invoke('shell:start-feed'),
+  dismissNotification: (id: string): Promise<void> => ipcRenderer.invoke('shell:start-dismiss-notification', id),
 
-  /** The start screen: recent projects with previews, open, new. */
-  start: {
-    list: (): Promise<any> => ipcRenderer.invoke('shell:start-list'),
-    open: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-open', workspacePath),
-    openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
-    newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
-    forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
-    /** Tutorials + notifications from the feed worker (cached, offline-safe). */
-    feed: (): Promise<any> => ipcRenderer.invoke('shell:start-feed'),
-    dismissNotification: (id: string): Promise<void> =>
-      ipcRenderer.invoke('shell:start-dismiss-notification', id),
-    /** Open an http(s) link in the user's browser. */
-    openLink: (url: string): Promise<void> => ipcRenderer.invoke('shell:start-open-link', url),
-    /** Grow/shrink the window by this many CSS pixels so the content fits. */
-    fitHeight: (delta: number): Promise<void> => ipcRenderer.invoke('shell:start-fit-height', delta),
-    /** The recents changed under the page (a project closed, a preview landed). */
-    onChanged: (handler: () => void): void => {
-      ipcRenderer.on('shell:start-changed', () => handler());
-    },
+  open: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-open', workspacePath),
+  openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
+  newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
+  forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
+  /** Open an http(s) link in the user's browser. */
+  openLink: (url: string): Promise<void> => ipcRenderer.invoke('shell:start-open-link', url),
 
-    /** The "Change engine version…" dialog: what a project can move to. */
-    engineOptions: (workspacePath: string): Promise<any> =>
-      ipcRenderer.invoke('shell:start-engine-options', workspacePath),
-    /** Rebuild the project on both engines and report what moved. Commits nothing. */
-    previewUpgrade: (workspacePath: string, version: string): Promise<any> =>
-      ipcRenderer.invoke('shell:start-preview-upgrade', workspacePath, version),
-    /** Move the pin; an open window for the project is reopened on it. */
-    applyPin: (workspacePath: string, version: string): Promise<any> =>
-      ipcRenderer.invoke('shell:start-apply-pin', workspacePath, version),
-    onUpgradeProgress: (handler: (progress: { workspacePath: string; message: string }) => void): void => {
-      ipcRenderer.on('shell:upgrade-progress', (_event, progress: any) => handler(progress));
-    },
+  /** The "Change engine version…" dialog: what a project can move to. */
+  engineOptions: (workspacePath: string): Promise<unknown> => ipcRenderer.invoke('shell:start-engine-options', workspacePath),
+  /** Rebuild the project on both engines and report what moved. Commits nothing. */
+  previewUpgrade: (workspacePath: string, version: string): Promise<unknown> =>
+    ipcRenderer.invoke('shell:start-preview-upgrade', workspacePath, version),
+  /** Move the pin; an open project is reopened on it in its own window. */
+  applyPin: (workspacePath: string, version: string): Promise<unknown> =>
+    ipcRenderer.invoke('shell:start-apply-pin', workspacePath, version),
+  onUpgradeProgress: (handler: (progress: unknown) => void): void => {
+    ipcRenderer.on('shell:upgrade-progress', (_event, progress: unknown) => handler(progress));
+  },
+  /** The recents changed under the page (a project closed, a preview landed). */
+  onChanged: (handler: () => void): void => {
+    ipcRenderer.on('shell:start-changed', () => handler());
   },
 };
+
+const shellApi = { start: startApi };
 
 export type FluidcadDesktopApi = typeof desktopApi;
 export type FluidcadShellApi = typeof shellApi;
 
-if (location.protocol === 'file:') {
+if (location.protocol === 'fluidcad-app:' || location.protocol === 'file:') {
   contextBridge.exposeInMainWorld('fluidcadShell', shellApi);
-} else {
+} else if (location.protocol === 'http:') {
   contextBridge.exposeInMainWorld('fluidcadDesktop', desktopApi);
 }

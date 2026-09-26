@@ -12,6 +12,7 @@ extension/vscode/README.md
 server/dist/
 ui/dist/
 ui/dist-lib/
+ui/dist-start/
 .vscode-test
 .fluidcad/
 llm-docs/index.json

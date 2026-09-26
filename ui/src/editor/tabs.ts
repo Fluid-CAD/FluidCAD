@@ -4,7 +4,7 @@ import type { FileKind } from './editor-api';
 import { TabReorder } from './tab-reorder';
 import { buildRenameField, editableNameOf, renamedBasename } from './tab-rename';
 import { ASSEMBLY_ACCENT, splitModelName, type ModelName } from './model-name';
-import { closeTabMenu, showTabMenu, type TabMenuItem } from './tab-menu';
+import { closePopupMenu, showPopupMenu, type PopupMenuItem } from '../ui/popup-menu';
 
 /**
  * The top bar's file tabs — the whole file-navigation surface, in place of a
@@ -180,7 +180,7 @@ export class FileTabs {
   }
 
   private render(): void {
-    closeTabMenu();
+    closePopupMenu();
     this.scroller.track.replaceChildren();
     let field: HTMLInputElement | null = null;
     let active: HTMLElement | null = null;
@@ -247,7 +247,7 @@ export class FileTabs {
           return;
         }
         event.preventDefault();
-        showTabMenu(this.menuHost(), event, menuItems);
+        showPopupMenu(this.menuHost(), event, menuItems);
       });
     }
 
@@ -280,8 +280,8 @@ export class FileTabs {
   }
 
   /** The right-click menu's rows for `tab`; empty when the host offers neither action. */
-  private menuItemsFor(tab: FileTab): TabMenuItem[] {
-    const items: TabMenuItem[] = [];
+  private menuItemsFor(tab: FileTab): PopupMenuItem[] {
+    const items: PopupMenuItem[] = [];
     if (this.handlers.onRename) {
       items.push({ icon: ICON_PENCIL, label: 'Rename', onSelect: () => this.beginRename(tab.absPath) });
     }

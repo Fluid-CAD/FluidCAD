@@ -3,13 +3,14 @@ import { nativeImage } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { thumbnailsDir } from './engine/paths';
+import { thumbnailUrl } from './start/protocol';
 import { opaqueBounds, padRect } from './thumbnail-bounds';
 
 /**
  * Start-screen previews, one PNG per project under `~/.fluidcad/thumbnails/`.
  *
- * A thumbnail is taken **only when a project closes** — the window is closed,
- * the app quits, or the engine manager reopens it on another pin. It shows
+ * A thumbnail is taken **only when a project closes** — Close Project, the
+ * window is closed, the app quits, or a pin change reopens it. It shows
  * the file the user was last looking at, which is also the tab the project
  * reopens to. Nothing here renders on its own; the start screen shows
  * whatever is cached and a project without a preview simply gets a
@@ -43,20 +44,22 @@ const CROP_MARGIN_PX = 16;
  */
 const CAPTURE_TIMEOUT_MS = 4_000;
 
-export type Thumbnail = { dataUrl: string; updatedAt: string };
-
 export function thumbnailFileFor(workspacePath: string): string {
   const hash = crypto.createHash('sha1').update(path.resolve(workspacePath)).digest('hex');
   return path.join(thumbnailsDir(), `${hash}.png`);
 }
 
-/** The cached preview for a project, or null when it has never been closed with a model up. */
-export function readThumbnail(workspacePath: string): Thumbnail | null {
+/**
+ * Where the start page loads a project's preview from, or null when it has
+ * never been closed with a model up. A `fluidcad-app://thumbnails/` URL rather
+ * than the bytes: the page is served by the same scheme, and re-encoding up to
+ * twelve PNGs as base64 on every focus is what this replaces. The query is the
+ * file's mtime, so a fresh capture is never served from the image cache.
+ */
+export function thumbnailUrlFor(workspacePath: string): string | null {
   const file = thumbnailFileFor(workspacePath);
   try {
-    const stat = fs.statSync(file);
-    const png = fs.readFileSync(file);
-    return { dataUrl: `data:image/png;base64,${png.toString('base64')}`, updatedAt: stat.mtime.toISOString() };
+    return thumbnailUrl(path.basename(file), fs.statSync(file).mtimeMs);
   } catch {
     return null;
   }

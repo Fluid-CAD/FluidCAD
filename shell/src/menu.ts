@@ -1,33 +1,54 @@
-import { app, BrowserWindow, Menu, MenuItemConstructorOptions, shell } from 'electron';
+import { app, Menu, MenuItemConstructorOptions, shell } from 'electron';
 import { listRecentProjects } from './state';
-import { windowFor } from './project-window';
 import { pendingUpdateVersion, restartToUpdate } from './updater';
+import { AppWindow } from './window/app-window';
+import type { WindowPhase } from './window/window-state';
 
 /**
  * The application menu.
  *
- * Two kinds of item live here. Shell actions (open a project, quit) the main
- * process performs itself. Everything that touches a model is
- * sent to the page as a command and the page decides what it means — which is
- * the same rule as everywhere else in this shell: the engine owns the product.
+ * Two kinds of item live here. Shell actions (open a project, a new window,
+ * quit) the main process performs itself. Everything that touches a model is
+ * sent to the project's page as a command and the page decides what it means
+ * — the same rule as everywhere else in this shell: the engine owns the
+ * product. Those items are enabled only while the focused window shows a
+ * project; on the start screen there is no page to act on them.
  *
  * It also fixes the keybindings a browser tab was stealing. In `npx fluidcad
  * serve`, Ctrl/Cmd+W closes the tab, Ctrl+S offers to save the HTML, and
  * Ctrl+N opens a window. Here they mean close the project, save the file, and
- * new file.
+ * new file. Close Project returns the window to the start screen; on the start
+ * screen it closes the window — the same split as a code editor's close-editor
+ * and close-window.
+ *
+ * The menu is a snapshot: it is rebuilt when the focused window changes, when
+ * a window's state changes, when the recents change and when an update is
+ * staged.
  */
 
 export type MenuActions = {
+  /** Open a project (null asks for one), in the focused window or a new one. */
   openProject: (target: string | null) => Promise<unknown>;
   /** Scaffold a project with `fluidcad init` in a folder the user picks, then open it. */
   newProject: () => Promise<unknown>;
-  openStartScreen: () => void;
+  newWindow: () => void;
 };
 
-/** Send a command to the focused project window's page. */
-function toPage(command: string, payload?: unknown): void {
-  const window = windowFor(BrowserWindow.getFocusedWindow());
-  window?.sendMenuCommand(command, payload);
+export type MenuEnablement = {
+  /** Save, New File, Import, Export, Undo/Redo, Find File, Toggle Editor, Restart Engine. */
+  projectCommands: boolean;
+  /** Close Project and Close Window need a window to act on. */
+  windowCommands: boolean;
+};
+
+/** What the focused window's phase allows; null when no window is focused. */
+export function menuEnablement(phase: WindowPhase | null): MenuEnablement {
+  return { projectCommands: phase === 'project', windowCommands: phase !== null };
+}
+
+/** Send a command to the focused window's project page. */
+function toProject(command: string, payload?: unknown): void {
+  AppWindow.focused()?.sendMenuCommand(command, payload);
 }
 
 /**
@@ -58,6 +79,9 @@ function recentProjectsSubmenu(actions: MenuActions): MenuItemConstructorOptions
 
 export function buildApplicationMenu(actions: MenuActions): void {
   const isMac = process.platform === 'darwin';
+  const focused = AppWindow.focused();
+  const enabled = menuEnablement(focused?.phase ?? null);
+  const project = enabled.projectCommands;
 
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
@@ -82,34 +106,31 @@ export function buildApplicationMenu(actions: MenuActions): void {
     {
       label: 'File',
       submenu: [
-        {
-          label: 'New File',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => toPage('new-file'),
-        },
-        {
-          label: 'New Project…',
-          accelerator: 'CmdOrCtrl+Shift+N',
-          click: () => void actions.newProject(),
-        },
-        {
-          label: 'Open Project…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => void actions.openProject(null),
-        },
+        { label: 'New File', accelerator: 'CmdOrCtrl+N', enabled: project, click: () => toProject('new-file') },
+        { label: 'New Project…', accelerator: 'CmdOrCtrl+Shift+N', click: () => void actions.newProject() },
+        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => void actions.openProject(null) },
         { label: 'Open Recent', submenu: recentProjectsSubmenu(actions) },
-        { label: 'Start Screen', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openStartScreen() },
+        { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.newWindow() },
         { type: 'separator' },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => toPage('save') },
-        { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: () => toPage('save-all') },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: project, click: () => toProject('save') },
+        { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', enabled: project, click: () => toProject('save-all') },
         { type: 'separator' },
-        { label: 'Import STEP…', click: () => toPage('import') },
-        { label: 'Export…', accelerator: 'CmdOrCtrl+E', click: () => toPage('export') },
+        { label: 'Import STEP…', enabled: project, click: () => toProject('import') },
+        { label: 'Export…', accelerator: 'CmdOrCtrl+E', enabled: project, click: () => toProject('export') },
         { type: 'separator' },
         // Close the *project*, not a browser tab — the collision this fixes.
-        // Closing the last project brings the start screen back on every
-        // platform, so this is a window close everywhere, never a quit.
-        { role: 'close', label: 'Close Project' },
+        {
+          label: 'Close Project',
+          accelerator: 'CmdOrCtrl+W',
+          enabled: enabled.windowCommands,
+          click: () => AppWindow.focused()?.closeProjectCommand(),
+        },
+        {
+          label: 'Close Window',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          enabled: enabled.windowCommands,
+          click: () => AppWindow.focused()?.browserWindow.close(),
+        },
         ...(isMac ? [] : ([{ type: 'separator' }, { role: 'quit' }] as MenuItemConstructorOptions[])),
       ],
     },
@@ -118,21 +139,21 @@ export function buildApplicationMenu(actions: MenuActions): void {
       submenu: [
         // Routed to the page so they land on Monaco's own undo stack — the same
         // path the toolbar buttons use (`editor-hello { undoRedo: true }`).
-        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => toPage('undo') },
-        { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', click: () => toPage('redo') },
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', enabled: project, click: () => toProject('undo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', enabled: project, click: () => toProject('redo') },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
         { type: 'separator' },
-        { label: 'Find File…', accelerator: 'CmdOrCtrl+P', click: () => toPage('quick-open') },
+        { label: 'Find File…', accelerator: 'CmdOrCtrl+P', enabled: project, click: () => toProject('quick-open') },
       ],
     },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+B', click: () => toPage('toggle-editor') },
+        { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+B', enabled: project, click: () => toProject('toggle-editor') },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -147,15 +168,18 @@ export function buildApplicationMenu(actions: MenuActions): void {
       submenu: [
         {
           label: 'Restart Engine',
-          click: () => void windowFor(BrowserWindow.getFocusedWindow())?.restartEngine(),
+          enabled: project,
+          click: () => void AppWindow.focused()?.restartEngine(),
         },
       ],
     },
     {
       label: 'Window',
+      // Close lives in File, as Close Project and Close Window, each with its
+      // own accelerator; a second Close here would claim Ctrl/Cmd+W again.
       submenu: isMac
         ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
-        : [{ role: 'minimize' }, { role: 'close' }],
+        : [{ role: 'minimize' }],
     },
     {
       role: 'help',
@@ -173,7 +197,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Recents and the update item are snapshots; rebuild after opening a project or staging an update. */
+/** The menu is a snapshot; rebuild it when anything it shows may have changed. */
 export function refreshApplicationMenu(actions: MenuActions): void {
   buildApplicationMenu(actions);
 }

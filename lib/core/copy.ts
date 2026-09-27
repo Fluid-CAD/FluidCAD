@@ -11,12 +11,13 @@ import { CopyCircular2D } from "../features/copy-circular2d.js";
 import { SketchDatum } from "../features/2d/solved/datum.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource, CopyBase } from "../features/copy-base.js";
-import { BoundConnector } from "../features/connector.js";
+import { BoundConnector, Connector } from "../features/connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { ConnectorCopyRules } from "../features/connector-copy.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Axis } from "../math/axis.js";
 import { resolveAxis } from "../helpers/resolve.js";
-import { ICopy, ISceneObject } from "./interfaces.js";
+import { IConnector, ICopy, ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
 
@@ -65,11 +66,21 @@ function addSketchCopy<T extends CopyLinear2D | CopyCircular2D>(
  * Resolve a 3D copy axis argument. Scene-resident sources (an axis object or
  * an edge SceneObject) stay scene objects — they get built before the copy
  * that consumes them; primitive inputs (world-axis string, raw Axis) stay
- * concrete Axis values with no extra scene object.
+ * concrete Axis values with no extra scene object. A connector stands for
+ * its Z axis through its origin, read off its frame at build time; an
+ * inserted instance's connector refuses the statement ({@link
+ * ConnectorCopyRules.boundAxis}) and is carried as its part connector only
+ * so the statement still has an axis to hold.
  */
 function resolveCopyAxis(arg: unknown, context: SceneParserContext): CopyAxisSource {
   if (arg instanceof AxisObjectBase) {
     return arg;
+  }
+  if (arg instanceof Connector) {
+    return new ConnectorAxis(arg);
+  }
+  if (arg instanceof BoundConnector) {
+    return new ConnectorAxis(arg.connector);
   }
   if (arg instanceof SceneObject) {
     return resolveAxis(arg, context);
@@ -103,21 +114,21 @@ interface CopyFunction {
    * is copied as a frame: its copies are `bolt.instance(1)`, … (see
    * `IConnector.instance`), made inside the connector's own part body.
    * @param type - Must be `'linear'`
-   * @param axis - The axis to copy along
+   * @param axis - The axis to copy along — a world axis, an `axis()`, an edge, or a connector (its Z axis)
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
+  (type: 'linear', axis: AxisLike | IConnector, options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
   /**
    * [3D] Creates linear copies along multiple axes. A connector among the
    * objects is copied as a frame, one copy per grid cell — see
    * `IConnector.instance` for the numbering.
    * @param type - Must be `'linear'`
-   * @param axis - The axes to copy along
+   * @param axis - The axes to copy along — each a world axis, an `axis()`, an edge, or a connector (its Z axis)
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
+  (type: 'linear', axis: (AxisLike | IConnector)[], options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
 
   /**
    * [2D] Creates circular copies around a center point inside a sketch.
@@ -133,11 +144,11 @@ interface CopyFunction {
    * objects is copied as a frame: `copy('circular', 'z', { count: 6, angle:
    * 360 }, bolt)` makes `bolt.instance(1)` … `bolt.instance(5)`.
    * @param type - Must be `'circular'`
-   * @param axis - The axis to copy around
+   * @param axis - The axis to copy around — a world axis, an `axis()`, an edge, or a connector (its Z axis through its origin)
    * @param options - Copy count, angle, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ICopy;
+  (type: 'circular', axis: AxisLike | IConnector, options: CircularCopyOptions, ...objects: ISceneObject[]): ICopy;
 }
 
 function build(context: SceneParserContext): CopyFunction {
@@ -152,11 +163,13 @@ function build(context: SceneParserContext): CopyFunction {
     const activeSketch = context.getActiveSketch();
     const options = args[2] as LinearCopyOptions | CircularCopyOptions;
     const restObjects = args.slice(3) as unknown[];
-    // An inserted instance's connector refuses the statement; it is no scene
-    // object, so it stays out of the targets the statement compares and
-    // builds. Explicit targets stay explicit even when that leaves none:
-    // only a copy() written without targets copies everything before it.
-    const boundRefusal = ConnectorCopyRules.boundTarget(restObjects);
+    // An inserted instance's connector refuses the statement, as a target or
+    // as the axis; it is no scene object, so it stays out of the targets the
+    // statement compares and builds. Explicit targets stay explicit even when
+    // that leaves none: only a copy() written without targets copies
+    // everything before it.
+    const axisArgs = Array.isArray(args[1]) ? args[1] as unknown[] : [args[1]];
+    const boundRefusal = ConnectorCopyRules.boundTarget(restObjects) ?? ConnectorCopyRules.boundAxis(axisArgs);
     const explicit = restObjects.filter(t => !(t instanceof BoundConnector)) as SceneObject[];
     const objects = restObjects.length > 0
       ? explicit

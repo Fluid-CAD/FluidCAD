@@ -16,6 +16,10 @@ import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rotate from "../../core/rotate.js";
 import rib from "../../core/rib.js";
+import part from "../../core/part.js";
+import connector from "../../core/connector.js";
+import select from "../../core/select.js";
+import { face } from "../../filters/index.js";
 import { circle, offset, project, intersect, line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -630,6 +634,52 @@ describe("feature sources (edit-dialog seeding)", () => {
         { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
       ]);
     }
+  });
+
+  /**
+   * A connector copy's keep chips: the connector target and a connector axis
+   * resolve to their `connector()` statements, so the edit ghost can place
+   * the frames and turn them; a copy standing in as the axis
+   * (`bolt.instance(1)`) has no statement of its own and stays opaque.
+   */
+  it("resolves a copy's connector target and connector axis to their statements", () => {
+    const made = {} as { statement: unknown; around: unknown };
+    part("flange", () => {
+      sketch("xy", () => {
+        testRect(100, 100, { at: [-50, -50] });
+      });
+      extrude(10);
+      const bolt = connector("bolt", select(face().planar().onPlane("xy", 10))).offset(30, 0, 0);
+      setLocation(bolt as never, 4);
+      const pivot = connector("pivot", select(face().planar().onPlane("xy", 10))).offset(-20, 0, 0);
+      setLocation(pivot as never, 5);
+      made.statement = copy("circular", pivot as never, { count: 4, angle: 360 }, bolt as never);
+      setLocation(made.statement as never, 6);
+      made.around = copy("circular", bolt.instance(1) as never, { count: 2, angle: 360 }, pivot as never);
+      setLocation(made.around as never, 7);
+    });
+
+    const scene = render();
+    const at = (line: number): SelectionBoundary => {
+      const index = scene.getAllSceneObjects().findIndex(o => o.getType() === "copy-circular"
+        && o.getSourceLocation()?.line === line);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return { index, type: "copy-circular", line, column: 0 };
+    };
+
+    const result = resolveFeatureSources(scene, at(6));
+    expect(result).toMatchObject({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }],
+      axes: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
+    });
+    expect(resolveFeatureSources(scene, at(7))).toMatchObject({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
+      axes: [{ kind: "opaque" }],
+    });
   });
 
   /**

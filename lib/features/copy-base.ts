@@ -4,12 +4,16 @@ import { Axis } from "../math/axis.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { Connector } from "./connector.js";
+import { ConnectorAxis } from "./connector-axis.js";
 import { ConnectorCopy, ConnectorCopyRules, ConnectorCopyScope, ConnectorFamily } from "./connector-copy.js";
 import { Part } from "./part.js";
 import type { CopySlot, CopySlotLayout } from "./copy-layout.js";
 
-/** An axis a copy can follow: a concrete Axis or a scene-resident axis object. */
-export type CopyAxisSource = Axis | AxisObjectBase;
+/**
+ * An axis a copy can follow: a concrete Axis, a scene-resident axis object,
+ * or a connector's Z axis ({@link ConnectorAxis}).
+ */
+export type CopyAxisSource = Axis | AxisObjectBase | ConnectorAxis;
 
 /**
  * Shared base for the 3D copy features. A copy takes the shapes its targets
@@ -143,6 +147,9 @@ export abstract class CopyBase extends SceneObject {
   }
 
   protected static axisSourceEquals(a: CopyAxisSource, b: CopyAxisSource): boolean {
+    if (a instanceof ConnectorAxis || b instanceof ConnectorAxis) {
+      return a instanceof ConnectorAxis && a.compareTo(b);
+    }
     const aObj = a instanceof AxisObjectBase;
     const bObj = b instanceof AxisObjectBase;
     if (aObj !== bObj) {
@@ -161,7 +168,9 @@ export abstract class CopyBase extends SceneObject {
   /**
    * The connector families the statement made — for a row that copies
    * connectors, the seeds (ids read live, as the render emits them), the
-   * pattern's numbering and the slots its copies sit at. Nothing otherwise.
+   * pattern's numbering, the slots its copies sit at, and whether connectors
+   * are all it copies (the timeline files such a row with the part's
+   * connectors). Nothing otherwise.
    */
   serialize() {
     if (this.families.length === 0) {
@@ -174,6 +183,7 @@ export abstract class CopyBase extends SceneObject {
         originalSlot: first.originalSlot,
         slotCount: first.slotCount,
         slots: first.getCopies().map(copy => copy.slot),
+        connectorsOnly: (this.targetObjects ?? []).every(target => target instanceof Connector),
       },
     };
   }

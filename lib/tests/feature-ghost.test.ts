@@ -14,6 +14,11 @@ import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
+import part from "../core/part.js";
+import connector from "../core/connector.js";
+import select from "../core/select.js";
+import { face } from "../filters/index.js";
+import { Connector } from "../features/connector.js";
 import { bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -1812,6 +1817,162 @@ describe("feature ghost — copy", () => {
     });
 
     expect(result.ok).toBe(false);
+  });
+
+  /**
+   * Connector copies: a connector target comes back as frames — its built
+   * frame moved by each slot's matrix, `ConnectorCopy.build`'s own rule — and
+   * a connector in the axis slot stands for its Z axis through its origin.
+   */
+  describe("connectors", () => {
+    type Frame = { origin: Vec; xDirection: Vec; yDirection: Vec; normal: Vec };
+    type Vec = { x: number; y: number; z: number };
+
+    const BOLT_LINE = 7;
+    const PIVOT_LINE = 8;
+
+    function near(v: Vec, x: number, y: number, z: number): void {
+      expect(v.x).toBeCloseTo(x, 6);
+      expect(v.y).toBeCloseTo(y, 6);
+      expect(v.z).toBeCloseTo(z, 6);
+    }
+
+    function framesOf(result: FeatureGhostResult): Frame[] {
+      if (!result.ok) {
+        throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+      }
+      return result.frames ?? [];
+    }
+
+    /**
+     * A 100 × 100 × 10 plate with `bolt` on its top face at (30, 0, 10) and
+     * `pivot` at (-20, 0, 10), both Z up, each addressable at its line like
+     * the parser's; `more` writes the rest of the part body.
+     */
+    function flange(more: (bolt: Connector) => void = () => {}): { bolt: Connector } {
+      const out = {} as { bolt: Connector };
+      part("flange", () => {
+        sketch("xy", () => {
+          testRect(100, 100, { at: [-50, -50] });
+        });
+        extrude(10).new();
+        out.bolt = (connector("bolt", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(30, 0, 0);
+        out.bolt.setSourceLocation({ filePath: FILE, line: BOLT_LINE, column: 0 });
+        const pivot = (connector("pivot", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(-20, 0, 0);
+        pivot.setSourceLocation({ filePath: FILE, line: PIVOT_LINE, column: 0 });
+        more(out.bolt);
+      });
+      return out;
+    }
+
+    const CIRCULAR: Partial<CopyGhostRequest> = {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+    };
+
+    it("places a connector target's copies as frames, the seed left alone", () => {
+      flange();
+      const scene = render();
+
+      const result = copyGhost(scene, [BOLT_LINE], CIRCULAR);
+
+      expect(result.ok && result.solids).toEqual([]);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, 0, 30, 10);
+      near(frames[0].xDirection, 0, 1, 0);
+      near(frames[0].normal, 0, 0, 1);
+      near(frames[1].origin, -30, 0, 10);
+      near(frames[2].origin, 0, -30, 10);
+    });
+
+    it("places the frames the statement builds — editing a copy that already made them", () => {
+      const made = flange(bolt => {
+        copy("circular", "z", { count: 5, angle: 360 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], { ...CIRCULAR, count: 5 }));
+
+      expect(frames).toHaveLength(4);
+      frames.forEach((frame, i) => {
+        const built = made.bolt.instance(i + 1).getFrame();
+        near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+        near(frame.xDirection, built.xDirection.x, built.xDirection.y, built.xDirection.z);
+        near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+      });
+    });
+
+    it("stamps solids and places frames for mixed targets", () => {
+      flange(() => {
+        locatedBox(5);
+      });
+      const scene = render();
+
+      const result = copyGhost(scene, [5, BOLT_LINE], {
+        directions: [{ count: 2, offset: 40, length: null }],
+      });
+
+      expect(solidsOf(result)).toHaveLength(1);
+      expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 70, 0, 10);
+    });
+
+    it("turns the copies around a connector's Z axis", () => {
+      flange();
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], {
+        ...CIRCULAR,
+        axes: [{ kind: 'connector', filePath: FILE, line: PIVOT_LINE }],
+      }));
+
+      // The bolt sits 50 out from the pivot's axis at (-20, 0).
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, -20, 50, 10);
+      near(frames[1].origin, -70, 0, 10);
+      near(frames[2].origin, -20, -50, 10);
+    });
+
+    it("takes a connector copy as the axis by its slot", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [PIVOT_LINE], {
+        ...CIRCULAR,
+        count: 2,
+        axes: [{ kind: 'connector', filePath: FILE, line: BOLT_LINE, slot: 1 }],
+      }));
+
+      // Half a turn around bolt.instance(1) at (70, 0): the pivot at (-20, 0) lands on (160, 0).
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 160, 0, 10);
+    });
+
+    it("refuses a connector axis the scene doesn't hold, or a slot the copy never made", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      for (const axis of [
+        { kind: 'connector' as const, filePath: FILE, line: 99 },
+        { kind: 'connector' as const, filePath: FILE, line: BOLT_LINE, slot: 5 },
+      ]) {
+        const result = copyGhost(scene, [PIVOT_LINE], { ...CIRCULAR, axes: [axis] });
+        expect(result.ok).toBe(false);
+        expect(refusal(result)).toBe('That axis is not in the rendered scene.');
+      }
+    });
   });
 });
 

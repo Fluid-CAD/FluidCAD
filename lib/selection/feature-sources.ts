@@ -24,6 +24,7 @@ import { RepeatCircular } from "../features/repeat-circular.js";
 import { RepeatLinear } from "../features/repeat-linear.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { CopyAxisSource } from "../features/copy-base.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
 import { Rib } from "../features/rib.js";
@@ -378,9 +379,14 @@ class SourceResolver {
    * A repeat's or a copy's axis input. A world-axis literal
    * (`repeat('linear', 'x', …)`) builds no scene object at all and stays
    * opaque — nothing to re-target, and the dialog reads `'x'` straight off the
-   * argument text.
+   * argument text. A copy's connector axis resolves to its `connector()`
+   * statement; a connector copy (`bolt.instance(2)`) has none of its own and
+   * stays opaque, its text kept verbatim.
    */
   axisSourceSlot(source: RepeatAxisSource | CopyAxisSource): SourceSlot {
+    if (source instanceof ConnectorAxis) {
+      return source.connector.copySlot() === undefined ? this.callSiteSlot(source.connector) : OPAQUE;
+    }
     return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
   }
 

@@ -5,6 +5,8 @@ import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { Connector } from "../features/connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
@@ -145,11 +147,17 @@ export type RevolveGhostRequest = {
  * viewport — the three things the slot can hold, mirrored from the apply
  * request's own axis ref. "Keep the current axis" never reaches here; the
  * client resolves it to the statement's own `axis()` call site first.
+ *
+ * The copy's axis slot takes a fourth: a connector, by its `connector()`
+ * statement's call site — plus the pattern slot for one of its copies
+ * (`bolt.instance(2)`) — standing for its Z axis through its origin
+ * ({@link ConnectorAxis}).
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: StandardAxis }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -329,7 +337,11 @@ export type GhostRepeatDirection = {
 export type CopyGhostRequest = {
   feature: 'copy';
   kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  /**
+   * The statements being copied, by call site: solid-bearing ones, whose
+   * bodies are stamped, and `connector()` statements, whose frames come back
+   * as {@link GhostFrame}s — a connector copy is its seed's frame moved.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -574,8 +586,25 @@ export type GhostSolid = {
 /** A point or direction on the wire, in the shape the scene already sends. */
 type Vector3Wire = { x: number; y: number; z: number };
 
+/**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it. The same four vectors a rendered connector serializes, so the
+ * overlay draws it with the connector's own triad.
+ */
+export type GhostFrame = {
+  origin: Vector3Wire;
+  xDirection: Vector3Wire;
+  yDirection: Vector3Wire;
+  normal: Vector3Wire;
+};
+
 export type FeatureGhostResult =
-  | { ok: true; solids: GhostSolid[] }
+  | {
+    ok: true;
+    solids: GhostSolid[];
+    /** Connector frames the ghost places — only a copy of connectors has any. */
+    frames?: GhostFrame[];
+  }
   | {
     ok: false;
     reason: string;
@@ -1724,15 +1753,56 @@ function buildCopyGhost(
   if (targets.length === 0) {
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
-  const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
-  if (meshes.length === 0) {
+  const seeds = copyTargetFrames(targets);
+  const meshes = stampMeshes(
+    copyTargetSolids(targets.filter(target => !(target instanceof Connector))),
+    new MeshBuilder(meshConfig),
+  );
+  if (meshes.length === 0 && seeds.length === 0) {
     return { ok: false, reason: 'That statement has no solid to copy.' };
   }
   // Every target rides in one body per instance: they move together, and the
-  // overlay draws a mesh list whatever it was gathered from.
+  // overlay draws a mesh list whatever it was gathered from. A connector
+  // target comes back as frames instead — each copy is its seed's frame
+  // moved by the slot's matrix, exactly what `ConnectorCopy.build` does.
   return {
     ok: true,
-    solids: placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+    solids: meshes.length === 0
+      ? []
+      : placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+    frames: placed.matrices.flatMap(matrix => seeds.map(frame => toGhostFrame(frame.applyMatrix(matrix)))),
+  };
+}
+
+/**
+ * The frames of the connectors a copy's targets name — the declared
+ * connectors at those call sites, as they built. A connector copy never
+ * counts: the copy statement refuses one as a target, and it shares its copy
+ * statement's call site rather than naming one of its own. A connector whose
+ * build failed has no frame to move and draws nothing.
+ */
+function copyTargetFrames(targets: SceneObject[]): Plane[] {
+  const frames: Plane[] = [];
+  for (const target of targets) {
+    if (!(target instanceof Connector) || target.copySlot() !== undefined) {
+      continue;
+    }
+    try {
+      frames.push(target.getFrame());
+    } catch {
+      // Unbuilt — nothing to place.
+    }
+  }
+  return frames;
+}
+
+/** A built frame in the wire shape a rendered connector serializes. */
+function toGhostFrame(frame: Plane): GhostFrame {
+  return {
+    origin: toVector3Wire(frame.origin),
+    xDirection: toVector3Wire(frame.xDirection),
+    yDirection: toVector3Wire(frame.yDirection),
+    normal: toVector3Wire(frame.normal),
   };
 }
 
@@ -2488,6 +2558,18 @@ function resolveGhostAxis(scene: Scene, ref: GhostAxisRef): Axis | null {
     const obj = findByLocation(scene, ref, o => o instanceof AxisObjectBase);
     return (obj as AxisObjectBase | null)?.getAxis() ?? null;
   }
+  if (ref.kind === 'connector') {
+    const connector = findConnector(scene, ref);
+    if (!connector) {
+      return null;
+    }
+    try {
+      return ConnectorAxis.of(connector);
+    } catch {
+      // Unbuilt — no frame, so no axis.
+      return null;
+    }
+  }
   const shape = findShapeById(scene, ref.shapeId);
   if (!shape) {
     return null;
@@ -2537,6 +2619,24 @@ function resolveGhostPlane(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): 
   } catch {
     return null;
   }
+}
+
+/**
+ * The connector a ref names: the declared connector its `connector()`
+ * statement built — never a copy, which reports its copy statement's call
+ * site — or, with a slot, that member of the family its `copy()` made (the
+ * connector itself at the original's slot). Null when the scene no longer
+ * holds it, or the slot is one the copy skipped or never made.
+ */
+function findConnector(
+  scene: Scene,
+  ref: { filePath: string; line: number; slot?: number },
+): Connector | null {
+  const seed = findByLocation(scene, ref, o => o instanceof Connector && o.copySlot() === undefined);
+  if (!(seed instanceof Connector) || ref.slot === undefined) {
+    return seed as Connector | null;
+  }
+  return seed.getFamily()?.memberAt(ref.slot) ?? null;
 }
 
 /** The scene object at a `{filePath, line}` ref matching `accept`. */

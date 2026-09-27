@@ -28,8 +28,11 @@ import { SceneObject } from "../common/scene-object.js";
 import { Scene } from "../rendering/scene.js";
 import { SceneCompare } from "../rendering/scene-compare.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
-import { Connector } from "../features/connector.js";
-import { ConnectorCopy } from "../features/connector-copy.js";
+import { BoundConnector, Connector } from "../features/connector.js";
+import { ConnectorCopy, ConnectorCopyRules } from "../features/connector-copy.js";
+import { FreePoint } from "../features/connector-frame.js";
+import { Point } from "../math/point.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import { CopyBase } from "../features/copy-base.js";
 import { Part } from "../features/part.js";
 import type { PartDefinition } from "../features/part-definition.js";
@@ -220,6 +223,8 @@ describe("connector copies", () => {
       const rendered = scene.getRenderedObject(made.statement)!;
       expect(rendered.visible).toBe(true);
       expect(rendered.sceneShapes.filter(s => s.shapeType === "solid")).toHaveLength(2);
+      // It copies a solid too, so the timeline keeps it among the features.
+      expect(rendered.object.connectorCopies.connectorsOnly).toBe(false);
     });
 
     it("a statement whose only targets are connectors copies no shapes — never everything before it", () => {
@@ -257,6 +262,7 @@ describe("connector copies", () => {
           originalSlot: 0,
           slotCount: 4,
           slots: [1, 3],
+          connectorsOnly: true,
         },
       });
       const copies = copiesIn(scene);
@@ -533,6 +539,139 @@ describe("connector copies", () => {
     expect(errors(scene)).toEqual([]);
     expect(copiesIn(scene)).toHaveLength(7);
     near(frameOf(third.bolt.instance(2)).origin, 0, 30, 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D7: a connector is also an axis — `copy()` walks along or turns around its
+// Z axis through its origin, beside world axes, axis() features and edges.
+// ---------------------------------------------------------------------------
+
+describe("a connector as the copy axis", () => {
+  setupOC();
+
+  /** A second connector on the plate's top face, 20 to the -X side: Z up through (-20, 0). */
+  function pivotOnTop(): Connector {
+    return (connector("pivot", select(face().planar().onPlane("xy", 10))) as unknown as Connector).offset(-20, 0, 0);
+  }
+
+  it("turns a connector copy around another connector's Z axis", () => {
+    const made = flange(bolt => copy("circular", pivotOnTop(), { count: 4, angle: 360 }, bolt));
+    const scene = render();
+    expect(errors(scene)).toEqual([]);
+
+    // The bolt (30, 0) sits 50 out from the pivot's axis at (-20, 0).
+    near(frameOf(made.bolt.instance(1)).origin, -20, 50, 10);
+    near(frameOf(made.bolt.instance(2)).origin, -70, 0, 10);
+    near(frameOf(made.bolt.instance(3)).origin, -20, -50, 10);
+    near(frameOf(made.bolt.instance(1)).xDirection, 0, 1, 0);
+    near(frameOf(made.bolt.instance(1)).normal, 0, 0, 1);
+  });
+
+  it("walks a linear copy along a tilted connector's Z, not the world's", () => {
+    let pivot: Connector | null = null;
+    const made = flange(bolt => {
+      pivot = pivotOnTop().rotate("x", 90);
+      return copy("linear", pivot, { count: 3, offset: 20 }, bolt);
+    });
+    const scene = render();
+    expect(errors(scene)).toEqual([]);
+
+    const along = frameOf(pivot!).normal;
+    expect(Math.abs(along.z)).toBeLessThan(1e-9);
+    for (const slot of [1, 2]) {
+      near(frameOf(made.bolt.instance(slot)).origin, 30 + along.x * 20 * slot, along.y * 20 * slot, 10);
+    }
+  });
+
+  it("copies a solid around the connector's axis", () => {
+    let box: SceneObject | null = null;
+    flange(() => {
+      sketch("xy", () => {
+        testRect(10, 10, { at: [40, -5] });
+      });
+      box = extrude(5).new() as unknown as SceneObject;
+      return copy("circular", pivotOnTop(), { count: 2, angle: 360 }, box as never);
+    });
+    const scene = render();
+    expect(errors(scene)).toEqual([]);
+
+    // Half a turn around (-20, 0): x → -40 - x, so [40, 50] lands on [-90, -80].
+    const statement = scene.getAllSceneObjects().find(o => o instanceof CopyBase)!;
+    const turned = statement.getShapes()
+      .map(shape => ShapeOps.getBoundingBox(shape))
+      .find(bbox => bbox.minX < 0)!;
+    expect(turned.minX).toBeCloseTo(-90, 6);
+    expect(turned.maxX).toBeCloseTo(-80, 6);
+    expect(turned.minY).toBeCloseTo(-5, 6);
+  });
+
+  it("takes a connector copy as the axis — bolt.instance(k)", () => {
+    let pin: Connector | null = null;
+    const made = flange(bolt => {
+      copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      pin = pivotOnTop();
+      return copy("circular", bolt.instance(1), { count: 2, angle: 360 }, pin);
+    });
+    const scene = render();
+    expect(errors(scene)).toEqual([]);
+
+    // Half a turn around bolt.instance(1) at (70, 0): the pin at (-20, 0) lands on (160, 0).
+    near(frameOf(made.bolt.instance(1)).origin, 70, 0, 10);
+    near(frameOf(pin!.instance(1)).origin, 160, 0, 10);
+  });
+
+  it("reuses the statement on an unchanged render and follows the axis connector when it moves", () => {
+    const manager = getSceneManager();
+    const author = (dx: number) => flange(bolt => {
+      const pivot = (connector("pivot", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+        .offset(dx, 0, 0);
+      return copy("circular", pivot, { count: 2, angle: 360 }, bolt);
+    });
+
+    author(-20);
+    render();
+    const firstScene = manager.currentScene;
+
+    const again = manager.startScene();
+    const second = author(-20);
+    again.materializeLeftoverDefinitions();
+    SceneCompare.compare(firstScene, again);
+    expect(again.isCached(second.statement)).toBe(true);
+    let scene = render();
+    expect(errors(scene)).toEqual([]);
+    near(frameOf(second.bolt.instance(1)).origin, -70, 0, 10);
+
+    const moved = manager.startScene();
+    const third = author(0);
+    moved.materializeLeftoverDefinitions();
+    SceneCompare.compare(again, moved);
+    expect(moved.isCached(third.statement)).toBe(false);
+    scene = render();
+    expect(errors(scene)).toEqual([]);
+    near(frameOf(third.bolt.instance(1)).origin, -30, 0, 10);
+  });
+
+  it("reports an axis connector that did not build on the copies it would place", () => {
+    const made = flange(bolt => {
+      const lost = connector("lost", select(face().planar().onPlane("xy", 99)));
+      return copy("circular", lost, { count: 2, angle: 360 }, bolt);
+    });
+    render();
+
+    expect(made.bolt.instance(1).getError()).toBe(
+      "copy(): lost did not build, so it gives no axis to copy along",
+    );
+  });
+
+  it("refuses an inserted instance's connector as the axis", () => {
+    const seed = new Connector("bolt", new FreePoint(new Point(0, 0, 0)));
+    const bound = new BoundConnector(seed, "i1");
+    expect(ConnectorCopyRules.boundAxis(["z", bound])).toBe(
+      "copy(): instance.connectors.bolt belongs to an inserted instance — its pose is the "
+        + "assembly solver's, so it can't be a copy axis",
+    );
+    expect(ConnectorCopyRules.boundAxis(["z", seed])).toBeNull();
   });
 });
 

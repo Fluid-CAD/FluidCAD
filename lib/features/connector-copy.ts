@@ -190,6 +190,19 @@ export class ConnectorCopyRules {
     return `copy(): instance.connectors.${name} belongs to an inserted instance — copy ${name} inside its part's body`;
   }
 
+  /**
+   * An inserted instance's connector handed to `copy()` as its axis — its
+   * pose is the assembly solver's, which the kernel never sees.
+   */
+  static boundAxis(axes: readonly unknown[]): string | null {
+    const bound = axes.find((a): a is BoundConnector => a instanceof BoundConnector);
+    if (!bound) {
+      return null;
+    }
+    return `copy(): instance.connectors.${bound.label()} belongs to an inserted instance — its pose is the `
+      + `assembly solver's, so it can't be a copy axis`;
+  }
+
   /** The per-connector rules, for a statement running in `scope`. */
   static seedRefusal(seeds: readonly Connector[], scope: ConnectorCopyScope): string | null {
     const seen = new Set<Connector>();

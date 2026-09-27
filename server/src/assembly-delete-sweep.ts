@@ -22,9 +22,10 @@ import {
 import { parseReplicateAt, renderReplicateStatement, type ParsedReplicate } from './assembly-replicate-edit.ts';
 
 /**
- * The timeline / parts-panel / joints-panel "Delete" for assembly files:
- * {@link removeStatement} plus the sweep the removed statement implies, so
- * the next render never trips over a reference to something that is gone —
+ * The timeline / parts-panel / joints-panel / connectors-rail "Delete" for
+ * assembly files: {@link removeStatement} plus the sweep the removed
+ * statement implies, so the next render never trips over a reference to
+ * something that is gone —
  *
  * - deleting an `insert()` bound to a name also deletes every `mate()` that
  *   references that name (either side, through `.parts` chains included),
@@ -34,17 +35,23 @@ import { parseReplicateAt, renderReplicateStatement, type ParsedReplicate } from
  *   same way, so mates on a replica of the deleted part vanish with it;
  * - deleting a `mate()` drops the column its outer side occupied from every
  *   replicate of the seed it touched (targets and rows); a replicate left with
- *   no column would only stack coincident copies on the seed, so it is removed.
+ *   no column would only stack coincident copies on the seed, so it is removed;
+ * - deleting a `connector()` bound to a name deletes what names it — mates,
+ *   replicate cells, and the `copy()` statements that copy it or turn around
+ *   it — and deleting a `copy()` deletes what calls `.instance()` on one of
+ *   its connectors ({@link ConnectorReferenceSweep}).
  *
- * A replicate removed by either branch orphans the names it bound; those
- * are swept the same way. Bindings the user hoisted for other purposes
- * (`const m = mate(…)` used elsewhere) stay theirs to resolve.
+ * A replicate removed by any branch orphans the names it bound; those are
+ * swept the same way. Bindings the user hoisted for other purposes (`const m
+ * = mate(…)` used elsewhere) stay theirs to resolve.
  */
 export async function removeStatementWithAssemblySweep(
   code: string,
   sourceLine: number,
 ): Promise<CodeEditResult> {
-  if (!/\b(?:mate|replicate)\s*\(/.test(code)) {
+  // Nothing in the file can refer to what the statement made: no mate, no
+  // replicate, and no copy() of a connector or its copies.
+  if (!/\b(?:mate|replicate|copy)\s*\(/.test(code)) {
     return removeStatement(code, sourceLine);
   }
   const parser = await getJavaScriptParser();
@@ -58,10 +65,16 @@ export async function removeStatementWithAssemblySweep(
   const kind = baseCallName(base);
   let binding: string | null = null;
   let mateSides: [string, string] | null = null;
+  let connectorBinding: string | null = null;
+  let copySeeds: string[] = [];
   if (kind === 'insert') {
     binding = declaredName(statement);
   } else if (kind === 'mate') {
     mateSides = mateSideTexts(code, base);
+  } else if (kind === 'connector') {
+    connectorBinding = declaredName(statement);
+  } else if (kind === 'copy') {
+    copySeeds = ConnectorReferenceSweep.copySeeds(base);
   }
   const removed = await removeStatement(code, sourceLine);
   if (binding !== null) {
@@ -74,6 +87,12 @@ export async function removeStatementWithAssemblySweep(
       working = await sweepBinding(working, orphan);
     }
     return { newCode: working };
+  }
+  if (connectorBinding !== null) {
+    return { newCode: await ConnectorReferenceSweep.afterConnector(removed.newCode, connectorBinding) };
+  }
+  if (copySeeds.length > 0) {
+    return { newCode: await ConnectorReferenceSweep.afterCopy(removed.newCode, copySeeds) };
   }
   return removed;
 }
@@ -136,11 +155,11 @@ async function sweepBinding(code: string, binding: string): Promise<string> {
       continue;
     }
     seen.add(name);
-    working = await sweepMatesMentioning(working, name);
+    working = await sweepMatesWhere(working, statement => statementMentions(statement, name));
     const seeded = await sweepReplicatesOfSeed(working, name);
     working = seeded.code;
     pending.push(...seeded.bindings);
-    const trimmed = await dropReplicateReferences(working, name);
+    const trimmed = await dropReplicateReferences(working, expression => expressionRoot(expression) === name);
     working = trimmed.code;
     pending.push(...trimmed.bindings);
   }
@@ -148,17 +167,18 @@ async function sweepBinding(code: string, binding: string): Promise<string> {
 }
 
 /**
- * Remove every `mate()` that mentions `name`, last first so earlier lines
- * stay valid. Each goes through the mate branch of the sweep, so a
- * replicate of the OTHER side loses the column that mate occupied.
+ * Remove every `mate()` statement `matches` — one that mentions a doomed
+ * name, say — last first so earlier lines stay valid. Each goes through the
+ * mate branch of the sweep, so a replicate of the OTHER side loses the
+ * column that mate occupied.
  */
-async function sweepMatesMentioning(code: string, name: string): Promise<string> {
+async function sweepMatesWhere(code: string, matches: (statement: TSNode) => boolean): Promise<string> {
   const parser = await getJavaScriptParser();
   let working = code;
   for (;;) {
     const tree = parser.parse(working);
     const doomed = allBaseStatements(tree, 'mate')
-      .filter(m => statementMentions(m.statement, name))
+      .filter(m => matches(m.statement))
       .pop();
     if (!doomed) {
       return working;
@@ -209,13 +229,13 @@ function boundNames(parsed: ParsedReplicate): string[] {
 
 /**
  * In every replicate, drop the columns whose target and the rows whose cell
- * point at `name` (its member chain's root); a statement left without a
- * column or a row is removed. Reports the destructured names of dropped
- * rows, which dangle once their row is gone.
+ * `matches` — an expression rooted at a doomed name, say; a statement left
+ * without a column or a row is removed. Reports the destructured names of
+ * dropped rows, which dangle once their row is gone.
  */
 async function dropReplicateReferences(
   code: string,
-  name: string,
+  matches: (expression: string) => boolean,
 ): Promise<{ code: string; bindings: string[] }> {
   const parser = await getJavaScriptParser();
   const bindings: string[] = [];
@@ -228,8 +248,8 @@ async function dropReplicateReferences(
     if ('error' in parsed) {
       continue;
     }
-    const keptColumns = parsed.targets.map(t => expressionRoot(t) !== name);
-    const keptRows = parsed.rows.map(r => r.every((cell, j) => !keptColumns[j] || expressionRoot(cell) !== name));
+    const keptColumns = parsed.targets.map(t => !matches(t));
+    const keptRows = parsed.rows.map(r => r.every((cell, j) => !keptColumns[j] || !matches(cell)));
     if (keptColumns.every(Boolean) && keptRows.every(Boolean)) {
       continue;
     }
@@ -312,4 +332,173 @@ function rewriteReplicate(
   const indent = indentOf(splitLines(code), parsed.statement.startPosition.row);
   const statement = prefix + renderReplicateStatement(parsed.seed, targets, rows, indent);
   return spliceCode(code, parsed.statement.startIndex, parsed.statement.endIndex, statement);
+}
+
+/**
+ * What a sweep deletes references to: a connector's binding itself — every
+ * expression rooted at it, `bay` and `bay.instance(2)` alike — or, with
+ * `copiesOnly`, only the copies addressed on it (`bay.instance(2)`), which
+ * throw "has no copies" once the `copy()` that made them is gone.
+ */
+type DoomedReference = { binding: string; copiesOnly: boolean };
+
+/**
+ * The connector half of the delete sweep (connector copies D11), same file
+ * only — a part connector named from an assembly file stays unswept, like
+ * any part connector: it fails with a clear error instead.
+ *
+ * - A removed `connector()` takes every mate and replicate cell that names
+ *   its binding, and every `copy()` naming it: a copy that lists it among its
+ *   targets drops that target (and goes with its last one); a copy turning
+ *   around it has nothing left to follow and goes whole.
+ * - A removed `copy()` takes every mate and replicate cell that calls
+ *   `.instance()` on one of its connectors, and every `copy()` whose axis
+ *   does — each copy removed that way sweeps its own connectors' copies in
+ *   turn.
+ */
+class ConnectorReferenceSweep {
+  /**
+   * The connectors a `copy(kind, axis, options, …targets)` call copies, by
+   * their bindings: the plain identifiers among its targets.
+   */
+  static copySeeds(base: TSNode): string[] {
+    return ConnectorReferenceSweep.args(base).slice(3)
+      .filter(arg => arg.type === 'identifier')
+      .map(arg => arg.text);
+  }
+
+  /** A `connector()` bound to `binding` is gone. */
+  static async afterConnector(code: string, binding: string): Promise<string> {
+    const working = await sweepBinding(code, binding);
+    return ConnectorReferenceSweep.sweepCopies(working, { binding, copiesOnly: false });
+  }
+
+  /** A `copy()` of the connectors bound to `seeds` is gone. */
+  static async afterCopy(code: string, seeds: string[]): Promise<string> {
+    let working = code;
+    for (const binding of seeds) {
+      const doomed: DoomedReference = { binding, copiesOnly: true };
+      working = await sweepMatesWhere(working, statement => ConnectorReferenceSweep.statementNames(statement, doomed));
+      const trimmed = await dropReplicateReferences(
+        working,
+        expression => ConnectorReferenceSweep.expressionNames(expression, doomed),
+      );
+      working = trimmed.code;
+      for (const orphan of trimmed.bindings) {
+        working = await sweepBinding(working, orphan);
+      }
+      working = await ConnectorReferenceSweep.sweepCopies(working, doomed);
+    }
+    return working;
+  }
+
+  /**
+   * Every `copy()` naming `doomed`, last first so earlier lines stay valid:
+   * an axis naming it removes the statement (and sweeps the copies it made
+   * of its other connectors); targets naming it are dropped from the
+   * argument list, the statement going with its last one.
+   */
+  private static async sweepCopies(code: string, doomed: DoomedReference): Promise<string> {
+    const parser = await getJavaScriptParser();
+    let working = code;
+    for (;;) {
+      const tree = parser.parse(working);
+      const entry = allBaseStatements(tree, 'copy')
+        .filter(c => ConnectorReferenceSweep.copyNames(c.base, doomed))
+        .pop();
+      if (!entry) {
+        return working;
+      }
+      const args = ConnectorReferenceSweep.args(entry.base);
+      const line = entry.statement.startPosition.row + 1;
+      const axisNamed = ConnectorReferenceSweep.axisTexts(args[1])
+        .some(text => ConnectorReferenceSweep.expressionNames(text, doomed));
+      const targets = args.slice(3);
+      const keptTargets = targets.filter(arg => !ConnectorReferenceSweep.expressionNames(arg.text, doomed));
+      let next: string;
+      if (axisNamed || keptTargets.length === 0) {
+        next = (await removeStatement(working, line)).newCode;
+        // The copies it made of its other connectors went with it — a
+        // connector swept by name already took its own.
+        const others = ConnectorReferenceSweep.copySeeds(entry.base)
+          .filter(seed => doomed.copiesOnly || seed !== doomed.binding);
+        if (axisNamed && others.length > 0) {
+          next = await ConnectorReferenceSweep.afterCopy(next, others);
+        }
+      } else {
+        next = ConnectorReferenceSweep.dropArguments(working, args, targets.filter(arg => !keptTargets.includes(arg)));
+      }
+      if (next === working) {
+        return working;
+      }
+      working = next;
+    }
+  }
+
+  /** Whether a `copy()` call names `doomed` as its axis or among its targets. */
+  private static copyNames(base: TSNode, doomed: DoomedReference): boolean {
+    const args = ConnectorReferenceSweep.args(base);
+    return [...ConnectorReferenceSweep.axisTexts(args[1]), ...args.slice(3).map(arg => arg.text)]
+      .some(text => ConnectorReferenceSweep.expressionNames(text, doomed));
+  }
+
+  /** A copy's axis argument texts — the elements of a linear copy's axis list, or the one axis. */
+  private static axisTexts(axis: TSNode | undefined): string[] {
+    if (!axis) {
+      return [];
+    }
+    if (axis.type === 'array') {
+      return axis.namedChildren.filter(c => c.type !== 'comment').map(c => c.text);
+    }
+    return [axis.text];
+  }
+
+  /** Whether an argument or cell expression names `doomed`. */
+  private static expressionNames(expression: string, doomed: DoomedReference): boolean {
+    if (!doomed.copiesOnly) {
+      return expressionRoot(expression) === doomed.binding;
+    }
+    return canonicalChainText(expression).startsWith(`${doomed.binding}.instance(`);
+  }
+
+  /** Whether a statement names `doomed` anywhere in it — a mate's side, say. */
+  private static statementNames(statement: TSNode, doomed: DoomedReference): boolean {
+    if (!doomed.copiesOnly) {
+      return statementMentions(statement, doomed.binding);
+    }
+    for (const node of walkTree(statement)) {
+      if (node.type !== 'call_expression') {
+        continue;
+      }
+      const fn = node.childForFieldName('function');
+      if (fn?.type !== 'member_expression') {
+        continue;
+      }
+      const object = fn.childForFieldName('object');
+      const property = fn.childForFieldName('property');
+      if (object?.type === 'identifier' && object.text === doomed.binding && property?.text === 'instance') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A call's arguments, comments left out. */
+  private static args(call: TSNode): TSNode[] {
+    return call.childForFieldName('arguments')?.namedChildren.filter(c => c.type !== 'comment') ?? [];
+  }
+
+  /**
+   * Splice `doomed` out of the argument list `args`, each with the comma
+   * before it — a copy's targets always follow its options, so there is one.
+   * Last first, so earlier offsets stay valid.
+   */
+  private static dropArguments(code: string, args: TSNode[], doomed: TSNode[]): string {
+    let working = code;
+    for (const arg of [...doomed].sort((a, b) => b.startIndex - a.startIndex)) {
+      const previous = args[args.indexOf(arg) - 1];
+      working = spliceCode(working, previous.endIndex, arg.endIndex, '');
+    }
+    return working;
+  }
 }

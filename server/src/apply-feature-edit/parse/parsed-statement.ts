@@ -261,6 +261,13 @@ export type ParsedFeatureStatement =
      * entry for circular.
      */
     axisTexts: string[];
+    /**
+     * Per-axis source location of the statement an axis argument names — a
+     * bound `axis()` or `connector()`, plus `slot` for one of a connector's
+     * copies (`bay.instance(2)`) — or null for a world axis or any other
+     * expression. Same length as `axisTexts`; empty for the 2D center form.
+     */
+    axisRefs: ({ line: number; column: number; slot?: number } | null)[];
     /** Linear per-direction count and value, in axis order. */
     directions: { count: ValueExpr; value: ValueExpr }[] | null;
     /** Linear spacing semantics shared by every direction. */

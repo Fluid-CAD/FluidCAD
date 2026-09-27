@@ -251,6 +251,24 @@ mate('revolute', cyl1.parts.connectingRodCap1.connectors.c2, crank.connectors.pi
       .toBe('row 1, column 1 — the replacement sits on the seed itself');
     expect(validateReplicatePayload({ seed, targets: [crankPin], rows: [[{ ...crankPin, slot: 4 }]] })).toBeNull();
   });
+
+  it('writes copies of an assembly connector as bore1.instance(k), and validates their slot', async () => {
+    const code = `${ENGINE}copy('linear', 'y', { count: 3, offset: 114 }, bore1);\n`;
+    const bore1 = { connectorLine: lineOf(code, "connector('bore1'"), connectorName: 'bore1' };
+    const result = await applyAssemblyReplicateEdit(code, {
+      create: {
+        seed: { instanceLine: lineOf(code, 'const cyl1') },
+        targets: [bore1],
+        rows: [[{ ...bore1, slot: 1 }], [{ ...bore1, slot: 2 }]],
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `replicate(cyl1, [bore1], [\n  [bore1.instance(1)],\n  [bore1.instance(2)],\n]);`,
+    );
+    expect(validateReplicatePayload({ seed: { instanceLine: 6 }, targets: [bore1], rows: [[{ ...bore1, slot: -2 }]] }))
+      .toBe("row 1, column 1: a connector copy's slot must be a non-negative integer, got -2");
+  });
 });
 
 describe('applyAssemblyReplicateEdit — edit', () => {

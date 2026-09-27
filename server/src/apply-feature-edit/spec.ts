@@ -11,6 +11,7 @@ import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
+import type { AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import type { InsertParamsEditSpec } from '../insert-params-edit.ts';
 import type {
   AssemblyExportEditSpec,
@@ -260,6 +261,14 @@ export type ApplyFeatureEditSpec = {
    * other spec field is ignored.
    */
   assemblyConnector?: AssemblyConnectorEditSpec;
+  /**
+   * Assembly Copy-dialog write: append a `copy('linear' | 'circular', …)` of
+   * the assembly's own connectors in their scope, re-render the one at its
+   * source line, or remove it with the delete sweep. Rides the same round
+   * trip as `assemblyConnector` (expression extras land through
+   * `newVariables`); every other spec field is ignored.
+   */
+  assemblyConnectorCopy?: AssemblyConnectorCopyEditSpec;
   /**
    * Mate-dialog pen-button edit: rewrite a `connector()` statement's name
    * and adjustment chain in its part file (the spec's `filePath` addresses

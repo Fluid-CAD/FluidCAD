@@ -5030,7 +5030,7 @@ describe('parseFeatureStatement — copy', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'copy', kind: 'linear', axisTexts: [`'x'`],
+        feature: 'copy', kind: 'linear', axisTexts: [`'x'`], axisRefs: [null],
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
         count: null, sweep: null, center: null, skip: null, targetTexts: ['e'],
         // The bound extrude call's own position — the timeline row's location.
@@ -5534,6 +5534,8 @@ describe('copy statement templates — connectors', () => {
       ok: true,
       parsed: {
         feature: 'copy', kind: 'circular', axisTexts: ['pivot'],
+        // The axis names the pivot connector's statement.
+        axisRefs: [{ line: 7, column: 16 }],
         count: 6, sweep: { mode: 'angle', value: 360 },
         targetTexts: ['bolt', 'e'],
         // The bound calls' own positions — the connector and extrude rows' locations.
@@ -5544,7 +5546,11 @@ describe('copy statement templates — connectors', () => {
     const copyAxis = await parseFeatureStatement(
       withStatement(bound, `copy('linear', [bolt.instance(2), 'x'], { count: [2, 3], offset: [15, 20] }, pivot)`), 8,
     );
-    expect(copyAxis).toMatchObject({ ok: true, parsed: { axisTexts: ['bolt.instance(2)', `'x'`] } });
+    expect(copyAxis).toMatchObject({
+      ok: true,
+      // A copy as the axis names its seed's statement and its slot; a world axis names none.
+      parsed: { axisTexts: ['bolt.instance(2)', `'x'`], axisRefs: [{ line: 6, column: 15, slot: 2 }, null] },
+    });
   });
 
   it('keeps connector targets and a connector axis exactly as written through an edit', async () => {

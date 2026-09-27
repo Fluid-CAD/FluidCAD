@@ -320,6 +320,30 @@ describe('applyAssemblyMateEdit', () => {
       expect(result.newCode).toContain(`mate('revolute', pivot, c1.connectors.shaft).offset(0, 40, 15);`);
     });
 
+    it('writes a copy of an assembly connector as bay.instance(k), on its seed\'s line', async () => {
+      const code = `${HEADER}\nconst card1 = insert(card());\nconst bay = connector('bay', [0, 0, 20]);\n`
+        + `copy('linear', 'x', { count: 4, offset: 50 }, bay);\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'slider',
+          frameA: { connectorLine: 4, connectorName: 'bay', slot: 2 },
+          connectorB: { instanceLine: 3, connectorName: 'edge' },
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`mate('slider', bay.instance(2), card1.connectors.edge);`);
+
+      const badSlot = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'slider',
+          frameA: { connectorLine: 4, connectorName: 'bay', slot: -1 },
+          connectorB: { instanceLine: 3, connectorName: 'edge' },
+        },
+      });
+      expect(badSlot.error).toMatch(/slot must be a non-negative integer/);
+      expect(badSlot.newCode).toBe(code);
+    });
+
     it('refuses when the addressed line is not a connector()', async () => {
       const code = `${HEADER}\nconst c1 = insert(c());\nconst c2 = insert(c());\n`;
       const result = await applyAssemblyMateEdit(code, {

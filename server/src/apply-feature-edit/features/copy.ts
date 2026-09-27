@@ -156,7 +156,7 @@ export function renderCopyStatement(
  * A skip list a copy statement can carry: index tuples of plain non-negative
  * whole numbers, no wider than the copy has directions.
  */
-function validCopySkip(skip: number[][], arity: number): boolean {
+export function validCopySkip(skip: number[][], arity: number): boolean {
   return Array.isArray(skip) && skip.every(tuple =>
     Array.isArray(tuple) && tuple.length > 0 && tuple.length <= arity
     && tuple.every(index => Number.isSafeInteger(index) && index >= 0));
@@ -176,6 +176,39 @@ function renderCopySkip(skip: number[][], kind: 'linear' | 'circular'): string {
 }
 
 /**
+ * The statement a copy axis argument names, when it names one: a bound
+ * variable (`pivot` — an `axis()` or a `connector()`), or one of a
+ * connector's copies (`bay.instance(2)`, its slot a plain whole number) —
+ * the variable's statement, by the location its scene object reports.
+ * Null for a world axis, an inline expression, or a name that resolves to
+ * no statement.
+ */
+export function resolveCopyAxisRef(
+  node: TSNode,
+  statementStart: number,
+): { line: number; column: number; slot?: number } | null {
+  if (node.type === 'identifier') {
+    return resolveRepeatTargetRef(node, statementStart);
+  }
+  if (node.type !== 'call_expression') {
+    return null;
+  }
+  const fn = node.childForFieldName('function');
+  const object = fn?.type === 'member_expression' ? fn.childForFieldName('object') : null;
+  const property = fn?.type === 'member_expression' ? fn.childForFieldName('property') : null;
+  const args = node.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment') ?? [];
+  if (object?.type !== 'identifier' || property?.text !== 'instance' || args.length !== 1) {
+    return null;
+  }
+  const slot = numericArgValue(args[0]);
+  if (slot === null || !Number.isSafeInteger(slot) || slot < 0) {
+    return null;
+  }
+  const ref = resolveRepeatTargetRef(object, statementStart);
+  return ref ? { ...ref, slot } : null;
+}
+
+/**
  * A `copy('<kind>', …)` statement's dialog-editable reading. The kind must be
  * a plain string literal, and only the 3D linear/circular forms have a dialog
  * — the 2D circular center-point form (an array second argument) refuses.
@@ -184,6 +217,8 @@ function renderCopySkip(skip: number[][], kind: 'linear' | 'circular'): string {
  * offset/length as scalars or matched-arity arrays (a scalar broadcasts
  * across the directions, the kernel's own rule), plus a `skip` list of index
  * tuples — and refuses options the dialog doesn't offer (circular `centered`).
+ * Each axis and target also reports the statement it names, when it names
+ * one ({@link resolveCopyAxisRef}, `resolveRepeatTargetRef`).
  */
 export function parseCopyChain(
   args: TSNode[],
@@ -202,6 +237,7 @@ export function parseCopyChain(
     feature: 'copy' as const,
     kind,
     axisTexts: [] as string[],
+    axisRefs: [] as ({ line: number; column: number; slot?: number } | null)[],
     directions: null as { count: ValueExpr; value: ValueExpr }[] | null,
     spacingMode: null as 'offset' | 'length' | null,
     centered: false,
@@ -218,9 +254,11 @@ export function parseCopyChain(
     return { error: 'the copy has fewer arguments than the dialog understands' };
   }
   const axisNode = args[1];
-  const axisTexts = axisNode.type === 'array'
-    ? axisNode.namedChildren.filter(a => a.type !== 'comment').map(a => a.text)
-    : [axisNode.text];
+  const axisNodes = axisNode.type === 'array'
+    ? axisNode.namedChildren.filter(a => a.type !== 'comment')
+    : [axisNode];
+  const axisTexts = axisNodes.map(a => a.text);
+  const axisRefs = axisNodes.map(a => resolveCopyAxisRef(a, start));
   const nodes = args.slice(3);
   const targets = {
     targetTexts: nodes.map(n => n.text),
@@ -269,7 +307,7 @@ export function parseCopyChain(
     }
     return {
       parsed: {
-        ...base, axisTexts, count, sweep: { mode, value }, center,
+        ...base, axisTexts, axisRefs: center ? [] : axisRefs, count, sweep: { mode, value }, center,
         skip: skip.entries.length > 0 ? skip.entries : null,
         ...targets,
       },
@@ -343,6 +381,7 @@ export function parseCopyChain(
     parsed: {
       ...base,
       axisTexts,
+      axisRefs,
       directions: dirCounts.map((count, i) => ({ count, value: dirValues[i] })),
       spacingMode,
       centered,

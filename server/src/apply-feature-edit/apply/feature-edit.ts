@@ -14,6 +14,7 @@ import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
 import { applyAssemblyExportEdit, applyConnectorPropsEdit } from '../../assembly-mate-edit.ts';
 import { applyAssemblyReplicateEdit } from '../../assembly-replicate-edit.ts';
 import {
+  applyAssemblyConnectorCopyWithDecls,
   applyAssemblyConnectorWithDecls,
   applyAssemblyMateWithExposeCreates,
   applyInsertParamsWithDecls,
@@ -131,6 +132,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.assemblyConnector) {
     return applyAssemblyConnectorWithDecls(code, spec);
+  }
+  if (spec.assemblyConnectorCopy) {
+    return applyAssemblyConnectorCopyWithDecls(code, spec);
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);

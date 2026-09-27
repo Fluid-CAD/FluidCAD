@@ -50,7 +50,12 @@ export function canonicalChainText(text: string): string {
 
 const NUMBER_DECIMALS = 6;
 
-export type CodeTransformResult = { newCode: string; error?: string };
+/**
+ * A statement writer's result. `statementLine` is the 1-based line a placed
+ * statement landed on, reported by the placement helpers so a caller can
+ * land declarations before it.
+ */
+export type CodeTransformResult = { newCode: string; error?: string; statementLine?: number };
 
 /**
  * One side of a connector-authored statement: the anchor whose `insert()`
@@ -106,10 +111,15 @@ export type MateGeometryRef = {
  * dereferences as the statement's `const` binding (a bare expression
  * statement gets `const <connectorName> = ` prepended, like an unbound
  * `insert()`), and anchors statement placement like an instance side.
+ *
+ * With `slot`, the side is a copy of that connector — the file's top-level
+ * `copy()` made it — and `connectorLine` stays its seed's statement: it
+ * dereferences as `bay.instance(2)`.
  */
 export type MateFrameRef = {
   connectorLine: number;
   connectorName: string;
+  slot?: number;
 };
 
 /** Any statement side: an instance connector, an exposure, or an assembly connector. */
@@ -377,9 +387,10 @@ export async function resolveReplicaBinding(
  * `cam1.features.profile` / a replica's `cyl1Replicas[1].…`), reaching
  * through `.parts.<keys...>` export chains first when the side lives inside
  * a sub-assembly occurrence; an assembly connector is its own binding. A
- * copy of a connector adds its slot: `flange1.connectors.bolt.instance(3)`.
- * Bindings hoisted along the way are same-line prepends, so the returned
- * code keeps every line address valid.
+ * copy of a connector adds its slot: `flange1.connectors.bolt.instance(3)`,
+ * or `bay.instance(2)` for an assembly connector's copy. Bindings hoisted
+ * along the way are same-line prepends, so the returned code keeps every
+ * line address valid.
  */
 export async function resolveSideExpression(
   code: string,
@@ -390,7 +401,7 @@ export async function resolveSideExpression(
     if ('error' in binding) {
       return binding;
     }
-    return { newCode: binding.newCode, expression: binding.name };
+    return { newCode: binding.newCode, expression: `${binding.name}${renderInstanceSuffix(side.slot)}` };
   }
   let prefix: { newCode: string; expression: string } | { error: string };
   if (side.replicaRow !== undefined) {
@@ -494,7 +505,7 @@ export function appendStatement(code: string, statement: string): CodeTransformR
   const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
     && !isAssemblyStatementRow(lines[insertRow - 1]);
   lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
-  return { newCode: joinLines(lines) };
+  return { newCode: joinLines(lines), statementLine: insertRow + (separated ? 1 : 0) + 1 };
 }
 
 /**
@@ -553,7 +564,7 @@ export async function appendStatementInScope(
   const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
     && !isAssemblyStatementRow(lines[insertRow - 1]);
   lines.splice(insertRow, 0, ...(separated ? ['', `${indent}${statement}`] : [`${indent}${statement}`]));
-  return { newCode: joinLines(lines) };
+  return { newCode: joinLines(lines), statementLine: insertRow + (separated ? 1 : 0) + 1 };
 }
 
 /**

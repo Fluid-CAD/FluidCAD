@@ -73,10 +73,12 @@ export function isConnectorRef(v: unknown): v is MateConnectorSideBody {
       || (Array.isArray((v as any).viaParts) && (v as any).viaParts.every(isViaEntry)));
 }
 
+/** An assembly-connector side — a copy of one (`bay.instance(2)`) carries its `slot`. */
 export function isFrameRef(v: unknown): v is MateFrameRef {
   return v !== null && typeof v === 'object'
     && Number.isInteger((v as any).connectorLine) && (v as any).connectorLine >= 1
-    && typeof (v as any).connectorName === 'string';
+    && typeof (v as any).connectorName === 'string'
+    && isCopySlot((v as any).slot);
 }
 
 export function isNamedGeometryRef(v: unknown): v is NamedGeometrySideBody {

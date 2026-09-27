@@ -96,6 +96,9 @@ function validateSideRef(side: ReplicateSideRef, where: string): string | null {
     if (!CONNECTOR_NAME.test(side.connectorName)) {
       return `${where}: "${side.connectorName}" is not a valid connector name`;
     }
+    if (!isCopySlot(side.slot)) {
+      return `${where}: a connector copy's slot must be a non-negative integer, got ${side.slot}`;
+    }
     return null;
   }
   if (!Number.isInteger(side.instanceLine) || side.instanceLine < 1) {

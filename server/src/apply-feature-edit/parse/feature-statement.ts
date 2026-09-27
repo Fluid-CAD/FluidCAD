@@ -3,11 +3,11 @@
 import {
   findEditableCallAt,
   getJavaScriptParser,
+  LexicalBindings,
   splitLines,
   walkTree,
   type TSNode,
 } from '../../code-editor/index.ts';
-import { numericVarNames } from '../ast/args.ts';
 import { parseFeatureChain } from './feature-chain.ts';
 import type { ParsedFeatureStatement } from './parsed-statement.ts';
 
@@ -27,7 +27,7 @@ export async function parseFeatureStatement(
   if (!call) {
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code, numericVarNames(tree));
+  const chain = parseFeatureChain(call, code, new LexicalBindings(tree));
   if ('error' in chain) {
     return { ok: false, reason: chain.error };
   }
@@ -56,9 +56,9 @@ export async function resolveEditedStatementLine(
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
-  const numericVars = numericVarNames(tree);
+  const bindings = new LexicalBindings(tree);
   const chainTextOf = (call: TSNode): string | null => {
-    const chain = parseFeatureChain(call, code, numericVars);
+    const chain = parseFeatureChain(call, code, bindings);
     return 'error' in chain ? null : code.slice(chain.start, chain.end);
   };
   const atLine = findEditableCallAt(tree, lines, line);

@@ -1,6 +1,6 @@
 // Parsing an editable feature call chain into its ParsedFeatureStatement.
 
-import type { TSNode } from '../../code-editor/index.ts';
+import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   booleanArgValue,
@@ -61,7 +61,7 @@ function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number)
   };
 }
 
-export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> = new Set()): ChainParse {
+export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalBindings): ChainParse {
   const chain = decomposeChain(call);
   if (!chain) {
     return { error: 'the call at that line is not a plain feature call chain' };
@@ -111,7 +111,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     // The value slot competes with the selector args — a numeric literal,
     // known numeric variable, or arithmetic reads as the value; a selector
     // expression there means the value was omitted, which has no dialog.
-    const value = numericValueArg(args[0], numericVars);
+    const value = numericValueArg(args[0], bindings);
     if (value === null) {
       return { error: `the ${feature}() ${feature === 'shell' ? 'thickness' : feature === 'fillet' ? 'radius' : 'distance'} is not a plain number or expression — edit it in the source` };
     }
@@ -122,7 +122,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     let isAngle = false;
     let selectorsFrom = 1;
     if (feature === 'chamfer' && args.length > 1) {
-      const second = numericValueArg(args[1], numericVars);
+      const second = numericValueArg(args[1], bindings);
       if (second !== null) {
         distance2 = second;
         selectorsFrom = 2;
@@ -156,7 +156,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     let value: ValueExpr = 1;
     let selectorsFrom = 0;
     if (args.length > 0) {
-      const distance = numericValueArg(args[0], numericVars);
+      const distance = numericValueArg(args[0], bindings);
       if (distance !== null) {
         value = distance;
         selectorsFrom = 1;
@@ -234,7 +234,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
   }
 
   if (feature === 'repeat') {
-    return parseRepeatChain(args, start, end, numericVars);
+    return parseRepeatChain(args, start, end, bindings);
   }
 
   if (feature === 'copy') {
@@ -246,7 +246,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
   }
 
   if (feature === 'rotate') {
-    return parseRotateChain(args, start, end, numericVars);
+    return parseRotateChain(args, start, end, bindings);
   }
 
   if (feature === 'boolean') {
@@ -254,7 +254,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
   }
 
   if (feature === 'plane') {
-    return parsePlaneChain(args, start, end, numericVars);
+    return parsePlaneChain(args, start, end, bindings);
   }
 
   const isCut = chain.root.name === 'cut';
@@ -283,17 +283,18 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
   }
 
   if (feature === 'extrude') {
-    // Leading numeric values are distances — literals, known numeric
-    // variables, or arithmetic; one, or two for the two-distance form
-    // extrude(d1, d2); a single trailing non-numeric argument is the bound
-    // profile expression, kept verbatim. A cut() with no distance is the
-    // through-all remove. With NO distance, a leading string literal is a
-    // first/last-face target and a call expression (`e.endFaces()`,
+    // Leading numeric values are distances — literals, arithmetic, or a
+    // variable or call that resolves to a number where the statement sits
+    // (a part body's `param()`, `inch(1)`); one, or two for the two-distance
+    // form extrude(d1, d2); a single trailing non-numeric argument is the
+    // bound profile expression, kept verbatim. A cut() with no distance is
+    // the through-all remove. With NO distance, a leading string literal is
+    // a first/last-face target and a call expression (`e.endFaces()`,
     // `select(…)`) is a picked-face target — two non-numeric arguments are
     // the target and the profile.
     const distances: ValueExpr[] = [];
     while (distances.length < Math.min(args.length, 2)) {
-      const value = numericValueArg(args[distances.length], numericVars);
+      const value = numericValueArg(args[distances.length], bindings);
       if (value === null) {
         break;
       }
@@ -301,7 +302,7 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     }
     const rest = args.slice(distances.length);
     const restLimit = distances.length === 0 ? 2 : 1;
-    if (rest.length > restLimit || rest.some(arg => numericValueArg(arg, numericVars) !== null)) {
+    if (rest.length > restLimit || rest.some(arg => numericValueArg(arg, bindings) !== null)) {
       return { error: 'the extrude has more arguments than the dialog understands' };
     }
     // The only string argument the call takes is a leading first/last-face
@@ -328,8 +329,8 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
       toFaceKind = literal;
       profileText = rest[1]?.text ?? null;
     } else if (distances.length === 0 && rest.length === 2) {
-      // extrude(<face>, <profile>): unambiguous — a two-argument call with
-      // no distance is the up-to-face form.
+      // extrude(<face>, <profile>): a two-argument call whose first
+      // argument is not a number is the up-to-face form.
       toFaceText = rest[0].text;
       toFaceKind = 'selector';
       profileText = rest[1].text;
@@ -428,13 +429,13 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     if (args.length < 1 || args.length > 2) {
       return { error: 'the rib has an argument shape the dialog cannot edit' };
     }
-    const thickness = numericValueArg(args[0], numericVars);
+    const thickness = numericValueArg(args[0], bindings);
     if (thickness === null) {
       return { error: 'the rib thickness is not a plain number or expression — edit it in the source' };
     }
     let spineText: string | null = null;
     if (args.length === 2) {
-      if (numericValueArg(args[1], numericVars) !== null) {
+      if (numericValueArg(args[1], bindings) !== null) {
         return { error: 'the rib has arguments the dialog does not understand' };
       }
       spineText = args[1].text;
@@ -536,13 +537,13 @@ export function parseFeatureChain(call: TSNode, code: string, numericVars: Set<s
     let angle: ValueExpr | null = null;
     let rest = args.slice(1);
     if (rest.length > 0) {
-      const value = numericValueArg(rest[0], numericVars);
+      const value = numericValueArg(rest[0], bindings);
       if (value !== null) {
         angle = value;
         rest = rest.slice(1);
       }
     }
-    if (rest.length > 1 || (rest.length === 1 && numericValueArg(rest[0], numericVars) !== null)) {
+    if (rest.length > 1 || (rest.length === 1 && numericValueArg(rest[0], bindings) !== null)) {
       return { error: 'the revolve has more arguments than the dialog understands' };
     }
     const symmetricSeg = recognized.get('symmetric');

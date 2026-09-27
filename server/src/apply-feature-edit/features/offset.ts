@@ -3,11 +3,12 @@
 import {
   findEditableCallAt,
   getJavaScriptParser,
+  LexicalBindings,
   splitLines,
   walkTree,
   type TSNode,
 } from '../../code-editor/index.ts';
-import { booleanArgValue, numericValueArg, numericVarNames } from '../ast/args.ts';
+import { booleanArgValue, numericValueArg } from '../ast/args.ts';
 import { decomposeChain } from '../ast/chain.ts';
 import { formatValue, type ValueExpr } from '../value-expr.ts';
 
@@ -68,7 +69,7 @@ export async function parseOffsetTargetDescriptors(
     return { ok: false, reason: 'the statement at that line is not an offset, fillet, text, copy or mirror' };
   }
   const args = chain.root.args;
-  const numericVars = numericVarNames(tree);
+  const bindings = new LexicalBindings(tree);
   let selectorsFrom = 0;
   let selectorsTo = args.length;
   if (chain.root.name === 'copy') {
@@ -84,7 +85,7 @@ export async function parseOffsetTargetDescriptors(
     // text has nothing nameable (descriptors: [], like a whole-sketch offset).
     selectorsFrom = 1;
     selectorsTo = Math.min(args.length, 2);
-  } else if (args.length > 0 && numericValueArg(args[0], numericVars) !== null) {
+  } else if (args.length > 0 && numericValueArg(args[0], bindings) !== null) {
     // The offset's value and removeOriginal slots, exactly as
     // parseFeatureChain reads them.
     selectorsFrom = 1;

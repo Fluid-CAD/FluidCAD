@@ -2018,6 +2018,29 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    it("parses a part body's param() distance as a distance, not an up-to-face target", async () => {
+      currentCode = [
+        `import { part, param, sketch, line, region, extrude } from 'fluidcad/core'`,
+        ``,
+        `export const drawer = part('Drawer', () => {`,
+        `  const depth = param("depth", 50);`,
+        `  const s = sketch('xz', () => {`,
+        `    const l1 = line([-200, 0], [200, 0]);`,
+        `    region('r1', l1);`,
+        `  }).close();`,
+        `  extrude(depth, s).region('r1');`,
+        `});`,
+        ``,
+      ].join('\n');
+      currentFileName = '/ws/Drawer.part.js';
+      const { status, body } = await postParse({ filePath: '/ws/Drawer.part.js', line: 9 });
+      expect(status).toBe(200);
+      expect(body.parsed).toMatchObject({
+        feature: 'extrude', distance: 'depth', profileText: 's', toFaceText: null, toFaceKind: null, regions: ['r1'],
+      });
+      expect(body.statement).toBe(`extrude(depth, s).region('r1')`);
+    });
+
     it('refuses to parse a feature from another file', async () => {
       currentCode = EDIT_CODE;
       currentFileName = '/ws/m.fluid.js';

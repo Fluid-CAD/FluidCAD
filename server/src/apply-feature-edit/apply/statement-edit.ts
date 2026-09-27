@@ -8,11 +8,11 @@ import {
   findEnclosingPart,
   getJavaScriptParser,
   indentOf,
+  LexicalBindings,
   spliceCode,
   splitLines,
 } from '../../code-editor/index.ts';
 import { SelectHoist } from '../../select-hoist.ts';
-import { numericVarNames } from '../ast/args.ts';
 import { enclosingScope, enclosingSketchStatement, enclosingStatement, sameNode } from '../ast/nodes.ts';
 import { declarationsBefore } from '../insertion.ts';
 import { parseFeatureChain } from '../parse/feature-chain.ts';
@@ -48,7 +48,7 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
   if (!call) {
     return { newCode: code, error: `no call found at line ${edit.line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code, numericVarNames(tree));
+  const chain = parseFeatureChain(call, code, new LexicalBindings(tree));
   if ('error' in chain) {
     return { newCode: code, error: chain.error };
   }

@@ -1806,7 +1806,7 @@ describe('loft statement templates', () => {
 // In-place statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
 
-import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
+import { parseFeatureStatement, resolveEditedStatementLine, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
 
 const editBase = [
   `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
@@ -6377,6 +6377,156 @@ describe('expression values in repeat, plane and value-feature slots', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Value slots resolve names the way JavaScript scoping does: a part body's
+// `param()`s (the only place params live) read exactly like top-level
+// constants, and the innermost declaration of a name wins.
+// ---------------------------------------------------------------------------
+
+describe('value slots bound inside part bodies', () => {
+  /** A part file shaped like the Drawer part: params, then one sketch, then `statements`. */
+  const partWith = (...statements: string[]) => [
+    `import { part, param, sketch, line, region, extrude, cut, fillet, revolve, repeat, select } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    `import { inch } from 'fluidcad/units'`,
+    ``,
+    `export const drawer = part('Drawer', () => {`,
+    `  const depth = param("depth", 50);`,
+    `  const height = param('Height', 250);`,
+    `  const finish = param('Finish', '#e6e8eb', 'color');`,
+    `  const s = sketch('xz', () => {`,
+    `    const l1 = line([-200, 0], [200, 0]);`,
+    `    region('r1', l1);`,
+    `  }).close();`,
+    ...statements.map(statement => `  ${statement}`),
+    `});`,
+    ``,
+  ].join('\n');
+  // The first statement lands on line 13.
+  const LINE = 13;
+
+  it("reads a param() distance as a distance, not an up-to-face target (the Drawer's extrude)", async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(depth, s).region('r1');`), LINE);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: 'depth', distance2: null, symmetric: false,
+        draft: null, endOffset: null, drill: true, thin: null, profileText: 's',
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: ['r1'],
+      },
+      statement: `extrude(depth, s).region('r1')`,
+    });
+  });
+
+  it('reads a lone param() distance instead of refusing it', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(height);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'add', distance: 'height', profileText: null, toFaceText: null },
+    });
+  });
+
+  it('reads a param() cut depth as a blind cut, not a through-all cut of a profile', async () => {
+    const result = await parseFeatureStatement(partWith(`cut(depth);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'remove', distance: 'depth', profileText: null, toFaceText: null },
+    });
+  });
+
+  it('reads a two-distance extrude over params and arithmetic', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(depth, height / 2, s);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'depth', distance2: 'height / 2', profileText: 's' },
+    });
+  });
+
+  it('reads a unit-helper distance as a distance', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(inch(1), s);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'inch(1)', profileText: 's', toFaceText: null, toFaceKind: null },
+    });
+  });
+
+  it('still reads a face bound in the part body as the up-to-face target', async () => {
+    const result = await parseFeatureStatement(partWith(
+      `const stop = select(face().onPlane('xy', 100));`,
+      `extrude(stop, s);`,
+    ), LINE + 1);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: null, toFaceText: 'stop', toFaceKind: 'selector', profileText: 's' },
+    });
+  });
+
+  it('lets a part-body face shadow a top-level number of the same name', async () => {
+    const code = partWith(
+      `const depth2 = select(face().onPlane('xy', 100));`,
+      `extrude(depth2, s);`,
+    ).replace(`export const drawer`, `const depth2 = 30;\nexport const drawer`);
+    const result = await parseFeatureStatement(code, LINE + 2);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: null, toFaceText: 'depth2', toFaceKind: 'selector' },
+    });
+  });
+
+  it('reads a param() fillet radius and revolve angle', async () => {
+    const withEdge = partWith(`const e = extrude(depth, s);`, `fillet(height, e.endEdges());`);
+    expect(await parseFeatureStatement(withEdge, LINE + 1)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'fillet', value: 'height', argsText: 'e.endEdges()' },
+    });
+    const revolved = partWith(`revolve('z', height, s);`);
+    expect(await parseFeatureStatement(revolved, LINE)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 'height', axisText: `'z'`, profileText: 's' },
+    });
+  });
+
+  it('reads a param() rotate-repeat angle before its targets', async () => {
+    const code = partWith(`const e = extrude(depth, s);`, `repeat('rotate', 'z', height, e);`);
+    expect(await parseFeatureStatement(code, LINE + 1)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', angle: 'height', targetTexts: ['e'] },
+    });
+  });
+
+  it('does not read a color param() as a distance', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(finish);`), LINE);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('edits the param() extrude in place, keeping the param reference', async () => {
+    const code = partWith(`extrude(depth, s).region('r1');`);
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: LINE, column: 2,
+      expectedStatement: `extrude(depth, s).region('r1')`,
+      extrude: extrudeEditOptions({ distance: 'depth', draft: 2 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  extrude(depth, s).region('r1').draft(2);\n`);
+  });
+
+  it('edits a param() cut in place without re-reading the depth as its profile', async () => {
+    const code = partWith(`cut(depth);`);
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: LINE, column: 2,
+      expectedStatement: `cut(depth)`,
+      extrude: extrudeEditOptions({ op: 'remove', distance: 'depth', draft: 2 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  cut(depth).draft(2);\n`);
+  });
+
+  it('heals a drifted edit line to the param() extrude by its text', async () => {
+    const code = partWith(`breakpoint();`, `extrude(depth, s).region('r1');`);
+    expect(await resolveEditedStatementLine(code, LINE, `extrude(depth, s).region('r1')`)).toBe(LINE + 1);
+  });
+});
+
 describe('project into a sketch body', () => {
   const base = [
     `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
@@ -7053,6 +7203,30 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
         { kind: 'accessor', line: 4, args: [3] },
       ],
       feature: 'offset',
+    });
+  });
+
+  it("reads a part body's param() as the offset distance, never as a target", async () => {
+    const code = [
+      `import { part, param, sketch, circle, offset } from 'fluidcad/core'`,
+      ``,
+      `part('Plate', () => {`,
+      `  const gap = param('Gap', 2)`,
+      `  sketch('xy', () => {`,
+      `    const c = circle(10)`,
+      `    offset(gap, c)`,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n');
+    expect(await parseOffsetTargetDescriptors(code, 7)).toEqual({
+      ok: true,
+      descriptors: [{ kind: 'owner', line: 6 }],
+      feature: 'offset',
+    });
+    expect(await parseFeatureStatement(code, 7)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: 'gap', argsText: 'c' },
     });
   });
 

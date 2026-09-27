@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  resolveExpressionValue, suggestionItemHtml, suggestionKind, trailingIdentifier,
+  resolveExpressionValue, suggestionItemHtml, suggestionKind, suggestsExistingName,
+  trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -120,6 +121,22 @@ describe('filterSuggestions', () => {
     // ...but their name still blocks the new-variable offer and redeclaration.
     expect(filterSuggestions('housing', VARS, 'housing', '25').some(s => s.isNew)).toBe(false);
     expect(classifyCommit('housing = 4', VARS, '25')).toMatchObject({ kind: 'error' });
+  });
+});
+
+describe('suggestsExistingName', () => {
+  it('holds while the dropdown lists an existing variable for the bare name', () => {
+    expect(suggestsExistingName('hei', filterSuggestions('hei', VARS, 'hei', '25'))).toBe(true);
+  });
+
+  it('clears once only the new-variable offer is left, or nothing is listed', () => {
+    expect(suggestsExistingName('depth', filterSuggestions('depth', VARS, 'depth', '25'))).toBe(false);
+    expect(suggestsExistingName('hei', [])).toBe(false);
+  });
+
+  it('ignores matches that complete the value of an explicit declaration', () => {
+    const value = 'depth = hei';
+    expect(suggestsExistingName(value, filterSuggestions('hei', VARS, value, '25'))).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  resolveExpressionValue, suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
+  resolveExpressionValue, suggestionItemHtml, suggestsExistingName, trailingIdentifier, Suggestion,
+  VariableInfo,
 } from './expression-core';
 import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
 import { isEditableTarget } from '../keyboard-bridge';
@@ -603,7 +604,8 @@ export class PointInput {
     this.renderParamButton();
   }
 
-  /** The P toggle rides whichever field would declare a new variable. */
+  /** The P toggle rides whichever field would declare a new variable, unless
+   * the dropdown matches its bare name ({@link renderParamButton}). */
   private updateParamAvailability(): void {
     const active = this.activeField ? this.axes[this.activeField] : null;
     this.paramAvailable = !this.numericOnly && active !== null
@@ -612,7 +614,12 @@ export class PointInput {
   }
 
   private renderParamButton(): void {
-    this.paramWrap.classList.toggle('hidden', !this.paramAvailable);
+    // Hidden, not unavailable, while a bare name matches: committing the
+    // new-variable offer still declares by the pill's toggle.
+    const field = this.activeField ? this.axes[this.activeField].input : null;
+    const shown = this.paramAvailable
+      && !(field && suggestsExistingName(field.value, this.filteredVars));
+    this.paramWrap.classList.toggle('hidden', !shown);
     const active = this.paramMode;
     this.paramBtn.classList.toggle('bg-primary/20', active);
     this.paramBtn.classList.toggle('text-primary', active);
@@ -670,12 +677,13 @@ export class PointInput {
     if (!query || !axis) {
       this.filteredVars = [];
       this.selectedIndex = -1;
-      this.renderDropdown();
-      return;
+    } else {
+      this.filteredVars = filterSuggestions(query, this.variables, axis.input.value, axis.seedValue);
+      this.selectedIndex = this.filteredVars.length > 0 ? 0 : -1;
     }
-    this.filteredVars = filterSuggestions(query, this.variables, axis.input.value, axis.seedValue);
-    this.selectedIndex = this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
+    // The toggle's visibility reads the list just drawn.
+    this.renderParamButton();
   }
 
   private renderDropdown(): void {

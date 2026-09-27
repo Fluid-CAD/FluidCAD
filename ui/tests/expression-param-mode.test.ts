@@ -136,29 +136,105 @@ describe('the suggestion chips', () => {
     { name: 'wallExpr', initializer: 'wallVar * 2' },
   ];
 
-  it('mark each sketcher suggestion by kind, the offer following the toggle', () => {
-    const { open, type, button, container } = mountInput();
+  it('mark each sketcher suggestion by kind', () => {
+    const { open, type, container } = mountInput();
     open(KINDS);
     type('wall');
     expect(chips(container)).toEqual(['P', 'V', 'E', 'P']);
-
-    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    expect(chips(container)).toEqual(['P', 'V', 'E', 'V']);
   });
 
-  it('mark each dialog-field suggestion by kind, the offer following the toggle', () => {
-    const { field, el, button } = mountField();
+  it('mark each dialog-field suggestion by kind', () => {
+    const { field, el } = mountField();
     field.setVariables(KINDS);
     el.value = 'wall';
     el.dispatchEvent(new Event('input'));
     expect(chips(document.body)).toEqual(['P', 'V', 'E', 'P']);
+    // The open dropdown holds document/window listeners; the suite shares one jsdom.
+    field.destroy();
+  });
+
+  it('re-chip the sketcher offer when the toggle flips', () => {
+    const { open, type, button, container } = mountInput();
+    open(KINDS);
+    type('lip');
+    expect(chips(container)).toEqual(['P']);
+
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(chips(container)).toEqual(['V']);
+  });
+
+  it('re-chip the dialog-field offer once the toggle flips', () => {
+    const { field, el, button } = mountField();
+    field.setVariables(KINDS);
+    el.value = 'lip';
+    el.dispatchEvent(new Event('input'));
+    expect(chips(document.body)).toEqual(['P']);
 
     // The P click lands outside the dropdown, which closes it; the next
     // keystroke reopens it with the offer re-chipped.
     button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     el.dispatchEvent(new Event('input'));
-    expect(chips(document.body)).toEqual(['P', 'V', 'E', 'V']);
-    // The open dropdown holds document/window listeners; the suite shares one jsdom.
+    expect(chips(document.body)).toEqual(['V']);
+    field.destroy();
+  });
+});
+
+describe('the P toggle beside a matched name', () => {
+  // `te` is a fresh name, but the dropdown also offers `testVar` for it.
+  const VARS: VariableInfo[] = [{ name: 'testVar', initializer: '3' }];
+
+  it('hides in the sketcher input while the dropdown matches the bare name', () => {
+    const { open, type, button } = mountInput();
+    open(VARS);
+    type('te');
+    expect(button.classList.contains('hidden')).toBe(true);
+
+    // No match left: the name is plainly new.
+    type('tex');
+    expect(button.classList.contains('hidden')).toBe(false);
+
+    // An explicit declaration keeps it, whatever its value matches.
+    type('te = tes');
+    expect(button.classList.contains('hidden')).toBe(false);
+  });
+
+  it('still declares a param when the offer is committed with the toggle hidden', () => {
+    const { open, type, commits } = mountInput();
+    open(VARS);
+    const el = type('te');
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(commits).toEqual([
+      { expression: 'te', newVariable: { name: 'te', initializer: 'param("te", 25)' } },
+    ]);
+  });
+
+  it('hides beside a dialog field until picking the new-variable offer closes the list', () => {
+    const { field, el, button } = mountField();
+    field.setVariables(VARS);
+    el.value = 'te';
+    el.dispatchEvent(new Event('input'));
+    expect(button.classList.contains('hidden')).toBe(true);
+
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(el.value).toBe('te');
+    expect(button.classList.contains('hidden')).toBe(false);
+    expect(field.read()).toEqual({
+      value: 'te', newVariable: { name: 'te', initializer: 'param("te", 25)' },
+    });
+    field.destroy();
+  });
+
+  it('comes back beside a dialog field when Escape dismisses the matches', () => {
+    const { field, el, button } = mountField();
+    field.setVariables(VARS);
+    el.value = 'te';
+    el.dispatchEvent(new Event('input'));
+    expect(button.classList.contains('hidden')).toBe(true);
+
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(button.classList.contains('hidden')).toBe(false);
     field.destroy();
   });
 });

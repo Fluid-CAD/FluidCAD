@@ -357,6 +357,17 @@ export function filterSuggestions(
   return matches;
 }
 
+/**
+ * Whether the dropdown lists an existing variable for the bare name being
+ * typed. While it does, the name reads as a reference in the making — Enter
+ * picks the match — so the hosts keep the P toggle out of the way, though
+ * the name alone would declare a new variable. An explicit `name = value`
+ * never counts: its matches complete the value, not the declared name.
+ */
+export function suggestsExistingName(raw: string, suggestions: Suggestion[]): boolean {
+  return IDENT_RE.test(raw.trim()) && suggestions.some((s) => !s.isNew);
+}
+
 function shouldOfferNewVariable(
   query: string,
   variables: VariableInfo[],

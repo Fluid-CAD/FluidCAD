@@ -1,6 +1,7 @@
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  suggestionItemHtml, trailingIdentifier, ParamDeclareMode, Suggestion, VariableInfo,
+  suggestionItemHtml, suggestsExistingName, trailingIdentifier, ParamDeclareMode, Suggestion,
+  VariableInfo,
 } from './expression-core';
 
 export type { VariableInfo };
@@ -46,8 +47,9 @@ export class ExpressionInput {
   private dropdown: HTMLDivElement;
   private errorEl: HTMLDivElement;
   private paramBtn: HTMLButtonElement;
-  /** Whether the P toggle shows — the value would declare a variable. Its
-   * on/off state is the session's ({@link ParamDeclareMode}), not the input's. */
+  /** Whether the value would declare a variable — the P toggle shows then,
+   * unless the dropdown matches the bare name. Its on/off state is the
+   * session's ({@link ParamDeclareMode}), not the input's. */
   private paramAvailable = false;
   private onCommit: ((result: CommitResult) => void) | null = null;
   private onHide: (() => void) | null = null;
@@ -356,7 +358,10 @@ export class ExpressionInput {
   }
 
   private renderParamButton(): void {
-    this.paramBtn.classList.toggle('hidden', !this.paramAvailable);
+    // Hidden, not unavailable, while a bare name matches: committing the
+    // new-variable offer still declares by the session's toggle.
+    const shown = this.paramAvailable && !suggestsExistingName(this.input.value, this.filteredVars);
+    this.paramBtn.classList.toggle('hidden', !shown);
     const active = ParamDeclareMode.enabled;
     this.paramBtn.classList.toggle('bg-primary/20', active);
     this.paramBtn.classList.toggle('text-primary', active);
@@ -414,14 +419,15 @@ export class ExpressionInput {
     if (!query) {
       this.filteredVars = [];
       this.selectedIndex = -1;
-      this.renderDropdown();
-      return;
+    } else {
+      this.filteredVars = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
+      this.selectedIndex = preserveSelection && prevIndex >= 0 && prevIndex < this.filteredVars.length
+        ? prevIndex
+        : this.filteredVars.length > 0 ? 0 : -1;
     }
-    this.filteredVars = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
-    this.selectedIndex = preserveSelection && prevIndex >= 0 && prevIndex < this.filteredVars.length
-      ? prevIndex
-      : this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
+    // The toggle's visibility reads the list just drawn.
+    this.renderParamButton();
   }
 
   private applyVariableName(name: string): void {

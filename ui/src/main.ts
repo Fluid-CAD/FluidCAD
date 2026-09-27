@@ -1258,9 +1258,10 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
   // statements land inside its callback body instead of at top level — and
-  // a click on the active part steps out to the file's top level, the row
-  // staying selected. Either way the view re-derives its mode from the new
-  // scope (a scope ending in an open sketch enters sketch editing).
+  // a click on the active part steps out to the file's top level, the part
+  // staying selected in the Parameters panel. Either way the view re-derives
+  // its mode from the new scope (a scope ending in an open sketch enters
+  // sketch editing).
   panel.setActivePart = (part) => {
     const changed = part === null ? activePartTracker.deactivate() : activePartTracker.activate(part);
     if (changed) {
@@ -1270,7 +1271,6 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     return changed;
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
-  panel.isPartRowSelected = (obj) => activePartTracker.isSelected(obj);
   // The eye on a consumed sketch, plane or axis row: view state in the
   // viewer, keyed by source location so it survives re-renders. Never
   // written to the file.

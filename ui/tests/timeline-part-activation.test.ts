@@ -8,8 +8,9 @@ import type { SceneObjectRender } from '../src/types';
 
 // Part rows toggle the timeline's active part: a click on an inactive part
 // activates it, a click on the active one steps out to the file's top level
-// — the row stays selected (tinted) and loses its dot. The pause gestures
-// point the active part at the paused row's scope.
+// — the part stays selected (the Parameters panel's part) but its row turns
+// plain like every other inactive part. The pause gestures point the active
+// part at the paused row's scope.
 
 Element.prototype.scrollIntoView = vi.fn();
 
@@ -39,6 +40,11 @@ const SCENE = [
 
 const rowObject = (id: string) => SCENE.find(o => o.id === id)!;
 
+/** Only the active part row is highlighted: blue cube, tint, blue bold name and the dot. */
+const ACTIVE_LOOK = { icon: '/icons/box-blue.png', tinted: true, blueText: true, bold: true, dot: true };
+/** Every other part row is plain, with the white cube. */
+const PLAIN_LOOK = { icon: '/icons/box.png', tinted: false, blueText: false, bold: false, dot: false };
+
 /** The panel wired to a real tracker the way main.ts wires it. */
 function mount() {
   const container = document.createElement('div');
@@ -55,14 +61,21 @@ function mount() {
     row === null ? tracker.deactivate() : tracker.activate(row));
   timeline.setActivePart = setActivePart;
   timeline.isPartRowActive = (obj) => tracker.isActive(obj);
-  timeline.isPartRowSelected = (obj) => tracker.isSelected(obj);
   tracker.sync(SCENE);
   timeline.update(SCENE, SCENE.length - 1);
 
   const row = (id: string) => container.querySelector<HTMLElement>(`[data-index="${SCENE.findIndex(o => o.id === id)}"]`)!;
   const click = (id: string, detail = 1) => row(id).dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
   const hasDot = (id: string) => row(id).querySelector('[title^="Active part"]') !== null;
-  return { container, editor, tracker, setActivePart, row, click, hasDot };
+  const look = (id: string) => ({
+    icon: row(id).querySelector('img')!.getAttribute('src'),
+    tinted: row(id).classList.contains('bg-primary/10'),
+    blueText: row(id).classList.contains('text-primary'),
+    bold: row(id).querySelector('.truncate')!.classList.contains('font-semibold'),
+    dot: hasDot(id),
+  });
+  const isSelected = (id: string) => tracker.isSelected(rowObject(id));
+  return { container, editor, tracker, setActivePart, row, click, hasDot, look, isSelected };
 }
 
 afterEach(() => {
@@ -74,20 +87,21 @@ describe('timeline part activation', () => {
   it('opens on the last part, selected and active', () => {
     const h = mount();
     expect(h.row('B').dataset.activePart).toBe('true');
-    expect(h.row('B').dataset.selectedPart).toBe('true');
-    expect(h.hasDot('B')).toBe(true);
-    expect(h.row('A').dataset.selectedPart).toBe('false');
+    expect(h.isSelected('B')).toBe(true);
+    expect(h.look('B')).toEqual(ACTIVE_LOOK);
+    expect(h.look('A')).toEqual(PLAIN_LOOK);
   });
 
-  it('steps out to the top level on a click on the active part, keeping the row selected', () => {
+  it('steps out to the top level on a click on the active part, leaving its row plain', () => {
     const h = mount();
     h.click('B');
     expect(h.setActivePart).toHaveBeenLastCalledWith(null);
     expect(h.tracker.location).toBeNull();
     expect(h.row('B').dataset.activePart).toBe('false');
-    expect(h.row('B').dataset.selectedPart).toBe('true');
-    expect(h.row('B').classList.contains('bg-primary/10')).toBe(true);
-    expect(h.hasDot('B')).toBe(false);
+    // Still the Parameters panel's part, but it reads like any inactive part.
+    expect(h.isSelected('B')).toBe(true);
+    expect(h.look('B')).toEqual(PLAIN_LOOK);
+    expect(h.look('A')).toEqual(PLAIN_LOOK);
     // Part rows still follow their source instead of rolling back.
     expect(h.editor.gotoSource).toHaveBeenCalled();
   });
@@ -97,15 +111,16 @@ describe('timeline part activation', () => {
     h.click('B');
     h.click('B');
     expect(h.tracker.isActive(rowObject('B'))).toBe(true);
-    expect(h.hasDot('B')).toBe(true);
+    expect(h.look('B')).toEqual(ACTIVE_LOOK);
   });
 
   it('activates another part from the top level', () => {
     const h = mount();
     h.click('B');
     h.click('A');
-    expect(h.hasDot('A')).toBe(true);
-    expect(h.row('B').dataset.selectedPart).toBe('false');
+    expect(h.look('A')).toEqual(ACTIVE_LOOK);
+    expect(h.isSelected('B')).toBe(false);
+    expect(h.look('B')).toEqual(PLAIN_LOOK);
   });
 
   it('ends a double-click inside the part, from either state', () => {
@@ -124,7 +139,8 @@ describe('timeline part activation', () => {
     const h = mount();
     h.row('top').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(h.tracker.location).toBeNull();
-    expect(h.row('B').dataset.selectedPart).toBe('true');
+    expect(h.isSelected('B')).toBe(true);
+    expect(h.look('B')).toEqual(PLAIN_LOOK);
     expect(h.editor.addBreakpoint).toHaveBeenCalledWith(rowObject('top').sourceLocation);
   });
 

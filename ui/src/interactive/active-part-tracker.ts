@@ -12,9 +12,9 @@ export type PartChoice = { name: string; sourceLocation: SourceLocation };
  * tool just created. The selected part is the active one unless the user
  * stepped out of it (clicked its row while it was active): then no part is
  * active and creates land at the file's top level, while the part stays
- * selected — the row a click steps back into, and the part the Parameters
- * panel stays on. Only a scene without parts (or an assembly scene) has
- * neither.
+ * selected — the part the Parameters panel stays on. Its timeline row reads
+ * like every other inactive part. Only a scene without parts (or an assembly
+ * scene) has neither.
  *
  * A create follows the active part whenever no input pins the statement
  * elsewhere: the pick-less sketch, a standard-only plane or helix, and any
@@ -57,12 +57,12 @@ export class ActivePartTracker {
     return this.known.slice();
   }
 
-  /** Whether this part row is the active part (its timeline dot). */
+  /** Whether this part row is the active part (the timeline's one highlighted part row). */
   isActive(obj: SceneObjectRender): boolean {
     return !this.steppedOut && this.isSelected(obj);
   }
 
-  /** Whether this part row is the selected part, active or not (its timeline tint). */
+  /** Whether this part row is the selected part, active or not (the Parameters panel's part). */
   isSelected(obj: SceneObjectRender): boolean {
     if (!this.selected || obj.type !== 'part' || !obj.sourceLocation) {
       return false;

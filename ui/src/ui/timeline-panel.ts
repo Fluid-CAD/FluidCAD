@@ -154,11 +154,11 @@ export class TimelinePanel {
   /**
    * Point the timeline's ACTIVE part — the part whose callback body receives
    * newly created statements — at a part row, or with null step out of it to
-   * the file's top level (its row stays selected, only inactive). Part rows
-   * don't navigate: instead of the rollback preview a click toggles the
-   * active part, and the pause gestures point it at the paused row's scope.
-   * The source jump stays. Returns whether the active part changed. Unset (a
-   * host without the tracker), part rows keep the default rollback.
+   * the file's top level. Part rows don't navigate: instead of the rollback
+   * preview a click toggles the active part, and the pause gestures point it
+   * at the paused row's scope. The source jump stays. Returns whether the
+   * active part changed. Unset (a host without the tracker), part rows keep
+   * the default rollback.
    */
   setActivePart?: (part: SceneObjectRender | null) => boolean;
 
@@ -168,10 +168,8 @@ export class TimelinePanel {
    * what they publish (the connector's gizmo, the exposure's faces).
    */
   onFeatureShow?: (obj: SceneObjectRender) => void;
-  /** Whether this part row is the active part (its dot). */
+  /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
-  /** Whether this part row is the selected part, active or stepped out of (its tint). */
-  isPartRowSelected?: (obj: SceneObjectRender) => boolean;
 
   /**
    * The eye on a consumed row (a sketch, plane or axis a feature used):
@@ -903,9 +901,9 @@ export class TimelinePanel {
         if (obj && obj.type === 'part' && this.setActivePart) {
           // Part rows toggle the active part instead of rolling back: an
           // inactive row becomes the active part, the active one steps out to
-          // the file's top level and stays selected. A double-click's second
-          // click only activates, so that gesture always ends inside the
-          // part. The re-render repaints the rows from the tracker's state.
+          // the file's top level. A double-click's second click only
+          // activates, so that gesture always ends inside the part. The
+          // re-render repaints the rows from the tracker's state.
           const stepOut = e.detail < 2 && this.isPartRowActive?.(obj) === true;
           const changed = this.setActivePart(stepOut ? null : obj);
           this.goToSource(obj);
@@ -1324,14 +1322,15 @@ export class TimelinePanel {
     const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
     const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
-    const isSelectedPart = isActivePart
-      || (isTopLevel && obj.type === 'part' && this.isPartRowSelected?.(obj) === true);
     const isSelected = this.selectedIndices.has(index);
     const isDraggable = !this.sketchActive && this.isMovableRow(obj);
     const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
-    const iconSrc = obj.type === 'part' ? '/icons/box-blue.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    let iconSrc = `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    if (obj.type === 'part') {
+      iconSrc = isActivePart ? '/icons/box-blue.png' : '/icons/box.png';
+    }
 
     let itemClass = 'group flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
     const indent = TimelinePanel.indentClass(depth);
@@ -1341,9 +1340,10 @@ export class TimelinePanel {
 
     // Part rows opt out of the "current" navigation highlight: with part
     // clicks toggling activation instead of rolling back, a current-tinted
-    // part next to the selected one would read as two selected parts. Only
-    // the selected part row is tinted, and only while it is the active part
-    // does it carry the dot — stepped out to the top level, it keeps the tint.
+    // part next to the active one would read as two active parts. Only the
+    // active part row is highlighted — tint, blue cube, bold name and dot.
+    // Every other part row stays plain with the white cube, the one just
+    // stepped out of included: a click on any of them activates it.
     const highlightCurrent = isCurrent && obj.type !== 'part';
     // A viewer pick outranks the navigation tints: the picked row answers
     // "which feature made this face?", so it must read distinctly even when
@@ -1360,12 +1360,12 @@ export class TimelinePanel {
       }
     } else if (highlightCurrent) {
       itemClass += ' border-l-2 border-primary bg-primary/10';
-    } else if (isSelectedPart) {
+    } else if (isActivePart) {
       itemClass += ' bg-primary/10';
     }
     if (effectiveError) {
       itemClass += ' text-error';
-    } else if (highlightCurrent || isSelectedPart) {
+    } else if (highlightCurrent || isActivePart) {
       itemClass += ' text-primary';
     } else if (isPast || isInvisible) {
       itemClass += ' text-base-content/60';
@@ -1424,13 +1424,14 @@ export class TimelinePanel {
     const activeDot = isActivePart
       ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
       : '';
+    const nameClass = isActivePart ? 'truncate font-semibold' : 'truncate';
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-selected-part="${isSelectedPart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
-        <span class="truncate">${name}</span>
+        <span class="${nameClass}">${name}</span>
         ${activeDot}
         ${eyeBtn}
         ${durationSpan}

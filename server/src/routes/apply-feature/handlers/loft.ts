@@ -21,7 +21,7 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // picks by (producer, bucket), so a batched call would merge same-bucket
 // faces into one part and destroy profile order and arity.
 export async function handleLoft(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateLoft(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -157,9 +157,11 @@ export async function handleLoft(ctx: ApplyFeatureRequestContext, req: Request, 
       connections: connectionResult.connections,
       scope,
     };
+    const activePart = activePartFor(filePath);
     const spec: ApplyFeatureEditSpec = {
       feature: 'loft', loft: options, filePath: filePath!, producers, parts,
       imports: [...imports], newVariables,
+      ...(activePart ? { activePart } : {}),
     };
     const staged = code ? await LoftConnections.prepare(code, spec) : { code, spec };
     if ('error' in staged) {

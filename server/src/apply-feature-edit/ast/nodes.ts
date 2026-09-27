@@ -61,6 +61,18 @@ export function enclosingStatement(node: TSNode): TSNode | null {
   return null;
 }
 
+/** The ancestor of `node` (itself included) sitting directly in the program, or null for the program itself. */
+export function topLevelStatement(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.parent) {
+    if (current.parent.type === 'program') {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
 export const FUNCTION_NODE_TYPES = new Set([
   'function_declaration', 'function_expression', 'arrow_function',
   'method_definition', 'generator_function', 'generator_function_declaration',

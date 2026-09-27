@@ -18,7 +18,7 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // Sweep composes a profile sketch with a path (a second sketch, or edge
 // picks synthesized into a selector) — no shared pick validation applies.
 export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateSweep(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -124,6 +124,7 @@ export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request,
       res.json({ success: true, preview: statement, args: pathArgs ?? undefined, alternatives });
       return;
     }
+    const activePart = activePartFor(request.profile.filePath);
     await dispatcher.dispatch(res, {
       feature: 'sweep',
       sweep: options,
@@ -132,6 +133,7 @@ export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request,
       parts,
       imports,
       newVariables,
+      ...(activePart ? { activePart } : {}),
     }, { success: true, preview: statement });
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });

@@ -10,10 +10,12 @@ export type PartChoice = { name: string; sourceLocation: SourceLocation };
  * the fallback when the active part leaves the scene), the part a timeline
  * click chose, or the part the Part tool just created. Clicking the active
  * part keeps it active; only a scene without parts (or an assembly scene)
- * has none. Only the creates that would otherwise append at top level
- * follow it (pick-less sketch, standard-only plane, standard-axis helix);
- * a picked-input feature inserts in its inputs' scope regardless, which is
- * the part body exactly when those inputs live there.
+ * has none. A create follows it whenever no input pins the statement
+ * elsewhere: the pick-less sketch, a standard-only plane or helix, and any
+ * feature built from sketches, planes and axes declared at the file's top
+ * level (an extrude of a sketch drawn before the part). Picked geometry and
+ * solid targets pin the statement to their own scope, which is the part body
+ * exactly when those inputs live there.
  *
  * Every render re-resolves the tracked part by source line, falling back to
  * display name — an edit elsewhere in the file can shift one but not both.

@@ -312,10 +312,14 @@ export type ApplyFeatureEditSpec = {
   sketchClosed?: SketchClosedEditSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
-   * statement — the timeline's active part. Only the producer-less appends
-   * honor it (pick-less sketch, standard-only plane, standard-axis helix):
-   * a producer-carrying create already lands in its producers' scope, which
-   * is the part body exactly when the picked inputs live inside it.
+   * statement — the timeline's active part — whenever no input pins it
+   * elsewhere: the producer-less appends (pick-less sketch, standard-only
+   * plane, standard-axis helix) and any create built from top-level
+   * sketches, planes, axes and wires alone (an extrude of a sketch drawn
+   * before the part). An input the kernel resolves in its own scope — a
+   * picked face or edge, a solid the feature works on, an implicitly
+   * consumed sketch — pins the statement to that scope regardless (see
+   * `ProducerBinding.pinsScope`).
    */
   activePart?: { line: number; column: number };
   /**

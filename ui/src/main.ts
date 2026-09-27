@@ -320,9 +320,10 @@ let timelinePanel: TimelinePanel;
 
 // The timeline's active part — one part is ALWAYS active while the scene
 // contains any (last part by default; a part-row click re-points it, no
-// rollback). Producer-less creates (pick-less sketch, standard plane/helix)
-// land inside its callback body instead of at top level. Every apply-feature
-// payload carries its location through the provider below.
+// rollback). Creates whose inputs pin no other scope (pick-less sketch,
+// standard plane/helix, features of sketches drawn at the top level) land
+// inside its callback body. Every apply-feature payload carries its location
+// through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
 // The Parameters panel's Part dropdown (and the Add dialog's, which opens on

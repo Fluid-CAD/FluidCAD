@@ -512,13 +512,10 @@ export async function applyCreateEdit(
     return { newCode: code, error: resolved.error };
   }
   const bindings = resolved.bindings;
-  // A foreign-only projection binds nothing; its insertion is the sketch
-  // body, which never reads the scope.
-  const scope = bindings.length > 0 ? bindings[0].scope : tree.rootNode;
 
   allocateNames(tree.rootNode, bindings, spec);
 
-  const insertion = resolveInsertion(spec, bindings, scope, lines, tree);
+  const insertion = resolveInsertion(spec, bindings, lines, tree);
   if ('error' in insertion) {
     return { newCode: code, error: insertion.error };
   }

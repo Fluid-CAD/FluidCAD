@@ -1190,3 +1190,41 @@ describe('cross-part sketch on a face whose producer variable is reassigned', ()
     }
   });
 });
+
+describe('create into the active part from a sketch drawn before it', () => {
+  setupOC();
+
+  it('extrudes the top-level sketch inside the part body, and the part builds the solid', async () => {
+    const code = [
+      `import { part, sketch, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 20)} })`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n');
+    // The spec the extrude dialog's route composes with Part 1 active.
+    const edited = await applyFeatureEdit(code, {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: {
+        op: 'add', distance: 10, distance2: null, symmetric: false, draft: null, endOffset: null,
+        drill: true, thin: null, profile: 'bound',
+      },
+      producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+      parts: [],
+      imports: [],
+      activePart: { line: 5, column: 21 },
+    });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(10, s)\n`);
+
+    const scene = runFluid(edited.newCode.replace(/^export /gm, ''));
+    const built = scene.getAllSceneObjects().find(o => o.getType() === 'extrude');
+    expect(built?.getError()).toBeNull();
+    expect(built?.getParent()?.getType()).toBe('part');
+    expect(built?.getShapes().some(s => s.getType() === 'solid')).toBe(true);
+  });
+});

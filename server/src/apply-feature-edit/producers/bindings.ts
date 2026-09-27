@@ -9,16 +9,28 @@ import {
 } from '../../code-editor/index.ts';
 import { enclosingFunctionScope, enclosingScope, enclosingStatement, sameNode } from '../ast/nodes.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
+import { isIdentityInput } from './predicates.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
-export type ProducerBinding = {
+/** The statement holding a producer call, and how the call binds to a variable. */
+export type ProducerStatement = {
   call: TSNode;
   statement: TSNode;
   scope: TSNode;
   varName: string | null;
   needsBinding: boolean;
+};
+
+export type ProducerBinding = ProducerStatement & {
   /** False for anchor-only entries — never named, never referenced by parts. */
   bind: boolean;
+  /**
+   * Whether the statement must run in this binding's scope. Everything pins
+   * it except an identity input (see {@link isIdentityInput}) declared at
+   * the file's top level: its variable reaches every scope below it, so a
+   * part body can consume it as well as the top level can.
+   */
+  pinsScope: boolean;
 };
 
 /**
@@ -36,7 +48,7 @@ export type ProducerBinding = {
  * newer value, silently sourcing the wrong feature — so both reuse arms
  * refuse when one exists.
  */
-export function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error: string } {
+export function resolveStatement(call: TSNode): ProducerStatement | { error: string } {
   const parent = call.parent;
   const valueOfDeclarator = parent?.type === 'variable_declarator'
     ? parent.childForFieldName('value')
@@ -114,9 +126,10 @@ function isReassignedAfter(scope: TSNode, name: string, afterIndex: number): boo
 /**
  * Resolve every producer of `spec` to its statement and binding plan —
  * shared by create mode (insert a new statement) and edit mode (re-source an
- * existing one). Bindings must share one scope: one statement executes in
- * one place. Also validates that every selector part references a bound
- * producer.
+ * existing one). The bindings that pin the statement's scope must share one:
+ * one statement executes in one place. A top-level identity input pins
+ * nothing, so it may join bindings from any scope below it. Also validates
+ * that every selector part references a bound producer.
  */
 export function resolveProducerBindings(
   tree: TSTree,
@@ -124,7 +137,7 @@ export function resolveProducerBindings(
   spec: ApplyFeatureEditSpec,
 ): { bindings: ProducerBinding[] } | { error: string } {
   const bindings: ProducerBinding[] = [];
-  for (const producer of spec.producers) {
+  for (const [index, producer] of spec.producers.entries()) {
     const call = findEditableCallAt(tree, lines, producer.line);
     if (!call) {
       return { error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
@@ -154,7 +167,7 @@ export function resolveProducerBindings(
         return { error: `no statement found at line ${producer.line}` };
       }
       const scope = enclosingFunctionScope(statement);
-      bindings.push({ call, statement, scope, varName: null, needsBinding: false, bind: false });
+      bindings.push({ call, statement, scope, varName: null, needsBinding: false, bind: false, pinsScope: true });
       continue;
     }
 
@@ -173,12 +186,13 @@ export function resolveProducerBindings(
     if ('error' in resolved) {
       return { error: resolved.error };
     }
-    bindings.push({ ...resolved, bind: true });
+    const topLevel = resolved.scope.type === 'program';
+    bindings.push({ ...resolved, bind: true, pinsScope: !(topLevel && isIdentityInput(spec, index)) });
   }
 
-  const scope = bindings.length > 0 ? bindings[0].scope : null;
-  for (const binding of bindings) {
-    if (!sameNode(binding.scope, scope!)) {
+  const pinning = bindings.filter(binding => binding.pinsScope);
+  for (const binding of pinning) {
+    if (!sameNode(binding.scope, pinning[0].scope)) {
       return { error: 'the picked edges come from features in different scopes' };
     }
   }

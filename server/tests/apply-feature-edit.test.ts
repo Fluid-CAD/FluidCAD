@@ -8765,3 +8765,271 @@ describe('active part insertion', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+describe('active part insertion — inputs declared at the top level', () => {
+  const extrudeOptions: NonNullable<ApplyFeatureEditSpec['extrude']> = {
+    op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, endOffset: null,
+    drill: true, thin: null, profile: 'bound',
+  };
+  const sketchProducer = (line: number, bind = true) =>
+    ({ line, column: 0, featureType: 'sketch', nameHint: 's', bind });
+  const extrudeSpec = (profileLine: number, partLine: number, overrides: Partial<ApplyFeatureEditSpec> = {}) => spec({
+    feature: 'extrude', value: undefined, extrude: extrudeOptions,
+    producers: [sketchProducer(profileLine)], parts: [],
+    activePart: { line: partLine, column: 0 },
+    ...overrides,
+  });
+
+  it('extrudes a sketch drawn before the part inside the empty part the Part tool wrote', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { extrude, part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      `  extrude(25, s)`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('revolves a top-level sketch around a top-level axis at the end of the part body', async () => {
+    const code = [
+      `import { part, sketch, axis, circle, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xz', () => { circle([80, 0], 40) })`,
+      `axis('y', { offsetZ: 290 })`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'revolve', value: undefined,
+      revolve: {
+        op: 'add', angle: 90, symmetric: false, thin: null, profile: 'bound',
+        axis: { kind: 'axis', producer: 1 },
+      },
+      producers: [sketchProducer(3), { line: 4, column: 0, featureType: 'axis', nameHint: 'a', bind: true }],
+      parts: [],
+      activePart: { line: 6, column: 0 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const a = axis('y', { offsetZ: 290 })`);
+    expect(result.newCode).toContain(`  extrude(30)\n  revolve(a, 90, s)\n})`);
+  });
+
+  it('opens a sketch on a top-level plane inside the part body', async () => {
+    const code = [
+      `import { part, sketch, plane } from 'fluidcad/core'`,
+      ``,
+      `plane('xy', 20)`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch', value: undefined, sketchOnPlane: true,
+      producers: [{ line: 3, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
+      parts: [],
+      activePart: { line: 5, column: 0 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part, sketch, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('xy', 20)`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch(p, () => {`,
+      ``,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('follows the part a region pick shifted, declaring the region in the top-level sketch', async () => {
+    const code = [
+      `import { sketch, circle, part } from 'fluidcad/core';`,
+      ``,
+      `const s = sketch('xy', () => {`,
+      `  const a = circle([-20, 0], 80);`,
+      `  circle([20, 0], 80);`,
+      `});`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `});`,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 8, {
+      extrude: {
+        ...extrudeOptions,
+        regionPicks: [{ items: [{ line: 4, callee: 'circle', far: false }, { line: 5, callee: 'circle', far: false }] }],
+        regionSketch: { line: 3, column: 10 },
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  region('r1', a, c1);\n});`);
+    expect(result.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(25, s).region('r1');\n`);
+  });
+
+  it('keeps a feature on a top-level solid beside it — the kernel resolves the picked edges in its own scope', async () => {
+    const code = [
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({ activePart: { line: 6, column: 0 } }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\nfillet(3, e.endEdges(2))\n`);
+  });
+
+  it('keeps an implicit-profile extrude beside its sketch — the part would consume its own last sketch', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5, {
+      extrude: { ...extrudeOptions, profile: 'implicit' },
+      producers: [sketchProducer(3, false)],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\nextrude(25)\n`);
+  });
+
+  it('keeps the statement at the top level when the sketch is declared below the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(5, 3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\n`);
+    expect(result.newCode).toContain(`const s = sketch('xy', () => { ellipse(100, 50) })\nextrude(25, s)\n`);
+  });
+
+  it('lands in the part a sketch was drawn in, whichever part is active', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('A', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `})`,
+      ``,
+      `part('B', () => {`,
+      `  sketch('xy', () => { circle(10) })`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(4, 7));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const s = sketch('xy', () => { ellipse(100, 50) })\n  extrude(25, s)\n})`);
+    expect(result.newCode).toContain(`  extrude(5)\n})`);
+  });
+
+  it('joins a top-level profile with a face picked inside the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xz', () => { circle(10) })`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5, {
+      extrude: { ...extrudeOptions, toFace: 'selector', distance: null },
+      producers: [sketchProducer(3), { line: 7, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const e = extrude(30)\n  extrude(e.endFaces(), s)\n})`);
+  });
+
+  it('refuses a top-level profile declared below the part holding the picked face', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(8, 3, {
+      extrude: { ...extrudeOptions, toFace: 'selector', distance: null },
+      producers: [sketchProducer(8), { line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toContain('the input at line 8 is declared below line 3');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale active part rather than guessing a home', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 4));
+    expect(result.error).toContain('no part() call found at line 4');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('re-sources a part-body extrude to another sketch drawn before the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+      `part('Body', () => {`,
+      `  extrude(30, s)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 7, column: 2,
+      extrude: extrudeEditOptions({ distance: 30, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(4)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const s2 = sketch('xz', () => { circle(10) })`);
+    expect(result.newCode).toContain(`part('Body', () => {\n  extrude(30, s2)\n})`);
+  });
+});

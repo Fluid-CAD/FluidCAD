@@ -4074,10 +4074,12 @@ export async function fetchSketchNames(
 
 /**
  * The timeline's active part, attached to every /api/apply-feature payload.
- * The server forwards it only into the producer-less creates (pick-less
- * sketch, standard-only plane, standard-axis helix) so their statements land
- * inside the part's callback body — everything else inserts in its
- * producers' scope regardless, so the extra field is inert there.
+ * The server forwards it into the creates that can be built from sketches,
+ * planes and axes alone, and lands those inside the part's callback body
+ * whenever no input pins them elsewhere — the pick-less sketch, a standard
+ * plane or helix, an extrude of a sketch drawn before the part. Picked
+ * geometry and solid targets insert in their own scope regardless, so the
+ * extra field is inert there.
  */
 let activePartProvider: (() => SourceLocation | null) | null = null;
 

@@ -64,19 +64,27 @@ export function enclosingPartLocOf(
 }
 
 /**
- * The part whose solids a CREATE dialog may scope to: the enclosing part of
- * the primary input statement when one is chosen — producers win, the new
- * statement inserts in ITS scope — else the timeline's active part. Null
- * means top level (scope offers only top-level solids).
+ * The part whose solids a CREATE dialog may scope to — the part the new
+ * statement lands in, mirroring the server's insertion rule. A primary input
+ * inside a part pins the statement to that part. A top-level one (a sketch
+ * drawn before any part) pins nothing: the statement goes to the timeline's
+ * active part when that part is declared after the input, and stays at the
+ * top level otherwise. Without a primary input, the active part. Null means
+ * top level (scope offers only top-level solids).
  */
 export function scopePartLocation(
   primary: { filePath: string; line: number } | null,
   sceneObjects: SceneObjectRender[],
 ): SourceLocation | null {
-  if (primary) {
-    return enclosingPartLocOf(primary, sceneObjects);
+  const enclosing = primary ? enclosingPartLocOf(primary, sceneObjects) : null;
+  if (enclosing) {
+    return enclosing;
   }
-  return findActivePart(sceneObjects)?.sourceLocation ?? null;
+  const active = findActivePart(sceneObjects)?.sourceLocation ?? null;
+  if (!primary || !active) {
+    return active;
+  }
+  return active.filePath === primary.filePath && active.line > primary.line ? active : null;
 }
 
 /**

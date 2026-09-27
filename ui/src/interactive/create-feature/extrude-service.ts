@@ -535,9 +535,9 @@ export class ExtrudeFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen profile's (producers win:
-   * the new statement inserts in the profile's scope), falling back to the
-   * timeline's active part. Null offers top-level solids only.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen profile (see {@link scopePartLocation}): the profile's own
+   * part, else the timeline's active part. Null offers top-level solids only.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

@@ -1069,9 +1069,9 @@ export class LoftFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the first sketch profile's (producers
-   * win: the statement inserts in its producers' scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the first sketch profile (see {@link scopePartLocation}): that
+   * profile's own part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

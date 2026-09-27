@@ -8,7 +8,7 @@ import {
   walkTree,
   type TSTree,
 } from '../../code-editor/index.ts';
-import { resolveStatement, type ProducerBinding } from './bindings.ts';
+import { resolveStatement, type ProducerStatement } from './bindings.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
 
 /**
@@ -71,7 +71,7 @@ function resolveBindableStatementAt(
   tree: TSTree,
   lines: string[],
   producer: { line: number; featureType?: string },
-): Omit<ProducerBinding, 'bind'> | null {
+): ProducerStatement | null {
   const call = findEditableCallAt(tree, lines, producer.line);
   if (!call) {
     return null;

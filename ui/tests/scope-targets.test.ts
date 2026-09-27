@@ -96,6 +96,19 @@ describe('enclosingPartLocOf / scopePartLocation', () => {
       .toEqual({ filePath: FILE, line: 7, column: 0 });
   });
 
+  it('follows the active part from a top-level input declared above it', () => {
+    const scene = [sketchRow('profile', 1), ...twoPartScene()];
+    setActivePartLocationProvider(() => ({ filePath: FILE, line: 7, column: 0 }));
+    expect(scopePartLocation({ filePath: FILE, line: 1 }, scene))
+      .toEqual({ filePath: FILE, line: 7, column: 0 });
+  });
+
+  it('stays at the top level for a top-level input declared below the active part', () => {
+    const scene = [...twoPartScene(), sketchRow('late', 12)];
+    setActivePartLocationProvider(() => ({ filePath: FILE, line: 7, column: 0 }));
+    expect(scopePartLocation({ filePath: FILE, line: 12 }, scene)).toBeNull();
+  });
+
   it('is null without a primary input or an active part', () => {
     expect(scopePartLocation(null, twoPartScene())).toBeNull();
   });

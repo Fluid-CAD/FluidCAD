@@ -413,6 +413,42 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  // Each of these can be built from top-level sketches, planes and axes
+  // alone, which the transform lands in the active part.
+  it.each([
+    ['extrude', {
+      feature: 'extrude', op: 'add', distance: 25,
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['revolve', {
+      feature: 'revolve', op: 'add', angle: 360, axis: { kind: 'standard', axis: 'z' },
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['sweep', {
+      feature: 'sweep', op: 'add',
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+      path: { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+    }],
+    ['loft', {
+      feature: 'loft', op: 'add', profiles: [
+        { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+      ],
+    }],
+    ['rib', {
+      feature: 'rib', op: 'add', thickness: 2,
+      spine: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['sketch on a plane', {
+      feature: 'sketch', entities: [], planeRef: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+  ])('forwards the active part into the %s spec', async (_label, request) => {
+    const { status } = await post({ ...request, activePart: { filePath: '/ws/m.fluid.js', line: 9, column: 21 } });
+    expect(status).toBe(200);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.activePart).toEqual({ line: 9, column: 21 });
+  });
+
   describe('foreign sketch (cross-part reference)', () => {
     const FILE = '/ws/m.fluid.js';
     const TWO_PART_CODE = [

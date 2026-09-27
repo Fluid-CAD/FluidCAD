@@ -7,10 +7,11 @@ import { allocateProducerVars } from '../synthesis.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // A pick-less sketch: no face selector — a sketch on an origin plane or
-// an existing plane() feature, appended after the file's last statement.
-// No synthesis is involved; `plane` picks an origin target
-// ('xy'/'xz'/'yz'), `planeRef` an existing plane statement by call site
-// (bound to a variable — `sketch(p, () => {})`), absent defaults to xy.
+// an existing plane() feature, landing in the active part's body unless the
+// plane pins it to its own. No synthesis is involved; `plane` picks an
+// origin target ('xy'/'xz'/'yz'), `planeRef` an existing plane statement by
+// call site (bound to a variable — `sketch(p, () => {})`), absent defaults
+// to xy.
 export async function handlePlaneSketch(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
   const { fluidCadServer, dispatcher, preview, activePartFor } = ctx;
   const plane = req.body?.plane;
@@ -39,9 +40,11 @@ export async function handlePlaneSketch(ctx: ApplyFeatureRequestContext, req: Re
         res.json({ success: true, preview: statement, args: '' });
         return;
       }
+      const activePart = activePartFor(planeRef.filePath);
       await dispatcher.dispatch(res, {
         feature: 'sketch', sketchOnPlane: true, filePath: planeRef.filePath,
         producers, parts: [], imports: [],
+        ...(activePart ? { activePart } : {}),
       }, { success: true, preview: statement });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });

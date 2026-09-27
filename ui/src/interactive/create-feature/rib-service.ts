@@ -445,9 +445,9 @@ export class RibFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen spine's (producers win:
-   * the statement inserts in the spine's scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen spine (see {@link scopePartLocation}): the spine's own
+   * part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

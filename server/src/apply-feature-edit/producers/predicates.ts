@@ -57,6 +57,23 @@ export function isScopeTargetProducer(spec: ApplyFeatureEditSpec, i: number): bo
 }
 
 /**
+ * Whether producer index `i` is an identity input: a bound sketch, plane,
+ * axis, wire or offset profile filling an input slot whole — the statement
+ * names its variable and the kernel takes that very object, never resolving
+ * it against the scope the statement runs in. A selector part's producer
+ * never qualifies: its selection reads topology through the scope it runs in.
+ */
+export function isIdentityInput(spec: ApplyFeatureEditSpec, i: number): boolean {
+  if (!Number.isInteger(i) || i < 0 || i >= spec.producers.length) {
+    return false;
+  }
+  const producer = spec.producers[i];
+  return producer.bind
+    && (requiredChainRoots(producer.featureType) !== null || producer.featureType === 'offset')
+    && !spec.parts.some(part => part.producer === i || (part.refs ?? []).includes(i));
+}
+
+/**
  * Whether producer index `i` may be a copy target: a 3D feature producer, or
  * — the 2D in-sketch form — a sketch-geometry producer (rect, circle, …).
  */

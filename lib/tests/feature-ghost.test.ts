@@ -1552,7 +1552,7 @@ describe("feature ghost — copy", () => {
   /**
    * The dialog's Skip field, drawn: the instances it names are the ones the
    * apply won't place, so the ghost leaves exactly those holes
-   * (copy-linear.ts:82).
+   * (`CopyLayout.linear`).
    */
   it("leaves out the instances the skip list names", () => {
     locatedBox(5);
@@ -1646,7 +1646,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The one placement rule a copy does not share with a repeat: a partial
-   * sweep is divided by the instance count (copy-circular.ts:48), not by the
+   * sweep is divided by the instance count (`CopyLayout.circularStep`), not by the
    * gaps between them, so the last clone stops short of the stated angle.
    */
   it("divides a partial sweep by the count, not the gaps", () => {
@@ -1719,7 +1719,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The edit dialog's own blind spot: a copy takes its targets' shapes over
-   * (copy-linear.ts:33-38), so re-previewing the statement being edited finds
+   * (`CopyBase.build`), so re-previewing the statement being edited finds
    * them already consumed — by itself. Re-reading as if no removal applied
    * brings the body back, and without it editing any copy would draw nothing.
    */

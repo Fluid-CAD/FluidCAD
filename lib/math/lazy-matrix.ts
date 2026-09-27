@@ -31,6 +31,7 @@ type Identity =
   | { kind: "rotation"; axis: Axis | AxisLazySource; angle: number }
   | { kind: "translation"; axis: Axis | AxisLazySource; distance: number }
   | { kind: "mirror"; plane: Plane | PlaneLazySource }
+  | { kind: "product"; factors: LazyMatrix[] }
   | { kind: "opaque" };
 
 /**
@@ -85,6 +86,11 @@ export class LazyMatrix {
       case "mirror": {
         const bo = b as Extract<Identity, { kind: "mirror" }>;
         return LazyMatrix.planeSourceEquals(a.plane, bo.plane, tolerance);
+      }
+      case "product": {
+        const bo = b as Extract<Identity, { kind: "product" }>;
+        return a.factors.length === bo.factors.length
+          && a.factors.every((factor, i) => factor.equals(bo.factors[i], tolerance));
       }
       case "opaque":
         // No structural information — can't compare safely without resolving,
@@ -180,5 +186,18 @@ export class LazyMatrix {
     const dir = axis.direction;
     const matrix = Matrix4.fromTranslation(dir.x * distance, dir.y * distance, dir.z * distance);
     return new LazyMatrix(() => matrix, { kind: "translation", axis, distance }, matrix);
+  }
+
+  /**
+   * `factors[0] · factors[1] · …`, each factor resolved only when the product
+   * is — a grid cell's move is one translation per axis, and any of those
+   * axes may still be unbuilt at parse time. Equal to another product when
+   * their factors are equal pairwise, in order.
+   */
+  static product(factors: LazyMatrix[]): LazyMatrix {
+    return new LazyMatrix(
+      () => factors.reduce((matrix, factor) => matrix.multiply(factor.resolve()), Matrix4.identity()),
+      { kind: "product", factors },
+    );
   }
 }

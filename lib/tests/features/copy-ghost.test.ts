@@ -80,7 +80,7 @@ describe("copy ghost instances", () => {
       expect(places(matrices, probe)).toEqual([[0, 10, 0], [-10, 0, 0], [0, -10, 0]]);
     });
 
-    /** The one rule a copy does NOT share with the repeat (copy-circular.ts:48). */
+    /** The one rule a copy does NOT share with the repeat (`CopyLayout.circularStep`). */
     it("divides a partial sweep by the count too, unlike a repeat", () => {
       const sweep = { mode: 'angle' as const, value: 90 };
       const copied = buildCircularCopyGhostMatrices(Axis.Z(), 4, sweep, false);
@@ -115,7 +115,7 @@ describe("copy ghost instances", () => {
 
       // start = -(4 × 90) / 2 = -180, so the clones sit at -90°, 0° and 90°:
       // the kernel shifts the clones alone and leaves the original in place
-      // (copy-circular.ts:52-58), and the ghost has to show what the apply builds.
+      // (`CopyLayout.circular`), and the ghost has to show what the apply builds.
       expect(places(matrices, probe)).toEqual([[0, -10, 0], [10, 0, 0], [0, 10, 0]]);
     });
 

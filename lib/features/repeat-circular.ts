@@ -34,6 +34,10 @@ export class RepeatCircular extends RepeatBase {
     this.saveShapesSnapshot(context);
   }
 
+  protected override connectorCopyAdvice(name: string): string {
+    return `copy('circular', axis, options, ${name}), or copy(<this repeat>, ${name}) to follow it`;
+  }
+
   compareTo(other: RepeatCircular): boolean {
     if (!(other instanceof RepeatCircular)) {
       return false;

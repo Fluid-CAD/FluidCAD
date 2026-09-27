@@ -314,7 +314,7 @@ export type GhostRepeatDirection = {
  * builds no geometry of its own.
  *
  * Where a repeat *replays* the features it names, `copy()` clones the shapes
- * its targets already hold and moves them (copy-linear.ts:32-97): what an
+ * its targets already hold and moves them (`CopyBase.build`): what an
  * instance puts on screen IS the target's body, no boolean and no re-run. So
  * the ghost stamps that body — whole, a boss fused into its plate included,
  * because that whole fused body is precisely what the apply will clone.
@@ -343,7 +343,7 @@ export type CopyGhostRequest = {
   sweep: RepeatGhostSweep | null;
   /**
    * Instances the copy leaves out, one index per direction — the statement's
-   * own `skip` option (copy-linear.ts:82, copy-circular.ts:55). A circular
+   * own `skip` option (`CopyLayout.linear`, `CopyLayout.circular`). A circular
    * copy's entries carry a single index each; absent skips none.
    */
   skip?: number[][];
@@ -1697,7 +1697,7 @@ function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
  * The copy branch: no geometry is built here either, and unlike the repeat
  * none has to be worked out. A repeat replays the features it names, so what
  * one instance contributes is the *difference* its chain makes; a copy clones
- * the bodies its targets already hold and moves them (copy-linear.ts:32-97),
+ * the bodies its targets already hold and moves them (`CopyBase.build`),
  * so what one instance contributes is those bodies, unchanged. The stamp is
  * therefore the targets' own meshes — a boss fused into its plate stamps the
  * fused body, because that is exactly what the apply will clone.

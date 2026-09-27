@@ -30,13 +30,17 @@ export async function handleSelectorFeature(ctx: ApplyFeatureRequestContext, req
   }
 
   // Consumer-side cross-part sketch: the picked face belongs to a part
-  // OTHER than the timeline's active part. Instead of inserting into the
-  // donor (the producers' scope — surprising while another part is
-  // active), publish the face from the donor (find-or-create an expose())
-  // and sketch on the exposure reference inside the ACTIVE part's body.
-  if (feature === 'sketch' && activePartLoc && picks.length === 1
-    && chains.length === 0 && picks[0].sub.type === 'face') {
-    const resolution = await foreignPicks.resolve(picks, [], activePartLoc);
+  // OTHER than the one the sketch lands in — the timeline's active part,
+  // or with none the file's top level, to which every part is foreign.
+  // Instead of inserting into the donor (the producers' scope — surprising
+  // while working elsewhere), publish the face from the donor
+  // (find-or-create an expose()) and sketch on the exposure reference
+  // where the sketch lands.
+  if (feature === 'sketch' && picks.length === 1 && chains.length === 0 && picks[0].sub.type === 'face') {
+    const consumer = activePartLoc
+      ? { filePath: activePartLoc.filePath, part: activePartLoc }
+      : { filePath: fluidCadServer.getCurrentFileName(), part: null };
+    const resolution = await foreignPicks.resolve(picks, [], consumer);
     if (resolution.ok === false) {
       res.status(resolution.status).json({ success: false, reason: resolution.reason });
       return;
@@ -56,11 +60,11 @@ export async function handleSelectorFeature(ctx: ApplyFeatureRequestContext, req
         }
         const spec: ApplyFeatureEditSpec = {
           feature: 'sketch',
-          filePath: activePartLoc.filePath,
+          filePath: consumer.filePath,
           producers: [],
           parts: [],
           imports: [],
-          activePart: { line: activePartLoc.line, column: activePartLoc.column },
+          ...(activePartLoc ? { activePart: { line: activePartLoc.line, column: activePartLoc.column } } : {}),
           sketchForeign: resolution.refs[0],
         };
         await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });

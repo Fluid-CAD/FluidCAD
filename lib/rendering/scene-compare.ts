@@ -118,8 +118,7 @@ export class SceneCompare {
    * members are rescaled into the scene's unit as one unit after the last
    * of them builds, so a rebuilt member reading a cached (already scaled)
    * sibling would mix units. Membership is by enclosing part rather than a
-   * contiguous run — a donor materialized mid-body interleaves with the
-   * consumer's children — so this runs as a pass over the prefix match.
+   * contiguous run, so this runs as a pass over the prefix match.
    */
   private static dropPartiallyMatchedForeignParts(
     newScene: Scene,

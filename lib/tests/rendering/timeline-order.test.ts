@@ -9,9 +9,11 @@ import type { PartDefinition } from "../../features/part-definition.js";
 import part from "../../core/part.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import expose from "../../core/expose.js";
 import { breakpoint } from "../../core/breakpoint.js";
 import { circle } from "../../core/2d/index.js";
 import { scopedSceneBefore } from "../../selection/types.js";
+import type { IExtrude } from "../../core/interfaces.js";
 
 // part() is lazy: a definition builds after the module ran, so a statement
 // written after a part builds before it. The timeline — what a render lists,
@@ -177,6 +179,27 @@ describe("timeline order", () => {
     expect(scoped.getAllSceneObjects()).toContain(before);
     // Listed above the statement, but built after it: not in its world.
     expect(scoped.getAllSceneObjects()).not.toContain(a);
+  });
+
+  it("builds a part a top-level statement reads through .features right before it", () => {
+    const def = part("A", () => {
+      disc("xy", 10);
+      const e = extrude(5) as unknown as IExtrude;
+      expose("top", e.endFaces(0) as any);
+    });
+    const onFace = sketch(def.features.top as any, () => {
+      circle([0, 0], 3);
+    }) as unknown as SceneObject;
+    const scene = render();
+    const a = builtPart(def, scene);
+
+    expect(onFace.getError()).toBeFalsy();
+    const built = scene.getAllSceneObjects();
+    expect(built.indexOf(a)).toBeLessThan(built.indexOf(onFace));
+    const rows = scene.getTimelineObjects();
+    expect(rows.indexOf(a)).toBeLessThan(rows.indexOf(onFace));
+    // Built before the reader, so its edit boundary sees the part.
+    expect(scopedSceneBefore(scene, rows.indexOf(onFace)).getAllSceneObjects()).toContain(a);
   });
 
   it("leaves an assembly's rows in build order", () => {

@@ -413,11 +413,12 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     }
     if (request.picks && request.picks.length > 0 && request.feature === 'project') {
       // Re-sourcing keeps the statement in place, so its arguments must
-      // stay the statement's own part's geometry: another part's pick
-      // would need the find-or-create reference rail the create path
-      // runs, which the in-place rewrite does not carry.
+      // stay the geometry of the statement's own part (or of the top level,
+      // for a sketch outside every part): another part's pick would need
+      // the find-or-create reference rail the create path runs, which the
+      // in-place rewrite does not carry.
       const consumer = fluidCadServer.resolveStatementPart?.(request.target) ?? null;
-      const owners = consumer ? await foreignPicks.classify(request.picks, consumer) : { ok: true as const, foreign: [] };
+      const owners = await foreignPicks.classify(request.picks, { filePath: request.target.filePath, part: consumer });
       if (owners.ok === false) {
         res.status(422).json({ success: false, reason: owners.reason, pick: owners.pick });
         return;

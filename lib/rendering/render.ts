@@ -78,8 +78,7 @@ function computeCallSiteOccurrences(sceneObjects: SceneObject[]): Map<SceneObjec
  * The parts in this render whose definition unit differs from the unit they
  * are consumed in, keyed by the scene index of their LAST member — where the
  * renderer rescales them. Members are found by enclosing part, not by
- * position: a donor definition materialized mid-body interleaves with the
- * consumer's children in the flat list.
+ * position.
  */
 function collectForeignParts(
   scene: Scene,

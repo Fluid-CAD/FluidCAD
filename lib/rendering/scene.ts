@@ -319,16 +319,41 @@ export class Scene {
   /**
    * Run `fn` with the progressive-container stack suspended — part
    * definition variants always materialize as top-level templates, even
-   * when their build is triggered mid-build of another container.
+   * when their build is triggered mid-build of another container. Such a
+   * template lands before the outermost container that triggered it (a
+   * top-level sketch whose body projects `def.features.face`, a part body
+   * reading another part): the container reads the template, so the
+   * template must build first — a solved sketch registers its projections
+   * before its solve, at its own build slot — and the container's run of
+   * objects stays contiguous, which the compare's all-or-nothing sketch
+   * cache relies on.
    */
   runTopLevel<T>(fn: () => T): T {
     const saved = this.progressiveContainers;
+    const firstAdded = this.sceneObjects.length;
     this.progressiveContainers = [];
     try {
       return fn();
     } finally {
       this.progressiveContainers = saved;
+      if (saved.length > 0) {
+        this.moveAddedBefore(saved[0], firstAdded);
+      }
     }
+  }
+
+  /** Move the objects added from list index `from` on to just before `anchor`, in order. */
+  private moveAddedBefore(anchor: SceneObject, from: number): void {
+    const at = this.order.get(anchor);
+    if (at === undefined || at >= from || from >= this.sceneObjects.length) {
+      return;
+    }
+    const added = this.sceneObjects.splice(from);
+    this.sceneObjects.splice(at, 0, ...added);
+    for (let i = at; i < this.sceneObjects.length; i++) {
+      this.order.set(this.sceneObjects[i], i);
+    }
+    this.version++;
   }
 
   addSceneObject(obj: SceneObject): void {
@@ -354,8 +379,7 @@ export class Scene {
    * parent / id changed since they were built. A render mutates neither, so
    * its per-object queries share one index instead of each filtering the
    * whole list — that filter, once per object, was quadratic in scene size.
-   * Part membership is the parent chain, never an index range: a definition
-   * materialized mid-body interleaves with its consumer's children.
+   * Part membership is the parent chain, never an index range.
    */
   private structure(): SceneStructure {
     const current = this.structureIndex;

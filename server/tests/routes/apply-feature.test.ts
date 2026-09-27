@@ -537,6 +537,32 @@ describe('apply-feature route validation', () => {
       expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
     });
 
+    it('relays a sketchForeign spec for the file\'s top level when no part is active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({ feature: 'sketch', entities: [PICK] });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.filePath).toBe(FILE);
+      // No active part: the transform lands the sketch at the top level.
+      expect(spec.activePart).toBeUndefined();
+      expect(spec.sketchForeign).toEqual({ exposeName: 'endFace', donor: { line: 3, column: 18 } });
+    });
+
+    it('keeps the normal flow for a top-level pick with no part active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = { ok: true, donor: null };
+
+      await post({ feature: 'sketch', entities: [PICK], preview: true });
+      expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
+    });
+
     it('surfaces the resolver refusal (assembly scenes)', async () => {
       currentExposureResolution = { ok: false, reason: 'cross-part geometry references are authored in the part file' };
 
@@ -5842,12 +5868,26 @@ describe('apply-feature route validation', () => {
         expect(body.args).toBe('e.endFaces(0)');
       });
 
-      it('keeps the normal flow when the sketch has no part (or the kernel predates the lookup)', async () => {
+      it('reads a part\'s geometry into a top-level sketch through its exposure', async () => {
+        // The sketch lies outside every part: every part is foreign to it.
         currentStatementPart = null;
         currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          preview: 'project(p1.features.endFace)',
+          foreign: { picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }] },
+        });
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('keeps the normal flow when the kernel resolves no donor', async () => {
+        currentStatementPart = null;
+        currentExposureResolution = null;
         currentSynthesis = projectSynthesis;
         await post({ feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true });
-        expect(exposureCalls).toEqual([]);
         expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
       });
 
@@ -5901,6 +5941,32 @@ describe('apply-feature route validation', () => {
         expect(status).toBe(422);
         expect(body.reason).toContain('belongs to another part ("Donor")');
         expect(body.reason).toContain('add a new Project');
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('refuses re-sourcing a top-level projection from a part the same way', async () => {
+        currentCode = [
+          `import { sketch, circle, extrude, part, project } from 'fluidcad/core'`,
+          ``,
+          `export const p1 = part('Donor', () => {`,
+          `  sketch('xy', () => { circle([0, 0], 100) })`,
+          `  extrude(30)`,
+          `})`,
+          ``,
+          `const b = extrude(5)`,
+          `sketch('xy', () => {`,
+          `  project(b.sideFaces(0))`,
+          `})`,
+          ``,
+        ].join('\n');
+        currentStatementPart = null;
+        currentExposureResolution = donorResolution(null, []);
+        const { status, body } = await post({
+          feature: 'project', edit: { filePath: FILE, line: 10, column: 2 }, entities: [PICK], preview: true,
+          before: { index: 4, type: 'projection', line: 10, column: 2 },
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part ("Donor")');
         expect(synthesizeCalls).toEqual([]);
       });
     });

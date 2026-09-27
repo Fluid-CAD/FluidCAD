@@ -99,7 +99,7 @@ export type ApplyFeatureEditSpec = {
    * — the connector insertion mechanism minus the frame adjustments.
    */
   expose?: ExposeEditOptions;
-  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
+  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part, or at the top level without one. */
   sketchForeign?: ForeignExposureRef;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around

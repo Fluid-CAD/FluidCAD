@@ -68,6 +68,8 @@ Coordinates inside a face sketch are 2D coordinates on the face's plane. The ori
 
 The face keeps working as a sketch plane even if a later feature reshapes or removes it: the plane's position and orientation are remembered.
 
+A face of another part works too: from inside a part, or at the file's top level with no part active, clicking a face that belongs to a different part writes an `expose()` for it into that part and sketches on the reference, `sketch(lid.features.g1, () => { ... })`. The sketch stays where you are working. The other part must be declared above the sketch and bound to a `const`.
+
 ### Planes from an edge
 
 A plane can also sit on an edge, normal to it — the setup for a profile that will be swept along that edge:

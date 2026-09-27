@@ -68,12 +68,13 @@ export async function handleProject(ctx: ApplyFeatureRequestContext, req: Reques
     // the one the sketch lives in is published from its donor
     // (find-or-create an expose()) and referenced as
     // `<donor>.features.<name>` — the sketch-on-face rail, one reference
-    // per pick. The consumer is the sketch's own part, read off the
-    // scene; without one (a top-level sketch, an assembly scene, a
-    // kernel predating the lookup) every pick is local as before.
+    // per pick. The consumer is the sketch's own part, read off the scene,
+    // or the file's top level for a sketch outside every part — every
+    // part is foreign there. A kernel predating the lookups resolves no
+    // donor, so every pick stays local.
     const consumer = fluidCadServer.resolveStatementPart?.(sketchLoc) ?? null;
-    const resolution = consumer && picks.length > 0
-      ? await foreignPicks.resolve(picks, chains, consumer)
+    const resolution = picks.length > 0
+      ? await foreignPicks.resolve(picks, chains, { filePath: sketchLoc.filePath, part: consumer })
       : { ok: true as const, local: picks, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
     if (resolution.ok === false) {
       res.status(resolution.status).json({

@@ -90,6 +90,11 @@ export class PartDefinition<T = unknown> {
     return (this.variantsByScene.get(scene)?.size ?? 0) > 0;
   }
 
+  /** The variants built into `scene`, in build order — the timeline lists them at this definition's call. */
+  builtVariantsIn(scene: Scene): Part[] {
+    return [...(this.variantsByScene.get(scene)?.values() ?? [])];
+  }
+
   /**
    * The insert path: always builds under a parameter scope (even with zero
    * overrides), so an inserted part's `param()` calls never reach the

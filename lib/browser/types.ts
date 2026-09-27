@@ -45,7 +45,7 @@ export interface BrowserRenderResult {
   declaredUnit: LengthUnit | null;
   /** The project unit the host was booted with (`options.unit`, else mm) — what an undeclared file follows. */
   projectUnit: LengthUnit;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit: boolean;
   params?: ParamDefinition[];

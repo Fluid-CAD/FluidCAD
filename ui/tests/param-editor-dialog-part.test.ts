@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The Add-parameter dialog's Part dropdown: a new declaration goes into a
-// part's callback body, the timeline's active part by default. The dropdown
+// part's callback body, the timeline's selected part by default. The dropdown
 // lists parts only — a parameter lives inside a part body — shows only when
 // the scene has parts, and never while editing an existing declaration.
 
@@ -54,7 +54,7 @@ describe('ParamEditorDialog part dropdown', () => {
     const root = document.createElement('div');
     document.body.append(root);
     const dialog = new ParamEditorDialog(root, 'assembly');
-    dialog.setPartProvider(() => ({ parts: [bracket], active: bracket.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
     dialog.openForCreate();
     expect(partRow(root).classList.contains('hidden')).toBe(true);
     labelInput(root).value = 'Assembly width';
@@ -62,9 +62,9 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(addParam).toHaveBeenCalledWith(expect.objectContaining({ label: 'Assembly width' }), null, 'assembly');
   });
 
-  it('lists the parts and opens on the active part', () => {
+  it('lists the parts and opens on the selected part', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
 
     expect(partRow(root).classList.contains('hidden')).toBe(false);
@@ -73,9 +73,9 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
   });
 
-  it('sends the active part with the new declaration', async () => {
+  it('sends the selected part with the new declaration', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
     labelInput(root).value = 'Depth';
     await save(root);
@@ -88,7 +88,7 @@ describe('ParamEditorDialog part dropdown', () => {
 
   it('sends whichever part the user picks instead', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
 
     dialog.openForCreate();
     labelInput(root).value = 'Depth';
@@ -99,14 +99,14 @@ describe('ParamEditorDialog part dropdown', () => {
 
   it('opens on the part the panel hands it', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate(bracket.sourceLocation);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Bracket');
   });
 
   it('hides the dropdown when the scene has no parts and sends no part, which the server refuses', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [], active: null }));
+    dialog.setPartProvider(() => ({ parts: [], selected: null }));
     dialog.openForCreate();
     expect(partRow(root).classList.contains('hidden')).toBe(true);
     labelInput(root).value = 'Depth';
@@ -116,12 +116,12 @@ describe('ParamEditorDialog part dropdown', () => {
 
   it('re-reads the parts on every open, so a re-render is reflected', () => {
     const { dialog, root } = mount();
-    let choices = { parts: [bracket], active: bracket.sourceLocation };
+    let choices = { parts: [bracket], selected: bracket.sourceLocation };
     dialog.setPartProvider(() => choices);
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket']);
 
-    choices = { parts: [bracket, lid], active: lid.sourceLocation };
+    choices = { parts: [bracket, lid], selected: lid.sourceLocation };
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket', 'Lid']);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
@@ -130,7 +130,7 @@ describe('ParamEditorDialog part dropdown', () => {
   it('tells two parts with the same name apart by line', () => {
     const { dialog, root } = mount();
     const twin = { name: 'Bracket', sourceLocation: { filePath: FILE, line: 20, column: 0 } };
-    dialog.setPartProvider(() => ({ parts: [bracket, twin], active: bracket.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, twin], selected: bracket.sourceLocation }));
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent))
       .toEqual(['Bracket (line 3)', 'Bracket (line 20)']);
@@ -138,7 +138,7 @@ describe('ParamEditorDialog part dropdown', () => {
 
   it('never shows the dropdown while editing an existing declaration', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
     expect(partRow(root).classList.contains('hidden')).toBe(false);
 

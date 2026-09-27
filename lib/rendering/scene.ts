@@ -111,7 +111,16 @@ export type SceneObjectRender = {
 export type TrackedPartDefinition = {
   hasVariantIn(scene: Scene): boolean;
   materializeInto(scene: Scene): unknown;
+  /** The variants built into `scene`, in build order. */
+  builtVariantsIn(scene: Scene): readonly SceneObject[];
 };
+
+/**
+ * A tracked definition and where its `part()` call ran: the number of objects
+ * the scene held at the call, or null for a definition created inside another
+ * container, which has no place of its own in the file's statement sequence.
+ */
+type TrackedPartCall = { definition: TrackedPartDefinition; callSite: number | null };
 
 /**
  * Parent / part lookups over the flat object list, derived in one pass. Valid
@@ -145,7 +154,11 @@ export class Scene {
   private idMap: Map<string, SceneObject> = new Map();
 
   /** Every part definition created while this scene was current — see materializeLeftoverDefinitions. */
-  private partDefinitions: TrackedPartDefinition[] = [];
+  private partDefinitions: TrackedPartCall[] = [];
+  /** The timeline order, for one (list version, structure epoch) pair — see getTimelineObjects. */
+  private timelineIndex: { version: number; epoch: number; objects: SceneObject[] } | null = null;
+  /** Where a breakpoint() stopped this build — see markBreakpoint. */
+  private breakpointStop: { part: Part | null; last: SceneObject | null } | null = null;
 
   constructor() {
   }
@@ -189,7 +202,8 @@ export class Scene {
   }
 
   trackPartDefinition(definition: TrackedPartDefinition): void {
-    this.partDefinitions.push(definition);
+    const callSite = this.getActiveContainer() ? null : this.sceneObjects.length;
+    this.partDefinitions.push({ definition, callSite });
   }
 
   /**
@@ -201,11 +215,105 @@ export class Scene {
    * strictly via insert().
    */
   materializeLeftoverDefinitions(): void {
-    for (const definition of this.partDefinitions) {
+    for (const { definition } of this.partDefinitions) {
       if (!definition.hasVariantIn(this)) {
         definition.materializeInto(this);
       }
     }
+  }
+
+  /**
+   * The scene's objects in timeline order: the order the file's statements
+   * ran. That is the build order except for parts — `part()` is lazy, so a
+   * definition builds after the module ran (or when something first reads
+   * it), while the timeline lists each definition's variants, members kept
+   * together, where its `part()` call ran. A statement written after a part
+   * lists after it even though it built first.
+   *
+   * The timeline is the view: what a render lists, and what a rollback, a
+   * breakpoint's stop and a statement boundary count rows in. Building, the
+   * compare's cached prefix and every "objects before this one" query keep
+   * the build order of getAllSceneObjects() — a part body may read a
+   * top-level sketch declared below it, which must build first.
+   */
+  getTimelineObjects(): SceneObject[] {
+    const current = this.timelineIndex;
+    if (current && current.version === this.version && current.epoch === SceneObject.structureEpoch) {
+      return current.objects;
+    }
+    const objects = this.orderPartsAtCallSites();
+    this.timelineIndex = { version: this.version, epoch: SceneObject.structureEpoch, objects };
+    return objects;
+  }
+
+  /** The build order with each tracked definition's variants moved to its `part()` call. */
+  private orderPartsAtCallSites(): SceneObject[] {
+    const groups = new Map<number, SceneObject[]>();
+    const moved = new Set<SceneObject>();
+    for (const { definition, callSite } of this.partDefinitions) {
+      if (callSite === null) {
+        continue;
+      }
+      for (const variant of definition.builtVariantsIn(this)) {
+        if (!(variant instanceof Part) || !this.order.has(variant) || moved.has(variant)) {
+          continue;
+        }
+        const members = this.membersOf(variant);
+        const group = groups.get(callSite);
+        if (group) {
+          group.push(...members);
+        } else {
+          groups.set(callSite, [...members]);
+        }
+        for (const member of members) {
+          moved.add(member);
+        }
+      }
+    }
+    if (moved.size === 0) {
+      return this.sceneObjects;
+    }
+    const timeline: SceneObject[] = [];
+    for (let i = 0; i <= this.sceneObjects.length; i++) {
+      const group = groups.get(i);
+      if (group) {
+        timeline.push(...group);
+      }
+      if (i < this.sceneObjects.length && !moved.has(this.sceneObjects[i])) {
+        timeline.push(this.sceneObjects[i]);
+      }
+    }
+    return timeline;
+  }
+
+  /**
+   * A breakpoint() is about to stop this build: note the part it fires in
+   * (null at the file's top level) and the last object built before it.
+   */
+  markBreakpoint(): void {
+    this.breakpointStop = {
+      part: this.getActivePart(),
+      last: this.sceneObjects[this.sceneObjects.length - 1] ?? null,
+    };
+  }
+
+  /**
+   * The timeline row a render of this scene stops at, and the part that stop
+   * is scoped to: the last row — or, when a breakpoint() stopped a part's
+   * body, the last row that part built, scoped to it. The pause cut only that
+   * body short; statements the file ran outside it stay built, and the
+   * timeline lists the ones written after the part below the paused row.
+   */
+  renderStop(): { stop: number; part: Part | null } {
+    const timeline = this.getTimelineObjects();
+    const paused = this.breakpointStop;
+    if (paused?.part && paused.last) {
+      const stop = timeline.indexOf(paused.last);
+      if (stop !== -1) {
+        return { stop, part: paused.part };
+      }
+    }
+    return { stop: timeline.length - 1, part: null };
   }
 
   /**

@@ -318,24 +318,28 @@ const fileImporter = new FileImporter(container, {
 // the rail flips back from assembly to part mode.
 let timelinePanel: TimelinePanel;
 
-// The timeline's active part — one part is ALWAYS active while the scene
+// The timeline's active part — one part is ALWAYS selected while the scene
 // contains any (last part by default; a part-row click re-points it, no
-// rollback). Creates whose inputs pin no other scope (pick-less sketch,
-// standard plane/helix, features of sketches drawn at the top level) land
-// inside its callback body. Every apply-feature payload carries its location
-// through the provider below.
+// rollback), and it is the active part unless the user stepped out of it to
+// the file's top level (a click on the active row). Creates whose inputs pin
+// no other scope (pick-less sketch, standard plane/helix, features of
+// sketches drawn at the top level) land inside the active part's callback
+// body, or at the top level with none. Every apply-feature payload carries
+// its location through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
 // The Parameters panel's Part dropdown (and the Add dialog's, which opens on
-// the panel's choice) list the same parts and default to the active one — a
+// the panel's choice) list the same parts and default to the selected one —
+// active or stepped out of, since a param() only lives in a part body — and a
 // new param() lands in the chosen part's callback body.
-const partChoices = () => ({ parts: activePartTracker.parts, active: activePartTracker.location });
+const partChoices = () => ({ parts: activePartTracker.parts, selected: activePartTracker.selectedLocation });
 paramsPanel.setPartProvider(partChoices);
 paramEditorDialog.setPartProvider(partChoices);
 // The scene-utils scope helpers (findActiveObject & co.) read the same
-// tracker: the "active" feature is the active part's last child, so the
-// viewer, sketch toolbar, timeline and pick services all follow the part a
-// timeline click chose instead of whatever part the file happens to end in.
+// tracker: the "active" feature is the active part's last child — the top
+// level's last statement once the user stepped out — so the viewer, sketch
+// toolbar, timeline and pick services all follow the scope a timeline click
+// chose instead of whatever part the file happens to end in.
 setActivePartLocationProvider(() => activePartTracker.location);
 
 function disposeRail(): void {
@@ -1253,20 +1257,20 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
-  // statements land inside its callback body instead of at top level, and
-  // the view re-derives its mode from the new scope (a part ending in a
-  // sketch enters sketch editing). One part is always active while the
-  // scene has any (tracker invariant), so re-clicking the active row is a
-  // no-op rather than a toggle.
-  panel.onPartActivate = (obj) => {
-    if (activePartTracker.isActive(obj)) {
-      return;
+  // statements land inside its callback body instead of at top level — and
+  // a click on the active part steps out to the file's top level, the row
+  // staying selected. Either way the view re-derives its mode from the new
+  // scope (a scope ending in an open sketch enters sketch editing).
+  panel.setActivePart = (part) => {
+    const changed = part === null ? activePartTracker.deactivate() : activePartTracker.activate(part);
+    if (changed) {
+      paramsPanel.syncParts();
+      refreshActivePartScope();
     }
-    activePartTracker.activate(obj);
-    paramsPanel.syncParts();
-    refreshActivePartScope();
+    return changed;
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
+  panel.isPartRowSelected = (obj) => activePartTracker.isSelected(obj);
   // The eye on a consumed sketch, plane or axis row: view state in the
   // viewer, keyed by source location so it survives re-renders. Never
   // written to the file.
@@ -2848,15 +2852,15 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
 let lastPartRender: { result: SceneObjectRender[]; isRollback: boolean; rollbackStop?: number } | null = null;
 
 /**
- * A part-row click repointed the active part: re-run the render cascade's
- * scope-derived pieces against the current scene so the view reacts now —
- * a newly active part ending in a sketch enters sketch editing (camera,
- * ghosting, toolbar, sketch dialog); anything else leaves it. Safe by
- * construction: this is the exact sequence a real render runs, and every
- * service already handles the scene's active sketch appearing or vanishing
- * between renders. Rolled-back views are left alone — their mode derives
- * from the rollback stop, not the active scope, and the next full render
- * re-derives everything.
+ * A part-row click repointed the active part (or stepped out of it to the
+ * top level): re-run the render cascade's scope-derived pieces against the
+ * current scene so the view reacts now — a new scope ending in an open
+ * sketch enters sketch editing (camera, ghosting, toolbar, sketch dialog);
+ * anything else leaves it. Safe by construction: this is the exact sequence
+ * a real render runs, and every service already handles the scene's active
+ * sketch appearing or vanishing between renders. Rolled-back views are left
+ * alone — their mode derives from the rollback stop, not the active scope,
+ * and the next full render re-derives everything.
  */
 function refreshActivePartScope(): void {
   if (!lastPartRender || lastPartRender.isRollback) {

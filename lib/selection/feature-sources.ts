@@ -32,7 +32,7 @@ import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
 import {
-  PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
+  PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
 } from "./types.js";
 
 /**
@@ -139,7 +139,7 @@ export function resolveFeatureSources(
   if (scoped.ok === false) {
     return scoped;
   }
-  const feature = scene.getAllSceneObjects()[boundary.index];
+  const feature = objectAtRow(scene, boundary.index);
   const resolver = new SourceResolver(scoped.scene.getAllSceneObjects(), boundary);
   try {
     if (feature instanceof Shell) {

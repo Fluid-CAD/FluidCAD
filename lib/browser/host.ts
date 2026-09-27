@@ -250,13 +250,16 @@ export class BrowserEngineHost {
 
     this.manager.renderScene(scene);
     const result = scene.getRenderedObjects();
-    this.lastRollbackStop = result.length - 1;
+    // The last row, or — paused inside a part — that part's paused row.
+    const { stop, scopePartId } = this.manager.renderStop(scene);
+    this.lastRollbackStop = stop;
     const assembly = this.manager.getAssemblyData(scene);
 
     return {
       sceneKind,
       result,
       rollbackStop: this.lastRollbackStop,
+      ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       unit: scene.unit,
       declaredUnit: scene.declaredUnit,
       projectUnit: this.manager.projectUnit,

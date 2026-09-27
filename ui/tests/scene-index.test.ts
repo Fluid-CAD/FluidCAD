@@ -84,8 +84,10 @@ describe('SceneIndex', () => {
         }
       });
 
-      it('scopes to the active part, else to the top-level rows', () => {
-        expect(activeScopeObjects(scene)).toEqual(scene.filter(o => scan.isTopLevel(scene, o)));
+      it('scopes to the active part, else to the file\'s top-level rows', () => {
+        // Part rows belong to the top level; their bodies do not.
+        expect(activeScopeObjects(scene)).toEqual(scene.filter(o => !o.parentId));
+        expect(findActiveObject(scene)?.id).toBe('loose-extrude');
         const part = scene.find(o => o.id === 'part-2')!;
         setActivePartLocationProvider(() => part.sourceLocation!);
         expect(activeScopeObjects(scene)).toEqual(scan.children(scene, 'part-2'));

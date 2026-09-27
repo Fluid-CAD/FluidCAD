@@ -2,7 +2,7 @@ import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { Exposed } from "../features/exposed.js";
-import { SourceLocation } from "../common/scene-object.js";
+import { SceneObject, SourceLocation } from "../common/scene-object.js";
 import type { ParamDefinition, ParamOverrides, ParamVal } from "../param-registry.js";
 import type { Assembly } from "../features/assembly.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
@@ -442,6 +442,15 @@ export class AssemblyScene extends Scene {
       return [];
     }
     return this._definitions.filter(d => !d.wasRun()).map(d => d.assemblyName);
+  }
+
+  /**
+   * An assembly's part templates build where its insert() statements place
+   * them, not where the imported part files called part() — its rows are
+   * the build order.
+   */
+  override getTimelineObjects(): SceneObject[] {
+    return this.getAllSceneObjects();
   }
 
   getMates(): AssemblyMate[] {

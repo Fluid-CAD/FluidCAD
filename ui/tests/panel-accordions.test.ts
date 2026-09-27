@@ -168,7 +168,7 @@ describe('docked panel column', () => {
     expect(params.body.textContent).toContain('inside a part() body');
     params.setPartProvider(() => ({
       parts: [{ name: 'Plate', sourceLocation: { filePath: '/ws/m.fluid.js', line: 3, column: 0 } }],
-      active: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+      selected: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
     }));
     expect(params.body.textContent).toContain('use +');
   });

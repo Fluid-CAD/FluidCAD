@@ -235,7 +235,7 @@ export type SceneRenderedMessage = {
   projectUnit: LengthUnit;
   result: any[];
   rollbackStop: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
@@ -466,7 +466,7 @@ export type UISceneRenderedMessage = {
   /** See `SceneRenderedMessage.projectUnit`. */
   projectUnit: LengthUnit;
   rollbackStop?: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
   compileError?: CompileError;

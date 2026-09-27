@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The Parameters panel's Part dropdown: the part a new parameter is declared
-// in. It follows the timeline's active part until the user picks another,
+// in. It follows the timeline's selected part until the user picks another,
 // hands that choice to the Add dialog, and survives the list re-rendering.
 
 import { ParamsPanel } from '../src/ui/params-panel';
@@ -65,8 +65,8 @@ describe('ParamsPanel part dropdown', () => {
     expect(editor.openForEdit).toHaveBeenCalledWith(width);
   });
 
-  it('lists the parts, on the active part, above the controls', () => {
-    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+  it('lists the parts, on the selected part, above the controls', () => {
+    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     panel.update([param('Width', lid)]);
     // Parts only: a parameter lives inside a part body, so there is no file level to add to.
     expect(Array.from(select()!.options, (o) => o.textContent)).toEqual(['Bracket', 'Lid']);
@@ -76,8 +76,8 @@ describe('ParamsPanel part dropdown', () => {
     expect(order[0]).toBe(select());
   });
 
-  it('opens the Add dialog on the active part, or on the part the user picked', () => {
-    const { panel, editor, select, add } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+  it('opens the Add dialog on the selected part, or on the part the user picked', () => {
+    const { panel, editor, select, add } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     panel.update([param('Width')]);
     add().click();
     expect(vi.mocked(editor.openForCreate)).toHaveBeenLastCalledWith(lid.sourceLocation);
@@ -89,7 +89,7 @@ describe('ParamsPanel part dropdown', () => {
   });
 
   it('keeps the pick across a re-render, even when the part moved lines', () => {
-    let choices: PartChoices = { parts: [bracket, lid], active: lid.sourceLocation };
+    let choices: PartChoices = { parts: [bracket, lid], selected: lid.sourceLocation };
     const { panel, select } = mount(() => choices);
     panel.update([param('Width')]);
     select()!.value = '0';
@@ -98,43 +98,43 @@ describe('ParamsPanel part dropdown', () => {
     // A declaration added above Bracket shifts every statement down two lines.
     const movedBracket = { name: 'Bracket', sourceLocation: { filePath: FILE, line: 5, column: 0 } };
     const movedLid = { name: 'Lid', sourceLocation: { filePath: FILE, line: 15, column: 0 } };
-    choices = { parts: [movedBracket, movedLid], active: movedLid.sourceLocation };
+    choices = { parts: [movedBracket, movedLid], selected: movedLid.sourceLocation };
     panel.update([param('Width'), param('Depth')]);
     expect(select()!.selectedOptions[0].textContent).toBe('Bracket');
     expect(panel.selectedPart).toEqual(movedBracket.sourceLocation);
   });
 
-  it('follows the active part again once it changes', () => {
-    let choices: PartChoices = { parts: [bracket, lid, base], active: lid.sourceLocation };
+  it('follows the timeline selection again once it moves', () => {
+    let choices: PartChoices = { parts: [bracket, lid, base], selected: lid.sourceLocation };
     const { panel, select } = mount(() => choices);
     panel.update([param('Width')]);
     select()!.value = '2';
     select()!.dispatchEvent(new Event('change'));
     expect(panel.selectedPart).toEqual(base.sourceLocation);
 
-    // A timeline click makes Bracket active: the panel syncs without a render
+    // A timeline click selects Bracket: the panel syncs without a render
     // and the pick gives way to it.
-    choices = { parts: [bracket, lid, base], active: bracket.sourceLocation };
+    choices = { parts: [bracket, lid, base], selected: bracket.sourceLocation };
     panel.syncParts();
     expect(select()!.selectedOptions[0].textContent).toBe('Bracket');
     expect(panel.selectedPart).toEqual(bracket.sourceLocation);
   });
 
-  it('falls back to the active part when the picked one leaves the scene', () => {
-    let choices: PartChoices = { parts: [bracket, lid], active: lid.sourceLocation };
+  it('falls back to the selected part when the picked one leaves the scene', () => {
+    let choices: PartChoices = { parts: [bracket, lid], selected: lid.sourceLocation };
     const { panel, select } = mount(() => choices);
     panel.update([param('Width')]);
     select()!.value = '0';
     select()!.dispatchEvent(new Event('change'));
 
-    choices = { parts: [lid], active: lid.sourceLocation };
+    choices = { parts: [lid], selected: lid.sourceLocation };
     panel.update([param('Width')]);
     expect(select()!.selectedOptions[0].textContent).toBe('Lid');
     expect(panel.selectedPart).toEqual(lid.sourceLocation);
   });
 
   it('hides the row and the + when the scene has no parts, and shows them with no params yet', () => {
-    let choices: PartChoices = { parts: [], active: null };
+    let choices: PartChoices = { parts: [], selected: null };
     const { panel, host, select, add } = mount(() => choices);
     panel.update([param('Width')]);
     expect(select()).toBeNull();
@@ -142,7 +142,7 @@ describe('ParamsPanel part dropdown', () => {
     // Nowhere to declare one: the + goes with the dropdown.
     expect(add().hidden).toBe(true);
 
-    choices = { parts: [bracket], active: bracket.sourceLocation };
+    choices = { parts: [bracket], selected: bracket.sourceLocation };
     panel.update([]);
     expect(select()).not.toBeNull();
     expect(add().hidden).toBe(false);
@@ -150,7 +150,7 @@ describe('ParamsPanel part dropdown', () => {
   });
 
   it("lists only the selected part's parameters", () => {
-    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     const labels = () => Array.from(host.querySelectorAll('[data-param-label]'), (el) => (el as HTMLElement).dataset.paramLabel);
     // `Shared` carries no part (an assembly body's) — never a part's row.
     panel.update([param('Shared'), param('Width', bracket), param('Height', bracket), param('Bore', lid)]);
@@ -162,25 +162,25 @@ describe('ParamsPanel part dropdown', () => {
   });
 
   it('shows everything when the scene has no parts', () => {
-    const { panel, host } = mount(() => ({ parts: [], active: null }));
+    const { panel, host } = mount(() => ({ parts: [], selected: null }));
     panel.update([param('Shared'), param('Width', bracket)]);
     expect(host.querySelectorAll('[data-param-label]')).toHaveLength(2);
   });
 
-  it('re-filters when a timeline click moves the active part', () => {
-    let choices: PartChoices = { parts: [bracket, lid], active: lid.sourceLocation };
+  it('re-filters when a timeline click moves the selection', () => {
+    let choices: PartChoices = { parts: [bracket, lid], selected: lid.sourceLocation };
     const { panel, host } = mount(() => choices);
     const labels = () => Array.from(host.querySelectorAll('[data-param-label]'), (el) => (el as HTMLElement).dataset.paramLabel);
     panel.update([param('Width', bracket), param('Bore', lid)]);
     expect(labels()).toEqual(['Bore']);
 
-    choices = { parts: [bracket, lid], active: bracket.sourceLocation };
+    choices = { parts: [bracket, lid], selected: bracket.sourceLocation };
     panel.syncParts();
     expect(labels()).toEqual(['Width']);
   });
 
   it('names the part in the empty state when it has no parameters', () => {
-    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     panel.update([param('Width', bracket)]);
     expect(host.textContent).toContain('No parameters in Lid yet');
     select()!.value = '0';
@@ -189,13 +189,13 @@ describe('ParamsPanel part dropdown', () => {
   });
 
   it('points at a part body in the empty state of a scene with no parts', () => {
-    const { panel, host } = mount(() => ({ parts: [], active: null }));
+    const { panel, host } = mount(() => ({ parts: [], selected: null }));
     panel.update([]);
     expect(host.textContent).toContain('inside a part() body');
   });
 
   it('updates values in place within the filtered view', () => {
-    const { panel, host } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    const { panel, host } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     panel.update([param('Width', bracket), param('Bore', lid)]);
     const input = host.querySelector<HTMLInputElement>('[data-param-label="Bore"]')!;
     panel.update([param('Width', bracket), { ...param('Bore', lid), currentValue: 42 }]);

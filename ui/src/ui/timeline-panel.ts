@@ -152,12 +152,15 @@ export class TimelinePanel {
   onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
 
   /**
-   * A part row was clicked. Part rows don't navigate: instead of the
-   * rollback preview they toggle the timeline's ACTIVE part — the part whose
-   * callback body receives newly created statements. The source jump stays.
-   * Unset (a host without the tracker), part rows keep the default rollback.
+   * Point the timeline's ACTIVE part — the part whose callback body receives
+   * newly created statements — at a part row, or with null step out of it to
+   * the file's top level (its row stays selected, only inactive). Part rows
+   * don't navigate: instead of the rollback preview a click toggles the
+   * active part, and the pause gestures point it at the paused row's scope.
+   * The source jump stays. Returns whether the active part changed. Unset (a
+   * host without the tracker), part rows keep the default rollback.
    */
-  onPartActivate?: (obj: SceneObjectRender) => void;
+  setActivePart?: (part: SceneObjectRender | null) => boolean;
 
   /**
    * A connector or exposed row was clicked. These rows are references, not
@@ -165,8 +168,10 @@ export class TimelinePanel {
    * what they publish (the connector's gizmo, the exposure's faces).
    */
   onFeatureShow?: (obj: SceneObjectRender) => void;
-  /** Whether this part row is the active part (drives its highlight). */
+  /** Whether this part row is the active part (its dot). */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
+  /** Whether this part row is the selected part, active or stepped out of (its tint). */
+  isPartRowSelected?: (obj: SceneObjectRender) => boolean;
 
   /**
    * The eye on a consumed row (a sketch, plane or axis a feature used):
@@ -895,12 +900,18 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
-        if (obj && obj.type === 'part' && this.onPartActivate) {
-          // Part rows toggle the active part instead of rolling back; the
-          // re-render repaints the highlight from the tracker's new state.
-          this.onPartActivate(obj);
+        if (obj && obj.type === 'part' && this.setActivePart) {
+          // Part rows toggle the active part instead of rolling back: an
+          // inactive row becomes the active part, the active one steps out to
+          // the file's top level and stays selected. A double-click's second
+          // click only activates, so that gesture always ends inside the
+          // part. The re-render repaints the rows from the tracker's state.
+          const stepOut = e.detail < 2 && this.isPartRowActive?.(obj) === true;
+          const changed = this.setActivePart(stepOut ? null : obj);
           this.goToSource(obj);
-          this.renderTimeline();
+          if (changed) {
+            this.renderTimeline();
+          }
           return;
         }
         if (obj && groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part' && this.onFeatureShow) {
@@ -927,9 +938,9 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
         if (obj && obj.type === 'part') {
-          // Parts have no edit dialog and their single click already toggles
-          // activation — a double-click must not place a breakpoint. The
-          // context menu's "Breakpoint here" stays the explicit path.
+          // Parts have no edit dialog and their clicks already activated the
+          // part — a double-click must not place a breakpoint. The context
+          // menu's "Breakpoint here" stays the explicit path.
           return;
         }
         if (this.sketchActive && !(obj && this.isFeatureEditable?.(obj))) {
@@ -1083,7 +1094,7 @@ export class TimelinePanel {
     }
     const obj = this.sceneObjects[index];
     if (obj) {
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
     }
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
@@ -1095,27 +1106,27 @@ export class TimelinePanel {
   }
 
   /**
-   * The pause gestures work "here": pausing a build inside a part makes that
-   * part the user's working scope, so an inactive enclosing part is activated
-   * first — the same path as clicking its row. Without this the breakpoint
-   * render derives sketch-mode entry (and every scope-sensitive service) from
-   * the previously active part — whose build the pause never touches, since
-   * the leftover-definitions pass still materializes it fully — and a paused
-   * tip sketch never opens for editing. Skipped while sketching: the only
-   * gestures allowed then either stay inside the active part or open an edit
-   * dialog that suspends the active sketch and restores it on exit, which a
-   * scope switch would close for good instead.
+   * The pause gestures work "here": pausing a build makes the paused row's
+   * scope the user's working scope — the part around a row inside one is
+   * activated, the same path as clicking its row, and a top-level row steps
+   * out of the active part to the file's top level. Without this the
+   * breakpoint render derives sketch-mode entry (and every scope-sensitive
+   * service) from the previously active scope — whose build the pause never
+   * touches, since the leftover-definitions pass still materializes every
+   * part fully — and a paused tip sketch never opens for editing. A part row
+   * picks no scope: its statement only declares the part, whose body builds
+   * after the pause either way. Skipped while sketching: the only gestures
+   * allowed then either stay inside the active scope or open an edit dialog
+   * that suspends the active sketch and restores it on exit, which a scope
+   * switch would close for good instead.
    */
-  private activateEnclosingPart(obj: SceneObjectRender): void {
-    if (this.sketchActive || !this.onPartActivate) {
+  private enterScopeOf(obj: SceneObjectRender): void {
+    if (this.sketchActive || !this.setActivePart || obj.type === 'part') {
       return;
     }
-    const part = findEnclosingPartRow(obj, this.sceneObjects);
-    if (!part || this.isPartRowActive?.(part) === true) {
-      return;
+    if (this.setActivePart(findEnclosingPartRow(obj, this.sceneObjects) ?? null)) {
+      this.renderTimeline();
     }
-    this.onPartActivate(part);
-    this.renderTimeline();
   }
 
   /**
@@ -1313,6 +1324,8 @@ export class TimelinePanel {
     const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
     const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
+    const isSelectedPart = isActivePart
+      || (isTopLevel && obj.type === 'part' && this.isPartRowSelected?.(obj) === true);
     const isSelected = this.selectedIndices.has(index);
     const isDraggable = !this.sketchActive && this.isMovableRow(obj);
     const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
@@ -1328,8 +1341,9 @@ export class TimelinePanel {
 
     // Part rows opt out of the "current" navigation highlight: with part
     // clicks toggling activation instead of rolling back, a current-tinted
-    // part next to the active one would read as two active parts. Only the
-    // active part row is tinted (and carries the dot).
+    // part next to the selected one would read as two selected parts. Only
+    // the selected part row is tinted, and only while it is the active part
+    // does it carry the dot — stepped out to the top level, it keeps the tint.
     const highlightCurrent = isCurrent && obj.type !== 'part';
     // A viewer pick outranks the navigation tints: the picked row answers
     // "which feature made this face?", so it must read distinctly even when
@@ -1346,12 +1360,12 @@ export class TimelinePanel {
       }
     } else if (highlightCurrent) {
       itemClass += ' border-l-2 border-primary bg-primary/10';
-    } else if (isActivePart) {
+    } else if (isSelectedPart) {
       itemClass += ' bg-primary/10';
     }
     if (effectiveError) {
       itemClass += ' text-error';
-    } else if (highlightCurrent || isActivePart) {
+    } else if (highlightCurrent || isSelectedPart) {
       itemClass += ' text-primary';
     } else if (isPast || isInvisible) {
       itemClass += ' text-base-content/60';
@@ -1412,7 +1426,7 @@ export class TimelinePanel {
       : '';
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-selected-part="${isSelectedPart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
@@ -1635,9 +1649,9 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
-      // Same scope rule as the edit gesture: the pause makes this row's part
+      // Same scope rule as the edit gesture: the pause makes this row's scope
       // the working scope, so a paused tip sketch actually enters sketch mode.
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
       this.addBreakpointAfter(index);
       this.goToSource(obj);
     });

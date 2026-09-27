@@ -21,6 +21,9 @@ export type SceneManager = {
   renderScene(scene: any): any;
   getAssemblyData(scene: any): SerializedAssembly | null;
   rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
+  // Optional: may predate timeline-ordered renders — the stop is then the
+  // last row, unscoped.
+  renderStop?(scene: any): { stop: number; scopePartId: string | null };
   compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate scene disposal.

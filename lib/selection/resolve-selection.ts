@@ -289,9 +289,10 @@ export class SelectionResolver {
   }
 
   /**
-   * The objects the request sees: all of them, or those strictly before the
+   * The objects the request sees: all of them, or those built before the
    * boundary. `before` counts statements the way `rollback_to` does; a value
-   * of `n` shows what `rollback_to(n - 1)` renders.
+   * of `n` shows what `rollback_to(n - 1)` renders, less any part the
+   * timeline lists above the statement that builds after it.
    */
   private static viewBefore(
     scene: Scene,

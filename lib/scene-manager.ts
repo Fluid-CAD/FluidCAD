@@ -167,10 +167,12 @@ class SceneManager {
 
   /**
    * Re-emit the scene rolled back to `rollbackIndex` (view-only — nothing
-   * rebuilds). With `partScoped`, the rollback isolates the target object's
-   * enclosing part: everything outside that part stays fully rendered and
-   * only the part's own features after the index are hidden. Falls back to
-   * the classic global prefix when the index lands outside any part.
+   * rebuilds). The index counts timeline rows, the order a render lists
+   * (Scene.getTimelineObjects). With `partScoped`, the rollback isolates the
+   * target object's enclosing part: everything outside that part stays fully
+   * rendered and only the part's own features after the index are hidden.
+   * Falls back to the classic global prefix when the index lands outside any
+   * part.
    *
    * Returns the stop hosts should echo as `rollbackStop` — the raw index
    * for global rollbacks (preserving the historical echo, which may exceed
@@ -185,25 +187,35 @@ class SceneManager {
     rollbackIndex: number,
     opts?: { partScoped?: boolean },
   ): { stop: number; scopePartId: string | null } {
-    const allObjects = scene.getAllSceneObjects();
-    const lastIndex = allObjects.length - 1;
+    const rows = scene.getTimelineObjects();
+    const lastIndex = rows.length - 1;
     const clamped = Math.min(rollbackIndex, lastIndex);
-    const target = clamped >= 0 ? allObjects[clamped] : undefined;
+    const target = clamped >= 0 ? rows[clamped] : undefined;
     const part = opts?.partScoped && target ? scene.findEnclosingPart(target) : null;
     if (!part) {
       this.renderer.renderRollback(scene, clamped);
       return { stop: rollbackIndex, scopePartId: null };
     }
 
-    // Membership scope, not an index range: lazily materialized donor parts
-    // can interleave with another part's children in the flat list, so "the
-    // rest of the scene" must be selected by findEnclosingPart, never by
-    // position relative to the clicked part.
+    // Membership scope, not an index range: "the rest of the scene" is
+    // selected by findEnclosingPart, never by position relative to the
+    // clicked part.
     const scope = new Set(
-      allObjects.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
+      rows.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
     );
     this.renderer.renderRollback(scene, clamped, scope);
     return { stop: clamped, scopePartId: part.id };
+  }
+
+  /**
+   * The stop a fresh render reports as `rollbackStop`, and the part it is
+   * scoped to: the last row, or the paused row of a part a breakpoint()
+   * stopped (Scene.renderStop). Hosts echo both exactly as a rollback's, so a
+   * pause inside a part marks its row while the rest of the file stays live.
+   */
+  renderStop(scene: Scene): { stop: number; scopePartId: string | null } {
+    const { stop, part } = scene.renderStop();
+    return { stop, scopePartId: part?.id ?? null };
   }
 
   /**

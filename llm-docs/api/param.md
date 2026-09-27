@@ -40,7 +40,8 @@ part() body`): a file has no parameters of its own. Where the value comes
 from:
 
 - **The defining file, open in the editor** — the Parameters panel, which
-  lists the parameters of one part at a time (the active part by default).
+  lists the parameters of one part at a time (the part selected in the
+  History panel by default).
   Editing a control re-renders and writes the new value back as the
   statement's default.
 - **Inserted into an assembly** — the definition's parameter interface.

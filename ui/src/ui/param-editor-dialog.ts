@@ -22,9 +22,10 @@ import {
 
 /**
  * What the Add dialog's Part dropdown lists: the scene's parts and the one
- * the timeline has active, which the dropdown opens on.
+ * the timeline has selected — its active part, or the part the user stepped
+ * out of to the file's top level — which the dropdown opens on.
  */
-export type PartChoices = { parts: PartChoice[]; active: SourceLocation | null };
+export type PartChoices = { parts: PartChoice[]; selected: SourceLocation | null };
 
 /**
  * The parameters panel's add / edit / delete dialog. Values the panel sets are
@@ -119,7 +120,7 @@ export class ParamEditorDialog {
   }
 
   /**
-   * Where the Part dropdown reads the scene's parts and the active one from.
+   * Where the Part dropdown reads the scene's parts and the selected one from.
    * Without a provider the dropdown never shows and the declaration goes out
    * with no part — which the server refuses, a parameter living only inside a
    * part body — as in a scene with no parts.
@@ -131,7 +132,7 @@ export class ParamEditorDialog {
   /**
    * Open on a blank declaration. The Part dropdown opens on `preferredPart`
    * when the caller has one (the panel's own Part dropdown), else on the
-   * timeline's active part.
+   * timeline's selected part.
    */
   openForCreate(preferredPart?: SourceLocation | null): void {
     this.target = null;
@@ -461,12 +462,13 @@ export class ParamEditorDialog {
 
   /**
    * Fill the Part dropdown from the provider and open it on the preferred
-   * part — the active part when the caller states no preference. The row only
-   * shows when the scene has parts to choose between: a parameter lives in a
-   * part body, so those are the only places it can go.
+   * part — the timeline's selected part when the caller states no
+   * preference. The row only shows when the scene has parts to choose
+   * between: a parameter lives in a part body, so those are the only places
+   * it can go.
    */
   private populateParts(preferredPart?: SourceLocation | null): void {
-    const choices = (this.scope === 'part' ? this.partProvider?.() : null) ?? { parts: [], active: null };
+    const choices = (this.scope === 'part' ? this.partProvider?.() : null) ?? { parts: [], selected: null };
     this.partChoices = choices.parts;
     this.partSelect.replaceChildren();
     this.partRow.classList.toggle('hidden', choices.parts.length === 0);
@@ -477,7 +479,7 @@ export class ParamEditorDialog {
     ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
       this.partSelect.appendChild(ParamEditorDialog.option(String(index), text));
     });
-    const wanted = preferredPart ?? choices.active;
+    const wanted = preferredPart ?? choices.selected;
     const index = wanted === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted));

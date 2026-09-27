@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express';
-import { sceneUnitFields } from '../fluidcad-server/index.ts';
+import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import { UI_APPLY_WAIT_MS } from './render.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
@@ -158,7 +158,7 @@ export function createParamsRouter(
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
       result: data.result,
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -167,7 +167,7 @@ export function createParamsRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       params: data.params,
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
@@ -221,7 +221,7 @@ export function createParamsRouter(
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
       result: data.result,
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -230,6 +230,7 @@ export function createParamsRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
+      ...sceneStopFields(data),
       breakpointHit: data.breakpointHit,
       params: data.params,
       ...(data.assembly ? { assembly: data.assembly } : {}),

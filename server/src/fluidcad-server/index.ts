@@ -47,6 +47,7 @@ export type {
   SweepGhostRequest,
 } from './ghost-requests.ts';
 export {
+  sceneStopFields,
   sceneUnitFields,
   type SceneSummary,
   type SceneSummaryObject,

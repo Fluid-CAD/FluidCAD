@@ -1,5 +1,4 @@
 import { SceneObject } from "../common/scene-object.js";
-import { BuildError } from "../common/build-error.js";
 import { Axis } from "../math/axis.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
@@ -50,7 +49,6 @@ export abstract class RepeatBase extends SceneObject {
   private _slots: RepeatSlot[] = [];
   private _slotMatrices: RepeatSlotMatrix[] = [];
   private _originalSlot = 0;
-  private _refusal: string | null = null;
 
   override hidesChildren(): boolean {
     return true;
@@ -137,14 +135,16 @@ export abstract class RepeatBase extends SceneObject {
    * one is a connector. A clone of a connector would rebuild its frame from
    * the seed's already-consumed source, never move, and never register on the
    * part. Returns whether it refused: the builder then clones nothing, and the
-   * repeat's own build reports the refusal on its row.
+   * repeat's own build reports the refusal on its row (SceneObject.refuse,
+   * which also keeps a refused repeat from matching a working one in the
+   * cache — a mirror or matrix repeat compares little else).
    */
   refuseConnectorTargets(targets: SceneObject[]): boolean {
     const connector = targets.find((target): target is Connector => target instanceof Connector);
     if (!connector) {
       return false;
     }
-    this._refusal = `repeat() re-applies features — copy a connector with ${this.connectorCopyAdvice(connector.connectorName)}`;
+    this.refuse(`repeat() re-applies features — copy a connector with ${this.connectorCopyAdvice(connector.connectorName)}`);
     return true;
   }
 
@@ -155,22 +155,6 @@ export abstract class RepeatBase extends SceneObject {
    */
   protected connectorCopyAdvice(name: string): string {
     return `copy('linear', axis, options, ${name}) or copy('circular', axis, options, ${name})`;
-  }
-
-  override validate(): void {
-    if (this._refusal) {
-      throw new BuildError(this._refusal);
-    }
-  }
-
-  override compareTo(other: SceneObject): boolean {
-    // A refused repeat never stands in for one that clones, or the reverse:
-    // a mirror or matrix repeat compares little else, and a cached match
-    // would carry the refusal's error onto a repeat that now builds.
-    if (!(other instanceof RepeatBase) || this._refusal !== other._refusal) {
-      return false;
-    }
-    return super.compareTo(other);
   }
 
   protected static axisSourceEquals(a: RepeatAxisSource, b: RepeatAxisSource): boolean {

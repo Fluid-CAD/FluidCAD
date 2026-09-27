@@ -10,6 +10,7 @@ import assembly from "../core/assembly.js";
 import insert from "../core/insert.js";
 import mate from "../core/mate.js";
 import replicate from "../core/replicate.js";
+import copy from "../core/copy.js";
 import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
@@ -391,6 +392,95 @@ describe("replicate()", () => {
         { path: ["list", "0"], instanceId: "asm-0/inst-0" },
         { path: ["list", "1"], instanceId: "asm-0/inst-1" },
       ]);
+    });
+  });
+
+  // Connector copies (`copy(…, s)` in the part, `s.instance(k)` in the
+  // assembly) are ordinary sides: columns and cells may be copies, a
+  // replica's own copy side rebinds by (name, slot), and messages spell a
+  // copy the way the source does.
+  describe("connector copies", () => {
+    /** A rail whose three stations are one connector and its two copies, 60 apart. */
+    function buildCopiedRail(): Part {
+      return part("copiedRail", () => {
+        sketch("xy", () => { testRect(200, 20); });
+        extrude(10);
+        const s = connector("s", select(face().planar().onPlane("xy", 10))).offset(-60, 0, 0);
+        copy("linear", "x", { count: 3, offset: 60 }, s);
+      }) as unknown as Part;
+    }
+
+    /** A block whose top connector is copied twice along X. */
+    function buildCopiedBlock(): Part {
+      return part("copiedBlock", () => {
+        sketch("xy", () => { testRect(20, 20); });
+        extrude(10);
+        connector("bottom", select(face().planar().onPlane("xy", 0)));
+        const top = connector("top", select(face().planar().onPlane("xy", 10)));
+        copy("linear", "x", { count: 3, offset: 5 }, top);
+      }) as unknown as Part;
+    }
+
+    it("takes copies as target columns and row cells", () => {
+      getSceneManager().startScene();
+      const block = buildBlock();
+      const rail = buildCopiedRail();
+      const scene = getSceneManager().startAssemblyScene();
+      const base = insert(rail).grounded();
+      const b1 = insert(block);
+      mate("fastened", b1.connectors.bottom, base.connectors.s);
+
+      const s = base.connectors.s;
+      replicate(b1, [s], [[s.instance(1)], [s.instance(2)]]);
+
+      const mates = scene.getMates();
+      expect(mates[1].connectorB).toEqual({ instanceId: "inst-0", connector: s.instance(1).connector });
+      expect(mates[2].connectorB).toEqual({ instanceId: "inst-0", connector: s.instance(2).connector });
+      const [record] = scene.getSerializedReplicates();
+      expect(record.targets).toEqual([{ kind: "connector", instanceId: "inst-0", connectorId: s.connector.id }]);
+      expect(record.rows[1]).toEqual([{ kind: "connector", instanceId: "inst-0", connectorId: s.instance(2).connector.id }]);
+    });
+
+    it("spells copies with instance() in its messages", () => {
+      getSceneManager().startScene();
+      const block = buildBlock();
+      const rail = buildCopiedRail();
+      getSceneManager().startAssemblyScene();
+      const base = insert(rail).grounded();
+      const b1 = insert(block);
+      mate("fastened", b1.connectors.bottom, base.connectors.s.instance(1));
+
+      const s = base.connectors.s;
+      expect(() => replicate(b1, [s], [[s.instance(2)]]))
+        .toThrow(`replicate(): copiedRail.s is not a mate target of "block" — its targets are: copiedRail.s.instance(1).`);
+      // The original's slot is the connector itself — the same column twice.
+      mate("fastened", b1.connectors.top, base.connectors.s);
+      expect(() => replicate(b1, [s.instance(1), s, s.instance(0)], [[s.instance(2), s.instance(2), s.instance(2)]]))
+        .toThrow("replicate(): target 3 (copiedRail.s) repeats target 2.");
+    });
+
+    it("rebinds a sub-assembly replica's own copy side by slot", () => {
+      getSceneManager().startScene();
+      const block = buildCopiedBlock();
+      const rail = buildRail();
+      const scene = getSceneManager().startAssemblyScene();
+      const base = insert(rail).grounded();
+      const sub = assembly("sub", () => ({ a: insert(block) }));
+      const s1 = insert(sub);
+      mate("fastened", s1.parts.a.connectors.top.instance(2), base.connectors.s1);
+
+      replicate(s1, [base.connectors.s1], [[base.connectors.s2]]);
+
+      const mates = scene.getMates();
+      const replicaSide = mates[1].connectorA!;
+      expect(replicaSide.instanceId).toBe("asm-1/inst-0");
+      const replicaPart = scene.getInstance("asm-1/inst-0")!.part;
+      expect(replicaSide.connector).toBe(replicaPart.resolveConnector("top", 2));
+      expect(replicaSide.connector.copySlot()).toBe(2);
+      expect(replicaSide.connector.label()).toBe("top.instance(2)");
+      getSceneManager().renderScene(scene);
+      const errored = scene.getAllSceneObjects().filter(o => o.getError());
+      expect(errored.map(o => `${o.getUniqueType()}: ${o.getError()}`)).toEqual([]);
     });
   });
 

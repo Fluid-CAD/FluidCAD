@@ -71,6 +71,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
   private _unit: LengthUnit | null = null;
   private _error: string | null = null;
+  /** Why the statement refused its operands at parse time — see refuse(). */
+  private _refusal: string | null = null;
   private _destroyed: boolean = false;
   protected _fusionScope?: FusionScope = 'all';
   protected _operationMode: OperationMode = 'add';
@@ -266,6 +268,13 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     const match = this._guide === other._guide;
 
     if (!match) {
+      return false;
+    }
+
+    // A refused statement never stands in for one that builds, or the
+    // reverse: most features compare only their own operands, and a cached
+    // match would carry the refusal's error onto a statement that now builds.
+    if (this._refusal !== other._refusal) {
       return false;
     }
 
@@ -858,6 +867,22 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getError(): string | null {
     return this._error;
+  }
+
+  /**
+   * Refuse this statement at parse time: its builder was handed operands it
+   * cannot take (a repeat of a connector, a second copy of one). The object
+   * stays in the scene with whatever it already set up, but it never builds —
+   * the renderer reports `message` as its build error instead, so the reason
+   * shows on the statement's own row and the rest of the file still renders.
+   */
+  refuse(message: string): void {
+    this._refusal = message;
+  }
+
+  /** Why the statement was refused at parse time, or null — see refuse(). */
+  getRefusal(): string | null {
+    return this._refusal;
   }
 
   getFusionScope(): FusionScope | undefined {

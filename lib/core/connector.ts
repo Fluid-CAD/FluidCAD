@@ -135,7 +135,8 @@ function build(context: SceneParserContext): ConnectorFunction {
     }
     validateName(name);
 
-    if (part.getConnectors().some(c => c.connectorName === name)) {
+    // Declared connectors only: a copy carries its seed's name.
+    if (part.getDeclaredConnectors().some(c => c.connectorName === name)) {
       throw new Error(
         `connector(): the part "${part.partName}" already has a connector named "${name}" — names must be unique within a part.`,
       );

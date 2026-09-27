@@ -51,9 +51,7 @@ export class CopyLayout {
   static linear(axes: CopyAxisSource[], options: LinearCopyOptions): CopySlotLayout {
     const { centered, skip } = options;
 
-    const counts = Array.isArray(options.count)
-      ? options.count
-      : axes.map(() => resolveParam(options.count as NumberParam));
+    const counts = CopyLayout.linearCounts(axes, options);
 
     const offsets = 'offset' in options && options.offset !== undefined
       ? (Array.isArray(options.offset) ? options.offset : axes.map(() => resolveParam(options.offset as NumberParam)))
@@ -109,8 +107,24 @@ export class CopyLayout {
     return { originalSlot, slotCount: cells.length, slots };
   }
 
+  /**
+   * The stated count of each linear axis, as the layout reads it: a list
+   * gives one per axis (a missing entry counts no cells), a single count
+   * serves every axis.
+   */
+  static linearCounts(axes: CopyAxisSource[], options: LinearCopyOptions): number[] {
+    return Array.isArray(options.count)
+      ? options.count
+      : axes.map(() => resolveParam(options.count as NumberParam));
+  }
+
+  /** The stated count of a circular copy, the original's step included. */
+  static circularCount(options: CircularCopyOptions): number {
+    return resolveParam(options.count as NumberParam);
+  }
+
   static circular(axis: CopyAxisSource, options: CircularCopyOptions): CopySlotLayout {
-    const count = resolveParam(options.count as NumberParam);
+    const count = CopyLayout.circularCount(options);
     const { centered, skip } = options;
     const step = CopyLayout.circularStep(count, options);
     const startOffset = centered ? -(count * step) / 2 : 0;

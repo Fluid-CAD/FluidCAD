@@ -25,6 +25,18 @@ export class CopyLinear extends CopyBase {
     return CopyLayout.linear(this.axes, this.options);
   }
 
+  protected connectorOptionsRefusal(): string | null {
+    // An axis counted below one numbers no cells at all — not even the
+    // original's, which every connector copy's numbering is built around.
+    const counts = CopyLayout.linearCounts(this.axes, this.options);
+    for (let a = 0; a < this.axes.length; a++) {
+      if (!(counts[a] >= 1)) {
+        return `copy(): a connector copy needs a count of at least 1 on every axis (got ${counts[a]})`;
+      }
+    }
+    return null;
+  }
+
   compareTo(other: CopyLinear): boolean {
     if (!(other instanceof CopyLinear)) {
       return false;
@@ -66,10 +78,5 @@ export class CopyLinear extends CopyBase {
 
   getType(): string {
     return "copy-linear";
-  }
-
-  serialize() {
-    return {
-    }
   }
 }

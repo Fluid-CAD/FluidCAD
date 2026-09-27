@@ -24,6 +24,24 @@ export function captureSourceLocation(): SourceLocation | null {
   return extractSourceLocation(stack);
 }
 
+/**
+ * Where a thrown error came from in a fluid script: the first script frame
+ * of its stack. A V8 stack opens with the error's own header (`Error:
+ * <message>`), which is left out — a message that names a script location
+ * (`bolt.instance(4) was skipped by the copy at flange.part.js:21`) reads
+ * like a frame to the parser, but it is not where anything was thrown.
+ * Stacks without the header (Firefox, Safari) parse as they are.
+ */
+export function extractErrorSourceLocation(error: unknown): SourceLocation | null {
+  const stack = (error as { stack?: unknown } | null)?.stack;
+  if (typeof stack !== 'string' || stack === '') {
+    return null;
+  }
+  const message = (error as { message?: unknown }).message;
+  const header = typeof message === 'string' && message !== '' ? stack.indexOf(message) : -1;
+  return extractSourceLocation(header >= 0 ? stack.slice(header + (message as string).length) : stack);
+}
+
 export function extractSourceLocation(stack: string): SourceLocation | null {
   const frames = parseStackTrace(stack);
   for (const frame of frames) {

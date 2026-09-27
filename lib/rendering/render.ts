@@ -19,6 +19,7 @@ import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig }
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { BuildError } from "../common/build-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
 import { debug } from "../common/log.js";
@@ -425,6 +426,12 @@ export class SceneRenderer {
       // Ahead of validate(): an unresolved late selection would otherwise
       // surface as its symptom ("guide 1 (select) has no shapes").
       this.assertSelectionsPrecede(object, scene);
+      // A statement its builder refused never builds — the refusal is its
+      // build error (SceneObject.refuse).
+      const refusal = object.getRefusal();
+      if (refusal) {
+        throw new BuildError(refusal);
+      }
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).

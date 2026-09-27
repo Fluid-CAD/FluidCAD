@@ -25,6 +25,20 @@ export class CopyCircular extends CopyBase {
     return CopyLayout.circular(this.axis, this.options);
   }
 
+  protected connectorOptionsRefusal(): string | null {
+    // Circular `centered` lands a copy on the original (B3) — a connector
+    // copy would sit on its own seed.
+    if (this.options.centered) {
+      return "copy(): a circular copy of a connector can't be centered yet — drop centered; "
+        + "the pattern then starts at the connector";
+    }
+    const count = CopyLayout.circularCount(this.options);
+    if (!(count >= 1)) {
+      return `copy(): a connector copy needs a count of at least 1 (got ${count})`;
+    }
+    return null;
+  }
+
   compareTo(other: CopyCircular): boolean {
     if (!(other instanceof CopyCircular)) {
       return false;
@@ -60,10 +74,5 @@ export class CopyCircular extends CopyBase {
 
   getType(): string {
     return "copy-circular";
-  }
-
-  serialize() {
-    return {
-    }
   }
 }

@@ -1,6 +1,6 @@
 import { gotoSource } from '../../api';
 import { SceneIndex } from '../../helpers/scene-index';
-import { ConnectorData, SceneObjectRender, connectorLabel } from '../../types';
+import { ConnectorData, SceneObjectRender, SerializedAssemblyConnector, connectorLabel } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
 /**
@@ -34,11 +34,12 @@ export type ConnectorOption = {
 export type ConnectorSite = { filePath: string; line: number; slot?: number };
 
 /**
- * The part-scene connectors a dialog can pick — the part dialogs' side of
- * the connector pick channel ({@link ConnectorGizmoPicker} finds the gizmo,
- * this names the connector behind it). One option per connector row, the
- * copies included, each re-found after a render by its site rather than
- * its id.
+ * The connectors a dialog can pick — the dialogs' side of the connector pick
+ * channel ({@link ConnectorGizmoPicker} finds the gizmo, this names the
+ * connector behind it): a part scene's connector rows ({@link collect}), or
+ * an assembly's own connectors ({@link fromAssembly}). One option per
+ * connector, the copies included, each re-found after a render by its site
+ * rather than its id.
  */
 export class ConnectorOptions {
   /**
@@ -74,6 +75,46 @@ export class ConnectorOptions {
         line: loc.line,
         column: loc.column,
         ...(copiedAt !== undefined ? { copiedAt } : {}),
+      });
+    }
+    return options;
+  }
+
+  /**
+   * The assembly's own connectors, as the assembly payload lists them
+   * (`connector('bay', [x, y, z])` at its top level, and the copies a
+   * top-level `copy()` made): declared ones by their statement, copies by
+   * their seed's statement — found through `seedId` — and slot. A seed's
+   * `copiedAt` is its copy statement's line, which each copy reports as its
+   * own location. The assembly dialogs' side of the connector pick channel,
+   * the way {@link collect} is the part dialogs'.
+   */
+  static fromAssembly(connectors: readonly SerializedAssemblyConnector[]): ConnectorOption[] {
+    const byId = new Map(connectors.map(connector => [connector.connectorId, connector]));
+    const copiedAt = new Map<string, number>();
+    for (const connector of connectors) {
+      const line = connector.sourceLocation?.line;
+      if (connector.copy && line !== undefined && !copiedAt.has(connector.copy.seedId)) {
+        copiedAt.set(connector.copy.seedId, line);
+      }
+    }
+    const options: ConnectorOption[] = [];
+    for (const connector of connectors) {
+      const slot = connector.copy?.slot;
+      const loc = (connector.copy ? byId.get(connector.copy.seedId) : connector)?.sourceLocation;
+      if (!loc) {
+        continue;
+      }
+      const copied = connector.copy ? undefined : copiedAt.get(connector.connectorId);
+      options.push({
+        id: connector.connectorId,
+        label: connectorLabel(connector.name, slot),
+        name: connector.name,
+        ...(slot !== undefined ? { slot } : {}),
+        filePath: loc.filePath,
+        line: loc.line,
+        column: loc.column,
+        ...(copied !== undefined ? { copiedAt: copied } : {}),
       });
     }
     return options;

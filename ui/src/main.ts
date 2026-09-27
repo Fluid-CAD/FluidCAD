@@ -49,9 +49,9 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -62,6 +62,7 @@ import { normalizeAssemblyPayload } from './scene/assembly-payload';
 import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
+import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
@@ -578,24 +579,44 @@ function buildAssemblyRail(): LeftRail {
   dragReadout.setObstacle(() => animateBar.openElement());
   assemblyParamsPanel.mount(parts.getParamsHost());
   assemblyParamsPanel.setVisible(true);
-  // The assembly's own connectors, between Parts and Joints: a row opens
-  // the connector dialog on it; the eye hides its gizmo by name.
+  // The assembly's own connectors, between Parts and Joints: a connector's
+  // row opens the connector dialog on it, a copy's row the Copy dialog on
+  // the statement that made it; the eye hides a gizmo by label.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
-    // While the mate dialog is picking, a row is a pick (no gizmo to hunt
-    // for under a coincident part connector); otherwise it opens the dialog.
-    onEdit: (connector) => {
+    // While a dialog is picking, a row is a pick (no gizmo to hunt for
+    // under a coincident part connector).
+    onPick: (connector) => {
+      if (assemblyConnectorCopyService.isPicking) {
+        assemblyConnectorCopyService.pickWorldConnector(connector.connectorId);
+        return;
+      }
       if (assemblyMateService.isPicking) {
         assemblyMateService.pickWorldConnector(connector.connectorId);
         return;
       }
       if (assemblyReplicateService.isPicking) {
         assemblyReplicateService.pickWorldConnector(connector.connectorId);
-        return;
       }
-      void assemblyConnectorService.edit(connector);
     },
-    onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
-    isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
+    onEdit: (connector) => void assemblyConnectorService.edit(connector),
+    onEditCopy: (copy) => void editAssemblyConnectorCopy(copy),
+    onCopy: (connector) => assemblyConnectorCopyService.enterWithConnector(connector.connectorId),
+    onShowInSource: (connector) => {
+      if (connector.sourceLocation) {
+        gotoSource(connector.sourceLocation);
+      }
+    },
+    // Drops the whole `connector(...)` statement; the server sweeps the
+    // mates, replicate cells and copy() statements that named it (the same
+    // path as the parts panel's Delete).
+    onDelete: (connector) => {
+      if (connector.sourceLocation) {
+        removeFeature(connector.sourceLocation);
+      }
+    },
+    onRemoveCopies: (copy) => void removeAssemblyConnectorCopy(copy),
+    onToggleVisibility: (label, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(label, !visible),
+    isHidden: (label) => viewer.getAssemblyController()?.isWorldConnectorHidden(label) ?? false,
   });
   return { kind: 'assembly', parts, connectors, joints, dragReadout, animateBar, instanceVisibility: visibility };
 }
@@ -613,6 +634,33 @@ let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
 /** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
 const lastPartTemplates = new Map<string, any>();
+
+/**
+ * A copy row's editor: the Copy dialog over the `copy()` statement that
+ * made it (the copy's own location) — or, when that statement can't be
+ * edited here, the reason as a toast.
+ */
+async function editAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  if (!copy.sourceLocation) {
+    return;
+  }
+  const refused = await assemblyConnectorCopyService.enterEdit(copy.sourceLocation);
+  if (refused) {
+    showToast(refused);
+  }
+}
+
+/** A copy row's "Remove copies": the `copy()` statement goes, with every mate and replicate cell on its copies. */
+async function removeAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  const location = copy.sourceLocation;
+  if (!location) {
+    return;
+  }
+  const result = await applyAssemblyConnectorCopy(location.filePath, { remove: { sourceLine: location.line } });
+  if (!result.success) {
+    showToast(result.reason ?? 'Could not remove the copies.');
+  }
+}
 
 function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
@@ -2246,9 +2294,10 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
-    // One picking dialog at a time: a replicate session yields to the mate
-    // dialog (and vice versa below).
+    // One picking dialog at a time: a replicate or copy session yields to
+    // the mate dialog (and vice versa below).
     assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2264,9 +2313,12 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
   // file.
   onEditConnector: (state) => void connectorPropsEditor.open(state),
   // The pen on an assembly-connector chip: the connector dialog in edit
-  // mode on that statement.
+  // mode on that statement — a copy's seed's, since a copy has none of its
+  // own and follows its seed.
   onEditWorldConnector: (state) => {
-    const connector = lastAssemblyPayload?.connectors?.find(c => c.connectorId === state.connectorId);
+    const connectors = lastAssemblyPayload?.connectors ?? [];
+    const picked = connectors.find(c => c.connectorId === state.connectorId);
+    const connector = picked?.copy ? connectors.find(c => c.connectorId === picked.copy!.seedId) : picked;
     if (connector) {
       void assemblyConnectorService.edit(connector);
     }
@@ -2287,6 +2339,33 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+    assemblyConnectorCopyService.exit();
+  },
+});
+
+// The assembly Copy dialog: a Connectors row's "Copy…" opens it on that
+// connector, a copy's row (or "Edit copy…") on the copy() statement that
+// made it. Apply writes the statement via /api/assembly-connector-copy.
+const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  getCurrentFile: () => currentSceneAbsPath,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    // One picking dialog at a time.
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorService.exit();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(true, 'Pick for the copy');
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(false);
+    }
   },
 });
 
@@ -2301,6 +2380,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
     assemblyMateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2392,7 +2472,7 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking && !assemblyConnectorCopyService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2425,6 +2505,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // panels and the measure tool; the part-design pick services aren't
   // active here.
   if (currentRail?.kind === 'assembly') {
+    // The open Copy dialog owns every viewport click: an assembly
+    // connector's gizmo fills its armed slot.
+    if (assemblyConnectorCopyService.isPicking) {
+      assemblyConnectorCopyService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
     // The armed mate dialog owns every viewport click: connector picks fill
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
@@ -3044,6 +3130,7 @@ function applySceneRendered(msg: any): void {
     assemblyMateService.handleSceneRendered(sceneKind);
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
+    assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params);
     }

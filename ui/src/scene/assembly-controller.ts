@@ -1,5 +1,5 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
+import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
@@ -241,8 +241,12 @@ export class AssemblyController {
    */
   private worldGroup = new Group();
   private worldConnectors = new Map<string, { data: SerializedAssemblyConnector; group: Group }>();
-  /** Names the user hid from the rail (names survive the per-render id re-mint). */
-  private hiddenWorldConnectorNames = new Set<string>();
+  /**
+   * Labels the user hid from the rail — `bay`, or `bay.instance(2)` for a
+   * copy (labels survive the per-render id re-mint; a copy shares its
+   * seed's name, so a name alone would hide the whole family).
+   */
+  private hiddenWorldConnectorLabels = new Set<string>();
   /** World connectors a joints-panel mate selection keeps visible. */
   private worldPinned = new Set<string>();
 
@@ -496,7 +500,7 @@ export class AssemblyController {
     this.worldConnectors.clear();
     for (const data of connectors) {
       const group = new Group();
-      group.name = `assemblyConnector:${data.name}`;
+      group.name = `assemblyConnector:${AssemblyController.worldConnectorLabel(data)}`;
       group.userData.isMetaShape = true;
       group.userData.isConnector = true;
       group.userData.connectorId = data.connectorId;
@@ -523,32 +527,40 @@ export class AssemblyController {
   private applyWorldConnectorVisibility(): void {
     const show = viewerSettings.current.showConnectors;
     for (const [id, { data, group }] of this.worldConnectors) {
-      group.visible = (show && !this.hiddenWorldConnectorNames.has(data.name))
+      group.visible = (show && !this.hiddenWorldConnectorLabels.has(AssemblyController.worldConnectorLabel(data)))
         || this.matePicking
         || this.worldPinned.has(id);
       this.applyConnectorOpacity(group, WORLD_BODY_ID);
     }
   }
 
-  /** The rail's eye toggle for one assembly connector, by name. */
-  setWorldConnectorHidden(name: string, hidden: boolean): void {
+  /** How code names an assembly connector: `bay`, or `bay.instance(2)` for a copy. */
+  private static worldConnectorLabel(data: SerializedAssemblyConnector): string {
+    return connectorLabel(data.name, data.copy?.slot);
+  }
+
+  /** The rail's eye toggle for one assembly connector, by label (`bay`, `bay.instance(2)`). */
+  setWorldConnectorHidden(label: string, hidden: boolean): void {
     if (hidden) {
-      this.hiddenWorldConnectorNames.add(name);
+      this.hiddenWorldConnectorLabels.add(label);
     } else {
-      this.hiddenWorldConnectorNames.delete(name);
+      this.hiddenWorldConnectorLabels.delete(label);
     }
     this.applyWorldConnectorVisibility();
     this.requestRender();
   }
 
-  isWorldConnectorHidden(name: string): boolean {
-    return this.hiddenWorldConnectorNames.has(name);
+  isWorldConnectorHidden(label: string): boolean {
+    return this.hiddenWorldConnectorLabels.has(label);
   }
 
-  /** The current render's scene id of the named assembly connector, or null. */
-  findWorldConnectorId(name: string): string | null {
+  /**
+   * The current render's scene id of an assembly connector by its address —
+   * its name, and a copy's slot — or null.
+   */
+  findWorldConnectorId(name: string, slot?: number): string | null {
     for (const [id, { data }] of this.worldConnectors) {
-      if (data.name === name) {
+      if (data.name === name && data.copy?.slot === slot) {
         return id;
       }
     }
@@ -1502,13 +1514,16 @@ export class AssemblyController {
     }
     const seedId = (row.object as ConnectorData | undefined)?.copy?.seedId ?? connectorId;
     const seed = index.byId(seedId);
-    const copies = index.connectorsOf(seed?.parentId).filter(
-      obj => (obj.object as ConnectorData | undefined)?.copy?.seedId === seedId,
+    // The copies hang off the copy() statement naming the seed — inside the
+    // part for a part connector, at the file's top level for an assembly's.
+    const statementRow = index.copyStatementOf(seedId);
+    const copies = index.children(statementRow?.id).filter(
+      obj => obj.type === 'connector' && (obj.object as ConnectorData | undefined)?.copy?.seedId === seedId,
     );
     if (!seed || copies.length === 0) {
       return null;
     }
-    const statement = index.parent(copies[0])?.object as { connectorCopies?: ConnectorCopiesData } | undefined;
+    const statement = statementRow?.object as { connectorCopies?: ConnectorCopiesData } | undefined;
     const originalSlot = statement?.connectorCopies?.originalSlot ?? 0;
     const members = [
       { connectorId: seedId, slot: originalSlot },

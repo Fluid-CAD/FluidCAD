@@ -1,4 +1,4 @@
-import type { AssemblyMateConnectorRef, AssemblyMateViaEntry } from '../../api';
+import type { AssemblyMateConnectorRef, AssemblyMateFrameRef, AssemblyMateViaEntry } from '../../api';
 import {
   connectorLabel,
   type ConnectorAddress,
@@ -68,8 +68,15 @@ export type WorldSlotState = {
   kind: 'world';
   connectorId: string;
   connectorName: string;
+  /** The `connector()` statement's row — the seed's, for a copy. */
   connectorLine: number;
   filePath: string;
+  /**
+   * The pick is a copy of `connectorName` — `connectorName.instance(slot)`,
+   * made by the file's top-level `copy()`. Part of the address: every copy
+   * carries its seed's name.
+   */
+  slot?: number;
 };
 
 export type MateSlotState = ConnectorSlotState | WorldSlotState;
@@ -160,7 +167,12 @@ export function resolveConnectorPick(
   };
 }
 
-/** A clicked assembly-connector gizmo → the slot state, or why it can't be used. */
+/**
+ * A clicked assembly-connector gizmo → the slot state, or why it can't be
+ * used. A copy (`bay.instance(2)`) has no statement of its own: it is
+ * written through its seed's binding, so it carries its seed's `connector()`
+ * line — found through `seedId` — and its slot.
+ */
 export function resolveWorldPick(
   assembly: SerializedAssembly | null,
   connectorId: string,
@@ -169,15 +181,20 @@ export function resolveWorldPick(
   if (!connector) {
     return { error: 'Could not resolve the assembly connector — try re-rendering.' };
   }
-  if (!connector.sourceLocation) {
-    return { error: `${connector.name} has no source location — its connector() cannot be referenced.` };
+  const seed = connector.copy
+    ? assembly?.connectors?.find(c => c.connectorId === connector.copy!.seedId)
+    : connector;
+  const label = connectorLabel(connector.name, connector.copy?.slot);
+  if (!seed?.sourceLocation) {
+    return { error: `${label} has no source location — its connector() cannot be referenced.` };
   }
   return {
     kind: 'world',
     connectorId,
     connectorName: connector.name,
-    connectorLine: connector.sourceLocation.line,
-    filePath: connector.sourceLocation.filePath,
+    connectorLine: seed.sourceLocation.line,
+    filePath: seed.sourceLocation.filePath,
+    ...(connector.copy ? { slot: connector.copy.slot } : {}),
   };
 }
 
@@ -248,16 +265,11 @@ export function reresolveSlot(
   state: MateSlotState,
 ): MateSlotState | null {
   if (state.kind === 'world') {
-    const fresh = assembly?.connectors?.find(c => c.name === state.connectorName);
-    if (!fresh || !fresh.sourceLocation) {
-      return null;
-    }
-    return {
-      ...state,
-      connectorId: fresh.connectorId,
-      connectorLine: fresh.sourceLocation.line,
-      filePath: fresh.sourceLocation.filePath,
-    };
+    // By its address — the name, and a copy's slot (a copy carries its
+    // seed's name).
+    const fresh = assembly?.connectors?.find(c => c.name === state.connectorName && c.copy?.slot === state.slot);
+    const resolved = fresh ? resolveWorldPick(assembly, fresh.connectorId) : null;
+    return resolved && !('error' in resolved) ? resolved : null;
   }
   if (!assembly || !lookup) {
     return null;
@@ -450,9 +462,23 @@ export function connectorChipLabel(state: ConnectorSlotState): string {
   return `${scope}${state.instanceName} · ${connectorLabel(state.connectorName, state.slot)}`;
 }
 
-/** `Assembly · hinge` — the assembly's own connector. */
+/** `Assembly · hinge` — the assembly's own connector; `Assembly · bay.instance(2)` for a copy. */
 export function worldChipLabel(state: WorldSlotState): string {
-  return `Assembly · ${state.connectorName}`;
+  return `Assembly · ${worldConnectorLabel(state)}`;
+}
+
+/** How code names an assembly-connector pick: its binding's name, `bay.instance(2)` for a copy. */
+export function worldConnectorLabel(state: WorldSlotState): string {
+  return connectorLabel(state.connectorName, state.slot);
+}
+
+/** The writer's side ref for an assembly-connector pick: its (seed's) statement, and a copy's slot. */
+export function frameRefFor(state: WorldSlotState): AssemblyMateFrameRef {
+  return {
+    connectorLine: state.connectorLine,
+    connectorName: state.connectorName,
+    ...(state.slot !== undefined ? { slot: state.slot } : {}),
+  };
 }
 
 /** `Cam · cylinder` — an exposure named on an instance. */

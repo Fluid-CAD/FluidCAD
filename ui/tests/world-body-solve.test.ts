@@ -128,6 +128,28 @@ describe('assembly-connector mates in the solver', () => {
     expect(out.failed).toContain('mate-0');
   });
 
+  it('a mate to a copy of an assembly connector solves at the copy\'s frame', () => {
+    // `const bay = connector('bay', [0, 0, 20])` and `copy('linear', 'x',
+    // { count: 4, offset: 50 }, bay)`: the payload lists the seed and each
+    // copy (`bay.instance(k)`) as a frame of its own, carrying `copy`.
+    const bay = { ...BASE, connectorId: 'w-bay', origin: { x: 0, y: 0, z: 20 } };
+    const copies = [1, 2, 3].map(slot => ({
+      ...bay,
+      connectorId: `w-bay-${slot}`,
+      origin: { x: 50 * slot, y: 0, z: 20 },
+      copy: { slot, seedId: 'w-bay' },
+    }));
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [freeBody('i1', [5, 5, 5]), makeWorldBody([bay, ...copies])],
+      mates: [worldMate('fastened', 'w-bay-2', 'i1')],
+    });
+    expect(out.result).toBe('okay');
+    expect(out.dof).toBe(0);
+    const solved = out.bodies.find(b => b.instanceId === 'i1')!;
+    expect(connectorWorld(solved).distanceTo(new Vector3(100, 0, 20))).toBeLessThan(1e-6);
+  });
+
   it('matesReferenceWorld gates the synthetic body', () => {
     expect(matesReferenceWorld([worldMate('fastened', 'w-base', 'i1')])).toBe(true);
     expect(matesReferenceWorld([{

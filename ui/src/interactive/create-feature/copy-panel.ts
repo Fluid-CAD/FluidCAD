@@ -50,6 +50,21 @@ export type CopyValues =
   | { error: string };
 
 /**
+ * What a copy dialog says around its slots — the part dialog's defaults, or
+ * the assembly dialog's, whose targets and axes are connectors only.
+ */
+export type CopyPanelOptions = {
+  /** The panel element's id — one per dialog on the page. */
+  id?: string;
+  /** The targets slot's label. */
+  targetsLabel?: string;
+  /** What the empty targets slot asks for. */
+  targetsPrompt?: string;
+  /** What an empty axis slot asks for. */
+  axisPrompt?: string;
+};
+
+/**
  * The copy dialog: a Linear / Circular type dropdown (the copy kind), the
  * targets slot — filled from whole-solid viewport picks (any face or edge
  * click selects the owning solid), connector gizmos, or timeline rows, one
@@ -104,10 +119,12 @@ export class CopyPanel extends FeaturePanel {
 
   /** The Direction 2 group is active (linear only). */
   private dir2 = false;
+  /** What the empty targets slot asks for. */
+  private readonly targetsPrompt: string;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options: CopyPanelOptions = {}) {
     super(container, {
-      id: 'fluidcad-copy-panel',
+      id: options.id ?? 'fluidcad-copy-panel',
       title: 'Copy',
       icon: '/icons/copy-linear.png',
       bodyHtml: `
@@ -195,14 +212,18 @@ export class CopyPanel extends FeaturePanel {
       this.onChange?.();
     });
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids & connectors', multiple: true });
+    this.targetsPrompt = options.targetsPrompt ?? 'Pick solids or connectors in the viewport';
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), {
+      label: options.targetsLabel ?? 'Solids & connectors',
+      multiple: true,
+    });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
       const control = new AxisSlotControl<ConnectorAxisSelection>(this.role(`axis-slot-${direction}`), {
-        prompt: 'Pick a world axis, an axis, an edge or a connector',
+        prompt: options.axisPrompt ?? 'Pick a world axis, an axis, an edge or a connector',
       });
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       control.onModeChange = () => this.onAxisModeChange?.(direction);
@@ -418,7 +439,7 @@ export class CopyPanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids or connectors in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : this.targetsPrompt);
   }
 
   axisSelection(direction: CopyDirection = 1): CopyAxisSelection | null {

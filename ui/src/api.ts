@@ -3202,6 +3202,13 @@ export type ParsedFeatureStatement =
        * entry for circular.
        */
       axisTexts: string[];
+      /**
+       * Per-axis source location of the statement an axis names — a bound
+       * `axis()` or `connector()`, plus `slot` for one of a connector's
+       * copies — or null for a world axis or another expression. Absent on
+       * servers predating it; empty for the 2D center form.
+       */
+      axisRefs?: ({ line: number; column: number; slot?: number } | null)[];
       /** Linear per-direction count and value, in axis order. */
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
@@ -4869,11 +4876,14 @@ export type AssemblyMateGeometryRef = {
 
 /**
  * One assembly-connector side: the `connector('name', [x, y, z])` statement
- * starting on `connectorLine` — the server dereferences its binding.
+ * starting on `connectorLine` — the server dereferences its binding. With
+ * `slot`, one of its copies (`bay.instance(2)`): `connectorLine` stays the
+ * seed's statement.
  */
 export type AssemblyMateFrameRef = {
   connectorLine: number;
   connectorName: string;
+  slot?: number;
 };
 
 export type AssemblyMatePayload = {
@@ -5191,6 +5201,77 @@ export async function applyAssemblyConnector(
     }
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * One axis of an assembly connector copy: a world axis, an assembly
+ * connector's Z axis ({@link AssemblyMateFrameRef}, `slot` for one of its
+ * copies), or — editing — the statement's own axis kept by position.
+ */
+export type AssemblyCopyAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | ({ kind: 'connector' } & AssemblyMateFrameRef)
+  | { kind: 'keep'; sourceIndex: number };
+
+/**
+ * One target of an assembly connector copy: an assembly connector by its
+ * `connector()` statement, or — editing — a statement target kept verbatim.
+ */
+export type AssemblyCopyTargetRef =
+  | { kind: 'connector'; connectorLine: number; connectorName: string }
+  | { kind: 'verbatim'; sourceIndex: number };
+
+/** The assembly Copy dialog's statement, in the part copy's option shapes. */
+export type AssemblyConnectorCopyPayload = {
+  kind: 'linear' | 'circular';
+  targets: AssemblyCopyTargetRef[];
+  directions?: { axis: AssemblyCopyAxisRef; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  axis?: AssemblyCopyAxisRef;
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+};
+
+/**
+ * The assembly Copy dialog's commit: `create` appends a `copy()` of the
+ * assembly's own connectors, `edit` re-renders the one at `sourceLine`,
+ * `remove` deletes it (and every mate or replicate cell on its copies).
+ * With `preview`, the server answers the statement it would write without
+ * touching the file — the dialog's preview row.
+ */
+export async function applyAssemblyConnectorCopy(
+  filePath: string,
+  spec:
+    | { create: AssemblyConnectorCopyPayload }
+    | { edit: AssemblyConnectorCopyPayload & { sourceLine: number } }
+    | { remove: { sourceLine: number } },
+  opts: { newVariables?: NewVariable[]; preview?: boolean; signal?: AbortSignal } = {},
+): Promise<ApplyFeatureResponse> {
+  try {
+    const res = await fetch('/api/assembly-connector-copy', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal: opts.signal,
+      body: JSON.stringify({
+        filePath,
+        ...spec,
+        newVariables: opts.newVariables ?? null,
+        ...(opts.preview ? { preview: true } : {}),
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
 }

@@ -4,6 +4,7 @@ import {
   connectorChipLabel,
   connectorRefFor,
   findInstanceByAddress,
+  frameRefFor,
   geometryChipLabel,
   previewConnectorRef,
   reresolveGeometry,
@@ -13,6 +14,7 @@ import {
   resolveSideChain,
   resolveWorldPick,
   worldChipLabel,
+  worldConnectorLabel,
   type ConnectorSlotState,
   type GeometrySlotState,
   type WorldSlotState,
@@ -817,11 +819,15 @@ export class AssemblyReplicateService {
     }
     const out: ReplicateCellState[] = [];
     if (column.state.kind === 'world') {
-      for (const connector of assembly.connectors ?? []) {
-        if (connector.connectorId === column.state.connectorId || used.has(`${WORLD_BODY_ID}\0${connector.connectorId}`)) {
+      const family = controller.getConnectorFamily(column.state.connectorId);
+      const candidates = family
+        ? family.members.map(member => member.connectorId)
+        : (assembly.connectors ?? []).map(connector => connector.connectorId);
+      for (const connectorId of candidates) {
+        if (connectorId === column.state.connectorId || used.has(`${WORLD_BODY_ID}\0${connectorId}`)) {
           continue;
         }
-        const state = resolveWorldPick(assembly, connector.connectorId);
+        const state = resolveWorldPick(assembly, connectorId);
         if (!('error' in state)) {
           out.push(state);
         }
@@ -895,7 +901,7 @@ export class AssemblyReplicateService {
       return connectorChipLabel(state);
     }
     if (state.kind === 'world') {
-      return `${state.connectorName} (assembly)`;
+      return `${worldConnectorLabel(state)} (assembly)`;
     }
     return geometryChipLabel(state);
   }
@@ -961,7 +967,7 @@ export class AssemblyReplicateService {
   /** The statement-preview text for one cell (display names stand in for bindings). */
   private previewRef(state: ReplicateCellState): string {
     if (state.kind === 'world') {
-      return state.connectorName;
+      return worldConnectorLabel(state);
     }
     if (state.kind === 'geometry') {
       return `${state.instanceName}.features.${state.exposeName}`;
@@ -1107,7 +1113,7 @@ export class AssemblyReplicateService {
 
   private sideRef(state: ReplicateCellState): AssemblyReplicateSideRef | { error: string } {
     if (state.kind === 'world') {
-      return { connectorLine: state.connectorLine, connectorName: state.connectorName };
+      return frameRefFor(state);
     }
     if (state.kind === 'geometry') {
       return {
@@ -1211,7 +1217,7 @@ function cellKey(state: ReplicateCellState): string {
     return `c:${state.filePath}:${state.instanceLine}:${state.owner}:${state.replicaRow ?? ''}:${state.connectorName}:${state.slot ?? ''}`;
   }
   if (state.kind === 'world') {
-    return `w:${state.filePath}:${state.connectorName}`;
+    return `w:${state.filePath}:${state.connectorName}:${state.slot ?? ''}`;
   }
   return `g:${state.filePath}:${state.instanceLine}:${state.replicaRow ?? ''}:${state.exposeName}`;
 }

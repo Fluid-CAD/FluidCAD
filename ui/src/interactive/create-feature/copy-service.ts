@@ -133,8 +133,8 @@ export class CopyFeatureService {
     this.button = new FeatureButton(group, {
       icon: '/icons/copy-linear.png',
       label: 'Copy',
-      tip: 'Copy solids',
-      ariaLabel: 'Copy solids along an axis or around an axis',
+      tip: 'Copy solids and connectors',
+      ariaLabel: 'Copy solids and connectors along an axis or around an axis',
       hidden: true,
     });
     this.button.onClick = () => {

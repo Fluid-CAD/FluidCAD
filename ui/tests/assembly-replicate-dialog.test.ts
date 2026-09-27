@@ -541,6 +541,39 @@ describe('AssemblyReplicateService', () => {
     });
   });
 
+  // The bore copied at the assembly's top level (`copy('linear', 'y', {…},
+  // bore1)`): an assembly-connector column proposes the family's other
+  // members in slot order, written `bore1.instance(k)` through the seed.
+  it('suggests an assembly connector\'s copies in slot order for its column', () => {
+    const assembly = engine();
+    const bore1 = assembly.connectors![0];
+    assembly.connectors!.push(...[2, 1].map(slot => ({
+      ...bore1,
+      connectorId: `w-bore1-${slot}`,
+      sourceLocation: { filePath: FILE, line: 11, column: 0 },
+      copy: { slot, seedId: 'w-bore1' },
+    })));
+    const { service, q, qa, container } = mount(assembly, {
+      getConnectorFamily: (id: string) => (id.startsWith('w-bore1')
+        ? { seedId: 'w-bore1', originalSlot: 0, members: [0, 1, 2].map(slot => ({ connectorId: slot === 0 ? 'w-bore1' : `w-bore1-${slot}`, slot })) }
+        : null),
+    });
+    service.begin({ kind: 'occurrence', id: 'asm-0' });
+    const crank = qa('[data-target-toggle]')[1] as HTMLInputElement;
+    crank.checked = false;
+    crank.dispatchEvent(new Event('change'));
+    q<HTMLButtonElement>('[data-role="fill-siblings"]')!.click();
+
+    expect([0, 1].map(k => container.querySelector(`[data-replica-cell="${k}:0"]`)!.textContent))
+      .toEqual([expect.stringContaining('bore1.instance(1) (assembly)'), expect.stringContaining('bore1.instance(2) (assembly)')]);
+    expect(service.buildPayload()).toEqual({
+      seed: { instanceLine: 10 },
+      targets: [{ connectorLine: 7, connectorName: 'bore1' }],
+      rows: [1, 2].map(slot => [{ connectorLine: 7, connectorName: 'bore1', slot }]),
+    });
+    expect(q('[data-role="preview"]')!.textContent).toContain('[bore1.instance(1)], [bore1.instance(2)]');
+  });
+
   it('seed picking: a click on a sub-assembly member opens on its top-level occurrence', () => {
     const { service, q, qa } = mount();
     service.armSeedPick();

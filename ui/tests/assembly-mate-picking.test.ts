@@ -292,6 +292,63 @@ describe('mate-dialog connector picking', () => {
     expect(controller.pickConnectorCandidatesAt(W / 2, H / 2).map(c => c.connectorId)).toEqual(['w1']);
   });
 
+  // `copy('linear', 'x', { count: 3, offset: 40 }, base)` at the file's top
+  // level: each copy is an assembly connector of its own in the payload
+  // (its seed's name, `copy`), and a row under the copy statement's row.
+  function worldFamily(suffix = '') {
+    const copies = [1, 2].map(slot => ({
+      ...worldConnector,
+      connectorId: `w1-${slot}${suffix}`,
+      origin: { x: 40 * slot, y: 0, z: 0 },
+      sourceLocation: { filePath: '/ws/m.assembly.js', line: 7, column: 0 },
+      copy: { slot, seedId: `w1${suffix}` },
+    }));
+    const rows: SceneObjectRender[] = [
+      { id: `w1${suffix}`, type: 'connector', name: 'base', object: { name: 'base', ...worldConnector }, sceneShapes: [], ownShapes: [] },
+      {
+        id: `cp${suffix}`, type: 'copy-linear', name: 'Copy', hideChildren: true, sceneShapes: [], ownShapes: [],
+        object: { connectorCopies: { seeds: [{ id: `w1${suffix}`, name: 'base' }], originalSlot: 0, slotCount: 3, slots: [1, 2], connectorsOnly: true } },
+      },
+      ...copies.map((copy): SceneObjectRender => ({
+        id: copy.connectorId, type: 'connector', name: `base.instance(${copy.copy.slot})`, parentId: `cp${suffix}`,
+        object: { name: 'base', ...copy }, sceneShapes: [], ownShapes: [],
+      })),
+    ];
+    return { connectors: [{ ...worldConnector, connectorId: `w1${suffix}` }, ...copies], rows };
+  }
+
+  it('keys an assembly connector copy by its label: hidden alone, found by name and slot, a family in slot order', () => {
+    const { controller, sceneObjects, assembly } = makeRig();
+    const family = worldFamily();
+    controller.update([...sceneObjects, ...family.rows], { ...assembly, connectors: family.connectors });
+
+    controller.setWorldConnectorHidden('base.instance(1)', true);
+    expect(controller.getWorldConnectorGroup('w1-1')!.visible).toBe(false);
+    expect(controller.getWorldConnectorGroup('w1-2')!.visible).toBe(true);
+    expect(controller.getWorldConnectorGroup('w1')!.visible).toBe(true);
+    expect(controller.isWorldConnectorHidden('base.instance(1)')).toBe(true);
+    expect(controller.isWorldConnectorHidden('base')).toBe(false);
+
+    // The address survives a re-mint: the hide follows the label.
+    const again = worldFamily('-r2');
+    controller.update([...sceneObjects, ...again.rows], { ...assembly, connectors: again.connectors });
+    expect(controller.getWorldConnectorGroup('w1-1-r2')!.visible).toBe(false);
+    expect(controller.findWorldConnectorId('base', 2)).toBe('w1-2-r2');
+    expect(controller.findWorldConnectorId('base')).toBe('w1-r2');
+
+    // "Suggest copies" reads the family through the copy statement — at the
+    // file's top level, like a part's.
+    expect(controller.getConnectorFamily('w1-2-r2')).toEqual({
+      seedId: 'w1-r2',
+      originalSlot: 0,
+      members: [
+        { connectorId: 'w1-r2', slot: 0 },
+        { connectorId: 'w1-1-r2', slot: 1 },
+        { connectorId: 'w1-2-r2', slot: 2 },
+      ],
+    });
+  });
+
   it('hover highlight and mate pinning reach assembly connectors', () => {
     const { controller, sceneObjects, assembly } = makeRig();
     controller.update(sceneObjects, { ...assembly, connectors: [worldConnector] });

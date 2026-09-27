@@ -19,6 +19,7 @@ import {
   connectorChipLabel,
   connectorRefFor,
   findInstanceByAddress,
+  frameRefFor,
   previewConnectorRef,
   reresolveSlot,
   resolveConnectorPick,
@@ -26,6 +27,7 @@ import {
   resolveWorldPick,
   sameConnectorSlot,
   worldChipLabel,
+  worldConnectorLabel,
   type ConnectorSlotState,
   type MateSlotState,
   type ResolvedSideChain,
@@ -714,7 +716,7 @@ export class AssemblyMateService {
       if (state?.kind !== 'world') continue;
       const otherFile = a?.filePath ?? b?.filePath ?? this.editTarget?.filePath;
       if (otherFile && otherFile !== state.filePath) {
-        return { error: `${state.connectorName} is declared in a different file than the other side — mate them in the file that declares it.` };
+        return { error: `${worldConnectorLabel(state)} is declared in a different file than the other side — mate them in the file that declares it.` };
       }
     }
     return { a, b };
@@ -787,7 +789,7 @@ export class AssemblyMateService {
         return '…';
       }
       if (s.kind === 'world') {
-        return s.connectorName;
+        return worldConnectorLabel(s);
       }
       return previewConnectorRef(this.hooks.getAssembly(), s);
     };
@@ -934,7 +936,7 @@ export class AssemblyMateService {
       const connectorRef = (s: ConnectorSlotState, chain: ResolvedSideChain): AssemblyMateConnectorRef =>
         connectorRefFor(s, chain);
       const sideRef = (key: 'A' | 'B', s: MateSlotState, chain: ResolvedSideChain | null) => s.kind === 'world'
-        ? { [`frame${key}`]: { connectorLine: s.connectorLine, connectorName: s.connectorName } }
+        ? { [`frame${key}`]: frameRefFor(s) }
         : { [`connector${key}`]: connectorRef(s, chain!) };
       const target = this.editTarget;
       const payload = {

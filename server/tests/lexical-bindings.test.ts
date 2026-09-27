@@ -130,6 +130,11 @@ describe('LexicalBindings reassignment', () => {
     expect(await argKind(code, 'extrude')).toBe('number');
   });
 
+  it('sees a write through a shorthand destructuring pattern', async () => {
+    const code = `${CORE};\nlet d = 5;\n({ d } = { d: select(face()) });\nextrude(d);`;
+    expect(await argKind(code, 'extrude')).toBe('unknown');
+  });
+
   it('reads a self-referencing declaration without looping', async () => {
     const code = `${CORE}\nlet a = b\nlet b = a\nextrude(a)`;
     expect(await argKind(code, 'extrude')).toBe('unknown');
@@ -213,5 +218,95 @@ describe('LexicalBindings value kinds', () => {
     expect(await argKind(code, 'extrude', 0, 4)).toBe('other');
     expect(await argKind(code, 'extrude', 0, 5)).toBe('number');
     expect(await argKind(code, 'extrude', 0, 6)).toBe('other');
+  });
+});
+
+/**
+ * The bindings of `code`, and every call whose callee text is `callee`, in
+ * source order.
+ */
+async function callsTo(code: string, callee: string): Promise<{ bindings: LexicalBindings; calls: TSNode[] }> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const calls = [...walkTree(tree.rootNode)].filter((node: TSNode) => node.type === 'call_expression'
+    && node.childForFieldName('function')?.text === callee);
+  return { bindings: new LexicalBindings(tree), calls };
+}
+
+/** Whether `name`, as the `occurrence`-th call to `callee` sees it, is ever reassigned. */
+async function reassignedAt(code: string, name: string, callee: string, occurrence = 0): Promise<boolean> {
+  const { bindings, calls } = await callsTo(code, callee);
+  const call = calls[occurrence];
+  if (!call) {
+    throw new Error(`no call #${occurrence} to ${callee}()`);
+  }
+  const binding = bindings.resolve(name, call);
+  if (!binding) {
+    throw new Error(`${name} is not declared where ${callee}() #${occurrence} sits`);
+  }
+  return bindings.isReassigned(binding);
+}
+
+describe('LexicalBindings.isReassigned', () => {
+  it('never reads a const or an import as reassigned', async () => {
+    const code = [
+      `import { DEPTH } from './dims.js'`,
+      CORE,
+      `const d = 5`,
+      `extrude(d, DEPTH)`,
+    ].join('\n');
+    expect(await reassignedAt(code, 'd', 'extrude')).toBe(false);
+    expect(await reassignedAt(code, 'DEPTH', 'extrude')).toBe(false);
+  });
+
+  it('reads a let or var nothing writes as holding its initializer', async () => {
+    const code = `${CORE}\nlet d = 5\nvar e = 6\nextrude(d + e)`;
+    expect(await reassignedAt(code, 'd', 'extrude')).toBe(false);
+    expect(await reassignedAt(code, 'e', 'extrude')).toBe(false);
+  });
+
+  it('catches every form of write', async () => {
+    const writes = ['d = 7', 'd += 1', 'd++', '--d', '[d] = [1]', '({ d } = { d: 1 })', 'for (d of [1, 2]) {}'];
+    for (const write of writes) {
+      // Semicolons: a line opening with `[` or `(` would otherwise continue
+      // the declaration above it.
+      const code = `${CORE};\nlet d = 5;\n${write};\nextrude(d);`;
+      expect(await reassignedAt(code, 'd', 'extrude'), write).toBe(true);
+    }
+  });
+
+  it('counts a write from a nested function, but not one to a shadowing binding', async () => {
+    const nested = `${CORE}\nlet d = 5\nfunction grow() { d = d * 2 }\nextrude(d)`;
+    expect(await reassignedAt(nested, 'd', 'extrude')).toBe(true);
+    const shadowed = `${CORE}\nlet d = 5\nfunction f() { let d = 1; d = 2 }\nextrude(d)`;
+    expect(await reassignedAt(shadowed, 'd', 'extrude')).toBe(false);
+  });
+});
+
+describe('LexicalBindings.fluidCadCallee', () => {
+  async function calleeOf(code: string, callee: string): Promise<{ source: string; name: string } | null> {
+    const { bindings, calls } = await callsTo(code, callee);
+    return bindings.fluidCadCallee(calls[0]);
+  }
+
+  it('names the API a named, aliased or namespace import calls', async () => {
+    expect(await calleeOf(`${CORE}\nparam('W', 1)`, 'param')).toEqual({ source: 'fluidcad/core', name: 'param' });
+    expect(await calleeOf(`import { param as p } from 'fluidcad/core'\np('W', 1)`, 'p'))
+      .toEqual({ source: 'fluidcad/core', name: 'param' });
+    expect(await calleeOf(`import * as fc from 'fluidcad'\nfc.param('W', 1)`, 'fc.param'))
+      .toEqual({ source: 'fluidcad', name: 'param' });
+    expect(await calleeOf(`import { inch } from 'fluidcad/units'\ninch(1)`, 'inch'))
+      .toEqual({ source: 'fluidcad/units', name: 'inch' });
+  });
+
+  it('reads a bare, unbound param() as the API', async () => {
+    expect(await calleeOf(`part('P', () => { param('W', 1) })`, 'param'))
+      .toEqual({ source: 'fluidcad/core', name: 'param' });
+  });
+
+  it('names nothing for a local function, another module, or a global', async () => {
+    expect(await calleeOf(`function param(x) { return x }\nparam('W', 1)`, 'param')).toBeNull();
+    expect(await calleeOf(`import { param } from './mine.js'\nparam('W', 1)`, 'param')).toBeNull();
+    expect(await calleeOf(`Math.max(1, 2)`, 'Math.max')).toBeNull();
   });
 });

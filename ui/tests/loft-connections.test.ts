@@ -143,7 +143,7 @@ describe('loft Connections dialog', () => {
     await preview();
     expect(api.fetchFeatureGhostResult).toHaveBeenLastCalledWith(expect.objectContaining({
       connections: [[[0, 0, 0], [0, 0, 10], [5, 0, 20]]],
-    }), expect.any(AbortSignal));
+    }), null, expect.any(AbortSignal));
     m.pick(0, 1);
     expect(m.connections()).toContain('C2');
     expect(m.apply.disabled).toBe(true);
@@ -163,7 +163,7 @@ describe('loft Connections dialog', () => {
     await preview();
     expect(api.fetchFeatureGhostResult).toHaveBeenLastCalledWith(expect.objectContaining({ connections: [
       [[0, 0, 0], [0, 0, 10]], [[5, 0, 0], [5, 0, 10]],
-    ] }), expect.anything());
+    ] }), null, expect.anything());
   });
 
   it('supports chip editing and refuses reuse by another row', () => {
@@ -385,5 +385,29 @@ describe('connection matching and profile remapping', () => {
     overlay.set(rows.rows, 0, false);
     expect(group.children).toHaveLength(0);
     expect(dispose).toHaveBeenCalledOnce();
+  });
+});
+
+describe('loft ghost value scope', () => {
+  afterEach(() => {
+    api.setActivePartProvider(() => null);
+  });
+
+  it("reads a created loft's values where it lands, at the end of the active part", async () => {
+    api.setActivePartProvider(() => ({ filePath, line: 2, column: 22 }));
+    const m = mount();
+    m.begin(); m.pick(0); m.pick(1);
+    await preview();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.lastCall![1])
+      .toEqual({ kind: 'append', filePath, line: 2, column: 22 });
+  });
+
+  it("reads an edited loft's values at its own statement", async () => {
+    api.setActivePartProvider(() => ({ filePath, line: 2, column: 22 }));
+    const m = mount();
+    openEdit(m);
+    await preview();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.lastCall![1])
+      .toEqual({ kind: 'statement', filePath, line: 31, column: 1 });
   });
 });

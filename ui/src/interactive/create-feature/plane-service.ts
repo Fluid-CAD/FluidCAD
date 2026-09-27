@@ -1,5 +1,5 @@
 import {
-  applyPlane, applyPlaneEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyPlane, applyPlaneEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostPlaneBaseRef, GhostSolid, ParsedFeatureStatement, ParsedPlaneBase, PlaneApplyOptions,
   PlaneBaseRef, PlaneEditBaseRef, PlaneEditOptions, SketchSourceRef, SourceSlotRef,
 } from '../../api';
@@ -755,7 +755,7 @@ export class PlaneFeatureService {
       rotateZ: values.rotateZ,
       rotationAxes: values.rotationAxes,
       position: values.position,
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** One chosen base in the form the kernel resolves, or null when unaddressable. */

@@ -19,7 +19,8 @@ const FILE = '/ws/m.fluid.js';
 
 const fakeServer = {
   getCurrentCode: () => code,
-  getParamDefinitions: () => [],
+  getCurrentFileName: () => FILE,
+  getParamDefinitions: () => [] as unknown[],
   featureGhost: async (request: unknown) => {
     received = request;
     return { status: 200, solids: [] };
@@ -1042,5 +1043,88 @@ describe('feature-ghost route — region picks', () => {
       body: JSON.stringify({ picks: [] }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * Since `param()` went part-only, a model's dimensions live in part bodies.
+ * The request's `valueScope` says where the dialog's statement sits, and
+ * every value resolves its names there — before it, only the file's top
+ * level was read, and a dialog naming a part's `depth` drew no ghost.
+ */
+describe('feature-ghost route — value scope', () => {
+  useGhostRoute();
+
+  const PART = [
+    `import { part, param, sketch, extrude, offset } from 'fluidcad/core';`,
+    `const depth = 30;`,
+    `export const drawer = part('Drawer', () => {`,
+    `  const depth = param('depth', 500);`,
+    `  const thickness = param('Thickness', 18);`,
+    `  const s = sketch('xz', () => {`,
+    `    const wall = depth / 100;`,
+    `    offset(wall);`,
+    `  });`,
+    `  extrude(-depth + thickness, s);`,
+    `});`,
+  ].join('\n');
+
+  const extrudeBody = (distance: unknown, valueScope?: unknown) => ({
+    feature: 'extrude', op: 'add', distance, distance2: null, symmetric: false, draft: null,
+    endOffset: null, drill: true, thin: null, profile: { filePath: FILE, line: 6 }, valueScope,
+  });
+
+  it("resolves a part body's param at the edited statement", async () => {
+    code = PART;
+    const { status } = await postGhost(extrudeBody('-depth + thickness', {
+      kind: 'statement', filePath: FILE, line: 10, column: 3,
+    }));
+    expect(status).toBe(200);
+    expect(received.distance).toBe(-482);
+  });
+
+  it('resolves where a created statement lands in the active part', async () => {
+    code = PART;
+    await postGhost(extrudeBody('depth', { kind: 'append', filePath: FILE, line: 3, column: 22 }));
+    expect(received.distance).toBe(500);
+  });
+
+  it("resolves a created sketch op's names in the sketch it lands in", async () => {
+    code = PART;
+    await postGhost({
+      feature: 'offset', distance: 'wall', close: false, entities: [{ shapeId: 'e1' }],
+      valueScope: { kind: 'append', filePath: FILE, line: 6, column: 13 },
+    });
+    expect(received.distance).toBe(5);
+  });
+
+  it("reads the value the last render gave the param's own call site", async () => {
+    code = PART;
+    const previous = fakeServer.getParamDefinitions;
+    fakeServer.getParamDefinitions = () => [
+      { label: 'depth', currentValue: 600, sourceLocation: { filePath: FILE, line: 4, column: 17 } },
+    ];
+    try {
+      await postGhost(extrudeBody('depth', { kind: 'statement', filePath: FILE, line: 10, column: 3 }));
+      expect(received.distance).toBe(600);
+    } finally {
+      fakeServer.getParamDefinitions = previous;
+    }
+  });
+
+  it('keeps reading the top level for a request without a scope', async () => {
+    code = PART;
+    await postGhost(extrudeBody('depth'));
+    expect(received.distance).toBe(30);
+  });
+
+  it('refuses a malformed scope rather than guessing one', async () => {
+    code = PART;
+    for (const valueScope of ['line 10', { kind: 'here', filePath: FILE, line: 10, column: 3 }, { kind: 'statement', filePath: FILE, line: 0, column: 3 }]) {
+      const { status, body } = await postGhost(extrudeBody('depth', valueScope));
+      expect(status, JSON.stringify(valueScope)).toBe(400);
+      expect(body).toEqual({ success: false, reason: 'Invalid value scope' });
+    }
+    expect(received).toBeUndefined();
   });
 });

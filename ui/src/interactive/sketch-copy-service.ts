@@ -2,13 +2,12 @@ import {
   applySketchCopy, applySketchCopyEdit, clearBreakpoints, fetchFeatureGhost,
   fetchSketchFeatureSources, ApplyFeatureResponse, Copy2DGhostRequest, FeatureEditTarget,
   GhostSketchAxisRef, GhostSolid, ParsedFeatureStatement,
-  SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, ValueExpr,
+  SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, sketchGhostScope, ValueExpr,
 } from '../api';
-import { SketchOpSelection, SolvedPickRail } from './sketch-op-service';
+import { SketchOpScope, SketchOpSelection, SolvedPickRail } from './sketch-op-service';
 import { keepChip } from './create-feature/sketch-profiles';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
-import { VariableInfo } from '../ui/expression-core';
 import { SketchCopyDirection, SketchCopyPanel, SketchCopyArmedSlot } from './sketch-copy-panel';
 
 const PREVIEW_DEBOUNCE_MS = 250;
@@ -77,7 +76,7 @@ export class SketchCopyService {
   constructor(
     container: HTMLElement,
     private readonly selection: SketchOpSelection,
-    private fetchVariables: () => Promise<VariableInfo[]>,
+    private readonly scope: SketchOpScope,
     private onDone: () => void,
     /** The live viewport geometry overlay, shared with the other 2D op dialogs. */
     private readonly ghost?: FeatureGhostOverlay,
@@ -393,7 +392,7 @@ export class SketchCopyService {
 
   /** Feed the sketch scope's variables to the fields' dropdowns. */
   private async loadVariables(): Promise<void> {
-    const variables = await this.fetchVariables();
+    const variables = await this.scope.variables();
     if (this.active) {
       this.panel.setScopeVariables(variables);
     }
@@ -522,7 +521,7 @@ export class SketchCopyService {
     }
     let solids: GhostSolid[] | null;
     try {
-      solids = await fetchFeatureGhost(request, signal);
+      solids = await fetchFeatureGhost(request, sketchGhostScope(this.editTarget, this.scope.sketch()), signal);
     } catch {
       return; // aborted
     }

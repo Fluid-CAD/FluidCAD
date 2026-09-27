@@ -1,5 +1,5 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
+  applyExtrude, applyExtrudeEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
   ExtrudeProfileRef, FeatureEditTarget, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
@@ -711,7 +711,7 @@ export class ExtrudeFeatureService {
       thin: values.thin,
       profile,
       regions: this.regions.ghostPicks(),
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost extrudes, or null while there is nothing to sweep. */

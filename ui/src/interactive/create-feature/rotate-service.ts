@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRotate, applyRotateEdit, FeatureEditTarget, fetchFeatureGhostResult, fetchFeatureSources,
+  applyRotate, applyRotateEdit, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RotateApplyOptions, RotateEditAxisRef,
   RotateEditOptions, RotateEditTargetRef, RotateGhostRequest, SourceSlotRef,
 } from '../../api';
@@ -633,7 +633,7 @@ export class RotateFeatureService {
       axis,
       angle: values.angle,
     };
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, an expression the server can't evaluate: those
     // just leave the viewport as it was). A superseded fetch says nothing

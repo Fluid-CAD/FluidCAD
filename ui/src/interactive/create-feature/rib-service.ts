@@ -1,5 +1,5 @@
 import {
-  applyRib, applyRibEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget, GhostSolid,
+  applyRib, applyRibEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget, GhostSolid,
   ParsedFeatureStatement, RibApplyOptions, RibEditOptions, SourceSlotRef,
 } from '../../api';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
@@ -570,7 +570,7 @@ export class RibFeatureService {
       exclude: this.editTarget
         ? { filePath: this.editTarget.filePath, line: this.editTarget.line }
         : undefined,
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost ribs from, or null while there is nothing to build. */

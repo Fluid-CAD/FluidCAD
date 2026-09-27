@@ -18,6 +18,7 @@ import {
   type AssemblyExportPose,
   type ImportReport,
   type InterferenceRequest,
+  type ParamDefinition,
   type ParamRegistry,
   type ParamVal,
   type RenderChangeTracker,
@@ -139,8 +140,11 @@ export class FluidCadServer {
     return this.host.getBuffer(this.currentFileName);
   }
 
-  /** Param definitions from the last render — currentValue is override-aware. */
-  getParamDefinitions(): { label: string; currentValue: unknown }[] {
+  /**
+   * Param definitions from the last render — currentValue is override-aware,
+   * and sourceLocation addresses the `param()` call that declared each one.
+   */
+  getParamDefinitions(): ParamDefinition[] {
     return getParamRegistry().getDefinitions();
   }
 

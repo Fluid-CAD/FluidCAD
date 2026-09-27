@@ -194,46 +194,75 @@ export class LexicalBindings {
     }
   }
 
+  /**
+   * Whether anything writes `binding` after its declaration — an
+   * assignment, `++`/`--`, a `for (x of xs)` over it. A binding nothing
+   * reassigns holds its initializer's value wherever it is read. A `const`
+   * or an import never counts: writing one throws rather than rebinding it.
+   */
+  isReassigned(binding: Binding): boolean {
+    if (binding.kind === 'const' || binding.kind === 'import') {
+      return false;
+    }
+    for (const node of LexicalBindings.descendants(binding.scope)) {
+      if (this.writeOf(node, binding) !== null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** The kinds of every value assigned to `binding` after its declaration. */
   private *assignedKinds(binding: Binding): Generator<ValueKind> {
     for (const node of LexicalBindings.descendants(binding.scope)) {
-      if (node.type === 'update_expression') {
-        const argument = node.childForFieldName('argument');
-        if (argument && this.targets(argument, binding)) {
+      switch (this.writeOf(node, binding)) {
+        case 'update':
           yield 'number';
-        }
-        continue;
-      }
-      if (node.type === 'for_in_statement') {
-        // `for (x of xs)` over a name declared elsewhere assigns it per turn.
-        const left = node.childForFieldName('left');
-        if (!node.childForFieldName('kind') && left && this.patternTargets(left, binding)) {
+          break;
+        case 'part':
           yield 'unknown';
-        }
-        continue;
-      }
-      if (node.type !== 'assignment_expression' && node.type !== 'augmented_assignment_expression') {
-        continue;
-      }
-      const left = node.childForFieldName('left');
-      if (!left) {
-        continue;
-      }
-      if (left.type !== 'identifier') {
-        // A destructuring assignment (`[a, b] = …`) writes a part of its value.
-        if (this.patternTargets(left, binding)) {
-          yield 'unknown';
-        }
-        continue;
-      }
-      if (this.targets(left, binding)) {
-        yield this.kindOf(node);
+          break;
+        case 'value':
+          yield this.kindOf(node);
+          break;
+        default:
+          break;
       }
     }
   }
 
+  /**
+   * How `node` writes `binding`: `'update'` for `++`/`--`, `'value'` for an
+   * assignment whose result is the value written, `'part'` for a write of
+   * some part of a value — a destructuring assignment, a `for (x of xs)`
+   * over a name declared elsewhere — and null when it doesn't write it.
+   */
+  private writeOf(node: TSNode, binding: Binding): 'update' | 'value' | 'part' | null {
+    if (node.type === 'update_expression') {
+      const argument = node.childForFieldName('argument');
+      return argument && this.targets(argument, binding) ? 'update' : null;
+    }
+    if (node.type === 'for_in_statement') {
+      const left = node.childForFieldName('left');
+      return !node.childForFieldName('kind') && left && this.patternTargets(left, binding) ? 'part' : null;
+    }
+    if (node.type !== 'assignment_expression' && node.type !== 'augmented_assignment_expression') {
+      return null;
+    }
+    const left = node.childForFieldName('left');
+    if (!left) {
+      return null;
+    }
+    if (left.type !== 'identifier') {
+      return this.patternTargets(left, binding) ? 'part' : null;
+    }
+    return this.targets(left, binding) ? 'value' : null;
+  }
+
   private targets(identifier: TSNode, binding: Binding): boolean {
-    if (identifier.type !== 'identifier' || identifier.text !== binding.name) {
+    // `({ d } = …)` writes `d` through a shorthand pattern, not an identifier.
+    const isName = identifier.type === 'identifier' || identifier.type === 'shorthand_property_identifier_pattern';
+    if (!isName || identifier.text !== binding.name) {
       return false;
     }
     const resolved = this.resolve(binding.name, identifier);
@@ -270,24 +299,53 @@ export class LexicalBindings {
     return 'unknown';
   }
 
+  /**
+   * The FluidCAD API a call invokes where it sits — its export name and the
+   * module it comes from — or null for any other call. Reads the call the
+   * way the engine resolves it: a named (or aliased) import from a
+   * `fluidcad` module, `fc.param(…)` through a namespace import, and a
+   * bare, unbound `param(…)`, which still names the API — the import is a
+   * lint concern, not a reason to lose what the call is. A local function
+   * that happens to be called `param` is not the API.
+   */
+  fluidCadCallee(call: TSNode): { source: string; name: string } | null {
+    const fn = call.childForFieldName('function');
+    if (fn?.type === 'identifier') {
+      const binding = this.resolve(fn.text, fn);
+      if (binding?.kind === 'import' && binding.imported
+        && LexicalBindings.isFluidCadModule(binding.imported.source)) {
+        return { source: binding.imported.source, name: binding.imported.name };
+      }
+      return !binding && fn.text === 'param' ? { source: 'fluidcad/core', name: 'param' } : null;
+    }
+    if (fn?.type !== 'member_expression') {
+      return null;
+    }
+    const object = fn.childForFieldName('object');
+    const property = fn.childForFieldName('property')?.text;
+    if (object?.type !== 'identifier' || !property) {
+      return null;
+    }
+    const binding = this.resolve(object.text, object);
+    if (binding?.kind === 'import' && binding.imported?.name === '*'
+      && LexicalBindings.isFluidCadModule(binding.imported.source)) {
+      return { source: binding.imported.source, name: property };
+    }
+    return null;
+  }
+
   private callKind(node: TSNode): ValueKind {
+    const api = this.fluidCadCallee(node);
+    if (api) {
+      return this.fluidCadCallKind(api.source, api.name, node);
+    }
     const fn = node.childForFieldName('function');
     if (!fn) {
       return 'unknown';
     }
     if (fn.type === 'identifier') {
-      const binding = this.resolve(fn.text, fn);
-      if (binding?.kind === 'import' && binding.imported
-        && LexicalBindings.isFluidCadModule(binding.imported.source)) {
-        return this.fluidCadCallKind(binding.imported.source, binding.imported.name, node);
-      }
-      if (binding) {
+      if (this.resolve(fn.text, fn)) {
         return 'unknown';
-      }
-      // A bare `param(…)` still reads as the API call it names — the import
-      // is a lint concern, not a reason to lose the value's kind.
-      if (fn.text === 'param') {
-        return this.fluidCadCallKind('fluidcad/core', 'param', node);
       }
       if (fn.text === 'Number' || fn.text === 'parseFloat' || fn.text === 'parseInt') {
         return 'number';
@@ -310,14 +368,6 @@ export class LexicalBindings {
     }
     if (this.isGlobal(object, 'Number')) {
       return property === 'parseFloat' || property === 'parseInt' ? 'number' : 'other';
-    }
-    // `fc.param(…)` through `import * as fc from 'fluidcad/core'`.
-    if (object.type === 'identifier') {
-      const binding = this.resolve(object.text, object);
-      if (binding?.kind === 'import' && binding.imported?.name === '*'
-        && LexicalBindings.isFluidCadModule(binding.imported.source)) {
-        return this.fluidCadCallKind(binding.imported.source, property, node);
-      }
     }
     return 'unknown';
   }

@@ -927,6 +927,55 @@ export type GhostSolid = {
 };
 
 /**
+ * Where a ghost's dialog values are read. A value names variables the way
+ * its statement will: an edited statement at its own call site
+ * (`'statement'`), a created one at the end of the callback body it lands in
+ * (`'append'`, at the site of that `part()` or `sketch()` call). So `depth`
+ * resolves to the `param()` of the part the statement lives in, and a
+ * sketch's own `const`s shadow the part's. Null reads the file's top level.
+ */
+export type GhostValueScope = {
+  kind: 'statement' | 'append';
+  filePath: string;
+  line: number;
+  column: number;
+};
+
+/**
+ * A feature dialog's value scope: the statement it edits, or — creating —
+ * the end of the timeline's active part, where the new statement lands. The
+ * same part {@link getScopeVariables} lists the value fields' variables
+ * from, so every name a field offers resolves in the ghost too. Null with no
+ * part active: the statement lands at the file's top level.
+ */
+export function featureGhostScope(editTarget: FeatureEditTarget | null): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  const part = activePartProvider?.() ?? null;
+  return part ? { kind: 'append', filePath: part.filePath, line: part.line, column: part.column } : null;
+}
+
+/**
+ * A sketch op's value scope: the statement it edits, or — creating — the end
+ * of the active sketch's body, where the sketch's own names are visible
+ * too. Null with no sketch to append to.
+ */
+export function sketchGhostScope(
+  editTarget: FeatureEditTarget | null,
+  sketch: SketchSourceRef | null,
+): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  return sketch ? { kind: 'append', filePath: sketch.filePath, line: sketch.line, column: sketch.column } : null;
+}
+
+function statementGhostScope(target: FeatureEditTarget): GhostValueScope {
+  return { kind: 'statement', filePath: target.filePath, line: target.line, column: target.column };
+}
+
+/**
  * The bodies the dialog's current values would produce, meshed server-side.
  * Null whenever there is nothing to draw — an unresolvable expression, an
  * empty profile, a scene that moved on — so callers just clear the overlay.
@@ -934,9 +983,10 @@ export type GhostSolid = {
  */
 export async function fetchFeatureGhost(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<GhostSolid[] | null> {
-  return (await fetchFeatureGhostResult(request, signal)).solids;
+  return (await fetchFeatureGhostResult(request, valueScope, signal)).solids;
 }
 
 /**
@@ -951,6 +1001,7 @@ export async function fetchFeatureGhost(
  */
 export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<{ solids: GhostSolid[] | null; notice: string | null }> {
   try {
@@ -958,7 +1009,7 @@ export async function fetchFeatureGhostResult(
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
-      body: JSON.stringify(request),
+      body: JSON.stringify({ ...request, valueScope }),
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {

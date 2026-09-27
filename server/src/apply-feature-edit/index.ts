@@ -102,7 +102,13 @@ export {
   resolveSketchNames,
 } from './producers/naming.ts';
 export { enclosingSketchLine } from './ast/nodes.ts';
-export { extractNumericParams, resolveParamValues, type ExtractedParam } from './params.ts';
+export {
+  extractNumericParams,
+  ParamSites,
+  resolveParamValues,
+  type ExtractedParam,
+  type ParamSiteDefinition,
+} from './params.ts';
 export { resolvePartBindingIdent } from './part-binding.ts';
 export { renderRegionChain } from './render/chains.ts';
 export { renderSelectorPartExpr } from './render/selectors.ts';

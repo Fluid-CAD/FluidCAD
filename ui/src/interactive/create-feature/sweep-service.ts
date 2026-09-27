@@ -1,5 +1,5 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureGhost, fetchFeatureSources, expandBucket,
+  applySweep, applySweepEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, expandBucket,
   ApplyFeatureEntity, FeatureEditTarget, GhostPathRef, GhostSolid, ParsedFeatureStatement,
   SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
@@ -718,7 +718,7 @@ export class SweepFeatureService {
       profile,
       path,
       regions: this.regions.ghostPicks(),
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost sweeps, or null while there is nothing to sweep. */

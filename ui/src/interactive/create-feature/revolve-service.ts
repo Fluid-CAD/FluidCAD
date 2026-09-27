@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRevolve, applyRevolveEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyRevolve, applyRevolveEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef,
   RevolveEditOptions, SourceSlotRef,
 } from '../../api';
@@ -601,7 +601,7 @@ export class RevolveFeatureService {
       profile,
       axis,
       regions: this.regions.ghostPicks(),
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost revolves, or null while there is nothing to sweep. */

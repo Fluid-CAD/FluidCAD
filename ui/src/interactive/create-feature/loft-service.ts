@@ -1,5 +1,5 @@
 import {
-  applyLoft, applyLoftEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
+  applyLoft, applyLoftEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
   GhostSectionRef, GhostSolid, LoftApplyOptions, LoftEditGuideRef, LoftEditProfileRef,
   LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
@@ -783,7 +783,7 @@ export class LoftFeatureService {
       connections,
       startCondition: values.startCondition,
       endCondition: values.endCondition,
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
     if (!signal.aborted && this.armed && result.notice) {
       this.panel.setMessage(result.notice);
     }

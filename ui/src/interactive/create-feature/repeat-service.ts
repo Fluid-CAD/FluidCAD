@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRepeat, applyRepeatEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
+  applyRepeat, applyRepeatEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostPlaneRef, GhostSolid, ParsedFeatureStatement, RepeatApplyOptions,
   RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef, RepeatEditTargetRef,
   RepeatGhostRequest, SourceSlotRef,
@@ -932,7 +932,7 @@ export class RepeatFeatureService {
         request.angle = values.angle;
       }
     }
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, an expression the server can't evaluate: those
     // just leave the viewport as it was). A superseded fetch says nothing

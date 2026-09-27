@@ -1,5 +1,5 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, fetchFeatureGhost,
+  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, featureGhostScope, fetchFeatureGhost,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
   FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
   SketchSourceRef, ValueExpr,
@@ -1896,7 +1896,7 @@ export class ModifyPickService {
       distance2: feature === 'chamfer' ? chamfer.distance2 : null,
       isAngle: feature === 'chamfer' && chamfer.isAngle,
       edges: this.ghostEdges(),
-    }, abort.signal).catch(() => null);
+    }, featureGhostScope(this.editTarget), abort.signal).catch(() => null);
 
     if (seq !== this.ghostSeq || this.ghostFeature() !== feature) {
       return;

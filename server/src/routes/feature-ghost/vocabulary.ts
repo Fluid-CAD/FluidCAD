@@ -58,6 +58,8 @@ export type GhostBody = {
   entities?: unknown;
   center?: unknown;
   regions?: unknown;
+  /** Where the dialog's statement sits — see `GhostValueScope`. */
+  valueScope?: unknown;
 };
 
 export const FEATURES = [

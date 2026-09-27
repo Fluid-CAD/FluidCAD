@@ -1,7 +1,7 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyCopy, applyCopyEdit, CopyApplyOptions, CopyDirectionRef, CopyEditAxisRef, CopyEditOptions,
-  CopyEditTargetRef, CopyGhostRequest, FeatureEditTarget, fetchFeatureGhostResult,
+  CopyEditTargetRef, CopyGhostRequest, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult,
   fetchFeatureSources, GhostAxisRef, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
@@ -690,7 +690,7 @@ export class CopyFeatureService {
       request.count = values.count;
       request.sweep = values.sweep;
     }
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, an expression the server can't evaluate: those
     // just leave the viewport as it was). A superseded fetch says nothing

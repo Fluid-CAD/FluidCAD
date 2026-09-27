@@ -2,7 +2,7 @@ import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
   fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
-  SketchApplyEntity, SketchOpFeature, ValueExpr,
+  SketchApplyEntity, SketchOpFeature, sketchGhostScope, SketchSourceRef, ValueExpr,
 } from '../api';
 import type { SolvedSketchModel } from '../sketch-solver-client/model';
 import type { SolvedPick } from './sketch-hover-select-handler';
@@ -86,6 +86,18 @@ export type SketchOpSelection = {
   deselect: (shapeId: string) => void;
   /** Replace the picks (the edit dialog seeding the statement's targets). */
   select: (shapeIds: string[]) => void;
+};
+
+/**
+ * Where a 2D op dialog's statement reads its names: the active sketch. The
+ * value fields offer the variables visible there, and a created op's ghost
+ * resolves them at the end of the sketch's body, where the statement lands.
+ */
+export type SketchOpScope = {
+  /** The variables the value fields offer. */
+  variables: () => Promise<VariableInfo[]>;
+  /** The active sketch's statement, or null while no sketch is active. */
+  sketch: () => SketchSourceRef | null;
 };
 
 /** The per-operation dressing of the shared 2D op dialog. */
@@ -176,7 +188,7 @@ export class SketchOpService {
     container: HTMLElement,
     private readonly config: SketchOpConfig,
     private readonly selection: SketchOpSelection,
-    private fetchVariables: () => Promise<VariableInfo[]>,
+    private readonly scope: SketchOpScope,
     private onDone: () => void,
     /** The live viewport geometry overlay; offset and fillet draw into it. */
     private readonly ghost?: FeatureGhostOverlay,
@@ -483,7 +495,7 @@ export class SketchOpService {
     if (!this.valueField) {
       return;
     }
-    const variables = await this.fetchVariables();
+    const variables = await this.scope.variables();
     if (this.active) {
       this.scopeVariables = variables;
       this.valueField.setVariables(variables);
@@ -765,7 +777,7 @@ export class SketchOpService {
     }
     let solids: GhostSolid[] | null;
     try {
-      solids = await fetchFeatureGhost(request, signal);
+      solids = await fetchFeatureGhost(request, sketchGhostScope(this.editTarget, this.scope.sketch()), signal);
     } catch {
       return; // aborted
     }

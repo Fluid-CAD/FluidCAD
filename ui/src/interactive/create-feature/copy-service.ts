@@ -1,16 +1,19 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyCopy, applyCopyEdit, CopyApplyOptions, CopyDirectionRef, CopyEditAxisRef, CopyEditOptions,
-  CopyEditTargetRef, CopyGhostRequest, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult,
-  fetchFeatureSources, GhostAxisRef, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
+  CopyEditTargetRef, CopyGhostRequest, CopyTargetRef, FeatureEditTarget, featureGhostScope,
+  fetchFeatureGhostResult, fetchFeatureSources, GhostAxisRef, GhostGeometry, ParsedFeatureStatement,
+  SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
-import { SelectedEntity, Viewer } from '../../viewer';
+import { SelectedEntity, SelectionModifiers, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { SolidPickSelection } from '../solid-pick';
+import { ConnectorPickMenu } from '../assembly-mate/connector-pick-menu';
 import { CopyDirection, CopyPanel } from './copy-panel';
+import { ConnectorOption, ConnectorOptions } from './connector-options';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
@@ -30,15 +33,17 @@ export type CopyEnterSeed = {
 };
 
 /**
- * One chosen target: a whole-solid pick resolved to its statement, or —
- * edit mode only — a kept statement target by its position in the parsed
+ * One chosen target: a whole-solid pick resolved to its statement, a
+ * connector (a gizmo or a connector row) by its `connector()` statement, or
+ * — edit mode only — a kept statement target by its position in the parsed
  * `targetTexts`, preserved verbatim. A keep whose expression resolved to a
  * statement carries that statement's location (`loc`): it converts into its
- * solid option at the rollback boundary, so the chip shows the statement's
- * own label and a re-pick toggles it like create mode.
+ * solid or connector option at the rollback boundary, so the chip shows the
+ * statement's own label and a re-pick toggles it like create mode.
  */
 type CopyTargetChoice =
   | { kind: 'option'; option: SolidTargetOption }
+  | { kind: 'connector'; option: ConnectorOption }
   | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
 /**
@@ -50,17 +55,21 @@ function sourceStatement(slot: SourceSlotRef | undefined): { filePath: string; l
 }
 
 /**
- * The Copy dialog on the create rails: clone one or more solids linearly or
- * circularly. The solids are picked in the viewport — any face or edge
- * click while the Solids slot is armed selects the owning solid whole (the
- * shape-properties picker's idiom, shared via {@link SolidPickSelection}) —
- * or by their timeline rows; the axis comes from a world axis clicked in
- * 3D, an axis statement (its dashed line in 3D or its timeline row), or a
- * picked solid edge. Arming with a selection already highlighted seeds the
- * dialog: the selected entities' solids open as target chips. A translucent
- * ghost draws the clones as they are dialled in — each target's own body,
- * stamped where the copy would put it. Apply writes `copy('<kind>', …)` —
- * the re-render is the preview, editor undo the rollback.
+ * The Copy dialog on the create rails: clone one or more solids — and copy
+ * connectors — linearly or circularly. The solids are picked in the
+ * viewport — any face or edge click while the targets slot is armed selects
+ * the owning solid whole (the shape-properties picker's idiom, shared via
+ * {@link SolidPickSelection}) — or by their timeline rows; a connector by
+ * its gizmo (the shared screen-space connector pick, every gizmo revealed
+ * while the dialog is up) or its row. The axis comes from a world axis
+ * clicked in 3D, an axis statement (its dashed line in 3D or its timeline
+ * row), a picked solid edge, or a connector — its Z axis. Arming with a
+ * selection already highlighted seeds the dialog: the selected entities'
+ * solids open as target chips. A translucent ghost draws the clones as
+ * they are dialled in — each target's own body stamped where the copy
+ * would put it, each connector's triad where its copies land. Apply writes
+ * `copy('<kind>', …)` — the re-render is the preview, editor undo the
+ * rollback.
  */
 export class CopyFeatureService {
   private panel: CopyPanel;
@@ -68,6 +77,10 @@ export class CopyFeatureService {
   private armed = false;
   private available = false;
   private targetOptions: SolidTargetOption[] = [];
+  /** Every connector the scene carries — the targets' and the axis slots' connector picks. */
+  private connectorOptions: ConnectorOption[] = [];
+  /** The "which connector?" popover a click over coincident gizmos opens. */
+  private pickMenu: ConnectorPickMenu;
   /** The chosen targets, in pick order — the copy's argument order. */
   private targets: CopyTargetChoice[] = [];
   private axes: AxisOption[] = [];
@@ -92,7 +105,7 @@ export class CopyFeatureService {
    * the query lands (or when it can't answer).
    */
   private sourceSlots: { targets: SourceSlotRef[]; axes: SourceSlotRef[] } | null = null;
-  private runner: ApplyRunner<CopyApplyOptions | CopyEditOptions>;
+  private runner: ApplyRunner<CopyApplyOptions | CopyEditOptions, GhostGeometry>;
   private relabeler: OptionRelabeler<AxisOption[]>;
   /** The translucent clones the current copy would place. */
   private ghost: FeatureGhostOverlay;
@@ -134,6 +147,7 @@ export class CopyFeatureService {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.pickMenu = new ConnectorPickMenu(container);
 
     this.panel = new CopyPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -171,14 +185,15 @@ export class CopyFeatureService {
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the copy.',
       // The statement preview's geometric twin: the target solids stamped
-      // where the copy would put them, drawn translucent in the viewport.
-      // Same debounce, same abort scope.
+      // where the copy would put them, and the target connectors' triads
+      // where their copies land, drawn translucent in the viewport. Same
+      // debounce, same abort scope.
       ghost: {
         fetch: (_request, signal) => this.fetchGhost(signal),
-        apply: (solids) => {
-          if (solids) {
+        apply: (drawn) => {
+          if (drawn) {
             // Every clone is material arriving — a copy takes nothing away.
-            this.ghost.set(solids, 'add');
+            this.ghost.set(drawn.solids, 'add', drawn.frames);
           } else {
             this.ghost.clear();
           }
@@ -208,7 +223,7 @@ export class CopyFeatureService {
   /**
    * The armed dialog owns viewport clicks; which picks are actually live
    * follows the armed slot ({@link syncViewport}) — the viewer routes edge,
-   * face and axis clicks here.
+   * face, axis and connector-gizmo clicks here.
    */
   get isPicking(): boolean {
     return this.armed;
@@ -257,6 +272,7 @@ export class CopyFeatureService {
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
+    this.connectorOptions = ConnectorOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -277,22 +293,20 @@ export class CopyFeatureService {
       }
     }
     // Picked targets re-match by source line. A keep that resolved to a
-    // solid statement becomes that statement's option — proper label,
-    // create-mode toggling; unresolved keeps stay text-addressed verbatim.
+    // solid or connector statement becomes that statement's option — proper
+    // label, create-mode toggling; unresolved keeps stay text-addressed
+    // verbatim.
     this.targets = this.targets.flatMap((target): CopyTargetChoice[] => {
       if (target.kind === 'keep') {
-        const match = target.loc && this.targetOptions.find(o =>
-          o.filePath === target.loc!.filePath && o.line === target.loc!.line);
-        return match ? [{ kind: 'option', option: match }] : [target];
+        return [this.resolveKeptTarget(target)];
       }
-      const match = this.targetOptions.find(o =>
-        o.filePath === target.option.filePath && o.line === target.option.line);
-      return match ? [{ kind: 'option', option: match }] : [];
+      return this.rematchTarget(target);
     });
     if (!this.sourceSlots) {
       void this.loadEditSources();
     }
     this.panel.setOptions(this.axes);
+    this.panel.setConnectorOptions(this.connectorOptions);
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
@@ -302,11 +316,14 @@ export class CopyFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
+    this.connectorOptions = ConnectorOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty});
     // the dialog then opens on its empty target list.
-    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
+    this.available = this.targetOptions.length > 0
+      || this.connectorOptions.some(option => option.slot === undefined)
+      || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('repeat', this.available, 'copy');
     this.button.setVisible(this.available);
     this.syncButton();
@@ -332,9 +349,7 @@ export class CopyFeatureService {
       if (target.kind === 'keep') {
         return [target];
       }
-      const match = this.targetOptions.find(o =>
-        o.filePath === target.option.filePath && o.line === target.option.line);
-      return match ? [{ kind: 'option', option: match }] : [];
+      return this.rematchTarget(target);
     });
     for (const direction of [1, 2] as const) {
       if (this.axisEdgeEntities.get(direction)) {
@@ -343,6 +358,7 @@ export class CopyFeatureService {
       }
     }
     this.panel.setOptions(this.axes);
+    this.panel.setConnectorOptions(this.connectorOptions);
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
@@ -402,7 +418,12 @@ export class CopyFeatureService {
     this.runner.schedulePreview();
   }
 
-  enter(): void {
+  /**
+   * Open the create dialog. `seedSelection: false` leaves the neutral-mode
+   * selection out of the targets — an entry that names its own target
+   * ({@link enterWithConnector}).
+   */
+  enter(opts: { seedSelection?: boolean } = {}): void {
     if (this.armed) {
       return;
     }
@@ -421,7 +442,7 @@ export class CopyFeatureService {
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show();
-    if (seeded) {
+    if (seeded && opts.seedSelection !== false) {
       this.seedFromSelection(seeded);
     }
     this.panel.setOptions(this.axes);
@@ -429,6 +450,21 @@ export class CopyFeatureService {
     this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
+  }
+
+  /**
+   * Open the create dialog with one connector as its target — a connector
+   * row's "Copy…". The neutral selection stays out: the menu already named
+   * what to copy.
+   */
+  enterWithConnector(connectorId: string): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.enter({ seedSelection: false });
+    if (this.armed) {
+      this.pickConnector(connectorId);
+    }
   }
 
   /**
@@ -470,11 +506,13 @@ export class CopyFeatureService {
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.solidPick.set([]);
+    this.pickMenu.close();
     this.runner.cancelPreview();
     this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
+    this.viewer.setConnectorPicking(false);
     this.viewer.hideStandardAxes();
     this.syncButton();
     this.panel.hide();
@@ -529,14 +567,71 @@ export class CopyFeatureService {
   }
 
   /**
+   * A connector gizmo was clicked — the dialog keeps connector picking armed
+   * the whole time it is up, every gizmo revealed. With an axis slot armed
+   * the connector becomes that direction's axis (its Z axis); otherwise it
+   * toggles in the targets. Several gizmos under the cursor open the
+   * "which connector?" popover first.
+   */
+  handleConnectorPick(
+    connectorId: string | null,
+    pick?: Pick<SelectionModifiers, 'clientX' | 'clientY' | 'connectorCandidates'>,
+  ): void {
+    if (!this.armed || !connectorId) {
+      return;
+    }
+    this.pickMenu.close();
+    const candidates = pick?.connectorCandidates;
+    if (candidates && candidates.length > 1 && pick?.clientX !== undefined && pick.clientY !== undefined) {
+      this.openPickMenu(candidates.map(candidate => candidate.connectorId), pick.clientX, pick.clientY);
+      return;
+    }
+    this.pickConnector(connectorId);
+  }
+
+  /** The popover listing every connector under an ambiguous click, named the way code names them. */
+  private openPickMenu(connectorIds: string[], clientX: number, clientY: number): void {
+    const items = connectorIds.map(id => ({
+      label: ConnectorOptions.forId(id, this.connectorOptions)?.label ?? id,
+      onHover: () => this.viewer.setHoveredConnector(id),
+      onPick: () => this.pickConnector(id),
+    }));
+    this.pickMenu.show(clientX, clientY, items, () => this.viewer.setHoveredConnector(null));
+  }
+
+  /** One connector, by its row's id, into the armed slot. */
+  private pickConnector(connectorId: string): void {
+    const option = ConnectorOptions.forId(connectorId, this.connectorOptions);
+    if (!option) {
+      this.panel.setMessage(
+        'That connector cannot be referenced — only connector() features and their copies can be picked.',
+      );
+      return;
+    }
+    if (this.isAxisPicking) {
+      this.pickConnectorAxis(option);
+    } else {
+      this.toggleConnectorTarget(option);
+    }
+  }
+
+  /**
    * A timeline row was clicked while the dialog is armed: a solid row
-   * toggles it in the targets list; axis rows land in the armed direction's
-   * slot. Every row is consumed so the default rollback can't close the
-   * dialog mid-flow.
+   * toggles it in the targets list, and so does a connector row — unless an
+   * axis slot is armed, where the connector becomes that direction's axis,
+   * as axis rows do. Every row is consumed so the default rollback can't
+   * close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    if (obj.type === 'connector') {
+      if (obj.id == null) {
+        return true;
+      }
+      this.pickConnector(obj.id);
+      return true;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
@@ -549,7 +644,7 @@ export class CopyFeatureService {
     }
     const option = solidTargetForRow(obj, this.targetOptions);
     if (!option) {
-      this.panel.setMessage('That row has no solid to copy — pick a solid-producing feature.');
+      this.panel.setMessage('That row has nothing to copy — pick a solid-producing feature or a connector.');
       return true;
     }
     this.toggleTarget(option);
@@ -560,18 +655,93 @@ export class CopyFeatureService {
   private toggleTarget(option: SolidTargetOption): void {
     // A kept target that resolved to this statement counts as the same chip
     // — the pick toggles it off instead of duplicating the solid.
-    const existing = this.targets.findIndex(t => t.kind === 'option'
-      ? t.option.filePath === option.filePath && t.option.line === option.line
-      : t.loc !== undefined && t.loc.filePath === option.filePath && t.loc.line === option.line);
+    this.toggleChoice({ kind: 'option', option }, option);
+  }
+
+  /**
+   * Toggle a connector target chip (gizmo or connector row). The kernel's
+   * family rules are refused at the pick rather than on the written row: a
+   * copy of a connector is never copied again — its seed is — and a
+   * connector another `copy()` already copies is edited there, one copy
+   * statement per connector. (An edit session's pre-statement scene holds
+   * no row of the statement being edited, so its own connectors pass.)
+   */
+  private toggleConnectorTarget(option: ConnectorOption): void {
+    if (option.slot !== undefined) {
+      this.panel.setMessage(
+        `${option.label} is itself a copy — copy ${option.name} instead (a grid is one two-axis linear copy).`,
+      );
+      return;
+    }
+    if (option.copiedAt !== undefined) {
+      this.panel.setMessage(
+        `${option.label} is already copied by the copy on line ${option.copiedAt} — one copy statement per `
+          + 'connector: edit that one instead.',
+      );
+      return;
+    }
+    this.toggleChoice({ kind: 'connector', option }, option);
+  }
+
+  /**
+   * Add a target chip, or take it off when the statement at `site` is
+   * already one — a kept target that resolved to it included.
+   */
+  private toggleChoice(choice: CopyTargetChoice, site: { filePath: string; line: number }): void {
+    const existing = this.targets.findIndex(t => {
+      const loc = t.kind === 'keep' ? t.loc : t.option;
+      return loc !== undefined && loc.filePath === site.filePath && loc.line === site.line;
+    });
     if (existing >= 0) {
       this.targets.splice(existing, 1);
     } else {
-      this.targets.push({ kind: 'option', option });
+      this.targets.push(choice);
     }
-    // The pick landed in the Solids slot — it takes the armed border.
+    // The pick landed in the targets slot — it takes the armed border.
     this.panel.armSlot('targets');
     this.panel.setMessage(null);
     this.refresh();
+    this.runner.schedulePreview();
+  }
+
+  /**
+   * A picked target after a render: a solid re-matched by its statement's
+   * line (shape ids re-minted), a connector by its site. Gone from the
+   * scene, it drops.
+   */
+  private rematchTarget(target: Exclude<CopyTargetChoice, { kind: 'keep' }>): CopyTargetChoice[] {
+    if (target.kind === 'connector') {
+      const match = ConnectorOptions.forSite(target.option, this.connectorOptions);
+      return match ? [{ kind: 'connector', option: match }] : [];
+    }
+    const match = this.targetOptions.find(o =>
+      o.filePath === target.option.filePath && o.line === target.option.line);
+    return match ? [{ kind: 'option', option: match }] : [];
+  }
+
+  /**
+   * A kept statement target at the edit boundary: the solid or connector
+   * option its statement offers, when it names one, else the verbatim keep.
+   */
+  private resolveKeptTarget(target: Extract<CopyTargetChoice, { kind: 'keep' }>): CopyTargetChoice {
+    const loc = target.loc;
+    if (!loc) {
+      return target;
+    }
+    const solid = this.targetOptions.find(o => o.filePath === loc.filePath && o.line === loc.line);
+    if (solid) {
+      return { kind: 'option', option: solid };
+    }
+    const connector = ConnectorOptions.forLocation(loc, this.connectorOptions);
+    return connector ? { kind: 'connector', option: connector } : target;
+  }
+
+  /** A connector landed in the armed direction's axis slot — its Z axis. */
+  private pickConnectorAxis(option: ConnectorOption): void {
+    this.axisEdgeEntities.set(this.panel.armedAxis, null);
+    this.panel.selectConnectorAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
     this.runner.schedulePreview();
   }
 
@@ -597,6 +767,10 @@ export class CopyFeatureService {
     }
     if (selection.kind === 'keep') {
       return { kind: 'keep', sourceIndex: selection.sourceIndex };
+    }
+    if (selection.kind === 'connector') {
+      const { filePath, line, column, slot } = selection.option;
+      return { kind: 'connector', filePath, line, column, ...(slot !== undefined ? { slot } : {}) };
     }
     return pickedAxisRef(selection, this.axisEdgeEntities.get(direction) ?? null,
       `Pick the axis edge${which} first.`);
@@ -638,14 +812,15 @@ export class CopyFeatureService {
 
   /**
    * The live geometry for the current form state: each target solid's own
-   * body, stamped where the copy would put it. Runs off the values the
-   * statement preview just validated, so all that is left is to resolve the
-   * slots — and that is where the create and edit dialogs converge: both hand
-   * the server explicit refs, so the endpoint never has to know which mode
-   * asked. A slot the ghost can't address (no solids yet, an axis still
-   * unpicked, a keep chip over an expression) means no ghost.
+   * body, stamped where the copy would put it, and each target connector's
+   * frame at every copy. Runs off the values the statement preview just
+   * validated, so all that is left is to resolve the slots — and that is
+   * where the create and edit dialogs converge: both hand the server
+   * explicit refs, so the endpoint never has to know which mode asked. A
+   * slot the ghost can't address (no targets yet, an axis still unpicked, a
+   * keep chip over an expression) means no ghost.
    */
-  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+  private async fetchGhost(signal: AbortSignal): Promise<GhostGeometry | null> {
     const values = this.panel.values();
     if ('error' in values) {
       return null;
@@ -699,14 +874,15 @@ export class CopyFeatureService {
     if (result.notice && !signal.aborted && this.armed) {
       this.panel.setMessage(result.notice);
     }
-    return result.solids;
+    return result.solids ? { solids: result.solids, frames: result.frames } : null;
   }
 
   /**
-   * The solids being cloned, by call site. A kept chip travels as the
-   * statement its expression named, or — for one the parse couldn't address —
-   * as whatever the sources query resolved that argument to. A target neither
-   * could place means no ghost at all: a copy missing one of its bodies is a
+   * The solids and connectors being copied, by call site — a connector by
+   * its `connector()` statement. A kept chip travels as the statement its
+   * expression named, or — for one the parse couldn't address — as whatever
+   * the sources query resolved that argument to. A target neither could
+   * place means no ghost at all: a copy missing one of its targets is a
    * different copy, not a partial one.
    *
    * An implicit copy (no target arguments at all) clones every solid active at
@@ -723,7 +899,7 @@ export class CopyFeatureService {
     }
     const refs: { filePath: string; line: number }[] = [];
     for (const target of this.targets) {
-      const loc = target.kind === 'option'
+      const loc = target.kind !== 'keep'
         ? target.option
         : target.loc ?? sourceStatement(this.sourceSlots?.targets[target.sourceIndex]);
       if (!loc) {
@@ -747,16 +923,31 @@ export class CopyFeatureService {
       const { filePath, line } = selection.option;
       return { kind: 'axis', filePath, line };
     }
+    if (selection.kind === 'connector') {
+      const { filePath, line, slot } = selection.option;
+      return { kind: 'connector', filePath, line, ...(slot !== undefined ? { slot } : {}) };
+    }
     if (selection.kind === 'edge') {
       const entity = this.axisEdgeEntities.get(direction);
       return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
     }
     // The kept statement axis, as the sources query resolved it — an `axis()`
-    // the statement names by variable. A world-axis literal never reaches here
-    // (the slot reads `'z'` as the standard selection itself), and anything
-    // else is an expression no ghost can stand in for.
+    // or a connector the statement names by variable. A world-axis literal
+    // never reaches here (the slot reads `'z'` as the standard selection
+    // itself), and anything else is an expression no ghost can stand in for.
     const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
-    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
+    if (!loc) {
+      return null;
+    }
+    return ConnectorOptions.forLocation(loc, this.connectorOptions)
+      ? { kind: 'connector', filePath: loc.filePath, line: loc.line }
+      : { kind: 'axis', filePath: loc.filePath, line: loc.line };
+  }
+
+  /** One target as the apply request names it: its statement, a connector's marked as one. */
+  private static targetRef(target: Exclude<CopyTargetChoice, { kind: 'keep' }>): CopyTargetRef {
+    const { filePath, line, column } = target.option;
+    return target.kind === 'connector' ? { kind: 'connector', filePath, line, column } : { filePath, line, column };
   }
 
   private buildRequest(): CopyApplyOptions | { error: string } {
@@ -765,12 +956,11 @@ export class CopyFeatureService {
       return values;
     }
     if (this.targets.length === 0) {
-      return { error: 'Pick the solids to copy in the viewport first.' };
+      return { error: 'Pick the solids or connectors to copy in the viewport first.' };
     }
-    // Create mode never carries keep entries — every chip is a picked solid.
-    const targets = this.targets.flatMap(t => t.kind === 'option'
-      ? [{ filePath: t.option.filePath, line: t.option.line, column: t.option.column }]
-      : []);
+    // Create mode never carries keep entries — every chip is a picked solid
+    // or connector.
+    const targets = this.targets.flatMap(t => t.kind === 'keep' ? [] : [CopyFeatureService.targetRef(t)]);
     if (values.kind === 'linear') {
       const active = this.panel.directions;
       const directions: CopyDirectionRef[] = [];
@@ -822,16 +1012,15 @@ export class CopyFeatureService {
     // re-picked but never all removed.
     let targets: CopyEditTargetRef[] | undefined;
     if (this.targets.length > 0) {
-      targets = this.targets.map(t => t.kind === 'keep'
-        ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
-        : {
-          kind: 'feature' as const,
-          filePath: t.option.filePath,
-          line: t.option.line,
-          column: t.option.column,
-        });
+      targets = this.targets.map((t): CopyEditTargetRef => {
+        if (t.kind === 'keep') {
+          return { kind: 'verbatim', sourceIndex: t.sourceIndex };
+        }
+        const { filePath, line, column } = t.option;
+        return { kind: t.kind === 'connector' ? 'connector' : 'feature', filePath, line, column };
+      });
     } else if ((this.editStatement?.targetTexts.length ?? 0) > 0) {
-      return { error: 'Pick the solids to copy in the viewport first.' };
+      return { error: 'Pick the solids or connectors to copy in the viewport first.' };
     }
     const sessionFields = (needsBoundary: boolean) => ({
       expectedStatement: this.session.expectedStatement,
@@ -876,10 +1065,11 @@ export class CopyFeatureService {
 
   /**
    * The viewer's pick channels follow the panel's armed slot, so the slot
-   * border says exactly where the next 3D click lands: the armed Solids slot
-   * takes any face or edge (the pick selects the owning solid whole); an
-   * armed axis slot takes solid edges, axis lines and the world axes shown
-   * as pick targets.
+   * border says exactly where the next 3D click lands: the armed targets
+   * slot takes any face or edge (the pick selects the owning solid whole);
+   * an armed axis slot takes solid edges, axis lines and the world axes
+   * shown as pick targets. Connector gizmos are pickable — and every one
+   * revealed — for as long as the dialog is up: both slots take a connector.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -889,6 +1079,7 @@ export class CopyFeatureService {
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickFilter = axisArmed ? 'edge' : 'all';
+    this.viewer.setConnectorPicking(true);
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {
@@ -913,16 +1104,22 @@ export class CopyFeatureService {
     if (!this.armed) {
       return;
     }
-    this.panel.setTargets(this.targets.map(target => target.kind === 'keep'
-      ? { label: `Current: ${target.label}`, removable: true }
-      : sourceChip(target.option, { removable: true })));
+    this.panel.setTargets(this.targets.map(target => {
+      if (target.kind === 'keep') {
+        return { label: `Current: ${target.label}`, removable: true };
+      }
+      return target.kind === 'connector'
+        ? ConnectorOptions.chip(target.option, { removable: true })
+        : sourceChip(target.option, { removable: true });
+    }));
     this.refreshHighlight();
   }
 
   /**
    * Repaint the viewport selection: the chosen solids whole, the picked
-   * axis edges, and the chosen axis statements' dashed lines (tinted whole,
-   * like sketch wires) — one combined pass through the shared picker.
+   * axis edges, the chosen axis statements' dashed lines (tinted whole,
+   * like sketch wires) — one combined pass through the shared picker — and
+   * the chosen connectors' gizmos, targets and axes alike, drawn enlarged.
    */
   private refreshHighlight(): void {
     if (!this.armed) {
@@ -931,12 +1128,15 @@ export class CopyFeatureService {
     const wireIds: string[] = [];
     const entities: SelectedEntity[] = [];
     const standardAxes: StandardAxisId[] = [];
+    const connectorIds = this.targets.flatMap(t => t.kind === 'connector' ? [t.option.id] : []);
     for (const direction of this.panel.directions) {
       const selection = this.panel.axisSelection(direction);
       if (selection?.kind === 'standard') {
         standardAxes.push(selection.axis);
       } else if (selection?.kind === 'axis') {
         wireIds.push(...axisLineShapeIds(selection.option, this.sceneObjects));
+      } else if (selection?.kind === 'connector') {
+        connectorIds.push(selection.option.id);
       } else if (selection?.kind === 'edge') {
         const entity = this.axisEdgeEntities.get(direction);
         if (entity) {
@@ -945,6 +1145,7 @@ export class CopyFeatureService {
       }
     }
     this.viewer.setSelectedStandardAxes(standardAxes);
+    this.viewer.setPickedConnectors(connectorIds);
     this.solidPick.set(this.targets.flatMap(t => t.kind === 'option' ? t.option.shapeIds : []));
     this.solidPick.refreshHighlight({ entities, wireIds });
   }

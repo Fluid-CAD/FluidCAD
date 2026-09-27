@@ -3,7 +3,7 @@ import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
@@ -41,7 +41,8 @@ function isRegionRow(obj: SceneObjectRender): boolean {
 
 /**
  * Child rows a container folds into their own sub-container instead of
- * listing inline: a part's mate connectors (`connector(…)`) and published
+ * listing inline: a part's mate connectors (`connector(…)`, and the
+ * `copy()` statements that copy nothing but connectors) and published
  * selections (`expose(…)`), a sketch's region declarations (`region(…)`).
  * All are references rather than geometry, so a container with a dozen of
  * them would otherwise bury its modeling history. Each kind renders behind
@@ -53,19 +54,34 @@ interface GroupKind {
   key: string;
   /** The container type the group sits under. */
   parent: 'part' | 'sketch';
-  type: string;
+  /** Whether a child row files into the group. */
+  holds: (obj: SceneObjectRender) => boolean;
+  /**
+   * How many of the group's items a row stands for — one, but a connector
+   * copy row counts every copy it made, so "N connectors" is the part's.
+   */
+  weight?: (obj: SceneObjectRender, index: SceneIndex) => number;
   label: (count: number) => string;
   icon: string;
 }
 
 const GROUP_KINDS: readonly GroupKind[] = [
-  { key: 'connectors', parent: 'part', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
-  { key: 'exposed', parent: 'part', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
-  { key: 'regions', parent: 'sketch', type: 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
+  {
+    key: 'connectors',
+    parent: 'part',
+    holds: (obj) => obj.type === 'connector' || SceneIndex.copiesOnlyConnectors(obj),
+    weight: (obj, index) => obj.type === 'connector'
+      ? 1
+      : index.children(obj.id).filter(child => child.type === 'connector').length,
+    label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`,
+    icon: 'mate-connector',
+  },
+  { key: 'exposed', parent: 'part', holds: (obj) => obj.type === 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+  { key: 'regions', parent: 'sketch', holds: (obj) => obj.type === 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
 ];
 
 function groupOf(parent: SceneObjectRender | undefined, obj: SceneObjectRender): GroupKind | undefined {
-  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && obj.type === kind.type);
+  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && kind.holds(obj));
 }
 
 /**
@@ -168,6 +184,11 @@ export class TimelinePanel {
    * what they publish (the connector's gizmo, the exposure's faces).
    */
   onFeatureShow?: (obj: SceneObjectRender) => void;
+  /**
+   * A connector row's "Copy…": open the Copy dialog with that connector
+   * already in its targets. Unset, connector rows offer no such item.
+   */
+  onCopyConnector?: (obj: SceneObjectRender) => void;
   /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
@@ -914,8 +935,9 @@ export class TimelinePanel {
         }
         if (obj && groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part' && this.onFeatureShow) {
           // Connector / exposed rows show what they publish instead of
-          // rolling back — they are references, not modeling steps. (A
-          // region row is a statement of its sketch and rolls back like one.)
+          // rolling back — they are references, not modeling steps; a
+          // connector copy row shows its whole family. (A region row is a
+          // statement of its sketch and rolls back like one.)
           this.onFeatureShow(obj);
           this.goToSource(obj);
           return;
@@ -1211,7 +1233,8 @@ export class TimelinePanel {
       const groupKey = `${obj.id}:${kind.key}`;
       const shown = this.expandedGroupKeys.has(groupKey);
       const anyError = rows.some((j) => items[j].hasError === true);
-      html += this.renderGroupSummaryRow(groupKey, kind, rows.length, shown, anyError, childDepth);
+      const count = rows.reduce((sum, j) => sum + (kind.weight?.(items[j], sceneIndex) ?? 1), 0);
+      html += this.renderGroupSummaryRow(groupKey, kind, count, shown, anyError, childDepth);
       if (shown) {
         for (const j of rows) {
           html += this.renderSubtree(ctx, j, childDepth);
@@ -1613,6 +1636,16 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
         </button></li>`;
+    // A declared connector copies from its own menu — the Copy dialog opens
+    // with it already in the targets. A copy of one is never copied again,
+    // and one a copy() already copies is edited on that copy's row.
+    const copyConnectorItem = !this.onCopyConnector || this.sketchActive || obj.type !== 'connector'
+      || SceneIndex.isConnectorCopy(obj) || SceneIndex.of(this.sceneObjects).copyStatementOf(obj.id)
+      ? '' : `
+        <li><button data-action="copy-connector" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_COPY}</span>
+          <span>Copy…</span>
+        </button></li>`;
     const tangencyAction = this.distanceTangencyAction(obj);
     const tangencyItem = !tangencyAction ? '' : `
         <li><button data-action="tangency" class="flex items-center gap-2">
@@ -1624,7 +1657,7 @@ export class TimelinePanel {
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -1646,6 +1679,11 @@ export class TimelinePanel {
     dropdown.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.enterBreakpointAt(index);
+    });
+
+    dropdown.querySelector('[data-action="copy-connector"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.onCopyConnector?.(obj);
     });
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {

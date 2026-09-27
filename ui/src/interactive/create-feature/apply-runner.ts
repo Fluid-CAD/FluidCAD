@@ -22,7 +22,7 @@ type RunnerPanel = {
  * surfaces its reason. Preview: a blocked request just clears the preview;
  * refusals surface their reason immediately (pre-Apply validation).
  */
-export class ApplyRunner<R extends object> {
+export class ApplyRunner<R extends object, G = GhostSolid[]> {
   private applying = false;
   private timer: number | null = null;
   private abort: AbortController | null = null;
@@ -58,13 +58,15 @@ export class ApplyRunner<R extends object> {
     /**
      * Live viewport geometry for the request just previewed (the "ghost"),
      * chained onto the statement preview under the same debounce, abort and
-     * sequence guards. Dialogs without one are untouched.
+     * sequence guards. Dialogs without one are untouched. `G` is what one
+     * answer draws — the bodies, for most dialogs; a copy's also carries the
+     * connector frames it places.
      */
     ghost?: {
-      /** The bodies the request would build; null when there is none to draw. */
-      fetch: (request: R, signal: AbortSignal) => Promise<GhostSolid[] | null>;
+      /** What the request would build; null when there is none to draw. */
+      fetch: (request: R, signal: AbortSignal) => Promise<G | null>;
       /** Deliver the result; null clears the overlay. */
-      apply: (solids: GhostSolid[] | null) => void;
+      apply: (ghost: G | null) => void;
     };
   }) {}
 
@@ -167,9 +169,9 @@ export class ApplyRunner<R extends object> {
       ghost.apply(null);
       return;
     }
-    let solids: GhostSolid[] | null;
+    let drawn: G | null;
     try {
-      solids = await ghost.fetch(request, abort.signal);
+      drawn = await ghost.fetch(request, abort.signal);
     } catch {
       return; // aborted
     }
@@ -178,6 +180,6 @@ export class ApplyRunner<R extends object> {
     if (seq !== this.seq || !this.opts.isArmed()) {
       return;
     }
-    ghost.apply(solids);
+    ghost.apply(drawn);
   }
 }

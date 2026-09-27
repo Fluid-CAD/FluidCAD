@@ -62,13 +62,15 @@ export type ConnectorData = {
 /**
  * A `copy()` statement row that copies connectors (`object.connectorCopies`):
  * the connectors it copies, the pattern's numbering — the slot the originals
- * hold and how many slots it numbers — and the slots its copies sit at.
+ * hold and how many slots it numbers — the slots its copies sit at, and
+ * whether connectors are all it copies (absent on older engines).
  */
 export type ConnectorCopiesData = {
   seeds: { id: string; name: string }[];
   originalSlot: number;
   slotCount: number;
   slots: number[];
+  connectorsOnly?: boolean;
 };
 
 /**
@@ -131,6 +133,9 @@ export type ObjectType =
   | 'thickness'
   | 'mirror'
   | 'linear-pattern'
+  // 3D copies — `copy('linear' | 'circular', …)`
+  | 'copy-linear'
+  | 'copy-circular'
   | 'boolean'
   // Direct solid reference
   | 'solid'

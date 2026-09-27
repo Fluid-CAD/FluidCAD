@@ -7,6 +7,13 @@ import { onThemeChange } from './theme-colors';
 import { viewerSettings } from './viewer-settings';
 import { buildGhostClone, type ProvisionalReplicaSpec } from './provisional-replicas';
 import {
+  CONNECTOR_HOVER_SCALE,
+  CONNECTOR_PICK_RADIUS_PX,
+  ConnectorGizmoPicker,
+  type ConnectorGizmoTarget,
+  type ConnectorPickCandidate,
+} from './connector-gizmo-picker';
+import {
   WORLD_BODY_ID,
   Solver,
   bodyFreedom,
@@ -20,14 +27,6 @@ import {
 import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
-/** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
-const CONNECTOR_PICK_RADIUS_PX = 22;
-/**
- * Gizmos whose origins project this close to the nearest hit are ambiguous
- * with it — an assembly connector placed exactly on a part connector, say —
- * and the click offers them all instead of silently taking the first.
- */
-const CONNECTOR_AMBIGUITY_PX = 6;
 
 /**
  * Gizmo opacity while the mate dialog's connector picker is armed: every
@@ -35,8 +34,6 @@ const CONNECTOR_AMBIGUITY_PX = 6;
  * glance; the hovered and already-picked ones render fully opaque.
  */
 const MATE_PICKING_GIZMO_OPACITY = 0.4;
-/** Hover feedback while picking: the gizmo grows by this factor. */
-const CONNECTOR_HIGHLIGHT_SCALE = 1.35;
 
 type InstanceState = {
   data: SerializedAssemblyInstance;
@@ -167,6 +164,8 @@ export class AssemblyController {
    * never leak across gestures if a mouseup is missed.
    */
   private postDragSuppress: { instanceId: string; moved: boolean } | null = null;
+  /** Screen-space connector picking, shared with the part scene's dialogs. */
+  private readonly gizmoPicker: ConnectorGizmoPicker;
 
   /**
    * A programmatic drag claimed by the transform gizmo: the driver feeds
@@ -253,6 +252,7 @@ export class AssemblyController {
     private requestRender: () => void,
     private createPickingRaycaster: (ndcX: number, ndcY: number) => Raycaster,
   ) {
+    this.gizmoPicker = new ConnectorGizmoPicker(() => this.camera, renderer.domElement);
     this.container.name = 'assemblyContainer';
     this.worldGroup.name = 'assemblyWorldConnectors';
     this.container.add(this.worldGroup);
@@ -1256,32 +1256,20 @@ export class AssemblyController {
 
   /**
    * Every visible connector gizmo whose origin projects within `maxPx` of
-   * the cursor, nearest first, cut down to the ones within
-   * CONNECTOR_AMBIGUITY_PX of the nearest — the set a click must choose
-   * among. Instance connectors are screen-picked by their gizmo origin (the
-   * ConnectorMesh group sits at the part-frame origin; the gizmo child
-   * inside it carries the frame's actual origin); the assembly's own
-   * connectors compete on the same terms, resolving to the world body.
+   * the cursor, nearest first, cut down to the ones ambiguous with the
+   * nearest — the set a click must choose among ({@link
+   * ConnectorGizmoPicker.candidatesAt}). Instance connectors are
+   * screen-picked by their gizmo origin (the ConnectorMesh group sits at the
+   * part-frame origin; the gizmo child inside it carries the frame's actual
+   * origin); the assembly's own connectors compete on the same terms,
+   * resolving to the world body.
    */
   pickConnectorCandidatesAt(
     clientX: number,
     clientY: number,
     maxPx = CONNECTOR_PICK_RADIUS_PX,
-  ): { instanceId: string; connectorId: string; distPx: number }[] {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return [];
-    const world = new Vector3();
-    const hits: { instanceId: string; connectorId: string; distPx: number }[] = [];
-    const consider = (instanceId: string, connectorId: string, gizmo: Object3D) => {
-      gizmo.getWorldPosition(world).project(this.camera);
-      if (world.z > 1) return; // behind the camera
-      const px = ((world.x + 1) / 2) * rect.width + rect.left;
-      const py = ((1 - world.y) / 2) * rect.height + rect.top;
-      const distPx = Math.hypot(px - clientX, py - clientY);
-      if (distPx <= maxPx) {
-        hits.push({ instanceId, connectorId, distPx });
-      }
-    };
+  ): ConnectorPickCandidate<string>[] {
+    const targets: ConnectorGizmoTarget<string>[] = [];
     for (const [instanceId, state] of this.instances) {
       // A hidden instance renders nothing, so its connectors must not be
       // screen-pickable — the per-child `visible` check below can't see the
@@ -1293,19 +1281,14 @@ export class AssemblyController {
         if (!child.userData?.isConnector || !child.visible) return;
         const connectorId = child.userData.connectorId;
         if (typeof connectorId !== 'string') return;
-        consider(instanceId, connectorId, child.children[0] ?? child);
+        targets.push({ instanceId, connectorId, anchor: child.children[0] ?? child });
       });
     }
     for (const [connectorId, { group }] of this.worldConnectors) {
       if (!group.visible) continue;
-      consider(WORLD_BODY_ID, connectorId, group.children[0] ?? group);
+      targets.push({ instanceId: WORLD_BODY_ID, connectorId, anchor: group.children[0] ?? group });
     }
-    hits.sort((a, b) => a.distPx - b.distPx);
-    if (hits.length === 0) {
-      return [];
-    }
-    const nearest = hits[0].distPx;
-    return hits.filter(h => h.distPx <= nearest + CONNECTOR_AMBIGUITY_PX);
+    return this.gizmoPicker.candidatesAt(targets, clientX, clientY, maxPx);
   }
 
   /**
@@ -1333,7 +1316,7 @@ export class AssemblyController {
         const gizmo = child.children[0];
         if (!gizmo) return;
         gizmo.userData.highlight = child.userData.connectorId === this.highlightedConnectorId
-          ? CONNECTOR_HIGHLIGHT_SCALE
+          ? CONNECTOR_HOVER_SCALE
           : 1;
       });
     }
@@ -1342,7 +1325,7 @@ export class AssemblyController {
       const inner = group.children[0];
       if (inner) {
         inner.userData.highlight = connectorId === this.highlightedConnectorId
-          ? CONNECTOR_HIGHLIGHT_SCALE
+          ? CONNECTOR_HOVER_SCALE
           : 1;
       }
     }

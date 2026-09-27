@@ -1284,12 +1284,22 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
 
   // Connector / exposed rows are references, not modeling steps: a click
-  // shows what they publish in the viewer instead of a rollback preview.
+  // shows what they publish in the viewer instead of a rollback preview. A
+  // copy row that copies only connectors shows its whole family — the seeds
+  // and every copy.
   panel.onFeatureShow = (obj) => {
     if (obj.type === 'connector' && obj.id != null) {
-      viewer.highlightConnector(obj.id);
+      viewer.highlightConnector([obj.id]);
+    } else if (SceneIndex.copiesOnlyConnectors(obj)) {
+      viewer.highlightConnector(SceneIndex.of(viewer.currentSceneObjects).connectorFamilyOf(obj));
     } else if (obj.type === 'exposed') {
       viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
+    }
+  };
+  // A connector row's "Copy…" opens the Copy dialog on that connector.
+  panel.onCopyConnector = (obj) => {
+    if (obj.id != null) {
+      copyService.enterWithConnector(obj.id);
     }
   };
   // Multi-selected rows dropped onto a part row → move their statements
@@ -1318,6 +1328,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    && !SceneIndex.isConnectorCopy(obj)
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint. A
@@ -1360,11 +1371,15 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
 const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
+  // A copy row opens the Copy dialog — a connector copy row too, filed with
+  // its part's connectors in the timeline.
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
   // A connector row sits inside its part() body; its dialog re-opens over the
-  // statement with the frame the row itself carries.
+  // statement with the frame the row itself carries. The copies a `copy()`
+  // made of one are the exception (SceneIndex.isConnectorCopy): they have no
+  // statement of their own.
   'connector',
   // 2D: an offset/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (Slot rows are deliberately absent — the slot
@@ -1406,7 +1421,10 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
   }
-  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
+  // A connector copy shares its copy statement's call site but is no
+  // statement of its own: it never opens a dialog — the copy row edits the
+  // pattern, the seed's pen its frame.
+  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation || SceneIndex.isConnectorCopy(obj)) {
     return;
   }
   const target = obj.sourceLocation;
@@ -2455,6 +2473,17 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // face pick toggles into the set of sources its sketch projects.
   if (projectionService.isPicking) {
     projectionService.handleClick(shapeId, sub);
+    return;
+  }
+  // A connector-gizmo pick exists only while a part dialog armed connector
+  // picking (viewer.setConnectorPicking) — the Copy dialog takes it as a
+  // target or its axis; the Repeat dialog explains that Copy does.
+  if (sub?.type === 'connector') {
+    if (copyService.isPicking) {
+      copyService.handleConnectorPick(shapeId, modifiers);
+    } else if (repeatService.isPicking) {
+      repeatService.handleConnectorPick();
+    }
     return;
   }
   // A sketch-wire pick exists only while a create dialog is armed (the

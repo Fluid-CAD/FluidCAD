@@ -79,7 +79,9 @@ describe('SceneIndex', () => {
           const parent = scan.byId(scene, obj.parentId);
           expect(resolveSketchRow(obj, scene)).toBe(obj.type === 'sketch' ? obj : parent?.type === 'sketch' ? parent : undefined);
           const insideSketch = scan.enclosing(scene, obj, 'sketch') !== undefined;
-          const repeatable = !!obj.sourceLocation && !!obj.type && !['sketch', 'plane', 'axis'].includes(obj.type) && !insideSketch;
+          // Connectors are refused at pick time with a pointer to Copy (B9).
+          const repeatable = !!obj.sourceLocation && !!obj.type
+            && !['sketch', 'plane', 'axis', 'connector'].includes(obj.type) && !insideSketch;
           expect(resolveRepeatTargetRow(obj, scene)).toBe(repeatable ? obj : undefined);
         }
       });
@@ -196,6 +198,7 @@ describe('no id/parentId scans over scene lists', () => {
     'interactive/solved-constraint-toolbar/solved-constraint-toolbar-service.ts',
     'interactive/drag-move-handler/solved-drag-handler.ts',
     'interactive/gizmo/transform-gizmo.ts',
+    'interactive/create-feature/connector-options.ts',
   ]);
 
   function tsFiles(dir: string): string[] {

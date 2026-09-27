@@ -17,7 +17,9 @@ import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
-import { collectRepeatTargets, RepeatTargetOption, resolveRepeatTargetRow } from './repeat-targets';
+import {
+  collectRepeatTargets, connectorRepeatRefusal, RepeatTargetOption, resolveRepeatTargetRow,
+} from './repeat-targets';
 import {
   AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
@@ -569,6 +571,7 @@ export class RepeatFeatureService {
     this.viewer.hideStandardAxes();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
+    this.viewer.setConnectorPicking(false);
     // pickPlanes is left alone: syncButton's onActiveChange runs the modify
     // service's neutral-mode restore, which owns that channel.
     this.syncButton();
@@ -619,6 +622,20 @@ export class RepeatFeatureService {
       this.refreshHighlight();
       this.runner.schedulePreview();
     }
+  }
+
+  /**
+   * A connector gizmo was clicked with the Features slot armed — the dialog
+   * keeps the gizmos on screen pickable there only to say this: repeat()
+   * re-applies features and refuses connectors, and Copy copies them.
+   */
+  handleConnectorPick(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.panel.setMessage(
+      'Connectors are not repeated — repeat re-applies features. Copy a connector with the Copy dialog instead.',
+    );
   }
 
   /** A plane feature's quad was clicked while the Mirror type is up. */
@@ -692,6 +709,11 @@ export class RepeatFeatureService {
         return true;
       }
       this.pickPlane(option);
+      return true;
+    }
+    const refusal = connectorRepeatRefusal(obj);
+    if (refusal) {
+      this.panel.setMessage(refusal);
       return true;
     }
     const target = resolveRepeatTargetRow(obj, this.sceneObjects);
@@ -1218,6 +1240,10 @@ export class RepeatFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = planeArmed;
     this.viewer.pickFilter = axisArmed ? 'edge' : planeArmed ? 'face' : 'none';
+    // The Features slot takes timeline rows; a connector gizmo on screen is
+    // pickable there only to be refused with the pointer to Copy (B9) —
+    // none is revealed, since none is ever a target.
+    this.viewer.setConnectorPicking(!axisArmed && !planeArmed, { reveal: false });
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {

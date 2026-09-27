@@ -1,6 +1,7 @@
 import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
-import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { AxisSelection, AxisSlotControl, ConnectorAxisSelection } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -17,11 +18,13 @@ export type CopyDirection = 1 | 2;
 export type CopyArmedSlot = 'targets' | 'axis1' | 'axis2';
 
 /**
- * An axis slot's state — the shared axis-picker state machine, with the kept
- * statement axis carrying its position in the parsed `axisTexts`.
+ * An axis slot's state — the shared axis-picker state machine, plus a
+ * connector standing for its Z axis (a copy's axis can be one), with the
+ * kept statement axis carrying its position in the parsed `axisTexts`.
  */
 export type CopyAxisSelection =
   | Exclude<AxisSelection, { kind: 'keep' }>
+  | ConnectorAxisSelection
   | { kind: 'keep'; sourceIndex: number };
 
 /** Validated form values, or the message to show when a field is invalid. */
@@ -48,9 +51,10 @@ export type CopyValues =
 
 /**
  * The copy dialog: a Linear / Circular type dropdown (the copy kind), the
- * solids slot — filled from whole-solid viewport picks (any face or edge
- * click selects the owning solid) or timeline rows, one numbered chip per
- * solid being copied — plus the kind's inputs. Linear shows a Direction 1
+ * targets slot — filled from whole-solid viewport picks (any face or edge
+ * click selects the owning solid), connector gizmos, or timeline rows, one
+ * numbered chip per solid or connector being copied — plus the kind's
+ * inputs. Every axis slot takes a connector too, standing for its Z axis. Linear shows a Direction 1
  * group (axis slot, Total Count, the shared
  * Offset/Total spacing mode with its value) and an "Add second direction"
  * button revealing a Direction 2 group with its own axis, count and value
@@ -80,7 +84,7 @@ export class CopyPanel extends FeaturePanel {
   private kindSelect: HTMLSelectElement;
   private targetsSlot: PickSlot;
   private dir1Header: HTMLElement;
-  private axisSlots = new Map<CopyDirection, AxisSlotControl>();
+  private axisSlots = new Map<CopyDirection, AxisSlotControl<ConnectorAxisSelection>>();
   private spacingRow: HTMLElement;
   private spacingModeSelect: HTMLSelectElement;
   private sweepRow: HTMLElement;
@@ -191,13 +195,15 @@ export class CopyPanel extends FeaturePanel {
       this.onChange?.();
     });
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids & connectors', multiple: true });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
-      const control = new AxisSlotControl(this.role(`axis-slot-${direction}`));
+      const control = new AxisSlotControl<ConnectorAxisSelection>(this.role(`axis-slot-${direction}`), {
+        prompt: 'Pick a world axis, an axis, an edge or a connector',
+      });
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       control.onModeChange = () => this.onAxisModeChange?.(direction);
       control.onChange = () => this.onChange?.();
@@ -394,6 +400,17 @@ export class CopyPanel extends FeaturePanel {
     }
   }
 
+  /**
+   * Re-find a connector axis after a re-render, by its site — the
+   * connector sibling of {@link setOptions}; a connector the scene lost
+   * falls back to the pick prompt (or the statement's own axis in edit mode).
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    for (const direction of [1, 2] as const) {
+      this.axisSlots.get(direction)!.setConnectorOptions(connectors);
+    }
+  }
+
   /** Render the target chips — numbered, the copy's argument order. */
   setTargets(chips: PickSlotChip[]): void {
     this.targetsSlot.setChips(chips.map((chip, index) => ({
@@ -401,7 +418,7 @@ export class CopyPanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids or connectors in the viewport');
   }
 
   axisSelection(direction: CopyDirection = 1): CopyAxisSelection | null {
@@ -422,6 +439,17 @@ export class CopyPanel extends FeaturePanel {
   selectAxis(option: AxisOption): void {
     const direction = this.armedAxis;
     this.axisSlots.get(direction)!.selectOption(option);
+    this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
+   * A connector picked as the axis (a gizmo or a connector row) — it lands
+   * in the armed direction's slot, standing for its Z axis. No change event
+   * fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    const direction = this.armedAxis;
+    this.axisSlots.get(direction)!.selectConnector(option);
     this.armSlot(direction === 2 ? 'axis2' : 'axis1');
   }
 

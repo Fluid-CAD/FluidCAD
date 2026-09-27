@@ -519,12 +519,15 @@ export type RevolveGhostRequest = {
  * {@link RevolveAxisRef} flattened to what the kernel can resolve without
  * reading code: a world axis, an `axis()` statement's call site, or the
  * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
- * before it ships, so "keep" itself never travels.
+ * before it ships, so "keep" itself never travels. The copy's axis slot also
+ * takes a connector — its `connector()` call site, plus a copy's slot —
+ * standing for its Z axis through its origin.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -697,7 +700,11 @@ export type GhostRepeatDirection = {
 export type CopyGhostRequest = {
   feature: 'copy';
   kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  /**
+   * The statements being copied, by call site: solid-bearing ones, stamped,
+   * and `connector()` statements, whose copies come back as
+   * {@link GhostFrame}s.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -927,6 +934,24 @@ export type GhostSolid = {
 };
 
 /**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it — in the four vectors a rendered connector serializes, so the
+ * overlay draws it with the connector's own triad.
+ */
+export type GhostFrame = {
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
+};
+
+/** Everything one ghost answer draws: bodies, and the connector frames a copy places. */
+export type GhostGeometry = {
+  solids: GhostSolid[];
+  frames: GhostFrame[];
+};
+
+/**
  * Where a ghost's dialog values are read. A value names variables the way
  * its statement will: an edited statement at its own call site
  * (`'statement'`), a created one at the end of the callback body it lands in
@@ -1003,7 +1028,7 @@ export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; notice: string | null }> {
+): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
   try {
     const res = await fetch('/api/feature-ghost', {
       method: 'POST',
@@ -1013,15 +1038,15 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], notice: null };
+      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
     }
     const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, notice };
+    return { solids: null, frames: [], notice };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, notice: null };
+    return { solids: null, frames: [], notice: null };
   }
 }
 
@@ -2655,10 +2680,23 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/**
+ * A copy's axis: the revolve axis shapes, or a connector standing for its Z
+ * axis through its origin — its `connector()` statement by call site, plus
+ * the pattern slot for one of its copies (`bolt.instance(2)`).
+ */
+export type CopyAxisRef = RevolveAxisRef | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
+
+/**
+ * A copy target by call site: a solid-bearing statement (the default), or a
+ * `connector()` statement the copy copies as frames.
+ */
+export type CopyTargetRef = SketchSourceRef & { kind?: 'feature' | 'connector' };
+
 /** One linear copy direction: its axis plus that direction's count and value. */
 export type CopyDirectionRef = {
-  /** The direction's axis — the revolve axis shapes. */
-  axis: RevolveAxisRef;
+  /** The direction's axis — the revolve axis shapes, or a connector. */
+  axis: CopyAxisRef;
   /** Instance count along this direction, the original included. */
   count: ValueExpr;
   /** Spacing along this direction, read through the shared `spacingMode`. */
@@ -2667,14 +2705,14 @@ export type CopyDirectionRef = {
 
 export type CopyApplyOptions = {
   kind: 'linear' | 'circular';
-  /** The solid-bearing statements being copied (whole-solid picks), in order. */
-  targets: SketchSourceRef[];
+  /** The statements being copied (whole-solid and connector picks), in order. */
+  targets: CopyTargetRef[];
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: CopyDirectionRef[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** The copy axis (circular) — the revolve axis shapes. */
-  axis?: RevolveAxisRef;
+  /** The copy axis (circular) — the revolve axis shapes, or a connector. */
+  axis?: CopyAxisRef;
   /** Instance count, original included (circular). */
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -3699,16 +3737,16 @@ export async function applyRepeatEdit(
  * position in the parsed `axisTexts`, or re-source it with any create-mode
  * axis shape.
  */
-export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | RevolveAxisRef;
+export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | CopyAxisRef;
 
 /**
  * One target of an edited copy, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
- * statement by call site.
+ * statement or connector by call site.
  */
 export type CopyEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
-  | ({ kind: 'feature' } & SketchSourceRef);
+  | ({ kind: 'feature' | 'connector' } & SketchSourceRef);
 
 export type CopyEditOptions = EditSessionFields & {
   kind: 'linear' | 'circular';

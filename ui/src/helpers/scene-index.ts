@@ -1,4 +1,4 @@
-import { SceneObjectRender } from '../types';
+import { ConnectorCopiesData, SceneObjectRender } from '../types';
 
 const NO_CHILDREN: readonly SceneObjectRender[] = Object.freeze([]);
 
@@ -34,6 +34,8 @@ export class SceneIndex {
   private readonly renderedGeometryMemo = new Map<SceneObjectRender, boolean>();
   private readonly rebuiltMemo = new Map<SceneObjectRender, boolean>();
   private readonly connectorsMemo = new Map<string, readonly SceneObjectRender[]>();
+  /** Connector id → the `copy()` row copying it; built on first use. */
+  private copyStatements: Map<string, SceneObjectRender> | null = null;
 
   private constructor(sceneObjects: readonly SceneObjectRender[]) {
     this.length = sceneObjects.length;
@@ -169,6 +171,67 @@ export class SceneIndex {
     out.sort((a, b) => this.position(a) - this.position(b));
     this.connectorsMemo.set(partId, out);
     return out;
+  }
+
+  /**
+   * Whether a row is a copy a `copy()` statement made of a connector
+   * (`bolt.instance(k)`): it has no statement of its own — its row reports
+   * the copy statement's call site — so it is never edited as a connector.
+   * Its pattern is the copy row's to edit, its frame its seed's.
+   */
+  static isConnectorCopy(row: SceneObjectRender): boolean {
+    return row.type === 'connector' && row.object?.copy !== undefined;
+  }
+
+  /**
+   * Whether a row is a `copy()` statement that copies connectors and
+   * nothing else — `copy('circular', 'z', {…}, bolt)`. The timeline files
+   * such a row with its part's connectors, and "show me" on it shows the
+   * whole family ({@link connectorFamilyOf}); a copy of solids and
+   * connectors together stays among the features.
+   */
+  static copiesOnlyConnectors(row: SceneObjectRender): boolean {
+    const copies = row.object?.connectorCopies as ConnectorCopiesData | undefined;
+    return copies?.connectorsOnly === true;
+  }
+
+  /**
+   * The connectors a `copy()` statement row copies, as scene ids: each
+   * seed, then every copy the statement made (its connector rows), in scene
+   * order — the family "show me" highlights. Empty for a row copying none.
+   */
+  connectorFamilyOf(row: SceneObjectRender): string[] {
+    const copies = row.object?.connectorCopies as ConnectorCopiesData | undefined;
+    if (!copies) {
+      return [];
+    }
+    const members = this.children(row.id)
+      .filter(child => child.type === 'connector' && child.id != null)
+      .map(child => child.id!);
+    return [...copies.seeds.map(seed => seed.id), ...members];
+  }
+
+  /**
+   * The `copy()` statement row that copies this connector — one per
+   * connector, so the first row naming it among its seeds — or undefined
+   * when nothing copies it (or the id is a copy's own).
+   */
+  copyStatementOf(connectorId: string | null | undefined): SceneObjectRender | undefined {
+    if (connectorId == null) {
+      return undefined;
+    }
+    if (!this.copyStatements) {
+      this.copyStatements = new Map();
+      for (const row of this.rowsById.values()) {
+        const copies = row.object?.connectorCopies as ConnectorCopiesData | undefined;
+        for (const seed of copies?.seeds ?? []) {
+          if (!this.copyStatements.has(seed.id)) {
+            this.copyStatements.set(seed.id, row);
+          }
+        }
+      }
+    }
+    return this.copyStatements.get(connectorId);
   }
 
   /** Every ancestor of the row, nearest first. */

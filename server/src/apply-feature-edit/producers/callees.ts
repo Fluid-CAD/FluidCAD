@@ -25,6 +25,15 @@ const REPEAT_TARGET_CALLEES = new Set([
 ]);
 
 /**
+ * Chain-root callees a connector input may reference — only the
+ * `connector()` statement itself. A copy takes a connector as a target
+ * (`copy('circular', 'z', {…}, bolt)`) or as its axis; `repeat` never binds
+ * one: its `feature` producers exclude the callee, since repeat() re-applies
+ * features and refuses connectors.
+ */
+const CONNECTOR_CALLEES = new Set(['connector']);
+
+/**
  * Chain-root callees per 2D sketch-geometry feature type (getType values of
  * sketch primitives and derived ops). A sketch-scoped spec's producers are
  * statements inside a sketch body; binding one to a variable and chaining
@@ -64,6 +73,9 @@ const REPEAT_PRODUCER_CALLEES: Record<string, string[]> = {
 };
 
 export function producerCallees(featureType: string): Set<string> {
+  if (featureType === 'connector') {
+    return CONNECTOR_CALLEES;
+  }
   const sketchCallees = SKETCH_PRODUCER_CALLEES[featureType];
   if (sketchCallees) {
     return new Set(sketchCallees);

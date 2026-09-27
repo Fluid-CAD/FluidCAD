@@ -15,6 +15,7 @@ import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
 import { CONNECTOR_NAME, validConnectorAnchor, validConnectorRotate } from '../features/connector.ts';
+import { validCopyAxisSlot, type CopyAxisSpec } from '../features/copy.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
@@ -26,6 +27,7 @@ import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '.
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
   isAxisProducer,
+  isConnectorProducer,
   isCopyTargetProducer,
   isFeatureProducer,
   isPlaneProducer,
@@ -296,10 +298,10 @@ export async function applyCreateEdit(
       return { newCode: code, error: 'malformed repeat edit spec' };
     }
   } else if (spec.feature === 'copy') {
-    // Every target is a bound feature producer; each picked axis edge
-    // references its own selector part, and every part must belong to
-    // exactly one axis — the parts' producers ride the list alongside the
-    // targets.
+    // Every target is a bound feature or connector producer; each picked
+    // axis edge references its own selector part, and every part must
+    // belong to exactly one axis — the parts' producers ride the list
+    // alongside the targets. A connector axis is a bound connector producer.
     const cp = spec.copy;
     const targets = cp?.targets ?? [];
     const selectorParts: number[] = [];
@@ -310,13 +312,15 @@ export async function applyCreateEdit(
       selectorParts.push(part);
       return true;
     };
-    const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
+    const validAxis = (axis: CopyAxisSpec | undefined): boolean =>
       axis !== undefined && (axis.kind === 'selector'
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
           : axis.kind === 'local'
             ? axis.axis === 'x' || axis.axis === 'y'
+          : axis.kind === 'connector'
+            ? isConnectorProducer(spec, axis.producer) && validCopyAxisSlot(axis.slot)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validSweep = cp?.sweep !== undefined
       && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')

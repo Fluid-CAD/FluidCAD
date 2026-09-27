@@ -311,6 +311,14 @@ describe('feature-ghost route — repeat', () => {
     }
   });
 
+  it('refuses a connector axis — only the copy takes one', async () => {
+    const result = await postGhost(linearBody({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }],
+    }));
+    expect(result.status).toBe(400);
+    expect(received).toBeUndefined();
+  });
+
   it('passes a circular repeat with its count and sweep', async () => {
     await postGhost(linearBody({
       kind: 'circular',
@@ -499,6 +507,54 @@ describe('feature-ghost route — copy', () => {
 
     expect(received.count).toBe(6);
     expect(received.sweep).toEqual({ mode: 'offset', value: 60 });
+  });
+
+  /**
+   * Connector copies: a connector target is a call site like any other, and
+   * a connector axis — with a copy's slot — crosses as it stands; the frames
+   * the kernel places ride back beside the solids.
+   */
+  it('passes a connector axis through and answers with the frames the kernel placed', async () => {
+    const frame = {
+      origin: { x: 0, y: 30, z: 10 },
+      xDirection: { x: 0, y: 1, z: 0 },
+      yDirection: { x: -1, y: 0, z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    };
+    const previous = fakeServer.featureGhost;
+    fakeServer.featureGhost = async (request: unknown) => {
+      received = request;
+      return { status: 200, solids: [], frames: [frame] } as never;
+    };
+    try {
+      const { status, body } = await postGhost(copyBody({
+        kind: 'circular',
+        axes: [{ kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+        directions: [],
+        count: 4,
+        sweep: { mode: 'angle', value: 360 },
+      }));
+      expect(status).toBe(200);
+      expect(body).toEqual({ success: true, solids: [], frames: [frame] });
+      expect(received.axes).toEqual([{ kind: 'connector', filePath: FILE, line: 5, slot: 2 }]);
+
+      await postGhost(copyBody({ axes: [{ kind: 'connector', filePath: FILE, line: 5 }] }));
+      expect(received.axes).toEqual([{ kind: 'connector', filePath: FILE, line: 5 }]);
+    } finally {
+      fakeServer.featureGhost = previous;
+    }
+  });
+
+  it('refuses a connector axis with no call site or a slot that is not a whole index', async () => {
+    for (const axis of [
+      { kind: 'connector', line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: -1 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 1.5 },
+    ]) {
+      const result = await postGhost(copyBody({ axes: [axis] }));
+      expect(result.status, JSON.stringify(axis)).toBe(400);
+    }
+    expect(received).toBeUndefined();
   });
 
   it('refuses a body no kind accepts', async () => {

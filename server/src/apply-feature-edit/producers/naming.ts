@@ -8,7 +8,7 @@ import {
   walkTree,
   type TSTree,
 } from '../../code-editor/index.ts';
-import { resolveStatement, type ProducerStatement } from './bindings.ts';
+import { bindingNameHint, resolveStatement, type ProducerStatement } from './bindings.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
 
 /**
@@ -47,7 +47,7 @@ export async function makeProducerNamer(
       if (!resolved.needsBinding && resolved.varName) {
         return resolved.varName;
       }
-      const hint = producer.nameHint || 'f';
+      const hint = bindingNameHint(producer, resolved.call);
       let name = hint;
       let suffix = 1;
       while (used.has(name)) {

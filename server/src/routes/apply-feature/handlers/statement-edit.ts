@@ -12,6 +12,7 @@ import {
   resolveParamValues,
   type ApplyFeatureEditSpec,
   type ConnectorAnchorSpec,
+  type CopyEditAxis,
   type FeatureStatementEditTarget,
   type RepeatEditAxis,
   type RotateEditAxis,
@@ -76,9 +77,9 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.repeatAxis?.kind === 'axis' ? [request.repeatAxis.loc] : []),
       ...(request.repeatPlane?.kind === 'plane' ? [request.repeatPlane.loc] : []),
       ...(request.repeatTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
-      ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
-      ...(request.copyAxis?.kind === 'axis' ? [request.copyAxis.loc] : []),
-      ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+      ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
+      ...(request.copyAxis?.kind === 'axis' || request.copyAxis?.kind === 'connector' ? [request.copyAxis.loc] : []),
+      ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' || t.kind === 'connector' ? [t.loc] : []),
       ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
       ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
@@ -595,12 +596,11 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       let sketchAxisIndex = 0;
       // One copy axis input as its edit spec form; null after refusing.
       // Keeps, standard and sketch-plane (xAxis()/yAxis()) axes pass
-      // through; an axis statement
-      // binds a producer; a picked 3D edge synthesizes its own selector
-      // part against the pre-statement boundary; a picked sketch edge
-      // claims the next kernel-synthesized part. Both render wrapped in
-      // `axis(…)`.
-      const resolveAxis = (input: CopyEditAxisInput): RepeatEditAxis | null => {
+      // through; an axis statement or a connector binds a producer; a
+      // picked 3D edge synthesizes its own selector part against the
+      // pre-statement boundary; a picked sketch edge claims the next
+      // kernel-synthesized part. Both render wrapped in `axis(…)`.
+      const resolveAxis = (input: CopyEditAxisInput): CopyEditAxis | null => {
         if (input.kind === 'keep') {
           return { kind: 'keep', sourceIndex: input.sourceIndex };
         }
@@ -622,6 +622,16 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
               line: input.loc.line, column: input.loc.column,
               featureType: 'axis', nameHint: 'a', bind: true,
             }),
+          };
+        }
+        if (input.kind === 'connector') {
+          return {
+            kind: 'connector',
+            producer: mergeProducer({
+              line: input.loc.line, column: input.loc.column,
+              featureType: 'connector', nameHint: 'c', bind: true,
+            }),
+            ...(input.slot !== undefined ? { slot: input.slot } : {}),
           };
         }
         const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
@@ -660,13 +670,15 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         // The 2D re-pick replaces the whole target list, in pick order.
         cp.targets = sketchTargetProducers.map(producer => ({ kind: 'feature' as const, producer }));
       } else if (request.copyTargets) {
+        // A re-picked connector binds its connector() statement under the
+        // connector's own name, like create mode.
         cp.targets = request.copyTargets.map(target => target.kind === 'verbatim'
           ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
           : {
             kind: 'feature' as const,
             producer: mergeProducer({
               line: target.loc.line, column: target.loc.column,
-              featureType: 'feature', nameHint: 'f', bind: true,
+              featureType: target.kind, nameHint: target.kind === 'connector' ? 'c' : 'f', bind: true,
             }),
           });
       }

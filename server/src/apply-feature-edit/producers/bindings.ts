@@ -7,6 +7,9 @@ import {
   type TSNode,
   type TSTree,
 } from '../../code-editor/index.ts';
+import { stringArgValue } from '../ast/args.ts';
+import { decomposeChain } from '../ast/chain.ts';
+import { CONNECTOR_NAME } from '../features/connector.ts';
 import { enclosingFunctionScope, enclosingScope, enclosingStatement, sameNode } from '../ast/nodes.ts';
 import { producerCallees, requiredChainRoots } from './callees.ts';
 import { isIdentityInput } from './predicates.ts';
@@ -212,6 +215,40 @@ export function resolveProducerBindings(
 }
 
 /**
+ * Names a connector's binding never takes: the words JavaScript reserves,
+ * and the functions a statement binding a connector calls — `const copy =
+ * connector('copy', …)` would shadow the very `copy(…)` being written (an
+ * edge axis renders `axis(…)`), and `const connector = connector(…)` reads
+ * itself before it is declared.
+ */
+const UNBINDABLE_CONNECTOR_NAMES = new Set([
+  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete',
+  'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import',
+  'in', 'instanceof', 'let', 'new', 'null', 'return', 'static', 'super', 'switch', 'this', 'throw',
+  'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield',
+  'connector', 'copy', 'axis',
+]);
+
+/**
+ * The name a producer's statement is bound under when it has no variable of
+ * its own yet. A connector takes its own name — `connector('bolt', …)`
+ * becomes `const bolt = connector('bolt', …)`, so the copy reads the way the
+ * part names the connector (the kernel already holds connector names to an
+ * identifier pattern). Everything else — and a connector name that can't be
+ * a variable here — takes the spec's hint.
+ */
+export function bindingNameHint(producer: { featureType?: string; nameHint?: string }, call: TSNode): string {
+  if (producer.featureType === 'connector') {
+    const nameArg = decomposeChain(call)?.root.args[0];
+    const name = nameArg ? stringArgValue(nameArg) : null;
+    if (name !== null && CONNECTOR_NAME.test(name) && !UNBINDABLE_CONNECTOR_NAMES.has(name)) {
+      return name;
+    }
+  }
+  return producer.nameHint || 'f';
+}
+
+/**
  * Pick collision-free variable names for producers that need binding.
  * Collision-checked against every identifier in the file, matching how the
  * lint pass walks identifiers.
@@ -231,7 +268,7 @@ export function allocateNames(root: TSNode, bindings: ProducerBinding[], spec: A
     if (!binding.needsBinding) {
       continue;
     }
-    const hint = spec.producers[i].nameHint || 'f';
+    const hint = bindingNameHint(spec.producers[i], binding.call);
     let name = hint;
     let suffix = 1;
     while (used.has(name)) {

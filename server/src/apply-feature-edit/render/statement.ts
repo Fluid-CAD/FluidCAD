@@ -3,7 +3,7 @@
 import { renderBooleanStatement } from '../features/boolean.ts';
 import { renderChamferValueArgs } from '../features/chamfer.ts';
 import { renderConnectorAnchorSuffix, renderConnectorChain } from '../features/connector.ts';
-import { renderCopyCenterExpr, renderCopyStatement } from '../features/copy.ts';
+import { renderCopyAxisExpr, renderCopyCenterExpr, renderCopyStatement } from '../features/copy.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement } from '../features/loft.ts';
@@ -111,8 +111,8 @@ export function buildStatement(
     const cp = spec.copy!;
     const varFor = (i: number): string | null => bindings[i].varName;
     const inputExprs = cp.kind === 'linear'
-      ? cp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
-      : [cp.center ? renderCopyCenterExpr(cp.center) : renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
+      ? cp.directions!.map(d => renderCopyAxisExpr(d.axis, spec.parts, varFor))
+      : [cp.center ? renderCopyCenterExpr(cp.center) : renderCopyAxisExpr(cp.axis!, spec.parts, varFor)];
     return renderCopyStatement(cp, inputExprs, cp.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'mirror') {

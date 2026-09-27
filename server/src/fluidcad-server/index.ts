@@ -22,6 +22,7 @@ export type {
   FilletGhostRequest,
   GhostAxisRef,
   GhostEntityRef,
+  GhostFrame,
   GhostHelixSourceRef,
   GhostLoftCondition,
   GhostPathRef,

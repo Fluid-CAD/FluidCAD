@@ -548,7 +548,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       });
       return;
     }
-    res.json({ success: true, solids: result.solids });
+    res.json({ success: true, solids: result.solids, ...(result.frames ? { frames: result.frames } : {}) });
   });
 
   /**

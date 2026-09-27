@@ -123,8 +123,15 @@ export type StatementEditRequest = {
   copyDirections?: { axis: CopyEditAxisInput; count: ValueExpr; value: ValueExpr }[];
   /** Edited copy's axis (circular); keep stays by source position. */
   copyAxis?: CopyEditAxisInput;
-  /** Full replacement copy target list; absent keeps the statement's. */
-  copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /**
+   * Full replacement copy target list; absent keeps the statement's. A
+   * re-picked target is a feature statement or a `connector()` the copy
+   * copies as frames.
+   */
+  copyTargets?: (
+    | { kind: 'verbatim'; sourceIndex: number }
+    | { kind: 'feature' | 'connector'; loc: SketchLoc }
+  )[];
   /**
    * Full replacement 2D copy target list — sketch-edge picks in argument
    * order, resolved to whole geometries by the sketch synthesis kernel.

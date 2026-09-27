@@ -3889,6 +3889,84 @@ describe('apply-feature route validation', () => {
       expect(body.reason).toContain('cannot be named');
       expect(relayed).toEqual([]);
     });
+
+    // Connector copies: a connector target or axis rides as its connector()
+    // statement's call site with kind 'connector', and binds as a
+    // `connector` producer under the connector's own name.
+    describe('connectors', () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, connector } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 100) })",
+        '  const e = extrude(10)',
+        "  connector('bolt', e.endFaces()).offset(30, 0, 0)",
+        "  connector('pivot', e.endFaces())",
+        '})',
+        '',
+      ].join('\n');
+      const BOLT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 6, column: 2 };
+      const PIVOT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 7, column: 2 };
+      const E = { filePath: '/ws/flange.part.js', line: 5, column: 12 };
+
+      it('binds a connector target under its own name, beside a solid target', async () => {
+        currentCode = PART;
+        const body = {
+          feature: 'copy', kind: 'circular', targets: [E, BOLT],
+          axis: { kind: 'standard', axis: 'z' }, count: 6, sweep: { mode: 'angle', value: 360 },
+        };
+        const preview = await post({ ...body, preview: true });
+        expect(preview.status).toBe(200);
+        expect(preview.body.preview).toBe("copy('circular', 'z', { count: 6, angle: 360 }, e, bolt)");
+
+        const { status } = await post(body);
+        expect(status).toBe(200);
+        const spec = relayed[0].spec;
+        expect(spec.producers).toEqual([
+          { line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true },
+          { line: 6, column: 2, featureType: 'connector', nameHint: 'c', bind: true },
+        ]);
+        expect(spec.copy.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      });
+
+      it("sends a connector axis, and a copy's slot on it", async () => {
+        currentCode = PART;
+        const around = await post({
+          feature: 'copy', kind: 'circular', targets: [BOLT],
+          axis: PIVOT, count: 4, sweep: { mode: 'angle', value: 360 }, preview: true,
+        });
+        expect(around.status).toBe(200);
+        expect(around.body.preview).toBe("copy('circular', pivot, { count: 4, angle: 360 }, bolt)");
+
+        const { status, body } = await post({
+          feature: 'copy', kind: 'linear', targets: [PIVOT], spacingMode: 'offset',
+          directions: [{ axis: { ...BOLT, slot: 2 }, count: 2, value: 15 }],
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe("copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot)");
+        const spec = relayed[0].spec;
+        expect(spec.copy.directions[0].axis).toEqual({ kind: 'connector', producer: 1, slot: 2 });
+        expect(spec.producers[1]).toMatchObject({ line: 6, featureType: 'connector' });
+      });
+
+      it('rejects an unknown target kind, a bad slot, and a connector axis in another file', async () => {
+        const base = {
+          feature: 'copy', kind: 'circular', targets: [BOLT],
+          axis: PIVOT, count: 4, sweep: { mode: 'angle', value: 360 },
+        };
+        const badKind = await post({ ...base, targets: [{ ...BOLT, kind: 'sketch' }] });
+        expect(badKind.status).toBe(400);
+        expect(badKind.body.error).toContain('"feature" or "connector"');
+
+        const badSlot = await post({ ...base, axis: { ...PIVOT, slot: -1 } });
+        expect(badSlot.status).toBe(400);
+        expect(badSlot.body.error).toContain('slot');
+
+        const elsewhere = await post({ ...base, axis: { ...PIVOT, filePath: '/ws/other.part.js' } });
+        expect(elsewhere.status).toBe(400);
+        expect(elsewhere.body.error).toContain('different files');
+      });
+    });
   });
 
   describe('copy edit', () => {
@@ -4017,6 +4095,47 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(400);
       expect(body.error).toContain('before is required');
       expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('re-picks a connector target and a connector axis, each bound by name', async () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, connector, copy } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 100) })",
+        '  const e = extrude(10)',
+        "  connector('bolt', e.endFaces()).offset(30, 0, 0)",
+        "  connector('pivot', e.endFaces())",
+        "  copy('circular', 'z', { count: 6, angle: 360 }, e)",
+        '})',
+        '',
+      ].join('\n');
+      currentCode = PART;
+      currentFileName = '/ws/flange.part.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: { filePath: '/ws/flange.part.js', line: 8, column: 2 }, kind: 'circular',
+        axis: { kind: 'connector', filePath: '/ws/flange.part.js', line: 7, column: 2 },
+        count: 6, sweep: { mode: 'angle', value: 360 },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: '/ws/flange.part.js', line: 6, column: 2 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('circular', pivot, { count: 6, angle: 360 }, e, bolt)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [
+          { line: 7, featureType: 'connector', bind: true },
+          { line: 6, featureType: 'connector', bind: true },
+        ],
+        edit: {
+          copy: {
+            kind: 'circular',
+            axis: { kind: 'connector', producer: 0 },
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+          },
+        },
+      });
     });
 
     it('rejects an unknown kind on an edit', async () => {

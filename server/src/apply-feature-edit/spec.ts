@@ -21,7 +21,7 @@ import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
-import type { CopyEditOptions } from './features/copy.ts';
+import type { CopyEditAxis, CopyEditOptions } from './features/copy.ts';
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
 import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
@@ -622,13 +622,13 @@ export type FeatureStatementEditTarget = {
   copy?: {
     kind: 'linear' | 'circular';
     /** Linear directions in axis order — each its own axis, count and value. */
-    directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
+    directions?: { axis: CopyEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
     /** Linear only: center the pattern on the original instance. */
     centered?: boolean;
     /** The copy axis (circular); linear carries axes per direction. */
-    axis?: RepeatEditAxis;
+    axis?: CopyEditAxis;
     /**
      * The 2D circular form's center point (inside a sketch) — replaces the
      * axis argument outright; the dialog always sends its field values.

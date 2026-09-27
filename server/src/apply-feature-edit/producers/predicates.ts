@@ -31,6 +31,16 @@ export function isAxisProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
     && spec.producers[i].featureType === 'axis';
 }
 
+/**
+ * Whether producer index `i` is a valid connector producer — a
+ * `connector()` statement a copy takes as a target or as its axis, bound
+ * under the connector's own name.
+ */
+export function isConnectorProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'connector';
+}
+
 /** Whether producer index `i` is a valid repeat-target feature producer. */
 export function isFeatureProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < spec.producers.length
@@ -53,6 +63,7 @@ export function isScopeTargetProducer(spec: ApplyFeatureEditSpec, i: number): bo
   return producer.bind !== false
     && requiredChainRoots(producer.featureType) === null
     && producer.featureType !== 'offset'
+    && producer.featureType !== 'connector'
     && SKETCH_PRODUCER_CALLEES[producer.featureType] === undefined;
 }
 
@@ -74,13 +85,14 @@ export function isIdentityInput(spec: ApplyFeatureEditSpec, i: number): boolean 
 }
 
 /**
- * Whether producer index `i` may be a copy target: a 3D feature producer, or
- * — the 2D in-sketch form — a sketch-geometry producer (rect, circle, …).
+ * Whether producer index `i` may be a copy target: a 3D feature producer, a
+ * connector the copy copies as a frame, or — the 2D in-sketch form — a
+ * sketch-geometry producer (rect, circle, …).
  */
 export function isCopyTargetProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   if (!Number.isInteger(i) || i < 0 || i >= spec.producers.length) {
     return false;
   }
   const type = spec.producers[i].featureType;
-  return type === 'feature' || SKETCH_PRODUCER_CALLEES[type] !== undefined;
+  return type === 'feature' || type === 'connector' || SKETCH_PRODUCER_CALLEES[type] !== undefined;
 }

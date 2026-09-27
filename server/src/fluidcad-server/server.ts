@@ -36,6 +36,7 @@ import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
   FeatureGhostOutcome,
   FeatureGhostRequest,
+  GhostFrame,
   GhostSolid,
   SketchRegionPreview,
   SketchRegionsOutcome,
@@ -1029,7 +1030,11 @@ export class FluidCadServer {
       try {
         const result = this.sceneManager.buildFeatureGhost(scene, request);
         if (result?.ok) {
-          return { status: 200, solids: (result.solids ?? []) as GhostSolid[] };
+          return {
+            status: 200,
+            solids: (result.solids ?? []) as GhostSolid[],
+            ...(result.frames?.length ? { frames: result.frames as GhostFrame[] } : {}),
+          };
         }
         return {
           status: 422,

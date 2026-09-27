@@ -10,11 +10,28 @@ import {
   resolveRepeatTargetRef,
   stringArgValue,
 } from '../ast/args.ts';
-import { renderRepeatAxisExpr, type RepeatAxisSpec, type RepeatEditAxis } from './repeat.ts';
+import { renderRepeatAxisExpr, type RepeatAxisSpec } from './repeat.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
-import { isAxisProducer, isCopyTargetProducer } from '../producers/predicates.ts';
+import { isAxisProducer, isConnectorProducer, isCopyTargetProducer } from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+
+/**
+ * One axis of a copy statement: the revolve axis shapes a repeat takes too,
+ * plus a connector standing for its Z axis through its origin — its
+ * `connector()` statement bound under the connector's own name, and
+ * `.instance(<slot>)` on it for one of its copies (`bolt.instance(2)`).
+ */
+export type CopyAxisSpec =
+  | RepeatAxisSpec
+  | { kind: 'connector'; producer: number; slot?: number };
+
+/**
+ * One axis slot of an edited copy: keep the statement's own axis text by its
+ * position in the parsed `axisTexts`, or re-source it with any create-mode
+ * axis shape.
+ */
+export type CopyEditAxis = { kind: 'keep'; sourceIndex: number } | CopyAxisSpec;
 
 /**
  * How a copy statement is rendered and placed:
@@ -22,21 +39,24 @@ import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '..
  * — or, with several directions, the array forms `copy('linear', [<a1>,
  * <a2>], { count: [c1, c2], offset: [v1, v2] }, …)` — or
  * `copy('circular', <axis>, { count, angle|offset }, …targets)`. Targets are
- * the feature statements being copied, each bound to a variable (featureType
- * `feature` producers — any repeatable builder callee, not just sketches).
- * Every axis takes the revolve axis shapes (standard / axis statement /
- * picked edge as `axis(<selector>)`). The statement always inserts at end of
- * scope: a copy replays its targets over the finished model, and a picked
- * selector must resolve there.
+ * the statements being copied, each bound to a variable: feature statements
+ * (featureType `feature` producers — any repeatable builder callee, not just
+ * sketches), and connectors (`connector` producers, bound under their own
+ * name), which the copy copies as frames. Every axis takes the revolve axis
+ * shapes (standard / axis statement / picked edge as `axis(<selector>)`) or
+ * a connector ({@link CopyAxisSpec}). The statement always inserts at end of
+ * scope: a copy replays its targets over the finished model, a picked
+ * selector must resolve there, and a connector is copied inside its own part
+ * body.
  */
 export type CopyEditOptions = {
   kind: 'linear' | 'circular';
   /** Linear directions in axis order — each its own axis, count and value. */
-  directions?: { axis: RepeatAxisSpec; count: ValueExpr; value: ValueExpr }[];
+  directions?: { axis: CopyAxisSpec; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
   /** The copy axis (circular); linear carries axes per direction. */
-  axis?: RepeatAxisSpec;
+  axis?: CopyAxisSpec;
   /** Instance count, original included (circular). */
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -54,9 +74,36 @@ export type CopyEditOptions = {
    * a single index each and render flat; absent writes no option.
    */
   skip?: number[][];
-  /** The features being copied, in argument order — bound producers. */
+  /** The features and connectors being copied, in argument order — bound producers. */
   targets: { producer: number }[];
 };
+
+/**
+ * Render one copy axis argument: a connector as its bound variable — plus
+ * `.instance(<slot>)` for one of its copies — and every other shape the way
+ * a repeat renders it ({@link renderRepeatAxisExpr}). Shared with the
+ * route's preview, which passes its namer's variables; the transform passes
+ * its bindings'.
+ */
+export function renderCopyAxisExpr(
+  axis: CopyAxisSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (axis.kind === 'connector') {
+    const binding = varFor(axis.producer) ?? 'c';
+    return axis.slot === undefined ? binding : `${binding}.instance(${axis.slot})`;
+  }
+  return renderRepeatAxisExpr(axis, parts, varFor);
+}
+
+/**
+ * A copy axis's connector slot, when it names one: a copy's pattern slot is a
+ * non-negative whole number; absent names the connector itself.
+ */
+export function validCopyAxisSlot(slot: unknown): boolean {
+  return slot === undefined || (Number.isSafeInteger(slot) && (slot as number) >= 0);
+}
 
 /** The 2D circular copy's center argument: `[x, y]`. */
 export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
@@ -390,7 +437,7 @@ export function renderEditedCopy(
     usedParts.add(part);
     return true;
   };
-  const resolveAxis = (axis: RepeatEditAxis | undefined): string | { error: string } => {
+  const resolveAxis = (axis: CopyEditAxis | undefined): string | { error: string } => {
     if (axis?.kind === 'keep') {
       const text = Number.isInteger(axis.sourceIndex) ? parsed.axisTexts[axis.sourceIndex] : undefined;
       if (text === undefined) {
@@ -406,6 +453,10 @@ export function renderEditedCopy(
       if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
         return { error: 'malformed copy edit spec: the axis references a non-axis producer' };
       }
+    } else if (axis?.kind === 'connector') {
+      if (!isConnectorProducer(spec as ApplyFeatureEditSpec, axis.producer) || !validCopyAxisSlot(axis.slot)) {
+        return { error: 'malformed copy edit spec: the axis references a non-connector producer' };
+      }
     } else if (axis?.kind === 'local') {
       if (axis.axis !== 'x' && axis.axis !== 'y') {
         return { error: 'malformed copy edit spec' };
@@ -414,7 +465,7 @@ export function renderEditedCopy(
       || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {
       return { error: 'malformed copy edit spec' };
     }
-    return renderRepeatAxisExpr(axis, spec.parts, varFor);
+    return renderCopyAxisExpr(axis, spec.parts, varFor);
   };
 
   let inputExprs: string[];
@@ -478,6 +529,8 @@ export function renderEditedCopy(
         usedVerbatim.add(target.sourceIndex);
         exprs.push(parsed.targetTexts[target.sourceIndex]);
       } else if (target?.kind === 'feature') {
+        // A re-picked target: a feature statement, or a connector the copy
+        // copies as frames — both bound producers.
         if (!isCopyTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed copy edit spec: a target references a non-feature producer' };
         }

@@ -5367,6 +5367,231 @@ describe('applyFeatureEdit (copy in-place statement edit)', () => {
   });
 });
 
+/**
+ * Connector copies from the Copy dialog: a connector target is its
+ * `connector()` statement, bound under the connector's own name as a
+ * `connector` producer, and the statement lands at the end of the part body
+ * the connector lives in — where the kernel copies a part's connectors. A
+ * connector in an axis slot renders as that binding (`.instance(k)` on it
+ * for one of its copies).
+ */
+describe('copy statement templates — connectors', () => {
+  const flange = [
+    `import { part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+    ``,
+    `export const flange = part('Flange', () => {`,
+    `  sketch('xy', () => { circle([0, 0], 100) })`,
+    `  const e = extrude(10)`,
+    `  connector('bolt', e.endFaces()).offset(30, 0, 0)`,
+    `  connector('pivot', e.endFaces())`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** The flange with `statement` appended to the part body, before its closing `})`. */
+  function withStatement(code: string, statement: string): string {
+    return code.replace(/\}\)\n$/, `  ${statement}\n})\n`);
+  }
+
+  const BOLT = { line: 6, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+  const PIVOT = { line: 7, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+
+  function copySpec(
+    copy: NonNullable<ApplyFeatureEditSpec['copy']>,
+    producers: ApplyFeatureEditSpec['producers'],
+  ): ApplyFeatureEditSpec {
+    return { feature: 'copy', copy, filePath: '/ws/flange.part.js', producers, parts: [], imports: [] };
+  }
+
+  const CIRCULAR = { kind: 'circular' as const, count: 6, sweep: { mode: 'angle' as const, value: 360 } };
+
+  it('binds a bare connector under its own name and lands at the end of its part body', async () => {
+    const result = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { copy, part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(10)`,
+      `  const bolt = connector('bolt', e.endFaces()).offset(30, 0, 0)`,
+      `  connector('pivot', e.endFaces())`,
+      `  copy('circular', 'z', { count: 6, angle: 360 }, bolt)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it("reuses a connector's existing binding, whatever it is called", async () => {
+    const code = flange.replace(`  connector('bolt'`, `  const c1 = connector('bolt'`);
+    const result = await applyFeatureEdit(code, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, column: 13 }]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  copy('circular', 'z', { count: 6, angle: 360 }, c1)\n})`);
+    expect(result.newCode).not.toContain('const bolt');
+  });
+
+  it("takes the next free name, or the hint when the connector's name can't be a variable", async () => {
+    // `bolt` already names something in the file — the binding steps aside.
+    const taken = flange.replace(`export const flange`, `const bolt = 1\nexport const flange`);
+    const clash = await applyFeatureEdit(taken, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, line: 7 }]));
+    expect(clash.error).toBeUndefined();
+    expect(clash.newCode).toContain(`  const bolt2 = connector('bolt', e.endFaces())`);
+    expect(clash.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, bolt2)`);
+
+    // `copy` would shadow the very call being written.
+    const shadow = flange.replace(`connector('bolt'`, `connector('copy'`);
+    const fallback = await applyFeatureEdit(shadow, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [BOLT]));
+    expect(fallback.error).toBeUndefined();
+    expect(fallback.newCode).toContain(`  const c = connector('copy', e.endFaces())`);
+    expect(fallback.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, c)`);
+  });
+
+  it('copies solids and connectors in one statement, in pick order', async () => {
+    const result = await applyFeatureEdit(flange, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, [{ line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true }, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  copy('linear', 'x', { count: 3, offset: 40 }, e, bolt)\n})`);
+  });
+
+  it("renders a connector axis as its binding, and a copy's slot on it", async () => {
+    const around = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'connector', producer: 1 }, targets: [{ producer: 0 }],
+    }, [BOLT, PIVOT]));
+    expect(around.error).toBeUndefined();
+    expect(around.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())`);
+    expect(around.newCode).toContain(`  copy('circular', pivot, { count: 6, angle: 360 }, bolt)\n})`);
+
+    const along = await applyFeatureEdit(flange, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'connector', producer: 0, slot: 2 }, count: 2, value: 15 }],
+      targets: [{ producer: 1 }],
+    }, [BOLT, PIVOT]));
+    expect(along.error).toBeUndefined();
+    expect(along.newCode).toContain(`  copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot)\n})`);
+  });
+
+  it('refuses a connector producer whose line holds another call, and a bad axis slot', async () => {
+    const wrongLine = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, line: 5 }]));
+    expect(wrongLine.error).toContain('the call at line 5 is extrude(), expected a connector()-producing call');
+    expect(wrongLine.newCode).toBe(flange);
+
+    const badSlot = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'connector', producer: 1, slot: -1 }, targets: [{ producer: 0 }],
+    }, [BOLT, PIVOT]));
+    expect(badSlot.error).toBe('malformed copy edit spec');
+  });
+
+  it('repeat keeps refusing a connector: as a connector producer, or bound as a feature', async () => {
+    const asConnector = await applyFeatureEdit(flange, {
+      feature: 'repeat',
+      repeat: { ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }] },
+      filePath: '/ws/flange.part.js',
+      producers: [BOLT],
+      parts: [],
+      imports: [],
+    });
+    expect(asConnector.error).toBe('malformed repeat edit spec');
+
+    const asFeature = await applyFeatureEdit(flange, {
+      feature: 'repeat',
+      repeat: { ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }] },
+      filePath: '/ws/flange.part.js',
+      producers: [{ ...BOLT, featureType: 'feature' }],
+      parts: [],
+      imports: [],
+    });
+    expect(asFeature.error).toContain('the call at line 6 is connector(), expected a feature()-producing call');
+  });
+
+  /** The flange importing `copy`, as a file holding a copy statement does. */
+  const withCopy = flange.replace(`import { part,`, `import { copy, part,`);
+
+  /** …and with both connectors bound, as a dialog-written copy leaves it. */
+  const bound = withCopy
+    .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`)
+    .replace(`  connector('pivot'`, `  const pivot = connector('pivot'`);
+
+  it('parses connector targets and a connector axis verbatim, each target at its statement', async () => {
+    const result = await parseFeatureStatement(
+      withStatement(bound, `copy('circular', pivot, { count: 6, angle: 360 }, bolt, e)`), 8,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'circular', axisTexts: ['pivot'],
+        count: 6, sweep: { mode: 'angle', value: 360 },
+        targetTexts: ['bolt', 'e'],
+        // The bound calls' own positions — the connector and extrude rows' locations.
+        targetRefs: [{ line: 6, column: 15 }, { line: 5, column: 12 }],
+      },
+    });
+
+    const copyAxis = await parseFeatureStatement(
+      withStatement(bound, `copy('linear', [bolt.instance(2), 'x'], { count: [2, 3], offset: [15, 20] }, pivot)`), 8,
+    );
+    expect(copyAxis).toMatchObject({ ok: true, parsed: { axisTexts: ['bolt.instance(2)', `'x'`] } });
+  });
+
+  it('keeps connector targets and a connector axis exactly as written through an edit', async () => {
+    const code = withStatement(bound, `copy('circular', bolt.instance(0), { count: 6, angle: 360 }, bolt, pivot)`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 8, column: 2,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'keep', sourceIndex: 0 },
+        count: 8,
+        sweep: { mode: 'angle', value: 360 },
+      },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      withStatement(bound, `copy('circular', bolt.instance(0), { count: 8, angle: 360 }, bolt, pivot)`),
+    );
+  });
+
+  it('re-picks a connector target and a connector axis in an edit, binding each by name', async () => {
+    const code = withStatement(withCopy, `copy('circular', 'z', { count: 6, angle: 360 }, e)`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 8, column: 2,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'connector', producer: 1 },
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, { filePath: '/ws/flange.part.js', producers: [BOLT, PIVOT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      withStatement(bound, `copy('circular', pivot, { count: 6, angle: 360 }, e, bolt)`),
+    );
+  });
+
+  it("previews a connector's own name through the producer namer", async () => {
+    const namer = await makeProducerNamer(flange);
+    expect(namer([
+      { line: 6, nameHint: 'c', featureType: 'connector' },
+      { line: 7, nameHint: 'c', featureType: 'connector' },
+      { line: 5, nameHint: 'f', featureType: 'feature' },
+    ])).toEqual(['bolt', 'pivot', 'e']);
+  });
+});
+
 describe('boolean statement templates', () => {
   const base = [
     `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,

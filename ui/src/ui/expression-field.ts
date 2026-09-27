@@ -387,8 +387,10 @@ export class ExpressionField {
   }
 
   private renderDropdown(): void {
+    // The new-variable offer only shows over a fresh name, which is always a
+    // declaration — the session's toggle alone decides it.
     this.dropdown.innerHTML = this.filtered
-      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex, ParamDeclareMode.enabled))
       .join('');
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {
       item.addEventListener('mousedown', (e) => {

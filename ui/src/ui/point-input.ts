@@ -180,11 +180,13 @@ export class PointInput {
     this.axes.y.labelEl = this.el.querySelector('.point-label-y')!;
 
     // mousedown would blur the focused field; toggle without stealing focus.
+    // The flip re-chips the new-variable offer (P or V) in the open dropdown.
     this.paramBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.paramMode = !this.paramMode;
       this.renderParamButton();
+      this.renderDropdown();
     });
 
     for (const id of ['x', 'y'] as AxisId[]) {
@@ -685,8 +687,9 @@ export class PointInput {
     // Sit under whichever field is being typed into.
     const active = this.activeField ? this.axes[this.activeField].input : null;
     this.dropdown.style.marginLeft = active ? `${active.offsetLeft}px` : '0px';
+    const newAsParam = this.paramMode && this.paramAvailable;
     this.dropdown.innerHTML = this.filteredVars
-      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex, newAsParam))
       .join('');
 
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {

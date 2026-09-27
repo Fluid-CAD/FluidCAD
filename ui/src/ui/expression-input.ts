@@ -94,12 +94,14 @@ export class ExpressionInput {
     this.renderParamButton();
 
     // mousedown would blur the input; toggle without stealing focus. The flip
-    // is remembered for every expression input that opens after this one.
+    // is remembered for every expression input that opens after this one,
+    // and re-chips the new-variable offer (P or V) in the open dropdown.
     this.paramBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       ParamDeclareMode.toggle();
       this.renderParamButton();
+      this.renderDropdown();
     });
 
     this.input.addEventListener('keydown', (e) => {
@@ -432,8 +434,9 @@ export class ExpressionInput {
       return;
     }
     this.dropdown.classList.remove('hidden');
+    const newAsParam = ParamDeclareMode.enabled && this.paramAvailable;
     this.dropdown.innerHTML = this.filteredVars
-      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex, newAsParam))
       .join('');
 
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {

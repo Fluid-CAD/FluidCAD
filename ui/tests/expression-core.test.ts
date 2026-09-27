@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  resolveExpressionValue, trailingIdentifier,
+  resolveExpressionValue, suggestionItemHtml, suggestionKind, trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -120,6 +120,48 @@ describe('filterSuggestions', () => {
     // ...but their name still blocks the new-variable offer and redeclaration.
     expect(filterSuggestions('housing', VARS, 'housing', '25').some(s => s.isNew)).toBe(false);
     expect(classifyCommit('housing = 4', VARS, '25')).toMatchObject({ kind: 'error' });
+  });
+});
+
+describe('suggestionKind', () => {
+  it('reads param(), plain values and computed expressions off the initializer', () => {
+    expect(suggestionKind({ name: 'w', initializer: 'param("w", 40)' }, false)).toBe('param');
+    expect(suggestionKind({ name: 'w', initializer: "param('w', 40, 'number', { min: 1 })" }, false))
+      .toBe('param');
+    expect(suggestionKind({ name: 'height', initializer: '30' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'offset', initializer: '-2.5' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'scale', initializer: '1e3' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'half', initializer: 'w / 2' }, false)).toBe('expression');
+    expect(suggestionKind({ name: 'alias', initializer: 'w' }, false)).toBe('expression');
+    expect(suggestionKind({ name: 'angle', initializer: 'Math.PI / 4' }, false)).toBe('expression');
+  });
+
+  it('treats an import, whose value the file does not show, as a variable', () => {
+    expect(suggestionKind({ name: 'thickness' }, false)).toBe('variable');
+  });
+
+  it('chips the new-variable offer as what its commit would declare', () => {
+    const [offer] = filterSuggestions('depth', VARS, 'depth', '25');
+    expect(offer).toMatchObject({ isNew: true });
+    expect(suggestionKind(offer, true)).toBe('param');
+    expect(suggestionKind(offer, false)).toBe('variable');
+  });
+});
+
+describe('suggestionItemHtml', () => {
+  it('leads with the kind chip and shows no initializer preview', () => {
+    const html = suggestionItemHtml({ name: 'half', initializer: 'w / 2' }, 0, false, false);
+    expect(html.indexOf('>E</span>')).toBeGreaterThan(-1);
+    expect(html.indexOf('>E</span>')).toBeLessThan(html.indexOf('>half</span>'));
+    expect(html).not.toContain('w / 2');
+    expect(html).not.toContain('= ');
+  });
+
+  it('wears the P toggle blue for params and the variable pink for plain values', () => {
+    expect(suggestionItemHtml({ name: 'w', initializer: 'param("w", 40)' }, 0, false, false))
+      .toContain('bg-primary/20 text-primary border-primary/40');
+    expect(suggestionItemHtml({ name: 'height', initializer: '30' }, 0, false, false))
+      .toContain('bg-variable/20 text-variable border-variable/40');
   });
 });
 

@@ -207,6 +207,20 @@ describe('PointInput variables', () => {
     expect(h.container.querySelector('.point-dropdown')!.textContent).not.toContain('plate');
   });
 
+  it('chips the new-variable offer by the pill\'s own P toggle', () => {
+    const h = mount();
+    type(h.x, 'w');
+    const chips = () => Array.from(h.container.querySelectorAll('.point-dropdown [data-idx]'))
+      .map((row) => row.firstElementChild?.textContent);
+    // `width` holds a plain number; the offer to declare `w` starts as a
+    // plain variable — the pill's toggle opens off.
+    expect(chips()).toEqual(['V', 'V']);
+
+    h.container.querySelector('.point-param-btn')!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(chips()).toEqual(['V', 'P']);
+  });
+
   it('declares a new variable per axis', () => {
     const h = mount();
     type(h.x, 'cx = 100');

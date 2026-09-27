@@ -1125,15 +1125,17 @@ export async function getDimensionExpression(
  * dialogs' create mode: the statement lands in the timeline's active part
  * (attached here from the provider the apply payloads read), so the scope is
  * that part's body — its `param()`s included, never another part's — or the
- * whole file when no part is active.
+ * whole file when no part is active. Explicit assembly scope uses the catalog
+ * insertion point inside the assembly body, ignoring the active part.
  */
 export async function getScopeVariables(
   sketchSourceLine: number | null,
+  scope?: 'assembly',
 ): Promise<VariableInfo[]> {
-  const part = sketchSourceLine === null ? activePartProvider?.() ?? null : null;
+  const part = sketchSourceLine === null && scope !== 'assembly' ? activePartProvider?.() ?? null : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
     '/api/scope-variables',
-    part ? { sketchSourceLine, part } : { sketchSourceLine },
+    scope === 'assembly' ? { sketchSourceLine, assembly: true } : part ? { sketchSourceLine, part } : { sketchSourceLine },
   );
   return data?.variables ?? [];
 }
@@ -4487,13 +4489,13 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
 /**
  * Declare a new parameter at the top of `part`'s callback body (the Add
  * dialog's Part choice — the file the part lives in takes the edit). A
- * parameter only lives inside a part body, so without one the server refuses
- * and says so. The variable it binds is derived from the label server-side —
+ * parameter requires a part target unless assembly scope is requested; then
+ * it lands in the current file's single assembly callback body. The variable it binds is derived from the label server-side —
  * only the file knows what names are free, so a clashing one gets a numeric
  * suffix rather than a refusal.
  */
-export function addParam(param: ParamSpec, part: SourceLocation | null): Promise<ParamEditResponse> {
-  const body = part
+export function addParam(param: ParamSpec, part: SourceLocation | null, scope: 'part' | 'assembly' = 'part'): Promise<ParamEditResponse> {
+  const body = scope === 'assembly' ? { param, assembly: true } : part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };
   return postParamEdit('/api/params/add', body);
@@ -4635,7 +4637,7 @@ export type CatalogInsertRequest = {
   exportName: string;
   kind: CatalogEntryKind;
   /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
-  params?: Record<string, CatalogParamValue>;
+  params?: Record<string, CatalogParamValue | CatalogParamExpr>;
 };
 
 /**
@@ -4646,12 +4648,13 @@ export type CatalogInsertRequest = {
  */
 export async function insertCatalogParts(
   inserts: CatalogInsertRequest[],
+  newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/part-catalog/insert', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ inserts }),
+      body: JSON.stringify({ inserts, newVariables }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

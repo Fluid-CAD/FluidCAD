@@ -5,6 +5,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
+import { findInvalidParam } from '../part-catalog/insert-edit.ts';
 import { listCandidateFiles } from '../part-catalog/walk.ts';
 import { PartScanCache } from '../part-catalog/cache.ts';
 import { readProjectConfig } from '../project-config.ts';
@@ -85,8 +86,9 @@ export function createPartCatalogRouter(
   router.post('/part-catalog/insert', async (req, res) => {
     // Batch body: { inserts: [{ file, exportName, kind, params? }] } — the
     // dialog's whole basket in one edit, one editor round trip, one render.
-    const { inserts } = req.body ?? {};
-    if (!Array.isArray(inserts) || inserts.length === 0) {
+    const { inserts, newVariables } = req.body ?? {};
+    if (!Array.isArray(inserts) || inserts.length === 0
+      || (newVariables !== undefined && !Array.isArray(newVariables))) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -96,7 +98,7 @@ export function createPartCatalogRouter(
         typeof file !== 'string' || file.length === 0
         || typeof exportName !== 'string' || !IDENTIFIER_RE.test(exportName)
         || (kind !== 'value' && kind !== 'factory' && kind !== 'assembly')
-        || !validParams(params)
+        || findInvalidParam(params) !== null
       ) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
@@ -120,6 +122,7 @@ export function createPartCatalogRouter(
       producers: [],
       parts: [],
       imports: [],
+      newVariables,
       insertPart: {
         inserts: inserts.map((entry: any) => {
           const partAbs = normalizePath(entry.file);
@@ -136,26 +139,6 @@ export function createPartCatalogRouter(
   });
 
   return router;
-}
-
-/** JSON-scalar (or scalar-array) values only — what a `param()` can resolve to. */
-function validParams(params: unknown): boolean {
-  if (params == null) {
-    return true;
-  }
-  if (typeof params !== 'object' || Array.isArray(params)) {
-    return false;
-  }
-  return Object.values(params).every(value => {
-    if (typeof value === 'string' || typeof value === 'boolean') {
-      return true;
-    }
-    if (typeof value === 'number') {
-      return Number.isFinite(value);
-    }
-    return Array.isArray(value)
-      && value.every(v => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)));
-  });
 }
 
 export { relativeSpecifier };

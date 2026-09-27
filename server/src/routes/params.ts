@@ -310,6 +310,14 @@ export function createParamsRouter(
       res.status(400).json({ error: 'a well-formed param is required' });
       return;
     }
+    if (req.body?.assembly === true) {
+      if (req.body.part != null) {
+        res.status(400).json({ error: 'Choose either assembly or part scope' });
+        return;
+      }
+      await dispatchParamEdit(res, { kind: 'add', param: spec, assembly: true });
+      return;
+    }
     // The Part dropdown's choice: the declaration goes into that part's
     // callback body, in the file that declares the part. A parameter only
     // lives inside a part body, so there is no add without one.

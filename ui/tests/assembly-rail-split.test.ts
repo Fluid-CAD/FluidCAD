@@ -4,6 +4,7 @@ import { PartsPanel } from '../src/ui/parts-panel';
 import { ConnectorsPanel } from '../src/ui/connectors-panel';
 import { JointsPanel } from '../src/ui/joints-panel';
 import { railSplit } from '../src/ui/assembly-rail-split';
+import { AccordionSection } from '../src/ui/accordion-section';
 
 // The assembly rail's column splits by who is open: Parts holds half of it
 // beside anything else, the other open sections share the rest equally, a
@@ -64,6 +65,15 @@ function shares(rail: Rail): Record<string, string> {
 }
 
 describe('assembly rail split policy', () => {
+  it('shares space with Parameters and redistributes it when Parts closes', () => {
+    const split = railSplit({ parts: true, connectors: true, joints: true, params: true });
+    expect(split.parts).toContain('basis-1/2');
+    for (const section of ['connectors', 'joints', 'params'] as const) {
+      expect(split[section]).toContain('basis-1/6');
+    }
+    expect(railSplit({ parts: false, connectors: true, joints: true, params: true }).params).toContain('basis-1/3');
+  });
+
   it('halves the column for Parts and quarters the rest with everything open', () => {
     const split = railSplit({ parts: true, connectors: true, joints: true });
     expect(split.parts).toContain('basis-1/2');
@@ -112,6 +122,18 @@ describe('assembly rail split policy', () => {
 });
 
 describe('assembly rail column', () => {
+  it('mounts Parameters below Joints and responds to its collapse state', () => {
+    const root = document.createElement('div');
+    const parts = new PartsPanel(root, () => {}, () => {}, () => {}, () => {}, () => {}, () => {});
+    const parameters = new AccordionSection('Parameters');
+    parameters.mount(parts.getParamsHost());
+    expect(parts.getJointsHost().nextElementSibling).toBe(parts.getParamsHost());
+    expect(share(parts.getParamsHost())).toBe('basis-1/2');
+    parameters.header.click();
+    expect(share(parts.getParamsHost())).toBe('closed');
+    parts.dispose();
+  });
+
   it('stacks Parts, Connectors and Joints and opens all three', () => {
     const rail = mount();
     expect(rail.hosts.parts.nextElementSibling).toBe(rail.hosts.connectors);

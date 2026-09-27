@@ -19,7 +19,7 @@ import {
   applyInsertParamsWithDecls,
   applyInstancePoseWithDecls,
 } from './assembly.ts';
-import { applyCreateEdit, applyPlaneSketch } from './create.ts';
+import { applyCreateEdit, applyPlaneSketch, landNewVariableDecls } from './create.ts';
 import { applyProjectForeign, applySketchForeign } from './foreign.ts';
 import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
@@ -104,7 +104,9 @@ async function applyFeatureEditTransform(
     return ParamEditor.apply(code, spec.paramEdit);
   }
   if (spec.insertPart) {
-    return applyInsertPartEdit(code, spec.insertPart);
+    const result = await applyInsertPartEdit(code, spec.insertPart);
+    if (result.error) return result;
+    return landNewVariableDecls(code, result.newCode, result.statementLine!, spec.newVariables);
   }
   if (spec.newPart) {
     return applyNewPart(code, spec.newPart);

@@ -7,6 +7,7 @@ import {
   joinLines,
   splitLines,
   type TSNode,
+  walkTree,
 } from '../code-editor/index.ts';
 import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
 
@@ -89,7 +90,7 @@ export type InsertPartEditSpec = {
 export async function applyInsertPartEdit(
   code: string,
   spec: InsertPartEditSpec,
-): Promise<{ newCode: string; error?: string }> {
+): Promise<{ newCode: string; error?: string; statementLine?: number }> {
   const entries = spec.inserts;
   if (!Array.isArray(entries) || entries.length === 0) {
     return { newCode: code, error: 'No inserts in the request.' };
@@ -105,6 +106,7 @@ export async function applyInsertPartEdit(
   }
 
   let out = code;
+  let firstBinding: string | undefined;
   for (const entry of entries) {
     // The name the insert() references is whatever the import BINDS, not
     // the export's name: two files exporting `part`, or an export sharing
@@ -119,6 +121,7 @@ export async function applyInsertPartEdit(
     out = await ensureSymbolImport(out, 'insert');
 
     const varName = pickInstanceName(out, localName);
+    firstBinding ??= varName;
     const callSuffix = entry.kind === 'value' ? '' : '()';
     const paramsLiteral = renderParamsLiteral(entry.params);
     const statement =
@@ -141,7 +144,12 @@ export async function applyInsertPartEdit(
     lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
     out = joinLines(lines);
   }
-  return { newCode: out };
+  // Imports added by later entries may have shifted the first insert.
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(out);
+  const first = [...walkTree(tree.rootNode)].find(node => node.type === 'variable_declarator'
+    && node.childForFieldName('name')?.text === firstBinding);
+  return { newCode: out, statementLine: first ? first.startPosition.row + 1 : undefined };
 }
 
 /** The first param label whose value can't render as a literal, if any. */

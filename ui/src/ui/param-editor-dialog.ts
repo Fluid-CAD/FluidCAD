@@ -73,7 +73,7 @@ export class ParamEditorDialog {
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, private scope: 'part' | 'assembly' = 'part') {
     this.overlay = document.createElement('div');
     this.overlay.className = 'fixed inset-0 z-[300] bg-black/50 flex items-center justify-center hidden';
     this.overlay.innerHTML = ParamEditorDialog.shellHtml();
@@ -466,7 +466,7 @@ export class ParamEditorDialog {
    * part body, so those are the only places it can go.
    */
   private populateParts(preferredPart?: SourceLocation | null): void {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    const choices = (this.scope === 'part' ? this.partProvider?.() : null) ?? { parts: [], active: null };
     this.partChoices = choices.parts;
     this.partSelect.replaceChildren();
     this.partRow.classList.toggle('hidden', choices.parts.length === 0);
@@ -605,7 +605,9 @@ export class ParamEditorDialog {
     const target = this.target;
     if (!target) {
       const part = this.chosenPart();
-      await this.commit(() => addParam(spec, part));
+      await this.commit(() => this.scope === 'assembly'
+        ? addParam(spec, null, 'assembly')
+        : addParam(spec, part));
       return;
     }
     await this.commit(() => updateParam(target, spec));

@@ -293,6 +293,8 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 // this same instance into whichever column is current.
 const paramEditorDialog = new ParamEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog);
+const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
+const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -569,6 +571,8 @@ function buildAssemblyRail(): LeftRail {
     () => {},
   );
   dragReadout.setObstacle(() => animateBar.openElement());
+  assemblyParamsPanel.mount(parts.getParamsHost());
+  assemblyParamsPanel.setVisible(true);
   // The assembly's own connectors, between Parts and Joints: a row opens
   // the connector dialog on it; the eye hides its gizmo by name.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
@@ -3007,7 +3011,7 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      paramsPanel.update(msg.params);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);

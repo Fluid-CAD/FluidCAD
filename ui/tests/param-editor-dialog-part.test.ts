@@ -50,6 +50,18 @@ afterEach(() => {
 });
 
 describe('ParamEditorDialog part dropdown', () => {
+  it('creates assembly parameters without showing a part selector', async () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const dialog = new ParamEditorDialog(root, 'assembly');
+    dialog.setPartProvider(() => ({ parts: [bracket], active: bracket.sourceLocation }));
+    dialog.openForCreate();
+    expect(partRow(root).classList.contains('hidden')).toBe(true);
+    labelInput(root).value = 'Assembly width';
+    await save(root);
+    expect(addParam).toHaveBeenCalledWith(expect.objectContaining({ label: 'Assembly width' }), null, 'assembly');
+  });
+
   it('lists the parts and opens on the active part', () => {
     const { dialog, root } = mount();
     dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));

@@ -44,6 +44,27 @@ afterEach(() => {
 });
 
 describe('ParamsPanel part dropdown', () => {
+  it('manages assembly parameters without a part picker, even in an empty assembly', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const client = { setParam: vi.fn(), resetParams: vi.fn() } as unknown as EngineClient;
+    const editor = { openForCreate: vi.fn(), openForEdit: vi.fn() } as unknown as ParamEditorDialog;
+    const panel = new ParamsPanel(host, client, editor, 'assembly');
+    panel.update([]);
+    expect(host.textContent).toContain('No assembly parameters yet');
+    const add = host.querySelector<HTMLButtonElement>('[data-add-param]')!;
+    expect(add.hidden).toBe(false);
+    add.click();
+    expect(editor.openForCreate).toHaveBeenCalledWith(null);
+    const width = param('Assembly width');
+    panel.update([width, param('Part width', bracket)]);
+    expect(host.querySelector('[data-param-part]')).toBeNull();
+    expect(host.querySelector('[data-param-label="Assembly width"]')).not.toBeNull();
+    expect(host.querySelector('[data-param-label="Part width"]')).toBeNull();
+    host.querySelector<HTMLButtonElement>('[data-param-edit]')!.click();
+    expect(editor.openForEdit).toHaveBeenCalledWith(width);
+  });
+
   it('lists the parts, on the active part, above the controls', () => {
     const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
     panel.update([param('Width', lid)]);

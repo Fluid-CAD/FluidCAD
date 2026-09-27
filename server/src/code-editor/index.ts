@@ -72,6 +72,7 @@ export {
 export {
   declareSketchVariable,
   extractVariablesInPart,
+  extractVariablesInAssembly,
   extractVariablesInScope,
   insertGeometryCallWithVariable,
   updateDimensionExpressionWithVariable,

@@ -1,3 +1,4 @@
+import { assemblyInsertAnchors } from './code-editor/assembly.ts';
 import {
   getJavaScriptParser,
   indentOf,
@@ -9,6 +10,8 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
+
+export { assemblyBodies } from './code-editor/assembly.ts';
 
 /**
  * Tree-sitter helpers shared by the assembly statement writers (mate,
@@ -538,27 +541,6 @@ export async function appendStatementInScope(
   return { newCode: joinLines(lines) };
 }
 
-/** Statement blocks of every `assembly(name, () => {...})` call in the file. */
-export function assemblyBodies(root: TSNode): TSNode[] {
-  const bodies: TSNode[] = [];
-  for (const node of walkTree(root)) {
-    if (node.type !== 'call_expression') {
-      continue;
-    }
-    const fn = node.childForFieldName('function');
-    if (fn?.type !== 'identifier' || fn.text !== 'assembly') {
-      continue;
-    }
-    const args = node.childForFieldName('arguments')?.namedChildren ?? [];
-    const callback = args.find(a => a.type === 'arrow_function' || a.type === 'function_expression');
-    const body = callback?.childForFieldName('body');
-    if (body?.type === 'statement_block') {
-      bodies.push(body);
-    }
-  }
-  return bodies;
-}
-
 /**
  * Insert the statement inside an assembly body's statement block: grouped
  * directly under the last existing `insert()` chain, else before the
@@ -567,13 +549,16 @@ export function assemblyBodies(root: TSNode): TSNode[] {
  */
 export function appendInsideBody(code: string, body: TSNode, statement: string): string {
   const lines = splitLines(code);
-  const statements = body.namedChildren.filter(c => c.type !== 'comment');
-  const insertStmts = statements.filter(s =>
-    /^(const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)?insert\s*\(/.test(s.text));
-  const lastInsert = insertStmts[insertStmts.length - 1] ?? null;
-  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
-  const lastStmt = statements[statements.length - 1] ?? null;
-
+  const { lastInsert, returnStmt, lastStmt } = assemblyInsertAnchors(body);
+  // A compact callback can share a line with its statements and closing
+  // brace. Open it before using the ordinary line-based placement below.
+  if (body.startPosition.row === body.endPosition.row && lastStmt) {
+    const indent = indentOf(lines, body.startPosition.row) + '  ';
+    const after = lastInsert ?? (returnStmt ? null : lastStmt);
+    const index = after?.endIndex ?? returnStmt!.startIndex;
+    const text = after ? `\n${indent}${statement}\n${indent}` : `${statement}\n${indent}`;
+    return spliceCode(code, index, index, text);
+  }
   if (lastInsert) {
     const row = lastInsert.endPosition.row + 1;
     lines.splice(row, 0, `${indentOf(lines, lastInsert.startPosition.row)}${statement}`);

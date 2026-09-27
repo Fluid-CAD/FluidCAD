@@ -1,10 +1,10 @@
 /**
- * How the assembly rail divides its column between Parts, Connectors and
- * Joints. Parts is the column's subject and holds half of it whenever it is
+ * How the assembly rail divides its column between Parts, Connectors,
+ * Joints and Parameters. Parts holds half of the column whenever it is
  * open alongside anything else; the other open sections share the rest
- * equally — a quarter each with both open, the whole other half with one.
+ * equally, giving each a sixth when all three are open.
  * A closed section drops to its header and hands its room back, so with
- * Parts closed Connectors and Joints split the column between them, and a
+ * Parts closed the remaining sections split the column between them, and a
  * section open on its own has all of it.
  *
  * Those are the shares under contention. Each host is also capped at its
@@ -13,10 +13,10 @@
  * same terms as the part-design column (see accordion-section.ts).
  */
 
-export type RailSection = 'parts' | 'connectors' | 'joints';
+export type RailSection = 'parts' | 'connectors' | 'joints' | 'params';
 
 /** Which sections are open; a section nothing is mounted in counts as closed. */
-export type RailOpenState = Record<RailSection, boolean>;
+export type RailOpenState = Record<Exclude<RailSection, 'params'>, boolean> & { params?: boolean };
 
 /** The class string for each section's host, in the column's order. */
 export type RailSplit = Record<RailSection, string>;
@@ -39,6 +39,8 @@ const BASIS: Record<string, string> = {
   '1': 'basis-full',
   '0.5': 'basis-1/2',
   '0.25': 'basis-1/4',
+  [String(1 / 3)]: 'basis-1/3',
+  [String(1 / 6)]: 'basis-1/6',
 };
 
 function host(open: boolean, share: number): string {
@@ -55,12 +57,13 @@ function host(open: boolean, share: number): string {
 }
 
 export function railSplit(open: RailOpenState): RailSplit {
-  const othersOpen = (open.connectors ? 1 : 0) + (open.joints ? 1 : 0);
+  const othersOpen = (open.connectors ? 1 : 0) + (open.joints ? 1 : 0) + (open.params ? 1 : 0);
   const partsShare = !open.parts ? 0 : othersOpen === 0 ? 1 : 0.5;
   const otherShare = othersOpen === 0 ? 0 : (1 - partsShare) / othersOpen;
   return {
     parts: host(open.parts, partsShare),
     connectors: host(open.connectors, otherShare),
     joints: host(open.joints, otherShare),
+    params: host(open.params ?? false, otherShare),
   };
 }

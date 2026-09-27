@@ -150,8 +150,9 @@ export class PartsPanel {
       parts: document.createElement('div'),
       connectors: document.createElement('div'),
       joints: document.createElement('div'),
+      params: document.createElement('div'),
     };
-    this.panel.append(this.hosts.parts, this.hosts.connectors, this.hosts.joints);
+    this.panel.append(this.hosts.parts, this.hosts.connectors, this.hosts.joints, this.hosts.params);
     this.panel.addEventListener(AccordionSection.CHANGE_EVENT, (event) => {
       const section = (event as CustomEvent<AccordionSection>).detail;
       const host = section.header.parentElement;
@@ -181,6 +182,10 @@ export class PartsPanel {
     return this.hosts.joints;
   }
 
+  getParamsHost(): HTMLElement {
+    return this.hosts.params;
+  }
+
   /** Re-divide the column between whichever sections are mounted and open. */
   private applySplit(): void {
     const isOpen = (host: HTMLElement): boolean => this.sections.get(host)?.isExpanded ?? false;
@@ -188,8 +193,9 @@ export class PartsPanel {
       parts: isOpen(this.hosts.parts),
       connectors: isOpen(this.hosts.connectors),
       joints: isOpen(this.hosts.joints),
+      params: isOpen(this.hosts.params),
     });
-    for (const section of ['parts', 'connectors', 'joints'] as const) {
+    for (const section of ['parts', 'connectors', 'joints', 'params'] as const) {
       this.hosts[section].className = split[section];
     }
   }

@@ -35,6 +35,22 @@ export function collectNewVariables(
   return seen.size > 0 ? [...seen.values()] : undefined;
 }
 
+/** Merge independently edited fields/forms without silently dropping conflicting declarations. */
+export function collectNewVariablesChecked(
+  reads: Parameters<typeof collectNewVariables>[0],
+): { newVariables?: { name: string; initializer: string }[] } | { error: string } {
+  const newVariables = collectNewVariables(reads);
+  const initializers = new Map(newVariables?.map(variable => [variable.name, variable.initializer]));
+  for (const read of reads) {
+    for (const variable of read?.newVariables ?? (read?.newVariable ? [read.newVariable] : [])) {
+      if (initializers.get(variable.name) !== variable.initializer) {
+        return { error: `Conflicting values for ${variable.name}. Use distinct variable names.` };
+      }
+    }
+  }
+  return newVariables ? { newVariables } : {};
+}
+
 /**
  * Enhances an existing dialog `<input>` with the sketcher's expression
  * behavior, in place: the input keeps its position and styling (it is only

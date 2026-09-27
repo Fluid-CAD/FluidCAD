@@ -104,7 +104,7 @@ export class ParamsPanel extends AccordionSection {
   /** File and name of the active part at the last sync — the identity a line shift keeps. */
   private lastActiveKey: string | null = null;
 
-  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
+  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog, private scope: 'part' | 'assembly' = 'part') {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
     super('Parameters', {
@@ -174,6 +174,9 @@ export class ParamsPanel extends AccordionSection {
    * when the scene has no parts to filter by.
    */
   private visibleParams(): UIParamDefinition[] {
+    if (this.scope === 'assembly') {
+      return this.currentParams.filter(p => p.part === undefined);
+    }
     const selected = this.partChoices.length === 0 ? null : this.selectedPart;
     if (selected === null) {
       return this.currentParams;
@@ -229,6 +232,11 @@ export class ParamsPanel extends AccordionSection {
    * parts, and so does the +: there is no part to declare a parameter in.
    */
   syncParts(): void {
+    if (this.scope === 'assembly') {
+      this.partBar.hidden = true;
+      if (this.addButton) this.addButton.hidden = false;
+      return;
+    }
     const choices = this.partProvider?.() ?? { parts: [], active: null };
     const active = choices.active === null
       ? null
@@ -412,6 +420,11 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private emptyMessage(): string {
+    if (this.scope === 'assembly') {
+      return this.editor
+        ? 'No assembly parameters yet. Use + above to add one.'
+        : 'No assembly parameters yet. Declare one with <code>param(...)</code> inside the assembly body.';
+    }
     // A parameter only lives inside a part body: without a part there is no
     // + to offer, only the call to write.
     if (this.partChoices.length === 0) {

@@ -65,7 +65,7 @@ export class EditParamsDialog {
         e.stopPropagation();
         this.hide();
       }
-    }, true);
+    });
   }
 
   /**
@@ -160,9 +160,11 @@ export class EditParamsDialog {
     }
     this.applying = true;
     this.setStatus('');
+    const target = this.target;
     const result = await updateInsertParams(
-      this.target.filePath, this.target.line, set, unset, commit.newVariables,
+      target.filePath, target.line, set, unset, commit.newVariables,
     );
+    if (this.target !== target) return;
     this.applying = false;
     if (!result.success) {
       this.setStatus(result.reason ?? 'Edit failed.');

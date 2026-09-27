@@ -34,6 +34,7 @@ import {
   SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
+import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
 import { horizontal } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
@@ -1972,6 +1973,65 @@ describe("feature ghost — copy", () => {
         expect(result.ok).toBe(false);
         expect(refusal(result)).toBe('That axis is not in the rendered scene.');
       }
+    });
+
+    describe("in an assembly", () => {
+      const BAY_LINE = 3;
+      const HUB_LINE = 4;
+
+      /**
+       * An assembly scene with `bay` at (0, 0, 20) and `hub` at (100, 0, 0),
+       * both on world axes, each addressable at its line like the parser's;
+       * `more` writes the rest of the file's top level.
+       */
+      function assemblyScene(more: (bay: Connector) => void = () => {}): Scene {
+        const scene = getSceneManager().startAssemblyScene();
+        const bay = connector("bay", [0, 0, 20]) as unknown as Connector;
+        bay.setSourceLocation({ filePath: FILE, line: BAY_LINE, column: 0 });
+        const hub = connector("hub", [100, 0, 0]) as unknown as Connector;
+        hub.setSourceLocation({ filePath: FILE, line: HUB_LINE, column: 0 });
+        more(bay);
+        getSceneManager().renderScene(scene);
+        return scene;
+      }
+
+      it("places an assembly connector's copies along a world axis", () => {
+        const scene = assemblyScene();
+
+        const frames = framesOf(copyGhost(scene, [BAY_LINE], {
+          directions: [{ count: 4, offset: 50, length: null }],
+        }));
+
+        expect(frames).toHaveLength(3);
+        near(frames[0].origin, 50, 0, 20);
+        near(frames[1].origin, 100, 0, 20);
+        near(frames[2].origin, 150, 0, 20);
+        near(frames[2].normal, 0, 0, 1);
+      });
+
+      it("turns them around another assembly connector's Z axis, or a copy's", () => {
+        const scene = assemblyScene(bay => {
+          copy("linear", "x", { count: 2, offset: 40 }, bay);
+        });
+
+        const aroundHub = framesOf(copyGhost(scene, [BAY_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: HUB_LINE }],
+        }));
+        // Half a turn about the vertical through the hub at (100, 0).
+        expect(aroundHub).toHaveLength(1);
+        near(aroundHub[0].origin, 200, 0, 20);
+
+        const aroundCopy = framesOf(copyGhost(scene, [HUB_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: BAY_LINE, slot: 1 }],
+        }));
+        // Half a turn about bay.instance(1) at (40, 0): the hub at (100, 0) lands on (-20, 0).
+        expect(aroundCopy).toHaveLength(1);
+        near(aroundCopy[0].origin, -20, 0, 0);
+      });
     });
   });
 });

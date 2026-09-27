@@ -13,31 +13,55 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource, CopyBase } from "../features/copy-base.js";
 import { BoundConnector, Connector } from "../features/connector.js";
 import { ConnectorAxis } from "../features/connector-axis.js";
-import { ConnectorCopyRules } from "../features/connector-copy.js";
+import { ConnectorCopyRules, ConnectorCopyScope } from "../features/connector-copy.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Axis } from "../math/axis.js";
 import { resolveAxis } from "../helpers/resolve.js";
+import { AssemblyScene } from "../rendering/assembly-scene.js";
+import { Scene } from "../rendering/scene.js";
 import { IConnector, ICopy, ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
 
 /**
+ * Where the statement runs: a part body (the part and the container around
+ * the call), or — outside any part in an *.assembly.js file — the assembly's
+ * top level, under the scope path it ran in.
+ */
+function copyScope(scene: Scene): ConnectorCopyScope {
+  if (scene instanceof AssemblyScene && !scene.getActivePart()) {
+    return { kind: 'assembly', scopePath: scene.currentScopePath() };
+  }
+  return { kind: 'part', part: scene.getActivePart(), container: scene.getActiveContainer() };
+}
+
+/**
  * Add a 3D copy, then the connector copies it makes: registered right after
  * it and parented under it, so they build after their seeds. `refusal`
  * refuses the statement outright (an inserted instance's connector among
- * the targets).
+ * the targets, or a top-level assembly copy breaking its rules). At an
+ * assembly's top level each copy also joins the assembly's connectors, so
+ * it serializes, draws and mates like the connector it copies.
  */
-function addCopy<T extends CopyBase>(context: SceneParserContext, copy: T, refusal: string | null): T {
+function addCopy<T extends CopyBase>(
+  context: SceneParserContext,
+  copy: T,
+  scope: ConnectorCopyScope,
+  refusal: string | null,
+): T {
   context.addSceneObject(copy);
   if (refusal) {
     copy.refuse(refusal);
     return copy;
   }
+  const copies = copy.copyConnectors(scope);
+  context.addSceneObjects(copies);
   const scene = getCurrentScene();
-  context.addSceneObjects(copy.copyConnectors({
-    part: scene.getActivePart(),
-    container: scene.getActiveContainer(),
-  }));
+  if (scope.kind === 'assembly' && scene instanceof AssemblyScene) {
+    for (const connectorCopy of copies) {
+      scene.registerAssemblyConnector(connectorCopy);
+    }
+  }
   return copy;
 }
 
@@ -70,9 +94,13 @@ function addSketchCopy<T extends CopyLinear2D | CopyCircular2D>(
  * its Z axis through its origin, read off its frame at build time; an
  * inserted instance's connector refuses the statement ({@link
  * ConnectorCopyRules.boundAxis}) and is carried as its part connector only
- * so the statement still has an axis to hold.
+ * so the statement still has an axis to hold. At an assembly's top level a
+ * scene object that is no connector refuses the statement too ({@link
+ * ConnectorCopyRules.assemblyAxis}): it is never resolved — that would add
+ * its scene objects to the assembly — and the world Z axis stands in, never
+ * read by a statement that never builds.
  */
-function resolveCopyAxis(arg: unknown, context: SceneParserContext): CopyAxisSource {
+function resolveCopyAxis(arg: unknown, context: SceneParserContext, scope: ConnectorCopyScope): CopyAxisSource {
   if (arg instanceof AxisObjectBase) {
     return arg;
   }
@@ -83,6 +111,9 @@ function resolveCopyAxis(arg: unknown, context: SceneParserContext): CopyAxisSou
     return new ConnectorAxis(arg.connector);
   }
   if (arg instanceof SceneObject) {
+    if (scope.kind === 'assembly') {
+      return normalizeAxis('z');
+    }
     return resolveAxis(arg, context);
   }
   if (arg instanceof Axis) {
@@ -112,7 +143,11 @@ interface CopyFunction {
   /**
    * [3D] Creates linear copies along an axis. A connector among the objects
    * is copied as a frame: its copies are `bolt.instance(1)`, … (see
-   * `IConnector.instance`), made inside the connector's own part body.
+   * `IConnector.instance`), made inside the connector's own part body. At an
+   * assembly file's top level it copies assembly connectors only:
+   * `copy('linear', 'x', { count: 4, offset: 50 }, bay)` makes
+   * `bay.instance(1)` … `bay.instance(3)`, the axis a world axis or an
+   * assembly connector.
    * @param type - Must be `'linear'`
    * @param axis - The axis to copy along — a world axis, an `axis()`, an edge, or a connector (its Z axis)
    * @param options - Copy count, spacing, etc.
@@ -142,7 +177,9 @@ interface CopyFunction {
   /**
    * [3D] Creates circular copies around an axis. A connector among the
    * objects is copied as a frame: `copy('circular', 'z', { count: 6, angle:
-   * 360 }, bolt)` makes `bolt.instance(1)` … `bolt.instance(5)`.
+   * 360 }, bolt)` makes `bolt.instance(1)` … `bolt.instance(5)`. At an
+   * assembly file's top level it copies assembly connectors only, around a
+   * world axis or an assembly connector's Z axis.
    * @param type - Must be `'circular'`
    * @param axis - The axis to copy around — a world axis, an `axis()`, an edge, or a connector (its Z axis through its origin)
    * @param options - Copy count, angle, etc.
@@ -163,14 +200,25 @@ function build(context: SceneParserContext): CopyFunction {
     const activeSketch = context.getActiveSketch();
     const options = args[2] as LinearCopyOptions | CircularCopyOptions;
     const restObjects = args.slice(3) as unknown[];
+    const scope = copyScope(getCurrentScene());
     // An inserted instance's connector refuses the statement, as a target or
     // as the axis; it is no scene object, so it stays out of the targets the
     // statement compares and builds. Explicit targets stay explicit even when
     // that leaves none: only a copy() written without targets copies
-    // everything before it.
+    // everything before it. At an assembly's top level the statement's own
+    // rules come first — root scope, assembly connectors as its targets, a
+    // world axis or an assembly connector as its axis — and a value that is
+    // no scene object never joins its targets either.
     const axisArgs = Array.isArray(args[1]) ? args[1] as unknown[] : [args[1]];
-    const boundRefusal = ConnectorCopyRules.boundTarget(restObjects) ?? ConnectorCopyRules.boundAxis(axisArgs);
-    const explicit = restObjects.filter(t => !(t instanceof BoundConnector)) as SceneObject[];
+    const assemblyRefusal = scope.kind === 'assembly'
+      ? ConnectorCopyRules.assemblyStatement(restObjects, scope.scopePath) ?? ConnectorCopyRules.assemblyAxis(axisArgs)
+      : null;
+    const boundRefusal = assemblyRefusal
+      ?? ConnectorCopyRules.boundTarget(restObjects)
+      ?? ConnectorCopyRules.boundAxis(axisArgs);
+    const explicit = scope.kind === 'assembly'
+      ? restObjects.filter((t): t is SceneObject => t instanceof SceneObject)
+      : restObjects.filter(t => !(t instanceof BoundConnector)) as SceneObject[];
     const objects = restObjects.length > 0
       ? explicit
       : null;
@@ -196,8 +244,8 @@ function build(context: SceneParserContext): CopyFunction {
         return addSketchCopy(context, copy, activeSketch, boundRefusal ?? ConnectorCopyRules.inSketch(explicit));
       }
 
-      const axes = axisList.map(a => resolveCopyAxis(a, context));
-      return addCopy(context, new CopyLinear(axes, options as LinearCopyOptions, objects), boundRefusal);
+      const axes = axisList.map(a => resolveCopyAxis(a, context, scope));
+      return addCopy(context, new CopyLinear(axes, options as LinearCopyOptions, objects), scope, boundRefusal);
     }
 
     if (type === 'circular') {
@@ -207,12 +255,14 @@ function build(context: SceneParserContext): CopyFunction {
         return addSketchCopy(context, copy, activeSketch, boundRefusal ?? ConnectorCopyRules.inSketch(explicit));
       }
 
-      const axis = resolveCopyAxis(args[1], context);
-      return addCopy(context, new CopyCircular(axis, options as CircularCopyOptions, objects), boundRefusal);
+      const axis = resolveCopyAxis(args[1], context, scope);
+      return addCopy(context, new CopyCircular(axis, options as CircularCopyOptions, objects), scope, boundRefusal);
     }
 
     throw new Error(`Invalid copy type: ${type}`);
   } as CopyFunction;
 }
 
-export default registerBuilder(build);
+// Allowed at an assembly's top level too: there it copies the assembly's
+// own connectors (`copy('linear', 'x', { … }, bay)`), under its own rules.
+export default registerBuilder(build, { allowAssemblyTopLevel: true });

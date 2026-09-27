@@ -92,7 +92,8 @@ function assemblyConnector(
       + "geometry-attached connectors are declared inside part().",
     );
   }
-  if (scene.getAssemblyConnectors().some(c => c.connectorName === name)) {
+  // Declared connectors only: a copy carries its seed's name.
+  if (scene.getAssemblyConnectors().some(c => c.copySlot() === undefined && c.connectorName === name)) {
     throw new Error(
       `connector(): the assembly already has a connector named "${name}" — names must be unique within the assembly.`,
     );

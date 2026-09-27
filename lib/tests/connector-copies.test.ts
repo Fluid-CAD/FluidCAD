@@ -800,11 +800,16 @@ describe("connector copies in an assembly", () => {
     expect(() => f.connectors.bolt.instance(6)).toThrow("bolt.instance(6) is out of range");
   });
 
-  it("an assembly-level copy() still fails cleanly — connector copies are part-design only for now", () => {
-    const { flangeDef } = startAssembly();
+  it("an assembly-level copy() of an instance's connector is refused on its own row", () => {
+    const { flangeDef, scene } = startAssembly();
     const f = insert(flangeDef).grounded();
-    expect(() => copy("linear", "x", { count: 2, offset: 10 }, f.connectors.bolt as any))
-      .toThrow("This command is part-design only and cannot be used at the top level of an *.assembly.js file.");
+    const statement = copy("linear", "x", { count: 2, offset: 10 }, f.connectors.bolt as any) as unknown as SceneObject;
+    getSceneManager().renderScene(scene);
+
+    const message = "copy(): instance.connectors.bolt belongs to an inserted instance — copy bolt inside its part's body";
+    expect(statement.getError()).toBe(message);
+    expect(errors(scene)).toEqual([`${statement.getUniqueType()}: ${message}`]);
+    expect(f.connectors.bolt.connector.getFamily()?.getCopies()).toHaveLength(5);
   });
 
   it("refuses an inserted instance's connector handed to copy() inside a part body", () => {

@@ -149,11 +149,15 @@ export class ConnectorFamily {
   }
 }
 
-/** Where a `copy()` statement runs: the part body it sits in, and the innermost container around it. */
-export type ConnectorCopyScope = {
-  part: Part | null;
-  container: SceneObject | null;
-};
+/**
+ * Where a `copy()` statement runs: inside a part body — the part and the
+ * innermost container around the call — or at an assembly file's top level,
+ * under the assembly scope path it ran in ("" for the root assembly, an
+ * occurrence path inside an inserted `assembly()` body).
+ */
+export type ConnectorCopyScope =
+  | { kind: "part"; part: Part | null; container: SceneObject | null }
+  | { kind: "assembly"; scopePath: string };
 
 /**
  * The rules a `copy()` statement's connector targets must follow, checked
@@ -162,13 +166,16 @@ export type ConnectorCopyScope = {
  *
  * - A part's connectors are copied inside that part's own body, directly in
  *   it, and never inside a sketch.
+ * - An assembly's connectors (`connector('bay', [x, y, z])`) are copied at
+ *   the assembly's top level, root scope only — like the connectors
+ *   themselves — and a top-level copy() copies nothing else.
  * - One copy statement per connector, and a copy is never copied again — a
  *   grid is one two-axis linear copy.
  * - An inserted instance's connector (`f.connectors.bolt`) is the
- *   assembly's handle on a part connector, never a copy() target.
+ *   assembly's handle on a part connector, never a copy() target or axis.
  *
- * A `copy()` without targets never copies connectors: it copies the shapes
- * already in the part, and a connector owns none.
+ * A `copy()` without targets never copies connectors: inside a part it
+ * copies the shapes already there, and a connector owns none.
  */
 export class ConnectorCopyRules {
   /** A `copy()` inside a sketch handed a connector — a 2D copy stamps sketch geometry only. */
@@ -203,6 +210,51 @@ export class ConnectorCopyRules {
       + `assembly solver's, so it can't be a copy axis`;
   }
 
+  /**
+   * The statement-level rules at an assembly file's top level: root scope
+   * only, like `connector()` there, and the targets are assembly connectors
+   * — listed explicitly, since the top level has no solids to fall back on.
+   * An inserted instance's connector among the targets is left to
+   * {@link boundTarget}; the per-connector rules follow in
+   * {@link seedRefusal}.
+   */
+  static assemblyStatement(targets: readonly unknown[], scopePath: string): string | null {
+    if (scopePath !== "") {
+      return "copy() inside an assembly() body — assembly connectors are root-scope only for now; "
+        + "copy them at the top level of the file that declares them";
+    }
+    if (targets.length === 0) {
+      return "copy(): at an assembly's top level copy() copies assembly connectors — list the ones to copy, "
+        + "e.g. copy('linear', 'x', { count: 3, offset: 20 }, bay)";
+    }
+    const other = targets.find(t => !(t instanceof Connector) && !(t instanceof BoundConnector));
+    if (other !== undefined) {
+      return `copy(): at an assembly's top level copy() copies assembly connectors only — got `
+        + `${ConnectorCopyRules.describe(other)}; solids are copied inside a part's body`;
+    }
+    return null;
+  }
+
+  /**
+   * An axis a top-level assembly copy can't follow. There the axis is a
+   * world axis or an assembly connector — its Z axis through its origin —
+   * and never an inserted instance's connector ({@link boundAxis}) or
+   * anything built inside a part.
+   */
+  static assemblyAxis(axes: readonly unknown[]): string | null {
+    for (const axis of axes) {
+      if (axis instanceof Connector && !axis.isAssemblyConnector()) {
+        return `copy(): ${axis.label()} is a part connector — an assembly's copy axis is a world axis `
+          + `('x', 'y', 'z') or an assembly connector`;
+      }
+      if (axis instanceof SceneObject && !(axis instanceof Connector)) {
+        return `copy(): at an assembly's top level the copy axis is a world axis ('x', 'y', 'z') or an `
+          + `assembly connector — got ${ConnectorCopyRules.describe(axis)}`;
+      }
+    }
+    return null;
+  }
+
   /** The per-connector rules, for a statement running in `scope`. */
   static seedRefusal(seeds: readonly Connector[], scope: ConnectorCopyScope): string | null {
     const seen = new Set<Connector>();
@@ -224,6 +276,25 @@ export class ConnectorCopyRules {
       return `copy(): ${seed.label()} is itself a copy and isn't copied again — copy ${seed.seed.label()} `
         + `instead (a grid is one two-axis linear copy)`;
     }
+    const placement = scope.kind === "part"
+      ? ConnectorCopyRules.partPlacement(seed, scope)
+      : ConnectorCopyRules.assemblyPlacement(seed);
+    if (placement) {
+      return placement;
+    }
+    const family = seed.getFamily();
+    if (family) {
+      return `copy(): ${seed.label()} is already copied by ${family.statementLabel()} — one copy statement `
+        + `per connector (a grid is one two-axis linear copy)`;
+    }
+    return null;
+  }
+
+  /** A part connector is copied directly in its own part's body. */
+  private static partPlacement(
+    seed: Connector,
+    scope: Extract<ConnectorCopyScope, { kind: "part" }>,
+  ): string | null {
     if (seed.isAssemblyConnector()) {
       return `copy(): ${seed.label()} is an assembly connector — it isn't copied inside a part`;
     }
@@ -236,11 +307,25 @@ export class ConnectorCopyRules {
       const where = scope.container ? `${scope.container.getType()}(...)` : "another callback";
       return `copy(): copy ${seed.label()} directly in the part() body — this call is nested inside ${where}`;
     }
-    const family = seed.getFamily();
-    if (family) {
-      return `copy(): ${seed.label()} is already copied by ${family.statementLabel()} — one copy statement `
-        + `per connector (a grid is one two-axis linear copy)`;
+    return null;
+  }
+
+  /** An assembly's top level copies its own connectors, never a part's. */
+  private static assemblyPlacement(seed: Connector): string | null {
+    if (!seed.isAssemblyConnector()) {
+      return `copy(): ${seed.label()} is a part connector — copy it inside its part's body`;
     }
     return null;
+  }
+
+  /** How a refusal names a value that isn't what the rule wanted. */
+  private static describe(value: unknown): string {
+    if (value instanceof SceneObject) {
+      return `a ${value.getType()}()`;
+    }
+    if (value !== null && typeof value === "object" && "connectors" in value) {
+      return "an inserted instance";
+    }
+    return value === null ? "null" : `a ${typeof value}`;
   }
 }

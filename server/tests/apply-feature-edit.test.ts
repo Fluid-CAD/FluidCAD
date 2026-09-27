@@ -4910,7 +4910,7 @@ describe('copy statement templates', () => {
     );
   });
 
-  /** The one place the two kinds spell a skip differently (copy-circular.ts:55). */
+  /** The one place the two kinds spell a skip differently (`CopyLayout.circular`). */
   it('flattens a circular skip list to bare instance indices', async () => {
     const result = await applyFeatureEdit(`${base}\n`, copySpec({
       kind: 'circular',

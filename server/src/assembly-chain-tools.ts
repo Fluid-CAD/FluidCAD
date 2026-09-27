@@ -67,13 +67,27 @@ export type CodeTransformResult = { newCode: string; error?: string };
  * dereferences through the replicate statement's binding — `name[row]` for
  * an array binding (hoisted as `<seed>Replicas` when unbound), or the
  * destructured name when the author wrote `const [a, b] = replicate(...)`.
+ *
+ * With `slot`, the side is a copy of that connector — `copy()` in the part
+ * made it — and dereferences one step further: `.connectors.bolt.instance(3)`.
  */
 export type MateConnectorRef = {
   instanceLine: number;
   connectorName: string;
   viaParts?: string[][];
   replicaRow?: number;
+  slot?: number;
 };
+
+/** Whether `slot` is absent or a pattern slot a copy can sit at (a non-negative integer). */
+export function isCopySlot(slot: unknown): boolean {
+  return slot === undefined || (Number.isInteger(slot) && (slot as number) >= 0);
+}
+
+/** `.instance(3)` for a copy's slot, nothing for the connector itself. */
+export function renderInstanceSuffix(slot: number | undefined): string {
+  return slot === undefined ? '' : `.instance(${slot})`;
+}
 
 /**
  * One side of a tangent statement: the same stable instance address (and the
@@ -362,7 +376,8 @@ export async function resolveReplicaBinding(
  * dereferenced through its anchor's binding (`arm1.connectors.hinge` /
  * `cam1.features.profile` / a replica's `cyl1Replicas[1].…`), reaching
  * through `.parts.<keys...>` export chains first when the side lives inside
- * a sub-assembly occurrence; an assembly connector is its own binding.
+ * a sub-assembly occurrence; an assembly connector is its own binding. A
+ * copy of a connector adds its slot: `flange1.connectors.bolt.instance(3)`.
  * Bindings hoisted along the way are same-line prepends, so the returned
  * code keeps every line address valid.
  */
@@ -390,7 +405,7 @@ export async function resolveSideExpression(
   const via = ('viaParts' in side ? side.viaParts : undefined) ?? [];
   const chain = via.map(renderPartsChain).join('');
   const member = 'connectorName' in side
-    ? `.connectors.${side.connectorName}`
+    ? `.connectors.${side.connectorName}${renderInstanceSuffix(side.slot)}`
     : `.features.${side.exposeName}`;
   return {
     newCode: prefix.newCode,

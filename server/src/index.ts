@@ -55,7 +55,7 @@ import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -282,8 +282,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
 
 function buildCompileError(filePath: string, err: any): CompileError {
   const message = err?.message || String(err);
-  const stack = typeof err?.stack === 'string' ? err.stack : '';
-  let sourceLocation = stack ? extractSourceLocation(stack) : null;
+  let sourceLocation = extractErrorSourceLocation(err);
   const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
   if (sourceLocation) {
     sourceLocation = {

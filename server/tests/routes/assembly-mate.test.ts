@@ -157,6 +157,28 @@ describe('assembly-mate route', () => {
     expect(body).toMatchObject({ success: true });
   });
 
+  it('carries a connector copy\'s slot through the wire and rejects a bad one', async () => {
+    const bad = await postMate({
+      ...CREATE_BODY,
+      create: { ...CREATE_BODY.create, connectorA: { instanceLine: 5, connectorName: 'tip', slot: -1 } },
+    });
+    expect(bad.status).toBe(400);
+    expect(relayed).toEqual([]);
+
+    const applied = postMate({
+      ...CREATE_BODY,
+      create: { ...CREATE_BODY.create, connectorA: { instanceLine: 5, connectorName: 'tip', slot: 2 } },
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.assemblyMate.create.connectorA).toEqual({ instanceLine: 5, connectorName: 'tip', slot: 2 });
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(`mate('fastened', arm1.connectors.tip.instance(2), base1.connectors.slot);`);
+    const { status, body } = await applied;
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true });
+  });
+
   it('rejects malformed assembly-connector sides at the wire', async () => {
     const bothFrames = await postMate({
       filePath: '/ws/m.assembly.js',

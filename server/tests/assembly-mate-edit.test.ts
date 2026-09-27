@@ -612,6 +612,142 @@ describe('applyAssemblyMateEdit — viaParts sides', () => {
   });
 });
 
+// A copy of a part connector (`copy(…, bolt)` in the part) is addressed by
+// its seed's name plus the pattern slot: the writer appends `.instance(slot)`
+// after the connector, whatever anchor form the side takes.
+describe('applyAssemblyMateEdit — connector copies', () => {
+  it('writes .instance(slot) on a direct side', async () => {
+    const code = `${HEADER}\nconst flange1 = insert(flange());\nconst pin1 = insert(pin());\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'bolt', slot: 3 },
+        connectorB: { instanceLine: 4, connectorName: 'head' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mate('fastened', flange1.connectors.bolt.instance(3), pin1.connectors.head);`);
+  });
+
+  it('writes .instance(slot) after a viaParts chain', async () => {
+    const code = `${HEADER}\nconst rig1 = insert(rig);\nconst pin1 = insert(pin());\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'revolute',
+        connectorA: { instanceLine: 4, connectorName: 'head' },
+        connectorB: { instanceLine: 3, connectorName: 'bolt', viaParts: [['flange']], slot: 2 },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `mate('revolute', pin1.connectors.head, rig1.parts.flange.connectors.bolt.instance(2));`,
+    );
+  });
+
+  it('writes .instance(slot) on a replica anchor', async () => {
+    const code = `${HEADER}\nconst base1 = insert(base()).grounded();\nconst f1 = insert(flange());\n`
+      + `mate('fastened', f1.connectors.foot, base1.connectors.s1);\n`
+      + `const flanges = replicate(f1, [base1.connectors.s1], [\n  [base1.connectors.s2],\n]);\n`
+      + `const pin1 = insert(pin());\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 9, connectorName: 'head' },
+        connectorB: { instanceLine: 6, replicaRow: 0, connectorName: 'bolt', slot: 4 },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mate('fastened', pin1.connectors.head, flanges[0].connectors.bolt.instance(4));`);
+  });
+
+  it('re-points an edited mate at a copy in place', async () => {
+    const code = `${HEADER}\nconst flange1 = insert(flange());\nconst pin1 = insert(pin());\n\n`
+      + `mate('fastened', flange1.connectors.bolt, pin1.connectors.head);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      edit: {
+        sourceLine: 6,
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'bolt', slot: 1 },
+        connectorB: { instanceLine: 4, connectorName: 'head' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mate('fastened', flange1.connectors.bolt.instance(1), pin1.connectors.head);`);
+    expect(result.newCode).not.toContain(`mate('fastened', flange1.connectors.bolt, `);
+  });
+
+  it('refuses a slot that is not a non-negative integer', async () => {
+    const code = `${HEADER}\nconst flange1 = insert(flange());\nconst pin1 = insert(pin());\n`;
+    for (const slot of [-1, 1.5]) {
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'fastened',
+          connectorA: { instanceLine: 3, connectorName: 'bolt', slot },
+          connectorB: { instanceLine: 4, connectorName: 'head' },
+        },
+      });
+      expect(result.error).toBe(`a connector copy's slot must be a non-negative integer, got ${slot}`);
+      expect(result.newCode).toBe(code);
+    }
+  });
+
+  it('tells copies of one connector apart from each other and from the connector itself', async () => {
+    const code = `${HEADER}\nconst flange1 = insert(flange());\n`;
+    const twoCopies = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'bolt', slot: 1 },
+        connectorB: { instanceLine: 3, connectorName: 'bolt', slot: 2 },
+      },
+    });
+    expect(twoCopies.error).toBeUndefined();
+    expect(twoCopies.newCode).toContain(
+      `mate('fastened', flange1.connectors.bolt.instance(1), flange1.connectors.bolt.instance(2));`,
+    );
+    const seedAndCopy = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'bolt' },
+        connectorB: { instanceLine: 3, connectorName: 'bolt', slot: 2 },
+      },
+    });
+    expect(seedAndCopy.error).toBeUndefined();
+    const sameCopy = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'bolt', slot: 2 },
+        connectorB: { instanceLine: 3, connectorName: 'bolt', slot: 2 },
+      },
+    });
+    expect(sameCopy.error).toMatch(/mated to itself/);
+  });
+
+  // B7: every replica of one replicate() shares that statement's line, so
+  // the line and name alone can't tell two replicas' connectors apart.
+  it('tells two replicas of one statement apart (B7), refusing only the same replica', async () => {
+    const code = `${HEADER}\nconst base1 = insert(base()).grounded();\nconst f1 = insert(flange());\n`
+      + `mate('fastened', f1.connectors.foot, base1.connectors.s1);\n`
+      + `const flanges = replicate(f1, [base1.connectors.s1], [\n  [base1.connectors.s2],\n  [base1.connectors.s3],\n]);\n`;
+    const twoReplicas = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 6, replicaRow: 0, connectorName: 'top' },
+        connectorB: { instanceLine: 6, replicaRow: 1, connectorName: 'top' },
+      },
+    });
+    expect(twoReplicas.error).toBeUndefined();
+    expect(twoReplicas.newCode).toContain(`mate('fastened', flanges[0].connectors.top, flanges[1].connectors.top);`);
+    const oneReplica = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 6, replicaRow: 1, connectorName: 'top' },
+        connectorB: { instanceLine: 6, replicaRow: 1, connectorName: 'top' },
+      },
+    });
+    expect(oneReplica.error).toMatch(/mated to itself/);
+  });
+});
+
 describe('applyConnectorPropsEdit', () => {
   const PART = `import { part, connector, extrude } from "fluidcad/core";\n\n`
     + `part('arm', () => {\n`
@@ -748,6 +884,21 @@ describe('applyAssemblyMateEdit — tangent', () => {
       },
     });
     expect(propagateOnRevolute.error).toMatch(/only applies to tangent/);
+  });
+
+  it('tells the same exposure on two replicas of one statement apart', async () => {
+    const code = `${HEADER}\nconst base1 = insert(base()).grounded();\nconst cam1 = insert(cam());\n`
+      + `mate('fastened', cam1.connectors.foot, base1.connectors.s1);\n`
+      + `const cams = replicate(cam1, [base1.connectors.s1], [\n  [base1.connectors.s2],\n  [base1.connectors.s3],\n]);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 6, replicaRow: 0, exposeName: 'profile' },
+        geometryB: { instanceLine: 6, replicaRow: 1, exposeName: 'profile' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mate('tangent', cams[0].features.profile, cams[1].features.profile);`);
   });
 
   it('refuses a geometry self-mate; allows two exposures of one instance', async () => {

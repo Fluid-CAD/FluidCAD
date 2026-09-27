@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import type { FluidCadServer } from './fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { resolveExportKey } from './assembly-mate-edit.ts';
-import type { MateConnectorRef, MateFrameRef, MateGeometryRef } from './assembly-chain-tools.ts';
+import { isCopySlot, type MateConnectorRef, type MateFrameRef, type MateGeometryRef } from './assembly-chain-tools.ts';
 import { normalizePath } from './normalize-path.ts';
 
 /**
@@ -28,12 +28,14 @@ export type MateViaEntryBody =
  * The wire form of a connector side: MateConnectorRef with unresolved
  * levels. `replicaRow` addresses a replica: `instanceLine` is then the
  * `replicate()` statement's line and the side lives on its row-th copy.
+ * `slot` addresses a connector copy — `.connectors.<name>.instance(slot)`.
  */
 export type MateConnectorSideBody = {
   instanceLine: number;
   connectorName: string;
   viaParts?: MateViaEntryBody[];
   replicaRow?: number;
+  slot?: number;
 };
 
 /** The wire form of an exposure side addressed by name (no raw pick). */
@@ -66,6 +68,7 @@ export function isConnectorRef(v: unknown): v is MateConnectorSideBody {
     && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0
     && (v as any).exposeName === undefined
     && isReplicaRow((v as any).replicaRow)
+    && isCopySlot((v as any).slot)
     && ((v as any).viaParts === undefined
       || (Array.isArray((v as any).viaParts) && (v as any).viaParts.every(isViaEntry)));
 }

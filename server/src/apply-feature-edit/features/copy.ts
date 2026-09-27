@@ -50,7 +50,7 @@ export type CopyEditOptions = {
   center?: [ValueExpr, ValueExpr];
   /**
    * Instances to leave out, one index per direction — the `skip` option
-   * (copy-linear.ts:82, copy-circular.ts:55). A circular copy's entries carry
+   * (`CopyLayout.linear` / `CopyLayout.circular`). A circular copy's entries carry
    * a single index each and render flat; absent writes no option.
    */
   skip?: number[][];
@@ -117,8 +117,8 @@ function validCopySkip(skip: number[][], arity: number): boolean {
 
 /**
  * A skip list in the form its kind reads: a linear copy matches index tuples
- * against grid cells (copy-linear.ts:82) and takes `[[1], [3]]`; a circular one
- * matches a single instance index (copy-circular.ts:55) and takes `[1, 3]` —
+ * against grid cells (`CopyLayout.linear`) and takes `[[1], [3]]`; a circular
+ * one matches a single instance index (`CopyLayout.circular`) and takes `[1, 3]` —
  * the same tuples, flattened.
  */
 function renderCopySkip(skip: number[][], kind: 'linear' | 'circular'): string {
@@ -310,8 +310,8 @@ export function parseCopyChain(
 /**
  * A copy's `skip` option as index tuples. Both spellings the kernel takes are
  * read into the one tuple form the dialog carries: a linear copy's array of
- * arrays (copy-linear.ts:82), and a circular copy's flat instance indices
- * (copy-circular.ts:55), which come back as single-index tuples. Plain
+ * arrays (`CopyLayout.linear`), and a circular copy's flat instance indices
+ * (`CopyLayout.circular`), which come back as single-index tuples. Plain
  * non-negative integer literals only — anything else (an expression, a
  * variable, a nested array in a circular list) belongs in the source.
  */

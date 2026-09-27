@@ -4799,6 +4799,11 @@ export type AssemblyMateConnectorRef = {
    * line and the side lives on its row-th (0-based) copy.
    */
   replicaRow?: number;
+  /**
+   * The side is a copy of the connector, made by the part's `copy()`
+   * statement: the server writes `.connectors.<connectorName>.instance(slot)`.
+   */
+  slot?: number;
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */

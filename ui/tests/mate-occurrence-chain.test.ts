@@ -21,7 +21,7 @@ const CONNECTOR_NAMES: Record<string, string> = {
 
 function makeViewer(): Viewer {
   const controller = {
-    getConnectorName: (id: string) => CONNECTOR_NAMES[id],
+    getConnectorRef: (id: string) => (CONNECTOR_NAMES[id] ? { name: CONNECTOR_NAMES[id] } : null),
     findConnectorId: () => null,
     setMatePicking: () => {},
     setMatePickedConnectors: () => {},

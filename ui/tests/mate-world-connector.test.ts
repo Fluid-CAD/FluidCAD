@@ -15,7 +15,7 @@ const highlighted: (string | null)[] = [];
 
 function makeViewer(): Viewer {
   const controller = {
-    getConnectorName: (id: string) => (id === 'conn-crank' ? 'shaft' : null),
+    getConnectorRef: (id: string) => (id === 'conn-crank' ? { name: 'shaft' } : null),
     findConnectorId: (_instanceId: string, name: string) => (name === 'shaft' ? 'conn-crank' : null),
     setMatePicking: () => {},
     setMatePickedConnectors: () => {},

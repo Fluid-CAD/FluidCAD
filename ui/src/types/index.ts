@@ -28,9 +28,17 @@ export type PlaneData = {
   yDirection: Vec3Data;
 };
 
+/**
+ * Where a connector copy sits: the pattern slot the `copy()` statement put it
+ * at, and the scene id of the connector it copies (its seed). Code names the
+ * copy `<seed name>.instance(<slot>)`.
+ */
+export type ConnectorCopyRef = { slot: number; seedId: string };
+
 export type ConnectorData = {
   /** The identifier registered by `connector('name', …)` — absent only on
-   *  a connector whose build failed before its frame was derived. */
+   *  a connector whose build failed before its frame was derived. A copy
+   *  carries its seed's name (and `copy`). */
   name?: string;
   origin: Vec3Data;
   xDirection: Vec3Data;
@@ -43,7 +51,40 @@ export type ConnectorData = {
    * The viewer hides the connector with its host (shapes panel eye toggle).
    */
   hostShapeIds?: string[];
+  /**
+   * Present on a copy made by a `copy()` statement listing the connector:
+   * its row sits under that statement's row, not under the part, and it has
+   * no statement of its own — edits go to the seed.
+   */
+  copy?: ConnectorCopyRef;
 };
+
+/**
+ * A `copy()` statement row that copies connectors (`object.connectorCopies`):
+ * the connectors it copies, the pattern's numbering — the slot the originals
+ * hold and how many slots it numbers — and the slots its copies sit at.
+ */
+export type ConnectorCopiesData = {
+  seeds: { id: string; name: string }[];
+  originalSlot: number;
+  slotCount: number;
+  slots: number[];
+};
+
+/**
+ * How code addresses a part connector on its instance: the registered name,
+ * plus the pattern slot for a copy (`instance.connectors.name.instance(slot)`).
+ * Stable across renders, unlike scene ids — picks re-find themselves by it.
+ */
+export type ConnectorAddress = { name: string; slot?: number };
+
+/**
+ * How code names a connector: `bolt`, or a copy of it `bolt.instance(3)` —
+ * the one spelling chips, previews and rails show.
+ */
+export function connectorLabel(name: string, slot?: number): string {
+  return slot === undefined ? name : `${name}.instance(${slot})`;
+}
 
 /**
  * Serialized `expose('name', …)` payload: the exposure name plus the
@@ -473,6 +514,8 @@ export type SerializedAssemblyConnector = {
   yDirection: Vec3Data;
   normal: Vec3Data;
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a copy of an assembly connector — see ConnectorData.copy. */
+  copy?: ConnectorCopyRef;
 };
 
 export type SerializedAssembly = {

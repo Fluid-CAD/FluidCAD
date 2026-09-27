@@ -1,5 +1,5 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
+import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
@@ -60,6 +60,26 @@ export type InstanceDragReleaseHandler = (
 export type InstanceDragClaimHandler = () => void;
 
 export type SolverUpdateHandler = (output: SolverOutput) => void;
+
+/** One connector an instance carries — see {@link AssemblyController.listInstanceConnectors}. */
+export type InstanceConnectorEntry = {
+  connectorId: string;
+  name: string;
+  /** A copy's pattern slot (`name.instance(slot)`); absent on a declared connector. */
+  slot?: number;
+  /** A copy's seed — the declared connector it copies. */
+  seedId?: string;
+};
+
+/**
+ * A connector and the copies a `copy()` statement made of it, as scene ids
+ * with their pattern slots, in slot order — the seed at the original's slot.
+ */
+export type ConnectorFamilyView = {
+  seedId: string;
+  originalSlot: number;
+  members: { connectorId: string; slot: number }[];
+};
 
 export type DragValueHandler = (readout: MateReadout | null) => void;
 
@@ -551,16 +571,16 @@ export class AssemblyController {
   }
 
   /**
-   * The connector frames one instance carries: the part's own connectors,
-   * shared by every instance of the part.
+   * The connector frames one instance carries: the part's own connectors
+   * and their copies, shared by every instance of the part.
    */
   private collectConnectorStates(partId: string): ConnectorState[] {
     const out: ConnectorState[] = [];
-    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
-      if (obj.type !== 'connector' || !obj.id) continue;
+    for (const obj of SceneIndex.of(this.allObjects).connectorsOf(partId)) {
       const data = obj.object as ConnectorData | undefined;
-      if (!data) continue;
-      if (!data.origin || !data.xDirection || !data.normal) continue;
+      if (!obj.id || !data?.origin || !data.xDirection || !data.normal) {
+        continue;
+      }
       out.push({
         connectorId: obj.id,
         localOrigin: new Vector3(data.origin.x, data.origin.y, data.origin.z),
@@ -1439,42 +1459,92 @@ export class AssemblyController {
   }
 
   /**
-   * The connectors one instance carries (its part's, shared by every
-   * instance of the part), with their registered names — the replicate
-   * dialog's "fill from siblings" candidates.
+   * The connectors one instance carries (its part's and their copies,
+   * shared by every instance of the part), with their registered names — and
+   * a copy's slot and seed — the replicate dialog's "Suggest copies"
+   * candidates.
    */
-  listInstanceConnectors(instanceId: string): { connectorId: string; name: string }[] {
+  listInstanceConnectors(instanceId: string): InstanceConnectorEntry[] {
     const state = this.instances.get(instanceId);
     if (!state) {
       return [];
     }
-    const out: { connectorId: string; name: string }[] = [];
+    const index = SceneIndex.of(this.allObjects);
+    const out: InstanceConnectorEntry[] = [];
     for (const connector of state.connectors) {
-      const name = this.getConnectorName(connector.connectorId);
-      if (name) {
-        out.push({ connectorId: connector.connectorId, name });
+      const address = this.getConnectorRef(connector.connectorId);
+      if (!address) {
+        continue;
       }
+      const copy = (index.byId(connector.connectorId)?.object as ConnectorData | undefined)?.copy;
+      out.push({
+        connectorId: connector.connectorId,
+        name: address.name,
+        ...(copy ? { slot: copy.slot, seedId: copy.seedId } : {}),
+      });
     }
     return out;
   }
 
-  /** The connector's registered name (`connector('name', …)`) — null when unknown. */
-  getConnectorName(connectorId: string): string | null {
+  /**
+   * How code addresses the connector: its registered name
+   * (`connector('name', …)`), plus the slot for a copy
+   * (`name.instance(slot)`) — null when unknown.
+   */
+  getConnectorRef(connectorId: string): ConnectorAddress | null {
     const obj = SceneIndex.of(this.allObjects).byId(connectorId);
     if (obj?.type !== 'connector') {
       return null;
     }
     const data = obj.object as ConnectorData | undefined;
-    return data?.name ?? obj.name ?? null;
+    // A copy's row is named by its label; its data always carries the name.
+    const name = data?.name ?? (data?.copy ? null : obj.name) ?? null;
+    if (!name) {
+      return null;
+    }
+    return data?.copy ? { name, slot: data.copy.slot } : { name };
+  }
+
+  /**
+   * The family a connector belongs to — the connector a `copy()` statement
+   * copies and the copies it made — as scene ids with their pattern slots,
+   * in slot order (the seed at the original's slot). Null for a connector
+   * nothing copies.
+   */
+  getConnectorFamily(connectorId: string): ConnectorFamilyView | null {
+    const index = SceneIndex.of(this.allObjects);
+    const row = index.byId(connectorId);
+    if (row?.type !== 'connector') {
+      return null;
+    }
+    const seedId = (row.object as ConnectorData | undefined)?.copy?.seedId ?? connectorId;
+    const seed = index.byId(seedId);
+    const copies = index.connectorsOf(seed?.parentId).filter(
+      obj => (obj.object as ConnectorData | undefined)?.copy?.seedId === seedId,
+    );
+    if (!seed || copies.length === 0) {
+      return null;
+    }
+    const statement = index.parent(copies[0])?.object as { connectorCopies?: ConnectorCopiesData } | undefined;
+    const originalSlot = statement?.connectorCopies?.originalSlot ?? 0;
+    const members = [
+      { connectorId: seedId, slot: originalSlot },
+      ...copies.map(obj => ({ connectorId: obj.id, slot: (obj.object as ConnectorData).copy!.slot })),
+    ].sort((a, b) => a.slot - b.slot);
+    return { seedId, originalSlot, members };
   }
 
   /**
    * Where the connector's `connector()` statement lives — its part file and
-   * line, for the pen-button property editor. Null when the render carried
-   * no source location for it.
+   * line, for the pen-button property editor. A copy has no statement of its
+   * own: its seed's is the one to edit, and every copy follows. Null when the
+   * render carried no source location for it.
    */
   getConnectorSourceLocation(connectorId: string): { filePath: string; line: number } | null {
-    const obj = SceneIndex.of(this.allObjects).byId(connectorId);
+    const index = SceneIndex.of(this.allObjects);
+    const row = index.byId(connectorId);
+    const seedId = (row?.object as ConnectorData | undefined)?.copy?.seedId;
+    const obj = seedId ? index.byId(seedId) : row;
     if (obj?.type !== 'connector' || !obj.sourceLocation) {
       return null;
     }
@@ -1482,20 +1552,27 @@ export class AssemblyController {
   }
 
   /**
-   * The current render's scene id for the named connector on an instance —
-   * how a mate dialog's pick re-finds itself after a render re-mints every
-   * id. Null when the instance or the name is gone.
+   * The current render's scene id for a connector on an instance, by its
+   * source address — the name, and a copy's slot — how a mate dialog's pick
+   * re-finds itself after a render re-mints every id. The original's slot
+   * names the connector itself. Null when the instance or the address is
+   * gone.
    */
-  findConnectorId(instanceId: string, connectorName: string): string | null {
+  findConnectorId(instanceId: string, connectorName: string, slot?: number): string | null {
     const partId = this.instances.get(instanceId)?.data.partId;
     if (!partId) {
       return null;
     }
-    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
-      if (obj.type !== 'connector' || !obj.id) continue;
-      const data = obj.object as ConnectorData | undefined;
-      if ((data?.name ?? obj.name) === connectorName) {
+    for (const obj of SceneIndex.of(this.allObjects).connectorsOf(partId)) {
+      const address = obj.id ? this.getConnectorRef(obj.id) : null;
+      if (address?.name === connectorName && address.slot === slot) {
         return obj.id;
+      }
+    }
+    if (slot !== undefined) {
+      const seedId = this.findConnectorId(instanceId, connectorName);
+      if (seedId && this.getConnectorFamily(seedId)?.originalSlot === slot) {
+        return seedId;
       }
     }
     return null;

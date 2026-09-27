@@ -33,6 +33,7 @@ export class SceneIndex {
   private readonly enclosingMemo = new Map<string, Map<SceneObjectRender, SceneObjectRender | undefined>>();
   private readonly renderedGeometryMemo = new Map<SceneObjectRender, boolean>();
   private readonly rebuiltMemo = new Map<SceneObjectRender, boolean>();
+  private readonly connectorsMemo = new Map<string, readonly SceneObjectRender[]>();
 
   private constructor(sceneObjects: readonly SceneObjectRender[]) {
     this.length = sceneObjects.length;
@@ -132,6 +133,42 @@ export class SceneIndex {
       memo.set(row, result);
     }
     return result;
+  }
+
+  /**
+   * Every connector row a part carries, at any depth, in scene order: the
+   * connectors its body declared (direct children) and the copies `copy()`
+   * statements made of them (children of those statements' rows). Every
+   * "this part's connectors" reader — the solver's bodies, pick
+   * re-resolution, thumbnails — must go through here: a direct-children scan
+   * misses the copies, and a mate to one would silently lose its body.
+   */
+  connectorsOf(partId: string | null | undefined): readonly SceneObjectRender[] {
+    if (partId == null) {
+      return NO_CHILDREN;
+    }
+    const known = this.connectorsMemo.get(partId);
+    if (known) {
+      return known;
+    }
+    const out: SceneObjectRender[] = [];
+    const seen = new Set<string>([partId]);
+    const walk = (id: string) => {
+      for (const child of this.children(id)) {
+        if (child.type === 'connector') {
+          out.push(child);
+        }
+        // Guard a malformed parent cycle; ids are unique per row.
+        if (child.id && !seen.has(child.id)) {
+          seen.add(child.id);
+          walk(child.id);
+        }
+      }
+    };
+    walk(partId);
+    out.sort((a, b) => this.position(a) - this.position(b));
+    this.connectorsMemo.set(partId, out);
+    return out;
   }
 
   /** Every ancestor of the row, nearest first. */

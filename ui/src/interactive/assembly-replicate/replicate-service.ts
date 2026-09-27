@@ -33,12 +33,13 @@ import {
 } from '../../api';
 import type { Viewer } from '../../viewer';
 import type { SelectionModifiers } from '../../viewer';
-import type {
-  SerializedAssembly,
-  SerializedAssemblyMate,
-  SerializedAssemblyReplicate,
-  SerializedReplicateSide,
-  SubSelection,
+import {
+  connectorLabel,
+  type SerializedAssembly,
+  type SerializedAssemblyMate,
+  type SerializedAssemblyReplicate,
+  type SerializedReplicateSide,
+  type SubSelection,
 } from '../../types';
 import { WORLD_BODY_ID } from '../../solver';
 
@@ -659,7 +660,8 @@ export class AssemblyReplicateService {
     const state = resolveConnectorPick(assembly, this.viewer.getAssemblyController(), candidate.connectorId, candidate.instanceId);
     if ('error' in state) {
       const instance = assembly?.instances.find(i => i.instanceId === candidate.instanceId);
-      return `${instance?.name ?? candidate.instanceId} · ${this.viewer.getAssemblyController()?.getConnectorName(candidate.connectorId) ?? '?'}`;
+      const address = this.viewer.getAssemblyController()?.getConnectorRef(candidate.connectorId);
+      return `${instance?.name ?? candidate.instanceId} · ${address ? connectorLabel(address.name, address.slot) : '?'}`;
     }
     return connectorChipLabel(state);
   }
@@ -786,10 +788,13 @@ export class AssemblyReplicateService {
   // ---------------------------------------------------------------------
 
   /**
-   * Candidate cells for a column: the other connectors on the target's own
-   * instance (a part-connector column) or the other assembly connectors
-   * (an assembly-connector column), skipping any a mate already uses.
-   * Null for a tangent column — exposures have no sibling notion.
+   * Candidate cells for a column, skipping any a mate already uses: for a
+   * target in a connector family (a connector `copy()` copies, or one of its
+   * copies) the family's other members in slot order — the pattern the
+   * target belongs to; otherwise the other connectors on the target's own
+   * instance (a part-connector column) or the other assembly connectors (an
+   * assembly-connector column). Null for a tangent column — exposures have
+   * no sibling notion.
    */
   private siblingCandidates(column: Column): ReplicateCellState[] | null {
     const assembly = this.hooks.getAssembly();
@@ -824,7 +829,11 @@ export class AssemblyReplicateService {
       return out;
     }
     const instanceId = column.state.instanceId;
-    for (const { connectorId } of controller.listInstanceConnectors(instanceId)) {
+    const family = controller.getConnectorFamily(column.state.connectorId);
+    const candidates = family
+      ? family.members.map(member => member.connectorId)
+      : controller.listInstanceConnectors(instanceId).map(entry => entry.connectorId);
+    for (const connectorId of candidates) {
       if (connectorId === column.state.connectorId || used.has(`${instanceId}\0${connectorId}`)) {
         continue;
       }
@@ -1196,10 +1205,10 @@ export class AssemblyReplicateService {
   }
 }
 
-/** A cell's identity across renders: kind + statement address + name. */
+/** A cell's identity across renders: kind + statement address + name (+ a copy's slot). */
 function cellKey(state: ReplicateCellState): string {
   if (state.kind === 'connector') {
-    return `c:${state.filePath}:${state.instanceLine}:${state.owner}:${state.replicaRow ?? ''}:${state.connectorName}`;
+    return `c:${state.filePath}:${state.instanceLine}:${state.owner}:${state.replicaRow ?? ''}:${state.connectorName}:${state.slot ?? ''}`;
   }
   if (state.kind === 'world') {
     return `w:${state.filePath}:${state.connectorName}`;

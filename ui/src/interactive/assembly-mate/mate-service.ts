@@ -9,7 +9,7 @@ import {
   AssemblyMateType,
 } from '../../api';
 import type { Viewer } from '../../viewer';
-import type { SerializedAssembly, SerializedAssemblyMate, SubSelection } from '../../types';
+import { connectorLabel, type SerializedAssembly, type SerializedAssemblyMate, type SubSelection } from '../../types';
 import type { SelectionModifiers } from '../../viewer';
 import type { ContactEntity, MateRecord } from '../../solver';
 import { WORLD_BODY_ID, worldConnectorRef } from '../../solver';
@@ -350,7 +350,8 @@ export class AssemblyMateService {
     const state = this.resolvePick(candidate.connectorId, candidate.instanceId);
     if ('error' in state) {
       const instance = this.hooks.getAssembly()?.instances.find(i => i.instanceId === candidate.instanceId);
-      return `${instance?.name ?? candidate.instanceId} · ${this.viewer.getAssemblyController()?.getConnectorName(candidate.connectorId) ?? '?'}`;
+      const address = this.viewer.getAssemblyController()?.getConnectorRef(candidate.connectorId);
+      return `${instance?.name ?? candidate.instanceId} · ${address ? connectorLabel(address.name, address.slot) : '?'}`;
     }
     return connectorChipLabel(state);
   }

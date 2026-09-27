@@ -1,5 +1,12 @@
 import type { AssemblyMateConnectorRef, AssemblyMateViaEntry } from '../../api';
-import type { ReplicaTag, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyOccurrence } from '../../types';
+import {
+  connectorLabel,
+  type ConnectorAddress,
+  type ReplicaTag,
+  type SerializedAssembly,
+  type SerializedAssemblyInstance,
+  type SerializedAssemblyOccurrence,
+} from '../../types';
 
 // Mate-side resolution shared by the mate dialog and the replicate dialog:
 // a picked connector gizmo (or an assembly connector) becomes a slot state
@@ -7,7 +14,8 @@ import type { ReplicaTag, SerializedAssembly, SerializedAssemblyInstance, Serial
 // is written against; a state re-resolves after a render re-minted the ids;
 // and a state renders into the writer's side ref (`instanceLine` +
 // `connectorName`, `.parts` export chain for nested picks, `replicaRow` for
-// a replica whose statement is a `replicate()` call).
+// a replica whose statement is a `replicate()` call, `slot` for a copy of a
+// connector — `copy()` in the part made it).
 
 /**
  * One picked part connector: the live scene ids (refreshed per render — the
@@ -43,6 +51,12 @@ export type ConnectorSlotState = {
    * or the top occurrence of a nested pick).
    */
   replicaRow?: number;
+  /**
+   * The pick is a copy of `connectorName` — `connectorName.instance(slot)`,
+   * made by the part's `copy()` statement. Part of the address: every copy
+   * carries its seed's name.
+   */
+  slot?: number;
 };
 
 /**
@@ -91,10 +105,10 @@ export type ResolvedSideChain = {
   replicaRow?: number;
 };
 
-/** The controller surface the resolvers read connector names/ids through. */
+/** The controller surface the resolvers read connector addresses/ids through. */
 export type ConnectorLookup = {
-  getConnectorName(connectorId: string): string | null;
-  findConnectorId(instanceId: string, connectorName: string): string | null;
+  getConnectorRef(connectorId: string): ConnectorAddress | null;
+  findConnectorId(instanceId: string, connectorName: string, slot?: number): string | null;
 };
 
 /** The top-level occurrence an owned instance lives under, or undefined at root. */
@@ -124,8 +138,8 @@ export function resolveConnectorPick(
   if (!instance.sourceLocation) {
     return { error: `${instance.name} has no source location — its insert() cannot be referenced.` };
   }
-  const name = lookup?.getConnectorName(connectorId);
-  if (!name) {
+  const address = lookup?.getConnectorRef(connectorId);
+  if (!address) {
     return { error: 'This connector has no name — its statement failed to build.' };
   }
   const owner = instance.owner ?? '';
@@ -136,12 +150,13 @@ export function resolveConnectorPick(
     instanceId: instance.instanceId,
     connectorId,
     instanceLine: instance.sourceLocation.line,
-    connectorName: name,
+    connectorName: address.name,
     instanceName: instance.name,
     filePath: instance.sourceLocation.filePath,
     owner,
     ownerLabel: topOccurrence?.name ?? null,
     ...(replica && !owner ? { replicaRow: replica.row } : {}),
+    ...(address.slot !== undefined ? { slot: address.slot } : {}),
   };
 }
 
@@ -251,7 +266,7 @@ export function reresolveSlot(
   if (!instance || !instance.sourceLocation) {
     return null;
   }
-  const connectorId = lookup.findConnectorId(instance.instanceId, state.connectorName);
+  const connectorId = lookup.findConnectorId(instance.instanceId, state.connectorName, state.slot);
   if (!connectorId) {
     return null;
   }
@@ -280,7 +295,7 @@ export function reresolveGeometry(
   return 'error' in fresh ? null : fresh;
 }
 
-/** Whether two picks name the same connector (same statement, name, scope and replica). */
+/** Whether two picks name the same connector (same statement, name, scope, replica and copy slot). */
 export function sameConnectorSlot(a: MateSlotState | null, b: ConnectorSlotState): boolean {
   return a !== null
     && a.kind === 'connector'
@@ -289,7 +304,9 @@ export function sameConnectorSlot(a: MateSlotState | null, b: ConnectorSlotState
     // Same line + name on DIFFERENT occurrences of one sub-assembly are
     // two distinct connectors — mating them is the whole point.
     && a.owner === b.owner
-    && a.replicaRow === b.replicaRow;
+    && a.replicaRow === b.replicaRow
+    // Every copy of a connector carries its name.
+    && a.slot === b.slot;
 }
 
 /**
@@ -366,6 +383,7 @@ export function connectorRefFor(state: ConnectorSlotState, chain: ResolvedSideCh
     connectorName: state.connectorName,
     ...(chain.viaParts ? { viaParts: chain.viaParts } : {}),
     ...(chain.replicaRow !== undefined ? { replicaRow: chain.replicaRow } : {}),
+    ...(state.slot !== undefined ? { slot: state.slot } : {}),
   };
 }
 
@@ -400,15 +418,16 @@ export function replicaAnchorLabel(assembly: SerializedAssembly | null, seedLabe
  * for bindings — the server writes the truth): a root pick dereferences its
  * instance, a nested pick previews its `.parts` export chain (`…` marking a
  * key the server will export on Apply), a replica anchor shows as
- * `<seed>Replicas[row]`.
+ * `<seed>Replicas[row]`, and a copy ends `.instance(slot)`.
  */
 export function previewConnectorRef(assembly: SerializedAssembly | null, state: ConnectorSlotState): string {
+  const connector = connectorLabel(state.connectorName, state.slot);
   if (!state.owner) {
     const instance = assembly?.instances.find(i => i.instanceId === state.instanceId);
     const base = instance?.replica
       ? replicaAnchorLabel(assembly, state.instanceName, instance.replica)
       : state.instanceName;
-    return `${base}.connectors.${state.connectorName}`;
+    return `${base}.connectors.${connector}`;
   }
   const chain = resolveSideChain(assembly, state);
   const via: AssemblyMateViaEntry[] = 'error' in chain ? [] : chain.viaParts ?? [];
@@ -419,13 +438,16 @@ export function previewConnectorRef(assembly: SerializedAssembly | null, state: 
   const base = top?.replica
     ? replicaAnchorLabel(assembly, top.name, top.replica)
     : (state.ownerLabel ?? state.owner);
-  return `${base}${levels.join('')}.connectors.${state.connectorName}`;
+  return `${base}${levels.join('')}.connectors.${connector}`;
 }
 
-/** `Cam · main` — prefixed `Gantry › Cam · main` for a sub-assembly pick. */
+/**
+ * `Cam · main` — prefixed `Gantry › Cam · main` for a sub-assembly pick,
+ * `Flange · bolt.instance(3)` for a copy.
+ */
 export function connectorChipLabel(state: ConnectorSlotState): string {
   const scope = state.ownerLabel ? `${state.ownerLabel} › ` : '';
-  return `${scope}${state.instanceName} · ${state.connectorName}`;
+  return `${scope}${state.instanceName} · ${connectorLabel(state.connectorName, state.slot)}`;
 }
 
 /** `Assembly · hinge` — the assembly's own connector. */

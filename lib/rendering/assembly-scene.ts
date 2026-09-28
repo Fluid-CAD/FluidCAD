@@ -207,11 +207,7 @@ export type SerializedInstance = {
   name: string;
   /** Resolved parameter values of the instance's template variant (insert-path builds only). */
   paramValues?: Record<string, ParamVal>;
-  /**
-   * The variant's `property()` values as the assembly reads them
-   * (`'length'` properties in the assembly's unit). Set only when the part
-   * declares any.
-   */
+  /** The variant's `property()` values as the assembly reads them. Set only when the part declares any. */
   properties?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
   /** Present on a replica produced by a `replicate()` statement. */

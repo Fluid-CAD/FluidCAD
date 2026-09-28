@@ -23,10 +23,10 @@ function makeBushing() {
     const wall = param("Wall", 3);
     sketch("xy", () => { testRect(width, width); });
     extrude(10);
-    property("internalWidth", width - 2 * wall, "length");
+    property("internalWidth", width - 2 * wall);
     property("boltCount", 4);
     property("finish", "anodised");
-    property("holes", [6, 8], "length");
+    property("holes", [6, 8]);
   });
 }
 
@@ -99,31 +99,19 @@ describe("property() scope and validation", () => {
     }
   });
 
-  it("refuses an unknown kind and a non-numeric length", () => {
-    expect(() => {
-      part("bad-kind", () => { property("v", 1, "angle" as any); }).materialize();
-    }).toThrow(/unknown kind "angle"/);
-    expect(() => {
-      part("text-length", () => { property("v", "10mm" as any, "length"); }).materialize();
-    }).toThrow(/'length' property must be a finite number/);
-    expect(() => {
-      part("nan-length", () => { property("v", Number.NaN, "length"); }).materialize();
-    }).toThrow(/'length' property must be a finite number/);
-  });
-
   it("returns the value so the statement can declare a local", () => {
     let seen: number | undefined;
     part("returns", () => { seen = property("w", 12); }).materialize();
     expect(seen).toBe(12);
   });
 
-  it("records the declaration with its kind and source location on the variant", () => {
+  it("records the declarations in statement order on the variant", () => {
     const def = part("recorded", () => {
-      property("w", 12, "length");
+      property("w", 12);
       property("n", 3);
     });
     const declared = def.getProperties();
-    expect(declared.map(p => [p.name, p.value, p.kind])).toEqual([["w", 12, "length"], ["n", 3, undefined]]);
+    expect(declared.map(p => [p.name, p.value])).toEqual([["w", 12], ["n", 3]]);
     // Only `.fluid.js`-style frames stamp a location — a plain test module has none.
     expect(declared[0].sourceLocation).toBeUndefined();
   });
@@ -219,28 +207,14 @@ describe("reading properties", () => {
 });
 
 describe("property units", () => {
-  it("rescales 'length' properties into the consuming unit and leaves the rest verbatim", () => {
+  it("hands numbers over verbatim whatever unit the variant is consumed in", () => {
     const variant = new Part("inch-part");
     variant.setUnit("in");
     variant.setTargetUnit("mm");
-    variant.addProperty({ name: "bore", value: 0.5, kind: "length" });
-    variant.addProperty({ name: "holes", value: [1, 2], kind: "length" });
-    variant.addProperty({ name: "count", value: 4 });
+    variant.addProperty({ name: "bore", value: 0.5 });
     variant.addProperty({ name: "label", value: "half inch" });
-    expect(variant.properties.bore).toBeCloseTo(12.7);
-    expect(variant.properties.holes).toEqual([25.4, 50.8]);
-    expect(variant.properties.count).toBe(4);
+    expect(variant.properties.bore).toBe(0.5);
     expect(variant.properties.label).toBe("half inch");
-    // The declaration keeps the authored number.
-    expect(variant.getProperties()[0].value).toBe(0.5);
-  });
-
-  it("is the identity when the units match", () => {
-    const variant = new Part("mm-part");
-    variant.setUnit("mm");
-    variant.setTargetUnit("mm");
-    variant.addProperty({ name: "bore", value: 12.5, kind: "length" });
-    expect(variant.properties.bore).toBe(12.5);
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 id: api/property
-title: "property(name, value, kind?)"
+title: "property(name, value)"
 summary: "Publishes a value a part computes from its parameters under a name. An assembly reads instance.properties.name (that instance's own values), another part reads def.properties.name (the default variant). Plain numbers/strings/booleans/arrays only — never geometry, never a measurement of the built shapes."
 tags: [api, part, assembly]
 symbols: [property]
@@ -12,7 +12,7 @@ seeAlso: [api/part, api/param, api/insert, api/expose, concepts/assemblies]
 Imported from `fluidcad/core`.
 
 ```ts
-property(name: string, value: number | string | boolean | (number | string)[], kind?: 'length'): value
+property(name: string, value: number | string | boolean | (number | string)[]): value
 ```
 
 The part's value interface — the outbound twin of `param()`: a parameter
@@ -32,10 +32,8 @@ the value, so `const w = property('w', width - 2 * wall)` declares a local
 and publishes it in one line. Reading a name the part never declared
 throws an error listing the declared names — never `undefined`.
 
-`kind: 'length'` marks a number (or number array) as a length in the part
-file's unit; a consumer running in another unit reads it rescaled (an inch
-part's `0.5` reads `12.7` in a millimetre assembly). Untagged values are
-handed over verbatim, like a `param()` override.
+Numbers are handed over verbatim, in the part file's unit, like a
+`param()` override — converting is the consumer's business.
 
 Rules: call it inside a `part()` body (anywhere in it, like `param()`);
 names are unique within a part; the value must be a number, string,
@@ -70,8 +68,8 @@ const housing = part("Housing", () => {
   });
   cut(height - wall);   // down into the body, leaving the floor
 
-  property("pocketDiameter", width - 2 * wall, "length");
-  property("pocketDepth", height - wall, "length");
+  property("pocketDiameter", width - 2 * wall);
+  property("pocketDepth", height - wall);
   property("boltCount", 4);
 });
 

@@ -6,6 +6,7 @@ import type { SketchTrimSpec } from '../sketch-trim.ts';
 import type { SketchDeleteSpec } from '../sketch-entity-delete.ts';
 import type { DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit/index.ts';
 import type { ParamEditSpec } from '../param-edit.ts';
+import type { PropertyEditSpec } from '../property-edit.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
@@ -225,6 +226,12 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   paramEdit?: ParamEditSpec;
+  /**
+   * Parameters-panel property edit: add, rewrite or delete a `property()`
+   * call. Rides the same round trip as `paramEdit`; every other spec field
+   * is ignored.
+   */
+  propertyEdit?: PropertyEditSpec;
   /**
    * Insert-dialog instance insertion: import a catalog part's export and
    * append `const <name> = insert(...)` at the end of the assembly file.

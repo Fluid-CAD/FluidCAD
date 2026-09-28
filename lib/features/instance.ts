@@ -24,9 +24,9 @@ export type InstanceFeatures<_P = unknown> = Record<string, BoundExposure>;
 /**
  * `Instance.properties`: every value the part published with
  * `property('name', value)`, keyed by name — the values THIS instance's
- * variant computed from its parameter overrides, with `'length'` properties
- * already in the assembly's unit. Plain values, so they feed `.translate()`,
- * mate offsets and other inserts' overrides directly.
+ * variant computed from its parameter overrides, verbatim in the part
+ * file's unit. Plain values, so they feed `.translate()`, mate offsets and
+ * other inserts' overrides directly.
  */
 export type InstanceProperties<_P = unknown> = Record<string, ParamVal>;
 

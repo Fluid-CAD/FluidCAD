@@ -18,7 +18,7 @@ export const bushing = part('Bushing', () => {
   const width = param('Width', 40);
   const wall = param('Wall', 3);
   ...
-  property('internalWidth', width - 2 * wall, 'length');
+  property('internalWidth', width - 2 * wall);
   property('boltCount', 4);
 });
 
@@ -31,9 +31,11 @@ const w = bushing.properties.internalWidth;
 
 ```
 Values are plain: a number, string, boolean, or an array of numbers or
-strings. Geometry is not a value — publish it with `expose()`. Nothing is
-built while the body runs, so a property is computed from the part's
-parameters and arithmetic, never measured from its shapes.
+strings. Numbers are handed over verbatim, in the part file's unit, like
+a `param()` override. Geometry is not a value — publish it with
+`expose()`. Nothing is built while the body runs, so a property is
+computed from the part's parameters and arithmetic, never measured from
+its shapes.
 
 **Returns**: **`number`** \| **`string`** \| **`boolean`** \| **`(string`** \| **`number)[]`**
 
@@ -44,7 +46,7 @@ See the [guide](/docs/part/property) for detailed usage examples.
 ## Signatures
 
 ```ts
-property(name: string, value: T, kind?: PropertyKind): T
+property(name: string, value: T): T
 ```
 
 Publishes a named value computed by the part — the part's scalar
@@ -59,7 +61,7 @@ export const bushing = part('Bushing', () => {
   const width = param('Width', 40);
   const wall = param('Wall', 3);
   ...
-  property('internalWidth', width - 2 * wall, 'length');
+  property('internalWidth', width - 2 * wall);
   property('boltCount', 4);
 });
 
@@ -72,12 +74,13 @@ const w = bushing.properties.internalWidth;
 
 ```
 Values are plain: a number, string, boolean, or an array of numbers or
-strings. Geometry is not a value — publish it with `expose()`. Nothing is
-built while the body runs, so a property is computed from the part's
-parameters and arithmetic, never measured from its shapes.
+strings. Numbers are handed over verbatim, in the part file's unit, like
+a `param()` override. Geometry is not a value — publish it with
+`expose()`. Nothing is built while the body runs, so a property is
+computed from the part's parameters and arithmetic, never measured from
+its shapes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | string | Identifier the property is registered under, unique within the part. |
 | `value` | T | The value to publish. Returned unchanged, so the statement doubles as the declaration of a local: `const w = property('w', ...)`. |
-| `kind` | PropertyKind | `'length'` marks a number (or number array) in the part file's unit; consumers in another unit read it rescaled. Untagged values are handed over verbatim. *(optional)* |

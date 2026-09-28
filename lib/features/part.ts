@@ -250,14 +250,12 @@ export class Part extends SceneObject implements IPart {
   }
 
   /**
-   * name → value of every property as a CONSUMER reads it: a `'length'`
-   * property is rescaled from the defining file's unit into the unit this
-   * variant is consumed in (identity when they match), everything else is
-   * verbatim. An unguarded plain record — the wire and internal enumerators
-   * use this; user reads go through `properties`.
+   * name → value of every property, verbatim as the body published them.
+   * An unguarded plain record — the wire and internal enumerators use
+   * this; user reads go through `properties`.
    */
   getPropertyValues(): Record<string, ParamVal> {
-    return propertyValues(this._properties, this.getUnitScaleFactor());
+    return propertyValues(this._properties);
   }
 
   /**

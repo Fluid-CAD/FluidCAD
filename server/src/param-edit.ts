@@ -3,16 +3,21 @@ import { declareInPartBody } from './code-editor/parts.ts';
 import { splitLines } from './code-editor/lines.ts';
 import {
   getJavaScriptParser,
-  walkTree,
   spliceCode,
-  stringLiteralValue,
   quoteForSingleQuotes,
   declareParamStatements,
   ensureSymbolImport,
   removeStatement,
-  type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
+import {
+  countVariableReferences,
+  declaresName,
+  findDeclarationCalls,
+  isStandaloneDeclaration,
+  locateDeclarationCall,
+  type DeclarationCall,
+} from './code-editor/declaration-calls.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -86,18 +91,8 @@ export type ParamUsage = {
   reason?: string;
 };
 
-/** A located `param(...)` call and everything the transforms need about it. */
-type ParamDeclaration = {
-  call: TSNode;
-  args: TSNode;
-  label: string;
-  /** The `const <name> =` this declaration binds, when it binds one. */
-  variable: string | null;
-  /** True when a `.slider()`-style tail follows the call. */
-  chained: boolean;
-  /** 1-indexed row the call starts on. */
-  line: number;
-};
+/** A located `param(...)` call — `key` is its label. See {@link DeclarationCall}. */
+type ParamDeclaration = DeclarationCall;
 
 const IDENTIFIER_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -149,7 +144,7 @@ export class ParamEditor {
     const usage: ParamUsage = {
       label,
       variable: declaration.variable,
-      ...ParamEditor.countReferences(tree, declaration),
+      ...countVariableReferences(tree, declaration),
       editable: !declaration.chained,
     };
     if (declaration.chained) {
@@ -183,7 +178,7 @@ export class ParamEditor {
       return { newCode: code, error: 'malformed param edit spec: a new parameter needs the part it goes in' };
     }
     const tree = await ParamEditor.parse(code);
-    if (ParamEditor.findAll(tree).some((d) => d.label === param.label)) {
+    if (ParamEditor.findAll(tree).some((d) => d.key === param.label)) {
       return { newCode: code, error: `this model already has a parameter labelled "${param.label}"` };
     }
     const variable = ParamEditor.variableNameFor(param.label, tree);
@@ -220,11 +215,11 @@ export class ParamEditor {
     // digit, or spelling a keyword, only needs a letter in front of it.
     const usable = camel !== '' && IDENTIFIER_RE.test(camel) && !RESERVED_NAMES.has(camel);
     const seed = usable ? camel : `p${camel}`;
-    if (!ParamEditor.declaresName(tree, seed)) {
+    if (!declaresName(tree, seed)) {
       return seed;
     }
     let n = 2;
-    while (ParamEditor.declaresName(tree, `${seed}${n}`)) {
+    while (declaresName(tree, `${seed}${n}`)) {
       n++;
     }
     return `${seed}${n}`;
@@ -259,7 +254,7 @@ export class ParamEditor {
       };
     }
     if (param.label !== expectedLabel
-      && ParamEditor.findAll(tree).some((d) => d.label === param.label)) {
+      && ParamEditor.findAll(tree).some((d) => d.key === param.label)) {
       return { newCode: code, error: `this model already has a parameter labelled "${param.label}"` };
     }
     const args = declaration.args;
@@ -284,7 +279,7 @@ export class ParamEditor {
       return { newCode: code, error: found.error };
     }
     const declaration = found.declaration;
-    if (!ParamEditor.isStandalone(declaration)) {
+    if (!isStandaloneDeclaration(declaration)) {
       return {
         newCode: code,
         error: 'this param() call is nested inside another expression — remove it in the code instead',
@@ -455,12 +450,8 @@ export class ParamEditor {
   }
 
   /**
-   * The declaration the panel means. Matching on the label is the drift guard:
-   * the panel computed the edit against what the last render declared, so a
-   * file that no longer declares it is refused rather than rewritten blind.
-   * The line only breaks a tie — an edit typed after the file moved underneath
-   * still resolves, because a label the source spells once is unambiguous
-   * wherever it now sits.
+   * The declaration the panel means — by label, with the line only breaking
+   * a tie ({@link locateDeclarationCall}).
    */
   private static locate(
     tree: TSTree,
@@ -470,170 +461,11 @@ export class ParamEditor {
     if (typeof expectedLabel !== 'string' || expectedLabel === '') {
       return { error: 'malformed param edit spec: bad label' };
     }
-    const byLabel = ParamEditor.findAll(tree).filter((d) => d.label === expectedLabel);
-    if (byLabel.length === 1) {
-      return { declaration: byLabel[0] };
-    }
-    if (byLabel.length > 1) {
-      const onLine = byLabel.find((d) => d.line === line);
-      if (onLine) {
-        return { declaration: onLine };
-      }
-      return {
-        error: `"${expectedLabel}" is declared ${byLabel.length} times in this file — edit it in the code instead`,
-      };
-    }
-    return {
-      error: `no param() call labelled "${expectedLabel}" — is the file in sync with the last render?`,
-    };
+    return locateDeclarationCall(tree, 'param', expectedLabel, line, 'labelled');
   }
 
   /** Every `param('literal', …)` call in the file, in source order. */
   private static findAll(tree: TSTree): ParamDeclaration[] {
-    const declarations: ParamDeclaration[] = [];
-    for (const node of walkTree(tree.rootNode)) {
-      if (node.type !== 'call_expression') {
-        continue;
-      }
-      const fn = node.childForFieldName('function');
-      if (!fn || fn.type !== 'identifier' || fn.text !== 'param') {
-        continue;
-      }
-      const args = node.childForFieldName('arguments');
-      const first = args?.namedChild(0);
-      // A computed label (a variable, a template string) is not something the
-      // panel can address — the registry key it produces isn't in the source.
-      const label = first ? stringLiteralValue(first) : null;
-      if (!args || label === null) {
-        continue;
-      }
-      declarations.push({
-        call: node,
-        args,
-        label,
-        variable: ParamEditor.boundVariable(node),
-        chained: ParamEditor.isChained(node),
-        line: node.startPosition.row + 1,
-      });
-    }
-    return declarations;
-  }
-
-  /** True when a member access reads the call's result (`param(…).slider()`). */
-  private static isChained(call: TSNode): boolean {
-    const parent = call.parent;
-    return parent?.type === 'member_expression' && ParamEditor.isSameNode(parent.childForFieldName('object'), call);
-  }
-
-  /**
-   * The name of the `const` this declaration initializes, or null when the
-   * call is not a declarator's whole value (an inline argument, a reassignment,
-   * a destructuring target).
-   */
-  private static boundVariable(call: TSNode): string | null {
-    const outer = ParamEditor.outermostExpression(call);
-    const declarator = outer.parent;
-    if (declarator?.type !== 'variable_declarator') {
-      return null;
-    }
-    if (!ParamEditor.isSameNode(declarator.childForFieldName('value'), outer)) {
-      return null;
-    }
-    const name = declarator.childForFieldName('name');
-    return name?.type === 'identifier' ? name.text : null;
-  }
-
-  /**
-   * Whether deleting the enclosing statement deletes this call and nothing
-   * else — a bound declaration or a bare `param(…)` expression statement.
-   */
-  private static isStandalone(declaration: ParamDeclaration): boolean {
-    if (declaration.variable !== null) {
-      return true;
-    }
-    const parent = ParamEditor.outermostExpression(declaration.call).parent;
-    return parent?.type === 'expression_statement';
-  }
-
-  /** The whole `param(…).a().b()` chain this call sits at the root of. */
-  private static outermostExpression(call: TSNode): TSNode {
-    let current = call;
-    while (current.parent) {
-      const parent = current.parent;
-      if (parent.type === 'member_expression'
-        && ParamEditor.isSameNode(parent.childForFieldName('object'), current)) {
-        current = parent;
-        continue;
-      }
-      if (parent.type === 'call_expression'
-        && ParamEditor.isSameNode(parent.childForFieldName('function'), current)) {
-        current = parent;
-        continue;
-      }
-      return current;
-    }
-    return current;
-  }
-
-  /**
-   * Node identity by source span — the parser hands back fresh wrappers for
-   * the same node on every access, so `===` cannot be trusted.
-   */
-  private static isSameNode(a: TSNode | null, b: TSNode | null): boolean {
-    return a !== null && b !== null
-      && a.startIndex === b.startIndex && a.endIndex === b.endIndex && a.type === b.type;
-  }
-
-  /** Whether any `const`/`let`/`var`/function/class in the file claims `name`. */
-  private static declaresName(tree: TSTree, name: string): boolean {
-    for (const node of walkTree(tree.rootNode)) {
-      if (node.type === 'variable_declarator' || node.type === 'function_declaration'
-        || node.type === 'class_declaration') {
-        if (node.childForFieldName('name')?.text === name) {
-          return true;
-        }
-      }
-      if (node.type === 'import_specifier' || node.type === 'namespace_import') {
-        const alias = node.childForFieldName('alias') ?? node.childForFieldName('name') ?? node.namedChild(0);
-        if (alias?.text === name) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /** How many places read the declaration's variable, and where. */
-  private static countReferences(
-    tree: TSTree,
-    declaration: ParamDeclaration,
-  ): { references: number; referenceLines: number[] } {
-    const name = declaration.variable;
-    if (!name) {
-      return { references: 0, referenceLines: [] };
-    }
-    const lines: number[] = [];
-    for (const node of walkTree(tree.rootNode)) {
-      if (node.type !== 'identifier' || node.text !== name) {
-        continue;
-      }
-      const parent = node.parent;
-      // The declaration's own name, a property access (`o.width`), and a
-      // non-shorthand object key (`{ width: 1 }`) all spell the name without
-      // reading the variable.
-      if (parent?.type === 'variable_declarator'
-        && ParamEditor.isSameNode(parent.childForFieldName('name'), node)) {
-        continue;
-      }
-      if (parent?.type === 'member_expression'
-        && ParamEditor.isSameNode(parent.childForFieldName('property'), node)) {
-        continue;
-      }
-      if (parent?.type === 'pair' && ParamEditor.isSameNode(parent.childForFieldName('key'), node)) {
-        continue;
-      }
-      lines.push(node.startPosition.row + 1);
-    }
-    return { references: lines.length, referenceLines: lines.slice(0, 5) };
+    return findDeclarationCalls(tree, 'param');
   }
 }

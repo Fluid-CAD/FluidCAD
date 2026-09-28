@@ -10,6 +10,7 @@ import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
+import { PropertyEditorDialog } from './ui/property-editor-dialog';
 import { ExportDialog, exportBaseName } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
@@ -295,7 +296,8 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 // state and the section's own across those rebuilds — buildPartRail() mounts
 // this same instance into whichever column is current.
 const paramEditorDialog = new ParamEditorDialog(container);
-const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog);
+const propertyEditorDialog = new PropertyEditorDialog(container);
+const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
 
@@ -338,6 +340,7 @@ setActivePartProvider(() => activePartTracker.location);
 const partChoices = () => ({ parts: activePartTracker.parts, selected: activePartTracker.selectedLocation });
 paramsPanel.setPartProvider(partChoices);
 paramEditorDialog.setPartProvider(partChoices);
+propertyEditorDialog.setPartProvider(partChoices);
 // The scene-utils scope helpers (findActiveObject & co.) read the same
 // tracker: the "active" feature is the active part's last child — the top
 // level's last statement once the user stepped out — so the viewer, sketch
@@ -3141,7 +3144,7 @@ function applySceneRendered(msg: any): void {
     assemblyReplicateService.handleSceneRendered(sceneKind);
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);

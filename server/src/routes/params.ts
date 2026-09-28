@@ -169,6 +169,7 @@ export function createParamsRouter(
       ...sceneUnitFields(data),
       ...sceneStopFields(data),
       params: data.params,
+      properties: data.properties,
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     return true;
@@ -233,6 +234,7 @@ export function createParamsRouter(
       ...sceneStopFields(data),
       breakpointHit: data.breakpointHit,
       params: data.params,
+      properties: data.properties,
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     // A recompute that runs to completion can still leave features broken —

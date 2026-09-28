@@ -3,8 +3,8 @@ import { getCurrentScene } from "../scene-manager.js";
 import { SceneObject } from "../common/scene-object.js";
 import { MEMBER_NAME_PATTERN } from "../selection/types.js";
 import type { ParamVal } from "../param-registry.js";
-import { isLengthValue, isPropertyValue, PROPERTY_KINDS } from "../features/part-property.js";
-import type { PartProperty, PropertyKind } from "../features/part-property.js";
+import { isPropertyValue } from "../features/part-property.js";
+import type { PartProperty } from "../features/part-property.js";
 
 /**
  * Publishes a named value computed by the part — the part's scalar
@@ -18,7 +18,7 @@ import type { PartProperty, PropertyKind } from "../features/part-property.js";
  *       const width = param('Width', 40);
  *       const wall = param('Wall', 3);
  *       ...
- *       property('internalWidth', width - 2 * wall, 'length');
+ *       property('internalWidth', width - 2 * wall);
  *       property('boltCount', 4);
  *     });
  *
@@ -30,18 +30,17 @@ import type { PartProperty, PropertyKind } from "../features/part-property.js";
  *     const w = bushing.properties.internalWidth;
  *
  * Values are plain: a number, string, boolean, or an array of numbers or
- * strings. Geometry is not a value — publish it with `expose()`. Nothing is
- * built while the body runs, so a property is computed from the part's
- * parameters and arithmetic, never measured from its shapes.
+ * strings. Numbers are handed over verbatim, in the part file's unit, like
+ * a `param()` override. Geometry is not a value — publish it with
+ * `expose()`. Nothing is built while the body runs, so a property is
+ * computed from the part's parameters and arithmetic, never measured from
+ * its shapes.
  *
  * @param name - Identifier the property is registered under, unique within the part.
  * @param value - The value to publish. Returned unchanged, so the statement
  *   doubles as the declaration of a local: `const w = property('w', ...)`.
- * @param kind - `'length'` marks a number (or number array) in the part
- *   file's unit; consumers in another unit read it rescaled. Untagged
- *   values are handed over verbatim.
  */
-export default function property<T extends ParamVal>(name: string, value: T, kind?: PropertyKind): T {
+export default function property<T extends ParamVal>(name: string, value: T): T {
   const scene = getCurrentScene();
   const part = scene?.getActivePart() ?? null;
   if (!part) {
@@ -73,21 +72,8 @@ export default function property<T extends ParamVal>(name: string, value: T, kin
       + "Properties are computed from the part's parameters; nothing is built while the body runs.",
     );
   }
-  if (kind !== undefined && !PROPERTY_KINDS.has(kind)) {
-    throw new Error(
-      `property('${name}'): unknown kind ${JSON.stringify(kind)} — the only kind is 'length'.`,
-    );
-  }
-  if (kind === 'length' && !isLengthValue(value)) {
-    throw new Error(
-      `property('${name}'): a 'length' property must be a finite number or an array of them.`,
-    );
-  }
 
   const record: PartProperty = { name, value };
-  if (kind) {
-    record.kind = kind;
-  }
   const sourceLocation = captureSourceLocation();
   if (sourceLocation) {
     record.sourceLocation = sourceLocation;

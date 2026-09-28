@@ -116,6 +116,7 @@ export function createUnitRouter(deps: UnitRouterDeps): Router {
         ...sceneStopFields(data),
         breakpointHit: data.breakpointHit,
         params: data.params,
+        properties: data.properties,
         ...(data.assembly ? { assembly: data.assembly } : {}),
       });
     }

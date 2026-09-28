@@ -356,6 +356,19 @@ export type UIParamDefinition = {
   part?: SourceLocation;
 };
 
+/**
+ * One `property()` of the rendered part file, as the Parameters panel lists
+ * it: the value the last render computed, where the call was authored
+ * (what the editor addresses, beside the name) and the `part()`
+ * statement whose body declared it (what the Part dropdown filters on).
+ */
+export type UIPropertyDefinition = {
+  name: string;
+  value: string | number | boolean | (string | number)[];
+  sourceLocation?: SourceLocation;
+  part: SourceLocation;
+};
+
 // ---------------------------------------------------------------------------
 // Application state types (unrelated to 3D rendering)
 // ---------------------------------------------------------------------------

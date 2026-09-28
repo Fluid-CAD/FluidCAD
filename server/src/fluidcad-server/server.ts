@@ -29,6 +29,7 @@ import {
   type ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
+import { collectSceneProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig, type LengthUnit } from '../project-config.ts';
@@ -480,6 +481,9 @@ export class FluidCadServer {
           ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
           params,
+          // A part file's published values; an assembly's inserted parts
+          // are not the assembly's own, so it lists none.
+          ...(sceneKind === 'part' ? { properties: collectSceneProperties(scene) } : {}),
           objectErrors: FluidCadServer.collectObjectErrors(result),
           ...(assembly ? { assembly } : {}),
         };

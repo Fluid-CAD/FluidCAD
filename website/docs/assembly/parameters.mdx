@@ -64,7 +64,7 @@ insert(plate, { Width: housing.properties.pocketDiameter - 0.4 })
     .translate(0, 0, housing.properties.pocketDepth);
 ```
 
-They are plain values, so they go anywhere a number goes: a pose, a mate offset, another insert's override. A property declared as a `'length'` arrives in the assembly's unit even when the part file is modelled in another.
+They are plain values, so they go anywhere a number goes: a pose, a mate offset, another insert's override. Numbers arrive in the part file's unit, like parameter overrides.
 
 ## Assembly parameters
 

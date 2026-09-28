@@ -7,6 +7,7 @@ import { SketchTrim } from '../../sketch-trim.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
 import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
+import { PropertyEditor } from '../../property-edit.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
@@ -103,6 +104,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);
+  }
+  if (spec.propertyEdit) {
+    return PropertyEditor.apply(code, spec.propertyEdit);
   }
   if (spec.insertPart) {
     const result = await applyInsertPartEdit(code, spec.insertPart);

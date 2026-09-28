@@ -1216,8 +1216,13 @@ export async function getDimensionExpression(
 export async function getScopeVariables(
   sketchSourceLine: number | null,
   scope?: 'assembly',
+  explicitPart?: SourceLocation | null,
 ): Promise<VariableInfo[]> {
-  const part = sketchSourceLine === null && scope !== 'assembly' ? activePartProvider?.() ?? null : null;
+  // A dialog that lets the user choose the part (the Properties editor's Part
+  // dropdown) names it outright; the feature dialogs follow the active part.
+  const part = sketchSourceLine === null && scope !== 'assembly'
+    ? (explicitPart ?? activePartProvider?.() ?? null)
+    : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
     '/api/scope-variables',
     scope === 'assembly' ? { sketchSourceLine, assembly: true } : part ? { sketchSourceLine, part } : { sketchSourceLine },
@@ -4643,6 +4648,60 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
 /** Delete a parameter's declaration; references to its variable stay behind. */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('/api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Property declarations — the panel editing `property()` calls in the source
+// ---------------------------------------------------------------------------
+
+/** One `property()` declaration as the editor dialog wants it written: the value is source text. */
+export type PropertySpec = {
+  name: string;
+  expression: string;
+};
+
+/** Which declaration an edit means — the name is the key; the location disambiguates. */
+export type PropertyTarget = { name: string; line?: number; filePath?: string };
+
+/** What the dialog seeds from and warns with — see `GET /api/properties/usage`. */
+export type PropertyUsage = {
+  name: string;
+  /** The value argument's source text; null when the server could not read it. */
+  expression: string | null;
+  variable: string | null;
+  references: number;
+  referenceLines: number[];
+  editable: boolean;
+  reason?: string;
+};
+
+export function getPropertyUsage(target: PropertyTarget): Promise<PropertyUsage | null> {
+  const query: Record<string, string | number> = { name: target.name };
+  if (target.line != null) {
+    query.line = target.line;
+  }
+  if (target.filePath) {
+    query.filePath = target.filePath;
+  }
+  return getJson('/api/properties/usage', query);
+}
+
+/** Declare a new property at the end of `part`'s callback body, in the file the part lives in. */
+export function addProperty(property: PropertySpec, part: SourceLocation): Promise<ParamEditResponse> {
+  return postParamEdit('/api/properties/add', {
+    property,
+    part: { filePath: part.filePath, line: part.line, column: part.column },
+  });
+}
+
+/** Rewrite the declaration `target` names — renaming included. */
+export function updateProperty(target: PropertyTarget, property: PropertySpec): Promise<ParamEditResponse> {
+  return postParamEdit('/api/properties/update', { ...target, property });
+}
+
+/** Delete a property's declaration; a variable it bound stays referenced wherever it was. */
+export function removeProperty(target: PropertyTarget): Promise<ParamEditResponse> {
+  return postParamEdit('/api/properties/remove', { ...target });
 }
 
 // ---------------------------------------------------------------------------

@@ -6,8 +6,9 @@ import { FluidCadServer, sceneStopFields, sceneUnitFields } from './fluidcad-ser
 import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
-import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
+import { createPropertyEditsRouter } from './routes/property-edits.ts';
+import { createPropertiesRouter } from './routes/properties.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
 import { createMeasureRouter } from './routes/measure.ts';
 import { createResolveSelectionRouter } from './routes/resolve-selection.ts';
@@ -159,6 +160,7 @@ app.use('/api', createHealthRouter({
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied));
+app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createResolveSelectionRouter(fluidCadServer));
@@ -255,7 +257,7 @@ const lastSceneByFile = new Map<string, {
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
 function emitSuccess(version: number, data: SceneRenderedData) {
-  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params } = data;
+  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties } = data;
   lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
@@ -276,6 +278,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     ...sceneStopFields(data),
     breakpointHit,
     params,
+    properties,
     ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });

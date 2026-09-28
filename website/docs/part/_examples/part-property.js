@@ -25,9 +25,8 @@ export const housing = part('Housing', () => {
     // highlight-start
     // Published values, computed from the parameters. A part reads them as
     // `housing.properties.<name>`, an assembly as `instance.properties.<name>`.
-    // A 'length' is rescaled when the consumer runs in another unit.
-    property('pocketDiameter', width - 2 * wall, 'length');
-    property('pocketDepth', height - wall, 'length');
+    property('pocketDiameter', width - 2 * wall);
+    property('pocketDepth', height - wall);
     property('boltCount', 4);
     // highlight-end
 });

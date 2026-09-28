@@ -4,6 +4,7 @@ import type { FluidScriptKind } from '../file-kind.ts';
 import type { ParamDefinition, RenderChanges } from '../../../lib/dist/index.js';
 import type { LengthUnit } from '../project-config.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
+import type { ScenePropertyDefinition } from './properties.ts';
 
 /**
  * A single feature that failed to build during an otherwise successful render.
@@ -50,6 +51,8 @@ export type SceneRenderedData = {
   breakpointHit?: boolean;
   assembly?: SerializedAssembly;
   params?: ParamDefinition[];
+  /** The `property()` declarations of the rendered file's parts — see `collectSceneProperties`. */
+  properties?: ScenePropertyDefinition[];
   /**
    * Features whose `build()` threw. Non-empty means the render completed but
    * the scene is wrong — see `FluidCadServer.collectObjectErrors`.

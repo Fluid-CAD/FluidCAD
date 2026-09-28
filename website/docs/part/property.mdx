@@ -15,6 +15,14 @@ Two consumers read it:
 - **An assembly** reads `instance.properties.<name>` on an inserted instance, and gets the values that instance's own parameter overrides produced. They are plain numbers and strings, so they feed `.translate()`, mate offsets and other inserts' overrides directly.
 - **Another part** reads `def.properties.<name>` on the definition, and gets the default variant's values, to size itself from a donor.
 
+## In the viewport
+
+1. Open the **Parameters** panel from the left rail. **Add to** names the part the new property goes into, as for a parameter.
+2. Click **+** and choose **New property**. The dialog asks for a **Name**, the **Part** and a **Value**. The value is an expression: type a parameter's name to see what is in scope, and combine them as in `width - 2 * wall`.
+3. Save. The `property()` call is written at the end of that part's body, after the geometry, and the panel lists it under **Properties** with the value the render computed. The pencil on the row edits or deletes the declaration.
+
+## In code
+
 ![A housing with a pocket and the plug sized from its published pocket diameter](/img/docs/part/part-property.png)
 
 <ExplainedCode code={partProperty} fileName="housing.part.js" title="A housing publishing its pocket size">
@@ -40,14 +48,13 @@ insert(plate, { Width: wide.properties.pocketDiameter - 0.4 })
 ## Signature
 
 ```ts
-property(name, value, kind?)
+property(name, value)
 ```
 
 | Argument | Meaning |
 |----------|---------|
 | `name` | A plain identifier, unique within the part. |
-| `value` | A number, string, boolean, or an array of numbers or strings. Returned unchanged, so `const w = property('w', …)` declares a local and publishes it in one statement. |
-| `kind` | `'length'` marks a number (or number array) as a length in the part file's unit. A consumer running in another unit reads it rescaled: an inch part's `0.5` reads as `12.7` in a millimetre assembly. Without the tag the value is handed over verbatim, like a parameter override. |
+| `value` | A number, string, boolean, or an array of numbers or strings. Returned unchanged, so `const w = property('w', …)` declares a local and publishes it in one statement. Numbers are handed over verbatim, in the part file's unit, like a parameter override. |
 
 A misspelled name does not come back `undefined`: reading a property the part never declared throws an error naming the ones it does declare.
 

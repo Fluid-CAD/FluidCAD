@@ -25,7 +25,7 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
     {n: 8, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order. See below for what clicks do.'},
     {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
     {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'One row per solid. Click to select it; the row menu hides it, sets transparency, or exports it.'},
-    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param(). + adds a parameter, the arrow resets all to their defaults.'},
+    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
     {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume and mass of the selected solid, for a chosen material.'},
     {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
     {n: 14, x: 96.5, y: 16.5, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: fit to view, and the grid / projection toggles.'},
@@ -83,7 +83,7 @@ The scale icon at the bottom right opens **Shape properties**. Select a solid, p
 
 ## Parameters
 
-The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. **+** declares a new parameter through a dialog, and the arrow resets every value to its default. See [Param](/docs/part/param).
+The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. Below the controls, a **Properties** list shows each `property()` of the part with the value the last render computed. **+** opens a menu: **New parameter** or **New property**, each declared through a dialog; the pencil on a row edits or deletes its declaration, and the arrow resets every parameter to its default. See [Param](/docs/part/param) and [Property](/docs/part/property).
 
 ## Edges in the viewport
 

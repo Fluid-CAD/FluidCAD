@@ -250,8 +250,8 @@ export class PartDefinition<T = unknown> {
 
   /**
    * The definition's value interface: `property()` values of the DEFAULT
-   * variant, read in the current unit (a part file sizing itself from a
-   * donor's `def.properties.internalWidth`). An inserted variant's own values
+   * variant (a part file sizing itself from a donor's
+   * `def.properties.internalWidth`). An inserted variant's own values
    * are on its instance: `instance.properties.<name>`.
    */
   get properties(): Record<string, ParamVal> {

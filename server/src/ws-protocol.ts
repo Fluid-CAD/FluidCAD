@@ -454,6 +454,18 @@ export type UIParamDefinition = {
   multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
+/**
+ * One `property()` of the rendered part file, as the parameters panel lists
+ * it: the value the render computed and the part that declared it (the
+ * panel's Part dropdown filters on it).
+ */
+export type UIPropertyDefinition = {
+  name: string;
+  value: string | number | boolean | (string | number)[];
+  sourceLocation?: { filePath: string; line: number; column: number };
+  part: { filePath: string; line: number; column: number };
+};
+
 export type UISceneRenderedMessage = {
   type: 'scene-rendered';
   /**
@@ -478,6 +490,8 @@ export type UISceneRenderedMessage = {
   compileError?: CompileError;
   assembly?: SerializedAssembly;
   params?: UIParamDefinition[];
+  /** Part scenes only: the file's `property()` declarations. */
+  properties?: UIPropertyDefinition[];
 };
 
 export type UIHighlightShapeMessage = {

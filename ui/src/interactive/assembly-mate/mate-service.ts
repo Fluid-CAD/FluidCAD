@@ -79,7 +79,7 @@ type MateEditTarget = {
  * both slots filled the candidate mate is solved live as a provisional
  * record — the parts pull together while the dialog is open, and snap back
  * if it closes without applying. Apply writes the `mate()` statement through
- * `/api/assembly-mate`; the render it triggers shows the committed joint.
+ * `api/assembly-mate`; the render it triggers shows the committed joint.
  *
  * The joints panel's "Edit mate" opens the same dialog seeded from an
  * existing statement ({@link beginEdit}): slots pre-filled from the record,

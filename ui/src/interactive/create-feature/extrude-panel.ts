@@ -9,6 +9,7 @@ import { ExpressionField, collectNewVariables } from '../../ui/expression-field'
 import { VariableInfo } from '../../ui/expression-core';
 import { PickSlotChip } from '../pick-slot';
 import { RegionPickControl } from './region-pick-control';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * How the extrusion distributes around the sketch plane. The last three end
@@ -82,7 +83,7 @@ export class ExtrudePanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-extrude-panel',
       title: 'Extrude',
-      icon: '/icons/extrude.png',
+      icon: iconUrl('extrude'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>

@@ -7,6 +7,7 @@ import { WrapOptionValues } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { RegionPickControl } from './region-pick-control';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type WrapValues = WrapOptionValues | { error: string };
@@ -39,7 +40,7 @@ export class WrapPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-wrap-panel',
       title: 'Wrap',
-      icon: '/icons/wrap.png',
+      icon: iconUrl('wrap'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="sketch-slot"></div>

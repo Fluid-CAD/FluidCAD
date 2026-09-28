@@ -212,7 +212,12 @@ describe('the start screen contract', () => {
     setBuiltinEngineLocation({ kind: 'package', packageRoot: path.join(home, 'package') });
     delete process.env.FLUIDCAD_BUILTIN_ENGINE;
     const events: SessionEvent[] = [];
-    const registry = new SessionRegistry({ onView: (path, view) => events.push({ path, view }), changed: () => undefined, log: () => undefined });
+    const registry = new SessionRegistry({
+      idFor: (path) => path.split('/').pop()!,
+      onView: (path, view) => events.push({ path, view }),
+      changed: () => undefined,
+      log: () => undefined,
+    });
     try {
       const parent = workspace('cad');
       const created = path.join(parent, 'bracket');

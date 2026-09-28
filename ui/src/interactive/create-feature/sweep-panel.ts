@@ -8,6 +8,7 @@ import { RegionPickControl } from './region-pick-control';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type SweepValues =
@@ -78,7 +79,7 @@ export class SweepPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-sweep-panel',
       title: 'Sweep',
-      icon: '/icons/sweep.png',
+      icon: iconUrl('sweep'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>

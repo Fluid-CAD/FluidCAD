@@ -86,6 +86,7 @@ export type ActionResult = { ok: boolean; error?: string };
 export type SessionView =
   | { phase: 'opening'; project: OpeningProject; status: OpeningStatus }
   | { phase: 'failed'; project: OpeningProject; message: string }
+  /** `url` is the project's page on the start server, `/p/<id>/`, behind the launcher's proxy (`server/engine-proxy.ts`). */
   | { phase: 'running'; project: OpeningProject; url: string; version: string; source: EngineSource }
   | { phase: 'closed'; project: OpeningProject };
 

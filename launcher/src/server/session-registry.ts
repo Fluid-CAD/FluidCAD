@@ -4,6 +4,7 @@ import { probeDirtyFiles } from '../projects/dirty-files.ts';
 import { EngineSession, OpenCancelledError } from '../projects/engine-session.ts';
 import { INITIAL_STATE, projectOf, transition, type OpenEvent, type OpenState } from '../projects/open-state.ts';
 import type { ActionResult, OpeningProject, SessionView } from '../start/contract.ts';
+import { projectPageUrl } from './engine-proxy.ts';
 
 /**
  * The projects `npx fluidcad` has open: one engine session per project, each
@@ -43,6 +44,8 @@ type Entry = {
 };
 
 export type SessionRegistryHooks = {
+  /** The id a project's page goes by, `/p/<id>/`: unique among the projects this launcher may open. */
+  idFor(workspacePath: string): string;
   /** A session changed; every page is told, and a project's own tab acts on it. */
   onView(workspacePath: string, view: SessionView): void;
   /** Something the start screens show changed: a project opened, runs now, or closed. */
@@ -57,6 +60,8 @@ function projectFor(workspacePath: string): OpeningProject {
 
 export class SessionRegistry {
   private readonly entries = new Map<string, Entry>();
+  /** Every project opened here so far, by the id its page goes by: a tab left behind finds its way back. */
+  private readonly paths = new Map<string, string>();
   private shuttingDown = false;
 
   constructor(private readonly hooks: SessionRegistryHooks) {}
@@ -64,6 +69,20 @@ export class SessionRegistry {
   /** Opening, failed, or running: a tab holds it. */
   isOpen(workspacePath: string): boolean {
     return this.entries.has(workspacePath);
+  }
+
+  /** The engine behind `/p/<id>/`, for the proxy: its loopback port, or null while the project is not running. */
+  engineTarget(id: string): { port: number } | null {
+    const workspacePath = this.paths.get(id);
+    const entry = workspacePath === undefined ? undefined : this.entries.get(workspacePath);
+    const port = entry?.state.phase === 'project' && entry.session?.alive ? entry.session.port : null;
+    return port === null ? null : { port };
+  }
+
+  /** The start page that opens the project behind `/p/<id>/` again, or null for an id this launcher never gave out. */
+  startPageFor(id: string): string | null {
+    const workspacePath = this.paths.get(id);
+    return workspacePath === undefined ? null : `/?${new URLSearchParams({ project: workspacePath })}`;
   }
 
   view(workspacePath: string): SessionView | null {
@@ -85,6 +104,7 @@ export class SessionRegistry {
     if (!entry) {
       entry = { state: INITIAL_STATE, session: null, abort: null, create: false, restartedAt: null, previewAt: 0 };
       this.entries.set(workspacePath, entry);
+      this.paths.set(this.hooks.idFor(workspacePath), workspacePath);
     }
     switch (entry.state.phase) {
       case 'home':
@@ -228,7 +248,9 @@ export class SessionRegistry {
         return {
           phase: 'running',
           project: state.project,
-          url: state.url,
+          // The tab goes to the proxy, never to the engine's own address: that
+          // is loopback, which a browser on another machine cannot reach.
+          url: projectPageUrl(this.hooks.idFor(state.project.path)),
           version: engine?.version ?? '',
           source: engine?.source ?? 'builtin',
         };

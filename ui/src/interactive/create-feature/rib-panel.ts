@@ -7,6 +7,7 @@ import { PickSlotChip } from '../pick-slot';
 import { RibOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RibValues = RibOptionValues | { error: string };
@@ -37,7 +38,7 @@ export class RibPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-rib-panel',
       title: 'Rib',
-      icon: '/icons/rib.png',
+      icon: iconUrl('rib'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="spine-slot"></div>

@@ -23,6 +23,7 @@ import {
   resolvePlaneByShapeId, standardPlaneFromText,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** What the seeding hook hands over when the dialog arms. */
 export type MirrorEnterSeed = {
@@ -120,7 +121,7 @@ export class MirrorFeatureService {
     // hides while the exclusive sketch toolbar owns the bar.
     const group = navbar.getGroup('transform') ?? navbar.addGroup('transform', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/mirror.png',
+      icon: iconUrl('mirror'),
       label: 'Mirror',
       tip: 'Mirror solids',
       ariaLabel: 'Mirror solids across a plane',

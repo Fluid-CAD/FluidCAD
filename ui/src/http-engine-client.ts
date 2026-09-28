@@ -93,7 +93,7 @@ export class HttpEngineClient implements EngineClient {
   }
 
   setParam(label: string, value: unknown): void {
-    fetch('/api/set-param', {
+    fetch('api/set-param', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label, value }),
@@ -101,7 +101,7 @@ export class HttpEngineClient implements EngineClient {
   }
 
   resetParams(): void {
-    fetch('/api/reset-params', { method: 'POST' })
+    fetch('api/reset-params', { method: 'POST' })
       .catch(err => console.error('Reset params failed:', err));
   }
 

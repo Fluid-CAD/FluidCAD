@@ -89,7 +89,15 @@ export class FolderPicker {
   private readonly roots: HTMLDivElement;
   private readonly list: HTMLDivElement;
   private readonly nameRow: HTMLLabelElement;
+  private readonly nameLabel: HTMLSpanElement;
   private readonly nameInput: HTMLInputElement;
+  /** Where the named project lands, under the name, in a projects folder. */
+  private readonly folder: HTMLDivElement;
+  /**
+   * The path itself, isolated: the line runs right-to-left so a long path
+   * keeps its end, and the isolate keeps the path's own slashes in order.
+   */
+  private readonly folderText: HTMLElement;
   private readonly status: HTMLDivElement;
   private readonly actionBtn: HTMLButtonElement;
   private mode: FolderPickerMode = 'open';
@@ -138,9 +146,10 @@ export class FolderPicker {
           <div data-ref="roots" class="hidden flex flex-wrap gap-1"></div>
           <div data-ref="list" role="listbox" aria-label="Folders" class="flex-1 min-h-[200px] max-h-[40vh] overflow-y-auto border border-base-content/10 rounded-md p-1"></div>
           <label data-ref="name-row" class="hidden flex items-center gap-3">
-            <span class="text-sm text-base-content/80 shrink-0">Project name</span>
+            <span data-ref="name-label" class="text-sm text-base-content/80 shrink-0">Project name</span>
             <input data-ref="name" type="text" spellcheck="false" placeholder="e.g. bracket" class="input input-sm flex-1 min-w-0" />
           </label>
+          <div data-ref="folder" class="hidden text-xs text-base-content/60 font-mono truncate [direction:rtl] text-left"><bdi data-ref="folder-text"></bdi></div>
           <div data-ref="status" class="min-h-5 text-xs text-base-content/60 break-words" aria-live="polite"></div>
         </div>
         <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-base-content/10 shrink-0">
@@ -159,7 +168,10 @@ export class FolderPicker {
     this.roots = ref('roots');
     this.list = ref('list');
     this.nameRow = ref('name-row');
+    this.nameLabel = ref('name-label');
     this.nameInput = ref('name');
+    this.folder = ref('folder');
+    this.folderText = ref('folder-text');
     this.status = ref('status');
     this.actionBtn = ref('action');
 
@@ -218,12 +230,27 @@ export class FolderPicker {
     this.mode = mode;
     this.root = root;
     const rooted = root !== null;
+    const naming = rooted && mode === 'create';
     this.title.textContent = COPY[mode].title;
-    this.lede.textContent =
-      rooted && mode === 'create' ? 'Name the project. FluidCAD sets it up in your projects folder and opens it.' : COPY[mode].lede;
+    this.lede.textContent = COPY[mode].lede;
+    // In a projects folder there is nothing to explain: a label, the field, and where it lands.
+    this.lede.classList.toggle('hidden', naming);
     this.nav.classList.toggle('hidden', rooted);
-    this.list.classList.toggle('hidden', rooted && mode === 'create');
+    this.list.classList.toggle('hidden', naming);
     this.nameRow.classList.toggle('hidden', mode !== 'create');
+    this.nameRow.classList.toggle('flex-col', naming);
+    this.nameRow.classList.toggle('items-stretch', naming);
+    this.nameRow.classList.toggle('gap-1.5', naming);
+    this.nameRow.classList.toggle('items-center', !naming);
+    this.nameRow.classList.toggle('gap-3', !naming);
+    this.nameLabel.textContent = naming ? 'Project Name' : 'Project name';
+    // Under its label the field takes the whole row; daisyUI's input has a
+    // width of its own otherwise. `flex-1` is for the row: in a column it
+    // would be the field's height, collapsing it.
+    this.nameInput.classList.toggle('w-full', naming);
+    this.nameInput.classList.toggle('flex-1', !naming);
+    this.folder.classList.toggle('hidden', !naming);
+    this.folderText.textContent = '';
     this.nameInput.value = '';
     this.checked = null;
     this.selected = null;
@@ -234,6 +261,9 @@ export class FolderPicker {
     this.element.classList.remove('hidden');
     if (rooted) {
       await this.browse(root);
+      if (naming) {
+        this.showProjectPath();
+      }
     } else {
       const last = readLastFolder();
       if (!(await this.browse(last)) && last !== null) {
@@ -380,12 +410,27 @@ export class FolderPicker {
     );
   }
 
+  /** The path the typed name makes, as typed: `~/cad/bracket`, or the folder alone before a name. */
+  private showProjectPath(): void {
+    if (this.root === null) {
+      return;
+    }
+    const name = this.nameInput.value.trim();
+    const separator = this.root.includes('\\') && !this.root.includes('/') ? '\\' : '/';
+    const full = `${this.root}${separator}${name}`;
+    this.folderText.textContent = shortenPath(full, this.home);
+    this.folder.title = full;
+  }
+
   private scheduleCheck(delay = CHECK_DELAY_MS): void {
     if (this.checkTimer) {
       clearTimeout(this.checkTimer);
     }
     this.checked = null;
     this.sync();
+    if (this.mode === 'create') {
+      this.showProjectPath();
+    }
     const name = this.nameInput.value.trim();
     if (!name) {
       this.setStatus('Name the project. The name becomes its folder.', 'neutral');
@@ -494,8 +539,14 @@ export class FolderPicker {
   }
 
   private setStatus(text: string, tone: StatusTone): void {
+    // Naming a project in a projects folder: only a problem is worth a line,
+    // and the line's space goes with it.
+    const naming = this.root !== null && this.mode === 'create';
+    if (naming && tone === 'neutral') {
+      text = '';
+    }
     this.status.textContent = text;
-    this.status.className = `min-h-5 text-xs break-words ${tone === 'error' ? 'text-error' : 'text-base-content/60'}`;
+    this.status.className = `min-h-5 text-xs break-words ${tone === 'error' ? 'text-error' : 'text-base-content/60'}${naming && text === '' ? ' hidden' : ''}`;
     this.status.dataset.tone = tone;
   }
 }

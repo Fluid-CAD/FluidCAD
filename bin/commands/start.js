@@ -16,6 +16,8 @@ async function runStart(opts) {
     port,
     open: opts.open,
     projectsRoot: opts.projects === undefined ? undefined : resolve(opts.projects),
+    host: opts.host,
+    publicUrl: opts.publicUrl,
   });
 }
 
@@ -29,6 +31,15 @@ export function registerStartCommand(program) {
     .option(
       '--projects <dir>',
       'keep every project in this folder: the start screen lists its projects, New Project asks for a name only, and nothing outside it can be opened',
+    )
+    .option(
+      '--host <address>',
+      'the address to listen on; 0.0.0.0 lets other machines reach the start screen and, through it, every project it opens',
+      '127.0.0.1',
+    )
+    .option(
+      '--public-url <url>',
+      'the origin browsers reach FluidCAD at behind a reverse proxy, such as https://cad.example.com; https makes the session cookie Secure',
     )
     .action((opts) => {
       runStart(opts).catch((err) => {

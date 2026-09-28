@@ -1,3 +1,4 @@
+import { iconUrl } from './icon-url';
 /**
  * Artwork for the 16 solved-sketch constraint kinds, keyed by the kind itself
  * (`SOLVED_CONSTRAINT_KINDS`) rather than by the `constraint-<kind>` unique
@@ -82,7 +83,7 @@ export function resolveIconName(uniqueType: string | undefined, type: string | u
  * added feature/shape type that predates its artwork). `solid` is a neutral grey
  * cube and is already the catch-all returned by resolveIconName.
  */
-export const DEFAULT_ICON_SRC = '/icons/solid.png';
+export const DEFAULT_ICON_SRC = iconUrl('solid');
 
 /**
  * Inline `onerror` attribute for icon `<img>` tags built via innerHTML. When the

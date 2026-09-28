@@ -97,7 +97,7 @@ const MATE_TYPE_LABELS: Record<SerializedAssemblyMate['type'], string> = {
  * Picks fill left to right and auto-advance — a completed row starts the
  * next — and every complete row solves live as ghosted provisional
  * bodies. Apply writes the `replicate()` statement through
- * `/api/assembly-replicate`.
+ * `api/assembly-replicate`.
  *
  * The parts panel's "Edit replicate…" opens the same dialog seeded from
  * the payload's replicate record ({@link beginEdit}); Apply then

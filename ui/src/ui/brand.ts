@@ -13,7 +13,7 @@ export function createBrand(): Brand {
   const element = document.createElement('div');
   element.className = 'flex items-center gap-1.5 shrink-0';
   element.innerHTML = `
-      <img src="/logo.svg" alt="FluidCAD" class="h-8 w-8 shrink-0" />
+      <img src="logo.svg" alt="FluidCAD" class="h-8 w-8 shrink-0" />
       <div class="flex flex-col justify-center">
         <span class="text-[17px] leading-5 font-bold text-base-content/80 tracking-tight">FluidCAD</span>
       </div>

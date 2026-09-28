@@ -23,6 +23,7 @@ import {
   collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   sourceChip, SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type LoftEditRequest = Parameters<typeof applyLoftEdit>[1];
 
@@ -113,7 +114,7 @@ export class LoftFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/loft.png',
+      icon: iconUrl('loft'),
       label: 'Loft',
       tip: 'Loft between two or more profiles',
       ariaLabel: 'Loft between two or more profiles',

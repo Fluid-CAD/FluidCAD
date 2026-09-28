@@ -60,10 +60,14 @@ const string: Guard<string> = (value, where) => {
   return value;
 };
 
-/** An engine's page: the one URL a session may send its tab to. */
-const httpUrl: Guard<string> = (value, where) => {
-  if (typeof value !== 'string' || !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+\/?$/.test(value)) {
-    throw new ContractError(where, 'an http://localhost URL');
+/**
+ * A project's page: the one place a session may send its tab to. It is a
+ * path on the start server itself, `/p/<id>/`, where the launcher's proxy
+ * stands in for the engine; nothing with a scheme, a host or a `..` passes.
+ */
+const projectPagePath: Guard<string> = (value, where) => {
+  if (typeof value !== 'string' || !/^\/p\/[A-Za-z0-9._~%!$&'()*+,;=-]+\/$/.test(value) || value.includes('..')) {
+    throw new ContractError(where, 'a project page path (/p/<id>/)');
   }
   return value;
 };
@@ -261,7 +265,7 @@ const sessionView: Guard<SessionView> = (value, where) => {
       return object<Extract<SessionView, { phase: 'running' }>>({
         phase: oneOf('running'),
         project: openingProject,
-        url: httpUrl,
+        url: projectPagePath,
         version: string,
         source: openingSource,
       })(value, where);

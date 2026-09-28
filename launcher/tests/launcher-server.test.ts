@@ -3,6 +3,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import { setBuiltinEngineLocation } from '../src/engine/cache';
 import { thumbnailFileFor } from '../src/previews/thumbnails';
 import { startLauncherServer, type LauncherServer } from '../src/server/launcher-server';
@@ -318,7 +319,7 @@ describe('a projects folder', () => {
     expect(listing).toMatchObject({
       path: projectsDir,
       parent: null,
-      home: projectsDir,
+      home: os.homedir(),
       roots: [projectsDir],
       entries: [{ name: 'bracket', project: true }],
     });
@@ -357,5 +358,153 @@ describe('a projects folder', () => {
     const pid = fakeEnginePid(workspace);
     await server.close();
     await processGone(pid);
+  });
+});
+
+describe('the proxy in front of each engine', () => {
+  /** Open `name` under `parent` on the fake engine, and wait until it runs. */
+  async function openProject(parent: string, name: string): Promise<{ workspace: string; id: string }> {
+    fs.mkdirSync(parent, { recursive: true });
+    const workspace = path.join(parent, name);
+    const running = readEvents((seen) => seen.some((entry) => entry.event === 'session' && entry.data.view.phase === 'running'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await post('/api/sessions', { path: workspace, create: true });
+    const seen = await running;
+    const view = seen.find((entry) => entry.event === 'session' && entry.data.view.phase === 'running')!.data.view;
+    const id = decodeURIComponent(/^\/p\/([^/]+)\/$/.exec(view.url)![1]);
+    return { workspace, id };
+  }
+
+  it('sends a project\'s tab to /p/<id>/, and forwards the page and its calls to the engine on loopback', async () => {
+    const { workspace, id } = await openProject(path.join(root, 'projects'), 'bracket');
+    expect(id).toMatch(/^bracket-[0-9a-f]{8}$/);
+    const page = await api(`/p/${id}/`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('engine page for bracket');
+    // The engine sees its own loopback address, and never the session cookie.
+    const echo = await (await post(`/p/${id}/api/echo?x=1`, { hello: 'engine' })).json();
+    expect(echo).toEqual({ method: 'POST', url: '/api/echo?x=1', host: expect.stringMatching(/^127\.0\.0\.1:\d+$/), cookie: null, body: '{"hello":"engine"}' });
+    // Without its slash the page's relative links would leave the prefix.
+    const bare = await api(`/p/${id}?file=a`, { redirect: 'manual' });
+    expect(bare.status).toBe(302);
+    expect(bare.headers.get('location')).toBe(`/p/${id}/?file=a`);
+    // The engine's environment does not expose it, whatever the launcher's says.
+    expect(fs.readFileSync(path.join(workspace, '.engine-host'), 'utf8')).toBe('');
+  });
+
+  it('refuses what the start server refuses: no cookie, or a change from another site', async () => {
+    const { id } = await openProject(path.join(root, 'projects'), 'bracket');
+    const base = server.url.replace(/\/$/, '');
+    const noCookie = await fetch(`${base}/p/${id}/api/echo`);
+    expect(noCookie.status).toBe(401);
+    const navigation = await fetch(`${base}/p/${id}/`, { redirect: 'manual', headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } });
+    expect(navigation.status).toBe(302);
+    expect(navigation.headers.get('location')).toBe('/');
+    const crossSite = await api(`/p/${id}/api/echo`, { method: 'POST', body: '{}', headers: { 'sec-fetch-site': 'cross-site' } });
+    expect(crossSite.status).toBe(403);
+    const otherOrigin = await api(`/p/${id}/api/echo`, { method: 'POST', body: '{}', headers: { 'sec-fetch-site': '', origin: 'http://evil.localhost:1' } });
+    expect(otherOrigin.status).toBe(403);
+    // A read from anywhere with the cookie is fine, as an <img> or a script tag would be.
+    expect((await api(`/p/${id}/api/files/tree`, { headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(200);
+  });
+
+  it('sends a tab whose project is not running back to the start page for it, and answers a call with 503', async () => {
+    const { workspace, id } = await openProject(path.join(root, 'projects'), 'bracket');
+    expect(await (await post('/api/start/close', { path: workspace })).json()).toEqual({ ok: true });
+    const call = await api(`/p/${id}/api/files/tree`);
+    expect(call.status).toBe(503);
+    const navigation = await api(`/p/${id}/`, { redirect: 'manual', headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } });
+    expect(navigation.status).toBe(302);
+    expect(navigation.headers.get('location')).toBe(`/?${new URLSearchParams({ project: workspace })}`);
+    const unknown = await api('/p/nobody/', { redirect: 'manual', headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } });
+    expect(unknown.status).toBe(503);
+  });
+
+  it('carries the WebSocket both ways, behind the same checks', async () => {
+    const { id } = await openProject(path.join(root, 'projects'), 'bracket');
+    const wsUrl = `${server.url.replace(/^http/, 'ws').replace(/\/$/, '')}/p/${id}/`;
+    const origin = server.url.replace(/\/$/, '');
+    const echoed = await new Promise<string>((resolve, reject) => {
+      const socket = new WebSocket(wsUrl, { headers: { cookie, origin } });
+      socket.on('open', () => socket.send('ping'));
+      socket.on('message', (data) => {
+        resolve(String(data));
+        socket.close();
+      });
+      socket.on('error', reject);
+    });
+    expect(echoed).toMatch(/^echo:ping host=127\.0\.0\.1:\d+$/);
+    const refused = await new Promise<number>((resolve) => {
+      const socket = new WebSocket(wsUrl, { headers: { origin } });
+      socket.on('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0));
+      socket.on('error', () => undefined);
+    });
+    expect(refused).toBe(401);
+    const foreign = await new Promise<number>((resolve) => {
+      const socket = new WebSocket(wsUrl, { headers: { cookie, origin: 'http://evil.localhost:1' } });
+      socket.on('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0));
+      socket.on('error', () => undefined);
+    });
+    expect(foreign).toBe(401);
+  });
+
+  it('uses the project\'s name alone in a projects folder', async () => {
+    await server.close();
+    const projectsDir = path.join(root, 'cad');
+    fs.mkdirSync(projectsDir, { recursive: true });
+    server = await startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, projectsRoot: projectsDir });
+    const login = await fetch(server.loginUrl, { redirect: 'manual' });
+    cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const { id } = await openProject(projectsDir, 'bracket');
+    expect(id).toBe('bracket');
+    expect((await api('/p/bracket/api/files/tree')).status).toBe(200);
+  });
+});
+
+describe('bound for other machines', () => {
+  async function restartExposed(publicUrl?: string): Promise<string> {
+    await server.close();
+    server = await startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, host: '0.0.0.0', publicUrl });
+    const base = `http://127.0.0.1:${server.port}`;
+    const login = await fetch(`${base}/?token=${server.loginUrl.split('token=')[1]}`, { redirect: 'manual' });
+    cookie = login.headers.get('set-cookie')!.split(';')[0];
+    return base;
+  }
+
+  it('answers to any Host, names the machine in its link, and keeps the cookie plain over http', async () => {
+    const base = await restartExposed();
+    expect(server.exposed).toBe(true);
+    expect(server.url).toBe(`http://${os.hostname()}:${server.port}/`);
+    const health = await fetch(`${base}/api/launcher/health`, { headers: { host: 'cad.example.com' } });
+    expect(health.status).toBe(200);
+    const login = await fetch(`${base}/?token=${server.loginUrl.split('token=')[1]}`, { redirect: 'manual', headers: { host: 'cad.example.com' } });
+    expect(login.status).toBe(302);
+    expect(login.headers.get('set-cookie')).not.toContain('Secure');
+    // The cookie still decides: a page under another name has none for this one.
+    const rebound = await fetch(`${base}/api/start/projects`, { headers: { host: 'evil.example.com', 'sec-fetch-site': 'same-origin' } });
+    expect(rebound.status).toBe(401);
+  });
+
+  it('behind an https proxy, takes that origin as its own and makes the cookie Secure', async () => {
+    const base = await restartExposed('https://cad.example.com');
+    expect(server.url).toBe('https://cad.example.com/');
+    expect(server.loginUrl.startsWith('https://cad.example.com/?token=')).toBe(true);
+    const login = await fetch(`${base}/?token=${server.loginUrl.split('token=')[1]}`, { redirect: 'manual' });
+    expect(login.headers.get('set-cookie')).toContain('; Secure');
+    const fromProxy = await fetch(`${base}/api/start/hello`, {
+      method: 'POST',
+      body: '{"protocol":3}',
+      headers: { cookie, 'content-type': 'application/json', 'x-fluidcad-launcher': '1', host: 'cad.example.com', origin: 'https://cad.example.com', 'sec-fetch-site': 'same-origin' },
+    });
+    expect(fromProxy.status).toBe(200);
+    const elsewhere = await fetch(`${base}/api/start/hello`, {
+      method: 'POST',
+      body: '{"protocol":3}',
+      headers: { cookie, 'content-type': 'application/json', 'x-fluidcad-launcher': '1', host: 'cad.example.com', origin: 'https://other.example.com', 'sec-fetch-site': 'same-origin' },
+    });
+    expect(elsewhere.status).toBe(403);
+    await expect(
+      startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, publicUrl: 'https://cad.example.com/cad' }),
+    ).rejects.toThrow('origin only');
   });
 });

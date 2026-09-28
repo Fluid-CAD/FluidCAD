@@ -50,7 +50,7 @@ function route(handler: (request: Request, response: Response) => unknown) {
 /** The root's listing, as the picker's only folder: nothing above it, nowhere else to start. */
 function listRoot(root: ProjectsRoot): FolderListing {
   const listing = listFolder(root.path);
-  return { ...listing, parent: null, home: root.path, roots: [root.path] };
+  return { ...listing, parent: null, roots: [root.path] };
 }
 
 export function createApiRouter(deps: ApiDeps): Router {

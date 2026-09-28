@@ -110,13 +110,13 @@ describe('contract guards', () => {
     expect(checkWindowState(creating)).toEqual(creating);
   });
 
-  it("checks npx fluidcad's sessions, and sends a tab only to a localhost engine", () => {
+  it("checks npx fluidcad's sessions, and sends a tab only to a project page on the start server", () => {
     const project = { path: '/home/you/cad/bracket', name: 'bracket' };
-    const running = { phase: 'running', project, url: 'http://localhost:3101', version: '0.0.46', source: 'builtin' };
+    const running = { phase: 'running', project, url: '/p/bracket/', version: '0.0.46', source: 'builtin' };
     expect(checkSessionView(running)).toEqual(running);
     expect(checkSessionView({ phase: 'closed', project })).toEqual({ phase: 'closed', project });
     expect(checkSessionEvent({ path: project.path, view: running }).view).toEqual(running);
-    for (const url of ['https://evil.example/', 'http://evil.example:3101', 'javascript:alert(1)', 'http://localhost:3101/../x']) {
+    for (const url of ['https://evil.example/', 'http://localhost:3101', '//evil.example/p/x/', 'javascript:alert(1)', '/p/x/../y/', '/p/x', '/p//', '/q/x/']) {
       expect(contractError(() => checkSessionView({ ...running, url })).where, url).toBe('session.url');
     }
     expect(contractError(() => checkSessionView({ phase: 'project', project })).where).toBe('session.phase');

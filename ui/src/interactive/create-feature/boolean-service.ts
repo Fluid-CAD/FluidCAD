@@ -13,6 +13,7 @@ import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** What the seeding hook hands over when the dialog arms. */
 export type BooleanEnterSeed = {
@@ -86,7 +87,7 @@ export class BooleanFeatureService {
     // the exclusive sketch toolbar owns the bar.
     const group = navbar.addGroup('boolean', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/fuse.png',
+      icon: iconUrl('fuse'),
       label: 'Boolean',
       tip: 'Boolean operations',
       ariaLabel: 'Combine solids — fuse, subtract or common',

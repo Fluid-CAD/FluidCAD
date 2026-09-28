@@ -20,7 +20,7 @@ export type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy'
  * The in-sketch copy dialog on the 2D op rails: armed from the sketch
  * toolbar, it reads the hover handler's selected edges — any pick stands for
  * its whole producing primitive — previews the synthesized statement through
- * `/api/apply-feature` (sketch branch), and applies it, writing
+ * `api/apply-feature` (sketch branch), and applies it, writing
  * `copy('linear', xAxis(), { count: 3, offset: 20 }, r)` /
  * `copy('circular', [0, 0], { count: 6, angle: 360 }, c)` into the sketch
  * body. Exactly one panel slot is armed at a time and the picks land in it:

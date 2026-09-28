@@ -1,6 +1,7 @@
 import { FeaturePanel } from './feature-panel';
 import { EntitySlotControl } from './entity-slot';
 import { ConnectorRotateAxis } from '../../api';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type ConnectorValues =
@@ -51,7 +52,7 @@ export class ConnectorPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-connector-panel',
       title: 'Connector',
-      icon: '/icons/mate-connector.png',
+      icon: iconUrl('mate-connector'),
       bodyHtml: `
         <div data-role="source-slot"></div>
         <label class="flex flex-col gap-1.5"

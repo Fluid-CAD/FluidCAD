@@ -6,6 +6,7 @@ import { ExpressionField, collectNewVariables } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { formatSkipEntries, parseSkipEntries, skipRangeError, SKIP_HELP_HTML } from './create-feature/copy-skip';
 import { HelpPopover, helpIconHtml } from '../ui/help-popover';
+import { iconUrl } from '../ui/icon-url';
 
 export type SketchCopyType = 'linear' | 'circular';
 
@@ -111,7 +112,7 @@ export class SketchCopyPanel extends FeaturePanel {
       id: 'fluidcad-sketch-copy-panel',
       escape: 'inside',
       title: 'Copy',
-      icon: '/icons/copy-linear2d.png',
+      icon: iconUrl('copy-linear2d'),
       exitLabel: 'Cancel',
       bodyHtml: `
         <label class="flex flex-col gap-1.5">

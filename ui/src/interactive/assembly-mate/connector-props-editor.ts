@@ -7,6 +7,7 @@ import {
 import type { Viewer } from '../../viewer';
 import { connectorLabel } from '../../types';
 import type { ConnectorSlotState } from './mate-service';
+import { iconUrl } from '../../ui/icon-url';
 
 const NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -40,7 +41,7 @@ class ConnectorPropsPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-connector-props-panel',
       title: 'Connector',
-      icon: '/icons/mate-connector.png',
+      icon: iconUrl('mate-connector'),
       bodyHtml: `
         <p data-role="copy-note" class="hidden text-xs text-base-content/60"></p>
         <label class="flex flex-col gap-1.5"
@@ -186,7 +187,7 @@ class ConnectorPropsPanel extends FeaturePanel {
 /**
  * Orchestrates the pen-button flow: fetch the statement's properties, seed
  * the panel beside the mate dialog, and apply the rewrite through
- * `/api/part-connector-props`. One instance serves both mate slots; opening
+ * `api/part-connector-props`. One instance serves both mate slots; opening
  * for another connector re-seeds in place.
  */
 export class ConnectorPropsEditor {

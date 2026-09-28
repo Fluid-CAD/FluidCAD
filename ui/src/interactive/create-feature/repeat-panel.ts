@@ -7,6 +7,7 @@ import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
@@ -113,7 +114,7 @@ export class RepeatPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-repeat-panel',
       title: 'Repeat',
-      icon: '/icons/repeat-linear.png',
+      icon: iconUrl('repeat-linear'),
       bodyHtml: `
         <label class="flex flex-col gap-1.5">
           <span class="text-base-content/70">Type</span>

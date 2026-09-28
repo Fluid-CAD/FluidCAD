@@ -1,4 +1,5 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { iconUrl } from '../../ui/icon-url';
 
 export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell' | 'offset';
 
@@ -67,5 +68,5 @@ export const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
  * smaller default that sits proportionally beside its `text-sm` heading.
  */
 export function featureIconImg(kind: ModifyFeatureKind, sizeClass = 'w-4 h-4'): string {
-  return `<img src="/icons/${kind}.png" ${ICON_IMG_FALLBACK} class="${sizeClass} object-contain" alt="" />`;
+  return `<img src="${iconUrl(kind)}" ${ICON_IMG_FALLBACK} class="${sizeClass} object-contain" alt="" />`;
 }

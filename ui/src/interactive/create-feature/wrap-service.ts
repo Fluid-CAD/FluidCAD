@@ -17,6 +17,7 @@ import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type WrapApplyRequest = Parameters<typeof applyWrap>[0];
 
@@ -70,7 +71,7 @@ export class WrapFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/wrap.png',
+      icon: iconUrl('wrap'),
       label: 'Wrap',
       tip: 'Wrap a sketch onto a curved face',
       ariaLabel: 'Wrap a sketch onto a curved face',

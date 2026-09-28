@@ -29,7 +29,7 @@ const PREVIEW_DEBOUNCE_MS = 200;
  * arming it turns viewport clicks into whole-geometry picks (text lays its
  * glyphs along ALL edges of the picked curve), the anchor and its outline
  * preview stand down (the path owns placement; the layout needs the path's
- * geometry), and Apply goes through `/api/apply-feature` — the server binds
+ * geometry), and Apply goes through `api/apply-feature` — the server binds
  * the picked statement to a variable and writes `text("Hi", c)`.
  */
 export class TextTool extends SketchTool {

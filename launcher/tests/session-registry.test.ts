@@ -57,6 +57,7 @@ beforeEach(() => {
   changes = 0;
   recentsAtChange = [];
   registry = new SessionRegistry({
+    idFor: (workspacePath) => path.basename(workspacePath),
     onView: (workspacePath, view) => views.push({ path: workspacePath, view }),
     changed: () => {
       changes += 1;
@@ -88,7 +89,12 @@ describe('SessionRegistry', () => {
 
     const view = await running(workspace);
     expect(view).toMatchObject({ project: { name: 'bracket' }, version: '0.0.50', source: 'builtin' });
-    expect(view.url).toMatch(/^http:\/\/localhost:\d+$/);
+    // The tab goes through the proxy, never to the engine's loopback address.
+    expect(view.url).toBe('/p/bracket/');
+    expect(registry.engineTarget('bracket')).toEqual({ port: expect.any(Number) });
+    expect(registry.startPageFor('bracket')).toBe(`/?${new URLSearchParams({ project: workspace })}`);
+    expect(registry.engineTarget('nope')).toBeNull();
+    expect(registry.startPageFor('nope')).toBeNull();
     expect(JSON.parse(fs.readFileSync(path.join(workspace, 'fluidcad.json'), 'utf8')).engine).toBe('0.0.50');
     expect(views.map((entry) => entry.view.phase === 'opening' && entry.view.status.step)).toEqual(
       expect.arrayContaining(['creating', 'resolving', 'starting']),

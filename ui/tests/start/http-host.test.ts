@@ -63,23 +63,23 @@ function fakeEnvironment(search = '', replies: Record<string, Reply> = {}) {
 describe('HttpStartHost on the start screen', () => {
   it('is home, and asks the start server for everything with its header', async () => {
     const { env, calls } = fakeEnvironment('', {
-      'GET /api/start/projects': { body: { projects: [] } },
-      'POST /api/start/hello': { body: { ok: true, appVersion: '0.0.46', platform: 'linux', home: '/home/you', projectsRoot: null } },
+      'GET api/start/projects': { body: { projects: [] } },
+      'POST api/start/hello': { body: { ok: true, appVersion: '0.0.46', platform: 'linux', home: '/home/you', projectsRoot: null } },
     });
     const host = new HttpStartHost(env);
     expect(await host.windowState()).toEqual({ phase: 'home' });
     expect(await host.hello(2)).toMatchObject({ ok: true, appVersion: '0.0.46' });
     expect(await host.list()).toEqual({ projects: [] });
-    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(['POST /api/start/hello', 'GET /api/start/projects']);
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(['POST api/start/hello', 'GET api/start/projects']);
     expect(calls[0].body).toEqual({ protocol: 2 });
     expect(calls.every((call) => call.headers['x-fluidcad-launcher'] === '1')).toBe(true);
   });
 
   it('checks every reply, and puts refusals and a vanished server into words', async () => {
     const { env } = fakeEnvironment('', {
-      'GET /api/start/projects': { body: { projects: 'nope' } },
-      'POST /api/start/forget': { status: 400, body: { error: 'Expected a project path as a non-empty string.' } },
-      'GET /api/start/feed': new TypeError('fetch failed'),
+      'GET api/start/projects': { body: { projects: 'nope' } },
+      'POST api/start/forget': { status: 400, body: { error: 'Expected a project path as a non-empty string.' } },
+      'GET api/start/feed': new TypeError('fetch failed'),
     });
     const host = new HttpStartHost(env);
     await expect(host.list()).rejects.toBeInstanceOf(ContractError);
@@ -89,7 +89,7 @@ describe('HttpStartHost on the start screen', () => {
 
   it('opens a project that is not open in its tab, and brings an open one forward, starting it again if it stopped', async () => {
     const { env, calls, tabs } = fakeEnvironment('', {
-      'GET /api/start/projects': {
+      'GET api/start/projects': {
         body: {
           projects: [
             { path: BRACKET, name: 'bracket', engine: null, engineSource: null, latest: false, upgradeTo: null, lastOpenedAt: '', open: true, thumbnail: null },
@@ -105,7 +105,7 @@ describe('HttpStartHost on the start screen', () => {
     await host.list();
     await host.open(BRACKET);
     expect(tabs.show).toHaveBeenLastCalledWith(BRACKET, { running: true });
-    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: '/api/sessions', body: { path: BRACKET } });
+    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: 'api/sessions', body: { path: BRACKET } });
   });
 
   it('says so when the browser blocks the tab', async () => {
@@ -117,15 +117,15 @@ describe('HttpStartHost on the start screen', () => {
 
   it("closes a project's tab once the project is closed, and sends it to reopen after a pin change", async () => {
     const { env, tabs } = fakeEnvironment('', {
-      'POST /api/start/close': { body: { ok: false, error: 'bracket has unsaved changes.' } },
-      'GET /api/start/projects': {
+      'POST api/start/close': { body: { ok: false, error: 'bracket has unsaved changes.' } },
+      'GET api/start/projects': {
         body: {
           projects: [
             { path: BRACKET, name: 'bracket', engine: '0.0.45', engineSource: 'pin', latest: true, upgradeTo: null, lastOpenedAt: '', open: true, thumbnail: null },
           ],
         },
       },
-      'POST /api/start/apply-pin': { body: { ok: true } },
+      'POST api/start/apply-pin': { body: { ok: true } },
     });
     const host = new HttpStartHost(env);
     expect(await host.close(BRACKET)).toEqual({ ok: false, error: 'bracket has unsaved changes.' });
@@ -140,14 +140,14 @@ describe('HttpStartHost on the start screen', () => {
     const { env, calls, visible } = fakeEnvironment();
     new HttpStartHost(env);
     visible.forEach((handler) => handler());
-    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: '/api/start/refresh-previews' });
+    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: 'api/start/refresh-previews' });
   });
 
   it("browses folders and checks names through the start server, and opens a new project's tab to set it up", async () => {
     const listing = { path: '/home/you/cad', project: false, parent: '/home/you', home: '/home/you', roots: ['/'], entries: [] };
     const { env, calls, tabs } = fakeEnvironment('', {
-      'GET /api/folders': { body: listing },
-      'POST /api/folders/check': { body: { path: `${BRACKET}`, state: 'missing' } },
+      'GET api/folders': { body: listing },
+      'POST api/folders/check': { body: { path: `${BRACKET}`, state: 'missing' } },
     });
     const host = new HttpStartHost(env);
     if (host.dialogs.kind !== 'page') {
@@ -155,7 +155,7 @@ describe('HttpStartHost on the start screen', () => {
     }
     expect(await host.dialogs.browse(null)).toEqual(listing);
     expect(await host.dialogs.browse('/home/you/cad')).toEqual(listing);
-    expect(calls.map((call) => call.url)).toEqual(['/api/folders', '/api/folders?path=%2Fhome%2Fyou%2Fcad']);
+    expect(calls.map((call) => call.url)).toEqual(['api/folders', 'api/folders?path=%2Fhome%2Fyou%2Fcad']);
     expect(await host.dialogs.check('/home/you/cad', 'bracket')).toEqual({ path: BRACKET, state: 'missing' });
     expect(calls.at(-1)!.body).toEqual({ parent: '/home/you/cad', name: 'bracket' });
     await host.dialogs.create(BRACKET);
@@ -177,7 +177,7 @@ describe("HttpStartHost in a project's tab", () => {
 
   it('listens first, then opens the project, and draws its progress', async () => {
     const opening = { phase: 'opening', project, status: { step: 'creating' } };
-    const { env, calls, emit } = fakeEnvironment(search, { 'POST /api/sessions': { body: opening } });
+    const { env, calls, emit } = fakeEnvironment(search, { 'POST api/sessions': { body: opening } });
     const host = new HttpStartHost(env);
     const states: WindowState[] = [];
     host.onWindowState((state) => states.push(state));
@@ -187,7 +187,7 @@ describe("HttpStartHost in a project's tab", () => {
     expect(calls).toHaveLength(0);
     emit('open');
     expect(await answer).toEqual({ phase: 'opening', project, status: { step: 'creating' } });
-    expect(calls[0]).toMatchObject({ method: 'POST', url: '/api/sessions', body: { path: BRACKET, create: true } });
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'api/sessions', body: { path: BRACKET, create: true } });
 
     emit('session', { path: '/home/you/cad/lantern', view: { phase: 'failed', project: { path: '/home/you/cad/lantern', name: 'lantern' }, message: 'x' } });
     emit('session', { path: BRACKET, view: { phase: 'opening', project, status: { step: 'resolving' } } });
@@ -195,20 +195,20 @@ describe("HttpStartHost in a project's tab", () => {
   });
 
   it("goes to the engine's page once the project runs, and only once", async () => {
-    const running = { phase: 'running', project, url: 'http://localhost:3101', version: '0.0.46', source: 'builtin' };
-    const { env, emit } = fakeEnvironment(search, { 'POST /api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
+    const running = { phase: 'running', project, url: '/p/bracket/', version: '0.0.46', source: 'builtin' };
+    const { env, emit } = fakeEnvironment(search, { 'POST api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
     const host = new HttpStartHost(env);
     emit('open');
     await host.windowState();
     emit('session', { path: BRACKET, view: running });
     emit('session', { path: BRACKET, view: running });
     expect(env.navigate).toHaveBeenCalledTimes(1);
-    expect(env.navigate).toHaveBeenCalledWith('http://localhost:3101');
+    expect(env.navigate).toHaveBeenCalledWith('/p/bracket/');
   });
 
   it("refuses to send the tab anywhere but a localhost engine", async () => {
     const { env, emit } = fakeEnvironment(search, {
-      'POST /api/sessions': { body: { phase: 'running', project, url: 'https://evil.example/', version: '0.0.46', source: 'builtin' } },
+      'POST api/sessions': { body: { phase: 'running', project, url: 'https://evil.example/', version: '0.0.46', source: 'builtin' } },
     });
     const host = new HttpStartHost(env);
     emit('open');
@@ -217,19 +217,19 @@ describe("HttpStartHost in a project's tab", () => {
   });
 
   it('closes itself on cancel, or shows the start screen when the browser keeps it open', async () => {
-    const { env, calls, emit, runTimers } = fakeEnvironment(search, { 'POST /api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
+    const { env, calls, emit, runTimers } = fakeEnvironment(search, { 'POST api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
     const host = new HttpStartHost(env);
     emit('open');
     await host.windowState();
     await host.cancelOpen();
-    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: '/api/sessions/cancel', body: { path: BRACKET } });
+    expect(calls.at(-1)).toMatchObject({ method: 'POST', url: 'api/sessions/cancel', body: { path: BRACKET } });
     expect(env.closeTab).toHaveBeenCalled();
     runTimers();
     expect(env.navigate).toHaveBeenCalledWith('/');
   });
 
   it('leaves when its project is closed from elsewhere', async () => {
-    const { env, emit } = fakeEnvironment(search, { 'POST /api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
+    const { env, emit } = fakeEnvironment(search, { 'POST api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } } });
     const host = new HttpStartHost(env);
     emit('open');
     await host.windowState();
@@ -239,15 +239,15 @@ describe("HttpStartHost in a project's tab", () => {
 
   it('asks where its project is now and then, in case an event went missing', async () => {
     const { env, calls, emit, runTimers } = fakeEnvironment(search, {
-      'POST /api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } },
-      'GET /api/sessions': { body: { phase: 'running', project, url: 'http://localhost:3101', version: '0.0.46', source: 'cache' } },
+      'POST api/sessions': { body: { phase: 'opening', project, status: { step: 'resolving' } } },
+      'GET api/sessions': { body: { phase: 'running', project, url: '/p/bracket/', version: '0.0.46', source: 'cache' } },
     });
     const host = new HttpStartHost(env);
     emit('open');
     await host.windowState();
     runTimers();
-    await vi.waitFor(() => expect(env.navigate).toHaveBeenCalledWith('http://localhost:3101'));
-    expect(calls.at(-1)).toMatchObject({ method: 'GET', url: `/api/sessions?path=${encodeURIComponent(BRACKET)}` });
+    await vi.waitFor(() => expect(env.navigate).toHaveBeenCalledWith('/p/bracket/'));
+    expect(calls.at(-1)).toMatchObject({ method: 'GET', url: `api/sessions?path=${encodeURIComponent(BRACKET)}` });
   });
 
   it('does not ask for previews: its page is about to be the project', () => {

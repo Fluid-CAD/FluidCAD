@@ -19,6 +19,7 @@ import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Rib dialog on the create rails: extrude a wall from an open sketch
@@ -84,7 +85,7 @@ export class RibFeatureService {
     // Extrude in main.ts, so the group exists and the button lands beside it.
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/rib.png',
+      icon: iconUrl('rib'),
       label: 'Rib',
       tip: 'Rib from a sketch spine',
       ariaLabel: 'Rib from a sketch spine',

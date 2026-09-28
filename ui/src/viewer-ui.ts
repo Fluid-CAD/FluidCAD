@@ -7,6 +7,10 @@
  * with an HttpEngineClient.
  */
 import './styles.css';
+import { setIconBase } from './ui/icon-url';
+
+// Embedded anywhere on a docs page, which serves the icons at its root.
+setIconBase('/icons/');
 
 export { Viewer } from './viewer';
 export type { FitPolicy, SelectedEntity } from './viewer';

@@ -5,6 +5,7 @@ import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type LoftValues =
@@ -134,7 +135,7 @@ export class LoftPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-loft-panel',
       title: 'Loft',
-      icon: '/icons/loft.png',
+      icon: iconUrl('loft'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profiles-slot"></div>

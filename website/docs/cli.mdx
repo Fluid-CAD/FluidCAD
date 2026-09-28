@@ -71,10 +71,18 @@ one in a new tab instead of starting a second.
 | `-p, --port <port>` | Port for the start screen — if it's taken, the first free port above it is used | `3100` |
 | `--no-open` | Don't launch a browser, only print the start screen's link | _opens by default_ |
 | `--projects <dir>` | Keep every project in this folder (see below) | _projects live anywhere_ |
+| `--host <address>` | The address to listen on; `0.0.0.0` lets other machines reach FluidCAD (see below) | `127.0.0.1` |
+| `--public-url <url>` | The origin browsers reach FluidCAD at behind a reverse proxy, such as `https://cad.example.com` | _none_ |
 
 The link it prints carries a key for the session, so that no other page or user
 on your machine can drive FluidCAD through it. Open it yourself when the
 browser does not open on its own (over SSH, say), and don't share it.
+
+Every project's page is served by the start server itself, at `/p/<name>/`,
+which stands in for the project's engine: the engine runs on this machine's
+loopback address only, and the start server forwards its page, its calls and
+its live connection to it. That is what lets a browser on another machine work
+on a project, below.
 
 ### A projects folder
 
@@ -90,6 +98,44 @@ screen, and nothing outside the folder can be opened: the start server refuses
 any path that is not a project in it, which is what makes the folder the
 boundary when the start screen is reached from another machine. The folder has
 to exist.
+
+### Reaching FluidCAD from other machines
+
+```bash
+npx fluidcad --projects /srv/cad --host 0.0.0.0 --no-open
+```
+
+`--host 0.0.0.0` binds the start screen to every address of the machine, so a
+browser on another machine (or in a container's network) can open it, and open
+projects in it: each project's page goes through the start server, at
+`/p/<name>/`, and the engines themselves stay on loopback where nothing else
+can reach them. Pair it with `--projects`, so that the machine's other folders
+stay out of reach.
+
+What keeps it yours:
+
+- The link `npx fluidcad` prints carries the session's key. Anyone who has it
+  can use FluidCAD as you, and can read and change every project it opens, so
+  keep it private. Without it a browser gets a page saying where the link is.
+- The key becomes an `HttpOnly`, `SameSite=Strict` cookie, and every call
+  that changes something has to come from FluidCAD's own pages.
+- Nothing is encrypted by FluidCAD itself. Before leaving a private network,
+  put an HTTPS reverse proxy in front of it (Caddy, nginx, Tailscale Serve,
+  Cloudflare Tunnel), forwarding WebSocket upgrades too, and tell FluidCAD the
+  origin it is reached at:
+
+```bash
+npx fluidcad --projects /srv/cad --host 127.0.0.1 --public-url https://cad.example.com --no-open
+```
+
+With `--public-url`, the link it prints uses that origin, calls from pages at
+that origin are accepted, and, when it is `https://`, the session cookie is
+marked `Secure` so it is never sent in the clear. Bound to `127.0.0.1` behind
+the proxy on the same machine, the start server is not reachable any other
+way.
+
+One start server is one session, for one person or a group who share the
+link. It has no accounts of its own.
 
 ---
 

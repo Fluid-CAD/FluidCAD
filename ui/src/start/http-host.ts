@@ -37,7 +37,7 @@ import { ProjectTabs, projectOfTab } from './project-tabs';
  *
  * Every reply goes through the same runtime guards as the desktop bridge's.
  * Pushes (the recents changed, a comparison's progress, a session moved on)
- * arrive as Server-Sent Events on `/api/events`.
+ * arrive as Server-Sent Events on `api/events`.
  */
 
 /** The header the start server wants on every call that changes something (`launcher/src/server/auth.ts`). */
@@ -106,7 +106,7 @@ export class HttpStartHost implements StartScreenHost {
 
   constructor(private readonly env: HttpHostEnvironment = browserEnvironment()) {
     this.tabProject = projectOfTab(env.search);
-    this.events = env.openEvents('/api/events');
+    this.events = env.openEvents('api/events');
     this.eventsReady = new Promise((resolve) => {
       this.events.addEventListener('open', () => resolve(), { once: true });
       env.setTimer(resolve, EVENTS_READY_TIMEOUT_MS);
@@ -120,19 +120,19 @@ export class HttpStartHost implements StartScreenHost {
     this.dialogs = {
       kind: 'page',
       browse: async (path) =>
-        checkFolderListing(await this.request('GET', path === null ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`)),
-      check: async (parent, name) => checkFolderCheck(await this.request('POST', '/api/folders/check', { parent, name })),
+        checkFolderListing(await this.request('GET', path === null ? 'api/folders' : `api/folders?${new URLSearchParams({ path })}`)),
+      check: async (parent, name) => checkFolderCheck(await this.request('POST', 'api/folders/check', { parent, name })),
       create: async (path) => this.showTab(path, { running: false, create: true }),
     };
     if (!this.tabProject) {
       // A browser tab gives no notice before it closes, so the start screen
       // coming back into view is when running projects' previews are retaken.
-      env.onVisible(() => void this.request('POST', '/api/start/refresh-previews').catch(() => undefined));
+      env.onVisible(() => void this.request('POST', 'api/start/refresh-previews').catch(() => undefined));
     }
   }
 
   async hello(protocol: number) {
-    return checkHello(await this.request('POST', '/api/start/hello', { protocol }));
+    return checkHello(await this.request('POST', 'api/start/hello', { protocol }));
   }
 
   async windowState(): Promise<WindowState> {
@@ -142,7 +142,7 @@ export class HttpStartHost implements StartScreenHost {
     // Listening first: a project that is quick to open must not run before
     // this tab hears about it.
     await this.eventsReady;
-    const view = checkSessionView(await this.request('POST', '/api/sessions', this.tabProject));
+    const view = checkSessionView(await this.request('POST', 'api/sessions', this.tabProject));
     this.pollWhileOpening();
     return this.stateOf(view);
   }
@@ -155,33 +155,33 @@ export class HttpStartHost implements StartScreenHost {
     if (!this.tabProject) {
       return;
     }
-    await this.request('POST', '/api/sessions/cancel', { path: this.tabProject.path });
+    await this.request('POST', 'api/sessions/cancel', { path: this.tabProject.path });
     this.leave();
   }
 
   async retryOpen(): Promise<void> {
     if (this.tabProject) {
-      await this.request('POST', '/api/sessions/retry', { path: this.tabProject.path });
+      await this.request('POST', 'api/sessions/retry', { path: this.tabProject.path });
       this.pollWhileOpening();
     }
   }
 
   async appearance() {
-    return checkAppearance(await this.request('GET', '/api/start/appearance'));
+    return checkAppearance(await this.request('GET', 'api/start/appearance'));
   }
 
   async list() {
-    const list = checkProjectList(await this.request('GET', '/api/start/projects'));
+    const list = checkProjectList(await this.request('GET', 'api/start/projects'));
     this.openPaths = new Set(list.projects.filter((project: StartProject) => project.open).map((project) => project.path));
     return list;
   }
 
   async feed() {
-    return checkFeed(await this.request('GET', '/api/start/feed'));
+    return checkFeed(await this.request('GET', 'api/start/feed'));
   }
 
   async dismissNotification(id: string): Promise<void> {
-    await this.request('POST', '/api/start/dismiss-notification', { id });
+    await this.request('POST', 'api/start/dismiss-notification', { id });
   }
 
   /** Opens `path` in its own tab. Synchronous up to `window.open`: it runs inside the click. */
@@ -191,12 +191,12 @@ export class HttpStartHost implements StartScreenHost {
     if (running) {
       // Its tab may be showing an engine that has since stopped; this starts
       // it again, on the same port, where that tab reconnects by itself.
-      await this.request('POST', '/api/sessions', { path });
+      await this.request('POST', 'api/sessions', { path });
     }
   }
 
   async close(path: string) {
-    const result = checkActionResult(await this.request('POST', '/api/start/close', { path }));
+    const result = checkActionResult(await this.request('POST', 'api/start/close', { path }));
     if (result.ok) {
       this.env.tabs.close(path);
     }
@@ -204,7 +204,7 @@ export class HttpStartHost implements StartScreenHost {
   }
 
   async forget(path: string): Promise<void> {
-    await this.request('POST', '/api/start/forget', { path });
+    await this.request('POST', 'api/start/forget', { path });
   }
 
   async openLink(url: string): Promise<void> {
@@ -214,16 +214,16 @@ export class HttpStartHost implements StartScreenHost {
   }
 
   async engineOptions(path: string) {
-    return checkEngineOptions(await this.request('GET', `/api/start/engine-options?${new URLSearchParams({ path })}`));
+    return checkEngineOptions(await this.request('GET', `api/start/engine-options?${new URLSearchParams({ path })}`));
   }
 
   async previewUpgrade(path: string, version: string) {
-    return checkUpgradePreview(await this.request('POST', '/api/start/preview-upgrade', { path, version }));
+    return checkUpgradePreview(await this.request('POST', 'api/start/preview-upgrade', { path, version }));
   }
 
   async applyPin(path: string, version: string) {
     const wasOpen = this.openPaths.has(path);
-    const result = checkApplyPinResult(await this.request('POST', '/api/start/apply-pin', { path, version }));
+    const result = checkApplyPinResult(await this.request('POST', 'api/start/apply-pin', { path, version }));
     if (result.ok && wasOpen) {
       // Its engine stopped for the switch; its tab opens it again on the new one.
       this.env.tabs.reopen(path);
@@ -291,7 +291,7 @@ export class HttpStartHost implements StartScreenHost {
       try {
         if (!this.leaving) {
           const view = checkSessionView(
-            await this.request('GET', `/api/sessions?${new URLSearchParams({ path: project.path })}`),
+            await this.request('GET', `api/sessions?${new URLSearchParams({ path: project.path })}`),
           );
           this.show(view);
           again = view.phase === 'opening';

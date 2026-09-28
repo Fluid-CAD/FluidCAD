@@ -1,6 +1,7 @@
 import { FeaturePanel } from './create-feature/feature-panel';
 import { AxisSelection, AxisSlotControl } from './create-feature/axis-slot';
 import { PickSlot, PickSlotChip } from './pick-slot';
+import { iconUrl } from '../ui/icon-url';
 
 /** The slot picks land in — the one last clicked (the 2D copy's idiom). */
 export type SketchMirrorArmedSlot = 'targets' | 'axis';
@@ -49,7 +50,7 @@ export class SketchMirrorPanel extends FeaturePanel {
       id: 'fluidcad-sketch-mirror-panel',
       escape: 'inside',
       title: 'Mirror',
-      icon: '/icons/mirror2d.png',
+      icon: iconUrl('mirror2d'),
       exitLabel: 'Cancel',
       bodyHtml: `
         <div data-role="targets-slot"></div>

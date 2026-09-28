@@ -728,7 +728,7 @@ describe('connector copies', () => {
     await (service as any).apply();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toContain('/api/assembly-mate');
+    expect(url).toContain('api/assembly-mate');
     const body = JSON.parse(init.body as string);
     expect(body.filePath).toBe(ASSEMBLY_FILE);
     expect(body.create.connectorA).toEqual({ instanceLine: 4, connectorName: 'bolt', slot: 3 });

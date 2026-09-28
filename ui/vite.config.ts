@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   root: path.resolve(import.meta.dirname),
+  // Relative asset links: the built page is served at `/` by an engine and
+  // under `/p/<project>/` by the proxy in front of it (`npx fluidcad`).
+  base: './',
   plugins: [tailwindcss()],
   server: {
     port: 3200

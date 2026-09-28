@@ -285,17 +285,17 @@ async function getJson<T>(
 // ---------------------------------------------------------------------------
 
 export function insertPoint(point: [number, number], sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/insert-point', { point, sourceLocation });
+  postFireAndForget('api/insert-point', { point, sourceLocation });
 }
 
 /** Append `.guide()` to the statement at `sourceLocation` (Guide toggle). */
 export function addGuide(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-guide', { sourceLocation });
+  postFireAndForget('api/add-guide', { sourceLocation });
 }
 
 /** Strip the `.guide()` from the statement at `sourceLocation` (Guide toggle). */
 export function removeGuide(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-guide', { sourceLocation });
+  postFireAndForget('api/remove-guide', { sourceLocation });
 }
 
 export function insertGeometry(
@@ -311,7 +311,7 @@ export function insertGeometry(
   const normalized = Array.isArray(newVariable)
     ? (newVariable.length === 0 ? null : newVariable.length === 1 ? newVariable[0] : newVariable)
     : newVariable ?? null;
-  postFireAndForget('/api/insert-geometry', {
+  postFireAndForget('api/insert-geometry', {
     statement,
     sketchSourceLocation,
     newVariable: normalized,
@@ -378,7 +378,7 @@ export interface ShareFiles {
  * import, a file outside the workspace) — the share dialog shows it.
  */
 export async function getShareFiles(): Promise<ShareFiles> {
-  const res = await fetch('/api/share-files');
+  const res = await fetch('api/share-files');
   const body = (await res.json().catch(() => null)) as (ShareFiles & { error?: string }) | null;
   if (!res.ok || !body) {
     throw new Error(body?.error ?? `Share failed (${res.status})`);
@@ -388,12 +388,12 @@ export async function getShareFiles(): Promise<ShareFiles> {
 
 /** The version of the engine serving this page, or null when the server doesn't answer. */
 export async function getEngineVersion(): Promise<string | null> {
-  const data = await getJson<{ version?: string }>('/api/health');
+  const data = await getJson<{ version?: string }>('api/health');
   return typeof data?.version === 'string' ? data.version : null;
 }
 
 export async function getFontFamilies(): Promise<string[]> {
-  const data = await getJson<{ families: string[] }>('/api/fonts');
+  const data = await getJson<{ families: string[] }>('api/fonts');
   return data?.families ?? [];
 }
 
@@ -405,7 +405,7 @@ export async function getTextPreview(
   request: TextPreviewRequest,
   signal?: AbortSignal,
 ): Promise<{ polylines: number[][] } | null> {
-  return postJson('/api/text-preview', request, signal);
+  return postJson('api/text-preview', request, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,7 +1039,7 @@ export async function fetchFeatureGhostResult(
   signal: AbortSignal,
 ): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
   try {
-    const res = await fetch('/api/feature-ghost', {
+    const res = await fetch('api/feature-ghost', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
@@ -1085,7 +1085,7 @@ export async function fetchSketchRegions(
   signal: AbortSignal,
 ): Promise<SketchRegionEntry[] | null> {
   try {
-    const res = await fetch('/api/sketch-regions', {
+    const res = await fetch('api/sketch-regions', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
@@ -1137,7 +1137,7 @@ export async function updateSketchPositions(
   filePath?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/update-sketch-positions', {
+    const res = await fetch('api/update-sketch-positions', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ edits, filePath }),
@@ -1168,7 +1168,7 @@ export function updateDimensionExpression(
   dimensionOffset?: number,
   dimensionCall?: string | null,
 ): void {
-  postFireAndForget('/api/update-dimension-expression', {
+  postFireAndForget('api/update-dimension-expression', {
     expression,
     sourceLocation,
     sketchSourceLine,
@@ -1186,7 +1186,7 @@ export async function getPointExpression(
   sourceLine: number,
   pointIndex?: number,
 ): Promise<{ x: string; y: string } | null> {
-  const result = await postJson('/api/point-expression', {
+  const result = await postJson('api/point-expression', {
     sourceLine,
     pointIndex: pointIndex ?? 0,
   }) as { point: { x: string; y: string } | null };
@@ -1198,7 +1198,7 @@ export async function getDimensionExpression(
   dimensionOffset?: number,
   dimensionCall?: string | null,
 ): Promise<{ expression: string | null }> {
-  return (await postJson('/api/dimension-expression', {
+  return (await postJson('api/dimension-expression', {
     sourceLine,
     dimensionOffset: dimensionOffset ?? 0,
     dimensionCall: dimensionCall ?? null,
@@ -1224,7 +1224,7 @@ export async function getScopeVariables(
     ? (explicitPart ?? activePartProvider?.() ?? null)
     : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
-    '/api/scope-variables',
+    'api/scope-variables',
     scope === 'assembly' ? { sketchSourceLine, assembly: true } : part ? { sketchSourceLine, part } : { sketchSourceLine },
   );
   return data?.variables ?? [];
@@ -1235,7 +1235,7 @@ export function getFaceProperties(
   faceIndex: number,
   signal?: AbortSignal,
 ): Promise<FaceProperties | null> {
-  return getJson('/api/face-properties', { shapeId, faceIndex }, signal);
+  return getJson('api/face-properties', { shapeId, faceIndex }, signal);
 }
 
 export function getEdgeProperties(
@@ -1243,18 +1243,18 @@ export function getEdgeProperties(
   edgeIndex: number,
   signal?: AbortSignal,
 ): Promise<EdgeProperties | null> {
-  return getJson('/api/edge-properties', { shapeId, edgeIndex }, signal);
+  return getJson('api/edge-properties', { shapeId, edgeIndex }, signal);
 }
 
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
-  return getJson('/api/shape-properties', { shapeId });
+  return getJson('api/shape-properties', { shapeId });
 }
 
 export function measureEntities(
   entities: MeasureEntityRef[],
   signal?: AbortSignal,
 ): Promise<MeasureResult | null> {
-  return postJson('/api/measure', { entities }, signal);
+  return postJson('api/measure', { entities }, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,7 +1522,7 @@ export async function fetchConnectorAnchors(
   entity: ApplyFeatureEntity,
   signal?: AbortSignal,
 ): Promise<ConnectorAnchorsResult> {
-  const res = await fetch('/api/selection/connector-anchors', {
+  const res = await fetch('api/selection/connector-anchors', {
     method: 'POST',
     headers: JSON_HEADERS,
     signal,
@@ -1795,7 +1795,7 @@ export async function fetchSketchFeatureSources(
   expectedStatement?: string,
 ): Promise<{ ok: true; shapeIds: string[] } | { ok: false; reason: string }> {
   try {
-    const res = await fetch('/api/sketch/feature-sources', {
+    const res = await fetch('api/sketch/feature-sources', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ edit, expectedStatement }),
@@ -1920,7 +1920,7 @@ export async function applySketchConstraint(options: {
   newVariables?: { name: string; initializer: string }[];
 }): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/sketch/add-constraint', {
+    const res = await fetch('api/sketch/add-constraint', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -1946,7 +1946,7 @@ export async function setDistanceTangency(options: {
   tangency: 'min' | 'max';
 }): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/sketch/set-distance-tangency', {
+    const res = await fetch('api/sketch/set-distance-tangency', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -2036,7 +2036,7 @@ export async function insertSolvedGeometry(options: {
   sketchLine?: number;
 }> {
   try {
-    const res = await fetch('/api/sketch/insert-solved', {
+    const res = await fetch('api/sketch/insert-solved', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -2086,7 +2086,7 @@ export function splitSketchEntity(options: {
   /** The sketch's drifted literals, settled on their solved positions first. */
   settle?: SketchPositionEditParam[];
 }): Promise<SplitSketchEntityResult> {
-  return postSketchCut('/api/sketch/split', options);
+  return postSketchCut('api/sketch/split', options);
 }
 
 export type TrimSketchEntityResult = {
@@ -2123,7 +2123,7 @@ export function trimSketchEntity(options: {
   /** The sketch's drifted literals, settled on their solved positions first. */
   settle?: SketchPositionEditParam[];
 }): Promise<TrimSketchEntityResult> {
-  return postSketchCut('/api/sketch/trim', options);
+  return postSketchCut('api/sketch/trim', options);
 }
 
 /** A statement the delete took along, by its line in the source BEFORE the edit. */
@@ -2151,7 +2151,7 @@ export function deleteSketchEntities(options: {
   /** The sketch's drifted literals, settled on their solved positions first. */
   settle?: SketchPositionEditParam[];
 }): Promise<DeleteSketchEntitiesResult> {
-  return postSketchCut('/api/sketch/delete', options);
+  return postSketchCut('api/sketch/delete', options);
 }
 
 /** The Split/Trim round trip: the route's body, or a `reason` for a refusal or a failed request. */
@@ -2959,7 +2959,7 @@ export type FeatureSourcesResult =
 /** Current sources of the statement at `before`, for edit-dialog seeding. */
 export async function fetchFeatureSources(before: SelectionBoundaryRef): Promise<FeatureSourcesResult> {
   try {
-    const res = await fetch('/api/feature/sources', {
+    const res = await fetch('api/feature/sources', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ before }),
@@ -3346,7 +3346,7 @@ export type ParseFeatureResult =
  */
 export async function parseFeatureAt(target: { filePath: string; line: number }): Promise<ParseFeatureResult> {
   try {
-    const res = await fetch('/api/feature/parse', {
+    const res = await fetch('api/feature/parse', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath: target.filePath, line: target.line }),
@@ -4140,7 +4140,7 @@ export async function fetchSketchNames(
   callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' | 'repeat' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
-    const res = await fetch('/api/sketch-names', {
+    const res = await fetch('api/sketch-names', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ lines, callee }),
@@ -4178,7 +4178,7 @@ async function postApplyFeature(
   const activePart = payload.activePart === undefined ? activePartProvider?.() ?? null : null;
   const requestBody = activePart ? { ...payload, activePart } : payload;
   try {
-    const res = await fetch('/api/apply-feature', {
+    const res = await fetch('api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
@@ -4212,7 +4212,7 @@ export async function expandTangents(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-tangents', entity, before);
+  return selectionQuery('api/selection/expand-tangents', entity, before);
 }
 
 /** Expand a picked edge/face to its whole classified bucket. */
@@ -4220,7 +4220,7 @@ export async function expandBucket(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-bucket', entity, before);
+  return selectionQuery('api/selection/expand-bucket', entity, before);
 }
 
 /** Every multi-select group a pick can expand to (the right-click menu). */
@@ -4228,7 +4228,7 @@ export async function fetchSelectionGroups(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ groups: SelectionGroup[] } | { error: string }> {
-  return selectionQuery('/api/selection/groups', entity, before);
+  return selectionQuery('api/selection/groups', entity, before);
 }
 
 async function selectionQuery<T>(
@@ -4278,11 +4278,11 @@ export function explainSelection(
   signal?: AbortSignal,
   before?: SelectionBoundaryRef,
 ): Promise<{ picks: ExplainedPick[] } | null> {
-  return postJson('/api/selection/explain', { entities, before }, signal);
+  return postJson('api/selection/explain', { entities, before }, signal);
 }
 
 export function getMaterials(): Promise<Material[] | null> {
-  return getJson('/api/materials');
+  return getJson('api/materials');
 }
 
 // ---------------------------------------------------------------------------
@@ -4290,19 +4290,19 @@ export function getMaterials(): Promise<Material[] | null> {
 // ---------------------------------------------------------------------------
 
 export function recompute(): void {
-  postFireAndForget('/api/recompute');
+  postFireAndForget('api/recompute');
 }
 
 export function rollback(index: number, scope?: 'part'): void {
-  postFireAndForget('/api/rollback', scope ? { index, scope } : { index });
+  postFireAndForget('api/rollback', scope ? { index, scope } : { index });
 }
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-breakpoint', { sourceLocation });
+  postFireAndForget('api/add-breakpoint', { sourceLocation });
 }
 
 export function removeFeature(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-feature', { sourceLocation });
+  postFireAndForget('api/remove-feature', { sourceLocation });
 }
 
 export type RemoveFeatureDependent = { name: string; line: number };
@@ -4322,7 +4322,7 @@ export type RemoveFeatureResult = { success: boolean; reason?: string };
  */
 export async function previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview> {
   try {
-    const res = await fetch('/api/remove-feature', {
+    const res = await fetch('api/remove-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ sourceLocation, dryRun: true }),
@@ -4340,7 +4340,7 @@ export async function previewRemoveFeature(sourceLocation: SourceLocationParam):
 /** Remove the feature at `sourceLocation` together with everything that references it. */
 export async function removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult> {
   try {
-    const res = await fetch('/api/remove-feature', {
+    const res = await fetch('api/remove-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ sourceLocation, cascade: true }),
@@ -4357,7 +4357,7 @@ export async function removeFeatureCascade(sourceLocation: SourceLocationParam):
 
 /** Set (or, with null/empty, clear) the feature's chained `.name('…')`. */
 export function renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
-  postFireAndForget('/api/rename-feature', { sourceLocation, name });
+  postFireAndForget('api/rename-feature', { sourceLocation, name });
 }
 
 /**
@@ -4368,11 +4368,11 @@ export function renameFeature(sourceLocation: SourceLocationParam, name: string 
  * racing on the host's buffer.
  */
 export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boolean): Promise<SetUnitResult> {
-  return postAcked('/api/set-sketch-closed', { sourceLocation, closed });
+  return postAcked('api/set-sketch-closed', { sourceLocation, closed });
 }
 
 export function clearBreakpoints(): void {
-  postFireAndForget('/api/clear-breakpoints');
+  postFireAndForget('api/clear-breakpoints');
 }
 
 /**
@@ -4387,7 +4387,7 @@ export function gotoSource(
   sourceLocation: SourceLocationParam,
   opts: { revealEditor?: boolean } = {},
 ): void {
-  postFireAndForget('/api/code/goto-source', { ...sourceLocation, revealEditor: opts.revealEditor !== false });
+  postFireAndForget('api/code/goto-source', { ...sourceLocation, revealEditor: opts.revealEditor !== false });
 }
 
 // ---------------------------------------------------------------------------
@@ -4399,7 +4399,7 @@ export type EditorHistoryResult = { success: boolean; reason?: string };
 
 async function postEditorHistory(action: 'undo' | 'redo', filePath: string): Promise<EditorHistoryResult> {
   try {
-    const res = await fetch(`/api/editor/${action}`, {
+    const res = await fetch(`api/editor/${action}`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath }),
@@ -4448,12 +4448,12 @@ async function postAcked(url: string, body: unknown): Promise<SetUnitResult> {
  * means "dispatched"; the new unit shows up with the next scene-rendered.
  */
 export function setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult> {
-  return postAcked('/api/set-unit', { filePath, unit });
+  return postAcked('api/set-unit', { filePath, unit });
 }
 
 /** Write the project unit into `fluidcad.json` and recompute the current file. */
 export function setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
-  return postAcked('/api/project/unit', { unit });
+  return postAcked('api/project/unit', { unit });
 }
 
 // ---------------------------------------------------------------------------
@@ -4476,7 +4476,7 @@ export async function moveToPart(
   opts: { dryRun?: boolean } = {},
 ): Promise<MoveToPartResult> {
   try {
-    const res = await fetch('/api/move-to-part', {
+    const res = await fetch('api/move-to-part', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, lines, part, ...(opts.dryRun ? { dryRun: true } : {}) }),
@@ -4503,7 +4503,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
   // A failed import carries the engine's message in the error body; only a
   // request that never reached the server is a network error.
   try {
-    const res = await fetch('/api/import-file', {
+    const res = await fetch('api/import-file', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ fileName, data }),
@@ -4519,7 +4519,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
 }
 
 export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
-  const res = await fetch('/api/export', {
+  const res = await fetch('api/export', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify(body),
@@ -4538,7 +4538,7 @@ export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
  */
 export async function createNewPart(): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
+    const res = await fetch('api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
     const parsed = await res.json().catch(() => null);
     if (!res.ok) {
       return { success: false, reason: parsed?.reason ?? parsed?.error ?? `Request failed (${res.status})` };
@@ -4619,7 +4619,7 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
   if (target.filePath) {
     query.filePath = target.filePath;
   }
-  return getJson('/api/params/usage', query);
+  return getJson('api/params/usage', query);
 }
 
 /**
@@ -4634,7 +4634,7 @@ export function addParam(param: ParamSpec, part: SourceLocation | null, scope: '
   const body = scope === 'assembly' ? { param, assembly: true } : part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };
-  return postParamEdit('/api/params/add', body);
+  return postParamEdit('api/params/add', body);
 }
 
 /**
@@ -4642,12 +4642,12 @@ export function addParam(param: ParamSpec, part: SourceLocation | null, scope: '
  * the variable the model reads is never touched.
  */
 export function updateParam(target: ParamTarget, param: ParamSpec): Promise<ParamEditResponse> {
-  return postParamEdit('/api/params/update', { ...target, param });
+  return postParamEdit('api/params/update', { ...target, param });
 }
 
 /** Delete a parameter's declaration; references to its variable stay behind. */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
-  return postParamEdit('/api/params/remove', { ...target });
+  return postParamEdit('api/params/remove', { ...target });
 }
 
 // ---------------------------------------------------------------------------
@@ -4683,12 +4683,12 @@ export function getPropertyUsage(target: PropertyTarget): Promise<PropertyUsage 
   if (target.filePath) {
     query.filePath = target.filePath;
   }
-  return getJson('/api/properties/usage', query);
+  return getJson('api/properties/usage', query);
 }
 
 /** Declare a new property at the end of `part`'s callback body, in the file the part lives in. */
 export function addProperty(property: PropertySpec, part: SourceLocation): Promise<ParamEditResponse> {
-  return postParamEdit('/api/properties/add', {
+  return postParamEdit('api/properties/add', {
     property,
     part: { filePath: part.filePath, line: part.line, column: part.column },
   });
@@ -4696,12 +4696,12 @@ export function addProperty(property: PropertySpec, part: SourceLocation): Promi
 
 /** Rewrite the declaration `target` names — renaming included. */
 export function updateProperty(target: PropertyTarget, property: PropertySpec): Promise<ParamEditResponse> {
-  return postParamEdit('/api/properties/update', { ...target, property });
+  return postParamEdit('api/properties/update', { ...target, property });
 }
 
 /** Delete a property's declaration; a variable it bound stays referenced wherever it was. */
 export function removeProperty(target: PropertyTarget): Promise<ParamEditResponse> {
-  return postParamEdit('/api/properties/remove', { ...target });
+  return postParamEdit('api/properties/remove', { ...target });
 }
 
 // ---------------------------------------------------------------------------
@@ -4809,7 +4809,7 @@ export type CatalogScanResult = {
 export async function getPartCatalogFiles(
   signal?: AbortSignal,
 ): Promise<CatalogFileEntry[] | null> {
-  const data = await getJson<{ files: CatalogFileEntry[] }>('/api/part-catalog/files', undefined, signal);
+  const data = await getJson<{ files: CatalogFileEntry[] }>('api/part-catalog/files', undefined, signal);
   return data?.files ?? null;
 }
 
@@ -4818,7 +4818,7 @@ export function scanPartCatalogFile(
   absPath: string,
   signal?: AbortSignal,
 ): Promise<CatalogScanResult | null> {
-  return postJson('/api/part-catalog/scan', { file: absPath }, signal);
+  return postJson('api/part-catalog/scan', { file: absPath }, signal);
 }
 
 /** One entry of the Insert dialog's basket. */
@@ -4841,7 +4841,7 @@ export async function insertCatalogParts(
   newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part-catalog/insert', {
+    const res = await fetch('api/part-catalog/insert', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ inserts, newVariables }),
@@ -4871,7 +4871,7 @@ export async function updateInsertParams(
   newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/update-insert-params', {
+    const res = await fetch('api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
@@ -4898,7 +4898,7 @@ export async function getInsertParamExpressions(
   sourceLine: number,
 ): Promise<Record<string, string> | null> {
   const data = await postJson<{ expressions: Record<string, string> | null }>(
-    '/api/insert-param-expressions',
+    'api/insert-param-expressions',
     { filePath, sourceLine },
   );
   return data?.expressions ?? null;
@@ -5004,7 +5004,7 @@ export async function applyAssemblyMate(
     | { edit: AssemblyMatePayload & { sourceLine: number } },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-mate', {
+    const res = await fetch('api/assembly-mate', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, ...spec }),
@@ -5045,7 +5045,7 @@ export async function classifyContactPick(
   pick: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } },
 ): Promise<ContactPickResult | { error: string }> {
   try {
-    const res = await fetch('/api/classify-contact', {
+    const res = await fetch('api/classify-contact', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ pick }),
@@ -5076,7 +5076,7 @@ export async function fetchConnectorProperties(
   sourceLocation: { filePath: string; line: number },
 ): Promise<ConnectorProperties | { error: string }> {
   try {
-    const res = await fetch('/api/part-connector-properties', {
+    const res = await fetch('api/part-connector-properties', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line }),
@@ -5100,7 +5100,7 @@ export async function applyConnectorProperties(
   props: ConnectorProperties,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part-connector-props', {
+    const res = await fetch('api/part-connector-props', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -5148,7 +5148,7 @@ export async function applyInstancePose(
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/instance-pose', {
+    const res = await fetch('api/instance-pose', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -5189,7 +5189,7 @@ export async function getInstancePoseExpressions(
   sourceLocation: { filePath: string; line: number },
 ): Promise<InstancePoseExpressions | null> {
   const data = await postJson<{ expressions: InstancePoseExpressions | null }>(
-    '/api/instance-pose-expressions',
+    'api/instance-pose-expressions',
     { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
   );
   return data?.expressions ?? null;
@@ -5236,7 +5236,7 @@ export async function applyAssemblyReplicate(
     | { removeRow: { sourceLine: number; row: number } },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-replicate', {
+    const res = await fetch('api/assembly-replicate', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, ...spec }),
@@ -5273,7 +5273,7 @@ export async function applyAssemblyConnector(
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-connector', {
+    const res = await fetch('api/assembly-connector', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -5344,7 +5344,7 @@ export async function applyAssemblyConnectorCopy(
   opts: { newVariables?: NewVariable[]; preview?: boolean; signal?: AbortSignal } = {},
 ): Promise<ApplyFeatureResponse> {
   try {
-    const res = await fetch('/api/assembly-connector-copy', {
+    const res = await fetch('api/assembly-connector-copy', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal: opts.signal,
@@ -5381,7 +5381,7 @@ export async function getAssemblyConnectorExpressions(
   sourceLocation: { filePath: string; line: number },
 ): Promise<AssemblyConnectorExpressions | null> {
   const data = await postJson<{ expressions: AssemblyConnectorExpressions | null }>(
-    '/api/assembly-connector-expressions',
+    'api/assembly-connector-expressions',
     { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
   );
   return data?.expressions ?? null;
@@ -5389,7 +5389,7 @@ export async function getAssemblyConnectorExpressions(
 
 /** Every connector name the open assembly file declares — for the dialog's default name. */
 export async function listAssemblyConnectorNames(filePath: string): Promise<string[]> {
-  const data = await postJson<{ names: string[] }>('/api/assembly-connector-names', { filePath });
+  const data = await postJson<{ names: string[] }>('api/assembly-connector-names', { filePath });
   return data?.names ?? [];
 }
 
@@ -5398,17 +5398,17 @@ export async function listAssemblyConnectorNames(filePath: string): Promise<stri
 // ---------------------------------------------------------------------------
 
 export async function loadPreferences(): Promise<UserPreferences | null> {
-  return getJson('/api/preferences');
+  return getJson('api/preferences');
 }
 
 export function savePreference<K extends keyof UserPreferences>(
   key: K,
   value: UserPreferences[K],
 ): void {
-  postFireAndForget('/api/preferences', { [key]: value });
+  postFireAndForget('api/preferences', { [key]: value });
 }
 
 /** Put every preference back to its default; resolves to the defaults the server now holds. */
 export async function resetPreferences(): Promise<UserPreferences | null> {
-  return postJson<UserPreferences>('/api/preferences/reset', {});
+  return postJson<UserPreferences>('api/preferences/reset', {});
 }

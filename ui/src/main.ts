@@ -721,7 +721,7 @@ async function updateInsertChain(
   },
 ): Promise<void> {
   try {
-    await fetch('/api/update-insert-chain', {
+    await fetch('api/update-insert-chain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sourceLocation, edit }),
@@ -3180,8 +3180,11 @@ function applySceneRendered(msg: any): void {
 }
 
 function connectWebSocket() {
-  // Protocol-relative: plain ws:// is blocked from an https page.
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+  // Next to the page, like every other request: at `/` under `fluidcad serve`,
+  // under `/p/<project>/` behind `npx fluidcad`'s proxy. Protocol-relative
+  // too: plain ws:// is blocked from an https page.
+  const wsUrl = new URL('.', window.location.href);
+  wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {

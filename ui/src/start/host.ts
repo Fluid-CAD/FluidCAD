@@ -3,7 +3,7 @@
  *
  * Two launchers host this page. The desktop app serves it over
  * `fluidcad-app://start/` and answers through `window.fluidcadShell.start`;
- * `npx fluidcad` serves it over HTTP and answers at `/api/` (`http-host.ts`).
+ * `npx fluidcad` serves it over HTTP and answers at `api/` (`http-host.ts`).
  * The page renders; the launcher owns the data (recents, thumbnails, the
  * feed, every project's engine pin) and performs the actions (open a project,
  * run a comparison, move a pin). The page never reaches an engine: it opens
@@ -172,6 +172,7 @@ export type UpgradeProgress = { workspacePath: string; message: string };
 export type SessionView =
   | { phase: 'opening'; project: OpeningProject; status: OpeningStatus }
   | { phase: 'failed'; project: OpeningProject; message: string }
+  /** `url` is the project's page on the start server, `/p/<id>/`, behind the launcher's proxy. */
   | { phase: 'running'; project: OpeningProject; url: string; version: string; source: OpeningSource }
   | { phase: 'closed'; project: OpeningProject };
 

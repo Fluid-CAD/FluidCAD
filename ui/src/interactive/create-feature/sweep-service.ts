@@ -23,6 +23,7 @@ import {
   collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 
@@ -93,7 +94,7 @@ export class SweepFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/sweep.png',
+      icon: iconUrl('sweep'),
       label: 'Sweep',
       tip: 'Sweep a sketch along a path',
       ariaLabel: 'Sweep a sketch along a path',

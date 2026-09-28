@@ -41,9 +41,9 @@ const SCENE = [
 const rowObject = (id: string) => SCENE.find(o => o.id === id)!;
 
 /** Only the active part row is highlighted: blue cube, tint, blue bold name and the dot. */
-const ACTIVE_LOOK = { icon: '/icons/box-blue.png', tinted: true, blueText: true, bold: true, dot: true };
+const ACTIVE_LOOK = { icon: 'icons/box-blue.png', tinted: true, blueText: true, bold: true, dot: true };
 /** Every other part row is plain, with the white cube. */
-const PLAIN_LOOK = { icon: '/icons/box.png', tinted: false, blueText: false, bold: false, dot: false };
+const PLAIN_LOOK = { icon: 'icons/box.png', tinted: false, blueText: false, bold: false, dot: false };
 
 /** The panel wired to a real tracker the way main.ts wires it. */
 function mount() {

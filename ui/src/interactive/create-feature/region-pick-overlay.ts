@@ -8,7 +8,7 @@ import { disposeTree } from './feature-ghost';
  * The region picker's faces, drawn over the profile while a feature dialog
  * picks regions: one translucent face per closed region of the sketch, the
  * picked ones a shade stronger. The meshes come from the server's side
- * channel (`/api/sketch-regions`) — never scene shapes, nothing anything
+ * channel (`api/sketch-regions`) — never scene shapes, nothing anything
  * else can pick — and sit in a group that is a sibling of `compiledMesh`,
  * so a render never tears them down and the auto-fit ignores them (the
  * feature ghost's arrangement, for the same reasons).

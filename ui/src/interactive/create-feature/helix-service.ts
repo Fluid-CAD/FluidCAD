@@ -20,6 +20,7 @@ import {
   AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Helix dialog on the create rails: a helical wire built around an axis or
@@ -76,7 +77,7 @@ export class HelixFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/helix.png',
+      icon: iconUrl('helix'),
       label: 'Helix',
       tip: 'Build a helix around an axis or on a cylindrical face',
       ariaLabel: 'Build a helix around an axis or on a cylindrical face',

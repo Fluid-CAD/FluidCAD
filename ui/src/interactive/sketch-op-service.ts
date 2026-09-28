@@ -126,7 +126,7 @@ type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { 
  * The shared 2D operation dialog (fillet, offset): armed from the sketch
  * toolbar, it reads the hover handler's selected edges — mirrored into the
  * unified {@link PickSlot} chips every pick-driven dialog carries — previews
- * the synthesized statement through `/api/apply-feature` (sketch branch),
+ * the synthesized statement through `api/apply-feature` (sketch branch),
  * and applies it — writing `fillet(4, r.edge('top'), l)` /
  * `offset(2, r.edge('top')).close()` into the sketch body. The expression
  * row is editable (expression transparency) with verified alternatives.

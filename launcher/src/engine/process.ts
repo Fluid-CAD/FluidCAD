@@ -112,13 +112,18 @@ export async function startEngine(
       ? options.preferredPort
       : await findFreePort();
 
+  // An engine a launcher starts binds loopback, whatever the environment says:
+  // it has no authentication of its own, and other machines reach it through
+  // the launcher's proxy, behind the launcher's session. `FLUIDCAD_SERVER_HOST`
+  // is for a `fluidcad serve` its user exposes on purpose, not for these.
+  const { FLUIDCAD_SERVER_HOST: _exposedHost, ...env } = process.env;
   const child = fork(engine.serverEntry, [], {
     // Anchor cwd so Windows can resolve the child across drives; the server
     // reads its configuration from env, not cwd.
     cwd: path.dirname(engine.serverEntry),
     execPath: process.execPath,
     env: {
-      ...process.env,
+      ...env,
       ELECTRON_RUN_AS_NODE: '1',
       FLUIDCAD_SERVER_PORT: String(port),
       FLUIDCAD_WORKSPACE_PATH: workspacePath,

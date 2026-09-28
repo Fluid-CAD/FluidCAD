@@ -15,6 +15,7 @@ import { connectorLabel, type SerializedAssemblyMate, type RenderedInstance } fr
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ICON_PLAY } from './icons';
 import { AccordionSection } from './accordion-section';
+import { iconUrl } from './icon-url';
 
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 
@@ -194,7 +195,7 @@ export class JointsPanel {
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
             <span class="flex items-center gap-2 text-sm">
               <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
-              <img src="/icons/joint-${mate.type}.png" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
+              <img src="${iconUrl(`joint-${mate.type}`)}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
               ${escapeHtml(mate.type)}
               ${mate.replica ? `<span class="text-[10px] text-base-content/40" data-replica-badge="${mate.mateId}" title="Replica — its statement is the replicate() call; edit the seed mate or the replicate statement">⧉</span>` : ''}
             </span>

@@ -27,6 +27,7 @@ import {
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** What the seeding hook hands over when the dialog arms. */
 export type CopyEnterSeed = {
@@ -156,7 +157,7 @@ export class CopyFeatureService {
     // it hides while the exclusive sketch toolbar owns the bar.
     const group = navbar.getGroup('repeat') ?? navbar.addGroup('repeat', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/copy-linear.png',
+      icon: iconUrl('copy-linear'),
       label: 'Copy',
       tip: 'Copy solids and connectors',
       ariaLabel: 'Copy solids and connectors along an axis or around an axis',

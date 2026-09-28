@@ -15,18 +15,31 @@ import path from 'path';
  */
 
 const ENGINE = `
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const port = Number(process.env.FLUIDCAD_SERVER_PORT);
 const workspace = process.env.FLUIDCAD_WORKSPACE_PATH;
 fs.writeFileSync(path.join(workspace, '.engine-pid'), String(process.pid));
+fs.writeFileSync(path.join(workspace, '.engine-host'), process.env.FLUIDCAD_SERVER_HOST || '');
 const server = http.createServer((request, response) => {
   const send = (body) => {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify(body));
   };
   const route = request.url.split('?')[0];
+  // What the proxy forwards, echoed: the page, and a call that says how it arrived.
+  if (route === '/') {
+    response.setHeader('content-type', 'text/html; charset=utf-8');
+    return response.end('<!DOCTYPE html><html><body>engine page for ' + path.basename(workspace) + '</body></html>');
+  }
+  if (route === '/api/echo') {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => send({ method: request.method, url: request.url, host: request.headers.host, cookie: request.headers.cookie ?? null, body }));
+    return;
+  }
   if (route === '/api/editor/dirty-files') {
     let dirty = [];
     try { dirty = JSON.parse(fs.readFileSync(path.join(workspace, '.dirty.json'), 'utf8')); } catch {}
@@ -38,6 +51,25 @@ const server = http.createServer((request, response) => {
   if (route === '/api/files/open') return send({ ok: true });
   response.statusCode = 404;
   response.end();
+});
+// A WebSocket that echoes every text frame, enough to see the proxy carry one both ways.
+server.on('upgrade', (request, socket) => {
+  const key = request.headers['sec-websocket-key'];
+  if (request.url !== '/' || !key) {
+    socket.write('HTTP/1.1 404 Not Found\\r\\nConnection: close\\r\\n\\r\\n');
+    socket.destroy();
+    return;
+  }
+  const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  socket.write('HTTP/1.1 101 Switching Protocols\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Accept: ' + accept + '\\r\\n\\r\\n');
+  socket.on('data', (data) => {
+    // A masked text frame from the client, short enough for the 7-bit length.
+    const length = data[1] & 0x7f;
+    const mask = data.subarray(2, 6);
+    const payload = Buffer.from(data.subarray(6, 6 + length).map((byte, i) => byte ^ mask[i % 4]));
+    const reply = Buffer.from('echo:' + payload.toString() + ' host=' + request.headers.host);
+    socket.write(Buffer.concat([Buffer.from([0x81, reply.length]), reply]));
+  });
 });
 server.listen(port, '127.0.0.1', () => {
   process.send({ type: 'ready', url: 'http://localhost:' + port });

@@ -190,12 +190,12 @@ describe('FolderPicker: New project', () => {
 
 describe('FolderPicker: New project in a projects folder', () => {
   const ROOT: FolderListing = {
-    path: '/srv/cad',
+    path: '/home/you/cad',
     project: false,
     parent: null,
-    home: '/srv/cad',
-    roots: ['/srv/cad'],
-    entries: [{ name: 'bracket', path: '/srv/cad/bracket', project: true }],
+    home: '/home/you',
+    roots: ['/home/you/cad'],
+    entries: [{ name: 'bracket', path: '/home/you/cad/bracket', project: true }],
   };
 
   it('asks for a name only, and creates the project in the folder', async () => {
@@ -217,7 +217,12 @@ describe('FolderPicker: New project in a projects folder', () => {
     expect(q('[data-ref="nav"]').classList.contains('hidden')).toBe(true);
     expect(q('[data-ref="list"]').classList.contains('hidden')).toBe(true);
     expect(q('[data-ref="name-row"]').classList.contains('hidden')).toBe(false);
-    expect(q('[data-ref="lede"]').textContent).toContain('Name the project');
+    // A label, the field, and the path the name makes; nothing to explain.
+    expect(q('[data-ref="lede"]').classList.contains('hidden')).toBe(true);
+    expect(q('[data-ref="name-label"]').textContent).toBe('Project Name');
+    expect(q('[data-ref="folder"]').classList.contains('hidden')).toBe(false);
+    expect(q('[data-ref="folder"]').textContent).toBe('~/cad/');
+    expect(q('[data-ref="status"]').textContent).toBe('');
     expect(document.activeElement).toBe(q('[data-ref="name"]'));
     // The launcher's folder is not a place to come back to next time.
     expect(localStorage.getItem('fluidcad.start.lastFolder')).toBeNull();
@@ -233,9 +238,13 @@ describe('FolderPicker: New project in a projects folder', () => {
     name.dispatchEvent(new Event('input'));
     await vi.advanceTimersByTimeAsync(200);
     expect(page.check).toHaveBeenLastCalledWith(ROOT.path, 'arm');
-    expect(q('[data-ref="status"]').textContent).toBe('Creates arm and opens it in a new tab.');
+    expect(q('[data-ref="folder"]').textContent).toBe('~/cad/arm');
+    expect(q('[data-ref="folder"]').title).toBe('/home/you/cad/arm');
+    // Only a problem gets a line; a name that works needs none.
+    expect(q('[data-ref="status"]').textContent).toBe('');
+    expect(q<HTMLButtonElement>('[data-ref="action"]').disabled).toBe(false);
     q<HTMLButtonElement>('[data-ref="action"]').click();
-    expect(handlers.create).toHaveBeenCalledWith('/srv/cad/arm');
+    expect(handlers.create).toHaveBeenCalledWith('/home/you/cad/arm');
     expect(view.isOpen()).toBe(false);
   });
 });

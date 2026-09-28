@@ -1,6 +1,7 @@
 import { FeaturePanel } from '../create-feature/feature-panel';
 import { PickSlot } from '../pick-slot';
 import { escapeHtml } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * One of the original's mates as the panel shows it: the mate kind
@@ -58,7 +59,7 @@ export class ReplicatePanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-replicate-panel',
       title: 'Replicate',
-      icon: '/icons/replicate.png',
+      icon: iconUrl('replicate'),
       exitLabel: 'Cancel',
       bodyHtml: `
         <p data-role="intro" class="text-base-content/60 leading-snug m-0"></p>

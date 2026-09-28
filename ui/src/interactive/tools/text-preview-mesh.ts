@@ -4,7 +4,7 @@ const PREVIEW_COLOR = 0x11a4ed;
 
 /**
  * Builds the viewport mesh for a text outline preview: one LineSegments over
- * every polyline `/api/text-preview` returned — a single draw call however
+ * every polyline `api/text-preview` returned — a single draw call however
  * many glyph edges the layout produced. Shared by the Text tool (create)
  * and the text edit dialog.
  */

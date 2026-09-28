@@ -9,7 +9,7 @@ import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
  * (`docs/desktop/05-editor-surface-design.md`).
  *
  * Deliberately workspace-only. The spec floated a "Browse…" row for files
- * outside the workspace; dropped (2026-08-15) — `/api/files/*` enforces a
+ * outside the workspace; dropped (2026-08-15) — `api/files/*` enforces a
  * workspace boundary on purpose, and a model importing an outside file
  * wouldn't resolve through Vite's workspace root anyway.
  *

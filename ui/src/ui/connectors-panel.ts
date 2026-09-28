@@ -4,6 +4,7 @@ import {
 } from './icons';
 import { escapeHtml } from './expression-core';
 import { connectorLabel, type SerializedAssemblyConnector } from '../types';
+import { iconUrl } from './icon-url';
 
 export interface ConnectorsPanelOptions {
   /** A host that cannot edit source: rows are inert labels; the eye toggle stays. */
@@ -203,7 +204,7 @@ export class ConnectorsPanel {
     return `
       <div class="group flex items-center gap-2 ${padding} py-1.5 ${rowCursor} hover:bg-base-content/[0.06] text-sm text-base-content/80${pickClass}" data-connector-id="${escapeHtml(connector.connectorId)}" data-row="${row.kind}" title="${escapeHtml(title)}">
         ${chevron}
-        <img src="/icons/mate-connector.png" class="w-4 h-4 object-contain shrink-0 opacity-70" alt="" />
+        <img src=iconUrl('mate-connector') class="w-4 h-4 object-contain shrink-0 opacity-70" alt="" />
         <span class="truncate">${escapeHtml(text)}</span>
         ${count}
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${escapeHtml(label)}" title="${row.kind === 'seed' ? 'Show/hide the connector and its copies' : 'Show/hide the connector'}">${eyeIcon}</button>

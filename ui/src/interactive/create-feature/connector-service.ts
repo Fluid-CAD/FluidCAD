@@ -16,6 +16,7 @@ import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { collectSolidTargets } from './solid-targets';
 import { collectSketchProfiles } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Hovering across faces settles briefly before the anchors round-trip. */
 const HOVER_FETCH_DEBOUNCE_MS = 100;
@@ -110,7 +111,7 @@ export class ConnectorFeatureService {
     const group = navbar.getGroup('connector')
       ?? navbar.addGroup('connector', { visible: false, mode: 'part' });
     this.button = new FeatureButton(group, {
-      icon: '/icons/mate-connector.png',
+      icon: iconUrl('mate-connector'),
       label: 'Connector',
       tip: 'Add a mate connector',
       ariaLabel: 'Add a named mate connector to the part',

@@ -103,11 +103,11 @@ describe('in-page editor host — which buffer an edit lands in', () => {
     const part = entry(PART, `extrude(1);`);
     const asm = entry(ASSEMBLY, '// assembly');
     const { host, requests, responses } = install({ loaded: [asm, part], current: ASSEMBLY });
-    responses.set('/api/code/set-unit', () => ({ newCode: `unit('in');\nextrude(1);` }));
+    responses.set('api/code/set-unit', () => ({ newCode: `unit('in');\nextrude(1);` }));
 
     await host.handle({ type: 'set-unit', filePath: PART, unit: 'in' });
 
-    const call = requests.find((r) => r.url === '/api/code/set-unit')!;
+    const call = requests.find((r) => r.url === 'api/code/set-unit')!;
     expect(call.body).toEqual({ code: `extrude(1);`, unit: 'in', filePath: PART });
     expect(part.text).toBe(`unit('in');\nextrude(1);`);
     expect(asm.text).toBe('// assembly');
@@ -116,11 +116,11 @@ describe('in-page editor host — which buffer an edit lands in', () => {
   it('posts set-unit with unit: null intact so the server removes the declaration', async () => {
     const part = entry(PART, `unit('in');\nextrude(1);`);
     const { host, requests, responses } = install({ loaded: [part], current: PART });
-    responses.set('/api/code/set-unit', () => ({ newCode: `extrude(1);` }));
+    responses.set('api/code/set-unit', () => ({ newCode: `extrude(1);` }));
 
     await host.handle({ type: 'set-unit', filePath: PART, unit: null });
 
-    const call = requests.find((r) => r.url === '/api/code/set-unit')!;
+    const call = requests.find((r) => r.url === 'api/code/set-unit')!;
     expect(call.body).toEqual({ code: `unit('in');\nextrude(1);`, unit: null, filePath: PART });
     expect(part.text).toBe(`extrude(1);`);
   });
@@ -128,14 +128,14 @@ describe('in-page editor host — which buffer an edit lands in', () => {
   it('applies apply-feature-edit to the model the scene renders from when the spec names no file', async () => {
     const asm = entry(ASSEMBLY, 'const a = 1;');
     const { host, requests, responses } = install({ loaded: [asm], current: ASSEMBLY });
-    responses.set('/api/code/apply-feature', () => ({ newCode: 'const a = 2;' }));
+    responses.set('api/code/apply-feature', () => ({ newCode: 'const a = 2;' }));
 
     await host.handle({ type: 'apply-feature-edit', spec: { kind: 'x', editId: 'e1' } });
 
-    const apply = requests.find((r) => r.url === '/api/code/apply-feature')!;
+    const apply = requests.find((r) => r.url === 'api/code/apply-feature')!;
     expect(apply.body.code).toBe('const a = 1;');
     expect(asm.text).toBe('const a = 2;');
-    const render = requests.find((r) => r.url === '/api/render')!;
+    const render = requests.find((r) => r.url === 'api/render')!;
     expect(render.body).toEqual({ filePath: ASSEMBLY, code: 'const a = 2;', keepCurrent: false });
   });
 
@@ -147,16 +147,16 @@ describe('in-page editor host — which buffer an edit lands in', () => {
     const asm = entry(ASSEMBLY, '// assembly');
     const part = entry(PART, '// part');
     const { host, requests, responses, saved } = install({ loaded: [asm, part], current: ASSEMBLY });
-    responses.set('/api/code/apply-feature', () => ({ newCode: '// part + connector' }));
+    responses.set('api/code/apply-feature', () => ({ newCode: '// part + connector' }));
 
     await host.handle({ type: 'apply-feature-edit', spec: { kind: 'connector', filePath: PART, editId: 'e2' } });
 
-    const apply = requests.find((r) => r.url === '/api/code/apply-feature')!;
+    const apply = requests.find((r) => r.url === 'api/code/apply-feature')!;
     expect(apply.body.code).toBe('// part');
     expect(part.text).toBe('// part + connector');
     expect(asm.text).toBe('// assembly');
     expect(saved).toEqual([PART]);
-    const render = requests.find((r) => r.url === '/api/render')!;
+    const render = requests.find((r) => r.url === 'api/render')!;
     expect(render.body).toEqual({ filePath: PART, code: '// part + connector', keepCurrent: true });
   });
 
@@ -164,13 +164,13 @@ describe('in-page editor host — which buffer an edit lands in', () => {
     const asm = entry(ASSEMBLY, '// assembly');
     const part = entry(PART, '// part');
     const { host, requests, responses } = install({ loaded: [asm], loadable: [part], current: ASSEMBLY });
-    responses.set('/api/code/apply-feature', () => ({ newCode: '// part!' }));
+    responses.set('api/code/apply-feature', () => ({ newCode: '// part!' }));
 
     await host.handle({ type: 'apply-feature-edit', spec: { kind: 'connector', filePath: PART, editId: 'e3' } });
 
     expect(part.text).toBe('// part!');
     expect(asm.text).toBe('// assembly');
-    expect(requests.find((r) => r.url === '/api/render')!.body.filePath).toBe(PART);
+    expect(requests.find((r) => r.url === 'api/render')!.body.filePath).toBe(PART);
   });
 
   it('drops a cross-file edit whose target cannot be loaded instead of editing the wrong buffer', async () => {
@@ -180,13 +180,13 @@ describe('in-page editor host — which buffer an edit lands in', () => {
     await host.handle({ type: 'apply-feature-edit', spec: { kind: 'connector', filePath: '/ws/missing.part.js', editId: 'e4' } });
 
     expect(asm.text).toBe('// assembly');
-    expect(requests.map((r) => r.url)).not.toContain('/api/code/apply-feature');
+    expect(requests.map((r) => r.url)).not.toContain('api/code/apply-feature');
   });
 
   it('routes update-insert-chain to the file its sourceLocation names', async () => {
     const asm = entry(ASSEMBLY, 'const arm1 = insert(arm);');
     const { host, requests, responses } = install({ loaded: [asm], current: ASSEMBLY });
-    responses.set('/api/code/update-insert-chain', () => ({ newCode: 'const arm1 = insert(arm).grounded();' }));
+    responses.set('api/code/update-insert-chain', () => ({ newCode: 'const arm1 = insert(arm).grounded();' }));
 
     await host.handle({
       type: 'update-insert-chain',
@@ -194,10 +194,10 @@ describe('in-page editor host — which buffer an edit lands in', () => {
       edit: { ground: true },
     });
 
-    const req = requests.find((r) => r.url === '/api/code/update-insert-chain')!;
+    const req = requests.find((r) => r.url === 'api/code/update-insert-chain')!;
     expect(req.body).toEqual({ code: 'const arm1 = insert(arm);', sourceLine: 1, edit: { ground: true } });
     expect(asm.text).toBe('const arm1 = insert(arm).grounded();');
-    expect(requests.find((r) => r.url === '/api/render')!.body.keepCurrent).toBe(false);
+    expect(requests.find((r) => r.url === 'api/render')!.body.keepCurrent).toBe(false);
   });
 
   it('marks a path-targeted timeline edit in an imported file keepCurrent', async () => {
@@ -207,12 +207,12 @@ describe('in-page editor host — which buffer an edit lands in', () => {
     const asm = entry(ASSEMBLY, '// assembly');
     const part = entry(PART, 'extrude(10);');
     const { host, requests, responses } = install({ loaded: [asm, part], current: ASSEMBLY });
-    responses.set('/api/code/remove-statement', () => ({ newCode: '' }));
+    responses.set('api/code/remove-statement', () => ({ newCode: '' }));
 
     await host.handle({ type: 'remove-feature', filePath: PART, line: 1 });
 
     expect(part.text).toBe('');
-    expect(requests.find((r) => r.url === '/api/render')!.body).toEqual({ filePath: PART, code: '', keepCurrent: true });
+    expect(requests.find((r) => r.url === 'api/render')!.body).toEqual({ filePath: PART, code: '', keepCurrent: true });
   });
 });
 
@@ -224,27 +224,27 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
   const EDITS = [{ sourceLine: 102, points: [{ pointIndex: 0, position: [-60.01, 60], expected: [-60, 60] }] }];
 
   function ackOf(requests: Recorded[]) {
-    return requests.find((r) => r.url === '/api/editor/ack');
+    return requests.find((r) => r.url === 'api/editor/ack');
   }
 
   it('applies the edit, re-renders, and acks success', async () => {
     const part = entry(PART, 'circle([-60, 60], 36.58);');
     const { host, requests, responses } = install({ loaded: [part], current: PART });
-    responses.set('/api/code/update-sketch-positions', () => ({ newCode: 'circle([-60.01, 60], 36.58);' }));
+    responses.set('api/code/update-sketch-positions', () => ({ newCode: 'circle([-60.01, 60], 36.58);' }));
 
     await host.handle({ type: 'update-sketch-positions', editId: 'e10', filePath: PART, edits: EDITS });
 
-    const apply = requests.find((r) => r.url === '/api/code/update-sketch-positions')!;
+    const apply = requests.find((r) => r.url === 'api/code/update-sketch-positions')!;
     expect(apply.body).toEqual({ code: 'circle([-60, 60], 36.58);', edits: EDITS });
     expect(part.text).toBe('circle([-60.01, 60], 36.58);');
-    expect(requests.find((r) => r.url === '/api/render')!.body.keepCurrent).toBe(false);
+    expect(requests.find((r) => r.url === 'api/render')!.body.keepCurrent).toBe(false);
     expect(ackOf(requests)!.body).toEqual({ editId: 'e10' });
   });
 
   it('falls back to the current model when the message names no file', async () => {
     const part = entry(PART, 'circle([0, 0], 5);');
     const { host, requests, responses } = install({ loaded: [part], current: PART });
-    responses.set('/api/code/update-sketch-positions', () => ({ newCode: 'circle([1, 0], 5);' }));
+    responses.set('api/code/update-sketch-positions', () => ({ newCode: 'circle([1, 0], 5);' }));
 
     await host.handle({ type: 'update-sketch-positions', editId: 'e11', edits: EDITS });
 
@@ -255,7 +255,7 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
   it('acks a transform refusal instead of applying it', async () => {
     const part = entry(PART, 'circle([-60, 60], 36.58);');
     const { host, requests, responses } = install({ loaded: [part], current: PART });
-    responses.set('/api/code/update-sketch-positions', () => ({
+    responses.set('api/code/update-sketch-positions', () => ({
       newCode: 'circle([-60, 60], 36.58);',
       error: 'the sketch moved under this drag',
     }));
@@ -263,7 +263,7 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
     await host.handle({ type: 'update-sketch-positions', editId: 'e12', filePath: PART, edits: EDITS });
 
     expect(part.text).toBe('circle([-60, 60], 36.58);');
-    expect(requests.map((r) => r.url)).not.toContain('/api/render');
+    expect(requests.map((r) => r.url)).not.toContain('api/render');
     expect(ackOf(requests)!.body).toEqual({ editId: 'e12', error: 'the sketch moved under this drag' });
   });
 
@@ -272,7 +272,7 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
 
     await host.handle({ type: 'update-sketch-positions', editId: 'e13', filePath: '/ws/missing.part.js', edits: EDITS });
 
-    expect(requests.map((r) => r.url)).not.toContain('/api/code/update-sketch-positions');
+    expect(requests.map((r) => r.url)).not.toContain('api/code/update-sketch-positions');
     expect(ackOf(requests)!.body).toEqual({ editId: 'e13', error: "the sketch's file is not open in the editor" });
   });
 });

@@ -350,7 +350,7 @@ describe('AssemblyReplicateService', () => {
     await vi.waitFor(() => expect(service.isActive).toBe(false));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/assembly-replicate');
+    expect(url).toBe('api/assembly-replicate');
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       filePath: FILE,
       create: {

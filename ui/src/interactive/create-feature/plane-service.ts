@@ -23,6 +23,7 @@ import {
   collectWireSources, isSingleEdgeWire, keepChip, labelWithSketchNames, optionsSignature,
   resolveWireByShapeId, resolveWireRow, SketchProfileOption, sketchWireShapeIds, sourceChip,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** One base in the dialog's list — the chip order is the argument order. */
 type PlaneBaseItem =
@@ -116,7 +117,7 @@ export class PlaneFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/plane.png',
+      icon: iconUrl('plane'),
       label: 'Plane',
       tip: 'Create a construction plane',
       ariaLabel: 'Create a construction plane',

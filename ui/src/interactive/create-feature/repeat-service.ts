@@ -31,6 +31,7 @@ import {
   standardPlaneFromText,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The statement a resolved source slot names, or null when it names none —
@@ -147,7 +148,7 @@ export class RepeatFeatureService {
     // toolbar owns the bar.
     const group = navbar.addGroup('repeat', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/repeat-linear.png',
+      icon: iconUrl('repeat-linear'),
       label: 'Repeat',
       tip: 'Repeat features',
       ariaLabel: 'Repeat features along an axis, around an axis, or mirrored',

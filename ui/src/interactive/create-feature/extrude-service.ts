@@ -20,6 +20,7 @@ import {
   collectExtrudeProfiles, labelWithSketchNames, optionsSignature, resolveProfileByShapeId, resolveProfileRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
 
@@ -89,7 +90,7 @@ export class ExtrudeFeatureService {
   ) {
     const group = navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/extrude.png',
+      icon: iconUrl('extrude'),
       label: 'Extrude',
       tip: 'Extrude a sketch',
       ariaLabel: 'Extrude a sketch',

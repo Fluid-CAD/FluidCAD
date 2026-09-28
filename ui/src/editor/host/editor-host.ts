@@ -125,7 +125,7 @@ export class EditorHost {
    * `apply-feature-edit` is the one transform whose ack the server is waiting
    * on — and it settles through `POST /api/code/apply-feature` itself, because
    * the spec carries the `editId`. So this deliberately does *not* call
-   * `/api/editor/ack`: the round-trip is the ack.
+   * `api/editor/ack`: the round-trip is the ack.
    *
    * The spec names its target file. Usually that is the rendered model, but a
    * cross-file edit — the assembly mate dialog creating or editing a
@@ -313,7 +313,7 @@ export class EditorHost {
     // current model instead of switching the viewport to the edited file —
     // the same rule the Neovim bridge applies to every non-current buffer.
     const keepCurrent = entry.absPath !== this.deps.currentModelPath();
-    void fetch('/api/render', {
+    void fetch('api/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath: entry.absPath, code: entry.model.getValue(), keepCurrent }),

@@ -73,34 +73,34 @@ export type WorkspaceListing = {
 };
 
 export function listWorkspaceFiles(): Promise<WorkspaceListing> {
-  return request('/api/files/tree');
+  return request('api/files/tree');
 }
 
 export function readWorkspaceFile(path: string): Promise<FileContents> {
-  return request(`/api/files/read?path=${encodeURIComponent(path)}`);
+  return request(`api/files/read?path=${encodeURIComponent(path)}`);
 }
 
 export function writeWorkspaceFile(path: string, content: string): Promise<WorkspaceFileEntry> {
-  return post('/api/files/write', { path, content });
+  return post('api/files/write', { path, content });
 }
 
 /** Render this file as the current model — the scene follows. */
 export function openWorkspaceFile(path: string): Promise<{ success: boolean; absPath: string }> {
-  return post('/api/files/open', { path });
+  return post('api/files/open', { path });
 }
 
 /** The tab for `path` closed with no model tab left; the scene empties if it was showing it. */
 export function closeWorkspaceFile(path: string): Promise<{ success: boolean; absPath: string }> {
-  return post('/api/files/close', { path });
+  return post('api/files/close', { path });
 }
 
 export function createWorkspaceFile(path: string, content = ''): Promise<WorkspaceFileEntry> {
-  return post('/api/files/create', { path, content });
+  return post('api/files/create', { path, content });
 }
 
 /** Create an empty folder; one that already exists is left as is. */
 export function createWorkspaceFolder(path: string): Promise<{ success: boolean; path: string; absPath: string }> {
-  return post('/api/files/mkdir', { path });
+  return post('api/files/mkdir', { path });
 }
 
 export type SpecifierReplacement = { from: string; to: string };
@@ -137,11 +137,11 @@ export type RenameOptions = {
 };
 
 export function renameWorkspaceFile(path: string, newPath: string, options: RenameOptions = {}): Promise<RenameResult> {
-  return post('/api/files/rename', { path, newPath, ...options });
+  return post('api/files/rename', { path, newPath, ...options });
 }
 
 export function deleteWorkspaceFile(path: string): Promise<{ success: boolean }> {
-  return post('/api/files/delete', { path });
+  return post('api/files/delete', { path });
 }
 
 export type WorkspaceEditorState = {
@@ -155,16 +155,16 @@ export type WorkspaceEditorState = {
  * preferences: it describes the project, not the window.
  */
 export function fetchWorkspaceEditorState(): Promise<WorkspaceEditorState> {
-  return request('/api/workspace/editor-state');
+  return request('api/workspace/editor-state');
 }
 
 export function saveWorkspaceEditorState(state: WorkspaceEditorState): Promise<WorkspaceEditorState> {
-  return post('/api/workspace/editor-state', state);
+  return post('api/workspace/editor-state', state);
 }
 
 /** The running engine's `.d.ts` files, for the language service. */
 export function fetchEngineTypes(): Promise<EngineTypesPayload> {
-  return request('/api/engine/types');
+  return request('api/engine/types');
 }
 
 /**
@@ -174,5 +174,5 @@ export function fetchEngineTypes(): Promise<EngineTypesPayload> {
  * `update-sketch-positions`, whose round-trip carries no editId.
  */
 export function ackEdit(editId: string, error?: string): Promise<{ success: boolean }> {
-  return post('/api/editor/ack', { editId, error });
+  return post('api/editor/ack', { editId, error });
 }

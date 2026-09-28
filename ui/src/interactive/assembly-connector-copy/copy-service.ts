@@ -51,8 +51,8 @@ type CopyRequest = {
  * refused, since a part's connectors are copied in its own file), a row of
  * the rail's Connectors list picks too, and while an axis slot is armed the
  * world axes are shown as pick targets. The ghost draws the copies' triads
- * where the pattern puts them (`/api/feature-ghost`); Apply writes through
- * `/api/assembly-connector-copy`, whose preview answers the exact statement.
+ * where the pattern puts them (`api/feature-ghost`); Apply writes through
+ * `api/assembly-connector-copy`, whose preview answers the exact statement.
  */
 export class AssemblyConnectorCopyService {
   private panel: CopyPanel;

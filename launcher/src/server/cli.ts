@@ -19,6 +19,10 @@ export type LauncherCliOptions = {
   open: boolean;
   /** Keep every project in this folder; see `LauncherServerOptions`. */
   projectsRoot?: string;
+  /** The address to bind; loopback unless given. See `LauncherServerOptions`. */
+  host?: string;
+  /** The origin a reverse proxy presents this at. See `LauncherServerOptions`. */
+  publicUrl?: string;
 };
 
 /**
@@ -93,6 +97,8 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
     packageRoot: options.packageRoot,
     port: options.port,
     projectsRoot: options.projectsRoot,
+    host: options.host,
+    publicUrl: options.publicUrl,
   });
   writeLauncherInstance({
     schemaVersion: 1,
@@ -108,6 +114,13 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
     console.log(`Port ${options.port} is in use, so FluidCAD took ${server.port}.`);
   }
   console.log(`FluidCAD ${server.version}. The start screen:\n\n  ${server.loginUrl}\n`);
+  if (server.exposed) {
+    console.log(
+      `Listening on ${server.host}:${server.port}, for other machines too. Anyone with that link can use FluidCAD as you, ` +
+        'and can read and change every project it opens: keep the link private' +
+        (options.publicUrl?.startsWith('https:') ? '.' : ', and put an HTTPS proxy in front of it before leaving your network.'),
+    );
+  }
   if (server.projectsRoot) {
     console.log(`Projects live in ${server.projectsRoot}: the start screen lists them, and new projects are created there.`);
   }

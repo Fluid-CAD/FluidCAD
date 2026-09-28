@@ -3,6 +3,7 @@ import { sceneUnit } from '../../units/scene-unit';
 import { applyUnitTitles } from '../../units/apply-unit-defaults';
 import { EntitySlotControl } from '../create-feature/entity-slot';
 import { getFontFamilies, TextAlignOption, TextOptionValues } from '../../api';
+import { iconUrl } from '../../ui/icon-url';
 
 /** The Distribute row's choices: off = the Align tabs stand. */
 type TextDistributeOption = 'off' | 'space-between' | 'space-around';
@@ -67,7 +68,7 @@ export class TextPanel {
 
   constructor(container: HTMLElement) {
     // A sketch tool's dialog: the sketch toolbar's Escape exits the tool.
-    this.shell = new PanelShell(container, 'fluidcad-text-panel', 'Text', '/icons/text.png', 'inside');
+    this.shell = new PanelShell(container, 'fluidcad-text-panel', 'Text', iconUrl('text'), 'inside');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <label class="flex flex-col gap-1.5">

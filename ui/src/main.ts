@@ -251,6 +251,8 @@ const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
+// Its Part mode: every final solid of the selected part, highlighted together.
+const propertiesPartPick = new SolidPickSelection(viewer, { multiple: true });
 const selectionInfoOverlay = new SelectionInfoOverlay(container, engineClient);
 const measureController = new MeasureController(
   container, engineClient, viewer,
@@ -1320,6 +1322,8 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     if (changed) {
       paramsPanel.syncParts();
       refreshActivePartScope();
+      // The Shape Properties panel's Part mode shows the timeline's part.
+      shapePropertiesModal.syncSelectedPart();
     }
     return changed;
   };
@@ -2243,6 +2247,20 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
+// Part mode reads the scene for a solid's part and follows the timeline's
+// selected part; its selection paints the part's solids as one highlight.
+shapePropertiesModal.setSceneProvider(() => viewer.currentSceneObjects);
+shapePropertiesModal.setSelectedPartProvider(() => activePartTracker.selectedLocation);
+shapePropertiesModal.setPartSelectionHandler((part) => {
+  const ids = part ? ShapePropertiesModal.partSolidShapeIds(part, viewer.currentSceneObjects) : [];
+  propertiesPartPick.set(ids);
+  if (ids.length === 0 && propertiesSolidPick.first === null) {
+    viewer.clearHighlight();
+    return;
+  }
+  propertiesPartPick.refreshHighlight();
+});
+
 viewer.setInstanceDragReleaseHandler((instanceId, position) => {
   const inst = findInstance(instanceId);
   if (!inst?.sourceLocation) return;
@@ -2738,6 +2756,14 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
 
   if (shapePropertiesModal.isOpen) {
     measureController.clearSelection();
+    if (shapePropertiesModal.mode === 'part') {
+      // Part mode: the click selects the whole part the shape belongs to
+      // (the panel's selection handler highlights every solid of it).
+      propertiesSolidPick.set([]);
+      shapePropertiesModal.selectPartOfShape(shapeId);
+      selectionInfoOverlay.hide();
+      return;
+    }
     // The shared whole-solid picker: any face or edge click selects (and
     // highlights) the owning shape whole — the copy dialog's targets slot
     // rides the same component in multiple mode.
@@ -3124,7 +3150,12 @@ function applySceneRendered(msg: any): void {
     if (rail.kind === 'part') {
       // Responses without an authoritative flag (compile errors) serve the
       // last scene, so the last known state still describes it.
-      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, { paused: msg.breakpointHit ?? breakpointActive });
+      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
+        paused: msg.breakpointHit ?? breakpointActive,
+        // Non-fatal per-row notices (an unknown material id) — absent on a
+        // compile-error replay, which keeps the last render's.
+        warnings: msg.objectWarnings,
+      });
       assemblyGizmo.handleModeExit();
     } else {
       const assembly = normalizeAssemblyPayload(msg.assembly);
@@ -3137,6 +3168,9 @@ function applySceneRendered(msg: any): void {
     // The panel column becomes visible on its first update, and a
     // part/assembly swap renames the button it hangs off.
     panelRail.sync();
+    // Re-adopt the part the properties panel reads its material from — ids
+    // are re-minted, and a Set material… edit just re-rendered its row.
+    shapePropertiesModal.onSceneRendered();
     // The mate dialog re-resolves its picks against the re-minted scene
     // ids (or closes, when the render switched to a part scene).
     assemblyMateService.handleSceneRendered(sceneKind);

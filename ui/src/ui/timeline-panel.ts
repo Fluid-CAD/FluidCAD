@@ -1,9 +1,10 @@
-import type { SceneObjectRender } from '../types';
+import type { ObjectBuildWarning, SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
+import { showPopupMenu, type PopupMenuItem } from './popup-menu';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
@@ -312,6 +313,12 @@ export class TimelinePanel {
   private dragIndices: number[] | null = null;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
+  /**
+   * Non-fatal notices per row id from the render's `objectWarnings` (a part
+   * naming an unknown material). Kept across a render that carries none —
+   * a compile-error replay re-serves the same rows.
+   */
+  private rowWarnings = new Map<string, string[]>();
   private showBuildTimings = false;
   private readonly showStatusMarks: boolean;
   private readonly showChildren: boolean;
@@ -451,8 +458,16 @@ export class TimelinePanel {
    * parts are not "new" (focusNewParts), and the row state the pause cut
    * off is re-adopted (carryRowStateOver).
    */
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null, options: { paused?: boolean } = {}): void {
+  update(
+    sceneObjects: SceneObjectRender[],
+    rollbackStop: number,
+    rollbackScopePartId: string | null = null,
+    options: { paused?: boolean; warnings?: ObjectBuildWarning[] } = {},
+  ): void {
     const paused = options.paused === true;
+    if (options.warnings !== undefined) {
+      this.rowWarnings = TimelinePanel.warningsByRow(sceneObjects, options.warnings);
+    }
     const leavingPause = this.paused && !paused;
     if (paused && !this.paused) {
       this.sceneBeforePause = this.sceneObjects;
@@ -477,6 +492,21 @@ export class TimelinePanel {
     this.renderTimeline(true, heldMatch);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /** Group a render's warnings by the row they name — by id, else by `index` into the scene. */
+  private static warningsByRow(sceneObjects: SceneObjectRender[], warnings: ObjectBuildWarning[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const warning of warnings) {
+      const id = warning.id ?? sceneObjects[warning.index]?.id;
+      if (id == null) {
+        continue;
+      }
+      const list = out.get(id) ?? [];
+      list.push(warning.message);
+      out.set(id, list);
+    }
+    return out;
   }
 
   /**
@@ -1396,6 +1426,12 @@ export class TimelinePanel {
     const errorDot = effectiveError
       ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
       : '';
+    // A non-fatal notice (an unknown material id) — the row built, so it
+    // keeps its colour and gets a warning triangle carrying the message.
+    const warnings = obj.id != null ? this.rowWarnings.get(obj.id) : undefined;
+    const warningMark = !effectiveError && warnings && warnings.length > 0
+      ? `<span class="text-warning shrink-0 [&>svg]:w-3 [&>svg]:h-3" data-warning="${this.escapeHtml(warnings.join('\n'))}" title="${this.escapeHtml(warnings.join('\n'))}">${ICON_ALERT_TRIANGLE}</span>`
+      : '';
 
     let chevron = '';
     if (hasChildren) {
@@ -1448,7 +1484,7 @@ export class TimelinePanel {
     return `
       <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
-        ${errorDot}
+        ${errorDot}${warningMark}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="${nameClass}">${name}</span>
         ${activeDot}
@@ -1648,12 +1684,19 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
           <span>${tangencyAction.label}</span>
         </button></li>`;
+    // A part's material is set here and nowhere else: the Shape Properties
+    // panel only reads it, and an assembly instance shows its part's.
+    const materialItem = obj.type !== 'part' ? '' : `
+        <li><button data-action="set-material" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_SCALE}</span>
+          <span>Set material…</span>
+        </button></li>`;
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${materialItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -1680,6 +1723,11 @@ export class TimelinePanel {
     dropdown.querySelector('[data-action="copy-connector"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.onCopyConnector?.(obj);
+    });
+
+    dropdown.querySelector<HTMLButtonElement>('[data-action="set-material"]')?.addEventListener('click', (ev: MouseEvent) => {
+      this.closeDropdown();
+      void this.showMaterialMenu(obj, { clientX: ev.clientX, clientY: ev.clientY });
     });
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
@@ -1801,6 +1849,44 @@ export class TimelinePanel {
       this.dropdownCleanup();
       this.dropdownCleanup = null;
     }
+  }
+
+  /**
+   * The Set material… list for a part row: the merged materials (built-ins,
+   * then the project's own), the part's current one checked, None to take
+   * the `.material()` chain off. An id the list lacks shows as a checked,
+   * unpickable "Unknown material" row so the user sees what the source says.
+   */
+  private async showMaterialMenu(obj: SceneObjectRender, position: { clientX: number; clientY: number }): Promise<void> {
+    const materials = (await this.client.getMaterials()) ?? [];
+    const current = typeof obj.object?.material === 'string' ? obj.object.material as string : null;
+    const location = obj.sourceLocation!;
+    const pick = (id: string | null) => {
+      void this.client.editor?.setPartMaterial(location, id);
+    };
+    const check = (checked: boolean) => (checked ? ICON_CHECK : '');
+    const items: PopupMenuItem[] = [
+      { icon: check(current === null), label: 'None', onSelect: () => pick(null) },
+    ];
+    const knownIds = new Set(materials.map((m) => m.id));
+    if (current !== null && !knownIds.has(current)) {
+      items.push({
+        icon: check(true),
+        label: `Unknown material: ${current}`,
+        onSelect: () => undefined,
+        disabled: true,
+        title: 'The source names an id the materials list lacks',
+      });
+    }
+    for (const material of materials) {
+      items.push({
+        icon: check(material.id === current),
+        label: material.source === 'project' ? `${material.name} (project)` : material.name,
+        title: `${material.id} — ${material.density} ${material.densityUnit}`,
+        onSelect: () => pick(material.id),
+      });
+    }
+    showPopupMenu(this.panel, position, items);
   }
 
   // ---------------------------------------------------------------------------

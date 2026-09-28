@@ -266,6 +266,21 @@ export type CompileError = {
   sourceLocation?: SourceLocation;
 };
 
+/**
+ * A non-fatal per-object notice on the `scene-rendered` message
+ * (`objectWarnings`, the same shape as `objectErrors`): the row built, but
+ * something about it is off — a part naming a material id the merged list
+ * lacks (`Unknown material: <id>`). `index` numbers the `result` array.
+ */
+export type ObjectBuildWarning = {
+  index: number;
+  id?: string;
+  name?: string;
+  uniqueKind?: string;
+  message: string;
+  sourceLocation?: SourceLocation;
+};
+
 export type SceneObjectRender = {
   id?: string;
   name?: string;

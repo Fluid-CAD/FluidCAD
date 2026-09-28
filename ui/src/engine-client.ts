@@ -7,6 +7,7 @@ import type {
   MeasureEntityRef,
   MeasureResult,
   MoveToPartResult,
+  PartProperties,
   RemoveFeaturePreview,
   RemoveFeatureResult,
   SetUnitResult,
@@ -59,6 +60,11 @@ export interface EngineEditorClient {
   setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult>;
   /** Write the project unit (`fluidcad.json`) — what assemblies are measured in. */
   setProjectUnit(unit: LengthUnit): Promise<SetUnitResult>;
+  /**
+   * Set (null: remove) the `.material('id')` chain on the `part(...)`
+   * statement at `sourceLocation`. Acked: resolves once the edit landed.
+   */
+  setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult>;
 }
 
 /**
@@ -85,6 +91,13 @@ export interface EngineClient {
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;
   getMaterials(): Promise<Material[] | null>;
+  /**
+   * The aggregate over a part row's final solids (volume, area, centroid,
+   * mass from its material). Optional: a host without it (the browser
+   * viewer's worker client) leaves the Shape Properties panel's Part mode
+   * without numbers.
+   */
+  getPartProperties?(partId: string): Promise<PartProperties | null>;
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null>;
   /** `POST /api/export` — a list of solids, or the whole assembly; see {@link ExportRequestBody}. */
   exportShapes(body: ExportRequestBody): Promise<Blob>;

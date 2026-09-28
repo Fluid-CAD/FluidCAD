@@ -6,6 +6,7 @@ import {
   getEdgeProperties,
   getFaceProperties,
   getMaterials,
+  getPartProperties,
   getShapeProperties,
   gotoSource,
   loadPreferences,
@@ -19,9 +20,10 @@ import {
   rollback,
   savePreference,
   setDocumentUnit,
+  setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -74,6 +76,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
   setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
     return setProjectUnit(unit);
   }
+
+  setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
+    return setPartMaterial(sourceLocation, material);
+  }
 }
 
 /**
@@ -119,6 +125,10 @@ export class HttpEngineClient implements EngineClient {
 
   getMaterials(): Promise<Material[] | null> {
     return getMaterials();
+  }
+
+  getPartProperties(partId: string): Promise<PartProperties | null> {
+    return getPartProperties(partId);
   }
 
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null> {

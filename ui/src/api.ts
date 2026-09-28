@@ -55,7 +55,50 @@ export type EdgeProperties = {
   unit?: LengthUnit;
 };
 
-export type Material = { name: string; density: number; densityUnit: string };
+/** One entry of the merged materials list: the built-ins plus the project's `fluidcad.json` map. */
+export type Material = {
+  /** The id `.material('…')` takes — `fluidcad-…` for a built-in, the map key for a project entry. */
+  id: string;
+  name: string;
+  density: number;
+  /** One of g/cm³, kg/m³, g/mm³, lbs/in³. */
+  densityUnit: string;
+  source: 'builtin' | 'project';
+};
+
+/**
+ * A part's material as `GET /api/part-properties` reports it: the resolved
+ * entry (with `densityGcm3`), or just `{ id }` when the id is not in the
+ * merged list (then `PartProperties.warning` says so).
+ */
+export type PartMaterialSummary = {
+  id: string;
+  name?: string;
+  density?: number;
+  densityUnit?: string;
+  source?: 'builtin' | 'project';
+  densityGcm3?: number;
+};
+
+/**
+ * The aggregate over a part's final solids. Like {@link ShapeProperties},
+ * `volumeMm3` / `surfaceAreaMm2` are field NAMES: the values are in `unit`.
+ * `massG` is always grams, present only with a resolvable material.
+ */
+export type PartProperties = {
+  partId: string;
+  name: string;
+  shapeIds: string[];
+  solidCount: number;
+  volumeMm3: number;
+  surfaceAreaMm2: number;
+  centroid: { x: number; y: number; z: number };
+  material: PartMaterialSummary | null;
+  massG?: number;
+  /** `Unknown material: <id>` when the part names an id the list lacks. */
+  warning?: string;
+  unit?: LengthUnit;
+};
 
 /**
  * Values are in the document's unit (`unit` names it): `volumeMm3` /
@@ -1248,6 +1291,11 @@ export function getEdgeProperties(
 
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
   return getJson('api/shape-properties', { shapeId });
+}
+
+/** The aggregate of a part row's final solids — `partId` is the part row's scene id. */
+export function getPartProperties(partId: string): Promise<PartProperties | null> {
+  return getJson('api/part-properties', { partId });
 }
 
 export function measureEntities(
@@ -4369,6 +4417,16 @@ export function renameFeature(sourceLocation: SourceLocationParam, name: string 
  */
 export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boolean): Promise<SetUnitResult> {
   return postAcked('api/set-sketch-closed', { sourceLocation, closed });
+}
+
+/**
+ * Set (or, with null, remove) the `.material('id')` chain on the `part(...)`
+ * statement at `sourceLocation` — the timeline row menu's Set material….
+ * Acked like {@link setSketchClosed}: resolves once the host applied the
+ * edit, so the re-render that refreshes the row follows.
+ */
+export function setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
+  return postAcked('api/set-part-material', { sourceLocation, material });
 }
 
 export function clearBreakpoints(): void {

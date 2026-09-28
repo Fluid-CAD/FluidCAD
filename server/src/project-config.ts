@@ -154,42 +154,35 @@ function readUnitField(
 }
 
 /**
- * Read a `materials` field: absent is fine (null, no error). Every entry is
- * checked — a map keyed by non-empty ids whose values carry a non-empty
- * string `name`, a finite positive `density` and, when present, a
- * `densityUnit` from `DENSITY_UNITS` — and one bad entry rejects the map,
- * mirroring how a bad `unit` is reported rather than silently defaulted.
+ * Validate a `materials` map wherever it comes from (a config file, the
+ * Manage materials… dialog's write): a map keyed by non-empty ids whose
+ * values carry a non-empty string `name`, a finite positive `density` and,
+ * when present, a `densityUnit` from `DENSITY_UNITS`. One bad entry rejects
+ * the map; `problem` is a clause the caller prefixes with its subject.
  */
-function readMaterialsField(
-  record: Record<string, unknown> | null,
-  fileName: string,
-): { materials: ProjectMaterials | null } | { error: string } {
-  const raw = record?.materials;
-  if (raw === undefined || raw === null) {
-    return { materials: null };
-  }
+export function parseProjectMaterials(raw: unknown): { materials: ProjectMaterials } | { problem: string } {
   const map = asRecord(raw);
   if (map === null) {
-    return { error: `${fileName} has a "materials" that is not a map of id → { name, density, densityUnit? }.` };
+    return { problem: 'is not a map of id → { name, density, densityUnit? }' };
   }
   const materials: ProjectMaterials = {};
   for (const [id, value] of Object.entries(map)) {
     const entry = asRecord(value);
     if (id.trim() === '') {
-      return { error: `${fileName} has a "materials" entry with an empty id.` };
+      return { problem: 'has an entry with an empty id' };
     }
     if (entry === null) {
-      return { error: `${fileName} has a "materials" entry ${JSON.stringify(id)} that is not an object.` };
+      return { problem: `has an entry ${JSON.stringify(id)} that is not an object` };
     }
     if (typeof entry.name !== 'string' || entry.name.trim() === '') {
-      return { error: `${fileName} has a "materials" entry ${JSON.stringify(id)} without a "name" string.` };
+      return { problem: `has an entry ${JSON.stringify(id)} without a "name" string` };
     }
     if (typeof entry.density !== 'number' || !Number.isFinite(entry.density) || entry.density <= 0) {
-      return { error: `${fileName} has a "materials" entry ${JSON.stringify(id)} whose "density" is not a positive number.` };
+      return { problem: `has an entry ${JSON.stringify(id)} whose "density" is not a positive number` };
     }
     if (entry.densityUnit !== undefined && !(DENSITY_UNITS as readonly unknown[]).includes(entry.densityUnit)) {
       return {
-        error: `${fileName} has a "materials" entry ${JSON.stringify(id)} with a "densityUnit" that is not one of: ${DENSITY_UNITS.join(', ')}.`,
+        problem: `has an entry ${JSON.stringify(id)} with a "densityUnit" that is not one of: ${DENSITY_UNITS.join(', ')}`,
       };
     }
     materials[id] = {
@@ -199,6 +192,26 @@ function readMaterialsField(
     };
   }
   return { materials };
+}
+
+/**
+ * Read a `materials` field: absent is fine (null, no error); otherwise
+ * `parseProjectMaterials` decides, and a bad map is reported rather than
+ * silently defaulted, mirroring how a bad `unit` is handled.
+ */
+function readMaterialsField(
+  record: Record<string, unknown> | null,
+  fileName: string,
+): { materials: ProjectMaterials | null } | { error: string } {
+  const raw = record?.materials;
+  if (raw === undefined || raw === null) {
+    return { materials: null };
+  }
+  const parsed = parseProjectMaterials(raw);
+  if ('problem' in parsed) {
+    return { error: `${fileName} has a "materials" that ${parsed.problem}.` };
+  }
+  return { materials: parsed.materials };
 }
 
 /**

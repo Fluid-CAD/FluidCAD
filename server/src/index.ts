@@ -39,6 +39,7 @@ import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
 import { createUnitRouter } from './routes/unit.ts';
+import { createProjectMaterialsRouter } from './routes/project-materials.ts';
 import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { HostRegistry } from './host-registry.ts';
@@ -188,6 +189,12 @@ app.use('/api', createFilesRouter({
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
 app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
 app.use('/api', createUnitRouter({
+  workspacePath: WORKSPACE_PATH,
+  fluidCadServer,
+  sendToExtension: sendToHost,
+  broadcastToUI,
+}));
+app.use('/api', createProjectMaterialsRouter({
   workspacePath: WORKSPACE_PATH,
   fluidCadServer,
   sendToExtension: sendToHost,

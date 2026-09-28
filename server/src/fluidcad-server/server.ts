@@ -316,6 +316,15 @@ export class FluidCadServer {
   }
 
   /**
+   * Re-read the project's `materials` map right away — after the Manage
+   * materials… dialog wrote `fluidcad.json` — so `GET /api/materials` answers
+   * from the file even when no render (the usual re-seed) follows.
+   */
+  reloadProjectMaterials(): void {
+    this.projectMaterials = this.workspacePath ? readProjectConfig(this.workspacePath).materials : null;
+  }
+
+  /**
    * The unit a rendered scene's lengths are in. Optional read: the
    * workspace's fluidcad install may predate units, and a scene without the
    * accessor is an mm scene — exactly what every file was before units.

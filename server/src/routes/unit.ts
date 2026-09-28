@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
-import type { FluidCadServer } from '../fluidcad-server/index.ts';
+import type { FluidCadServer, SceneRenderedData } from '../fluidcad-server/index.ts';
 import { setDocumentUnit } from '../code-editor/index.ts';
 import { detectKind } from '../file-kind.ts';
 import { parseProjectUnit, writeProjectUnit } from '../project-config.ts';
@@ -13,6 +13,40 @@ export type UnitRouterDeps = {
   sendToExtension: (msg: any) => boolean | void;
   broadcastToUI: (msg: any) => void;
 };
+
+/**
+ * Fan a `fluidcad.json`-driven recompute out the way a source edit's render
+ * is: the host gets the scene, the UI gets the scene plus its panels' fields
+ * (`objectWarnings` included, so a part whose material id just became known
+ * loses its warning). Shared by the project unit and materials writes.
+ */
+export function broadcastProjectRecompute(
+  deps: Pick<UnitRouterDeps, 'sendToExtension' | 'broadcastToUI'>,
+  data: SceneRenderedData,
+): void {
+  deps.sendToExtension({
+    type: 'scene-rendered',
+    absPath: data.absPath,
+    sceneKind: data.sceneKind,
+    ...sceneUnitFields(data),
+    result: data.result,
+    ...sceneStopFields(data),
+    ...(data.assembly ? { assembly: data.assembly } : {}),
+  });
+  deps.broadcastToUI({
+    type: 'scene-rendered',
+    result: data.result,
+    absPath: data.absPath,
+    sceneKind: data.sceneKind,
+    ...sceneUnitFields(data),
+    ...sceneStopFields(data),
+    breakpointHit: data.breakpointHit,
+    params: data.params,
+    properties: data.properties,
+    objectWarnings: data.objectWarnings,
+    ...(data.assembly ? { assembly: data.assembly } : {}),
+  });
+}
 
 /**
  * The unit chip's two write paths (docs/unit-system-plan.md): a part file
@@ -98,27 +132,7 @@ export function createUnitRouter(deps: UnitRouterDeps): Router {
     // nothing rendered yet just gets the file written.
     const data = await fluidCadServer.recomputeCurrentFile(true);
     if (data) {
-      sendToExtension({
-        type: 'scene-rendered',
-        absPath: data.absPath,
-        sceneKind: data.sceneKind,
-        ...sceneUnitFields(data),
-        result: data.result,
-        ...sceneStopFields(data),
-        ...(data.assembly ? { assembly: data.assembly } : {}),
-      });
-      broadcastToUI({
-        type: 'scene-rendered',
-        result: data.result,
-        absPath: data.absPath,
-        sceneKind: data.sceneKind,
-        ...sceneUnitFields(data),
-        ...sceneStopFields(data),
-        breakpointHit: data.breakpointHit,
-        params: data.params,
-        properties: data.properties,
-        ...(data.assembly ? { assembly: data.assembly } : {}),
-      });
+      broadcastProjectRecompute({ sendToExtension, broadcastToUI }, data);
     }
     res.json({ success: true, unit: canonical, configPath, recomputed: data !== null });
   });

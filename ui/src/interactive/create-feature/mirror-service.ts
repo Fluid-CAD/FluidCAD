@@ -1,5 +1,5 @@
 import {
-  applyMirror, applyMirrorEdit, FeatureEditTarget, fetchFeatureGhostResult, fetchFeatureSources,
+  applyMirror, applyMirrorEdit, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
   GhostPlaneRef, GhostSolid, MirrorApplyOptions, MirrorEditOptions, MirrorEditTargetRef,
   MirrorGhostRequest, ParsedFeatureStatement, RepeatEditPlaneRef, SourceSlotRef,
 } from '../../api';
@@ -653,7 +653,7 @@ export class MirrorFeatureService {
       targets,
       plane,
     };
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, a consumed statement: those just leave the
     // viewport as it was). A superseded fetch says nothing either.

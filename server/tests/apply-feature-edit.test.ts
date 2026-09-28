@@ -1806,7 +1806,7 @@ describe('loft statement templates', () => {
 // In-place statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
 
-import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
+import { parseFeatureStatement, resolveEditedStatementLine, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
 
 const editBase = [
   `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
@@ -4910,7 +4910,7 @@ describe('copy statement templates', () => {
     );
   });
 
-  /** The one place the two kinds spell a skip differently (copy-circular.ts:55). */
+  /** The one place the two kinds spell a skip differently (`CopyLayout.circular`). */
   it('flattens a circular skip list to bare instance indices', async () => {
     const result = await applyFeatureEdit(`${base}\n`, copySpec({
       kind: 'circular',
@@ -5030,9 +5030,11 @@ describe('parseFeatureStatement — copy', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'copy', kind: 'linear', axisTexts: [`'x'`],
+        feature: 'copy', kind: 'linear', axisTexts: [`'x'`], axisRefs: [null],
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
         count: null, sweep: null, center: null, skip: null, targetTexts: ['e'],
+        // Only a copy that follows a repeat names one.
+        patternText: null, patternRef: null,
         // The bound extrude call's own position — the timeline row's location.
         targetRefs: [{ line: 4, column: 10 }],
       },
@@ -5364,6 +5366,453 @@ describe('applyFeatureEdit (copy in-place statement edit)', () => {
     }));
     expect(result.error).toContain('at least one target');
     expect(result.newCode).toBe(code);
+  });
+});
+
+/**
+ * Connector copies from the Copy dialog: a connector target is its
+ * `connector()` statement, bound under the connector's own name as a
+ * `connector` producer, and the statement lands at the end of the part body
+ * the connector lives in — where the kernel copies a part's connectors. A
+ * connector in an axis slot renders as that binding (`.instance(k)` on it
+ * for one of its copies).
+ */
+describe('copy statement templates — connectors', () => {
+  const flange = [
+    `import { part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+    ``,
+    `export const flange = part('Flange', () => {`,
+    `  sketch('xy', () => { circle([0, 0], 100) })`,
+    `  const e = extrude(10)`,
+    `  connector('bolt', e.endFaces()).offset(30, 0, 0)`,
+    `  connector('pivot', e.endFaces())`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** The flange with `statement` appended to the part body, before its closing `})`. */
+  function withStatement(code: string, statement: string): string {
+    return code.replace(/\}\)\n$/, `  ${statement}\n})\n`);
+  }
+
+  const BOLT = { line: 6, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+  const PIVOT = { line: 7, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+
+  function copySpec(
+    copy: NonNullable<ApplyFeatureEditSpec['copy']>,
+    producers: ApplyFeatureEditSpec['producers'],
+  ): ApplyFeatureEditSpec {
+    return { feature: 'copy', copy, filePath: '/ws/flange.part.js', producers, parts: [], imports: [] };
+  }
+
+  const CIRCULAR = { kind: 'circular' as const, count: 6, sweep: { mode: 'angle' as const, value: 360 } };
+
+  it('binds a bare connector under its own name and lands at the end of its part body', async () => {
+    const result = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { copy, part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(10)`,
+      `  const bolt = connector('bolt', e.endFaces()).offset(30, 0, 0)`,
+      `  connector('pivot', e.endFaces())`,
+      `  copy('circular', 'z', { count: 6, angle: 360 }, bolt)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it("reuses a connector's existing binding, whatever it is called", async () => {
+    const code = flange.replace(`  connector('bolt'`, `  const c1 = connector('bolt'`);
+    const result = await applyFeatureEdit(code, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, column: 13 }]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  copy('circular', 'z', { count: 6, angle: 360 }, c1)\n})`);
+    expect(result.newCode).not.toContain('const bolt');
+  });
+
+  it("takes the next free name, or the hint when the connector's name can't be a variable", async () => {
+    // `bolt` already names something in the file — the binding steps aside.
+    const taken = flange.replace(`export const flange`, `const bolt = 1\nexport const flange`);
+    const clash = await applyFeatureEdit(taken, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, line: 7 }]));
+    expect(clash.error).toBeUndefined();
+    expect(clash.newCode).toContain(`  const bolt2 = connector('bolt', e.endFaces())`);
+    expect(clash.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, bolt2)`);
+
+    // `copy` would shadow the very call being written.
+    const shadow = flange.replace(`connector('bolt'`, `connector('copy'`);
+    const fallback = await applyFeatureEdit(shadow, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [BOLT]));
+    expect(fallback.error).toBeUndefined();
+    expect(fallback.newCode).toContain(`  const c = connector('copy', e.endFaces())`);
+    expect(fallback.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, c)`);
+  });
+
+  it('copies solids and connectors in one statement, in pick order', async () => {
+    const result = await applyFeatureEdit(flange, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, [{ line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true }, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  copy('linear', 'x', { count: 3, offset: 40 }, e, bolt)\n})`);
+  });
+
+  it("renders a connector axis as its binding, and a copy's slot on it", async () => {
+    const around = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'connector', producer: 1 }, targets: [{ producer: 0 }],
+    }, [BOLT, PIVOT]));
+    expect(around.error).toBeUndefined();
+    expect(around.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())`);
+    expect(around.newCode).toContain(`  copy('circular', pivot, { count: 6, angle: 360 }, bolt)\n})`);
+
+    const along = await applyFeatureEdit(flange, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'connector', producer: 0, slot: 2 }, count: 2, value: 15 }],
+      targets: [{ producer: 1 }],
+    }, [BOLT, PIVOT]));
+    expect(along.error).toBeUndefined();
+    expect(along.newCode).toContain(`  copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot)\n})`);
+  });
+
+  it('refuses a connector producer whose line holds another call, and a bad axis slot', async () => {
+    const wrongLine = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
+    }, [{ ...BOLT, line: 5 }]));
+    expect(wrongLine.error).toContain('the call at line 5 is extrude(), expected a connector()-producing call');
+    expect(wrongLine.newCode).toBe(flange);
+
+    const badSlot = await applyFeatureEdit(flange, copySpec({
+      ...CIRCULAR, axis: { kind: 'connector', producer: 1, slot: -1 }, targets: [{ producer: 0 }],
+    }, [BOLT, PIVOT]));
+    expect(badSlot.error).toBe('malformed copy edit spec');
+  });
+
+  it('repeat keeps refusing a connector: as a connector producer, or bound as a feature', async () => {
+    const asConnector = await applyFeatureEdit(flange, {
+      feature: 'repeat',
+      repeat: { ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }] },
+      filePath: '/ws/flange.part.js',
+      producers: [BOLT],
+      parts: [],
+      imports: [],
+    });
+    expect(asConnector.error).toBe('malformed repeat edit spec');
+
+    const asFeature = await applyFeatureEdit(flange, {
+      feature: 'repeat',
+      repeat: { ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }] },
+      filePath: '/ws/flange.part.js',
+      producers: [{ ...BOLT, featureType: 'feature' }],
+      parts: [],
+      imports: [],
+    });
+    expect(asFeature.error).toContain('the call at line 6 is connector(), expected a feature()-producing call');
+  });
+
+  /** The flange importing `copy`, as a file holding a copy statement does. */
+  const withCopy = flange.replace(`import { part,`, `import { copy, part,`);
+
+  /** …and with both connectors bound, as a dialog-written copy leaves it. */
+  const bound = withCopy
+    .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`)
+    .replace(`  connector('pivot'`, `  const pivot = connector('pivot'`);
+
+  it('parses connector targets and a connector axis verbatim, each target at its statement', async () => {
+    const result = await parseFeatureStatement(
+      withStatement(bound, `copy('circular', pivot, { count: 6, angle: 360 }, bolt, e)`), 8,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'circular', axisTexts: ['pivot'],
+        // The axis names the pivot connector's statement.
+        axisRefs: [{ line: 7, column: 16 }],
+        count: 6, sweep: { mode: 'angle', value: 360 },
+        targetTexts: ['bolt', 'e'],
+        // The bound calls' own positions — the connector and extrude rows' locations.
+        targetRefs: [{ line: 6, column: 15 }, { line: 5, column: 12 }],
+      },
+    });
+
+    const copyAxis = await parseFeatureStatement(
+      withStatement(bound, `copy('linear', [bolt.instance(2), 'x'], { count: [2, 3], offset: [15, 20] }, pivot)`), 8,
+    );
+    expect(copyAxis).toMatchObject({
+      ok: true,
+      // A copy as the axis names its seed's statement and its slot; a world axis names none.
+      parsed: { axisTexts: ['bolt.instance(2)', `'x'`], axisRefs: [{ line: 6, column: 15, slot: 2 }, null] },
+    });
+  });
+
+  it('keeps connector targets and a connector axis exactly as written through an edit', async () => {
+    const code = withStatement(bound, `copy('circular', bolt.instance(0), { count: 6, angle: 360 }, bolt, pivot)`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 8, column: 2,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'keep', sourceIndex: 0 },
+        count: 8,
+        sweep: { mode: 'angle', value: 360 },
+      },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      withStatement(bound, `copy('circular', bolt.instance(0), { count: 8, angle: 360 }, bolt, pivot)`),
+    );
+  });
+
+  it('re-picks a connector target and a connector axis in an edit, binding each by name', async () => {
+    const code = withStatement(withCopy, `copy('circular', 'z', { count: 6, angle: 360 }, e)`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 8, column: 2,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'connector', producer: 1 },
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, { filePath: '/ws/flange.part.js', producers: [BOLT, PIVOT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      withStatement(bound, `copy('circular', pivot, { count: 6, angle: 360 }, e, bolt)`),
+    );
+  });
+
+  it("previews a connector's own name through the producer namer", async () => {
+    const namer = await makeProducerNamer(flange);
+    expect(namer([
+      { line: 6, nameHint: 'c', featureType: 'connector' },
+      { line: 7, nameHint: 'c', featureType: 'connector' },
+      { line: 5, nameHint: 'f', featureType: 'feature' },
+    ])).toEqual(['bolt', 'pivot', 'e']);
+  });
+});
+
+describe('copy statement templates — following a repeat', () => {
+  const flange = [
+    `import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+    ``,
+    `export const flange = part('Flange', () => {`,
+    `  sketch('xy', () => { circle([0, 0], 200) })`,
+    `  const e = extrude(10)`,
+    `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+    `  const hole = cut()`,
+    `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+    `  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)`,
+    `  connector('bolt', hole.startEdges())`,
+    `  connector('pivot', e.endFaces())`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** `code` with `statement` appended to the part body, before its closing `})`. */
+  function withStatement(code: string, statement: string): string {
+    return code.replace(/\}\)\n$/, `  ${statement}\n})\n`);
+  }
+
+  const HOLES = { line: 8, column: 16, featureType: 'feature', nameHint: 'r', bind: true };
+  const SLOTS = { line: 9, column: 16, featureType: 'feature', nameHint: 'r', bind: true };
+  const BOLT = { line: 10, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+  const PIVOT = { line: 11, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+
+  function followSpec(
+    copy: NonNullable<ApplyFeatureEditSpec['copy']>,
+    producers: ApplyFeatureEditSpec['producers'],
+  ): ApplyFeatureEditSpec {
+    return { feature: 'copy', copy, filePath: '/ws/flange.part.js', producers, parts: [], imports: [] };
+  }
+
+  it('writes copy(<repeat>, <connector>) at the end of the part body, after the repeat and the connector', async () => {
+    const result = await applyFeatureEdit(flange, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }],
+    }, [HOLES, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { copy, part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 200) })`,
+      `  const e = extrude(10)`,
+      `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+      `  const hole = cut()`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)`,
+      `  const bolt = connector('bolt', hole.startEdges())`,
+      `  connector('pivot', e.endFaces())`,
+      `  copy(holes, bolt)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('binds a bare repeat under r, and copies several connectors in pick order', async () => {
+    const bare = flange.replace(`  const holes = repeat(`, `  repeat(`);
+    const result = await applyFeatureEdit(bare, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }, { producer: 2 }],
+    }, [{ ...HOLES, column: 2 }, PIVOT, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const r = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`);
+    expect(result.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())\n  copy(r, pivot, bolt)\n})`);
+  });
+
+  it('lands after both when the connector is declared above the repeat', async () => {
+    const early = [
+      `import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 200) })`,
+      `  const e = extrude(10)`,
+      `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+      `  const hole = cut()`,
+      `  connector('bolt', hole.startEdges())`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  sketch('xz', () => { circle([0, 0], 5) })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(early, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }],
+    }, [{ ...HOLES, line: 9 }, { ...BOLT, line: 8 }]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const bolt = connector('bolt', hole.startEdges())`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  sketch('xz', () => { circle([0, 0], 5) })`,
+      `  copy(holes, bolt)`,
+      `})`,
+    ].join('\n'));
+  });
+
+  it('refuses a pattern that is no feature producer, a solid target, and the other kinds\' options', async () => {
+    const cases: [NonNullable<ApplyFeatureEditSpec['copy']>, ApplyFeatureEditSpec['producers']][] = [
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }] }, [{ ...HOLES, featureType: 'connector' }, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }] }, [HOLES, { ...BOLT, featureType: 'feature' }]],
+      [{ kind: 'pattern', targets: [{ producer: 1 }] }, [HOLES, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 0 }] }, [HOLES, BOLT]],
+      [{
+        kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }], axis: { kind: 'standard', axis: 'z' },
+      }, [HOLES, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }], skip: [[1]] }, [HOLES, BOLT]],
+    ];
+    for (const [copy, producers] of cases) {
+      const result = await applyFeatureEdit(flange, followSpec(copy, producers));
+      expect(result.error).toBe('malformed copy edit spec');
+      expect(result.newCode).toBe(flange);
+    }
+  });
+
+  /** The flange importing `copy`, as a file holding a copy statement does. */
+  const withCopy = flange.replace(`import { part,`, `import { copy, part,`);
+
+  /** …and with both connectors bound, as a dialog-written copy leaves it. */
+  const bound = withCopy
+    .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`)
+    .replace(`  connector('pivot'`, `  const pivot = connector('pivot'`);
+
+  it('parses the follow form: its repeat and connectors verbatim, each at its statement', async () => {
+    const result = await parseFeatureStatement(withStatement(bound, `copy(holes, bolt, pivot)`), 12);
+    expect(result).toMatchObject({
+      ok: true,
+      statement: 'copy(holes, bolt, pivot)',
+      parsed: {
+        feature: 'copy', kind: 'pattern',
+        patternText: 'holes',
+        // The bound repeat call's own position — its timeline row's location.
+        patternRef: { line: 8, column: 16 },
+        axisTexts: [], axisRefs: [],
+        directions: null, count: null, sweep: null, skip: null, centered: false,
+        targetTexts: ['bolt', 'pivot'],
+        targetRefs: [{ line: 10, column: 15 }, { line: 11, column: 16 }],
+      },
+    });
+
+    // A pattern form whose kind is no literal still refuses — it is read by position, not as a repeat.
+    const variableKind = await parseFeatureStatement(
+      withStatement(bound, `copy(kind, 'z', { count: 6, angle: 360 }, bolt)`), 12,
+    );
+    expect(variableKind).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain string literal') });
+  });
+
+  it('keeps the repeat and the connectors exactly as written through an edit', async () => {
+    const code = withStatement(bound, `copy(holes, bolt, pivot)`);
+    for (const copy of [{ kind: 'pattern' as const }, { kind: 'pattern' as const, pattern: { kind: 'keep' as const } }]) {
+      const result = await applyFeatureEdit(code, editSpec('copy', { line: 12, column: 2, copy },
+        { filePath: '/ws/flange.part.js' }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toBe(code);
+    }
+  });
+
+  it('re-picks the repeat and the connectors in an edit — connectors only', async () => {
+    const code = withStatement(withCopy, `copy(holes, bolt)`)
+      .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: {
+        kind: 'pattern',
+        pattern: { kind: 'feature', producer: 0 },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+      },
+    }, { filePath: '/ws/flange.part.js', producers: [SLOTS, PIVOT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(withStatement(bound, `copy(slots, bolt, pivot)`));
+
+    const solid = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'pattern', targets: [{ kind: 'feature', producer: 0 }] },
+    }, { filePath: '/ws/flange.part.js', producers: [{ line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true }] }));
+    expect(solid.error).toBe('a copy along a repeat copies connectors only');
+  });
+
+  it('switches a copy into the follow form and back', async () => {
+    const circular = withStatement(bound, `copy('circular', 'z', { count: 6, angle: 360 }, bolt)`);
+    const follow = await applyFeatureEdit(circular, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'pattern', pattern: { kind: 'feature', producer: 0 } },
+    }, { filePath: '/ws/flange.part.js', producers: [HOLES] }));
+    expect(follow.error).toBeUndefined();
+    expect(follow.newCode).toBe(withStatement(bound, `copy(holes, bolt)`));
+
+    // A statement that follows nothing has no repeat to keep.
+    const kept = await applyFeatureEdit(circular, editSpec('copy', {
+      line: 12, column: 2, copy: { kind: 'pattern' },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(kept.error).toBe('pick the repeat the copy follows');
+
+    const code = withStatement(bound, `copy(holes, bolt)`);
+    const back = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'circular', axis: { kind: 'standard', axis: 'z' }, count: 4, sweep: { mode: 'angle', value: 360 } },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(back.error).toBeUndefined();
+    expect(back.newCode).toBe(withStatement(bound, `copy('circular', 'z', { count: 4, angle: 360 }, bolt)`));
+
+    // …and the follow form has no axis of its own to keep.
+    const keptAxis = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'circular', axis: { kind: 'keep', sourceIndex: 0 }, count: 4, sweep: { mode: 'angle', value: 360 } },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(keptAxis.error).toBe('malformed copy edit spec: a kept axis no longer matches the statement');
+  });
+
+  it("previews the repeat's and the connector's names through the producer namer", async () => {
+    const namer = await makeProducerNamer(flange.replace(`  const holes = repeat(`, `  repeat(`));
+    expect(namer([
+      { line: 8, nameHint: 'r', featureType: 'feature' },
+      { line: 10, nameHint: 'c', featureType: 'connector' },
+    ])).toEqual(['r', 'bolt']);
   });
 });
 
@@ -6377,6 +6826,156 @@ describe('expression values in repeat, plane and value-feature slots', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Value slots resolve names the way JavaScript scoping does: a part body's
+// `param()`s (the only place params live) read exactly like top-level
+// constants, and the innermost declaration of a name wins.
+// ---------------------------------------------------------------------------
+
+describe('value slots bound inside part bodies', () => {
+  /** A part file shaped like the Drawer part: params, then one sketch, then `statements`. */
+  const partWith = (...statements: string[]) => [
+    `import { part, param, sketch, line, region, extrude, cut, fillet, revolve, repeat, select } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    `import { inch } from 'fluidcad/units'`,
+    ``,
+    `export const drawer = part('Drawer', () => {`,
+    `  const depth = param("depth", 50);`,
+    `  const height = param('Height', 250);`,
+    `  const finish = param('Finish', '#e6e8eb', 'color');`,
+    `  const s = sketch('xz', () => {`,
+    `    const l1 = line([-200, 0], [200, 0]);`,
+    `    region('r1', l1);`,
+    `  }).close();`,
+    ...statements.map(statement => `  ${statement}`),
+    `});`,
+    ``,
+  ].join('\n');
+  // The first statement lands on line 13.
+  const LINE = 13;
+
+  it("reads a param() distance as a distance, not an up-to-face target (the Drawer's extrude)", async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(depth, s).region('r1');`), LINE);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: 'depth', distance2: null, symmetric: false,
+        draft: null, endOffset: null, drill: true, thin: null, profileText: 's',
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: ['r1'],
+      },
+      statement: `extrude(depth, s).region('r1')`,
+    });
+  });
+
+  it('reads a lone param() distance instead of refusing it', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(height);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'add', distance: 'height', profileText: null, toFaceText: null },
+    });
+  });
+
+  it('reads a param() cut depth as a blind cut, not a through-all cut of a profile', async () => {
+    const result = await parseFeatureStatement(partWith(`cut(depth);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'remove', distance: 'depth', profileText: null, toFaceText: null },
+    });
+  });
+
+  it('reads a two-distance extrude over params and arithmetic', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(depth, height / 2, s);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'depth', distance2: 'height / 2', profileText: 's' },
+    });
+  });
+
+  it('reads a unit-helper distance as a distance', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(inch(1), s);`), LINE);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'inch(1)', profileText: 's', toFaceText: null, toFaceKind: null },
+    });
+  });
+
+  it('still reads a face bound in the part body as the up-to-face target', async () => {
+    const result = await parseFeatureStatement(partWith(
+      `const stop = select(face().onPlane('xy', 100));`,
+      `extrude(stop, s);`,
+    ), LINE + 1);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: null, toFaceText: 'stop', toFaceKind: 'selector', profileText: 's' },
+    });
+  });
+
+  it('lets a part-body face shadow a top-level number of the same name', async () => {
+    const code = partWith(
+      `const depth2 = select(face().onPlane('xy', 100));`,
+      `extrude(depth2, s);`,
+    ).replace(`export const drawer`, `const depth2 = 30;\nexport const drawer`);
+    const result = await parseFeatureStatement(code, LINE + 2);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: null, toFaceText: 'depth2', toFaceKind: 'selector' },
+    });
+  });
+
+  it('reads a param() fillet radius and revolve angle', async () => {
+    const withEdge = partWith(`const e = extrude(depth, s);`, `fillet(height, e.endEdges());`);
+    expect(await parseFeatureStatement(withEdge, LINE + 1)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'fillet', value: 'height', argsText: 'e.endEdges()' },
+    });
+    const revolved = partWith(`revolve('z', height, s);`);
+    expect(await parseFeatureStatement(revolved, LINE)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 'height', axisText: `'z'`, profileText: 's' },
+    });
+  });
+
+  it('reads a param() rotate-repeat angle before its targets', async () => {
+    const code = partWith(`const e = extrude(depth, s);`, `repeat('rotate', 'z', height, e);`);
+    expect(await parseFeatureStatement(code, LINE + 1)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', angle: 'height', targetTexts: ['e'] },
+    });
+  });
+
+  it('does not read a color param() as a distance', async () => {
+    const result = await parseFeatureStatement(partWith(`extrude(finish);`), LINE);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('edits the param() extrude in place, keeping the param reference', async () => {
+    const code = partWith(`extrude(depth, s).region('r1');`);
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: LINE, column: 2,
+      expectedStatement: `extrude(depth, s).region('r1')`,
+      extrude: extrudeEditOptions({ distance: 'depth', draft: 2 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  extrude(depth, s).region('r1').draft(2);\n`);
+  });
+
+  it('edits a param() cut in place without re-reading the depth as its profile', async () => {
+    const code = partWith(`cut(depth);`);
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: LINE, column: 2,
+      expectedStatement: `cut(depth)`,
+      extrude: extrudeEditOptions({ op: 'remove', distance: 'depth', draft: 2 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  cut(depth).draft(2);\n`);
+  });
+
+  it('heals a drifted edit line to the param() extrude by its text', async () => {
+    const code = partWith(`breakpoint();`, `extrude(depth, s).region('r1');`);
+    expect(await resolveEditedStatementLine(code, LINE, `extrude(depth, s).region('r1')`)).toBe(LINE + 1);
+  });
+});
+
 describe('project into a sketch body', () => {
   const base = [
     `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
@@ -7053,6 +7652,30 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
         { kind: 'accessor', line: 4, args: [3] },
       ],
       feature: 'offset',
+    });
+  });
+
+  it("reads a part body's param() as the offset distance, never as a target", async () => {
+    const code = [
+      `import { part, param, sketch, circle, offset } from 'fluidcad/core'`,
+      ``,
+      `part('Plate', () => {`,
+      `  const gap = param('Gap', 2)`,
+      `  sketch('xy', () => {`,
+      `    const c = circle(10)`,
+      `    offset(gap, c)`,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n');
+    expect(await parseOffsetTargetDescriptors(code, 7)).toEqual({
+      ok: true,
+      descriptors: [{ kind: 'owner', line: 6 }],
+      feature: 'offset',
+    });
+    expect(await parseFeatureStatement(code, 7)).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: 'gap', argsText: 'c' },
     });
   });
 
@@ -8589,5 +9212,273 @@ describe('active part insertion', () => {
     const result = await applyFeatureEdit(code, partSketchSpec(4));
     expect(result.error).toContain('no part() call found at line 4');
     expect(result.newCode).toBe(code);
+  });
+});
+
+describe('active part insertion — inputs declared at the top level', () => {
+  const extrudeOptions: NonNullable<ApplyFeatureEditSpec['extrude']> = {
+    op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, endOffset: null,
+    drill: true, thin: null, profile: 'bound',
+  };
+  const sketchProducer = (line: number, bind = true) =>
+    ({ line, column: 0, featureType: 'sketch', nameHint: 's', bind });
+  const extrudeSpec = (profileLine: number, partLine: number, overrides: Partial<ApplyFeatureEditSpec> = {}) => spec({
+    feature: 'extrude', value: undefined, extrude: extrudeOptions,
+    producers: [sketchProducer(profileLine)], parts: [],
+    activePart: { line: partLine, column: 0 },
+    ...overrides,
+  });
+
+  it('extrudes a sketch drawn before the part inside the empty part the Part tool wrote', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { extrude, part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      `  extrude(25, s)`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('revolves a top-level sketch around a top-level axis at the end of the part body', async () => {
+    const code = [
+      `import { part, sketch, axis, circle, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xz', () => { circle([80, 0], 40) })`,
+      `axis('y', { offsetZ: 290 })`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'revolve', value: undefined,
+      revolve: {
+        op: 'add', angle: 90, symmetric: false, thin: null, profile: 'bound',
+        axis: { kind: 'axis', producer: 1 },
+      },
+      producers: [sketchProducer(3), { line: 4, column: 0, featureType: 'axis', nameHint: 'a', bind: true }],
+      parts: [],
+      activePart: { line: 6, column: 0 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const a = axis('y', { offsetZ: 290 })`);
+    expect(result.newCode).toContain(`  extrude(30)\n  revolve(a, 90, s)\n})`);
+  });
+
+  it('opens a sketch on a top-level plane inside the part body', async () => {
+    const code = [
+      `import { part, sketch, plane } from 'fluidcad/core'`,
+      ``,
+      `plane('xy', 20)`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch', value: undefined, sketchOnPlane: true,
+      producers: [{ line: 3, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
+      parts: [],
+      activePart: { line: 5, column: 0 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part, sketch, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('xy', 20)`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch(p, () => {`,
+      ``,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('follows the part a region pick shifted, declaring the region in the top-level sketch', async () => {
+    const code = [
+      `import { sketch, circle, part } from 'fluidcad/core';`,
+      ``,
+      `const s = sketch('xy', () => {`,
+      `  const a = circle([-20, 0], 80);`,
+      `  circle([20, 0], 80);`,
+      `});`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `});`,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 8, {
+      extrude: {
+        ...extrudeOptions,
+        regionPicks: [{ items: [{ line: 4, callee: 'circle', far: false }, { line: 5, callee: 'circle', far: false }] }],
+        regionSketch: { line: 3, column: 10 },
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  region('r1', a, c1);\n});`);
+    expect(result.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(25, s).region('r1');\n`);
+  });
+
+  it('keeps a feature on a top-level solid beside it — the kernel resolves the picked edges in its own scope', async () => {
+    const code = [
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({ activePart: { line: 6, column: 0 } }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\nfillet(3, e.endEdges(2))\n`);
+  });
+
+  it('keeps an implicit-profile extrude beside its sketch — the part would consume its own last sketch', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5, {
+      extrude: { ...extrudeOptions, profile: 'implicit' },
+      producers: [sketchProducer(3, false)],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\nextrude(25)\n`);
+  });
+
+  it('keeps the statement at the top level when the sketch is declared below the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(5, 3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Body', () => {})\n`);
+    expect(result.newCode).toContain(`const s = sketch('xy', () => { ellipse(100, 50) })\nextrude(25, s)\n`);
+  });
+
+  it('lands in the part a sketch was drawn in, whichever part is active', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('A', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `})`,
+      ``,
+      `part('B', () => {`,
+      `  sketch('xy', () => { circle(10) })`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(4, 7));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const s = sketch('xy', () => { ellipse(100, 50) })\n  extrude(25, s)\n})`);
+    expect(result.newCode).toContain(`  extrude(5)\n})`);
+  });
+
+  it('joins a top-level profile with a face picked inside the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xz', () => { circle(10) })`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 5, {
+      extrude: { ...extrudeOptions, toFace: 'selector', distance: null },
+      producers: [sketchProducer(3), { line: 7, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const e = extrude(30)\n  extrude(e.endFaces(), s)\n})`);
+  });
+
+  it('refuses a top-level profile declared below the part holding the picked face', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(8, 3, {
+      extrude: { ...extrudeOptions, toFace: 'selector', distance: null },
+      producers: [sketchProducer(8), { line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toContain('the input at line 8 is declared below line 3');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale active part rather than guessing a home', async () => {
+    const code = [
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, extrudeSpec(3, 4));
+    expect(result.error).toContain('no part() call found at line 4');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('re-sources a part-body extrude to another sketch drawn before the part', async () => {
+    const code = [
+      `import { part, sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+      `part('Body', () => {`,
+      `  extrude(30, s)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 7, column: 2,
+      extrude: extrudeEditOptions({ distance: 30, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(4)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const s2 = sketch('xz', () => { circle(10) })`);
+    expect(result.newCode).toContain(`part('Body', () => {\n  extrude(30, s2)\n})`);
   });
 });

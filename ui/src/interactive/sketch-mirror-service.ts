@@ -591,7 +591,8 @@ export class SketchMirrorService {
     }
     let solids: GhostSolid[] | null;
     try {
-      solids = await fetchFeatureGhost(request, signal);
+      // A reflection carries no values, so there are no names to scope.
+      solids = await fetchFeatureGhost(request, null, signal);
     } catch {
       return; // aborted
     }

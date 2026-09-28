@@ -1,6 +1,6 @@
 import type { CatalogParamDef, CatalogParamExpr, CatalogParamValue, NewVariable } from '../api';
 import type { VariableInfo } from './expression-core';
-import { collectNewVariables, ExpressionField } from './expression-field';
+import { collectNewVariablesChecked, ExpressionField } from './expression-field';
 
 type ControlHandle = {
   element: HTMLElement;
@@ -9,7 +9,7 @@ type ControlHandle = {
 };
 
 /**
- * Expression mode (the Edit-parameters dialog): `seeds` carries the exact
+ * Expression mode (Insert and Edit Parameters): `seeds` carries the exact
  * source text of the insert()'s non-literal entries by label — those rows
  * render as expression fields showing the expression instead of its resolved
  * value, whatever their declared control — and every number-typed row
@@ -49,6 +49,7 @@ export class ParamForm {
   onSubmit?: () => void;
   private readonly values = new Map<string, CatalogParamValue>();
   private readonly resets = new Set<string>();
+  private readonly literalOverrides = new Set<string>();
   private readonly resettable: boolean;
   private readonly expressions: ParamFormExpressions | null;
   private readonly exprRows = new Map<string, ExprRow>();
@@ -92,7 +93,7 @@ export class ParamForm {
         continue;
       }
       const value = this.values.get(def.label)!;
-      if (!sameValue(value, def.currentValue)) {
+      if (this.literalOverrides.has(def.label) || !sameValue(value, def.currentValue)) {
         out[def.label] = value;
       }
     }
@@ -100,7 +101,7 @@ export class ParamForm {
   }
 
   /**
-   * The edit dialog's full commit read: control-row diffs (as
+   * The dialogs' full commit read: control-row diffs (as
    * `nonDefaultValues`) plus each changed expression field's parse — plain
    * numbers post as numbers, anything else as a verbatim `{ expr }`, with
    * any declarations the fields introduced (`myVar = 120`) collected
@@ -134,8 +135,8 @@ export class ParamForm {
       }
       reads.push(read);
     }
-    const newVariables = collectNewVariables(reads);
-    return newVariables ? { set, newVariables } : { set };
+    const declarations = collectNewVariablesChecked(reads);
+    return 'error' in declarations ? declarations : { set, ...declarations };
   }
 
   /** Labels whose ↺ was clicked and not overridden since — the dialog's `unset` list. */
@@ -191,17 +192,67 @@ export class ParamForm {
   }
 
   private buildControl(def: CatalogParamDef): ControlHandle {
-    const type = effectiveControlType(def);
-    if (this.expressions) {
-      const seed = this.expressions.seeds[def.label];
-      if (seed !== undefined) {
-        // A source expression wins the slot, whatever the declared control.
-        return this.buildExpressionControl(def, seed);
-      }
-      if (type === 'number') {
-        return this.buildExpressionControl(def, String(def.currentValue));
-      }
+    if (!this.expressions) return this.buildLiteralControl(def);
+    const seed = this.expressions.seeds[def.label];
+    if (effectiveControlType(def) === 'number') {
+      return this.buildExpressionControl(def, seed ?? String(def.currentValue));
     }
+
+    // Keep sliders, toggles and option controls available, while allowing any
+    // parameter type to reference an assembly variable without quoting it.
+    const wrap = document.createElement('div');
+    wrap.className = 'flex items-center gap-2';
+    const host = document.createElement('div');
+    host.className = 'flex-1 min-w-0';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'btn btn-ghost btn-xs font-mono';
+    toggle.textContent = 'fx';
+    toggle.title = 'Use an expression';
+    toggle.setAttribute('aria-label', `Use an expression for ${def.label}`);
+    let expression = seed !== undefined;
+    let expressionText = seed ?? JSON.stringify(def.currentValue);
+    let control: ControlHandle;
+    const render = () => {
+      control = expression
+        ? this.buildExpressionControl(def, expressionText)
+        : this.buildLiteralControl({ ...def, currentValue: this.values.get(def.label)! });
+      host.replaceChildren(control.element);
+      toggle.setAttribute('aria-pressed', String(expression));
+      toggle.classList.toggle('text-primary', expression);
+    };
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      const current = this.exprRows.get(def.label);
+      if (current) {
+        expressionText = current.input.value;
+        current.field.destroy();
+        this.exprRows.delete(def.label);
+      }
+      expression = !expression;
+      this.resets.delete(def.label);
+      if (!expression && seed !== undefined) this.literalOverrides.add(def.label);
+      render();
+    });
+    render();
+    wrap.append(host, toggle);
+    return {
+      element: wrap,
+      setValue: value => {
+        if (expression) {
+          this.exprRows.get(def.label)?.field.destroy();
+          this.exprRows.delete(def.label);
+          expression = false;
+          expressionText = JSON.stringify(value);
+          render();
+        }
+        control.setValue(value);
+      },
+    };
+  }
+
+  private buildLiteralControl(def: CatalogParamDef): ControlHandle {
+    const type = effectiveControlType(def);
     switch (type) {
       case 'slider': {
         const wrap = document.createElement('div');
@@ -300,15 +351,18 @@ export class ParamForm {
   private buildExpressionControl(def: CatalogParamDef, seedText: string): ControlHandle {
     const input = document.createElement('input');
     input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
-    input.value = seedText;
+    const baseline = this.expressions!.seeds[def.label] ?? JSON.stringify(def.currentValue);
+    input.value = baseline;
     const field = new ExpressionField(input);
+    field.setValue(baseline);
+    input.value = seedText;
     field.setVariables(this.expressions!.variables);
     field.onSubmit = () => this.onSubmit?.();
     // Typing un-marks a pending reset, like set() does for plain rows.
     input.addEventListener('input', () => {
       this.resets.delete(def.label);
     });
-    this.exprRows.set(def.label, { field, input, baseline: seedText });
+    this.exprRows.set(def.label, { field, input, baseline });
     return {
       element: input,
       setValue: (v) => {

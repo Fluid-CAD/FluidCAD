@@ -38,6 +38,11 @@ export class RepeatLinear extends RepeatBase {
     this.saveShapesSnapshot(context);
   }
 
+  protected override connectorCopyAdvice(name: string): string {
+    const axes = this.axes.length > 1 ? "axes" : "axis";
+    return `copy('linear', ${axes}, options, ${name}), or copy(<this repeat>, ${name}) to follow it`;
+  }
+
   compareTo(other: RepeatLinear): boolean {
     if (!(other instanceof RepeatLinear)) {
       return false;

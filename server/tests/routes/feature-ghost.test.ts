@@ -19,7 +19,8 @@ const FILE = '/ws/m.fluid.js';
 
 const fakeServer = {
   getCurrentCode: () => code,
-  getParamDefinitions: () => [],
+  getCurrentFileName: () => FILE,
+  getParamDefinitions: () => [] as unknown[],
   featureGhost: async (request: unknown) => {
     received = request;
     return { status: 200, solids: [] };
@@ -310,6 +311,14 @@ describe('feature-ghost route — repeat', () => {
     }
   });
 
+  it('refuses a connector axis — only the copy takes one', async () => {
+    const result = await postGhost(linearBody({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }],
+    }));
+    expect(result.status).toBe(400);
+    expect(received).toBeUndefined();
+  });
+
   it('passes a circular repeat with its count and sweep', async () => {
     await postGhost(linearBody({
       kind: 'circular',
@@ -498,6 +507,91 @@ describe('feature-ghost route — copy', () => {
 
     expect(received.count).toBe(6);
     expect(received.sweep).toEqual({ mode: 'offset', value: 60 });
+  });
+
+  /**
+   * Connector copies: a connector target is a call site like any other, and
+   * a connector axis — with a copy's slot — crosses as it stands; the frames
+   * the kernel places ride back beside the solids.
+   */
+  it('passes a connector axis through and answers with the frames the kernel placed', async () => {
+    const frame = {
+      origin: { x: 0, y: 30, z: 10 },
+      xDirection: { x: 0, y: 1, z: 0 },
+      yDirection: { x: -1, y: 0, z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    };
+    const previous = fakeServer.featureGhost;
+    fakeServer.featureGhost = async (request: unknown) => {
+      received = request;
+      return { status: 200, solids: [], frames: [frame] } as never;
+    };
+    try {
+      const { status, body } = await postGhost(copyBody({
+        kind: 'circular',
+        axes: [{ kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+        directions: [],
+        count: 4,
+        sweep: { mode: 'angle', value: 360 },
+      }));
+      expect(status).toBe(200);
+      expect(body).toEqual({ success: true, solids: [], frames: [frame] });
+      expect(received.axes).toEqual([{ kind: 'connector', filePath: FILE, line: 5, slot: 2 }]);
+
+      await postGhost(copyBody({ axes: [{ kind: 'connector', filePath: FILE, line: 5 }] }));
+      expect(received.axes).toEqual([{ kind: 'connector', filePath: FILE, line: 5 }]);
+    } finally {
+      fakeServer.featureGhost = previous;
+    }
+  });
+
+  it('refuses a connector axis with no call site or a slot that is not a whole index', async () => {
+    for (const axis of [
+      { kind: 'connector', line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: -1 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 1.5 },
+    ]) {
+      const result = await postGhost(copyBody({ axes: [axis] }));
+      expect(result.status, JSON.stringify(axis)).toBe(400);
+    }
+    expect(received).toBeUndefined();
+  });
+
+  /**
+   * The follow form, "Along a repeat": the connectors and the repeat they
+   * follow cross by call site, and nothing else rides — the kernel reads the
+   * instances off the repeat.
+   */
+  it('passes a copy along a repeat through as the repeat it follows', async () => {
+    const { status } = await postGhost({
+      feature: 'copy', kind: 'pattern',
+      targets: [{ filePath: FILE, line: 9 }],
+      pattern: { filePath: FILE, line: 8 },
+    });
+
+    expect(status).toBe(200);
+    expect(received).toEqual({
+      feature: 'copy', kind: 'pattern',
+      targets: [{ filePath: FILE, line: 9 }],
+      axes: [], directions: [], centered: false, count: null, sweep: null, skip: [],
+      pattern: { filePath: FILE, line: 8 },
+    });
+  });
+
+  it("refuses a copy along a repeat with no repeat, or with the other kinds' fields", async () => {
+    const base = { feature: 'copy', kind: 'pattern', targets: [{ filePath: FILE, line: 9 }], pattern: { filePath: FILE, line: 8 } };
+    for (const body of [
+      { ...base, pattern: undefined },
+      { ...base, pattern: { line: 8 } },
+      { ...base, targets: [] },
+      { ...base, axes: [{ kind: 'standard', axis: 'z' }] },
+      { ...base, count: 6 },
+      { ...base, centered: true },
+    ]) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(received).toBeUndefined();
   });
 
   it('refuses a body no kind accepts', async () => {
@@ -1042,5 +1136,88 @@ describe('feature-ghost route — region picks', () => {
       body: JSON.stringify({ picks: [] }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * Since `param()` went part-only, a model's dimensions live in part bodies.
+ * The request's `valueScope` says where the dialog's statement sits, and
+ * every value resolves its names there — before it, only the file's top
+ * level was read, and a dialog naming a part's `depth` drew no ghost.
+ */
+describe('feature-ghost route — value scope', () => {
+  useGhostRoute();
+
+  const PART = [
+    `import { part, param, sketch, extrude, offset } from 'fluidcad/core';`,
+    `const depth = 30;`,
+    `export const drawer = part('Drawer', () => {`,
+    `  const depth = param('depth', 500);`,
+    `  const thickness = param('Thickness', 18);`,
+    `  const s = sketch('xz', () => {`,
+    `    const wall = depth / 100;`,
+    `    offset(wall);`,
+    `  });`,
+    `  extrude(-depth + thickness, s);`,
+    `});`,
+  ].join('\n');
+
+  const extrudeBody = (distance: unknown, valueScope?: unknown) => ({
+    feature: 'extrude', op: 'add', distance, distance2: null, symmetric: false, draft: null,
+    endOffset: null, drill: true, thin: null, profile: { filePath: FILE, line: 6 }, valueScope,
+  });
+
+  it("resolves a part body's param at the edited statement", async () => {
+    code = PART;
+    const { status } = await postGhost(extrudeBody('-depth + thickness', {
+      kind: 'statement', filePath: FILE, line: 10, column: 3,
+    }));
+    expect(status).toBe(200);
+    expect(received.distance).toBe(-482);
+  });
+
+  it('resolves where a created statement lands in the active part', async () => {
+    code = PART;
+    await postGhost(extrudeBody('depth', { kind: 'append', filePath: FILE, line: 3, column: 22 }));
+    expect(received.distance).toBe(500);
+  });
+
+  it("resolves a created sketch op's names in the sketch it lands in", async () => {
+    code = PART;
+    await postGhost({
+      feature: 'offset', distance: 'wall', close: false, entities: [{ shapeId: 'e1' }],
+      valueScope: { kind: 'append', filePath: FILE, line: 6, column: 13 },
+    });
+    expect(received.distance).toBe(5);
+  });
+
+  it("reads the value the last render gave the param's own call site", async () => {
+    code = PART;
+    const previous = fakeServer.getParamDefinitions;
+    fakeServer.getParamDefinitions = () => [
+      { label: 'depth', currentValue: 600, sourceLocation: { filePath: FILE, line: 4, column: 17 } },
+    ];
+    try {
+      await postGhost(extrudeBody('depth', { kind: 'statement', filePath: FILE, line: 10, column: 3 }));
+      expect(received.distance).toBe(600);
+    } finally {
+      fakeServer.getParamDefinitions = previous;
+    }
+  });
+
+  it('keeps reading the top level for a request without a scope', async () => {
+    code = PART;
+    await postGhost(extrudeBody('depth'));
+    expect(received.distance).toBe(30);
+  });
+
+  it('refuses a malformed scope rather than guessing one', async () => {
+    code = PART;
+    for (const valueScope of ['line 10', { kind: 'here', filePath: FILE, line: 10, column: 3 }, { kind: 'statement', filePath: FILE, line: 0, column: 3 }]) {
+      const { status, body } = await postGhost(extrudeBody('depth', valueScope));
+      expect(status, JSON.stringify(valueScope)).toBe(400);
+      expect(body).toEqual({ success: false, reason: 'Invalid value scope' });
+    }
+    expect(received).toBeUndefined();
   });
 });

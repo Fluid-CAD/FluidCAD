@@ -27,7 +27,7 @@ repeat("linear", "x", { count: 4, offset: 40 }, c)
 
 1. Click **Repeat** on the toolbar. The Repeat dialog docks on the right.
 2. Pick the kind: **Linear**, **Circular**, **Mirror** or **Rotate**.
-3. Click the features to repeat — their rows in the timeline, or their geometry in the viewport. They fill the **Features** slot as chips; several features repeat together.
+3. Click the features to repeat — their rows in the timeline, or their geometry in the viewport. They fill the **Features** slot as chips; several features repeat together. A connector is not a feature: the slot refuses one and points to Copy, which lays a connector on every instance of the repeat ([Copying connectors](/docs/patterns/copy#copying-connectors)).
 4. **Linear**: fill the **Direction 1** axis (click a world axis shown in the viewport, an `axis()` feature, or an edge), the **Total Count** and the spacing (**Offset** between neighbours, or **Total** span). **Add second direction** makes a grid. **Circular** and **Rotate** take one **Axis** (empty defaults to world Z) and an **Angle**; **Mirror** swaps the axis for a **Plane** slot (an origin-plane quad, a plane feature, or a face).
 5. **Centered** and **Skip** as in the Copy dialog.
 6. Click **Apply**. The timeline gains a Repeat row after the repeated features.
@@ -59,6 +59,8 @@ Use `length` when the overall size is known, `offset` when the pitch is.
 <ExplainedCode code={patternCircular} fileName="flange.part.js" />
 
 Options: `count`, `angle` (the whole sweep), `offset` (degrees between neighbours, instead of `angle`), `centered`, `skip` (a flat list of indices, `[2, 4]`).
+
+A full turn (`angle: 360`) steps `angle / count`: six instances 60° apart. Any other angle steps `angle / (count - 1)`, so the last instance lands on the angle: `count: 4, angle: 90` gives 0°, 30°, 60° and 90°. A [circular copy](/docs/patterns/copy#circular-copy) always steps `angle / count`.
 
 ## Mirror repeat
 

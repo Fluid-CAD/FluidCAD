@@ -241,3 +241,30 @@ describe('fingerprint-validated render cache', () => {
     expect(ranSince(runs)).toEqual([other]);
   });
 });
+
+describe('render stop', () => {
+  it('reports a pause inside a part as that part\'s row, and a cache hit restores it', async () => {
+    let stop: { stop: number; scopePartId: string | null } = { stop: 0, scopePartId: 'part-1' };
+    server.setSceneManager({ ...fakeSceneManager(), renderStop: () => stop } as any);
+
+    const paused = await server.processFile(part);
+    expect(paused?.rollbackStop).toBe(0);
+    expect(paused?.rollbackScopePartId).toBe('part-1');
+
+    stop = { stop: 0, scopePartId: null };
+    const plain = await server.processFile(other);
+    expect(plain?.rollbackScopePartId).toBeUndefined();
+    expect(server.getSceneSummary()?.rollbackScopePartId).toBeUndefined();
+
+    const runs = host.runs.length;
+    await server.processFile(part);
+    expect(ranSince(runs)).toEqual([]);
+    expect(server.getSceneSummary()?.rollbackScopePartId).toBe('part-1');
+  });
+
+  it('falls back to the last row, unscoped, on a manager without one', async () => {
+    const data = await server.processFile(part);
+    expect(data?.rollbackStop).toBe(0);
+    expect(data?.rollbackScopePartId).toBeUndefined();
+  });
+});

@@ -29,7 +29,7 @@ The History panel folds the two under a *2 connectors* row at the bottom of the 
 
 <ExplainedCode code={fixedLeaf} fileName="hinge-leaf-fixed.part.js" />
 
-Each `connector()` statement names its anchor by the geometry it came from: the knuckle extrude's start edges, filtered to the round ones, then `.center()`. The `pin` connector adds `.offset(0, 0, 24)`, which is the dialog's Offset field, measured along the frame's own axes. Because the anchor is derived from geometry, both frames move with the part when a dimension changes; the repeated knuckles cannot be anchored directly, which is why the tube's end is reached with an offset from the original.
+Each `connector()` statement names its anchor by the geometry it came from: the knuckle extrude's start edges, filtered to the round ones, then `.center()`. The `pin` connector adds `.offset(0, 0, 24)`, which is the dialog's Offset field, measured along the frame's own axes. Because the anchor is derived from geometry, both frames move with the part when a dimension changes. The 24 mm offset is the knuckle spacing typed a second time, though: if the Repeat's spacing changes, `pin` stays 24 mm out. The repeated knuckles can be anchored too — hover the front knuckle's round edge and the statement reaches it through the repeat's `instance(0)` — which keeps `pin` at the tube's end whatever the spacing.
 
 :::note
 `connector()` must be called directly in the `part()` body, and a connector's name must be unique within its part. Connectors are the part's mating interface: an assembly refers to them as `instance.connectors.pin`.

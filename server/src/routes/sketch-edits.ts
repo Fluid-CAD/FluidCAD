@@ -21,6 +21,7 @@ import {
   getDimensionExpression,
   getPointExpression,
   extractVariablesInPart,
+  extractVariablesInAssembly,
   extractVariablesInScope,
   type VariableInfo,
 } from '../code-editor/index.ts';
@@ -304,7 +305,7 @@ export function createSketchEditsRouter(
     // is appended to the active part's body when `part` names one (its
     // statement line) — the scope is then that body, `param()`s included —
     // and after the file's last line otherwise.
-    const { sketchSourceLine, part } = req.body;
+    const { sketchSourceLine, part, assembly } = req.body;
     if (sketchSourceLine !== undefined && sketchSourceLine !== null
       && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
@@ -325,6 +326,8 @@ export function createSketchEditsRouter(
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
         variables = await extractVariablesInScope(code, sketchSourceLine);
+      } else if (assembly === true) {
+        variables = await extractVariablesInAssembly(code);
       } else if (typeof partLine === 'number') {
         variables = await extractVariablesInPart(code, partLine);
       } else {

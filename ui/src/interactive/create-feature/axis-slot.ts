@@ -1,4 +1,5 @@
 import { AxisOption } from './axis-options';
+import { ConnectorOption, ConnectorOptions } from './connector-options';
 import { keepChip, sourceChip } from './sketch-profiles';
 import { consumedReveal } from './consumed-reveal';
 import { PickSlot } from '../pick-slot';
@@ -22,6 +23,13 @@ export type AxisSelection =
   | { kind: 'keep' };
 
 /**
+ * A connector standing in for an axis — its Z axis through its origin. Only
+ * a slot whose dialog takes one holds it (the Copy dialog's): see
+ * {@link AxisSlotControl}'s type parameter.
+ */
+export type ConnectorAxisSelection = { kind: 'connector'; option: ConnectorOption };
+
+/**
  * The axis picker every axis-consuming dialog shares: a single-chip PickSlot
  * owning the {@link AxisSelection} state machine — rendering the chip per
  * state, re-matching an axis-statement choice after re-renders,
@@ -31,8 +39,14 @@ export type AxisSelection =
  * world axes shown while the slot is armed, an axis statement's line, or a
  * solid edge. The panel owns arming policy and the service owns scene data
  * and the edge entity.
+ *
+ * A dialog that also takes a connector as its axis builds the slot as
+ * `AxisSlotControl<ConnectorAxisSelection>`: the slot then holds a
+ * connector too (a gizmo pick or a connector row), re-found after renders
+ * by its site like an axis statement. Every other slot's selection type
+ * never mentions one.
  */
-export class AxisSlotControl {
+export class AxisSlotControl<Extra extends ConnectorAxisSelection = never> {
   /** The slot was clicked — the panel arms this slot. */
   onArm?: () => void;
   /** A gesture changed the selection (the chip's ✕). */
@@ -41,7 +55,7 @@ export class AxisSlotControl {
   onModeChange?: () => void;
 
   private readonly slot: PickSlot;
-  private state: AxisSelection | null = null;
+  private state: AxisSelection | Extra | null = null;
   /** The edited statement's own axis text; null in create mode. */
   private keepLabel: string | null = null;
   /** The picked-edge chip label the service pushed. */
@@ -83,7 +97,7 @@ export class AxisSlotControl {
     this.render();
   }
 
-  get selection(): AxisSelection | null {
+  get selection(): AxisSelection | Extra | null {
     return this.state;
   }
 
@@ -140,6 +154,30 @@ export class AxisSlotControl {
   /** An axis picked in 3D or the timeline; no events fire. */
   selectOption(option: AxisOption): void {
     this.state = { kind: 'axis', option };
+    this.render();
+  }
+
+  /**
+   * A connector picked as the axis — a gizmo, or a connector row. Only a
+   * connector-taking slot has it. No events fire.
+   */
+  selectConnector(this: AxisSlotControl<ConnectorAxisSelection>, option: ConnectorOption): void {
+    this.state = { kind: 'connector', option };
+    this.render();
+  }
+
+  /**
+   * Re-find a held connector after a render, by its site (its id changed
+   * with the render); one the scene no longer holds falls back like a
+   * vanished axis statement. Every other state is left alone.
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    const state = this.state;
+    if (state?.kind !== 'connector') {
+      return;
+    }
+    const match = ConnectorOptions.forSite(state.option, connectors);
+    this.state = match ? { kind: 'connector', option: match } as Extra : this.fallbackState();
     this.render();
   }
 
@@ -207,6 +245,9 @@ export class AxisSlotControl {
       this.slot.setPrompt(null);
     } else if (state?.kind === 'edge') {
       this.slot.setChips([{ label: this.edgeLabel ?? 'Picked edge', badge: '●', removable: true }]);
+      this.slot.setPrompt(null);
+    } else if (state?.kind === 'connector') {
+      this.slot.setChips([ConnectorOptions.chip(state.option, { badge: '●', removable: true })]);
       this.slot.setPrompt(null);
     } else {
       this.slot.setChips([]);

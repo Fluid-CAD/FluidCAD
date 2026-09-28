@@ -14,6 +14,14 @@ export interface PlaneLazySource {
   compareTo?(other: unknown): boolean;
 }
 
+/**
+ * A pattern whose slots something else lands on — e.g. a `repeat()` a
+ * `copy(pattern, …)` follows. Compared structurally, before any render.
+ */
+export interface SlotMatrixSource {
+  compareTo(other: unknown): boolean;
+}
+
 function isAxisLazySource(a: Axis | AxisLazySource): a is AxisLazySource {
   return typeof (a as AxisLazySource).getAxis === "function";
 }
@@ -31,6 +39,8 @@ type Identity =
   | { kind: "rotation"; axis: Axis | AxisLazySource; angle: number }
   | { kind: "translation"; axis: Axis | AxisLazySource; distance: number }
   | { kind: "mirror"; plane: Plane | PlaneLazySource }
+  | { kind: "product"; factors: LazyMatrix[] }
+  | { kind: "slot"; source: SlotMatrixSource; slot: number }
   | { kind: "opaque" };
 
 /**
@@ -85,6 +95,15 @@ export class LazyMatrix {
       case "mirror": {
         const bo = b as Extract<Identity, { kind: "mirror" }>;
         return LazyMatrix.planeSourceEquals(a.plane, bo.plane, tolerance);
+      }
+      case "product": {
+        const bo = b as Extract<Identity, { kind: "product" }>;
+        return a.factors.length === bo.factors.length
+          && a.factors.every((factor, i) => factor.equals(bo.factors[i], tolerance));
+      }
+      case "slot": {
+        const bo = b as Extract<Identity, { kind: "slot" }>;
+        return a.slot === bo.slot && (a.source === bo.source || a.source.compareTo(bo.source));
       }
       case "opaque":
         // No structural information — can't compare safely without resolving,
@@ -180,5 +199,29 @@ export class LazyMatrix {
     const dir = axis.direction;
     const matrix = Matrix4.fromTranslation(dir.x * distance, dir.y * distance, dir.z * distance);
     return new LazyMatrix(() => matrix, { kind: "translation", axis, distance }, matrix);
+  }
+
+  /**
+   * `factors[0] · factors[1] · …`, each factor resolved only when the product
+   * is — a grid cell's move is one translation per axis, and any of those
+   * axes may still be unbuilt at parse time. Equal to another product when
+   * their factors are equal pairwise, in order.
+   */
+  static product(factors: LazyMatrix[]): LazyMatrix {
+    return new LazyMatrix(
+      () => factors.reduce((matrix, factor) => matrix.multiply(factor.resolve()), Matrix4.identity()),
+      { kind: "product", factors },
+    );
+  }
+
+  /**
+   * The move `source` placed its slot `slot` with — `matrix`, resolved only
+   * when this is. Equal to another such move when both name the same slot of
+   * sources that compare equal, whatever `matrix` is: a repeat's own linear
+   * moves are opaque closures, yet an unchanged repeat places every slot
+   * where it did before, and an edited one compares unequal.
+   */
+  static ofSlot(source: SlotMatrixSource, slot: number, matrix: LazyMatrix): LazyMatrix {
+    return new LazyMatrix(() => matrix.resolve(), { kind: "slot", source, slot });
   }
 }

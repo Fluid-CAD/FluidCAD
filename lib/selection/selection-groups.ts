@@ -2,6 +2,7 @@ import { Shape } from "../common/shape.js";
 import { Explorer } from "../oc/explorer.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import type { EdgeProperties } from "../oc/edge-props.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { bucketMembers, buildPickUniverse, expandTangentChain } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
@@ -166,9 +167,15 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
 /**
  * The geometry-driven groups over the picked solid's edges: every edge of the
  * seed's curve type, and the subset that also shares its defining measure.
+ * Seams and degenerated edges never join: a cylinder's seam is a line the
+ * user cannot see, pick or name in a filter, so a group counting it would
+ * select more than the viewport shows and resist synthesis.
  */
 function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
-  const props = Explorer.findEdgesWrapped(solid).map(e => EdgeProps.getProperties(e.getShape()));
+  const edges = Explorer.findEdgesWrapped(solid);
+  const visible = new Set(HiddenEdges.visibleOf(solid.getShape(), edges));
+  // Explorer-indexed, so a member's index is its pick index; hidden slots stay empty.
+  const props = edges.map(e => (visible.has(e) ? EdgeProps.getProperties(e.getShape()) : undefined));
   const seed = props[ref.sub.index];
   const naming = seed ? CURVE_TYPE_NAMING[seed.curveType] : undefined;
   if (!seed || !naming) {
@@ -178,7 +185,7 @@ function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
   const sameType: PickRef[] = [];
   const equal: PickRef[] = [];
   props.forEach((p, index) => {
-    if (p.curveType !== seed.curveType) {
+    if (!p || p.curveType !== seed.curveType) {
       return;
     }
     const member: PickRef = { shapeId: ref.shapeId, sub: { type: 'edge', index } };

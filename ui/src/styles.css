@@ -29,6 +29,7 @@
   --color-warning-content: #382800;
   --color-error: #f87272;
   --color-error-content: #470000;
+  --color-variable: #f472b6;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -85,6 +86,7 @@
   --color-warning-content: #ffffff;
   --color-error: #dc2626;
   --color-error-content: #ffffff;
+  --color-variable: #db2777;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -119,6 +121,14 @@
   --scene-sketch-axis-x: #c22f2b;
   --scene-sketch-axis-y: #188a3c;
   --scene-sketch-origin: #333333;
+}
+
+/* The expression suggestions' V (variable) chip: a light pink beside the P
+   chip's primary blue, deepened per theme above the way primary is.
+   Registered so the chip can take bg-/text-/border-variable with opacity
+   modifiers; the themes' values override this default. */
+@theme {
+  --color-variable: #f472b6;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

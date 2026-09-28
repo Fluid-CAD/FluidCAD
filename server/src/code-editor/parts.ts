@@ -1,4 +1,6 @@
-// part() bodies: finding the enclosing part and landing parameter declarations inside it.
+// Model bodies: finding the enclosing part and landing parameter declarations.
+
+import { assemblyBodies } from './assembly.ts';
 
 import { declareTopLevelStatements } from './declarations.ts';
 import { indentOf, resolveSourceRow, spliceCode, splitLines } from './lines.ts';
@@ -158,7 +160,7 @@ export async function declareParamStatements(
  * {@link declareParamStatements} for a caller that knows a statement, not a
  * part: the declarations go into the part body enclosing `statementLine`
  * (1-based) — the sketch a dimension was typed in, the feature a dialog
- * edited — or at top level when no part encloses it.
+ * edited — or its enclosing assembly body. Top-level fallback serves legacy callers.
  */
 export async function declareParamStatementsFor(
   code: string,
@@ -175,6 +177,12 @@ export async function declareParamStatementsFor(
   const part = row >= 0 ? findEnclosingPart(tree, row) : null;
   if (part) {
     return declareInPartBody(code, lines, part.body, statements);
+  }
+  const assemblyBody = assemblyBodies(tree.rootNode)
+    .filter(body => body.startPosition.row <= row && body.endPosition.row >= row)
+    .sort((a, b) => b.startIndex - a.startIndex)[0];
+  if (assemblyBody) {
+    return declareInPartBody(code, lines, assemblyBody, statements);
   }
   return declareTopLevelStatements(code, tree, statements);
 }

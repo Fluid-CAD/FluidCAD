@@ -12,6 +12,7 @@ import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
+import { CONNECTOR_HOVER_SCALE, ConnectorGizmoPicker, type ConnectorPickCandidate } from './scene/connector-gizmo-picker';
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
 import { EdgeMesh } from './meshes/shape-meshes/edge-mesh';
 import { SettingsPanel } from './ui/settings-panel';
@@ -73,7 +74,7 @@ const DEFAULT_FIT_POLICY: FitPolicy = {
 };
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
-/** Gizmo enlargement for a timeline "show connector" — bigger than the assembly hover feedback (1.35) so it reads at a glance. */
+/** Gizmo enlargement for a timeline "show connector" — bigger than the hover feedback (1.35) so it reads at a glance. */
 const CONNECTOR_SHOW_SCALE = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
@@ -88,10 +89,10 @@ export type SelectionModifiers = {
   /**
    * Every connector gizmo the click could have meant, nearest first, when
    * more than one sits under the cursor (an assembly connector on top of a
-   * part connector) — the mate dialog asks which. Absent on unambiguous
-   * picks.
+   * part connector) — the dialog asks which. Absent on unambiguous picks.
+   * `instanceId` is null for a part scene's own connectors.
    */
-  connectorCandidates?: { instanceId: string; connectorId: string }[];
+  connectorCandidates?: { instanceId: string | null; connectorId: string }[];
 };
 
 /** What pickAt() resolves: a sub-shape (with its owning assembly instance,
@@ -103,7 +104,7 @@ type PickResult =
     sub: SubSelection;
     instanceId?: string | null;
     /** Connector picks: the overlapping candidates when there are several. */
-    connectorCandidates?: { instanceId: string; connectorId: string }[];
+    connectorCandidates?: { instanceId: string | null; connectorId: string }[];
   }
   | { standardPlane: StandardPlaneId }
   | { standardAxis: StandardAxisId };
@@ -174,8 +175,20 @@ export class Viewer {
   private highlightedSolidShapeIds: string[] = [];
   private highlightedSketchWires: string[] = [];
   private highlightedPlaneQuads: string[] = [];
-  /** Part-view connector gizmo enlarged by highlightConnector (timeline "show"). */
-  private highlightedConnectorId: string | null = null;
+  /** Part-view connector gizmos enlarged by highlightConnector (timeline "show"). */
+  private highlightedConnectorIds = new Set<string>();
+  /** Part-view connector gizmo under the cursor while a dialog picks connectors — drawn enlarged. */
+  private hoveredConnectorId: string | null = null;
+  /** Part-view connectors filling an open dialog's slots — drawn enlarged ({@link setPickedConnectors}). */
+  private pickedConnectorIds = new Set<string>();
+  /**
+   * Part view: every connector gizmo shows, whatever the Connectors toggle
+   * or a hidden host says — an armed connector slot needs the whole pick set
+   * ({@link setConnectorPicking}).
+   */
+  private revealAllConnectors = false;
+  /** Screen-space connector picking in the part view (the assembly controller owns its own). */
+  private readonly connectorPicker: ConnectorGizmoPicker;
   /** Overlay groups built by highlightDetachedShapes — disposed on clearHighlight. */
   private detachedHighlightGroups: Group[] = [];
   private faceHighlightMeshes: Mesh[] = [];
@@ -254,12 +267,13 @@ export class Viewer {
    */
   pickPlanes = false;
   /**
-   * Makes assembly mate-connector gizmos pickable, independent of
-   * `pickFilter` — an armed mate dialog enables it. Connector hits resolve
-   * by screen distance through the assembly controller (the gizmos render
-   * depth-test-off on top of everything) and outrank every raycast channel.
-   * A hit returns the connector scene object's id with
-   * `sub.type === 'connector'` plus the owning instance id.
+   * Makes connector gizmos pickable, independent of `pickFilter` — an armed
+   * mate dialog enables it in an assembly, a part dialog's connector slot
+   * through {@link setConnectorPicking}. Connector hits resolve by screen
+   * distance ({@link ConnectorGizmoPicker}; the gizmos render depth-test-off
+   * on top of everything) and outrank every raycast channel. A hit returns
+   * the connector scene object's id with `sub.type === 'connector'` plus the
+   * owning instance id (null in a part scene).
    */
   pickConnectors = false;
 
@@ -354,6 +368,7 @@ export class Viewer {
     // coordinate offsets. UI chrome stays on the full-size outer container.
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
+    this.connectorPicker = new ConnectorGizmoPicker(() => this.ctx.camera, this.ctx.renderer.domElement);
     this.vertexPicking = new VertexPicking(this.ctx,
       (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
       () => this.standardPlanes.pickTargets);
@@ -947,6 +962,24 @@ export class Viewer {
   }
 
   /**
+   * The connector gizmos under the cursor, nearest first — the assembly
+   * controller's instance and world connectors while an assembly is on
+   * screen, else the part scene's own drawn gizmos. Both measure through
+   * {@link ConnectorGizmoPicker}, so a pick means the same thing in either.
+   */
+  private connectorCandidatesAt(clientX: number, clientY: number): ConnectorPickCandidate[] {
+    const controller = this.assemblyController;
+    if (controller?.getContainer().parent) {
+      return controller.pickConnectorCandidatesAt(clientX, clientY);
+    }
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) {
+      return [];
+    }
+    return this.connectorPicker.candidatesAt(ConnectorGizmoPicker.gizmosIn(compiled, null), clientX, clientY);
+  }
+
+  /**
    * Whether `point` is visible from the camera: no occluder strictly in
    * front of it (beyond `tolerance` world units) along the sight line
    * through the point itself.
@@ -968,9 +1001,9 @@ export class Viewer {
       return this.vertexPicking?.pick(clientX, clientY) ?? null;
     }
     // Connector gizmos render on top of everything (depth-test off), so while
-    // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
-    if (this.pickConnectors && this.assemblyController) {
-      const candidates = this.assemblyController.pickConnectorCandidatesAt(clientX, clientY);
+    // a dialog has them armed a nearby gizmo outranks all raycast hits.
+    if (this.pickConnectors) {
+      const candidates = this.connectorCandidatesAt(clientX, clientY);
       const connectorHit = candidates[0];
       if (connectorHit) {
         return {
@@ -1385,6 +1418,7 @@ export class Viewer {
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
+    this.applyConnectorScales();
 
     if (this.activeSketchId) {
       this.applySketchModeGhosting();
@@ -1594,23 +1628,89 @@ export class Viewer {
   }
 
   /**
-   * Enlarge one part-view connector's gizmo (a timeline row's "show me"),
-   * replacing any previous highlight. Mirrors the assembly controller's
-   * hover feedback: the multiplier rides the gizmo's userData because its
-   * scale is re-derived from the camera on every draw.
+   * Enlarge part-view connector gizmos (a timeline row's "show me" — one
+   * connector, or a copy row's whole family), replacing any previous
+   * highlight. Mirrors the assembly controller's hover feedback: the
+   * multiplier rides the gizmo's userData because its scale is re-derived
+   * from the camera on every draw.
    */
-  highlightConnector(connectorId: string): void {
+  highlightConnector(connectorIds: readonly string[]): void {
     this.clearHighlight();
-    this.highlightedConnectorId = connectorId;
-    this.applyConnectorScale(connectorId, CONNECTOR_SHOW_SCALE);
+    this.highlightedConnectorIds = new Set(connectorIds);
+    this.applyConnectorScales();
     this.applyConnectorVisibility();
     this.ctx.render();
   }
 
   /**
+   * Arm or disarm connector picking in a part scene — the part dialogs'
+   * form of the mate dialog's channel (the Copy dialog's connector targets
+   * and axis). Armed, gizmos are screen-pickable ({@link pickConnectors})
+   * and, with `reveal` (the default), every connector gizmo shows whatever
+   * the Connectors toggle or a hidden host says, so the pick set is
+   * complete — as mate picking reveals every connector in an assembly.
+   * `reveal: false` picks only the gizmos already on screen (a dialog that
+   * takes none, but explains why when one is clicked). Disarmed, both drop,
+   * along with any hover enlargement.
+   */
+  setConnectorPicking(armed: boolean, opts: { reveal?: boolean } = {}): void {
+    this.pickConnectors = armed;
+    const reveal = armed && (opts.reveal ?? true);
+    if (!armed) {
+      this.setHoveredConnector(null);
+      this.setPickedConnectors([]);
+    }
+    if (reveal !== this.revealAllConnectors) {
+      this.revealAllConnectors = reveal;
+      this.applyConnectorVisibility();
+      this.ctx.requestRender();
+    }
+  }
+
+  /**
+   * The connectors filling an open part dialog's slots — the connector
+   * sibling of the whole-solid selection highlight — drawn enlarged until
+   * the dialog clears them. Scene ids: the dialog re-sends the set after
+   * every render, whose connectors re-mint theirs. Not cleared by
+   * {@link clearHighlight}; disarming connector picking drops them.
+   */
+  setPickedConnectors(connectorIds: readonly string[]): void {
+    const next = new Set(connectorIds);
+    if (next.size === this.pickedConnectorIds.size && [...next].every(id => this.pickedConnectorIds.has(id))) {
+      return;
+    }
+    this.pickedConnectorIds = next;
+    this.applyConnectorScales();
+    this.applyConnectorVisibility();
+    this.ctx.requestRender();
+  }
+
+  /**
+   * Hover feedback on a connector gizmo while picking — the assembly
+   * controller's in an assembly, the part view's own otherwise (`null`
+   * clears). Held as an id, so a render that rebuilt the gizmos keeps it.
+   * The viewport's own hover drives it; a "which connector?" menu row
+   * previews its connector through it too.
+   */
+  setHoveredConnector(connectorId: string | null): void {
+    const controller = this.assemblyController;
+    if (controller?.getContainer().parent) {
+      controller.setHighlightedConnector(connectorId);
+      return;
+    }
+    if (this.hoveredConnectorId === connectorId) {
+      return;
+    }
+    this.hoveredConnectorId = connectorId;
+    this.applyConnectorScales();
+    this.ctx.requestRender();
+  }
+
+  /**
    * Part-view connector gizmos follow the "Connectors" view toggle; a
-   * timeline "show me" highlight always reveals its own gizmo so the row
-   * still points at something. Assembly instances manage their own
+   * timeline "show me" highlight always reveals its own gizmos so the row
+   * still points at something, and an armed connector slot reveals them all
+   * ({@link setConnectorPicking}). Assembly instances manage their own
    * connectors (AssemblyController.applyConnectorVisibility), so only the
    * compiled part mesh is walked here.
    */
@@ -1627,20 +1727,31 @@ export class Viewer {
       // A connector goes with its body: hidden from the shapes panel, the
       // body takes its connectors along (a fillet after the connector still
       // maps to the rendered solid — the host ids are lineage-resolved).
-      child.visible = child.userData.connectorId === this.highlightedConnectorId
+      child.visible = this.revealAllConnectors
+        || this.highlightedConnectorIds.has(child.userData.connectorId)
+        || this.pickedConnectorIds.has(child.userData.connectorId)
         || (show && !connectorHostHidden(child.userData.hostShapeIds, this.hiddenShapeIds));
     });
   }
 
-  private applyConnectorScale(connectorId: string, scale: number): void {
+  /**
+   * Sync every part-view gizmo's scale multiplier: a "show me" highlight and
+   * a dialog's picks draw at {@link CONNECTOR_SHOW_SCALE}, the hovered pick
+   * at the hover factor, the rest at 1.
+   */
+  private applyConnectorScales(): void {
     this.ctx.scene.traverse((child) => {
-      if (child.userData.isConnector !== true || child.userData.connectorId !== connectorId) {
+      if (child.userData.isConnector !== true) {
         return;
       }
       const gizmo = child.children[0];
-      if (gizmo) {
-        gizmo.userData.highlight = scale;
+      if (!gizmo) {
+        return;
       }
+      const id = child.userData.connectorId;
+      gizmo.userData.highlight = this.highlightedConnectorIds.has(id) || this.pickedConnectorIds.has(id)
+        ? CONNECTOR_SHOW_SCALE
+        : id === this.hoveredConnectorId ? CONNECTOR_HOVER_SCALE : 1;
     });
   }
 
@@ -1692,13 +1803,13 @@ export class Viewer {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
       && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0
-      && this.highlightedConnectorId === null && this.detachedHighlightGroups.length === 0) {
+      && this.highlightedConnectorIds.size === 0 && this.detachedHighlightGroups.length === 0) {
       return;
     }
 
-    if (this.highlightedConnectorId !== null) {
-      this.applyConnectorScale(this.highlightedConnectorId, 1);
-      this.highlightedConnectorId = null;
+    if (this.highlightedConnectorIds.size > 0) {
+      this.highlightedConnectorIds = new Set();
+      this.applyConnectorScales();
       this.applyConnectorVisibility();
     }
     for (const group of this.detachedHighlightGroups) {
@@ -2075,7 +2186,7 @@ export class Viewer {
     } else if (result.sub?.type === 'plane') {
       this.applyHoverPlaneQuad(result.shapeId);
     } else if (result.sub?.type === 'connector') {
-      this.assemblyController?.setHighlightedConnector(result.shapeId);
+      this.setHoveredConnector(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
@@ -2107,7 +2218,7 @@ export class Viewer {
     });
 
     if (this.hoverState?.sub?.type === 'connector') {
-      this.assemblyController?.setHighlightedConnector(null);
+      this.setHoveredConnector(null);
     }
     if (this.hoverState) {
       this.hoverHandler?.(null, null, 0, 0);
@@ -2428,6 +2539,7 @@ export class Viewer {
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
+    this.applyConnectorScales();
     // The rebuilt materials are un-tinted — reapply the sketch-mode ghosting
     // (as updateView does) or a mid-sketch rebuild (a theme change, region
     // picking) silently drops the dimming until the next full render.

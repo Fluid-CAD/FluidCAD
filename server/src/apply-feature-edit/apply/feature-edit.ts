@@ -14,12 +14,13 @@ import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
 import { applyAssemblyExportEdit, applyConnectorPropsEdit } from '../../assembly-mate-edit.ts';
 import { applyAssemblyReplicateEdit } from '../../assembly-replicate-edit.ts';
 import {
+  applyAssemblyConnectorCopyWithDecls,
   applyAssemblyConnectorWithDecls,
   applyAssemblyMateWithExposeCreates,
   applyInsertParamsWithDecls,
   applyInstancePoseWithDecls,
 } from './assembly.ts';
-import { applyCreateEdit, applyPlaneSketch } from './create.ts';
+import { applyCreateEdit, applyPlaneSketch, landNewVariableDecls } from './create.ts';
 import { applyProjectForeign, applySketchForeign } from './foreign.ts';
 import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
@@ -104,7 +105,9 @@ async function applyFeatureEditTransform(
     return ParamEditor.apply(code, spec.paramEdit);
   }
   if (spec.insertPart) {
-    return applyInsertPartEdit(code, spec.insertPart);
+    const result = await applyInsertPartEdit(code, spec.insertPart);
+    if (result.error) return result;
+    return landNewVariableDecls(code, result.newCode, result.statementLine!, spec.newVariables);
   }
   if (spec.newPart) {
     return applyNewPart(code, spec.newPart);
@@ -129,6 +132,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.assemblyConnector) {
     return applyAssemblyConnectorWithDecls(code, spec);
+  }
+  if (spec.assemblyConnectorCopy) {
+    return applyAssemblyConnectorCopyWithDecls(code, spec);
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);

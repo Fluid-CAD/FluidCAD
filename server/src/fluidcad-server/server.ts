@@ -18,6 +18,7 @@ import {
   type AssemblyExportPose,
   type ImportReport,
   type InterferenceRequest,
+  type ParamDefinition,
   type ParamRegistry,
   type ParamVal,
   type RenderChangeTracker,
@@ -35,6 +36,7 @@ import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
   FeatureGhostOutcome,
   FeatureGhostRequest,
+  GhostFrame,
   GhostSolid,
   SketchRegionPreview,
   SketchRegionsOutcome,
@@ -139,8 +141,11 @@ export class FluidCadServer {
     return this.host.getBuffer(this.currentFileName);
   }
 
-  /** Param definitions from the last render — currentValue is override-aware. */
-  getParamDefinitions(): { label: string; currentValue: unknown }[] {
+  /**
+   * Param definitions from the last render — currentValue is override-aware,
+   * and sourceLocation addresses the `param()` call that declared each one.
+   */
+  getParamDefinitions(): ParamDefinition[] {
     return getParamRegistry().getDefinitions();
   }
 
@@ -328,7 +333,7 @@ export class FluidCadServer {
           // Everything a render would have left behind: the stop, the
           // breakpoint state, and this file's params as the live registry.
           this.lastRollbackStop = fromCache.data.rollbackStop;
-          this.lastRollbackScopePartId = null;
+          this.lastRollbackScopePartId = fromCache.data.rollbackScopePartId ?? null;
           this.lastBreakpointHit = fromCache.data.breakpointHit === true;
           this.compileError = null;
           setParamRegistry(fromCache.registry);
@@ -455,8 +460,13 @@ export class FluidCadServer {
         const unit = FluidCadServer.sceneUnitOf(scene);
         const declaredUnit = FluidCadServer.sceneDeclaredUnitOf(scene);
 
-        this.lastRollbackStop = result.length - 1;
-        this.lastRollbackScopePartId = null;
+        // The last row — or, paused inside a part, that part's paused row
+        // (the rest of the file stays live). A workspace lib predating the
+        // stop reports the last row.
+        const { stop, scopePartId } = this.sceneManager.renderStop?.(scene)
+          ?? { stop: result.length - 1, scopePartId: null };
+        this.lastRollbackStop = stop;
+        this.lastRollbackScopePartId = scopePartId;
         this.compileError = null;
 
         const data: SceneRenderedData = {
@@ -466,7 +476,8 @@ export class FluidCadServer {
           declaredUnit,
           projectUnit: this.projectUnitOf(),
           result,
-          rollbackStop: result.length - 1,
+          rollbackStop: stop,
+          ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
           params,
           objectErrors: FluidCadServer.collectObjectErrors(result),
@@ -656,7 +667,7 @@ export class FluidCadServer {
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
       this.lastRollbackStop = cached.data.rollbackStop;
-      this.lastRollbackScopePartId = null;
+      this.lastRollbackScopePartId = cached.data.rollbackScopePartId ?? null;
       // A deduplicated render built nothing: the summary says so rather
       // than leaving the caller to guess from a missing field.
       const scene = changes ? this.previousScenes.get(fileName) : undefined;
@@ -1019,7 +1030,11 @@ export class FluidCadServer {
       try {
         const result = this.sceneManager.buildFeatureGhost(scene, request);
         if (result?.ok) {
-          return { status: 200, solids: (result.solids ?? []) as GhostSolid[] };
+          return {
+            status: 200,
+            solids: (result.solids ?? []) as GhostSolid[],
+            ...(result.frames?.length ? { frames: result.frames as GhostFrame[] } : {}),
+          };
         }
         return {
           status: 422,

@@ -1,6 +1,6 @@
 // @screenshot waitForInput
 import { yAxis, origin, circle, breakpoint, plane, sketch, extrude, fillet, chamfer, repeat, rotate, arc, shell, offset, rib, revolve, line, xAxis } from 'fluidcad/core';
-import { tangent, diameter, angle, coincident, distance, equal, fix, horizontal, radius, vertical } from "fluidcad/constraints";
+import { tangent, diameter, angle, coincident, distance, equal, fix, midpoint, horizontal, radius, vertical } from "fluidcad/constraints";
 
 sketch('xy', () => {
     const l1 = line([75.77, 0], [53.58, 53.58]);
@@ -94,7 +94,7 @@ sketch('xy', () => {
     vertical(sg2);
     horizontal(sg3);
     vertical(sg4);
-    fix(sg1.start(), [-25, -25]);
+    midpoint(origin(), sg1.start(), sg3.start());
     distance(sg1.start(), sg1.end(), 50);
     distance(sg2.start(), sg2.end(), 50);
 

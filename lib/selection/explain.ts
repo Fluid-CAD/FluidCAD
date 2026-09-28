@@ -297,9 +297,10 @@ export function synthesizeApplyFeature(
         return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
       }
       // An edit re-picking its source keeps its own registration — only a
-      // sibling (before or after the edited statement) is a clash.
+      // sibling (before or after the edited statement) is a clash. Declared
+      // connectors only: the edited seed's copies carry its name.
       const clash = enclosing instanceof Part
-        && enclosing.getConnectors().some(c => c.connectorName === name && c !== scene.editedStatement);
+        && enclosing.getDeclaredConnectors().some(c => c.connectorName === name && c !== scene.editedStatement);
       if (clash) {
         return {
           ok: false,

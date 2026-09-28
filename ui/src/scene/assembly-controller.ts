@@ -1,11 +1,18 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
+import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
 import { onThemeChange } from './theme-colors';
 import { viewerSettings } from './viewer-settings';
 import { buildGhostClone, type ProvisionalReplicaSpec } from './provisional-replicas';
+import {
+  CONNECTOR_HOVER_SCALE,
+  CONNECTOR_PICK_RADIUS_PX,
+  ConnectorGizmoPicker,
+  type ConnectorGizmoTarget,
+  type ConnectorPickCandidate,
+} from './connector-gizmo-picker';
 import {
   WORLD_BODY_ID,
   Solver,
@@ -20,14 +27,6 @@ import {
 import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
-/** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
-const CONNECTOR_PICK_RADIUS_PX = 22;
-/**
- * Gizmos whose origins project this close to the nearest hit are ambiguous
- * with it — an assembly connector placed exactly on a part connector, say —
- * and the click offers them all instead of silently taking the first.
- */
-const CONNECTOR_AMBIGUITY_PX = 6;
 
 /**
  * Gizmo opacity while the mate dialog's connector picker is armed: every
@@ -35,8 +34,6 @@ const CONNECTOR_AMBIGUITY_PX = 6;
  * glance; the hovered and already-picked ones render fully opaque.
  */
 const MATE_PICKING_GIZMO_OPACITY = 0.4;
-/** Hover feedback while picking: the gizmo grows by this factor. */
-const CONNECTOR_HIGHLIGHT_SCALE = 1.35;
 
 type InstanceState = {
   data: SerializedAssemblyInstance;
@@ -60,6 +57,26 @@ export type InstanceDragReleaseHandler = (
 export type InstanceDragClaimHandler = () => void;
 
 export type SolverUpdateHandler = (output: SolverOutput) => void;
+
+/** One connector an instance carries — see {@link AssemblyController.listInstanceConnectors}. */
+export type InstanceConnectorEntry = {
+  connectorId: string;
+  name: string;
+  /** A copy's pattern slot (`name.instance(slot)`); absent on a declared connector. */
+  slot?: number;
+  /** A copy's seed — the declared connector it copies. */
+  seedId?: string;
+};
+
+/**
+ * A connector and the copies a `copy()` statement made of it, as scene ids
+ * with their pattern slots, in slot order — the seed at the original's slot.
+ */
+export type ConnectorFamilyView = {
+  seedId: string;
+  originalSlot: number;
+  members: { connectorId: string; slot: number }[];
+};
 
 export type DragValueHandler = (readout: MateReadout | null) => void;
 
@@ -147,6 +164,8 @@ export class AssemblyController {
    * never leak across gestures if a mouseup is missed.
    */
   private postDragSuppress: { instanceId: string; moved: boolean } | null = null;
+  /** Screen-space connector picking, shared with the part scene's dialogs. */
+  private readonly gizmoPicker: ConnectorGizmoPicker;
 
   /**
    * A programmatic drag claimed by the transform gizmo: the driver feeds
@@ -222,8 +241,12 @@ export class AssemblyController {
    */
   private worldGroup = new Group();
   private worldConnectors = new Map<string, { data: SerializedAssemblyConnector; group: Group }>();
-  /** Names the user hid from the rail (names survive the per-render id re-mint). */
-  private hiddenWorldConnectorNames = new Set<string>();
+  /**
+   * Labels the user hid from the rail — `bay`, or `bay.instance(2)` for a
+   * copy (labels survive the per-render id re-mint; a copy shares its
+   * seed's name, so a name alone would hide the whole family).
+   */
+  private hiddenWorldConnectorLabels = new Set<string>();
   /** World connectors a joints-panel mate selection keeps visible. */
   private worldPinned = new Set<string>();
 
@@ -233,6 +256,7 @@ export class AssemblyController {
     private requestRender: () => void,
     private createPickingRaycaster: (ndcX: number, ndcY: number) => Raycaster,
   ) {
+    this.gizmoPicker = new ConnectorGizmoPicker(() => this.camera, renderer.domElement);
     this.container.name = 'assemblyContainer';
     this.worldGroup.name = 'assemblyWorldConnectors';
     this.container.add(this.worldGroup);
@@ -476,7 +500,7 @@ export class AssemblyController {
     this.worldConnectors.clear();
     for (const data of connectors) {
       const group = new Group();
-      group.name = `assemblyConnector:${data.name}`;
+      group.name = `assemblyConnector:${AssemblyController.worldConnectorLabel(data)}`;
       group.userData.isMetaShape = true;
       group.userData.isConnector = true;
       group.userData.connectorId = data.connectorId;
@@ -503,32 +527,40 @@ export class AssemblyController {
   private applyWorldConnectorVisibility(): void {
     const show = viewerSettings.current.showConnectors;
     for (const [id, { data, group }] of this.worldConnectors) {
-      group.visible = (show && !this.hiddenWorldConnectorNames.has(data.name))
+      group.visible = (show && !this.hiddenWorldConnectorLabels.has(AssemblyController.worldConnectorLabel(data)))
         || this.matePicking
         || this.worldPinned.has(id);
       this.applyConnectorOpacity(group, WORLD_BODY_ID);
     }
   }
 
-  /** The rail's eye toggle for one assembly connector, by name. */
-  setWorldConnectorHidden(name: string, hidden: boolean): void {
+  /** How code names an assembly connector: `bay`, or `bay.instance(2)` for a copy. */
+  private static worldConnectorLabel(data: SerializedAssemblyConnector): string {
+    return connectorLabel(data.name, data.copy?.slot);
+  }
+
+  /** The rail's eye toggle for one assembly connector, by label (`bay`, `bay.instance(2)`). */
+  setWorldConnectorHidden(label: string, hidden: boolean): void {
     if (hidden) {
-      this.hiddenWorldConnectorNames.add(name);
+      this.hiddenWorldConnectorLabels.add(label);
     } else {
-      this.hiddenWorldConnectorNames.delete(name);
+      this.hiddenWorldConnectorLabels.delete(label);
     }
     this.applyWorldConnectorVisibility();
     this.requestRender();
   }
 
-  isWorldConnectorHidden(name: string): boolean {
-    return this.hiddenWorldConnectorNames.has(name);
+  isWorldConnectorHidden(label: string): boolean {
+    return this.hiddenWorldConnectorLabels.has(label);
   }
 
-  /** The current render's scene id of the named assembly connector, or null. */
-  findWorldConnectorId(name: string): string | null {
+  /**
+   * The current render's scene id of an assembly connector by its address —
+   * its name, and a copy's slot — or null.
+   */
+  findWorldConnectorId(name: string, slot?: number): string | null {
     for (const [id, { data }] of this.worldConnectors) {
-      if (data.name === name) {
+      if (data.name === name && data.copy?.slot === slot) {
         return id;
       }
     }
@@ -551,16 +583,16 @@ export class AssemblyController {
   }
 
   /**
-   * The connector frames one instance carries: the part's own connectors,
-   * shared by every instance of the part.
+   * The connector frames one instance carries: the part's own connectors
+   * and their copies, shared by every instance of the part.
    */
   private collectConnectorStates(partId: string): ConnectorState[] {
     const out: ConnectorState[] = [];
-    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
-      if (obj.type !== 'connector' || !obj.id) continue;
+    for (const obj of SceneIndex.of(this.allObjects).connectorsOf(partId)) {
       const data = obj.object as ConnectorData | undefined;
-      if (!data) continue;
-      if (!data.origin || !data.xDirection || !data.normal) continue;
+      if (!obj.id || !data?.origin || !data.xDirection || !data.normal) {
+        continue;
+      }
       out.push({
         connectorId: obj.id,
         localOrigin: new Vector3(data.origin.x, data.origin.y, data.origin.z),
@@ -1236,32 +1268,20 @@ export class AssemblyController {
 
   /**
    * Every visible connector gizmo whose origin projects within `maxPx` of
-   * the cursor, nearest first, cut down to the ones within
-   * CONNECTOR_AMBIGUITY_PX of the nearest — the set a click must choose
-   * among. Instance connectors are screen-picked by their gizmo origin (the
-   * ConnectorMesh group sits at the part-frame origin; the gizmo child
-   * inside it carries the frame's actual origin); the assembly's own
-   * connectors compete on the same terms, resolving to the world body.
+   * the cursor, nearest first, cut down to the ones ambiguous with the
+   * nearest — the set a click must choose among ({@link
+   * ConnectorGizmoPicker.candidatesAt}). Instance connectors are
+   * screen-picked by their gizmo origin (the ConnectorMesh group sits at the
+   * part-frame origin; the gizmo child inside it carries the frame's actual
+   * origin); the assembly's own connectors compete on the same terms,
+   * resolving to the world body.
    */
   pickConnectorCandidatesAt(
     clientX: number,
     clientY: number,
     maxPx = CONNECTOR_PICK_RADIUS_PX,
-  ): { instanceId: string; connectorId: string; distPx: number }[] {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return [];
-    const world = new Vector3();
-    const hits: { instanceId: string; connectorId: string; distPx: number }[] = [];
-    const consider = (instanceId: string, connectorId: string, gizmo: Object3D) => {
-      gizmo.getWorldPosition(world).project(this.camera);
-      if (world.z > 1) return; // behind the camera
-      const px = ((world.x + 1) / 2) * rect.width + rect.left;
-      const py = ((1 - world.y) / 2) * rect.height + rect.top;
-      const distPx = Math.hypot(px - clientX, py - clientY);
-      if (distPx <= maxPx) {
-        hits.push({ instanceId, connectorId, distPx });
-      }
-    };
+  ): ConnectorPickCandidate<string>[] {
+    const targets: ConnectorGizmoTarget<string>[] = [];
     for (const [instanceId, state] of this.instances) {
       // A hidden instance renders nothing, so its connectors must not be
       // screen-pickable — the per-child `visible` check below can't see the
@@ -1273,19 +1293,14 @@ export class AssemblyController {
         if (!child.userData?.isConnector || !child.visible) return;
         const connectorId = child.userData.connectorId;
         if (typeof connectorId !== 'string') return;
-        consider(instanceId, connectorId, child.children[0] ?? child);
+        targets.push({ instanceId, connectorId, anchor: child.children[0] ?? child });
       });
     }
     for (const [connectorId, { group }] of this.worldConnectors) {
       if (!group.visible) continue;
-      consider(WORLD_BODY_ID, connectorId, group.children[0] ?? group);
+      targets.push({ instanceId: WORLD_BODY_ID, connectorId, anchor: group.children[0] ?? group });
     }
-    hits.sort((a, b) => a.distPx - b.distPx);
-    if (hits.length === 0) {
-      return [];
-    }
-    const nearest = hits[0].distPx;
-    return hits.filter(h => h.distPx <= nearest + CONNECTOR_AMBIGUITY_PX);
+    return this.gizmoPicker.candidatesAt(targets, clientX, clientY, maxPx);
   }
 
   /**
@@ -1313,7 +1328,7 @@ export class AssemblyController {
         const gizmo = child.children[0];
         if (!gizmo) return;
         gizmo.userData.highlight = child.userData.connectorId === this.highlightedConnectorId
-          ? CONNECTOR_HIGHLIGHT_SCALE
+          ? CONNECTOR_HOVER_SCALE
           : 1;
       });
     }
@@ -1322,7 +1337,7 @@ export class AssemblyController {
       const inner = group.children[0];
       if (inner) {
         inner.userData.highlight = connectorId === this.highlightedConnectorId
-          ? CONNECTOR_HIGHLIGHT_SCALE
+          ? CONNECTOR_HOVER_SCALE
           : 1;
       }
     }
@@ -1439,42 +1454,95 @@ export class AssemblyController {
   }
 
   /**
-   * The connectors one instance carries (its part's, shared by every
-   * instance of the part), with their registered names — the replicate
-   * dialog's "fill from siblings" candidates.
+   * The connectors one instance carries (its part's and their copies,
+   * shared by every instance of the part), with their registered names — and
+   * a copy's slot and seed — the replicate dialog's "Suggest copies"
+   * candidates.
    */
-  listInstanceConnectors(instanceId: string): { connectorId: string; name: string }[] {
+  listInstanceConnectors(instanceId: string): InstanceConnectorEntry[] {
     const state = this.instances.get(instanceId);
     if (!state) {
       return [];
     }
-    const out: { connectorId: string; name: string }[] = [];
+    const index = SceneIndex.of(this.allObjects);
+    const out: InstanceConnectorEntry[] = [];
     for (const connector of state.connectors) {
-      const name = this.getConnectorName(connector.connectorId);
-      if (name) {
-        out.push({ connectorId: connector.connectorId, name });
+      const address = this.getConnectorRef(connector.connectorId);
+      if (!address) {
+        continue;
       }
+      const copy = (index.byId(connector.connectorId)?.object as ConnectorData | undefined)?.copy;
+      out.push({
+        connectorId: connector.connectorId,
+        name: address.name,
+        ...(copy ? { slot: copy.slot, seedId: copy.seedId } : {}),
+      });
     }
     return out;
   }
 
-  /** The connector's registered name (`connector('name', …)`) — null when unknown. */
-  getConnectorName(connectorId: string): string | null {
+  /**
+   * How code addresses the connector: its registered name
+   * (`connector('name', …)`), plus the slot for a copy
+   * (`name.instance(slot)`) — null when unknown.
+   */
+  getConnectorRef(connectorId: string): ConnectorAddress | null {
     const obj = SceneIndex.of(this.allObjects).byId(connectorId);
     if (obj?.type !== 'connector') {
       return null;
     }
     const data = obj.object as ConnectorData | undefined;
-    return data?.name ?? obj.name ?? null;
+    // A copy's row is named by its label; its data always carries the name.
+    const name = data?.name ?? (data?.copy ? null : obj.name) ?? null;
+    if (!name) {
+      return null;
+    }
+    return data?.copy ? { name, slot: data.copy.slot } : { name };
+  }
+
+  /**
+   * The family a connector belongs to — the connector a `copy()` statement
+   * copies and the copies it made — as scene ids with their pattern slots,
+   * in slot order (the seed at the original's slot). Null for a connector
+   * nothing copies.
+   */
+  getConnectorFamily(connectorId: string): ConnectorFamilyView | null {
+    const index = SceneIndex.of(this.allObjects);
+    const row = index.byId(connectorId);
+    if (row?.type !== 'connector') {
+      return null;
+    }
+    const seedId = (row.object as ConnectorData | undefined)?.copy?.seedId ?? connectorId;
+    const seed = index.byId(seedId);
+    // The copies hang off the copy() statement naming the seed — inside the
+    // part for a part connector, at the file's top level for an assembly's.
+    const statementRow = index.copyStatementOf(seedId);
+    const copies = index.children(statementRow?.id).filter(
+      obj => obj.type === 'connector' && (obj.object as ConnectorData | undefined)?.copy?.seedId === seedId,
+    );
+    if (!seed || copies.length === 0) {
+      return null;
+    }
+    const statement = statementRow?.object as { connectorCopies?: ConnectorCopiesData } | undefined;
+    const originalSlot = statement?.connectorCopies?.originalSlot ?? 0;
+    const members = [
+      { connectorId: seedId, slot: originalSlot },
+      ...copies.map(obj => ({ connectorId: obj.id, slot: (obj.object as ConnectorData).copy!.slot })),
+    ].sort((a, b) => a.slot - b.slot);
+    return { seedId, originalSlot, members };
   }
 
   /**
    * Where the connector's `connector()` statement lives — its part file and
-   * line, for the pen-button property editor. Null when the render carried
-   * no source location for it.
+   * line, for the pen-button property editor. A copy has no statement of its
+   * own: its seed's is the one to edit, and every copy follows. Null when the
+   * render carried no source location for it.
    */
   getConnectorSourceLocation(connectorId: string): { filePath: string; line: number } | null {
-    const obj = SceneIndex.of(this.allObjects).byId(connectorId);
+    const index = SceneIndex.of(this.allObjects);
+    const row = index.byId(connectorId);
+    const seedId = (row?.object as ConnectorData | undefined)?.copy?.seedId;
+    const obj = seedId ? index.byId(seedId) : row;
     if (obj?.type !== 'connector' || !obj.sourceLocation) {
       return null;
     }
@@ -1482,20 +1550,27 @@ export class AssemblyController {
   }
 
   /**
-   * The current render's scene id for the named connector on an instance —
-   * how a mate dialog's pick re-finds itself after a render re-mints every
-   * id. Null when the instance or the name is gone.
+   * The current render's scene id for a connector on an instance, by its
+   * source address — the name, and a copy's slot — how a mate dialog's pick
+   * re-finds itself after a render re-mints every id. The original's slot
+   * names the connector itself. Null when the instance or the address is
+   * gone.
    */
-  findConnectorId(instanceId: string, connectorName: string): string | null {
+  findConnectorId(instanceId: string, connectorName: string, slot?: number): string | null {
     const partId = this.instances.get(instanceId)?.data.partId;
     if (!partId) {
       return null;
     }
-    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
-      if (obj.type !== 'connector' || !obj.id) continue;
-      const data = obj.object as ConnectorData | undefined;
-      if ((data?.name ?? obj.name) === connectorName) {
+    for (const obj of SceneIndex.of(this.allObjects).connectorsOf(partId)) {
+      const address = obj.id ? this.getConnectorRef(obj.id) : null;
+      if (address?.name === connectorName && address.slot === slot) {
         return obj.id;
+      }
+    }
+    if (slot !== undefined) {
+      const seedId = this.findConnectorId(instanceId, connectorName);
+      if (seedId && this.getConnectorFamily(seedId)?.originalSlot === slot) {
+        return seedId;
       }
     }
     return null;

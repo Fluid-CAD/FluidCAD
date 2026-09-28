@@ -357,6 +357,17 @@ export function filterSuggestions(
   return matches;
 }
 
+/**
+ * Whether the dropdown lists an existing variable for the bare name being
+ * typed. While it does, the name reads as a reference in the making — Enter
+ * picks the match — so the hosts keep the P toggle out of the way, though
+ * the name alone would declare a new variable. An explicit `name = value`
+ * never counts: its matches complete the value, not the declared name.
+ */
+export function suggestsExistingName(raw: string, suggestions: Suggestion[]): boolean {
+  return IDENT_RE.test(raw.trim()) && suggestions.some((s) => !s.isNew);
+}
+
 function shouldOfferNewVariable(
   query: string,
   variables: VariableInfo[],
@@ -379,18 +390,65 @@ export function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max) + '...' : str;
+/** What a dropdown entry names: a `param()` declaration, a plain value (a
+ * number literal, or an import whose value the file doesn't show), or a value
+ * computed from any other expression. */
+export type SuggestionKind = 'param' | 'variable' | 'expression';
+
+/**
+ * A suggestion's kind, read off its initializer. The new-variable offer is
+ * what committing it would declare — a `param()` while the host's P toggle is
+ * on (`newAsParam`), a plain value otherwise.
+ */
+export function suggestionKind(v: Suggestion, newAsParam: boolean): SuggestionKind {
+  if (v.isNew) {
+    return newAsParam ? 'param' : 'variable';
+  }
+  const initializer = v.initializer?.trim() ?? '';
+  if (PARAM_INIT_RE.test(initializer)) {
+    return 'param';
+  }
+  if (!initializer || Number.isFinite(Number(initializer))) {
+    return 'variable';
+  }
+  return 'expression';
 }
 
-/** One dropdown row's markup, shared so both hosts render identically. */
-export function suggestionItemHtml(v: Suggestion, index: number, active: boolean): string {
+/** The chip before each row's name — P wears the input's own P-toggle blue. */
+const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors: string }> = {
+  param: {
+    letter: 'P',
+    title: 'Parameter — param()',
+    colors: 'bg-primary/20 text-primary border-primary/40',
+  },
+  variable: {
+    letter: 'V',
+    title: 'Variable',
+    colors: 'bg-variable/20 text-variable border-variable/40',
+  },
+  expression: {
+    letter: 'E',
+    title: 'Expression',
+    colors: 'bg-base-content/10 text-base-content/60 border-base-content/20',
+  },
+};
+
+/**
+ * One dropdown row's markup, shared so every host renders identically: the
+ * kind chip, then the name. `newAsParam` is the host's P-toggle state, which
+ * picks the new-variable offer's chip.
+ */
+export function suggestionItemHtml(
+  v: Suggestion,
+  index: number,
+  active: boolean,
+  newAsParam: boolean,
+): string {
   const activeClass = active ? 'bg-primary/10' : '';
-  const hint = v.initializer
-    ? `<span class="text-base-content/40 ml-2">= ${escapeHtml(truncate(v.initializer, 20))}</span>`
-    : '';
+  const chip = KIND_CHIPS[suggestionKind(v, newAsParam)];
+  const chipHtml = `<span title="${chip.title}" class="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded border text-[10px] font-semibold leading-none select-none ${chip.colors}">${chip.letter}</span>`;
   const badge = v.isNew
-    ? '<span class="text-primary/70 ml-2 text-[10px] uppercase select-none">new</span>'
+    ? '<span class="text-primary/70 ml-0.5 text-[10px] uppercase select-none">new</span>'
     : '';
-  return `<div class="px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${escapeHtml(v.name)}${hint}${badge}</div>`;
+  return `<div class="flex items-center gap-1.5 px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${chipHtml}<span>${escapeHtml(v.name)}</span>${badge}</div>`;
 }

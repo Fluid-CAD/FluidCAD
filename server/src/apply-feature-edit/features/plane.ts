@@ -1,6 +1,6 @@
 // plane(): option types, statement and base-expression rendering, chain parsing and the edit renderer.
 
-import { chainRootCallee, type TSNode } from '../../code-editor/index.ts';
+import { chainRootCallee, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   numericValueArg,
@@ -248,7 +248,7 @@ export function parsePlaneChain(
   args: TSNode[],
   start: number,
   end: number,
-  numericVars: Set<string>,
+  bindings: LexicalBindings,
 ): ChainParse {
   if (args.length === 0) {
     return { error: 'the plane() call has no arguments' };
@@ -266,7 +266,7 @@ export function parsePlaneChain(
   if (args.length > 1) {
     const second = args[1];
     const named = stringArgValue(second);
-    const numeric = numericValueArg(second, numericVars);
+    const numeric = numericValueArg(second, bindings);
     const position = named === null ? undefined : EDGE_POSITION_NAMES.get(named);
     if (second.type === 'object') {
       optionsNode = second;

@@ -1,8 +1,7 @@
-import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Matrix4 } from "../math/matrix4.js";
-import { ShapeOps } from "../oc/shape-ops.js";
-import { type NumberParam, resolveParam } from "../core/param.js";
+import { SceneObject } from "../common/scene-object.js";
+import { type NumberParam } from "../core/param.js";
 import { CopyAxisSource, CopyBase } from "./copy-base.js";
+import { CopyLayout, CopySlotLayout } from "./copy-layout.js";
 
 export type LinearCopyOptions = {
   count: NumberParam | number[];
@@ -22,80 +21,20 @@ export class CopyLinear extends CopyBase {
     super();
   }
 
-  build(context: BuildSceneObjectContext) {
-    let objects = this.targetObjects;
+  slotLayout(): CopySlotLayout {
+    return CopyLayout.linear(this.axes, this.options);
+  }
 
-    if (!this.targetObjects) {
-      objects = context.getActiveSceneObjects();
-    }
-
-    const originalShapes = objects.flatMap(obj => obj.getShapes());
-    for (const obj of objects) {
-      obj.removeShapes(this);
-    }
-    for (const shape of originalShapes) {
-      this.addShape(shape);
-    }
-
-    const axes = this.axes.map(a => CopyLinear.resolveAxisSource(a));
-    const { centered, skip } = this.options;
-
-    const counts = Array.isArray(this.options.count)
-      ? this.options.count
-      : this.axes.map(() => resolveParam(this.options.count as NumberParam));
-
-    const offsets = 'offset' in this.options && this.options.offset !== undefined
-      ? (Array.isArray(this.options.offset) ? this.options.offset : this.axes.map(() => resolveParam(this.options.offset as NumberParam)))
-      : null;
-
-    const lengths = 'length' in this.options && this.options.length !== undefined
-      ? (Array.isArray(this.options.length) ? this.options.length : this.axes.map(() => resolveParam(this.options.length as NumberParam)))
-      : null;
-
-    const axisOffsets = this.axes.map((_, a) => {
-      if (offsets) {
-        return offsets[a] ?? offsets[0];
-      }
-      const len = lengths ? (lengths[a] ?? lengths[0]) : 1;
-      const axisCount = counts[a];
-      return axisCount > 1 ? len / (axisCount - 1) : 0;
-    });
-
-    const centerIndices = this.axes.map((_, a) =>
-      centered ? Math.floor(counts[a] / 2) : 0
-    );
-
-    // Build grid positions as cartesian product of per-axis indices (0..counts[a]-1)
-    let positions: number[][] = [[]];
+  protected connectorOptionsRefusal(): string | null {
+    // An axis counted below one numbers no cells at all — not even the
+    // original's, which every connector copy's numbering is built around.
+    const counts = CopyLayout.linearCounts(this.axes, this.options);
     for (let a = 0; a < this.axes.length; a++) {
-      const next: number[][] = [];
-      for (const pos of positions) {
-        for (let i = 0; i < counts[a]; i++) {
-          next.push([...pos, i]);
-        }
-      }
-      positions = next;
-    }
-
-    for (const pos of positions) {
-      if (pos.every((idx, a) => idx === centerIndices[a])) continue;
-      if (skip?.some(coord => coord.every((v, a) => v === pos[a]))) {
-        continue;
-      }
-
-      let matrix = Matrix4.identity();
-      for (let a = 0; a < axes.length; a++) {
-        const distance = (pos[a] - centerIndices[a]) * axisOffsets[a];
-        const translation = axes[a].direction.multiply(distance);
-        matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
-      }
-
-      for (const shape of originalShapes) {
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        this.addShape(transformed);
+      if (!(counts[a] >= 1)) {
+        return `copy(): a connector copy needs a count of at least 1 on every axis (got ${counts[a]})`;
       }
     }
+    return null;
   }
 
   compareTo(other: CopyLinear): boolean {
@@ -139,10 +78,5 @@ export class CopyLinear extends CopyBase {
 
   getType(): string {
     return "copy-linear";
-  }
-
-  serialize() {
-    return {
-    }
   }
 }

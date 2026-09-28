@@ -54,6 +54,13 @@ function formatParamType(raw: string): string {
     return '`' + raw.replace(/\|/g, '\\|') + '`';
   }
 
+  // Handle array types like "(number | FaceFilterBuilder)[]" — before the
+  // union split, which would cut it at its inner bar
+  const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
+  if (parenArrayMatch) {
+    return `(${formatParamType(parenArrayMatch[1])})[]`;
+  }
+
   // Handle union types like "number | FaceFilterBuilder"
   if (raw.includes('|')) {
     const parts = raw.split('|').map(p => p.trim());
@@ -64,12 +71,6 @@ function formatParamType(raw: string): string {
       }
       return escapeAngleBrackets(display);
     }).join(' \\| ');
-  }
-
-  // Handle array types like "(number | FaceFilterBuilder)[]"
-  const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
-  if (parenArrayMatch) {
-    return `(${formatParamType(parenArrayMatch[1])})[]`;
   }
 
   // Handle simple array types like "ISceneObject[]"

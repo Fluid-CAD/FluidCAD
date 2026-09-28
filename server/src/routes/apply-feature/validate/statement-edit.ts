@@ -123,8 +123,15 @@ export type StatementEditRequest = {
   copyDirections?: { axis: CopyEditAxisInput; count: ValueExpr; value: ValueExpr }[];
   /** Edited copy's axis (circular); keep stays by source position. */
   copyAxis?: CopyEditAxisInput;
-  /** Full replacement copy target list; absent keeps the statement's. */
-  copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /**
+   * Full replacement copy target list; absent keeps the statement's. A
+   * re-picked target is a feature statement or a `connector()` the copy
+   * copies as frames.
+   */
+  copyTargets?: (
+    | { kind: 'verbatim'; sourceIndex: number }
+    | { kind: 'feature' | 'connector'; loc: SketchLoc }
+  )[];
   /**
    * Full replacement 2D copy target list — sketch-edge picks in argument
    * order, resolved to whole geometries by the sketch synthesis kernel.
@@ -133,6 +140,11 @@ export type StatementEditRequest = {
   copySketchTargets?: { shapeId: string }[];
   /** The 2D copy's axis edge picks, one per sketch-edge direction in order. */
   copyAxisPicks?: { shapeId: string }[];
+  /**
+   * The edited follow copy's repeat (`copy(holes, bolt)`): keep the
+   * statement's own, or re-pick a `repeat()` statement by call site.
+   */
+  copyPattern?: { kind: 'keep' } | { kind: 'repeat'; loc: SketchLoc };
   /** Edited mirror's plane; keep stays the statement's own text. */
   mirrorPlane?: { kind: 'keep' } | RepeatPlaneInput;
   /** Full replacement mirror target list; absent keeps the statement's. */

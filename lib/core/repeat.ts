@@ -15,7 +15,7 @@ import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { resolveAxis, resolvePlane } from "../helpers/resolve.js";
 import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
-import { RepeatBase, RepeatSlot } from "../features/repeat-base.js";
+import { RepeatBase, RepeatSlot, RepeatSlotMatrix } from "../features/repeat-base.js";
 
 /**
  * Resolve a repeat axis argument to a value usable by LazyMatrix. Scene-
@@ -52,8 +52,8 @@ function rootClones(cloned: SceneObject[], objects: SceneObject[]): SceneObject[
 }
 
 /** Original at slot 0, the single clone at slot 1 (mirror, rotate, matrix). */
-function recordPairSlots(feature: RepeatBase, objects: SceneObject[], cloned: SceneObject[]): void {
-  feature.setInstanceSlots([objects, rootClones(cloned, objects)], 0);
+function recordPairSlots(feature: RepeatBase, objects: SceneObject[], cloned: SceneObject[], transform: LazyMatrix): void {
+  feature.setInstanceSlots([objects, rootClones(cloned, objects)], 0, [LazyMatrix.of(Matrix4.identity()), transform]);
 }
 
 interface RepeatFunction {
@@ -126,8 +126,12 @@ function build(context: SceneParserContext): RepeatFunction {
 
       const lazy = LazyMatrix.of(matrix);
       const feature = new RepeatMatrix(lazy, objects);
+      if (feature.refuseConnectorTargets(objects)) {
+        context.addSceneObject(feature);
+        return feature;
+      }
       const cloned = cloneWithTransform(objects, lazy, feature);
-      recordPairSlots(feature, objects, cloned);
+      recordPairSlots(feature, objects, cloned, lazy);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);
@@ -162,11 +166,16 @@ function build(context: SceneParserContext): RepeatFunction {
           ? (Array.isArray(options.length) ? options.length : [resolveParam(options.length as NumberParam)])
           : null;
         const repeat = new RepeatLinear(axisSources, options, objects);
+        if (repeat.refuseConnectorTargets(objects)) {
+          context.addSceneObject(repeat);
+          return repeat;
+        }
 
         const transformedObjects: SceneObject[] = [];
         // One slot per grid cell in combination order; the original keeps its
         // own cell, skipped cells stay null.
         const slots: RepeatSlot[] = [];
+        const slotMatrices: RepeatSlotMatrix[] = [];
         let originalSlot = 0;
 
         const axisOffsets = axisSources.map((axis, i) => {
@@ -198,6 +207,7 @@ function build(context: SceneParserContext): RepeatFunction {
           if (isOrigin) {
             originalSlot = slots.length;
             slots.push(objects);
+            slotMatrices.push(LazyMatrix.of(Matrix4.identity()));
             continue;
           }
 
@@ -206,6 +216,7 @@ function build(context: SceneParserContext): RepeatFunction {
             s.length === indices.length && s.every((v, i) => v === indices[i])
           )) {
             slots.push(null);
+            slotMatrices.push(null);
             continue;
           }
 
@@ -233,9 +244,10 @@ function build(context: SceneParserContext): RepeatFunction {
           const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
           slots.push(rootClones(cloned, objects));
+          slotMatrices.push(lazy);
         }
 
-        repeat.setInstanceSlots(slots, originalSlot);
+        repeat.setInstanceSlots(slots, originalSlot, slotMatrices);
         context.addSceneObject(repeat);
         context.addSceneObjects(transformedObjects);
         return repeat;
@@ -248,6 +260,10 @@ function build(context: SceneParserContext): RepeatFunction {
         const { centered, skip } = circularOptions;
 
         const repeat = new RepeatCircular(axis, circularOptions, objects);
+        if (repeat.refuseConnectorTargets(objects)) {
+          context.addSceneObject(repeat);
+          return repeat;
+        }
 
         let offset: number;
         if ('offset' in circularOptions && circularOptions.offset !== undefined) {
@@ -262,10 +278,12 @@ function build(context: SceneParserContext): RepeatFunction {
         const transformedObjects: SceneObject[] = [];
         // Rotation step i is slot i; the original is step 0.
         const slots: RepeatSlot[] = [objects];
+        const slotMatrices: RepeatSlotMatrix[] = [LazyMatrix.of(Matrix4.identity())];
 
         for (let i = 1; i < count; i++) {
           if (skip?.includes(i)) {
             slots.push(null);
+            slotMatrices.push(null);
             continue;
           }
 
@@ -275,9 +293,10 @@ function build(context: SceneParserContext): RepeatFunction {
           const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
           slots.push(rootClones(cloned, objects));
+          slotMatrices.push(lazy);
         }
 
-        repeat.setInstanceSlots(slots, 0);
+        repeat.setInstanceSlots(slots, 0, slotMatrices);
         context.addSceneObject(repeat);
         context.addSceneObjects(transformedObjects);
         return repeat;
@@ -294,8 +313,12 @@ function build(context: SceneParserContext): RepeatFunction {
       const planeObj = resolvePlane(planeArg, context);
       const lazy = LazyMatrix.mirror(planeObj);
       const mirrorFeature = new MirrorFeature(planeObj, lazy, targetObjects);
+      if (mirrorFeature.refuseConnectorTargets(targetObjects)) {
+        context.addSceneObject(mirrorFeature);
+        return mirrorFeature;
+      }
       const mirrorTree = cloneWithTransform(targetObjects, lazy, mirrorFeature);
-      recordPairSlots(mirrorFeature, targetObjects, mirrorTree);
+      recordPairSlots(mirrorFeature, targetObjects, mirrorTree, lazy);
 
       context.addSceneObject(mirrorFeature);
       context.addSceneObjects(mirrorTree);
@@ -321,8 +344,12 @@ function build(context: SceneParserContext): RepeatFunction {
       const lazy = LazyMatrix.rotation(axis, rad(angle));
       const sources = axis instanceof AxisObjectBase ? [axis] : [];
       const feature = new RepeatMatrix(lazy, objects, sources);
+      if (feature.refuseConnectorTargets(objects)) {
+        context.addSceneObject(feature);
+        return feature;
+      }
       const cloned = cloneWithTransform(objects, lazy, feature);
-      recordPairSlots(feature, objects, cloned);
+      recordPairSlots(feature, objects, cloned, lazy);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);

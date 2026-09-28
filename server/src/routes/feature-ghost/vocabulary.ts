@@ -54,10 +54,14 @@ export type GhostBody = {
   rotationAxes?: unknown;
   position?: unknown;
   skip?: unknown;
+  /** The copy's "Along a repeat" kind: the `repeat()` it follows, by call site. */
+  pattern?: unknown;
   close?: unknown;
   entities?: unknown;
   center?: unknown;
   regions?: unknown;
+  /** Where the dialog's statement sits — see `GhostValueScope`. */
+  valueScope?: unknown;
 };
 
 export const FEATURES = [

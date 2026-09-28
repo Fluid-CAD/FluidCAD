@@ -19,9 +19,9 @@ import {
   findChainAt,
   formatNumber,
   insertStatementBefore,
+  isCopySlot,
   resolveInstanceBinding,
   resolveSideExpression,
-  resolveStatementBinding,
   scopeOfAnchor,
   type MateConnectorRef,
   type MateFrameRef,
@@ -155,12 +155,13 @@ export async function applyAssemblyMateEdit(
   const expressions: string[] = [];
   for (const side of [sideA, sideB]) {
     if ('connectorLine' in side) {
-      const binding = await resolveStatementBinding(working, side.connectorLine, 'connector', side.connectorName);
-      if ('error' in binding) {
-        return { newCode: code, error: binding.error };
+      // The binding — plus `.instance(slot)` for a copy of the connector.
+      const frame = await resolveSideExpression(working, side);
+      if ('error' in frame) {
+        return { newCode: code, error: frame.error };
       }
-      working = binding.newCode;
-      expressions.push(binding.name);
+      working = frame.newCode;
+      expressions.push(frame.expression);
       anchorLines.push(side.connectorLine);
       continue;
     }
@@ -238,6 +239,8 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     if (
       payload.geometryA.instanceLine === payload.geometryB.instanceLine
       && payload.geometryA.exposeName === payload.geometryB.exposeName
+      // Every replica of one replicate() shares that statement's line.
+      && payload.geometryA.replicaRow === payload.geometryB.replicaRow
     ) {
       return 'geometry cannot be mated to itself';
     }
@@ -274,10 +277,16 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     if (!CONNECTOR_NAME.test(frame.connectorName)) {
       return `"${frame.connectorName}" is not a valid connector name`;
     }
+    if (!isCopySlot(frame.slot)) {
+      return `a connector copy's slot must be a non-negative integer, got ${frame.slot}`;
+    }
   }
   for (const side of [payload.connectorA, payload.connectorB]) {
     if (side && !CONNECTOR_NAME.test(side.connectorName)) {
       return `"${side.connectorName}" is not a valid connector name`;
+    }
+    if (side && !isCopySlot(side.slot)) {
+      return `a connector copy's slot must be a non-negative integer, got ${side.slot}`;
     }
     for (const key of (side?.viaParts ?? []).flat()) {
       if (!EXPORT_KEY.test(key)) {
@@ -285,14 +294,7 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
       }
     }
   }
-  if (
-    payload.connectorA && payload.connectorB
-    && payload.connectorA.instanceLine === payload.connectorB.instanceLine
-    && payload.connectorA.connectorName === payload.connectorB.connectorName
-    // Two occurrences of one sub-assembly share their instances' source
-    // lines — only an identical export chain is truly the same connector.
-    && JSON.stringify(payload.connectorA.viaParts ?? []) === JSON.stringify(payload.connectorB.viaParts ?? [])
-  ) {
+  if (payload.connectorA && payload.connectorB && sameConnectorRef(payload.connectorA, payload.connectorB)) {
     return 'a connector cannot be mated to itself';
   }
   const opts = payload.options ?? {};
@@ -320,6 +322,21 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     }
   }
   return null;
+}
+
+/**
+ * Whether two connector sides address the same connector: the same anchor
+ * statement and name — and the same replica row (every replica of one
+ * `replicate()` shares that statement's line), the same export chain (two
+ * occurrences of one sub-assembly share their instances' source lines) and
+ * the same copy slot (every copy of a connector carries its name).
+ */
+function sameConnectorRef(a: MateConnectorRef, b: MateConnectorRef): boolean {
+  return a.instanceLine === b.instanceLine
+    && a.connectorName === b.connectorName
+    && a.replicaRow === b.replicaRow
+    && a.slot === b.slot
+    && JSON.stringify(a.viaParts ?? []) === JSON.stringify(b.viaParts ?? []);
 }
 
 /**

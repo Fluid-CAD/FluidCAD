@@ -78,8 +78,9 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
   });
 
   // Variable names of the sketch (or plane) statements at the given source
-  // lines, for create-dialog labels ("spine — line 3"). Read-only over the
-  // live buffer; lines without a bound statement resolve to null.
+  // lines, for create-dialog labels ("spine — line 3"; a Copy dialog's
+  // followed repeat, "holes"). Read-only over the live buffer; lines without
+  // a bound statement resolve to null.
   router.post('/sketch-names', async (req, res) => {
     const { lines, callee } = req.body ?? {};
     const valid = Array.isArray(lines) && lines.length <= 64
@@ -89,8 +90,8 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       return;
     }
     if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis'
-      && callee !== 'helix' && callee !== 'offset') {
-      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis", "helix" or "offset"' });
+      && callee !== 'helix' && callee !== 'offset' && callee !== 'repeat') {
+      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis", "helix", "offset" or "repeat"' });
       return;
     }
     const lineNumbers = lines as number[];

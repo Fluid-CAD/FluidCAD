@@ -112,7 +112,7 @@ Opening a `.assembly.js` file swaps the toolbar for the assembly tools and the p
 
 - **Toolbar**: **Insert** (a dialog listing every part and sub-assembly in the workspace), the joints **Fastened**, **Revolute**, **Slider**, **Cylindrical**, **Planar**, **Tangent**, then **Replicate** and **Connector** (a free frame in assembly space).
 - **Parts**: one row per inserted instance; the eye hides it, the menu offers **Show in source**, **Toggle grounded**, **Rename** and **Delete**. Sub-assemblies group their members under a header.
-- **Connectors**: the assembly-level connectors declared in this file.
+- **Connectors**: the assembly-level connectors declared in this file. A connector with [copies](/docs/assembly/introduction#copying-an-assembly-connector) heads a family: the row shows its size and a chevron that folds out one `instance(k)` row per copy. The menu offers **Show in source**, **Copy…** (**Edit copy…** once copied) and **Delete**; on a copy, **Show in source**, **Edit copy…** and **Remove copies**.
 - **Joints**: one row per `mate()`, with the two parts and the limits. Click a row to highlight both connectors; the menu offers **Animate…** (revolute and slider), **Edit mate…**, **Suppress**, **Delete** and **Show in source**.
 - Instances are moved by dragging them, or with the gizmo's arrows and rings; the new pose is written back to the `insert()` statement. Dragging a jointed part moves it within the joint's freedom.
 

@@ -4,6 +4,7 @@ import type { ChildProcess } from 'child_process';
 import { EngineDownloadError } from '../engine/download';
 import { startEngine, stopEngine, type EngineEvents } from '../engine/process';
 import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from '../engine/resolver';
+import { BuiltinEngineRetention } from '../engine/retention';
 import { isFluidScriptFile } from '../file-kind';
 import type { OpeningStatus } from '../start/contract';
 import { rememberProject } from '../state';
@@ -33,6 +34,8 @@ export class OpenCancelledError extends Error {
 export class ProjectSession {
   private child: ChildProcess | null = null;
   private engine: ResolvedEngine | null = null;
+  /** The engine version the project pins once opened: the pin it had, or the one written for it. */
+  private pin: string | null = null;
   private port: number | null = null;
   private url: string | null = null;
   private stopped = false;
@@ -78,7 +81,8 @@ export class ProjectSession {
       this.engine = engine;
 
       const written = pinProjectIfNeeded(this.workspacePath, engine);
-      rememberProject(this.workspacePath, written ?? engine.pin);
+      this.pin = written ?? engine.pin;
+      rememberProject(this.workspacePath, this.pin);
 
       onStatus({ step: 'starting', version: engine.version, source: engine.source });
       await this.spawn(engine);
@@ -106,6 +110,9 @@ export class ProjectSession {
     await this.openLastFile(this.url);
     // Only once the model is up: the offer is about geometry the user can see.
     await this.upgradePrompt.offer();
+    // Also once the model is up, so the copy never competes with the kernel
+    // bring-up. A no-op unless the pin names the engine inside the app.
+    BuiltinEngineRetention.ensureInBackground(this.pin);
   }
 
   /** A button on the upgrade prompt was pressed in this project's page. */

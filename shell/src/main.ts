@@ -1,8 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { builtinEngine, pruneEngines } from './engine/cache';
+import { EngineTransport } from './engine/download';
 import { thumbnailsDir } from './engine/paths';
+import { EngineScratch } from './engine/scratch';
 import { buildApplicationMenu, refreshApplicationMenu, type MenuActions } from './menu';
 import { createNewProject } from './new-project';
 import { handleAppScheme, registerAppScheme } from './start/app-protocol';
@@ -294,6 +296,9 @@ if (singleInstance) {
   });
 
   app.whenReady().then(() => {
+    // Engine downloads go through Chromium's network stack, so they follow the
+    // system proxy and PAC settings the same way the updater does.
+    EngineTransport.use((url, init) => net.fetch(url, init));
     const root = startPageRoot({
       packaged: app.isPackaged,
       env: process.env,
@@ -320,9 +325,11 @@ if (singleInstance) {
     }
 
     // Reclaim disk from engines nothing pins any more. Never touches a version
-    // a known project pins, or one with a live process against it.
+    // a known project pins, or one with a live process against it. Then clear
+    // out downloads and copies that an earlier run quit in the middle of.
     try {
       pruneEngines({ keep: 3, protectedVersions: pinnedVersions() });
+      EngineScratch.sweep();
     } catch {
       // Housekeeping; never worth a dialog.
     }

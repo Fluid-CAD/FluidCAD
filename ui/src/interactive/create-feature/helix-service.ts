@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyHelix, applyHelixEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyHelix, applyHelixEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostHelixSourceRef, GhostSolid, HelixApplyOptions, HelixEditOptions, HelixSourceRef,
   ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
@@ -494,7 +494,7 @@ export class HelixFeatureService {
       return null;
     }
     const { mode, newVariables, ...dimensions } = values;
-    return fetchFeatureGhost({ feature: 'helix', source, ...dimensions }, signal);
+    return fetchFeatureGhost({ feature: 'helix', source, ...dimensions }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The source the ghost coils around, in the form the kernel resolves. */

@@ -1,4 +1,6 @@
-// Variables a dialog introduces: declaring them in sketch or part scope and listing the ones in scope.
+// Variables a dialog introduces: declaring them and listing the ones in scope.
+
+import { assemblyBodies, assemblyInsertAnchors } from './assembly.ts';
 
 import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
@@ -193,6 +195,20 @@ export async function extractVariablesInPart(
     return [];
   }
   return collectVariablesInScope(tree, part.body.endPosition.row, null);
+}
+
+/** Variables visible where the catalog appends an insert in the current assembly. */
+export async function extractVariablesInAssembly(code: string): Promise<VariableInfo[]> {
+  const parser = await getParser();
+  const tree = parser.parse(code);
+  const bodies = assemblyBodies(tree.rootNode);
+  if (bodies.length !== 1) {
+    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null);
+  }
+  const body = bodies[0];
+  const { lastInsert, returnStmt } = assemblyInsertAnchors(body);
+  const row = lastInsert?.endPosition.row ?? returnStmt?.startPosition.row ?? body.endPosition.row;
+  return collectVariablesInScope(tree, row, null);
 }
 
 /**

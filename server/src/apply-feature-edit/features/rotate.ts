@@ -1,6 +1,6 @@
 // rotate(): option types, statement rendering, chain parsing and the edit renderer.
 
-import type { TSNode } from '../../code-editor/index.ts';
+import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import { anyValueArg, booleanArgValue, numericValueArg, resolveRepeatTargetRef } from '../ast/args.ts';
 import { renderRepeatAxisExpr, type RepeatAxisSpec } from './repeat.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
@@ -70,12 +70,12 @@ export function parseRotateChain(
   args: TSNode[],
   start: number,
   end: number,
-  numericVars: Set<string> = new Set(),
+  bindings: LexicalBindings,
 ): ChainParse {
   if (args.length < 2) {
     return { error: 'the rotate has fewer arguments than the dialog understands' };
   }
-  if (numericValueArg(args[0], numericVars) !== null) {
+  if (numericValueArg(args[0], bindings) !== null) {
     return { error: 'the in-sketch rotate has no edit dialog — edit it in the source' };
   }
   const angle = anyValueArg(args[1]);

@@ -1,3 +1,4 @@
+import { assemblyInsertAnchors } from './code-editor/assembly.ts';
 import {
   getJavaScriptParser,
   indentOf,
@@ -9,6 +10,8 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
+
+export { assemblyBodies } from './code-editor/assembly.ts';
 
 /**
  * Tree-sitter helpers shared by the assembly statement writers (mate,
@@ -47,7 +50,12 @@ export function canonicalChainText(text: string): string {
 
 const NUMBER_DECIMALS = 6;
 
-export type CodeTransformResult = { newCode: string; error?: string };
+/**
+ * A statement writer's result. `statementLine` is the 1-based line a placed
+ * statement landed on, reported by the placement helpers so a caller can
+ * land declarations before it.
+ */
+export type CodeTransformResult = { newCode: string; error?: string; statementLine?: number };
 
 /**
  * One side of a connector-authored statement: the anchor whose `insert()`
@@ -64,13 +72,27 @@ export type CodeTransformResult = { newCode: string; error?: string };
  * dereferences through the replicate statement's binding — `name[row]` for
  * an array binding (hoisted as `<seed>Replicas` when unbound), or the
  * destructured name when the author wrote `const [a, b] = replicate(...)`.
+ *
+ * With `slot`, the side is a copy of that connector — `copy()` in the part
+ * made it — and dereferences one step further: `.connectors.bolt.instance(3)`.
  */
 export type MateConnectorRef = {
   instanceLine: number;
   connectorName: string;
   viaParts?: string[][];
   replicaRow?: number;
+  slot?: number;
 };
+
+/** Whether `slot` is absent or a pattern slot a copy can sit at (a non-negative integer). */
+export function isCopySlot(slot: unknown): boolean {
+  return slot === undefined || (Number.isInteger(slot) && (slot as number) >= 0);
+}
+
+/** `.instance(3)` for a copy's slot, nothing for the connector itself. */
+export function renderInstanceSuffix(slot: number | undefined): string {
+  return slot === undefined ? '' : `.instance(${slot})`;
+}
 
 /**
  * One side of a tangent statement: the same stable instance address (and the
@@ -89,10 +111,15 @@ export type MateGeometryRef = {
  * dereferences as the statement's `const` binding (a bare expression
  * statement gets `const <connectorName> = ` prepended, like an unbound
  * `insert()`), and anchors statement placement like an instance side.
+ *
+ * With `slot`, the side is a copy of that connector — the file's top-level
+ * `copy()` made it — and `connectorLine` stays its seed's statement: it
+ * dereferences as `bay.instance(2)`.
  */
 export type MateFrameRef = {
   connectorLine: number;
   connectorName: string;
+  slot?: number;
 };
 
 /** Any statement side: an instance connector, an exposure, or an assembly connector. */
@@ -359,9 +386,11 @@ export async function resolveReplicaBinding(
  * dereferenced through its anchor's binding (`arm1.connectors.hinge` /
  * `cam1.features.profile` / a replica's `cyl1Replicas[1].…`), reaching
  * through `.parts.<keys...>` export chains first when the side lives inside
- * a sub-assembly occurrence; an assembly connector is its own binding.
- * Bindings hoisted along the way are same-line prepends, so the returned
- * code keeps every line address valid.
+ * a sub-assembly occurrence; an assembly connector is its own binding. A
+ * copy of a connector adds its slot: `flange1.connectors.bolt.instance(3)`,
+ * or `bay.instance(2)` for an assembly connector's copy. Bindings hoisted
+ * along the way are same-line prepends, so the returned code keeps every
+ * line address valid.
  */
 export async function resolveSideExpression(
   code: string,
@@ -372,7 +401,7 @@ export async function resolveSideExpression(
     if ('error' in binding) {
       return binding;
     }
-    return { newCode: binding.newCode, expression: binding.name };
+    return { newCode: binding.newCode, expression: `${binding.name}${renderInstanceSuffix(side.slot)}` };
   }
   let prefix: { newCode: string; expression: string } | { error: string };
   if (side.replicaRow !== undefined) {
@@ -387,7 +416,7 @@ export async function resolveSideExpression(
   const via = ('viaParts' in side ? side.viaParts : undefined) ?? [];
   const chain = via.map(renderPartsChain).join('');
   const member = 'connectorName' in side
-    ? `.connectors.${side.connectorName}`
+    ? `.connectors.${side.connectorName}${renderInstanceSuffix(side.slot)}`
     : `.features.${side.exposeName}`;
   return {
     newCode: prefix.newCode,
@@ -476,7 +505,7 @@ export function appendStatement(code: string, statement: string): CodeTransformR
   const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
     && !isAssemblyStatementRow(lines[insertRow - 1]);
   lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
-  return { newCode: joinLines(lines) };
+  return { newCode: joinLines(lines), statementLine: insertRow + (separated ? 1 : 0) + 1 };
 }
 
 /**
@@ -535,28 +564,7 @@ export async function appendStatementInScope(
   const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
     && !isAssemblyStatementRow(lines[insertRow - 1]);
   lines.splice(insertRow, 0, ...(separated ? ['', `${indent}${statement}`] : [`${indent}${statement}`]));
-  return { newCode: joinLines(lines) };
-}
-
-/** Statement blocks of every `assembly(name, () => {...})` call in the file. */
-export function assemblyBodies(root: TSNode): TSNode[] {
-  const bodies: TSNode[] = [];
-  for (const node of walkTree(root)) {
-    if (node.type !== 'call_expression') {
-      continue;
-    }
-    const fn = node.childForFieldName('function');
-    if (fn?.type !== 'identifier' || fn.text !== 'assembly') {
-      continue;
-    }
-    const args = node.childForFieldName('arguments')?.namedChildren ?? [];
-    const callback = args.find(a => a.type === 'arrow_function' || a.type === 'function_expression');
-    const body = callback?.childForFieldName('body');
-    if (body?.type === 'statement_block') {
-      bodies.push(body);
-    }
-  }
-  return bodies;
+  return { newCode: joinLines(lines), statementLine: insertRow + (separated ? 1 : 0) + 1 };
 }
 
 /**
@@ -567,13 +575,16 @@ export function assemblyBodies(root: TSNode): TSNode[] {
  */
 export function appendInsideBody(code: string, body: TSNode, statement: string): string {
   const lines = splitLines(code);
-  const statements = body.namedChildren.filter(c => c.type !== 'comment');
-  const insertStmts = statements.filter(s =>
-    /^(const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)?insert\s*\(/.test(s.text));
-  const lastInsert = insertStmts[insertStmts.length - 1] ?? null;
-  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
-  const lastStmt = statements[statements.length - 1] ?? null;
-
+  const { lastInsert, returnStmt, lastStmt } = assemblyInsertAnchors(body);
+  // A compact callback can share a line with its statements and closing
+  // brace. Open it before using the ordinary line-based placement below.
+  if (body.startPosition.row === body.endPosition.row && lastStmt) {
+    const indent = indentOf(lines, body.startPosition.row) + '  ';
+    const after = lastInsert ?? (returnStmt ? null : lastStmt);
+    const index = after?.endIndex ?? returnStmt!.startIndex;
+    const text = after ? `\n${indent}${statement}\n${indent}` : `${statement}\n${indent}`;
+    return spliceCode(code, index, index, text);
+  }
   if (lastInsert) {
     const row = lastInsert.endPosition.row + 1;
     lines.splice(row, 0, `${indentOf(lines, lastInsert.startPosition.row)}${statement}`);

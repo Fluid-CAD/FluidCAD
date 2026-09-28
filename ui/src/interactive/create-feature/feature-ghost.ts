@@ -1,7 +1,8 @@
 import { Group, Object3D } from 'three';
-import { GhostSolid } from '../../api';
+import { GhostFrame, GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
 import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
+import { buildConnectorGizmo } from '../../meshes/containers/connector-mesh';
 import { buildPlaneVisual, PLANE_OPACITY } from '../../meshes/containers/plane-mesh';
 import { themeColors } from '../../scene/theme-colors';
 import { Viewer } from '../../viewer';
@@ -20,6 +21,14 @@ const EDGE_OPACITY = 0.9;
 
 /** A ghost curve is the whole feature, so it draws at the applied wire's weight. */
 const WIRE_LINE_WIDTH = 2;
+
+/**
+ * A ghost connector — a copy the dialog would place — draws the connector's
+ * own triad, translucent: the same visual the connector dialog previews
+ * with, a shade under its locked preview so the settled seed stays the
+ * solid one.
+ */
+const GHOST_FRAME_OPACITY = 0.6;
 
 /**
  * A ghost plane draws a shade stronger than the settled one. The face is the
@@ -59,10 +68,15 @@ export class FeatureGhostOverlay {
    * Replace the drawn bodies; an empty list just clears. `kind` says what the
    * whole ghost is, except where a body names its own — a fillet reports that
    * per band, because one selection can shave a convex corner and fill a
-   * concave one in the same breath.
+   * concave one in the same breath. `frames` are connector frames the
+   * feature would place (a copy of connectors), each drawn as the
+   * connector's triad.
    */
-  set(solids: GhostSolid[], kind: GhostKind): void {
+  set(solids: GhostSolid[], kind: GhostKind, frames: readonly GhostFrame[] = []): void {
     this.clear();
+    for (const frame of frames) {
+      this.group.add(buildConnectorGizmo(frame, this.viewer.sceneContext.camera, { opacity: GHOST_FRAME_OPACITY }));
+    }
     solids.forEach((solid, index) => {
       const bodyKind = solid.kind ?? kind;
       if (bodyKind === 'plane') {

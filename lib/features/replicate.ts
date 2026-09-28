@@ -280,7 +280,7 @@ function toSide(value: unknown): ReplicateSide | null {
   if (value instanceof Connector) {
     if (!value.isAssemblyConnector()) {
       throw new Error(
-        `replicate(): connector "${value.connectorName}" is a part connector with no instance — pass instance.connectors.${value.connectorName} from an inserted instance.`,
+        `replicate(): connector "${value.label()}" is a part connector with no instance — pass instance.connectors.${value.label()} from an inserted instance.`,
       );
     }
     return { kind: "frame", connector: value };
@@ -304,10 +304,10 @@ function instanceLabel(scene: AssemblyScene, instanceId: string): string {
 
 function sideLabel(scene: AssemblyScene, side: ReplicateSide): string {
   if (side.kind === "connector") {
-    return `${instanceLabel(scene, side.instanceId)}.${side.connector.connectorName}`;
+    return `${instanceLabel(scene, side.instanceId)}.${side.connector.label()}`;
   }
   if (side.kind === "frame") {
-    return side.connector.connectorName;
+    return side.connector.label();
   }
   return `${instanceLabel(scene, side.instanceId)}.${side.exposed.exposeName}`;
 }
@@ -419,7 +419,7 @@ function normalizeCell(
   }
   if (side.kind === "frame" && scope !== "") {
     throw new Error(
-      `${where} — assembly connectors are root-scope only for now; mate to "${side.connector.connectorName}" from the file that declares it.`,
+      `${where} — assembly connectors are root-scope only for now; mate to "${side.connector.label()}" from the file that declares it.`,
     );
   }
   return side;
@@ -430,10 +430,10 @@ function normalizeCell(
 // ---------------------------------------------------------------------------
 
 /**
- * Inner side → the replica's own connector/exposure, resolved BY NAME on the
- * mapped instance record (the replica shares the seed's part template, but
- * resolving by name keeps a non-deterministic body from binding the wrong
- * object silently).
+ * Inner side → the replica's own connector/exposure, resolved BY ADDRESS on
+ * the mapped instance record — a connector's name plus, for a copy, its slot
+ * (the replica shares the seed's part template, but resolving by address
+ * keeps a non-deterministic body from binding the wrong object silently).
  */
 function rebindInnerSide(scene: AssemblyScene, side: ReplicateSide, mapId: IdMap): ReplicateSide {
   if (side.kind === "frame") {
@@ -447,10 +447,9 @@ function rebindInnerSide(scene: AssemblyScene, side: ReplicateSide, mapId: IdMap
     );
   }
   if (side.kind === "connector") {
-    const name = side.connector.connectorName;
-    const connector = record.part.getNamedConnectors()[name];
+    const connector = record.part.resolveConnector(side.connector.connectorName, side.connector.copySlot());
     if (!connector) {
-      throw new Error(`replicate(): the replica "${record.name}" has no connector "${name}".`);
+      throw new Error(`replicate(): the replica "${record.name}" has no connector "${side.connector.label()}".`);
     }
     return { kind: "connector", instanceId, connector };
   }

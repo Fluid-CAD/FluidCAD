@@ -106,6 +106,12 @@ export function buildObjectMesh(
 
   if (children.length > 0) {
     const group = new Group();
+    // A row can own shapes AND have rows under it: a copy() of solids and
+    // connectors draws its solid copies itself and each connector copy on
+    // its own row. (Containers own none — their children carry the shapes.)
+    if (obj.sceneShapes.length > 0) {
+      group.add(new ShapeGroup(obj, isRegionPicking, options));
+    }
     for (const child of children) {
       group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options, isRollback, shownIds));
 

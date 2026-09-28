@@ -28,9 +28,10 @@ import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
 import {
-  SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail, SolvedPickRail,
+  SketchOpDialog, SketchOpScope, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail,
+  SolvedPickRail,
 } from './sketch-op-service';
-import { SketchCopyService } from './sketch-copy-service';
+import { ParsedSketchCopy, SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { SketchSplitService } from './sketch-split-service';
 import { SketchTrimService } from './sketch-trim-service';
@@ -193,13 +194,18 @@ export class SketchToolbarService {
       deselect: (shapeId) => this.activeHoverSelectHandler?.deselectShape(shapeId),
       select: (shapeIds) => this.activeHoverSelectHandler?.selectShapes(shapeIds),
     };
-    const opVars = () => this.fetchScopeVariables();
+    // The op dialogs read their names in the active sketch: its variables
+    // for the value fields, the end of its body for a created op's ghost.
+    const opScope: SketchOpScope = {
+      variables: () => this.fetchScopeVariables(),
+      sketch: () => this.activeSketchInfo?.sourceLocation ?? null,
+    };
     const opDone = () => this.handleToolSelect(null);
     // One shared overlay for the op dialogs' live geometry — only one dialog
     // is ever open; offset and fillet draw into it.
     const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
-      new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);
+      new SketchOpService(container, config, opSelection, opScope, opDone, opGhost);
     // Constraint-native fillet (P8): the create path reads the solved picks
     // + model for the corner math and applies through the atomic
     // insert-solved rail (arc + coincident/tangent/radius rows, corner
@@ -215,7 +221,7 @@ export class SketchToolbarService {
     this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-    }, opSelection, opVars, opDone, opGhost, opRail);
+    }, opSelection, opScope, opDone, opGhost, opRail);
     // A copy direction or the mirror line may be one of the sketch's datum
     // axes — a solved pick, not an edge id — so both dialogs read the solved
     // rail.
@@ -223,7 +229,7 @@ export class SketchToolbarService {
       picks: opRail.picks,
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
     };
-    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost, datumRail);
+    this.copyOp = new SketchCopyService(container, opSelection, opScope, opDone, opGhost, datumRail);
     // The mirror CREATE path is constraint-native like the fillet's: it
     // reads the picks + model, plans reflected geometry + symmetric rows
     // client-side and emits through the insert-solved rail.
@@ -390,7 +396,7 @@ export class SketchToolbarService {
    */
   enterCopyEdit(
     target: FeatureEditTarget,
-    parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+    parsed: ParsedSketchCopy,
     expectedStatement: string,
   ): void {
     const service = this.copyOp;

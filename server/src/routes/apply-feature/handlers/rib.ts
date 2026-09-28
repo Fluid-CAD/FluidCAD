@@ -8,7 +8,7 @@ import { validateRib } from '../validate/rib.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 export async function handleRib(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateRib(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -54,6 +54,7 @@ export async function handleRib(ctx: ApplyFeatureRequestContext, req: Request, r
       res.json({ success: true, preview: statement });
       return;
     }
+    const activePart = activePartFor(request.spine.filePath);
     await dispatcher.dispatch(res, {
       feature: 'rib',
       rib: options,
@@ -62,6 +63,7 @@ export async function handleRib(ctx: ApplyFeatureRequestContext, req: Request, r
       parts: [],
       imports: [],
       newVariables,
+      ...(activePart ? { activePart } : {}),
     }, { success: true, preview: statement });
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });

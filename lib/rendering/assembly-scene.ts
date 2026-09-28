@@ -1,8 +1,9 @@
 import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
+import { ConnectorCopy } from "../features/connector-copy.js";
 import { Exposed } from "../features/exposed.js";
-import { SourceLocation } from "../common/scene-object.js";
+import { SceneObject, SourceLocation } from "../common/scene-object.js";
 import type { ParamDefinition, ParamOverrides, ParamVal } from "../param-registry.js";
 import type { Assembly } from "../features/assembly.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
@@ -127,6 +128,11 @@ export type MateFrameSide = { connectorId: string };
  * coordinates (root scope only in v1, so local equals world) plus the
  * statement to edit. `connectorId` is read live at serialize time — the
  * same staleness rule as mate sides.
+ *
+ * A copy a top-level `copy()` made (`bay.instance(2)`) is listed too, with
+ * its seed's name and `copy` — its pattern slot and its seed's id, read
+ * live the same way. Its `sourceLocation` is its copy statement's; its
+ * seed's `connector()` statement is found through `seedId`.
  */
 export type SerializedAssemblyConnector = {
   connectorId: string;
@@ -138,6 +144,8 @@ export type SerializedAssemblyConnector = {
   yDirection: Vec3;
   normal: Vec3;
   sourceLocation?: SourceLocation;
+  /** Present on a copy of an assembly connector: its slot, and its seed's id. */
+  copy?: { slot: number; seedId: string };
 };
 
 /**
@@ -373,10 +381,16 @@ export class AssemblyScene extends Scene {
     this._mates.push(mate);
   }
 
+  /**
+   * Register one of the assembly's own connectors: a `connector('name', [x,
+   * y, z])` statement's, or a copy a top-level `copy()` made of one — every
+   * frame a mate can take as its assembly side.
+   */
   registerAssemblyConnector(connector: Connector): void {
     this._connectors.push(connector);
   }
 
+  /** The assembly's own connectors, copies included, in statement order. */
   getAssemblyConnectors(): Connector[] {
     return this._connectors;
   }
@@ -405,6 +419,9 @@ export class AssemblyScene extends Scene {
         yDirection: { x: frame.yDirection.x, y: frame.yDirection.y, z: frame.yDirection.z },
         normal: { x: frame.normal.x, y: frame.normal.y, z: frame.normal.z },
         sourceLocation: connector.getSourceLocation() ?? undefined,
+        ...(connector instanceof ConnectorCopy
+          ? { copy: { slot: connector.slot, seedId: connector.seed.id } }
+          : {}),
       });
     }
     return out;
@@ -442,6 +459,15 @@ export class AssemblyScene extends Scene {
       return [];
     }
     return this._definitions.filter(d => !d.wasRun()).map(d => d.assemblyName);
+  }
+
+  /**
+   * An assembly's part templates build where its insert() statements place
+   * them, not where the imported part files called part() — its rows are
+   * the build order.
+   */
+  override getTimelineObjects(): SceneObject[] {
+    return this.getAllSceneObjects();
   }
 
   getMates(): AssemblyMate[] {

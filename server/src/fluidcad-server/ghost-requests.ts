@@ -87,12 +87,15 @@ export type RevolveGhostRequest = {
  * The revolve dialog's axis slot on the wire: a world axis from the X/Y/Z
  * quick buttons, an `axis()` statement by call site, or an edge picked in the
  * viewport. "Keep the current axis" never travels — the client resolves it to
- * the edited statement's own `axis()` call site first.
+ * the edited statement's own `axis()` call site first. The copy's axis slot
+ * also takes a connector — its `connector()` call site, plus a copy's slot —
+ * standing for its Z axis through its origin.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -249,8 +252,12 @@ export type GhostRepeatDirection = {
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  /** `pattern` follows a repeat (`copy(holes, bolt)`): its instances are the repeat's. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /**
+   * The statements being copied, by call site: solid-bearing ones, stamped,
+   * and `connector()` statements, whose copies come back as frames.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -267,6 +274,8 @@ export type CopyGhostRequest = {
    * copy's entries carry a single index each. Absent skips none.
    */
   skip?: number[][];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -448,6 +457,17 @@ export type GhostSolid = {
 };
 
 /**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it — in the four vectors a rendered connector serializes.
+ */
+export type GhostFrame = {
+  origin: { x: number; y: number; z: number };
+  xDirection: { x: number; y: number; z: number };
+  yDirection: { x: number; y: number; z: number };
+  normal: { x: number; y: number; z: number };
+};
+
+/**
  * A ghost outcome plus the status the route should answer with. `solids`
  * present is the success case; otherwise `reason` says why, and a refusal the
  * dialog hits while simply typing (a superseded request, a profile not in the
@@ -480,6 +500,8 @@ export type SketchRegionsOutcome = {
 export type FeatureGhostOutcome = {
   status: number;
   solids?: GhostSolid[];
+  /** Connector frames the ghost places, beside its solids — a copy of connectors. */
+  frames?: GhostFrame[];
   reason?: string;
   /**
    * The reason is worth putting in front of the user — a limit they can act

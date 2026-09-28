@@ -22,6 +22,10 @@ import { isFluidScriptFile } from '../file-kind';
  *      …fetch fails, pin < shipped →  run the shipped engine, repin to it
  *   no pin                         →  built-in engine, and write the pin
  *
+ * The cache holds downloaded engines, and also the app's own engine once a
+ * project pins it (`retention.ts`). An app update therefore does not send
+ * those projects back to the network.
+ *
  * Branch 1 preserves today's behaviour exactly: every project that already
  * works with the VS Code extension keeps working, byte for byte, because it
  * keeps running the engine its own `node_modules` holds.
@@ -196,8 +200,9 @@ export async function resolveEngine(
     try {
       downloaded = await downloadEngine(pin.engine, options);
     } catch (err) {
-      // A cancelled open is not a failed fetch: the user stopped it, and the
-      // pin must stay exactly where it was.
+      // A cancelled open is not a failed fetch: the user stopped it, or its
+      // window closed mid-download. That says nothing about the network, and
+      // nobody is waiting for an engine, so the pin stays exactly where it was.
       if (options.signal?.aborted) {
         throw err;
       }

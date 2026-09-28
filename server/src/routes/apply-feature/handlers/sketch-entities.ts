@@ -4,12 +4,12 @@ import type { Request, Response } from 'express';
 import {
   extractNumericParams,
   makeProducerNamer,
+  renderCopyAxisExpr,
   renderCopyCenterExpr,
   renderCopyStatement,
   renderMirrorAxisExpr,
   renderMirrorStatement,
   renderOffsetStatement,
-  renderRepeatAxisExpr,
   renderTextStatement,
   resolveParamValues,
   validValueExpr,
@@ -139,7 +139,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
       const producerVars = await allocateProducerVars(spec.producers, code);
       const varFor = (i: number): string | null => producerVars[i];
       const inputExprs = request.kind === 'linear'
-        ? copyOptions.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
+        ? copyOptions.directions!.map(d => renderCopyAxisExpr(d.axis, spec.parts, varFor))
         : [renderCopyCenterExpr(request.center!)];
       const statement = renderCopyStatement(
         copyOptions, inputExprs,

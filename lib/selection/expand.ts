@@ -1,5 +1,6 @@
 import { Shape } from "../common/shape.js";
 import { Explorer } from "../oc/explorer.js";
+import { HiddenEdges } from "../oc/hidden-edges.js";
 import { TangentExpander } from "../filters/tangent-expander.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { BucketRecord, SelectionIndex } from "./selection-index.js";
@@ -99,7 +100,10 @@ export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandT
   // Seed with the universe's own wrapper so expansion results stay
   // identity-mappable back to mesh indices.
   const seed = universe[ref.sub.index];
-  const expanded = TangentExpander.expand([seed], universe);
+  // No chain may reach an edge the viewport never draws (a seam, a
+  // degenerated pole): it would select what the user cannot see.
+  const candidates = ref.sub.type === 'edge' ? HiddenEdges.visibleOf(resolved.shape.getShape(), universe) : universe;
+  const expanded = TangentExpander.expand([seed], candidates);
 
   const indexByWrapper = new Map<Shape, number>();
   universe.forEach((shape, index) => indexByWrapper.set(shape, index));

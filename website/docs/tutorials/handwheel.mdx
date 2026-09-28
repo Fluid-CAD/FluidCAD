@@ -189,9 +189,11 @@ Apply and name the feature **Grip pattern**. Each instance repeats the cut follo
 
 ### Blend the spoke junctions
 
-Open **Fillet** and select the short vertical edges where the spokes join the hub and the rim: four per opening, sixteen in total. Orbit the model and use **Ctrl+click** to add the far-side edges. Set **Radius** to `2`.
+Open **Fillet** and set **Radius** to `2`. The edges to round are the short vertical edges where the spokes join the hub and the rim: four per opening, sixteen in total. They all share the spokes' 5 mm height, so you can select them together instead of one by one.
 
-![The sixteen spoke junction edges selected for a 2 mm fillet](/img/docs/tutorials/handwheel-ui-21-spoke-fillets-preview.png)
+Right-click one of them, for example where a spoke meets the hub, and choose **Equal Length Lines (16)**. Hovering the item highlights the edges it will add; clicking it adds all sixteen, including the ones on the far side. **Selection** should read 16.
+
+![Right-clicking a spoke junction edge in the Fillet dialog and choosing Equal Length Lines (16)](/img/docs/tutorials/handwheel-ui-21-spoke-fillets-menu.png)
 
 Apply and name this feature **Spoke fillets**.
 

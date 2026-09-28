@@ -1,5 +1,5 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureGhost, fetchFeatureSources, expandBucket,
+  applySweep, applySweepEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, expandBucket,
   ApplyFeatureEntity, FeatureEditTarget, GhostPathRef, GhostSolid, ParsedFeatureStatement,
   SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
@@ -718,7 +718,7 @@ export class SweepFeatureService {
       profile,
       path,
       regions: this.regions.ghostPicks(),
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost sweeps, or null while there is nothing to sweep. */
@@ -968,9 +968,9 @@ export class SweepFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen profile's (producers win:
-   * the statement inserts in the profile's scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen profile (see {@link scopePartLocation}): the profile's own
+   * part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

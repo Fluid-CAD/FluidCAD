@@ -1,19 +1,42 @@
-import { FIELD_LABEL, type SettingsContext, type SettingsTab } from './settings-tab';
+import { logicalCpuCount } from '../../../../lib/oc/workers.js';
+import { engineSettings } from './engine-settings';
+import {
+  FIELD_LABEL,
+  field,
+  numberField,
+  type PersistPreference,
+  type SettingsContext,
+  type SettingsTab,
+} from './settings-tab';
 
 /**
- * The one control that acts at once rather than on Save: put every setting
- * back to its default, behind an inline confirmation. A reset is an action
- * on the stored file, not a draft, so it does not wait for Save and it
- * drops whatever drafts the other tabs hold.
+ * How many workers the kernel may use, drafted and applied on Save like the
+ * other tabs. Below it, the one control that acts at once rather than on
+ * Save: put every setting back to its default, behind an inline
+ * confirmation. A reset is an action on the stored file, not a draft, so it
+ * does not wait for Save and it drops whatever drafts the other tabs hold.
  */
 export class AdvancedTab implements SettingsTab {
   readonly id = 'advanced';
   readonly label = 'Advanced';
+  private workers!: HTMLInputElement;
+  private draftWorkers = engineSettings.current.maxWorkers;
   private resetBtn!: HTMLButtonElement;
   private confirmRow!: HTMLDivElement;
   private status!: HTMLParagraphElement;
 
   mount(root: HTMLElement, ctx: SettingsContext): void {
+    // At most one worker per CPU: the page runs on the engine's machine.
+    this.workers = numberField(1, logicalCpuCount(), (count) => {
+      this.draftWorkers = count;
+      ctx.changed();
+    });
+    root.appendChild(field(
+      'Maximum workers count',
+      this.workers,
+      'Parallel workers for booleans and meshing. Fewer workers use less memory after you reopen the project.',
+    ));
+
     const label = document.createElement('p');
     label.className = `${FIELD_LABEL} mb-2`;
     label.textContent = 'Reset every setting to its default.';
@@ -46,18 +69,26 @@ export class AdvancedTab implements SettingsTab {
     this.status = document.createElement('p');
     this.status.className = 'hidden text-xs mt-3';
     root.appendChild(this.status);
+
+    this.sync();
   }
 
   sync(): void {
+    this.draftWorkers = engineSettings.current.maxWorkers;
+    this.workers.value = String(this.draftWorkers);
     this.askConfirm(false);
   }
 
   isDirty(): boolean {
-    return false;
+    return this.draftWorkers !== engineSettings.current.maxWorkers;
   }
 
-  save(): void {
-    // Nothing is drafted here.
+  save(persist: PersistPreference): void {
+    if (!this.isDirty()) {
+      return;
+    }
+    engineSettings.update({ maxWorkers: this.draftWorkers });
+    persist('maxWorkers', this.draftWorkers);
   }
 
   private askConfirm(open: boolean): void {

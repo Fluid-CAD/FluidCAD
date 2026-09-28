@@ -4,6 +4,7 @@ import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { viewerSettings } from '../src/scene/viewer-settings';
 import { editorPrefs } from '../src/editor/editor-prefs';
 import { newProjectDefaults } from '../src/ui/settings/new-project-defaults';
+import { engineSettings } from '../src/ui/settings/engine-settings';
 import type { UserPreferences } from '../src/api';
 
 // The Settings dialog: a gear-opened modal with one vertical tab per area.
@@ -11,24 +12,36 @@ import type { UserPreferences } from '../src/api';
 // changed keys, Cancel drops them, and a tab with an unsaved edit shows a
 // dot. Reset re-applies the server's defaults through the page's own routine.
 
+const initialWorkers = engineSettings.current.maxWorkers;
+
 afterEach(() => {
   document.body.innerHTML = '';
   document.documentElement.removeAttribute('data-theme');
   viewerSettings.update({ snapRadiusPx: 15, pickRadiusPx: 12, timelineSketchChildren: 'all', timelineShowConstraints: true, timelineShowRegions: false });
   editorPrefs.update({ fontFamily: '', fontSize: 13, wordWrap: false, openAtStartup: false });
   newProjectDefaults.update({ unit: 'mm' });
+  engineSettings.update({ maxWorkers: initialWorkers });
+  // Drop a pinned CPU count; the prototype's getter answers again.
+  delete (navigator as { hardwareConcurrency?: number }).hardwareConcurrency;
 });
+
+/** Pin the CPU count the page sees (it bounds the workers field). */
+function pinCpus(count: number): void {
+  Object.defineProperty(navigator, 'hardwareConcurrency', { value: count, configurable: true });
+}
 
 function mount() {
   const savePreference = vi.fn();
   const resetPreferences = vi.fn(async (): Promise<UserPreferences | null> => ({
     theme: 'fluidcad-dark', showGrid: true, cameraMode: 'orthographic', showBuildTimings: false,
     editorFontFamily: '', editorFontSize: 13, editorWordWrap: false, snapRadiusPx: 15, pickRadiusPx: 12, defaultProjectUnit: 'mm', editorOpen: false,
+    maxWorkers: 3,
   }));
   const applyPreferences = vi.fn((prefs: UserPreferences) => {
     viewerSettings.update({ snapRadiusPx: prefs.snapRadiusPx!, pickRadiusPx: prefs.pickRadiusPx! });
     editorPrefs.update({ fontSize: prefs.editorFontSize!, fontFamily: prefs.editorFontFamily!, wordWrap: false, openAtStartup: false });
     newProjectDefaults.update({ unit: prefs.defaultProjectUnit! });
+    engineSettings.update({ maxWorkers: prefs.maxWorkers! });
     document.documentElement.setAttribute('data-theme', prefs.theme);
   });
   const modal = new SettingsModal(document.body, { savePreference, resetPreferences, applyPreferences });
@@ -205,6 +218,31 @@ describe('SettingsModal', () => {
     expect(savePreference).toHaveBeenCalledWith('defaultProjectUnit', 'in');
   });
 
+  it('Advanced drafts the maximum workers count, at least one and at most one per CPU, and saves it', () => {
+    pinCpus(6);
+    engineSettings.update({ maxWorkers: 4 });
+    const { modal, overlay, savePreference } = mount();
+    modal.show('advanced');
+    const advanced = panel(overlay, 'advanced');
+    expect(advanced.textContent).toContain('Maximum workers count');
+    const workers = advanced.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(workers.value).toBe('4');
+    expect([workers.min, workers.max]).toEqual(['1', '6']);
+
+    typeNumber(workers, '99');
+    expect(workers.value).toBe('6');
+    typeNumber(workers, '0');
+    expect(workers.value).toBe('1');
+    expect(dotVisible(overlay, 'advanced')).toBe(true);
+    expect(engineSettings.current.maxWorkers).toBe(4);
+    expect(savePreference).not.toHaveBeenCalled();
+
+    saveButton(overlay).click();
+    expect(engineSettings.current.maxWorkers).toBe(1);
+    expect(savePreference).toHaveBeenCalledWith('maxWorkers', 1);
+    expect(dotVisible(overlay, 'advanced')).toBe(false);
+  });
+
   it('Advanced asks first, then resets on the server at once, re-applies the defaults and drops every draft', async () => {
     const { modal, overlay, resetPreferences, applyPreferences } = mount();
     modal.show('sketch');
@@ -213,6 +251,9 @@ describe('SettingsModal', () => {
 
     tabButton(overlay, 'advanced').click();
     const advanced = panel(overlay, 'advanced');
+    const workers = advanced.querySelector<HTMLInputElement>('input[type="number"]')!;
+    typeNumber(workers, '2');
+    expect(dotVisible(overlay, 'advanced')).toBe(true);
     const buttons = () => Array.from(advanced.querySelectorAll<HTMLButtonElement>('button')).filter((b) => !b.closest('.hidden'));
     expect(buttons().map((b) => b.textContent)).toEqual(['Reset all to defaults']);
     buttons()[0].click();
@@ -223,6 +264,8 @@ describe('SettingsModal', () => {
     expect(viewerSettings.current.snapRadiusPx).toBe(15);
     expect(panel(overlay, 'sketch').querySelector<HTMLInputElement>('input[type="number"]')!.value).toBe('15');
     expect(dotVisible(overlay, 'sketch')).toBe(false);
+    expect(workers.value).toBe('3');
+    expect(dotVisible(overlay, 'advanced')).toBe(false);
     expect(advanced.textContent).toContain('Every setting is back to its default.');
   });
 });

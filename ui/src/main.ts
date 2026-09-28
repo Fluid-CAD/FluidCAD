@@ -71,6 +71,7 @@ import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
 import { SettingsModal } from './ui/settings';
 import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
+import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -225,6 +226,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyPreferences(prefs);
   applyEditorPreferences(prefs);
   applyNewProjectPreferences(prefs);
+  applyEnginePreferences(prefs);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);

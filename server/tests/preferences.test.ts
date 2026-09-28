@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import express from 'express';
-import { loadPreferences, preferredNewProjectUnit, resetPreferences, savePreferences } from '../src/preferences.ts';
+import { loadPreferences, preferredNewProjectUnit, resetPreferences, savePreferences, type Preferences } from '../src/preferences.ts';
 import { createPreferencesRouter } from '../src/routes/preferences.ts';
 
 // The preferences file lives under the platform config dir; on Linux that is
@@ -31,10 +31,10 @@ afterEach(() => {
 
 const onLinux = process.platform === 'linux';
 
-async function withServer<T>(run: (base: string) => Promise<T>): Promise<T> {
+async function withServer<T>(run: (base: string) => Promise<T>, onSaved?: (prefs: Preferences) => void): Promise<T> {
   const app = express();
   app.use(express.json());
-  app.use('/api', createPreferencesRouter());
+  app.use('/api', createPreferencesRouter(onSaved));
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as { port: number };
@@ -109,6 +109,27 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
       const onDisk = await loadPreferences();
       expect(onDisk).toEqual(reset);
     });
+  });
+
+  it('the worker count defaults to one per CPU up to eight, stays within [1, CPUs] and reaches the engine on every save', async () => {
+    const cpus = os.availableParallelism();
+    const byDefault = Math.min(cpus, 8);
+    expect((await loadPreferences()).maxWorkers).toBe(byDefault);
+    const heard: number[] = [];
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, { maxWorkers: 0 });
+      expect(prefs.maxWorkers).toBe(1);
+      prefs = await post(`${base}/preferences`, { maxWorkers: cpus + 50 });
+      expect(prefs.maxWorkers).toBe(cpus);
+      prefs = await post(`${base}/preferences`, { maxWorkers: 1.4 });
+      expect(prefs.maxWorkers).toBe(1);
+      prefs = await post(`${base}/preferences`, { maxWorkers: 'many' });
+      expect(prefs.maxWorkers).toBe(1);
+      const reset = await post(`${base}/preferences/reset`, {});
+      expect(reset.maxWorkers).toBe(byDefault);
+    }, (prefs) => heard.push(prefs.maxWorkers));
+    // Every write, the ignored value and the reset included, is handed on.
+    expect(heard).toEqual([1, cpus, 1, 1, byDefault]);
   });
 
   it('the unit for new projects is null for mm and the stored unit otherwise', async () => {

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { defaultMaxWorkers, logicalCpuCount } from '../../lib/dist/oc/workers.js';
 
 export type MeasureLengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
 export type GridFixedSpacing = Record<MeasureLengthUnit, number>;
@@ -14,6 +15,8 @@ export const EDITOR_FONT_SIZE_RANGE: [number, number] = [8, 40];
 /** Sketch snap and pick radius bounds, screen px. */
 export const SNAP_RADIUS_PX_RANGE: [number, number] = [2, 80];
 export const PICK_RADIUS_PX_RANGE: [number, number] = [2, 80];
+/** Kernel worker count bounds: at least one, at most one per logical CPU of this machine. */
+export const MAX_WORKERS_RANGE: [number, number] = [1, logicalCpuCount()];
 
 export interface Preferences {
   theme: string;
@@ -56,6 +59,8 @@ export interface Preferences {
   timelineShowConstraints: boolean;
   /** The timeline lists a sketch's region declarations (behind their "N regions" group). Default false. */
   timelineShowRegions: boolean;
+  /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
+  maxWorkers: number;
 }
 
 export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
@@ -84,6 +89,7 @@ const DEFAULTS: Preferences = {
   timelineSketchChildren: 'all',
   timelineShowConstraints: true,
   timelineShowRegions: false,
+  maxWorkers: defaultMaxWorkers(),
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */

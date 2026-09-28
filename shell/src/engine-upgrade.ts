@@ -5,6 +5,7 @@ import { compareVersionsDescending, downloadEngine } from './engine/download';
 import { serverEntryFor } from './engine/paths';
 import { projectInstalledEngine, readProjectPin, writeProjectPin } from './engine/project-pin';
 import { isEngineManagedLink, type ResolvedEngine } from './engine/resolver';
+import { BuiltinEngineRetention } from './engine/retention';
 import { UpgradeDiffer, type UpgradeDiff } from './engine/upgrade-diff';
 import type { ProjectWindow } from './project-window';
 import { upgradePromptPreference } from './state';
@@ -140,8 +141,13 @@ export class EngineUpgrade {
       }
       writeProjectPin(workspacePath, version);
       if (deps.openWindow) {
+        // The reopen keeps the engine past the next update (`ProjectWindow.open`).
         await deps.openWindow.close({ reopening: true });
         await deps.openProject(workspacePath);
+      } else {
+        // No window reopens, so keep it here: an update before the project is
+        // next opened would otherwise strand this pin.
+        BuiltinEngineRetention.ensureInBackground(version);
       }
       return { ok: true };
     } catch (err: any) {

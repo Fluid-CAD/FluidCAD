@@ -4,6 +4,7 @@ import path from 'path';
 import { EngineDownloadError } from './engine/download';
 import { startEngine, stopEngine } from './engine/process';
 import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from './engine/resolver';
+import { BuiltinEngineRetention } from './engine/retention';
 import { rememberProject, rememberWindowBounds, readDesktopState } from './state';
 import { isFluidScriptFile } from './file-kind';
 import { captureThumbnail } from './thumbnails';
@@ -76,6 +77,8 @@ export class ProjectWindow {
   private closeReady = false;
   private closePreparation: Promise<void> | null = null;
   private reopening = false;
+  /** Cancels the engine download of an `open()` still in flight: closing the window stops it. */
+  private opening: AbortController | null = null;
   private readonly upgradePrompt = new UpgradePrompt(this);
 
   constructor(readonly workspacePath: string) {
@@ -125,6 +128,9 @@ export class ProjectWindow {
         windows.delete(workspacePath);
       }
       this.stopping = true;
+      // A download still running for this window has nobody left to serve.
+      // Left alone, it kept going and collided with the download a reopen started.
+      this.opening?.abort();
       if (this.child) {
         stopEngine(this.child);
         this.child = null;
@@ -174,8 +180,13 @@ export class ProjectWindow {
     await this.browserWindow.loadFile(STARTUP_PAGE);
     this.setStatus({ phase: 'resolving', workspacePath: this.workspacePath });
 
+    this.opening?.abort();
+    const opening = new AbortController();
+    this.opening = opening;
+
     try {
       const engine = await resolveEngine(this.workspacePath, {
+        signal: opening.signal,
         onDownloadStart: (version) =>
           this.setStatus({ phase: 'downloading', version, receivedBytes: 0, totalBytes: null }),
         onProgress: (progress) =>
@@ -189,16 +200,28 @@ export class ProjectWindow {
       this.engine = engine;
 
       const written = pinProjectIfNeeded(this.workspacePath, engine);
-      rememberProject(this.workspacePath, written ?? engine.pin);
+      const pin = written ?? engine.pin;
+      rememberProject(this.workspacePath, pin);
 
       this.setStatus({ phase: 'starting', version: engine.version, source: engine.source });
       await this.startChild(engine);
+      // Once the model is up, so the copy never competes with the kernel
+      // bring-up. A no-op unless the pin names the engine inside the app.
+      BuiltinEngineRetention.ensureInBackground(pin);
     } catch (err: any) {
+      if (opening.signal.aborted) {
+        // The window closed mid-open; there is nobody to tell.
+        return;
+      }
       const message =
         err instanceof EngineResolutionError || err instanceof EngineDownloadError
           ? err.message
           : err?.message ?? String(err);
       this.setStatus({ phase: 'error', message });
+    } finally {
+      if (this.opening === opening) {
+        this.opening = null;
+      }
     }
   }
 

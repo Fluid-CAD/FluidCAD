@@ -5,7 +5,8 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import * as tar from 'tar';
 import { describeEngineAt, markEngineInstalled, type InstalledEngine } from './cache';
-import { currentTarget, engineRoot, enginesDir, serverEntryFor } from './paths';
+import { currentTarget, engineRoot, serverEntryFor } from './paths';
+import { EngineScratch } from './scratch';
 
 /**
  * Fetching an engine: one tarball, one sha256, one extract.
@@ -18,6 +19,16 @@ import { currentTarget, engineRoot, enginesDir, serverEntryFor } from './paths';
 
 /** GitHub Releases. Assets are published by the `engines` job of `.github/workflows/release-desktop.yml`. */
 const DEFAULT_BASE_URL = 'https://github.com/Fluid-CAD/FluidCAD/releases/download';
+
+/** How long the manifest, a few hundred bytes, may take, redirects included. */
+const MANIFEST_TIMEOUT_MS = 20_000;
+
+/**
+ * How long the tarball may go without delivering a byte, the wait for the
+ * response included. Not a limit on the whole transfer: a 30 MB engine on a
+ * slow line takes minutes, and the splash shows it moving.
+ */
+const STALL_TIMEOUT_MS = 30_000;
 
 export type EngineManifest = {
   schemaVersion: number;
@@ -39,15 +50,86 @@ export type DownloadProgress = {
   totalBytes: number | null;
 };
 
+export type DownloadTimeouts = {
+  manifestMs?: number;
+  stallMs?: number;
+};
+
 export type DownloadOptions = {
   onProgress?: (progress: DownloadProgress) => void;
+  /** Cancels the download: a project window that closes stops its own. */
   signal?: AbortSignal;
+  /** Overrides `MANIFEST_TIMEOUT_MS` and `STALL_TIMEOUT_MS`; tests shrink them. */
+  timeouts?: DownloadTimeouts;
 };
 
 export class EngineDownloadError extends Error {
   constructor(message: string, readonly cause?: unknown) {
     super(message);
     this.name = 'EngineDownloadError';
+  }
+}
+
+export type EngineFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * The HTTP client engine downloads go through. It is Node's global `fetch`
+ * unless told otherwise, so this module runs (and is tested) outside
+ * Electron. `main.ts` installs Electron's `net.fetch`, which follows the
+ * system proxy and PAC settings the way the app's updater does. Node's
+ * `fetch` ignores them: on a network that reaches the internet only through a
+ * proxy, app updates arrived and engines never did.
+ */
+export class EngineTransport {
+  private static impl: EngineFetch | null = null;
+
+  /** Route downloads through `impl`; null goes back to Node's `fetch`. */
+  static use(impl: EngineFetch | null): void {
+    EngineTransport.impl = impl;
+  }
+
+  static fetch(url: string, init: RequestInit): Promise<Response> {
+    return EngineTransport.impl ? EngineTransport.impl(url, init) : fetch(url, init);
+  }
+}
+
+/**
+ * Aborts a transfer that stops moving. After `limitMs` without a byte, the
+ * link is not coming back in any time a user will wait, and the abort is what
+ * hands the project to the resolver's fallback. Without it, Node's `fetch`
+ * sat on a silent socket for five minutes (its own headers and body
+ * timeouts), with the splash frozen on "Downloading engine…".
+ */
+class StallWatchdog {
+  readonly signal: AbortSignal;
+  private readonly controller = new AbortController();
+  private timer: NodeJS.Timeout | null = null;
+  private tripped = false;
+
+  constructor(private readonly limitMs: number, cancel?: AbortSignal) {
+    this.signal = cancel ? AbortSignal.any([cancel, this.controller.signal]) : this.controller.signal;
+    this.restart();
+  }
+
+  /** Something arrived, so the clock starts over. */
+  restart(): void {
+    this.stop();
+    this.timer = setTimeout(() => {
+      this.tripped = true;
+      this.controller.abort(new Error(`nothing arrived for ${this.limitMs / 1000} s`));
+    }, this.limitMs);
+  }
+
+  /** True once the watchdog, not the caller, ended the transfer. */
+  get fired(): boolean {
+    return this.tripped;
+  }
+
+  stop(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
   }
 }
 
@@ -87,23 +169,33 @@ function offlineMessage(version: string, err: unknown): string {
   );
 }
 
-async function fetchBytes(location: string, signal?: AbortSignal): Promise<Buffer> {
+async function fetchBytes(location: string, options: DownloadOptions): Promise<Buffer> {
   if (!isRemoteBase(baseUrl())) {
     return fs.promises.readFile(location);
   }
-  const response = await fetch(location, { signal, redirect: 'follow' });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText} for ${location}`);
+  const limitMs = options.timeouts?.manifestMs ?? MANIFEST_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(limitMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  try {
+    const response = await EngineTransport.fetch(location, { signal, redirect: 'follow' });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText} for ${location}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    if (timeout.aborted && !options.signal?.aborted) {
+      throw new Error(`No answer from ${location} within ${limitMs / 1000} s.`);
+    }
+    throw err;
   }
-  return Buffer.from(await response.arrayBuffer());
 }
 
-async function readManifest(version: string, signal?: AbortSignal): Promise<EngineManifest> {
+async function readManifest(version: string, options: DownloadOptions): Promise<EngineManifest> {
   const stem = engineArtifactStem(version);
   const location = assetLocation(version, `${stem}.json`);
   let raw: Buffer;
   try {
-    raw = await fetchBytes(location, signal);
+    raw = await fetchBytes(location, options);
   } catch (err) {
     throw new EngineDownloadError(offlineMessage(version, err), err);
   }
@@ -137,27 +229,40 @@ async function downloadTo(
     return;
   }
 
-  const response = await fetch(location, { signal: options.signal, redirect: 'follow' });
-  if (!response.ok || !response.body) {
-    throw new Error(`${response.status} ${response.statusText} for ${location}`);
-  }
+  const limitMs = options.timeouts?.stallMs ?? STALL_TIMEOUT_MS;
+  const watchdog = new StallWatchdog(limitMs, options.signal);
+  try {
+    const response = await EngineTransport.fetch(location, { signal: watchdog.signal, redirect: 'follow' });
+    if (!response.ok || !response.body) {
+      throw new Error(`${response.status} ${response.statusText} for ${location}`);
+    }
+    watchdog.restart();
 
-  const declared = Number(response.headers.get('content-length'));
-  const totalBytes = Number.isFinite(declared) && declared > 0 ? declared : manifest.bytes ?? null;
-  let received = 0;
+    const declared = Number(response.headers.get('content-length'));
+    const totalBytes = Number.isFinite(declared) && declared > 0 ? declared : manifest.bytes ?? null;
+    let received = 0;
 
-  const source = Readable.fromWeb(response.body as any);
-  source.on('data', (chunk: Buffer) => {
-    received += chunk.length;
-    options.onProgress?.({
-      version: manifest.version,
-      phase: 'download',
-      receivedBytes: received,
-      totalBytes,
+    const source = Readable.fromWeb(response.body as any);
+    source.on('data', (chunk: Buffer) => {
+      watchdog.restart();
+      received += chunk.length;
+      options.onProgress?.({
+        version: manifest.version,
+        phase: 'download',
+        receivedBytes: received,
+        totalBytes,
+      });
     });
-  });
 
-  await pipeline(source, fs.createWriteStream(destination));
+    await pipeline(source, fs.createWriteStream(destination));
+  } catch (err) {
+    if (watchdog.fired && !options.signal?.aborted) {
+      throw new Error(`The download stalled: nothing arrived for ${limitMs / 1000} s.`);
+    }
+    throw err;
+  } finally {
+    watchdog.stop();
+  }
 }
 
 function sha256File(filePath: string): Promise<string> {
@@ -183,12 +288,11 @@ export async function downloadEngine(
     options.onProgress?.({ version, phase, receivedBytes, totalBytes });
 
   report('manifest');
-  const manifest = await readManifest(version, options.signal);
+  const manifest = await readManifest(version, options);
 
-  const scratch = path.join(enginesDir(), '.tmp');
-  fs.mkdirSync(scratch, { recursive: true });
-  const tarballPath = path.join(scratch, `${manifest.file}.${process.pid}.part`);
-  const stagingDir = path.join(scratch, `${version}.${process.pid}`);
+  const scratch = EngineScratch.create();
+  const tarballPath = scratch.file(manifest.file);
+  const stagingDir = scratch.file('engine');
 
   try {
     const location = assetLocation(version, manifest.file);
@@ -208,7 +312,6 @@ export async function downloadEngine(
     }
 
     report('extract', manifest.bytes, manifest.bytes);
-    fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
     await tar.x({ file: tarballPath, cwd: stagingDir });
 
@@ -239,8 +342,7 @@ export async function downloadEngine(
     report('done', manifest.bytes, manifest.bytes);
     return installed;
   } finally {
-    fs.rmSync(tarballPath, { force: true });
-    fs.rmSync(stagingDir, { recursive: true, force: true });
+    scratch.dispose();
   }
 }
 

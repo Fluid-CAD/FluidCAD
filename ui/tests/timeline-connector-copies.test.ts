@@ -6,12 +6,13 @@ import type { EngineClient } from '../src/engine-client';
 import type { SceneObjectRender } from '../src/types';
 
 // Connector copies in the History panel (connector-copies stage 2): a
-// `copy()` that copies nothing but connectors files with its part's
-// connectors — the group counts every copy it made — and clicking it shows
-// the whole family instead of rolling back; a copy of solids and connectors
-// together stays among the features. A declared connector row offers
-// "Copy…"; the copies a statement made never do, and are never edited as
-// connectors.
+// `copy()` is one statement however many copies it makes, so it lists among
+// the features like any pattern, and only the declared connectors fold
+// behind the "N connectors" group. Clicking a copy that copies nothing but
+// connectors shows the whole family instead of rolling back; a copy of
+// solids and connectors together previews like any feature. A declared
+// connector row offers "Copy…"; the copies a statement made never do, and
+// are never edited as connectors.
 
 Element.prototype.scrollIntoView = vi.fn();
 
@@ -92,24 +93,24 @@ function flange(): SceneObjectRender[] {
 }
 
 describe('timeline — connector copies', () => {
-  it('files a connector-only copy row with the part\'s connectors, counting every copy it made', () => {
+  it('lists a connector-only copy among the features, folding only the declared connectors', () => {
     const h = mount();
     h.timeline.update(flange(), 8);
 
-    // The mixed copy stays among the features; the connectors and the
-    // connector-only copy fold behind the group row.
+    // Both copies are statements in the history — visible with the group
+    // still collapsed; the declared connectors fold behind the group row.
     expect(h.rowOf(1)).not.toBeNull();
+    expect(h.rowOf(3)).not.toBeNull();
     expect(h.rowOf(7)).not.toBeNull();
     expect(h.rowOf(2)).toBeNull();
-    expect(h.rowOf(3)).toBeNull();
     const toggle = h.groupToggle('id-0:connectors')!;
-    // bolt + its two copies + pin + lug.
-    expect(toggle.textContent).toContain('— 5 connectors');
+    // bolt, pin and lug: the group counts the rows it lists.
+    expect(toggle.textContent).toContain('— 3 connectors');
 
     toggle.click();
     expect(h.rowOf(2)).not.toBeNull();
-    expect(h.rowOf(3)).not.toBeNull();
     expect(h.rowOf(6)).not.toBeNull();
+    expect(h.rowOf(9)).not.toBeNull();
     // A copy row stands for its copies: they stay folded under it.
     expect(h.rowOf(4)).toBeNull();
   });
@@ -120,7 +121,6 @@ describe('timeline — connector copies', () => {
     h.timeline.onFeatureShow = (obj) => shown.push(obj);
     const scene = flange();
     h.timeline.update(scene, 8);
-    h.groupToggle('id-0:connectors')!.click();
 
     h.rowOf(3)!.click();
 
@@ -172,9 +172,8 @@ describe('timeline — connector copies', () => {
 });
 
 // A copy that follows a repeat (`copy(holes, bolt)`, connector-copies stage
-// 4) copies nothing but connectors: its `copy-pattern` row files with its
-// part's connectors like any connector-only copy, and a click shows the
-// family — the repeat itself stays among the features.
+// 4) copies nothing but connectors: its `copy-pattern` row lists among the
+// features beside the repeat it follows, and a click shows the family.
 describe('timeline — a copy that follows a repeat', () => {
   function follow(): SceneObjectRender[] {
     return [
@@ -192,7 +191,7 @@ describe('timeline — a copy that follows a repeat', () => {
     ];
   }
 
-  it('files the copy-pattern row with the part\'s connectors and shows its family on a click', () => {
+  it('lists the copy-pattern row among the features and shows its family on a click', () => {
     const h = mount();
     const shown: SceneObjectRender[] = [];
     h.timeline.onFeatureShow = (obj) => shown.push(obj);
@@ -200,11 +199,10 @@ describe('timeline — a copy that follows a repeat', () => {
     h.timeline.update(scene, 7);
 
     expect(h.rowOf(2)).not.toBeNull();
-    expect(h.rowOf(5)).toBeNull();
-    const toggle = h.groupToggle('id-0:connectors')!;
-    // bolt and its two copies.
-    expect(toggle.textContent).toContain('— 3 connectors');
-    toggle.click();
+    expect(h.rowOf(5)).not.toBeNull();
+    expect(h.rowOf(4)).toBeNull();
+    // Only bolt folds behind the group.
+    expect(h.groupToggle('id-0:connectors')!.textContent).toContain('— 1 connector');
 
     h.rowOf(5)!.click();
     expect(shown.map(obj => obj.id)).toEqual(['id-5']);

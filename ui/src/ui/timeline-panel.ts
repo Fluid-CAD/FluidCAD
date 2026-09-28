@@ -41,13 +41,14 @@ function isRegionRow(obj: SceneObjectRender): boolean {
 
 /**
  * Child rows a container folds into their own sub-container instead of
- * listing inline: a part's mate connectors (`connector(…)`, and the
- * `copy()` statements that copy nothing but connectors) and published
- * selections (`expose(…)`), a sketch's region declarations (`region(…)`).
- * All are references rather than geometry, so a container with a dozen of
- * them would otherwise bury its modeling history. Each kind renders behind
- * one "N connectors" / "N exposed" / "N regions" toggle row, collapsed by
- * default — the same shape the solved-sketch constraint group uses.
+ * listing inline: a part's declared mate connectors (`connector(…)`) and
+ * published selections (`expose(…)`), a sketch's region declarations
+ * (`region(…)`). All are references rather than geometry, so a container
+ * with a dozen of them would otherwise bury its modeling history. Each kind
+ * renders behind one "N connectors" / "N exposed" / "N regions" toggle row,
+ * collapsed by default — the same shape the solved-sketch constraint group
+ * uses. A `copy()` of connectors is one statement however many copies it
+ * makes, so it lists among the features like any pattern.
  */
 interface GroupKind {
   /** Key into expandedGroupKeys (`<containerId>:<key>`). */
@@ -56,11 +57,6 @@ interface GroupKind {
   parent: 'part' | 'sketch';
   /** Whether a child row files into the group. */
   holds: (obj: SceneObjectRender) => boolean;
-  /**
-   * How many of the group's items a row stands for — one, but a connector
-   * copy row counts every copy it made, so "N connectors" is the part's.
-   */
-  weight?: (obj: SceneObjectRender, index: SceneIndex) => number;
   label: (count: number) => string;
   icon: string;
 }
@@ -69,10 +65,7 @@ const GROUP_KINDS: readonly GroupKind[] = [
   {
     key: 'connectors',
     parent: 'part',
-    holds: (obj) => obj.type === 'connector' || SceneIndex.copiesOnlyConnectors(obj),
-    weight: (obj, index) => obj.type === 'connector'
-      ? 1
-      : index.children(obj.id).filter(child => child.type === 'connector').length,
+    holds: (obj) => obj.type === 'connector',
     label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`,
     icon: 'mate-connector',
   },
@@ -933,11 +926,14 @@ export class TimelinePanel {
           }
           return;
         }
-        if (obj && groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part' && this.onFeatureShow) {
+        const publishes = obj !== undefined && (SceneIndex.copiesOnlyConnectors(obj)
+          || groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part');
+        if (obj && publishes && this.onFeatureShow) {
           // Connector / exposed rows show what they publish instead of
-          // rolling back — they are references, not modeling steps; a
-          // connector copy row shows its whole family. (A region row is a
-          // statement of its sketch and rolls back like one.)
+          // rolling back — they are references, not modeling steps — and so
+          // does a copy of connectors, listed among the features: it shows
+          // its whole family. (A region row is a statement of its sketch and
+          // rolls back like one.)
           this.onFeatureShow(obj);
           this.goToSource(obj);
           return;
@@ -1233,8 +1229,7 @@ export class TimelinePanel {
       const groupKey = `${obj.id}:${kind.key}`;
       const shown = this.expandedGroupKeys.has(groupKey);
       const anyError = rows.some((j) => items[j].hasError === true);
-      const count = rows.reduce((sum, j) => sum + (kind.weight?.(items[j], sceneIndex) ?? 1), 0);
-      html += this.renderGroupSummaryRow(groupKey, kind, count, shown, anyError, childDepth);
+      html += this.renderGroupSummaryRow(groupKey, kind, rows.length, shown, anyError, childDepth);
       if (shown) {
         for (const j of rows) {
           html += this.renderSubtree(ctx, j, childDepth);

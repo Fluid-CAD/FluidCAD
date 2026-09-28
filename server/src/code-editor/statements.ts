@@ -236,6 +236,59 @@ export function setSketchClosed(
 }
 
 // ---------------------------------------------------------------------------
+// Part material — set/replace/remove the chained .material('id') on a part
+// ---------------------------------------------------------------------------
+
+/**
+ * Set, replace, or remove the `.material('…')` chain of the `part(...)`
+ * statement at `sourceLine` (the part row's Set material… menu). A material
+ * id rewrites an existing string argument in place or appends
+ * `.material('…')` at the end of the chain, after `.name('…')` and any other
+ * trailing chain; null removes the chain. Refuses (returns null) a line that
+ * is not a `part(...)` statement — a stale line must not grow a chain some
+ * other feature has no meaning for — and an existing `.material()` whose
+ * argument is not a single string literal (an expression the user wrote by
+ * hand is theirs to change). Removing from a part without the chain is a
+ * no-op.
+ */
+export function setPartMaterial(
+  code: string,
+  sourceLine: number,
+  materialId: string | null,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call || chainRootCallee(call) !== 'part') {
+      return null;
+    }
+    const materialCall = findMemberCallInChain(call, 'material');
+    const existingArgs = materialCall ? getArgumentsNode(materialCall) : null;
+    if (materialCall) {
+      if (!existingArgs || existingArgs.namedChildren.length !== 1 || existingArgs.namedChildren[0].type !== 'string') {
+        return null;
+      }
+    }
+    const value = (materialId ?? '').trim();
+    if (value === '') {
+      if (!materialCall) {
+        return null;
+      }
+      const member = materialCall.childForFieldName('function');
+      const object = member ? member.childForFieldName('object') : null;
+      if (!object) {
+        return null;
+      }
+      return spliceCode(code, object.endIndex, materialCall.endIndex, '');
+    }
+    const quoted = `'${quoteForSingleQuotes(value)}'`;
+    if (materialCall && existingArgs) {
+      return spliceCode(code, existingArgs.startIndex + 1, existingArgs.endIndex - 1, quoted);
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, `.material(${quoted})`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Geometry insertion — insert a new call expression at the end of a sketch body
 // ---------------------------------------------------------------------------
 

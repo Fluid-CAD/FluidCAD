@@ -257,7 +257,7 @@ const lastSceneByFile = new Map<string, {
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
 function emitSuccess(version: number, data: SceneRenderedData) {
-  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties } = data;
+  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties, objectWarnings } = data;
   lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
@@ -279,6 +279,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     breakpointHit,
     params,
     properties,
+    objectWarnings,
     ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });

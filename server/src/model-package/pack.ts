@@ -251,6 +251,7 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   const entryRelative = normalizePath(relative(workspaceAbs, entryAbs));
   const defaultName = basename(entryAbs).replace(/\.fluid\.js$/i, '');
 
+  const projectConfig = readProjectConfig(workspaceAbs);
   const manifest: ModelPackageManifest = {
     schemaVersion: 3,
     name: inputs.name ?? defaultName,
@@ -258,13 +259,16 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
     createdAt: new Date().toISOString(),
     entry: entryRelative,
     hasInit: !!initAbs,
-    unit: inputs.unit ?? readProjectConfig(workspaceAbs).unit ?? 'mm',
+    unit: inputs.unit ?? projectConfig.unit ?? 'mm',
     assets: assetPaths,
     files: filePaths,
   };
   const fileUnits = await collectFileUnits(workspaceAbs, filePaths);
   if (fileUnits) {
     manifest.fileUnits = fileUnits;
+  }
+  if (projectConfig.materials) {
+    manifest.materials = projectConfig.materials;
   }
   if (inputs.description) manifest.description = inputs.description;
   if (inputs.paramOverrides && Object.keys(inputs.paramOverrides).length > 0) {

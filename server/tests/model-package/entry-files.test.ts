@@ -62,6 +62,24 @@ describe('collectEntryFiles — the source tree a viewer link carries', () => {
     expect(JSON.parse(fromPkg['fluidcad.json'])).toEqual({ unit: 'cm' });
   });
 
+  it('ships the materials map beside the unit, and alone when the project sets no unit', async () => {
+    write('model.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+    const materials = { 'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³' } };
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding', unit: 'in', materials }));
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(files['fluidcad.json'])).toEqual({ unit: 'in', materials });
+
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding', materials }));
+    const noUnit = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(noUnit['fluidcad.json'])).toEqual({ materials });
+
+    // An invalid map is a config error the desktop reports; the link ships none.
+    write('fluidcad.json', JSON.stringify({ unit: 'in', materials: { bad: { name: 'x' } } }));
+    const invalid = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(invalid['fluidcad.json'])).toEqual({ unit: 'in' });
+  });
+
   it('refuses npm dependencies, Node built-ins, and files outside the workspace', async () => {
     mkdirSync(join(ws, 'node_modules', 'dep'), { recursive: true });
     write('node_modules/dep/index.js', 'export const dep = 1;\n');

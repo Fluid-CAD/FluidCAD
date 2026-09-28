@@ -16,6 +16,16 @@ export type SceneSummaryObject = {
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;
+  /**
+   * Non-fatal notices on this row — `Unknown material: <id>` on a part
+   * whose material is in neither table. Absent when there are none.
+   */
+  warnings?: string[];
+  /**
+   * Part rows only: the material id `.material()` assigned, or null when
+   * the part has none. Resolve it through `GET /api/materials`.
+   */
+  material?: string | null;
   containerId: string | null;
   isContainer: boolean;
   visible: boolean;

@@ -52,6 +52,7 @@ export function createTimelineRouter(
       // The last full render's paused state — a refresh replays whatever
       // scene message went out last, and the indicator must survive it.
       breakpointHit: data.breakpointHit,
+      objectWarnings: data.objectWarnings,
     });
     // Features inside the rollback scope that failed to build are still
     // broken — a rollback re-emits them, it doesn't repair them.
@@ -172,6 +173,35 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       sketchClosed: { sourceLine: sourceLocation.line, closed },
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The part row menu's "Set material…" (a material id) and its "None"
+  // (null). Acked through the dispatcher like set-sketch-closed so the
+  // panel can refresh its mass properties once the re-render has landed.
+  router.post('/set-part-material', async (req, res) => {
+    const { sourceLocation, material } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number' ||
+      (material !== null && (typeof material !== 'string' || material.trim() === ''))
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'part',
+      filePath: sourceLocation.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      partMaterial: { sourceLine: sourceLocation.line, material },
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });

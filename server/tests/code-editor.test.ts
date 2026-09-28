@@ -11,6 +11,7 @@ import {
   removeStatement,
   setFeatureName,
   setSketchClosed,
+  setPartMaterial,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -922,6 +923,53 @@ describe('setSketchClosed', () => {
   it('refuses a line whose statement is not a sketch', async () => {
     const result = await setSketchClosed(sketchCode, 4, true);
     expect(result.newCode).toBe(sketchCode);
+  });
+});
+
+describe('setPartMaterial', () => {
+  const partCode = `const a = part('A', () => {\n  extrude(5);\n}).name('B');\nconst b = part('Bare', () => {});\nextrude(5);\n`;
+
+  it('appends .material() after the existing chains of a part statement', async () => {
+    const result = await setPartMaterial(partCode, 1, 'fluidcad-steel-1020');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-steel-1020');\nconst b = part('Bare', () => {});\nextrude(5);\n`);
+  });
+
+  it('appends .material() to a bare part statement', async () => {
+    const result = await setPartMaterial(partCode, 4, 'alloy-steel');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B');\nconst b = part('Bare', () => {}).material('alloy-steel');\nextrude(5);\n`);
+  });
+
+  it('replaces an existing id in place, wherever the chain sits', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').name('B');\n`;
+    const result = await setPartMaterial(code, 1, 'fluidcad-abs');
+    expect(result.newCode).toBe(`part('A', () => {}).material('fluidcad-abs').name('B');\n`);
+  });
+
+  it('removes the chain with null', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').name('B');\n`;
+    const result = await setPartMaterial(code, 1, null);
+    expect(result.newCode).toBe(`part('A', () => {}).name('B');\n`);
+  });
+
+  it('is a no-op when removing from a part without the chain', async () => {
+    const result = await setPartMaterial(partCode, 4, null);
+    expect(result.newCode).toBe(partCode);
+  });
+
+  it('refuses a line whose statement is not a part', async () => {
+    const result = await setPartMaterial(partCode, 5, 'fluidcad-pla');
+    expect(result.newCode).toBe(partCode);
+  });
+
+  it('refuses when the existing argument is not a string literal', async () => {
+    const code = `const id = 'fluidcad-pla';\npart('A', () => {}).material(id);\n`;
+    expect((await setPartMaterial(code, 2, 'fluidcad-abs')).newCode).toBe(code);
+    expect((await setPartMaterial(code, 2, null)).newCode).toBe(code);
+  });
+
+  it('escapes a quote in the id', async () => {
+    const result = await setPartMaterial(`part('A', () => {});\n`, 1, "o'brien");
+    expect(result.newCode).toBe(`part('A', () => {}).material('o\\'brien');\n`);
   });
 });
 

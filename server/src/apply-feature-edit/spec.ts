@@ -59,7 +59,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -326,6 +326,11 @@ export type ApplyFeatureEditSpec = {
    * edit after it; every other spec field is ignored.
    */
   sketchClosed?: SketchClosedEditSpec;
+  /**
+   * The part row menu's "Set material…" chain edit, alone on its round
+   * trip like `sketchClosed`; every other spec field is ignored.
+   */
+  partMaterial?: PartMaterialEditSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part — whenever no input pins it
@@ -750,6 +755,14 @@ export type SketchClosedEditSpec = {
   /** The sketch statement's 1-based source line. */
   sourceLine: number;
   closed: boolean;
+};
+
+/** The Set material… chain edit: see {@link setPartMaterial}. */
+export type PartMaterialEditSpec = {
+  /** The `part(...)` statement's 1-based source line. */
+  sourceLine: number;
+  /** A material id to set or replace, or null to remove the `.material()` chain. */
+  material: string | null;
 };
 
 export type ApplyFeatureEditResult = {

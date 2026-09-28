@@ -24,12 +24,14 @@ export type EntryFiles = Record<string, string>;
  * or into `node_modules` is an error — a link cannot carry an npm
  * dependency, and the viewer would fail to link it anyway.
  *
- * When the project sets a document unit (`fluidcad.json`, or package.json's
- * `fluidcad.unit`), the tree also carries a `fluidcad.json` holding ONLY
- * `{ "unit" }` — never the workspace's own file, which binds the project to
- * a hub model (`modelId`) and may hold whatever else the user put there.
- * The browser host reads the unit from that file; without it a model
- * follows mm, or its own `unit()` statement.
+ * When the project sets a document unit or its own materials
+ * (`fluidcad.json`, or package.json's `fluidcad.unit` / `fluidcad.materials`),
+ * the tree also carries a `fluidcad.json` holding ONLY `{ "unit",
+ * "materials" }` (each only when set) — never the workspace's own file,
+ * which binds the project to a hub model (`modelId`) and may hold whatever
+ * else the user put there. The browser host reads both from that file;
+ * without it a model follows mm, or its own `unit()` statement, and the
+ * built-in materials alone.
  */
 export async function collectEntryFiles(entryAbs: string, workspaceAbs: string): Promise<EntryFiles> {
   const workspace = normalizePath(workspaceAbs);
@@ -74,9 +76,12 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
     }
     files[rel] = await readFile(join(workspace, rel), 'utf8');
   }
-  const unit = readProjectConfig(workspace).unit;
-  if (unit !== null) {
-    files[PROJECT_CONFIG_FILENAME] = JSON.stringify({ unit });
+  const { unit, materials } = readProjectConfig(workspace);
+  if (unit !== null || materials !== null) {
+    files[PROJECT_CONFIG_FILENAME] = JSON.stringify({
+      ...(unit !== null ? { unit } : {}),
+      ...(materials !== null ? { materials } : {}),
+    });
   } else {
     delete files[PROJECT_CONFIG_FILENAME];
   }

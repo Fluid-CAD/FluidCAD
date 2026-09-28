@@ -1,5 +1,5 @@
 import type { ParamDefinition } from '../../../lib/dist/index.js';
-import type { LengthUnit } from '../project-config.ts';
+import type { LengthUnit, ProjectMaterials } from '../project-config.ts';
 
 export type ParamValue = string | number | boolean | (string | number)[];
 
@@ -75,6 +75,13 @@ export interface ModelPackageManifest {
    * entries into objects so `files` stays a plain path list for every reader.
    */
   fileUnits?: Record<string, LengthUnit>;
+  /**
+   * The project's own materials (`fluidcad.json` `"materials"`), lifted out
+   * of the excluded file like `unit` so a part's `.material(id)` resolves
+   * on the hub; absent when the project declares none. Seeds
+   * `BrowserEngineHost.setWorkspace(…, { materials })`.
+   */
+  materials?: ProjectMaterials;
   params?: Record<string, ParamValue>;
   /**
    * Full parameter schema captured by rendering the model once at pack time

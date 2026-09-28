@@ -53,6 +53,7 @@ export {
   removeStatement,
   removeStatementNode,
   setFeatureName,
+  setPartMaterial,
   setSketchClosed,
 } from './statements.ts';
 export {

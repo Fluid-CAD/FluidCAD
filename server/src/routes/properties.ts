@@ -11,8 +11,27 @@ import { getMaterials } from '../../../lib/dist/common/materials.js';
 export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
   const router = Router();
 
+  // The merged materials list: built-ins (`fluidcad-…` ids, `source:
+  // 'builtin'`) followed by the project's `fluidcad.json` map (`source:
+  // 'project'`; an entry reusing a built-in id replaces it in place).
   router.get('/materials', (_req, res) => {
-    res.json(getMaterials());
+    res.json(getMaterials(fluidCadServer.getProjectMaterials()));
+  });
+
+  // A part's mass properties over its final solids, with `material` /
+  // `massG` when its `.material(id)` resolves and `warning` when it does not.
+  router.get('/part-properties', (req, res) => {
+    const partId = (req.query.partId as string) || '';
+    if (!partId) {
+      res.status(400).json({ error: 'Missing partId' });
+      return;
+    }
+    const props = fluidCadServer.getPartProperties(partId);
+    if (!props) {
+      res.status(404).json({ error: 'Part not found' });
+      return;
+    }
+    res.json({ ...props, unit: fluidCadServer.getSceneUnit() });
   });
 
   router.get('/shape-properties', (req, res) => {

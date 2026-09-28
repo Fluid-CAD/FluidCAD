@@ -32,7 +32,8 @@ import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
 import { collectSceneProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
-import { PROJECT_CONFIG_FILENAME, readProjectConfig, type LengthUnit } from '../project-config.ts';
+import { PROJECT_CONFIG_FILENAME, readProjectConfig, type LengthUnit, type ProjectMaterials } from '../project-config.ts';
+import { PartPropertiesAggregator, type PartProperties } from './part-properties.ts';
 import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
   FeatureGhostOutcome,
@@ -53,7 +54,7 @@ import type {
   SelectionSynthesisOptions,
   ValidateUnavailable,
 } from './query-types.ts';
-import type { ObjectBuildError, RenderOptions, SceneRenderedData } from './render-types.ts';
+import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRenderedData } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
@@ -124,6 +125,12 @@ export class FluidCadServer {
   private lastRollbackStop: number = -1;
   /** Part id of the last part-scoped rollback; null for global/full views. */
   private lastRollbackScopePartId: string | null = null;
+  /**
+   * The project's `fluidcad.json` materials map as of the last scene start
+   * (`reseedProjectConfig`); null for a project without one and for the hub
+   * path, which has no workspace to read.
+   */
+  private projectMaterials: ProjectMaterials | null = null;
   /**
    * Whether the last full render paused at a breakpoint. Rollbacks don't
    * re-run the module, so they carry this last known state — without it the
@@ -272,19 +279,40 @@ export class FluidCadServer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Re-read the project unit from `fluidcad.json` before every scene start.
-   * The workspace's SceneManager seeds `projectUnit` once, from init.js —
-   * without this a unit edited while the server runs (the unit chip's
-   * "Project unit" menu) would only show up after a restart. Guarded for a
-   * workspace engine that predates the field, and skipped for the hub path,
-   * which installs its manager without a workspace and must keep whatever
-   * unit it was built with.
+   * Re-read `fluidcad.json` before every scene start: the project unit and
+   * the project materials. The workspace's SceneManager seeds `projectUnit`
+   * once, from init.js — without this a unit edited while the server runs
+   * (the unit chip's "Project unit" menu) would only show up after a
+   * restart; the materials map is the server's own (lib never reads it),
+   * so a material added by hand is resolvable on the next render. The
+   * file is part of the render fingerprint (`captureFingerprint`), so an
+   * edit also misses the render cache. The unit seed is guarded for a
+   * workspace engine that predates the field, and the hub path, which
+   * installs its manager without a workspace, keeps whatever unit it was
+   * built with and the built-in materials alone.
    */
-  private reseedProjectUnit(): void {
-    if (!this.workspacePath || !this.sceneManager || !('projectUnit' in this.sceneManager)) {
+  private reseedProjectConfig(): void {
+    if (!this.workspacePath || !this.sceneManager) {
       return;
     }
-    (this.sceneManager as { projectUnit: LengthUnit }).projectUnit = readProjectConfig(this.workspacePath).unit ?? 'mm';
+    const config = readProjectConfig(this.workspacePath);
+    this.projectMaterials = config.materials;
+    if ('projectUnit' in this.sceneManager) {
+      (this.sceneManager as { projectUnit: LengthUnit }).projectUnit = config.unit ?? 'mm';
+    }
+  }
+
+  /**
+   * The project's `materials` map as the last scene start read it (a fresh
+   * read when no render has run yet), or null without one. What
+   * `GET /api/materials` merges over the built-ins and what part rows
+   * resolve their `.material(id)` against.
+   */
+  getProjectMaterials(): ProjectMaterials | null {
+    if (this.projectMaterials === null && this.workspacePath) {
+      this.projectMaterials = readProjectConfig(this.workspacePath).materials;
+    }
+    return this.projectMaterials;
   }
 
   /**
@@ -308,7 +336,7 @@ export class FluidCadServer {
 
   /**
    * The project unit the scene manager is seeded with — re-read from
-   * `fluidcad.json` before every render (`reseedProjectUnit`), and for the
+   * `fluidcad.json` before every render (`reseedProjectConfig`), and for the
    * hub whatever it was built with. An engine predating units is an mm
    * project.
    */
@@ -359,7 +387,7 @@ export class FluidCadServer {
       }
 
       try {
-        this.reseedProjectUnit();
+        this.reseedProjectConfig();
         let scene = sceneKind === 'assembly'
           ? this.sceneManager.startAssemblyScene()
           : this.sceneManager.startScene();
@@ -501,6 +529,7 @@ export class FluidCadServer {
           // are not the assembly's own, so it lists none.
           ...(sceneKind === 'part' ? { properties: collectSceneProperties(scene) } : {}),
           objectErrors: FluidCadServer.collectObjectErrors(result),
+          objectWarnings: this.collectObjectWarnings(result),
           ...(assembly ? { assembly } : {}),
         };
 
@@ -861,6 +890,7 @@ export class FluidCadServer {
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       objectErrors: FluidCadServer.collectObjectErrors(result),
+      objectWarnings: this.collectObjectWarnings(result),
       ...(assembly ? { assembly } : {}),
     };
   }
@@ -884,6 +914,37 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getShapeProperties(scene, shapeId);
+  }
+
+  /**
+   * The mass properties of the part row `partId` summed over its final
+   * solids, with mass when its material resolves — see
+   * `PartPropertiesAggregator.compute`. Null without a scene or when no
+   * part row carries that id. In an assembly the id is the template part's
+   * row id (`SerializedInstance.partId`); every instance of it shares the
+   * numbers, in the part's own frame.
+   */
+  getPartProperties(partId: string): PartProperties | null {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    const manager = this.sceneManager;
+    return PartPropertiesAggregator.compute(
+      scene.getRenderedObjects(),
+      partId,
+      (shapeId) => manager.getShapeProperties(scene, shapeId),
+      this.getProjectMaterials(),
+      this.getSceneUnit(),
+    );
+  }
+
+  /** The render's non-fatal notices — see `PartPropertiesAggregator.collectWarnings`. */
+  private collectObjectWarnings(result: any[]): ObjectBuildWarning[] {
+    return PartPropertiesAggregator.collectWarnings(result, this.getProjectMaterials());
   }
 
   getFaceProperties(shapeId: string, faceIndex: number): any {
@@ -1549,6 +1610,15 @@ export class FluidCadServer {
       return null;
     }
     const rendered = scene.getRenderedObjects() as any[];
+    const warningsByIndex = new Map<number, string[]>();
+    for (const warning of this.collectObjectWarnings(rendered)) {
+      const list = warningsByIndex.get(warning.index);
+      if (list) {
+        list.push(warning.message);
+      } else {
+        warningsByIndex.set(warning.index, [warning.message]);
+      }
+    }
     const objects: SceneSummaryObject[] = rendered.map((r, index) => ({
       index,
       id: r.id,
@@ -1561,6 +1631,8 @@ export class FluidCadServer {
       fromCache: !!r.fromCache,
       hasError: !!r.hasError,
       errorMessage: r.errorMessage,
+      ...(warningsByIndex.has(index) ? { warnings: warningsByIndex.get(index) } : {}),
+      ...(r.type === 'part' ? { material: typeof r.object?.material === 'string' ? r.object.material : null } : {}),
       containerId: r.parentId ?? null,
       isContainer: !!r.isContainer,
       visible: r.visible !== false,

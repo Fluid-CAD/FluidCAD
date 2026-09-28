@@ -21,6 +21,14 @@ export type ObjectBuildError = {
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
+/**
+ * A non-fatal per-object notice — today only a `part` row whose
+ * `.material(id)` names neither a built-in nor a project material. Same
+ * numbering and location fields as `ObjectBuildError`; the row built and
+ * its geometry is right, only what depends on the material (mass) is not.
+ */
+export type ObjectBuildWarning = ObjectBuildError;
+
 export type SceneRenderedData = {
   absPath: string;
   sceneKind: FluidScriptKind;
@@ -58,6 +66,11 @@ export type SceneRenderedData = {
    * the scene is wrong — see `FluidCadServer.collectObjectErrors`.
    */
   objectErrors: ObjectBuildError[];
+  /**
+   * Non-fatal notices per row (`Unknown material: <id>` on a part row) —
+   * see `PartPropertiesAggregator.collectWarnings`. Empty on a clean render.
+   */
+  objectWarnings: ObjectBuildWarning[];
   /**
    * What this render rebuilt, added, removed and reused, with exact bounds
    * — present only when the render was requested with `changes: true`.

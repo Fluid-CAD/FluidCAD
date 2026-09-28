@@ -11,7 +11,8 @@ export type {
   ValidateUnavailable,
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
-export type { ObjectBuildError, RenderOptions, SceneRenderedData } from './render-types.ts';
+export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRenderedData } from './render-types.ts';
+export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';
 export type {
   Copy2DGhostRequest,
   CopyGhostRequest,

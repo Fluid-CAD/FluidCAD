@@ -9482,3 +9482,28 @@ describe('active part insertion — inputs declared at the top level', () => {
     expect(result.newCode).toContain(`part('Body', () => {\n  extrude(30, s2)\n})`);
   });
 });
+
+describe('applyFeatureEdit — partMaterial rider', () => {
+  const rider = (sourceLine: number, material: string | null) => spec({
+    feature: 'part', producers: [], parts: [], imports: [], partMaterial: { sourceLine, material },
+  });
+
+  it('sets, replaces and removes the .material() chain on the part statement alone', async () => {
+    const source = `import { part, extrude } from 'fluidcad/core'\n\nexport const a = part('A', () => {\n  extrude(5)\n}).name('Bracket')\n`;
+    const set = await applyFeatureEdit(source, rider(3, 'fluidcad-steel-1020'));
+    expect(set.error).toBeUndefined();
+    expect(set.newCode).toBe(`import { part, extrude } from 'fluidcad/core'\n\nexport const a = part('A', () => {\n  extrude(5)\n}).name('Bracket').material('fluidcad-steel-1020')\n`);
+
+    const replaced = await applyFeatureEdit(set.newCode, rider(3, 'alloy-steel'));
+    expect(replaced.newCode).toContain(`.name('Bracket').material('alloy-steel')`);
+
+    const removed = await applyFeatureEdit(replaced.newCode, rider(3, null));
+    expect(removed.newCode).toBe(source);
+  });
+
+  it('leaves a non-part line untouched', async () => {
+    const source = `import { part, extrude } from 'fluidcad/core'\n\nextrude(5)\n`;
+    const result = await applyFeatureEdit(source, rider(3, 'fluidcad-pla'));
+    expect(result.newCode).toBe(source);
+  });
+});

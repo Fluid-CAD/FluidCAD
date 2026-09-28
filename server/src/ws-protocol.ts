@@ -1,4 +1,5 @@
 import type { LengthUnit } from './project-config.ts';
+import type { ObjectBuildWarning } from './fluidcad-server/render-types.ts';
 
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
@@ -492,6 +493,12 @@ export type UISceneRenderedMessage = {
   params?: UIParamDefinition[];
   /** Part scenes only: the file's `property()` declarations. */
   properties?: UIPropertyDefinition[];
+  /**
+   * Non-fatal notices per row — `Unknown material: <id>` on a part row
+   * whose material is in neither the built-in nor the project table. Same
+   * `index` numbering as `result`; absent on error replays.
+   */
+  objectWarnings?: ObjectBuildWarning[];
 };
 
 export type UIHighlightShapeMessage = {

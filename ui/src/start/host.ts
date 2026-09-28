@@ -236,7 +236,7 @@ export interface StartScreenHost {
   open(path: string): Promise<void>;
   /** How the user picks a folder to open, or to create a project in. */
   readonly dialogs: ProjectDialogs;
-  /** Close an open project: its engine stops, and its window or tab goes. */
+  /** Close an open project: its engine stops, and its window goes back to the start screen or its tab closes. */
   close(path: string): Promise<ActionResult>;
   forget(path: string): Promise<void>;
   /** An http(s) link, opened in the user's browser. */

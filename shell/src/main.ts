@@ -16,7 +16,7 @@ import { thumbnailUrl } from './start/protocol';
 import { initAutoUpdate } from './updater';
 import { UpgradePrompt, type UpgradeChoice } from './upgrade-prompt';
 import { AppWindow } from './window/app-window';
-import { routeOpen } from './window/registry';
+import { routeOpen, type OpenRequest } from './window/registry';
 
 /**
  * The FluidCAD desktop shell.
@@ -122,18 +122,25 @@ function installSmokeHooks(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Open a project where it belongs (see `window/registry.ts`): the window that
- * already holds it comes forward, and any other project gets a new window —
- * the start screen that asked stays as it is.
+ * Send an open to the window it belongs in (see `window/registry.ts`): focus
+ * the window that already holds the project, open it in the start screen that
+ * asked (or an idle one), or open a new window for it.
  */
-function requestOpen(workspacePath: string, options: { create?: boolean } = {}): void {
-  const route = routeOpen(AppWindow.snapshots(), workspacePath);
+function requestOpen(request: OpenRequest, options: { create?: boolean } = {}): void {
+  const route = routeOpen(AppWindow.snapshots(), request);
   switch (route.action) {
     case 'focus':
       AppWindow.byId(route.windowId)?.focus();
       return;
+    case 'open-in': {
+      const window = AppWindow.byId(route.windowId);
+      window?.openProject(request.path, options);
+      // An OS open may land in a start screen behind other windows.
+      window?.focus();
+      return;
+    }
     case 'new-window':
-      AppWindow.create().openProject(workspacePath, options);
+      AppWindow.create().openProject(request.path, options);
       return;
   }
 }
@@ -142,7 +149,7 @@ function requestOpen(workspacePath: string, options: { create?: boolean } = {}):
 function openFromOs(target: string): boolean {
   const workspacePath = workspaceForPath(target);
   if (workspacePath) {
-    requestOpen(workspacePath);
+    requestOpen({ source: 'os', path: workspacePath });
   }
   return workspacePath !== null;
 }
@@ -151,7 +158,7 @@ function openFromOs(target: string): boolean {
 async function openFromMenu(target: string | null): Promise<void> {
   const workspacePath = target ? workspaceForPath(target) : await promptForProject(BrowserWindow.getFocusedWindow());
   if (workspacePath) {
-    requestOpen(workspacePath);
+    requestOpen({ source: 'menu', path: workspacePath });
   }
 }
 
@@ -159,7 +166,7 @@ async function openFromMenu(target: string | null): Promise<void> {
 async function newProjectFromMenu(): Promise<void> {
   const choice = await chooseNewProjectFolder(BrowserWindow.getFocusedWindow());
   if (choice) {
-    requestOpen(choice.path, { create: choice.create });
+    requestOpen({ source: 'menu', path: choice.path }, { create: choice.create });
   }
 }
 
@@ -260,11 +267,11 @@ function registerIpcHandlers(): void {
 
   registerStartScreenIpc({
     api: startApi,
-    openFromStartScreen: (_window, target, options) => {
+    openFromStartScreen: (window, target, options) => {
       // A new project's folder is empty, not missing: the dialog only returns folders that exist.
       const workspacePath = workspaceForPath(target);
       if (workspacePath) {
-        requestOpen(workspacePath, options);
+        requestOpen({ source: 'start-screen', windowId: window.id, path: workspacePath }, options);
       }
     },
     promptForProject: (window) => promptForProject(window.browserWindow),

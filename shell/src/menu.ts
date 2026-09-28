@@ -17,9 +17,9 @@ import { AppWindow } from './window/app-window';
  * It also fixes the keybindings a browser tab was stealing. In `npx fluidcad
  * serve`, Ctrl/Cmd+W closes the tab, Ctrl+S offers to save the HTML, and
  * Ctrl+N opens a window. Here they mean close the project, save the file, and
- * new file. Close Project returns the window to the start screen; on the start
- * screen it closes the window — the same split as a code editor's close-editor
- * and close-window.
+ * new file. Close Project returns the window to the start screen, as File ›
+ * Start Screen does; on the start screen it closes the window — the same split
+ * as a code editor's close-editor and close-window.
  *
  * The menu is a snapshot: it is rebuilt when the focused window changes, when
  * a window's state changes, when the recents change and when an update is
@@ -37,13 +37,19 @@ export type MenuActions = {
 export type MenuEnablement = {
   /** Save, New File, Import, Export, Undo/Redo, Find File, Toggle Editor, Restart Engine. */
   projectCommands: boolean;
+  /** Start Screen: a window with a project up, or on its way. */
+  startScreen: boolean;
   /** Close Project and Close Window need a window to act on. */
   windowCommands: boolean;
 };
 
 /** What the focused window's phase allows; null when no window is focused. */
 export function menuEnablement(phase: OpenPhase | null): MenuEnablement {
-  return { projectCommands: phase === 'project', windowCommands: phase !== null };
+  return {
+    projectCommands: phase === 'project',
+    startScreen: phase !== null && phase !== 'home',
+    windowCommands: phase !== null,
+  };
 }
 
 /** Send a command to the focused window's project page. */
@@ -110,6 +116,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
         { label: 'New Project…', accelerator: 'CmdOrCtrl+Shift+N', click: () => void actions.newProject() },
         { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => void actions.openProject(null) },
         { label: 'Open Recent', submenu: recentProjectsSubmenu(actions) },
+        { label: 'Start Screen', enabled: enabled.startScreen, click: () => AppWindow.focused()?.startScreenCommand() },
         { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.newWindow() },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: project, click: () => toProject('save') },

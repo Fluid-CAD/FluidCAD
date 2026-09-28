@@ -7,7 +7,7 @@ import type { StartProject } from './host';
 export type ProjectCardHandlers = {
   open(project: StartProject): Promise<void>;
   changeEngine(project: StartProject): void;
-  /** Close an open project: its engine stops and its window or tab goes. */
+  /** Close an open project: its engine stops, and its window goes back to the start screen or its tab closes. */
   close(project: StartProject): Promise<void>;
   forget(project: StartProject): Promise<void>;
 };

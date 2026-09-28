@@ -18,16 +18,15 @@ import { readSavedTheme, themeBackground } from '../../../launcher/src/start/the
 import { START_URL, isStartPageUrl } from '../start/protocol';
 import type { UpgradeChoice } from '../upgrade-prompt';
 import { OpenCancelledError, ProjectSession } from './project-session';
-import { afterProject, type WindowSnapshot } from './registry';
+import type { WindowSnapshot } from './registry';
 import { confirmTeardown, type TeardownAction, type TeardownPrompt } from './unsaved-guard';
 
 /**
  * The app's one kind of window. It shows the start screen while no project is
- * open in it, and the project's own page once one is. A project opens in a
- * window of its own, which shows the start page under the opening overlay and
- * then swaps it for the project's page in place; closing the project closes
- * that window, except the app's last, which swaps back to the start screen. A
- * window holds at most one project and at most one engine child.
+ * open in it, and the project's own page once one is: opening a project from
+ * the start screen shows its progress over that page and then swaps the
+ * document in place, and Close Project (or File › Start Screen) swaps it back.
+ * A window holds at most one project and at most one engine child.
  *
  * The two documents come from two places. The start screen is the built-in
  * engine's `ui/dist-start`, served by the shell over `fluidcad-app://start/`
@@ -37,8 +36,8 @@ import { confirmTeardown, type TeardownAction, type TeardownPrompt } from './uns
  * page starts is cancelled — and the history is cleared after each swap, so
  * nothing can go "back" to the page that holds the shell bridge.
  *
- * The lifecycle itself is the pure `window-state.ts`; this class feeds it
- * events and does what each new state asks of Electron.
+ * The lifecycle itself is the launcher's pure `open-state.ts`; this class
+ * feeds it events and does what each new state asks of Electron.
  */
 
 /** `static/`, next to `dist/` where this code is bundled into `main.js` (`scripts/build.js`). */
@@ -251,7 +250,12 @@ export class AppWindow implements ReopenTarget {
   }
 
   snapshot(): WindowSnapshot {
-    return { id: this.id, projectPath: this.projectPath };
+    return {
+      id: this.id,
+      phase: this.state.phase,
+      projectPath: this.projectPath,
+      focused: !this.browserWindow.isDestroyed() && this.browserWindow.isFocused(),
+    };
   }
 
   /** What the start page shows; `home` while the project's own page is up, which the start page never sees. */
@@ -295,26 +299,15 @@ export class AppWindow implements ReopenTarget {
     }
   }
 
-  /**
-   * Cancel, or Back to projects after a failure: abandon the open, and let
-   * the window go — it was opened for this project — unless it is the last
-   * one, which shows the start screen instead.
-   */
+  /** Cancel, or Back to projects after a failure: abandon the open, and the window is back on its start screen. */
   cancelOpen(): void {
-    if (this.abandonOpen() && afterProject(AppWindow.all().length) === 'close-window') {
-      this.browserWindow.close();
-    }
-  }
-
-  /** Stop the open in progress, or leave a failed one; the window is back on its start screen. False when it held none. */
-  private abandonOpen(): boolean {
     if (this.state.phase === 'opening') {
       this.openAbort?.abort();
       this.openAbort = null;
       this.session?.stop();
       this.session = null;
     }
-    return this.dispatch({ type: 'cancel' });
+    this.dispatch({ type: 'cancel' });
   }
 
   private async runOpen(): Promise<void> {
@@ -361,16 +354,6 @@ export class AppWindow implements ReopenTarget {
   // -------------------------------------------------------------------------
 
   /**
-   * Close Project: ask about unsaved buffers, take the preview, and let the
-   * window go with its engine — or, in the app's last window, show the start
-   * screen (instant — it is a local page) and then stop the engine. False
-   * when the user chose Cancel and the project stays open.
-   */
-  closeProject(): Promise<boolean> {
-    return this.teardownProject(afterProject(AppWindow.all().length) === 'close-window' ? 'close' : 'home', false);
-  }
-
-  /**
    * Close the project and open it again in this window, on whatever it pins
    * now (a pin change). The caller asked about unsaved buffers already —
    * before the pin moved — through {@link confirmTeardown}.
@@ -396,7 +379,13 @@ export class AppWindow implements ReopenTarget {
     );
   }
 
-  private teardownProject(then: 'home' | 'reopen' | 'close', confirmed: boolean): Promise<boolean> {
+  /**
+   * Ask about unsaved buffers (unless the caller did) and take the preview;
+   * then show the start screen (instant — it is a local page) before stopping
+   * the engine, and for a reopen open the project again. False when the user
+   * chose Cancel and the project stays open.
+   */
+  private teardownProject(then: 'home' | 'reopen', confirmed: boolean): Promise<boolean> {
     if (this.state.phase !== 'project') {
       return Promise.resolve(true);
     }
@@ -406,13 +395,6 @@ export class AppWindow implements ReopenTarget {
       }
       const session = this.session;
       await session?.captureThumbnail();
-      if (then === 'close') {
-        // Asked and photographed already; `closed` stops the engine and
-        // tells every start screen.
-        this.closeReady = true;
-        this.browserWindow.close();
-        return true;
-      }
       // The state first, so the start page asks for it and finds it current.
       this.dispatch(then === 'home' ? { type: 'close-project' } : { type: 'reopen' });
       await this.showStartDocument();
@@ -433,23 +415,36 @@ export class AppWindow implements ReopenTarget {
   }
 
   /**
-   * File › Close Project (Ctrl/Cmd+W), whatever the window is doing: close
-   * the project (and with it the window, unless it is the last one), abandon
-   * an open, and close the window when it is on the start screen.
+   * File › Start Screen, whatever the window is doing: the project closes —
+   * after the questions about unsaved buffers, with the preview taken — and
+   * the start screen takes its place; an open is abandoned. Nothing on the
+   * start screen itself.
    */
-  closeProjectCommand(): void {
+  startScreenCommand(): void {
     switch (this.state.phase) {
       case 'home':
-        this.browserWindow.close();
         return;
       case 'opening':
       case 'failed':
         this.cancelOpen();
         return;
       case 'project':
-        void this.closeProject();
+        void this.teardownProject('home', false);
         return;
     }
+  }
+
+  /**
+   * File › Close Project (Ctrl/Cmd+W), whatever the window is doing: back to
+   * the start screen, as File › Start Screen goes there, and on the start
+   * screen itself the window closes.
+   */
+  closeProjectCommand(): void {
+    if (this.state.phase === 'home') {
+      this.browserWindow.close();
+      return;
+    }
+    this.startScreenCommand();
   }
 
   // -------------------------------------------------------------------------
@@ -627,7 +622,7 @@ export class AppWindow implements ReopenTarget {
   private prepareToClose(): Promise<boolean> {
     this.closePreparation ??= (async () => {
       if (this.state.phase === 'opening') {
-        this.abandonOpen();
+        this.cancelOpen();
         return true;
       }
       if (this.state.phase !== 'project') {

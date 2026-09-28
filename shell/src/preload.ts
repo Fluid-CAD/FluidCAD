@@ -106,7 +106,7 @@ const startApi = {
   open: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-open', workspacePath),
   openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
   newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
-  /** Close an open project, from its card: its window goes, as File › Close Project does it. */
+  /** Close an open project, from its card: its window goes back to the start screen, as File › Close Project does it. */
   close: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-close', workspacePath),
   forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
   /** Open an http(s) link in the user's browser. */
@@ -117,7 +117,7 @@ const startApi = {
   /** Rebuild the project on both engines and report what moved. Commits nothing. */
   previewUpgrade: (workspacePath: string, version: string): Promise<unknown> =>
     ipcRenderer.invoke('shell:start-preview-upgrade', workspacePath, version),
-  /** Move the pin; an open project is reopened on it in its own window. */
+  /** Move the pin; an open project is reopened on it in the window that has it. */
   applyPin: (workspacePath: string, version: string): Promise<unknown> =>
     ipcRenderer.invoke('shell:start-apply-pin', workspacePath, version),
   onUpgradeProgress: (handler: (progress: unknown) => void): void => {

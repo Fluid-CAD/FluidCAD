@@ -16,8 +16,9 @@ const THEME_NAME = /^[\w-]+$/;
  * The start screen: where the desktop app's windows and `npx fluidcad`'s
  * browser tabs begin. A top bar with Open Project and New Project, the feed's
  * notifications, the recent projects, and "Learn FluidCAD". Opening a project
- * gives it a window or tab of its own, which shows this page under the
- * opening overlay until the project's own page takes its place.
+ * shows this page under the opening overlay until the project's own page
+ * takes its place: in the same window in the desktop app, and in a tab of the
+ * project's own in a browser.
  *
  * Everything it shows comes from the host and every action goes back to it;
  * the page keeps no state of its own beyond what is on screen. It re-reads the

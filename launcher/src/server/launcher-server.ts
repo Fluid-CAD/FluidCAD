@@ -7,6 +7,7 @@ import { pruneEngines, setBuiltinEngineLocation } from '../engine/cache.ts';
 import { findFreePort } from '../engine/process.ts';
 import { EngineScratch } from '../engine/scratch.ts';
 import { pinnedVersions } from '../projects/app-state.ts';
+import { ProjectsRoot } from '../projects/projects-root.ts';
 import { StartApi } from '../start/api.ts';
 import { LauncherAuth } from './auth.ts';
 import { EventStream } from './events.ts';
@@ -39,6 +40,11 @@ export type LauncherServerOptions = {
   port: number;
   /** Where the engines' output goes, prefixed with their project's name. */
   log?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * Keep every project in this folder: the start screen lists its projects,
+   * New Project asks for a name only, and nothing outside it can be opened.
+   */
+  projectsRoot?: string;
 };
 
 export type LauncherServer = {
@@ -48,6 +54,8 @@ export type LauncherServer = {
   url: string;
   /** The start screen with this session's key, which signs a browser in. */
   loginUrl: string;
+  /** The folder every project lives in, resolved, or null. */
+  projectsRoot: string | null;
   /** Every running project's preview, then every engine stopped, then the server closed. */
   close(): Promise<void>;
 };
@@ -114,6 +122,8 @@ function logToConsole(line: string, stream: 'stdout' | 'stderr'): void {
 export async function startLauncherServer(options: LauncherServerOptions): Promise<LauncherServer> {
   const packageRoot = path.resolve(options.packageRoot);
   const version = packageVersion(packageRoot);
+  // Checked before anything listens: a wrong folder is a sentence in the terminal, not a running server.
+  const projectsRoot = options.projectsRoot ? ProjectsRoot.open(options.projectsRoot) : null;
   setBuiltinEngineLocation({ kind: 'package', packageRoot });
 
   const log = options.log ?? logToConsole;
@@ -132,6 +142,7 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
     thumbnailUrl,
     openProjectFor: (workspacePath) => sessions.reopenTarget(workspacePath),
     changed: () => events.send('changed'),
+    projectsRoot,
   });
 
   const app = express();
@@ -143,7 +154,7 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
     const health: LauncherHealth = { ok: true, app: 'fluidcad-launcher', version, pid: process.pid };
     response.json(health);
   });
-  app.use('/api', auth.requireSession, express.json({ limit: '64kb' }), createApiRouter({ api, sessions, events }));
+  app.use('/api', auth.requireSession, express.json({ limit: '64kb' }), createApiRouter({ api, sessions, events, projectsRoot }));
   app.use(createStartPageRouter({ root: path.join(packageRoot, 'ui', 'dist-start'), auth }));
   app.use((_request, response) => {
     response.status(404).type('text/plain').send('Not found');
@@ -172,6 +183,7 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
     port,
     url,
     loginUrl: `${url}?token=${auth.token}`,
+    projectsRoot: projectsRoot?.path ?? null,
     close: () =>
       (closing ??= (async () => {
         await sessions.shutdown();

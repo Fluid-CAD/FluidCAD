@@ -37,6 +37,8 @@ export class StartScreen {
   private readonly folderPicker: FolderPicker | null;
   private readonly content: HTMLElement;
   private home = '';
+  /** The folder every project lives in, when the launcher keeps them in one. */
+  private projectsRoot: string | null = null;
 
   constructor(
     root: HTMLElement,
@@ -56,7 +58,9 @@ export class StartScreen {
       openProject: () =>
         this.run(() => (dialogs.kind === 'native' ? dialogs.open() : this.folderPicker!.show('open'))),
       newProject: () =>
-        this.run(() => (dialogs.kind === 'native' ? dialogs.create() : this.folderPicker!.show('create'))),
+        this.run(() =>
+          dialogs.kind === 'native' ? dialogs.create() : this.folderPicker!.show('create', this.projectsRoot),
+        ),
     });
 
     this.problem = document.createElement('div');
@@ -119,6 +123,8 @@ export class StartScreen {
         return;
       }
       this.home = hello.home;
+      this.projectsRoot = hello.projectsRoot;
+      this.topBar.setProjectsRoot(this.projectsRoot, this.home);
     } catch (err) {
       this.report(err);
       return;
@@ -147,7 +153,7 @@ export class StartScreen {
     await this.run(async () => {
       const { projects } = await this.host.list();
       closePopupMenu();
-      this.grid.render(projects, this.home);
+      this.grid.render(projects, { home: this.home, rooted: this.projectsRoot !== null });
     });
   }
 

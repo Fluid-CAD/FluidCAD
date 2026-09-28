@@ -1,4 +1,5 @@
 import { createBrand } from '../ui/brand';
+import { shortenPath } from './format';
 
 export type StartTopBarHandlers = {
   openProject(): Promise<void>;
@@ -14,6 +15,8 @@ export type StartTopBarHandlers = {
 export class StartTopBar {
   readonly element: HTMLElement;
   private readonly buttons: HTMLButtonElement[];
+  private readonly hint: HTMLSpanElement;
+  private readonly openButton: HTMLButtonElement;
 
   constructor(private readonly handlers: StartTopBarHandlers) {
     this.element = document.createElement('header');
@@ -31,8 +34,20 @@ export class StartTopBar {
     const open = this.button('Open Project', 'btn btn-sm btn-outline', () => this.handlers.openProject());
     const create = this.button('New Project', 'btn btn-sm btn-primary', () => this.handlers.newProject());
     this.buttons = [open, create];
+    this.hint = hint;
+    this.openButton = open;
 
     this.element.append(createBrand().element, divider, hint, spacer, open, create);
+  }
+
+  /**
+   * With a projects folder, every project is on the page already, so there is
+   * nothing for Open Project to find; the bar names the folder instead.
+   */
+  setProjectsRoot(root: string | null, home: string): void {
+    this.openButton.classList.toggle('hidden', root !== null);
+    this.hint.textContent = root === null ? 'Pick a project to open.' : `Projects in ${shortenPath(root, home)}.`;
+    this.hint.title = root ?? '';
   }
 
   private button(label: string, className: string, action: () => Promise<void>): HTMLButtonElement {

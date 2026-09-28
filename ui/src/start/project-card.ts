@@ -16,6 +16,8 @@ export type ProjectCardContext = {
   home: string;
   /** Where the ⋯ menu mounts: the page's positioning context, so no card clips it. */
   menuHost: HTMLElement;
+  /** The card lists a project in the launcher's projects folder, not a recent: it cannot be removed from the list. */
+  rooted: boolean;
 };
 
 const CARD =
@@ -134,7 +136,7 @@ function moreButton(project: StartProject, context: ProjectCardContext, handlers
           onSelect: () => handlers.changeEngine(project),
         },
         ...(project.open ? [{ icon: ICON_STOP, label: 'Close project', onSelect: () => void handlers.close(project) }] : []),
-        { icon: ICON_CLOSE, label: 'Remove from recent', onSelect: () => void handlers.forget(project) },
+        ...(context.rooted ? [] : [{ icon: ICON_CLOSE, label: 'Remove from recent', onSelect: () => void handlers.forget(project) }]),
       ],
       { align: 'end', focusFirst: true },
     );

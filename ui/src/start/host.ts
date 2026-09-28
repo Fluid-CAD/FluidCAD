@@ -38,14 +38,22 @@ import {
 /**
  * Bumped on any change to the shapes below; the launcher answers `hello` with
  * `ok: false` on a mismatch. 2: a `creating` step while a new project is set
- * up, and closing a project from its card.
+ * up, and closing a project from its card. 3: `projectsRoot` in the hello
+ * reply.
  */
-export const START_SCREEN_PROTOCOL = 2;
+export const START_SCREEN_PROTOCOL = 3;
 
 export type HelloReply = {
   ok: boolean;
   appVersion: string;
   platform: string;
+  /**
+   * The folder every project lives in (`npx fluidcad --projects`), or null
+   * when projects may live anywhere. With one, the page lists that folder's
+   * projects, New Project asks for a name only, and Open Project is not
+   * offered: every project there is already on the page.
+   */
+  projectsRoot: string | null;
   /** The user's home directory, for showing `~/…` paths; the page has no `os` of its own. */
   home: string;
 };

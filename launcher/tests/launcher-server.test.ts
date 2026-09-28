@@ -241,3 +241,121 @@ describe('projects', () => {
     await eventually(() => true);
   });
 });
+
+describe('a projects folder', () => {
+  let projectsDir: string;
+
+  /** The same server, started again on a projects folder, and signed into. */
+  async function restartWithRoot(): Promise<void> {
+    await server.close();
+    projectsDir = path.join(root, 'cad');
+    fs.mkdirSync(projectsDir, { recursive: true });
+    server = await startLauncherServer({
+      packageRoot: path.join(root, 'package'),
+      port: 0,
+      log: () => undefined,
+      projectsRoot: projectsDir,
+    });
+    const login = await fetch(server.loginUrl, { redirect: 'manual' });
+    cookie = login.headers.get('set-cookie')!.split(';')[0];
+  }
+
+  it('has to exist before the server listens', async () => {
+    await expect(
+      startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, projectsRoot: path.join(root, 'nope') }),
+    ).rejects.toThrow('does not exist');
+  });
+
+  it('tells the page about the folder, and lists every project in it', async () => {
+    await restartWithRoot();
+    for (const name of ['arm', 'bracket']) {
+      fs.mkdirSync(path.join(projectsDir, name));
+      fs.writeFileSync(path.join(projectsDir, name, 'init.js'), '');
+    }
+    fs.mkdirSync(path.join(projectsDir, 'notes'));
+    expect(server.projectsRoot).toBe(projectsDir);
+    const hello = await (await post('/api/start/hello', { protocol: 3 })).json();
+    expect(hello).toMatchObject({ ok: true, projectsRoot: projectsDir });
+    const { projects } = await (await api('/api/start/projects')).json();
+    expect(projects).toMatchObject([
+      { name: 'arm', path: path.join(projectsDir, 'arm'), open: false, lastOpenedAt: '' },
+      { name: 'bracket', path: path.join(projectsDir, 'bracket'), open: false, lastOpenedAt: '' },
+    ]);
+  });
+
+  it('refuses every path that is not a project in the folder', async () => {
+    await restartWithRoot();
+    const elsewhere = path.join(root, 'elsewhere');
+    const nested = path.join(projectsDir, 'bracket', 'inner');
+    for (const workspace of [elsewhere, nested, projectsDir, path.join(projectsDir, '..', 'elsewhere')]) {
+      const responses = [
+        await post('/api/sessions', { path: workspace, create: true }),
+        await post('/api/sessions', { path: workspace }),
+        await api(`/api/sessions?${new URLSearchParams({ path: workspace })}`),
+        await post('/api/sessions/retry', { path: workspace }),
+        await post('/api/sessions/cancel', { path: workspace }),
+        await post('/api/start/close', { path: workspace }),
+        await post('/api/start/forget', { path: workspace }),
+        await post('/api/start/apply-pin', { path: workspace, version: '0.0.50' }),
+        await post('/api/start/preview-upgrade', { path: workspace, version: '0.0.50' }),
+        await api(`/api/start/engine-options?${new URLSearchParams({ path: workspace })}`),
+        await post('/api/folders/check', { path: workspace }),
+      ];
+      for (const response of responses) {
+        expect(response.status, `${response.url} for ${workspace}`).toBe(400);
+        expect((await response.json()).error).toContain('is not a project in the projects folder');
+      }
+    }
+    expect(fs.existsSync(elsewhere)).toBe(false);
+    expect(fs.existsSync(nested)).toBe(false);
+  });
+
+  it('shows the picker the folder itself and nothing else', async () => {
+    await restartWithRoot();
+    fs.mkdirSync(path.join(projectsDir, 'bracket'));
+    fs.writeFileSync(path.join(projectsDir, 'bracket', 'init.js'), '');
+    const listing = await (await api('/api/folders')).json();
+    expect(listing).toMatchObject({
+      path: projectsDir,
+      parent: null,
+      home: projectsDir,
+      roots: [projectsDir],
+      entries: [{ name: 'bracket', project: true }],
+    });
+    expect(await (await api(`/api/folders?${new URLSearchParams({ path: projectsDir })}`)).json()).toEqual(listing);
+    for (const other of [root, path.join(projectsDir, 'bracket')]) {
+      const response = await api(`/api/folders?${new URLSearchParams({ path: other })}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: `Only the projects folder ${projectsDir} can be listed.` });
+      const check = await post('/api/folders/check', { parent: other, name: 'arm' });
+      expect(check.status).toBe(400);
+    }
+    expect(await (await post('/api/folders/check', { parent: projectsDir, name: 'arm' })).json()).toEqual({
+      path: path.join(projectsDir, 'arm'),
+      state: 'missing',
+    });
+    expect(await (await post('/api/folders/check', { parent: projectsDir, name: 'bracket' })).json()).toEqual({
+      path: path.join(projectsDir, 'bracket'),
+      state: 'project',
+    });
+    expect((await (await post('/api/folders/check', { parent: projectsDir, name: '.hidden' })).json()).state).toBe('invalid-name');
+    expect((await (await post('/api/folders/check', { parent: projectsDir, name: 'a/b' })).json()).state).toBe('invalid-name');
+  });
+
+  it('creates a new project in the folder by its name, and lists it as opened', async () => {
+    await restartWithRoot();
+    const workspace = path.join(projectsDir, 'bracket');
+    const events = readEvents((seen) => seen.some((entry) => entry.event === 'session' && entry.data.view.phase === 'running'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const opened = await (await post('/api/sessions', { path: workspace, create: true })).json();
+    expect(opened).toMatchObject({ phase: 'opening', status: { step: 'creating' } });
+    await events;
+    expect(fs.existsSync(path.join(workspace, 'init.js'))).toBe(true);
+    const { projects } = await (await api('/api/start/projects')).json();
+    expect(projects).toMatchObject([{ path: workspace, name: 'bracket', open: true, engine: '0.0.50' }]);
+    expect(projects[0].lastOpenedAt).not.toBe('');
+    const pid = fakeEnginePid(workspace);
+    await server.close();
+    await processGone(pid);
+  });
+});

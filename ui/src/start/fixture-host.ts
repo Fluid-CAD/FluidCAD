@@ -246,7 +246,7 @@ export class FixtureStartHost implements StartScreenHost {
   }
 
   async hello(protocol: number): Promise<HelloReply> {
-    return { ok: protocol === START_SCREEN_PROTOCOL, appVersion: LATEST, platform: 'linux', home: HOME };
+    return { ok: protocol === START_SCREEN_PROTOCOL, appVersion: LATEST, platform: 'linux', home: HOME, projectsRoot: null };
   }
 
   async windowState(): Promise<WindowState> {

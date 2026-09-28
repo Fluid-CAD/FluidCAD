@@ -95,13 +95,16 @@ afterEach(() => {
 describe('the start screen contract', () => {
   it('has one protocol number on both sides', () => {
     expect(SHELL_PROTOCOL).toBe(PAGE_PROTOCOL);
-    expect(checkHello(helloReply(PAGE_PROTOCOL, { version: '0.0.45', platform: 'linux', home: '/home/you' }))).toEqual({
+    const app = { version: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null };
+    expect(checkHello(helloReply(PAGE_PROTOCOL, app))).toEqual({
       ok: true,
       appVersion: '0.0.45',
       platform: 'linux',
       home: '/home/you',
+      projectsRoot: null,
     });
-    expect(helloReply(PAGE_PROTOCOL + 1, { version: '0.0.45', platform: 'linux', home: '/h' }).ok).toBe(false);
+    expect(checkHello(helloReply(PAGE_PROTOCOL, { ...app, projectsRoot: '/srv/cad' })).projectsRoot).toBe('/srv/cad');
+    expect(helloReply(PAGE_PROTOCOL + 1, app).ok).toBe(false);
   });
 
   it('lists recents in the shape the page reads, previews as scheme URLs', () => {

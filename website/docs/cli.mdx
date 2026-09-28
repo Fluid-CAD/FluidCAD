@@ -70,10 +70,26 @@ one in a new tab instead of starting a second.
 |------|-------------|---------|
 | `-p, --port <port>` | Port for the start screen — if it's taken, the first free port above it is used | `3100` |
 | `--no-open` | Don't launch a browser, only print the start screen's link | _opens by default_ |
+| `--projects <dir>` | Keep every project in this folder (see below) | _projects live anywhere_ |
 
 The link it prints carries a key for the session, so that no other page or user
 on your machine can drive FluidCAD through it. Open it yourself when the
 browser does not open on its own (over SSH, say), and don't share it.
+
+### A projects folder
+
+```bash
+npx fluidcad --projects ~/cad
+```
+
+With `--projects`, one folder holds every project. The start screen lists the
+projects in it, all of them rather than the recent ones. **New Project** asks
+only for a name, creates `<dir>/<name>` and sets the project up there. **Open
+Project** is not offered, since every project in the folder is already on the
+screen, and nothing outside the folder can be opened: the start server refuses
+any path that is not a project in it, which is what makes the folder the
+boundary when the start screen is reached from another machine. The folder has
+to exist.
 
 ---
 

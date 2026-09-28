@@ -6,7 +6,7 @@ import { StartScreen } from '../../src/start/start-screen';
 function fakeBridge(overrides: Partial<StartScreenBridge> = {}) {
   const pushed: { state?: (state: unknown) => void; changed?: () => void } = {};
   const bridge: StartScreenBridge = {
-    hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you' })),
+    hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null })),
     windowState: vi.fn(async () => ({ phase: 'home' })),
     onWindowState: vi.fn((handler) => (pushed.state = handler)),
     cancelOpen: vi.fn(async () => undefined),
@@ -72,7 +72,7 @@ describe('StartScreen', () => {
   });
 
   it('stops at a protocol mismatch and says so', async () => {
-    const { root, bridge } = await start({ hello: vi.fn(async () => ({ ok: false, appVersion: '0.0.46', platform: 'linux', home: '/h' })) });
+    const { root, bridge } = await start({ hello: vi.fn(async () => ({ ok: false, appVersion: '0.0.46', platform: 'linux', home: '/h', projectsRoot: null })) });
     expect(bridge.list).not.toHaveBeenCalled();
     expect(root.querySelector('[role="alert"]')!.textContent).toContain('does not match the app');
   });
@@ -174,5 +174,92 @@ describe('StartScreen', () => {
     root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click();
     [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent!.includes('Close project'))!.click();
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain('bracket has unsaved changes'));
+  });
+});
+
+describe('StartScreen: a projects folder', () => {
+  it('lists the folder, offers New Project by name only, and no Open Project', async () => {
+    const { bridge } = fakeBridge({
+      hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: '/home/you/cad' })),
+    });
+    const listing = { path: '/home/you/cad', project: false, parent: null, home: '/home/you/cad', roots: ['/home/you/cad'], entries: [] };
+    const dialogs: ProjectDialogs = {
+      kind: 'page',
+      browse: vi.fn(async () => listing),
+      check: vi.fn(async () => ({ path: '/home/you/cad/arm', state: 'missing' as const })),
+      create: vi.fn(async () => undefined),
+    };
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    await new StartScreen(root, { ...guardedHost(bridge), dialogs }).start();
+
+    const buttons = [...root.querySelectorAll('header button')];
+    expect(buttons.find((b) => b.textContent === 'Open Project')!.classList.contains('hidden')).toBe(true);
+    expect([...root.querySelectorAll('header span')].map((span) => span.textContent)).toContain('Projects in ~/cad.');
+    expect(root.querySelector('section h2')!.textContent).toBe('Projects');
+    // A folder's listing is not a recents list: nothing to remove a project from.
+    root.querySelector<HTMLButtonElement>('[data-project-path] button[aria-haspopup="menu"]')!.click();
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim());
+    expect(items).not.toContain('Remove from recent');
+    expect(items).toContain('Change engine version…');
+
+    buttons.find((b) => b.textContent === 'New Project')!.click();
+    await vi.waitFor(() => expect(dialogs.browse).toHaveBeenCalledWith('/home/you/cad'));
+    const picker = root.querySelector('#fluidcad-folder-picker-title')!.closest('[role="dialog"]')!;
+    expect(picker.classList.contains('hidden')).toBe(false);
+    expect(picker.querySelector('[data-ref="nav"]')!.classList.contains('hidden')).toBe(true);
+    expect(picker.querySelector('[data-ref="list"]')!.classList.contains('hidden')).toBe(true);
+    expect(picker.querySelector('[data-ref="name-row"]')!.classList.contains('hidden')).toBe(false);
+  });
+});
+
+describe('StartScreen: filtering projects', () => {
+  const project = (name: string) => ({
+    path: `/home/you/cad/${name}`,
+    name,
+    engine: '0.0.45',
+    engineSource: 'pin' as const,
+    latest: true,
+    upgradeTo: null,
+    lastOpenedAt: new Date().toISOString(),
+    open: false,
+    thumbnail: null,
+  });
+
+  it('narrows the grid by name, keeps the text across a refresh, and says when nothing matches', async () => {
+    const { root, bridge, pushed } = await start({ list: vi.fn(async () => ({ projects: [project('bracket'), project('Arm'), project('armrest')] })) });
+    const filter = root.querySelector<HTMLInputElement>('[data-project-filter]')!;
+    const names = () => [...root.querySelectorAll<HTMLElement>('[data-project-path]')].map((card) => card.dataset.projectPath!.split('/').pop());
+    expect(filter.classList.contains('hidden')).toBe(false);
+    expect(names()).toEqual(['bracket', 'Arm', 'armrest']);
+
+    filter.value = 'ARM';
+    filter.dispatchEvent(new Event('input'));
+    expect(names()).toEqual(['Arm', 'armrest']);
+
+    // The list is re-read (a project closed, a preview landed): the filter stays.
+    pushed.changed!();
+    await vi.waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(2));
+    expect(filter.value).toBe('ARM');
+    expect(names()).toEqual(['Arm', 'armrest']);
+
+    filter.value = 'wheel';
+    filter.dispatchEvent(new Event('input'));
+    expect(names()).toEqual([]);
+    const noMatch = root.querySelector<HTMLElement>('[data-no-match]')!;
+    expect(noMatch.classList.contains('hidden')).toBe(false);
+    expect(noMatch.textContent).toBe('No project is named "wheel". Clear the filter to see every project.');
+    expect(root.querySelector('[data-empty]')!.classList.contains('hidden')).toBe(true);
+
+    filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(filter.value).toBe('');
+    expect(names()).toEqual(['bracket', 'Arm', 'armrest']);
+    expect(noMatch.classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows no filter before the first project', async () => {
+    const { root } = await start({ list: vi.fn(async () => ({ projects: [] })) });
+    expect(root.querySelector('[data-project-filter]')!.classList.contains('hidden')).toBe(true);
+    expect(root.querySelector('[data-empty]')!.classList.contains('hidden')).toBe(false);
   });
 });

@@ -42,8 +42,8 @@ function contractError(fn: () => unknown): ContractError {
 
 describe('contract guards', () => {
   it('accepts a well-formed reply and copies only the fields the page reads', () => {
-    const hello = checkHello({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', extra: 1 });
-    expect(hello).toEqual({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you' });
+    const hello = checkHello({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null, extra: 1 });
+    expect(hello).toEqual({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null });
     expect(checkProjectList({ projects: [project] }).projects[0]).toEqual(project);
   });
 

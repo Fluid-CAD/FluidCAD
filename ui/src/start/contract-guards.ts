@@ -131,7 +131,7 @@ function object<T>(shape: { [K in keyof T]-?: Guard<T[K]> }): Guard<T> {
 // The contract's shapes
 // ---------------------------------------------------------------------------
 
-const hello = object<HelloReply>({ ok: boolean, appVersion: string, platform: string, home: string });
+const hello = object<HelloReply>({ ok: boolean, appVersion: string, platform: string, home: string, projectsRoot: nullable(string) });
 
 const openingProject = object<OpeningProject>({ path: string, name: string });
 

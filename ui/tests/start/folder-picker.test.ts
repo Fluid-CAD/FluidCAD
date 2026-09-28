@@ -187,3 +187,55 @@ describe('FolderPicker: New project', () => {
     expect(p.status().textContent).toBe('Creates ~/cad/bracket and opens it in a new tab.');
   });
 });
+
+describe('FolderPicker: New project in a projects folder', () => {
+  const ROOT: FolderListing = {
+    path: '/srv/cad',
+    project: false,
+    parent: null,
+    home: '/srv/cad',
+    roots: ['/srv/cad'],
+    entries: [{ name: 'bracket', path: '/srv/cad/bracket', project: true }],
+  };
+
+  it('asks for a name only, and creates the project in the folder', async () => {
+    const page = dialogs({ bracket: 'project' });
+    (page.browse as ReturnType<typeof vi.fn>).mockImplementation(async (path: string | null) => {
+      if (path !== ROOT.path) {
+        throw new Error(`${path} cannot be listed.`);
+      }
+      return ROOT;
+    });
+    const handlers = { open: vi.fn(), create: vi.fn() };
+    const view = new FolderPicker(page, handlers);
+    document.body.appendChild(view.element);
+    const q = <T extends HTMLElement>(selector: string) => view.element.querySelector<T>(selector)!;
+
+    await view.show('create', ROOT.path);
+    expect(page.browse).toHaveBeenCalledWith(ROOT.path);
+    // Nothing to browse: no path bar, no folder list, only the name.
+    expect(q('[data-ref="nav"]').classList.contains('hidden')).toBe(true);
+    expect(q('[data-ref="list"]').classList.contains('hidden')).toBe(true);
+    expect(q('[data-ref="name-row"]').classList.contains('hidden')).toBe(false);
+    expect(q('[data-ref="lede"]').textContent).toContain('Name the project');
+    expect(document.activeElement).toBe(q('[data-ref="name"]'));
+    // The launcher's folder is not a place to come back to next time.
+    expect(localStorage.getItem('fluidcad.start.lastFolder')).toBeNull();
+
+    const name = q<HTMLInputElement>('[data-ref="name"]');
+    name.value = 'bracket';
+    name.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(q('[data-ref="status"]').textContent).toBe('bracket already holds a project. Choose another name, or open that one.');
+    expect(q<HTMLButtonElement>('[data-ref="action"]').disabled).toBe(true);
+
+    name.value = 'arm';
+    name.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(page.check).toHaveBeenLastCalledWith(ROOT.path, 'arm');
+    expect(q('[data-ref="status"]').textContent).toBe('Creates arm and opens it in a new tab.');
+    q<HTMLButtonElement>('[data-ref="action"]').click();
+    expect(handlers.create).toHaveBeenCalledWith('/srv/cad/arm');
+    expect(view.isOpen()).toBe(false);
+  });
+});

@@ -64,7 +64,7 @@ describe('HttpStartHost on the start screen', () => {
   it('is home, and asks the start server for everything with its header', async () => {
     const { env, calls } = fakeEnvironment('', {
       'GET /api/start/projects': { body: { projects: [] } },
-      'POST /api/start/hello': { body: { ok: true, appVersion: '0.0.46', platform: 'linux', home: '/home/you' } },
+      'POST /api/start/hello': { body: { ok: true, appVersion: '0.0.46', platform: 'linux', home: '/home/you', projectsRoot: null } },
     });
     const host = new HttpStartHost(env);
     expect(await host.windowState()).toEqual({ phase: 'home' });

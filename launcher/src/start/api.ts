@@ -3,6 +3,7 @@ import path from 'path';
 import { EngineUpgrade, type ReopenTarget, type UpgradePreview } from '../engine/upgrade.ts';
 import { dismissedNotificationIds, dismissNotification, forgetProject } from '../projects/app-state.ts';
 import { engineOptionsFor, listStartProjects } from '../projects/listing.ts';
+import type { ProjectsRoot } from '../projects/projects-root.ts';
 import type { ThumbnailUrl } from '../previews/thumbnails.ts';
 import {
   helloReply,
@@ -76,21 +77,32 @@ export type StartApiHost = {
   openProjectFor(workspacePath: string): ReopenTarget | null;
   /** Something every start screen shows has changed: the recents, a pin, a preview. */
   changed(): void;
+  /** The folder every project lives in, when this launcher keeps them in one (`npx fluidcad --projects`). */
+  projectsRoot?: ProjectsRoot | null;
 };
 
 export class StartApi {
   constructor(private readonly host: StartApiHost) {}
 
   hello(protocol: unknown): HelloReply {
-    return helloReply(protocol, { version: this.host.appVersion, platform: process.platform, home: os.homedir() });
+    return helloReply(protocol, {
+      version: this.host.appVersion,
+      platform: process.platform,
+      home: os.homedir(),
+      projectsRoot: this.host.projectsRoot?.path ?? null,
+    });
   }
 
   appearance(): Appearance {
     return { theme: readSavedTheme() };
   }
 
+  /** The recents; with a projects root, that folder's projects instead. */
   list(): { projects: StartProject[] } {
-    return listStartProjects({ isOpen: (path) => this.host.isOpen(path), thumbnailUrl: this.host.thumbnailUrl });
+    return listStartProjects(
+      { isOpen: (path) => this.host.isOpen(path), thumbnailUrl: this.host.thumbnailUrl },
+      this.host.projectsRoot ?? null,
+    );
   }
 
   /** Tutorials + notifications from the feed, minus what was dismissed. */

@@ -82,6 +82,7 @@ export class FolderPicker {
   readonly element: HTMLDivElement;
   private readonly title: HTMLHeadingElement;
   private readonly lede: HTMLParagraphElement;
+  private readonly nav: HTMLDivElement;
   private readonly pathInput: HTMLInputElement;
   private readonly homeBtn: HTMLButtonElement;
   private readonly upBtn: HTMLButtonElement;
@@ -100,6 +101,11 @@ export class FolderPicker {
   private checkTimer: ReturnType<typeof setTimeout> | null = null;
   /** The home directory, for showing `~/…` paths. */
   private home = '';
+  /**
+   * The folder every project lives in, when the launcher keeps them in one:
+   * the picker then browses nothing, and New Project is a name and a button.
+   */
+  private root: string | null = null;
 
   constructor(
     private readonly dialogs: PageDialogs,
@@ -120,7 +126,7 @@ export class FolderPicker {
         </div>
         <div class="flex-1 min-h-0 flex flex-col gap-3 px-5 py-4">
           <p data-ref="lede" class="text-sm text-base-content/70"></p>
-          <div class="flex items-center gap-1.5">
+          <div data-ref="nav" class="flex items-center gap-1.5">
             <button data-ref="home" type="button" class="btn btn-sm btn-ghost btn-square" title="Home folder" aria-label="Home folder">
               <span class="[&>svg]:size-4">${ICON_HOME}</span>
             </button>
@@ -146,6 +152,7 @@ export class FolderPicker {
     const ref = <T extends HTMLElement>(name: string) => this.element.querySelector<T>(`[data-ref="${name}"]`)!;
     this.title = ref('title');
     this.lede = ref('lede');
+    this.nav = ref('nav');
     this.pathInput = ref('path');
     this.homeBtn = ref('home');
     this.upBtn = ref('up');
@@ -202,11 +209,20 @@ export class FolderPicker {
     return this.element.isConnected && !this.element.classList.contains('hidden');
   }
 
-  /** Show the picker, starting where it was last (or next to the latest project). */
-  async show(mode: FolderPickerMode): Promise<void> {
+  /**
+   * Show the picker, starting where it was last (or next to the latest
+   * project). With a projects folder (`root`), there is nowhere to browse: a
+   * new project is named, and made in that folder.
+   */
+  async show(mode: FolderPickerMode, root: string | null = null): Promise<void> {
     this.mode = mode;
+    this.root = root;
+    const rooted = root !== null;
     this.title.textContent = COPY[mode].title;
-    this.lede.textContent = COPY[mode].lede;
+    this.lede.textContent =
+      rooted && mode === 'create' ? 'Name the project. FluidCAD sets it up in your projects folder and opens it.' : COPY[mode].lede;
+    this.nav.classList.toggle('hidden', rooted);
+    this.list.classList.toggle('hidden', rooted && mode === 'create');
     this.nameRow.classList.toggle('hidden', mode !== 'create');
     this.nameInput.value = '';
     this.checked = null;
@@ -216,9 +232,13 @@ export class FolderPicker {
     this.setStatus('', 'neutral');
     this.sync();
     this.element.classList.remove('hidden');
-    const last = readLastFolder();
-    if (!(await this.browse(last)) && last !== null) {
-      await this.browse(null);
+    if (rooted) {
+      await this.browse(root);
+    } else {
+      const last = readLastFolder();
+      if (!(await this.browse(last)) && last !== null) {
+        await this.browse(null);
+      }
     }
     (mode === 'create' ? this.nameInput : this.list.querySelector<HTMLElement>('button') ?? this.pathInput).focus();
   }
@@ -247,7 +267,10 @@ export class FolderPicker {
     this.pathInput.value = listing.path;
     // The end of a long path is the part that says where this is.
     this.pathInput.scrollLeft = this.pathInput.scrollWidth;
-    rememberFolder(listing.path);
+    if (this.root === null) {
+      // A projects folder is the launcher's choice, not a place to come back to.
+      rememberFolder(listing.path);
+    }
     this.renderRoots(listing);
     this.renderList(listing);
     if (this.mode === 'create') {
@@ -396,7 +419,8 @@ export class FolderPicker {
   }
 
   private describeCheck(result: FolderCheck): void {
-    const where = shortenPath(result.path, this.home);
+    // In a projects folder the name says it all; anywhere else, where it lands.
+    const where = this.root === null ? shortenPath(result.path, this.home) : baseName(result.path);
     switch (result.state) {
       case 'missing':
         this.setStatus(`Creates ${where} and opens it in a new tab.`, 'neutral');

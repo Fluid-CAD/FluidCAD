@@ -3,6 +3,7 @@ import { EngineUpgrade } from '../engine/upgrade.ts';
 import { projectInstalledEngine, readProjectPin } from '../engine/project-pin.ts';
 import { isEngineManagedLink } from '../engine/resolver.ts';
 import { listRecentProjects } from './app-state.ts';
+import type { ProjectsRoot } from './projects-root.ts';
 import { thumbnailStamp, type ThumbnailUrl } from '../previews/thumbnails.ts';
 import type { EngineOptions, StartProject } from '../start/contract.ts';
 
@@ -42,11 +43,23 @@ function thumbnailOf(workspacePath: string, url: ThumbnailUrl): string | null {
   return stamp ? url(stamp) : null;
 }
 
-/** Every stored recent that still exists, newest first. */
-export function listStartProjects(context: ListingContext): { projects: StartProject[] } {
-  return {
-    projects: listRecentProjects().map((entry) => describeProject(entry.path, entry.lastOpenedAt, context)),
-  };
+/**
+ * Every stored recent that still exists, newest first. With a projects root,
+ * every project in that folder instead: the ones opened before come first,
+ * newest first, then the rest by name; a recent outside the root is not
+ * listed, since the launcher would refuse to open it.
+ */
+export function listStartProjects(context: ListingContext, root: ProjectsRoot | null = null): { projects: StartProject[] } {
+  const recents = listRecentProjects();
+  if (!root) {
+    return { projects: recents.map((entry) => describeProject(entry.path, entry.lastOpenedAt, context)) };
+  }
+  const openedAt = new Map(recents.map((entry) => [entry.path, entry.lastOpenedAt]));
+  const projects = root
+    .list()
+    .map((project) => describeProject(project.path, openedAt.get(project.path) ?? '', context))
+    .sort((a, b) => (a.lastOpenedAt === b.lastOpenedAt ? 0 : b.lastOpenedAt.localeCompare(a.lastOpenedAt)));
+  return { projects };
 }
 
 /** What the "Change engine version…" dialog lists for one project. */

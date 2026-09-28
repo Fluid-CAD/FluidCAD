@@ -17,6 +17,8 @@ export type LauncherCliOptions = {
   port: number;
   /** Open the start screen in the default browser. */
   open: boolean;
+  /** Keep every project in this folder; see `LauncherServerOptions`. */
+  projectsRoot?: string;
 };
 
 /**
@@ -70,6 +72,9 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
   const running = await findRunningLauncher();
   if (running) {
     console.log(`FluidCAD is already running. Its start screen:\n\n  ${running.loginUrl}\n`);
+    if (options.projectsRoot) {
+      console.log('The running one keeps its own projects folder. To use this one, stop it with Ctrl+C in its terminal and run this again.');
+    }
     const version = packageVersion(options.packageRoot);
     if (running.version !== version) {
       console.log(
@@ -84,7 +89,11 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
   }
 
   followProxyEnvironment();
-  const server = await startLauncherServer({ packageRoot: options.packageRoot, port: options.port });
+  const server = await startLauncherServer({
+    packageRoot: options.packageRoot,
+    port: options.port,
+    projectsRoot: options.projectsRoot,
+  });
   writeLauncherInstance({
     schemaVersion: 1,
     pid: process.pid,
@@ -99,6 +108,9 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
     console.log(`Port ${options.port} is in use, so FluidCAD took ${server.port}.`);
   }
   console.log(`FluidCAD ${server.version}. The start screen:\n\n  ${server.loginUrl}\n`);
+  if (server.projectsRoot) {
+    console.log(`Projects live in ${server.projectsRoot}: the start screen lists them, and new projects are created there.`);
+  }
   console.log('Projects open in their own tabs. Press Ctrl+C to stop FluidCAD and every project it opened.');
   if (options.open) {
     await openBrowser(server.loginUrl);

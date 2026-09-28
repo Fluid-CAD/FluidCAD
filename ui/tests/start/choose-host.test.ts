@@ -6,7 +6,7 @@ import type { StartScreenBridge, StartScreenHost } from '../../src/start/host';
 function bridge(overrides: Partial<StartScreenBridge> = {}): StartScreenBridge {
   const noop = vi.fn(async () => undefined);
   return {
-    hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/h' })),
+    hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/h', projectsRoot: null })),
     windowState: vi.fn(async () => ({ phase: 'home' })),
     onWindowState: vi.fn(),
     cancelOpen: noop,

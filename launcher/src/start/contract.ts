@@ -19,10 +19,20 @@ import type { EngineSource } from '../engine/resolver.ts';
  * only has to match itself.
  */
 
-/** 2: a `creating` step while a new project is scaffolded, and closing a project from its card. */
-export const START_SCREEN_PROTOCOL = 2;
+/**
+ * 2: a `creating` step while a new project is scaffolded, and closing a
+ * project from its card. 3: `projectsRoot` in the hello reply.
+ */
+export const START_SCREEN_PROTOCOL = 3;
 
-export type HelloReply = { ok: boolean; appVersion: string; platform: string; home: string };
+export type HelloReply = {
+  ok: boolean;
+  appVersion: string;
+  platform: string;
+  home: string;
+  /** The folder every project lives in (`--projects`), or null when projects may live anywhere. */
+  projectsRoot: string | null;
+};
 
 export type OpeningProject = { path: string; name: string };
 
@@ -107,6 +117,15 @@ export type FolderState = 'missing' | 'empty' | 'project' | 'not-empty' | 'not-a
 export type FolderCheck = { path: string; state: FolderState };
 
 /** The answer to the page's first call. */
-export function helloReply(protocol: unknown, app: { version: string; platform: string; home: string }): HelloReply {
-  return { ok: protocol === START_SCREEN_PROTOCOL, appVersion: app.version, platform: app.platform, home: app.home };
+export function helloReply(
+  protocol: unknown,
+  app: { version: string; platform: string; home: string; projectsRoot: string | null },
+): HelloReply {
+  return {
+    ok: protocol === START_SCREEN_PROTOCOL,
+    appVersion: app.version,
+    platform: app.platform,
+    home: app.home,
+    projectsRoot: app.projectsRoot,
+  };
 }

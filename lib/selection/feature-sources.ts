@@ -13,6 +13,7 @@ import { Revolve } from "../features/revolve.js";
 import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { Rotate } from "../features/rotate.js";
@@ -388,11 +389,11 @@ class SourceResolver {
   /**
    * A revolve's axis input, by call site — an axis statement the dialog can
    * point at and highlight. An axis built inline in the revolve's own
-   * arguments (`revolve('z')`, `revolve(axis(…))`) captures a line on the
-   * statement itself and stays opaque; the dialog keeps its verbatim text.
+   * arguments captures a line on the statement itself: see
+   * {@link axisObjectSlot} for the one inline form that still resolves.
    */
   axisSlot(obj: SceneObject | null): SourceSlot {
-    return obj instanceof AxisObjectBase ? this.callSiteSlot(obj) : OPAQUE;
+    return obj instanceof AxisObjectBase ? this.axisObjectSlot(obj) : OPAQUE;
   }
 
   /**
@@ -407,7 +408,27 @@ class SourceResolver {
     if (source instanceof ConnectorAxis) {
       return source.connector.copySlot() === undefined ? this.callSiteSlot(source.connector) : OPAQUE;
     }
-    return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
+    return source instanceof AxisObjectBase ? this.axisObjectSlot(source) : OPAQUE;
+  }
+
+  /**
+   * An axis object by call site — the axis sibling of {@link planeSlot}. An
+   * axis built inline in the statement's own arguments (`revolve('z')`,
+   * `copy('linear', axis(…), …)`) has no standalone statement to re-target,
+   * but one inline form still resolves: the bare `axis(<edge>)` a dialog's
+   * edge pick writes resolves to that edge, the pick the slot holds. An axis
+   * carrying its own offset or rotation does not — the edge alone would name a
+   * different line than the statement builds.
+   */
+  private axisObjectSlot(obj: AxisObjectBase): SourceSlot {
+    const slot = this.callSiteSlot(obj);
+    if (slot.kind !== 'opaque') {
+      return slot;
+    }
+    if (obj instanceof AxisFromEdge && obj.options == null && !(obj.source instanceof AxisObjectBase)) {
+      return this.entitiesSlot([obj.source]);
+    }
+    return OPAQUE;
   }
 
   /**

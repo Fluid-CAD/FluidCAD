@@ -810,6 +810,86 @@ describe("feature sources (edit-dialog seeding)", () => {
     }
   });
 
+  /**
+   * The bare `axis(<edge>)` the dialogs write for a picked edge lands inline,
+   * on the statement's own line: no statement to re-target, but an edge on the
+   * pre-statement solid — what the edit ghost draws the kept axis with. One
+   * carrying its own offset names a different line and stays opaque.
+   */
+  it("resolves a copy's inline axis(<edge>) to its edge, keeping an offset one opaque", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const bare = copy("linear", axis(e.sideEdges(0)) as never, { count: 3, offset: 50 }, e as never);
+    setLocation(bare as never, 6);
+    const moved = copy("linear", axis(e.sideEdges(0), { offsetX: 5 }) as never, { count: 2, offset: 50 }, e as never);
+    setLocation(moved as never, 8);
+
+    const scene = render();
+    // Each inline axis captures its copy's own line.
+    const axes = scene.getAllSceneObjects().filter(o => o.getType() === "axis");
+    expect(axes).toHaveLength(2);
+    setLocation(axes[0], 6);
+    setLocation(axes[1], 8);
+    const box = solidOf(scene, "extrude");
+    const at = (line: number): SelectionBoundary => {
+      const index = scene.getAllSceneObjects().findIndex(o => o.getType() === "copy-linear"
+        && o.getSourceLocation()?.line === line);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return { index, type: "copy-linear", line, column: 0 };
+    };
+
+    const result = resolveFeatureSources(scene, at(6));
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "copy") {
+      // One of the box's four vertical side edges, on the box itself.
+      const sideEdges = edgeRefsWhere(box, m => Math.abs(m.z - 5) < 1e-6);
+      expect(sideEdges).toHaveLength(4);
+      expect(result.axes).toHaveLength(1);
+      const slot = result.axes[0];
+      expect(slot.kind).toBe("entities");
+      if (slot.kind === "entities") {
+        expect(slot.entities).toHaveLength(1);
+        expect(sideEdges).toContainEqual(slot.entities[0]);
+      }
+    }
+    expect(resolveFeatureSources(scene, at(8))).toMatchObject({
+      ok: true,
+      feature: "copy",
+      axes: [{ kind: "opaque" }],
+    });
+  });
+
+  it("resolves a rotate's inline axis(<edge>) to its edge", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const r = rotate(axis(e.sideEdges(0)) as never, 45, e as never);
+    setLocation(r as never, 6);
+
+    const scene = render();
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.getType() === "axis") {
+        setLocation(obj, 6);
+      }
+    }
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rotate", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rotate") {
+      expect(result.axis.kind).toBe("entities");
+      if (result.axis.kind === "entities") {
+        expect(result.axis.entities).toHaveLength(1);
+        expect(edgeRefsWhere(box, m => Math.abs(m.z - 5) < 1e-6)).toContainEqual(result.axis.entities[0]);
+      }
+    }
+  });
+
   it("resolves a plane's picked-face base onto the pre-plane solid", () => {
     sketch("xy", () => {
         testRect(40, 40);

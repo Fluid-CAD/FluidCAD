@@ -142,19 +142,32 @@ describe('project grid', () => {
   it('shows the empty state before the first project', () => {
     const grid = new ProjectGrid(handlers(), document.body);
     document.body.appendChild(grid.element);
-    grid.render([], '/home/you');
+    grid.render([], { home: '/home/you', rooted: false });
     expect(grid.element.querySelector('[data-empty]')!.classList.contains('hidden')).toBe(false);
     expect(grid.element.querySelector('[data-project-grid]')!.classList.contains('hidden')).toBe(true);
     expect(grid.element.textContent).toContain('No projects yet');
   });
 
-  it('shows every stored recent, not just the first row', () => {
+  it('shows a page of eight, with the rest a page away', () => {
     const grid = new ProjectGrid(handlers(), document.body);
     grid.render(
       Array.from({ length: 12 }, (_, i) => project({ path: `/p/${i}`, name: `part-${i}` })),
-      '/home/you',
+      { home: '/home/you', rooted: false },
     );
-    expect(grid.element.querySelectorAll('[data-project-path]')).toHaveLength(12);
+    expect(grid.element.querySelectorAll('[data-project-path]')).toHaveLength(8);
     expect(grid.element.querySelector('[data-empty]')!.classList.contains('hidden')).toBe(true);
+    expect(grid.element.querySelector('[data-page-range]')!.textContent).toBe('1–8 of 12');
+    grid.element.querySelector<HTMLButtonElement>('[data-page-next]')!.click();
+    expect(grid.element.querySelectorAll('[data-project-path]')).toHaveLength(4);
+  });
+
+  it('takes a page size of its own', () => {
+    const grid = new ProjectGrid(handlers(), document.body, { pageSize: 3 });
+    grid.render(
+      Array.from({ length: 5 }, (_, i) => project({ path: `/p/${i}`, name: `part-${i}` })),
+      { home: '/home/you', rooted: false },
+    );
+    expect(grid.element.querySelectorAll('[data-project-path]')).toHaveLength(3);
+    expect(grid.element.querySelector('[data-page-range]')!.textContent).toBe('1–3 of 5');
   });
 });

@@ -28,7 +28,7 @@ import { START_SCREEN_PROTOCOL } from './host';
  * not in `ui/dist-start`. Every state the page can be in is one query
  * parameter away:
  *
- *   recents=0|1|12|mixed        how many recent projects (mixed: one per chip state)
+ *   recents=<N>|mixed         how many recent projects (mixed: one per chip state)
  *   feed=normal|hostile|empty|offline
  *   state=home|creating|resolving|downloading|starting|failed
  *   theme=fluidcad-dark|fluidcad-light
@@ -93,8 +93,8 @@ function projectsFor(recents: string | null): StartProject[] {
   if (recents === '1') {
     return [project('bracket', { thumbnail: fakeThumbnail(200, 200, 212) })];
   }
-  if (recents === '12') {
-    return Array.from({ length: 12 }, (_, i) =>
+  if (recents !== null && /^\d+$/.test(recents)) {
+    return Array.from({ length: Number(recents) }, (_, i) =>
       project(`part-${i + 1}`, { thumbnail: i % 3 === 2 ? null : fakeThumbnail(200, 160 + (i % 4) * 30, (i * 37) % 360), lastOpenedAt: hoursAgo(i * 7) }),
     );
   }

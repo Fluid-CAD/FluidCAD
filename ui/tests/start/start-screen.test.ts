@@ -240,8 +240,8 @@ describe('StartScreen: filtering projects', () => {
     // The list is re-read (a project closed, a preview landed): the filter stays.
     pushed.changed!();
     await vi.waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(names()).toEqual(['Arm', 'armrest']));
     expect(filter.value).toBe('ARM');
-    expect(names()).toEqual(['Arm', 'armrest']);
 
     filter.value = 'wheel';
     filter.dispatchEvent(new Event('input'));
@@ -261,5 +261,84 @@ describe('StartScreen: filtering projects', () => {
     const { root } = await start({ list: vi.fn(async () => ({ projects: [] })) });
     expect(root.querySelector('[data-project-filter]')!.classList.contains('hidden')).toBe(true);
     expect(root.querySelector('[data-empty]')!.classList.contains('hidden')).toBe(false);
+  });
+});
+
+describe('StartScreen: paging projects', () => {
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  /** Twenty projects, listed oldest first on purpose: the grid orders them itself. */
+  const many = () =>
+    Array.from({ length: 20 }, (_, i) => ({
+      path: `/home/you/cad/part-${i + 1}`,
+      name: `part-${i + 1}`,
+      engine: '0.0.45',
+      engineSource: 'pin' as const,
+      latest: true,
+      upgradeTo: null,
+      lastOpenedAt: hoursAgo(20 - i),
+      open: false,
+      thumbnail: null,
+    }));
+  const names = (root: HTMLElement) =>
+    [...root.querySelectorAll<HTMLElement>('[data-project-path]')].map((card) => card.dataset.projectPath!.split('/').pop());
+
+  it('shows eight at a time, most recently opened first, and turns pages', async () => {
+    const { root } = await start({ list: vi.fn(async () => ({ projects: many() })) });
+    const pager = root.querySelector<HTMLElement>('[data-pager]')!;
+    const range = () => root.querySelector('[data-page-range]')!.textContent;
+    const prev = root.querySelector<HTMLButtonElement>('[data-page-prev]')!;
+    const next = root.querySelector<HTMLButtonElement>('[data-page-next]')!;
+    expect(pager.classList.contains('hidden')).toBe(false);
+    expect(names(root)).toEqual(['part-20', 'part-19', 'part-18', 'part-17', 'part-16', 'part-15', 'part-14', 'part-13']);
+    expect(range()).toBe('1–8 of 20');
+    expect(prev.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+
+    next.click();
+    expect(names(root)).toEqual(['part-12', 'part-11', 'part-10', 'part-9', 'part-8', 'part-7', 'part-6', 'part-5']);
+    expect(range()).toBe('9–16 of 20');
+    next.click();
+    expect(names(root)).toEqual(['part-4', 'part-3', 'part-2', 'part-1']);
+    expect(range()).toBe('17–20 of 20');
+    expect(next.disabled).toBe(true);
+    prev.click();
+    expect(range()).toBe('9–16 of 20');
+  });
+
+  it('keeps the page across a refresh, clamps it when the list shrinks, and starts over on a filter', async () => {
+    const projects = many();
+    const list = vi.fn(async () => ({ projects }));
+    const { root, bridge, pushed } = await start({ list });
+    const range = () => root.querySelector('[data-page-range]')!.textContent;
+    root.querySelector<HTMLButtonElement>('[data-page-next]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-page-next]')!.click();
+    expect(range()).toBe('17–20 of 20');
+
+    pushed.changed!();
+    await vi.waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(range()).toBe('17–20 of 20'));
+
+    // Four projects gone: the third page no longer exists, so the last one that does shows.
+    projects.splice(0, 4);
+    pushed.changed!();
+    await vi.waitFor(() => expect(range()).toBe('9–16 of 16'));
+
+    const filter = root.querySelector<HTMLInputElement>('[data-project-filter]')!;
+    filter.value = 'part-1';
+    filter.dispatchEvent(new Event('input'));
+    expect(range()).toBe('1–8 of 10');
+    expect(names(root)[0]).toBe('part-19');
+
+    filter.value = 'part-2';
+    filter.dispatchEvent(new Event('input'));
+    // One match: no pages to turn.
+    expect(root.querySelector('[data-pager]')!.classList.contains('hidden')).toBe(true);
+    expect(names(root)).toEqual(['part-20']);
+  });
+
+  it('shows no pager while everything fits on one page', async () => {
+    const { root } = await start({ list: vi.fn(async () => ({ projects: many().slice(0, 8) })) });
+    expect(root.querySelector('[data-pager]')!.classList.contains('hidden')).toBe(true);
+    expect(names(root).length).toBe(8);
   });
 });

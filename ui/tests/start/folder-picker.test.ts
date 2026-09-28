@@ -51,6 +51,8 @@ function picker(checks: Record<string, FolderCheck['state']> = {}) {
     page,
     handlers,
     rows: () => [...view.element.querySelectorAll<HTMLButtonElement>('[data-path]')],
+    row: (name: string) => view.element.querySelector<HTMLButtonElement>(`[data-path$="/${name}"]`)!,
+    filter: () => q<HTMLInputElement>('[data-ref="filter"]'),
     action: () => q<HTMLButtonElement>('[data-ref="action"]'),
     status: () => q<HTMLElement>('[data-ref="status"]'),
     name: () => q<HTMLInputElement>('[data-ref="name"]'),
@@ -69,20 +71,26 @@ afterEach(() => {
 });
 
 describe('FolderPicker: Open', () => {
-  it('starts where the launcher suggests, projects marked', async () => {
+  it('starts where the launcher suggests, plain folders first and projects marked', async () => {
     const p = picker();
     await p.view.show('open');
     expect(p.page.browse).toHaveBeenCalledWith(null);
     expect(p.path().value).toBe('/home/you/cad');
-    expect(p.rows().map((row) => row.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['bracketproject', 'old stuff']);
+    expect(p.rows().map((row) => row.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['old stuff', 'bracketproject']);
+    // A project is a folder wearing the logo; a plain folder is just the folder.
+    expect(p.row('bracket').querySelector('svg')).not.toBeNull();
+    expect(p.row('bracket').querySelector('img')?.getAttribute('src')).toBe('logo.svg');
+    expect(p.row('old stuff').querySelector('svg')).not.toBeNull();
+    expect(p.row('old stuff').querySelector('img')).toBeNull();
     expect(p.action().textContent).toBe('Open cad');
-    expect(p.status().textContent).toContain('holds no FluidCAD project yet');
+    // A plain folder gets no line; the button says what opens.
+    expect(p.status().textContent).toBe('');
   });
 
   it('opens the folder selected, or a project double-clicked, inside the click', async () => {
     const p = picker();
     await p.view.show('open');
-    p.rows()[0].click();
+    p.row('bracket').click();
     expect(p.action().textContent).toBe('Open bracket');
     expect(p.status().textContent).toBe('Opens bracket in a new tab.');
     p.action().click();
@@ -90,14 +98,14 @@ describe('FolderPicker: Open', () => {
     expect(p.view.isOpen()).toBe(false);
 
     await p.view.show('open');
-    p.rows()[0].dispatchEvent(new MouseEvent('dblclick'));
+    p.row('bracket').dispatchEvent(new MouseEvent('dblclick'));
     expect(p.handlers.open).toHaveBeenCalledTimes(2);
   });
 
   it('looks inside a folder on double-click, and goes back up', async () => {
     const p = picker();
     await p.view.show('open');
-    p.rows()[1].dispatchEvent(new MouseEvent('dblclick'));
+    p.row('old stuff').dispatchEvent(new MouseEvent('dblclick'));
     await vi.waitFor(() => expect(p.path().value).toBe('/home/you/cad/old stuff'));
     expect(p.view.element.textContent).toContain('No folders here.');
     expect(p.handlers.open).not.toHaveBeenCalled();
@@ -116,7 +124,7 @@ describe('FolderPicker: Open', () => {
   it('starts next time where it was last', async () => {
     const p = picker();
     await p.view.show('open');
-    p.rows()[1].dispatchEvent(new MouseEvent('dblclick'));
+    p.row('old stuff').dispatchEvent(new MouseEvent('dblclick'));
     await vi.waitFor(() => expect(p.path().value).toBe('/home/you/cad/old stuff'));
     p.view.close();
     await p.view.show('open');
@@ -128,6 +136,43 @@ describe('FolderPicker: Open', () => {
     await p.view.show('open');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(p.view.isOpen()).toBe(false);
+  });
+
+  it('filters the list by name, and says so when nothing is named', async () => {
+    const p = picker();
+    await p.view.show('open');
+    p.filter().value = 'BRACK';
+    p.filter().dispatchEvent(new Event('input'));
+    expect(p.rows().map((row) => row.dataset.path)).toEqual(['/home/you/cad/bracket']);
+    p.filter().value = 'wheel';
+    p.filter().dispatchEvent(new Event('input'));
+    expect(p.rows()).toHaveLength(0);
+    expect(p.view.element.textContent).toContain('No folder here is named "wheel"');
+  });
+
+  it('Escape in a filter with text clears it; the next Escape closes', async () => {
+    const p = picker();
+    await p.view.show('open');
+    p.filter().value = 'wheel';
+    p.filter().dispatchEvent(new Event('input'));
+    p.filter().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(p.filter().value).toBe('');
+    expect(p.rows()).toHaveLength(2);
+    expect(p.view.isOpen()).toBe(true);
+    p.filter().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(p.view.isOpen()).toBe(false);
+  });
+
+  it('starts the filter over in every folder browsed', async () => {
+    const p = picker();
+    await p.view.show('open');
+    p.filter().value = 'old';
+    p.filter().dispatchEvent(new Event('input'));
+    expect(p.rows()).toHaveLength(1);
+    p.row('old stuff').dispatchEvent(new MouseEvent('dblclick'));
+    await vi.waitFor(() => expect(p.path().value).toBe('/home/you/cad/old stuff'));
+    expect(p.filter().value).toBe('');
+    expect(p.view.element.textContent).toContain('No folders here.');
   });
 });
 
@@ -216,6 +261,7 @@ describe('FolderPicker: New project in a projects folder', () => {
     // Nothing to browse: no path bar, no folder list, only the name.
     expect(q('[data-ref="nav"]').classList.contains('hidden')).toBe(true);
     expect(q('[data-ref="list"]').classList.contains('hidden')).toBe(true);
+    expect(q('[data-ref="filter"]').classList.contains('hidden')).toBe(true);
     expect(q('[data-ref="name-row"]').classList.contains('hidden')).toBe(false);
     // A label, the field, and the path the name makes; nothing to explain.
     expect(q('[data-ref="lede"]').classList.contains('hidden')).toBe(true);

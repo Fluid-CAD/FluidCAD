@@ -1,6 +1,6 @@
-import { ICON_CLOSE, ICON_CUBE, ICON_FOLDER, ICON_FOLDER_UP, ICON_HOME } from '../ui/icons';
+import { ICON_CLOSE, ICON_FOLDER, ICON_FOLDER_UP, ICON_HOME } from '../ui/icons';
 import { shortenPath } from './format';
-import type { FolderCheck, FolderListing, ProjectDialogs } from './host';
+import type { FolderCheck, FolderEntry, FolderListing, ProjectDialogs } from './host';
 
 type PageDialogs = Extract<ProjectDialogs, { kind: 'page' }>;
 
@@ -65,12 +65,35 @@ function baseName(folder: string): string {
 }
 
 /**
+ * The rows to show: plain folders first, projects after them, each group in
+ * the order listed, and only the ones the filter's text names (a
+ * case-insensitive part of the name). Plain folders lead because they are
+ * where the picker goes next; a project is where it stops.
+ */
+export function visibleEntries(entries: FolderEntry[], query: string): FolderEntry[] {
+  const needle = query.trim().toLowerCase();
+  const shown = needle === '' ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  return [...shown.filter((entry) => !entry.project), ...shown.filter((entry) => entry.project)];
+}
+
+/** A folder with the FluidCAD logo on its corner: a folder that holds a project. */
+function projectIcon(): HTMLSpanElement {
+  const icon = document.createElement('span');
+  icon.className = 'relative shrink-0 [&>svg]:size-4 text-base-content/50';
+  icon.innerHTML = `${ICON_FOLDER}<img src="logo.svg" alt="" class="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5" />`;
+  return icon;
+}
+
+/**
  * The start page's own folder picker, for a browser: under `npx fluidcad` a
  * page cannot show the operating system's folder dialog and get a real path
  * back, so it browses folders the launcher lists instead. The desktop app
  * never shows it; it has native dialogs.
  *
- * Click a folder to select it, double-click to look inside it; a project
+ * Plain folders are listed first and projects after them, a project's folder
+ * wearing the FluidCAD logo; a filter box above the list narrows it by name
+ * and starts over in every folder browsed. Click a folder to select it,
+ * double-click to look inside it; a project
  * double-clicked in the Open picker opens. The New Project picker sets the
  * project up in a new folder named after it, inside the folder on show, and
  * says before anything happens what that would create.
@@ -87,6 +110,8 @@ export class FolderPicker {
   private readonly homeBtn: HTMLButtonElement;
   private readonly upBtn: HTMLButtonElement;
   private readonly roots: HTMLDivElement;
+  /** Narrows the list to the folders named; cleared whenever the picker goes elsewhere. */
+  private readonly filter: HTMLInputElement;
   private readonly list: HTMLDivElement;
   private readonly nameRow: HTMLLabelElement;
   private readonly nameLabel: HTMLSpanElement;
@@ -144,6 +169,7 @@ export class FolderPicker {
             <input data-ref="path" type="text" spellcheck="false" aria-label="Folder" class="input input-sm flex-1 min-w-0 font-mono text-xs" />
           </div>
           <div data-ref="roots" class="hidden flex flex-wrap gap-1"></div>
+          <input data-ref="filter" type="search" spellcheck="false" placeholder="Filter folders" aria-label="Filter folders by name" class="input input-sm w-full" />
           <div data-ref="list" role="listbox" aria-label="Folders" class="flex-1 min-h-[200px] max-h-[40vh] overflow-y-auto border border-base-content/10 rounded-md p-1"></div>
           <label data-ref="name-row" class="hidden flex items-center gap-3">
             <span data-ref="name-label" class="text-sm text-base-content/80 shrink-0">Project name</span>
@@ -166,6 +192,7 @@ export class FolderPicker {
     this.homeBtn = ref('home');
     this.upBtn = ref('up');
     this.roots = ref('roots');
+    this.filter = ref('filter');
     this.list = ref('list');
     this.nameRow = ref('name-row');
     this.nameLabel = ref('name-label');
@@ -189,6 +216,11 @@ export class FolderPicker {
         void this.browse(this.pathInput.value.trim() || null);
       }
     });
+    this.filter.addEventListener('input', () => {
+      if (this.listing) {
+        this.renderList(this.listing);
+      }
+    });
     this.nameInput.addEventListener('input', () => this.scheduleCheck());
     this.nameInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -209,6 +241,14 @@ export class FolderPicker {
         if (event.key === 'Escape' && this.isOpen()) {
           event.stopPropagation();
           event.preventDefault();
+          // A filter with text in it: the first Escape clears it, the next closes.
+          if (event.target === this.filter && this.filter.value !== '') {
+            this.filter.value = '';
+            if (this.listing) {
+              this.renderList(this.listing);
+            }
+            return;
+          }
           this.close();
         }
       },
@@ -236,6 +276,8 @@ export class FolderPicker {
     // In a projects folder there is nothing to explain: a label, the field, and where it lands.
     this.lede.classList.toggle('hidden', naming);
     this.nav.classList.toggle('hidden', rooted);
+    this.filter.classList.toggle('hidden', naming);
+    this.filter.value = '';
     this.list.classList.toggle('hidden', naming);
     this.nameRow.classList.toggle('hidden', mode !== 'create');
     this.nameRow.classList.toggle('flex-col', naming);
@@ -294,6 +336,8 @@ export class FolderPicker {
     this.listing = listing;
     this.home = listing.home;
     this.selected = null;
+    // Another folder, another set of names: the filter starts over.
+    this.filter.value = '';
     this.pathInput.value = listing.path;
     // The end of a long path is the part that says where this is.
     this.pathInput.scrollLeft = this.pathInput.scrollWidth;
@@ -327,24 +371,32 @@ export class FolderPicker {
   }
 
   private renderList(listing: FolderListing): void {
-    if (listing.entries.length === 0) {
+    const query = this.filter.value.trim();
+    const entries = visibleEntries(listing.entries, query);
+    if (entries.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'px-2.5 py-6 text-center text-xs text-base-content/50';
-      empty.textContent = 'No folders here.';
+      empty.textContent = listing.entries.length === 0 ? 'No folders here.' : `No folder here is named "${query}". Clear the filter to see every folder.`;
       this.list.replaceChildren(empty);
       return;
     }
     this.list.replaceChildren(
-      ...listing.entries.map((entry) => {
+      ...entries.map((entry) => {
         const row = document.createElement('button');
         row.type = 'button';
-        row.className = ROW_IDLE;
+        row.className = entry.path === this.selected ? ROW_SELECTED : ROW_IDLE;
         row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', String(entry.path === this.selected));
         row.dataset.path = entry.path;
         row.title = entry.path;
-        const icon = document.createElement('span');
-        icon.className = `shrink-0 [&>svg]:size-4 ${entry.project ? 'text-primary' : 'text-base-content/50'}`;
-        icon.innerHTML = entry.project ? ICON_CUBE : ICON_FOLDER;
+        let icon: HTMLSpanElement;
+        if (entry.project) {
+          icon = projectIcon();
+        } else {
+          icon = document.createElement('span');
+          icon.className = 'shrink-0 [&>svg]:size-4 text-base-content/50';
+          icon.innerHTML = ICON_FOLDER;
+        }
         const name = document.createElement('span');
         name.className = 'flex-1 min-w-0 truncate';
         name.textContent = entry.name;
@@ -401,13 +453,8 @@ export class FolderPicker {
     if (!target) {
       return;
     }
-    const name = baseName(target.path);
-    this.setStatus(
-      target.project
-        ? `Opens ${name} in a new tab.`
-        : `${name} holds no FluidCAD project yet. It opens empty, ready for a first model.`,
-      'neutral',
-    );
+    // A plain folder needs no line: the button already says what opens.
+    this.setStatus(target.project ? `Opens ${baseName(target.path)} in a new tab.` : '', 'neutral');
   }
 
   /** The path the typed name makes, as typed: `~/cad/bracket`, or the folder alone before a name. */

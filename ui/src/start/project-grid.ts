@@ -147,8 +147,9 @@ export class ProjectGrid {
     button.addEventListener('click', () => {
       this.page += step;
       this.apply();
-      // The cards changed under the pointer; the page's top is where reading starts again.
-      this.element.scrollIntoView({ block: 'start' });
+      // The cards changed under the pointer; the page's top is where reading
+      // starts again. Optional: jsdom, where the tests run, has no scrolling.
+      this.element.scrollIntoView?.({ block: 'start' });
     });
     return button;
   }

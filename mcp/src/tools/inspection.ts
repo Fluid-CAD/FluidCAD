@@ -96,12 +96,26 @@ export async function getCompileError(input: GetCompileErrorInput) {
   return callWithClient(input, (client) => client.getJson<unknown>('/api/scene/compile-error'));
 }
 
-export type GetShapePropertiesInput = WorkspaceArg & { shapeId: string };
+/**
+ * One of `shapeId` (a single shape) or `partId` (a part row's aggregate over
+ * its final solids, with `material` / `massG` when its `.material(id)`
+ * resolves and `warning` when it does not).
+ */
+export type GetShapePropertiesInput = WorkspaceArg & { shapeId?: string; partId?: string };
 export async function getShapeProperties(input: GetShapePropertiesInput) {
-  if (!input?.shapeId || typeof input.shapeId !== 'string') {
-    return err('invalid-input', '`shapeId` is required and must be a non-empty string.');
+  const shapeId = typeof input?.shapeId === 'string' && input.shapeId !== '' ? input.shapeId : null;
+  const partId = typeof input?.partId === 'string' && input.partId !== '' ? input.partId : null;
+  if (shapeId !== null && partId !== null) {
+    return err('invalid-input', 'Pass either `shapeId` or `partId`, not both.');
   }
-  const shapeId = input.shapeId;
+  if (partId !== null) {
+    return callWithClient(input, (client) =>
+      client.getJson<unknown>(`/api/part-properties?partId=${encodeURIComponent(partId)}`),
+    );
+  }
+  if (shapeId === null) {
+    return err('invalid-input', 'One of `shapeId` or `partId` is required and must be a non-empty string.');
+  }
   return callWithClient(input, (client) =>
     client.getJson<unknown>(`/api/shape-properties?shapeId=${encodeURIComponent(shapeId)}`),
   );

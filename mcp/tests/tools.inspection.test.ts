@@ -180,6 +180,7 @@ describe('inspection tools (unit)', () => {
         body: { compileError: null },
       }),
       '/api/shape-properties': () => ({ status: 200, body: { volumeMm3: 150000, unit: 'in' } }),
+      '/api/part-properties': () => ({ status: 200, body: { partId: 'part-1', volumeMm3: 4000, massG: 10.8, unit: 'mm' } }),
       '/api/face-properties': () => ({ status: 200, body: { areaMm2: 5000, unit: 'in' } }),
       '/api/edge-properties': () => ({ status: 200, body: { length: 100, unit: 'in' } }),
       '/api/hit-test': () => ({ status: 200, body: { type: 'face', index: 3 } }),
@@ -577,6 +578,21 @@ describe('inspection tools (unit)', () => {
       return;
     }
     expect(result.code).toBe('invalid-input');
+  });
+
+  it('get_shape_properties with partId asks for the part aggregate instead', async () => {
+    const result = await getShapeProperties({ partId: 'part-1' });
+    expect(result.ok).toBe(true);
+    expect(lastRequest?.url).toBe('/api/part-properties?partId=part-1');
+  });
+
+  it('get_shape_properties refuses both ids at once and neither', async () => {
+    const both = await getShapeProperties({ shapeId: 'sh-1', partId: 'part-1' });
+    expect(both.ok).toBe(false);
+    expect(!both.ok && both.code).toBe('invalid-input');
+    const neither = await getShapeProperties({});
+    expect(neither.ok).toBe(false);
+    expect(!neither.ok && neither.code).toBe('invalid-input');
   });
 
   it('get_face_properties forwards shapeId and faceIndex', async () => {

@@ -266,7 +266,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -297,13 +297,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.registerTool(
     'get_shape_properties',
     {
-      title: 'Get geometric properties of a shape',
+      title: 'Get geometric properties of a shape or a part',
       description:
-        'Returns volume, surface area, bounding box, center of mass, and similar measurements for a single shape. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them).',
-      inputSchema: { ...workspaceArg, shapeId: shapeIdArg },
+        'With `shapeId`: volume, surface area, and center of mass for a single shape. With `partId` (a `part` object id from get_scene_summary, or an assembly instance\'s `partId`) instead: the same summed over the part\'s final solids (`shapeIds`, `solidCount`, volume-weighted `centroid`), plus `material` (id, name, density, `densityGcm3`, `source` built-in|project) and `massG` in grams when the part\'s `.material(id)` resolves, or `warning: "Unknown material: <id>"` and no mass when it does not; `material` is null for a part without one. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them; `massG` is always grams).',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg.optional(),
+        partId: z.string().min(1).optional().describe('A part object id from get_scene_summary (kind "part") — sums its final solids; pass this OR shapeId.'),
+      },
     },
-    async ({ workspace, shapeId }) =>
-      toMcp(await getShapeProperties({ workspace, shapeId })),
+    async ({ workspace, shapeId, partId }) =>
+      toMcp(await getShapeProperties({ workspace, shapeId, partId })),
   );
 
   server.registerTool(

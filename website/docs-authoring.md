@@ -214,8 +214,8 @@ a row: **Rename** (edits `.name('…')`), **Edit feature**, **Breakpoint here**
 lists them and deletes the closure on confirm); a connector row nothing
 copies yet also offers **Copy…** (the Copy dialog with that connector).
 Sketch rows fold their constraints behind an *N constraints* toggle row;
-part rows fold *N connectors* (a connector-only Copy row files there too,
-counted by its copies) and *N exposed*. Feature status glyph: check = served from cache,
+part rows fold *N connectors* (declared connectors only; a Copy row stays
+among the features) and *N exposed*. Feature status glyph: check = served from cache,
 refresh = recomputed. The panel's **⋯** menu: **Recompute scene** (clears the
 cache and rebuilds everything) and **Show execution time**. **Undo / Redo**
 sit above it.

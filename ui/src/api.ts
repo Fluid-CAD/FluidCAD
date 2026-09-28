@@ -4515,6 +4515,48 @@ export function setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Project materials (the Manage materials… dialog): the `materials` map of
+// `fluidcad.json`, written whole.
+// ---------------------------------------------------------------------------
+
+export type DensityUnit = 'g/cm³' | 'kg/m³' | 'g/mm³' | 'lbs/in³';
+
+export const DENSITY_UNITS: readonly DensityUnit[] = ['g/cm³', 'kg/m³', 'g/mm³', 'lbs/in³'];
+
+/** One `fluidcad.json` materials entry; `densityUnit` defaults to g/cm³. */
+export type ProjectMaterial = {
+  name: string;
+  density: number;
+  densityUnit?: DensityUnit;
+};
+
+/** The `materials` map, keyed by the id `part(...).material(id)` refers to. */
+export type ProjectMaterials = Record<string, ProjectMaterial>;
+
+export type SaveProjectMaterialsResult =
+  | { success: true; materials: Material[] }
+  | { success: false; reason: string };
+
+/**
+ * Replace the project's `materials` map (`POST api/project/materials`,
+ * every other `fluidcad.json` key kept). Answers the merged built-in +
+ * project list the dropdowns are built from, so no second request is
+ * needed; the server recomputes the current file on its own.
+ */
+export async function saveProjectMaterials(materials: ProjectMaterials): Promise<SaveProjectMaterialsResult> {
+  try {
+    const res = await fetch('api/project/materials', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ materials }) });
+    const answer = await res.json().catch(() => null);
+    if (!res.ok || answer?.success !== true || !Array.isArray(answer.materials)) {
+      return { success: false, reason: answer?.reason ?? answer?.error ?? `HTTP ${res.status}` };
+    }
+    return { success: true, materials: answer.materials as Material[] };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Timeline move-to-part (acked — a dry-run analyzes dependencies against the
 // server's copy and answers the companion set without touching the buffer;
 // the real call rides the edit dispatcher round trip with the editor)

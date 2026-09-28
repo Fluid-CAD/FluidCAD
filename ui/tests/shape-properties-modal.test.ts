@@ -271,3 +271,56 @@ describe('shape properties — Part mode', () => {
     expect(h.text('error')).toContain('not available');
   });
 });
+
+describe('Shape Properties — Manage materials…', () => {
+  const manageBtn = (container: HTMLElement) => container.querySelector<HTMLButtonElement>('[data-action="manage-materials"]')!;
+
+  it('shows the link under the dropdown in an editor-backed host and opens the handler', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const client = {
+      getMaterials: vi.fn(async () => MATERIALS),
+      getShapeProperties: vi.fn(async () => SHAPE_PROPS),
+      editor: { saveProjectMaterials: vi.fn() },
+    } as unknown as EngineClient;
+    const modal = new ShapePropertiesModal(container, client);
+    await flush();
+    // An <option> would be pickable as a material; the entry is a button under the select.
+    expect(manageBtn(container).classList.contains('hidden')).toBe(true);
+    const onManage = vi.fn();
+    modal.setManageMaterialsHandler(onManage);
+    expect(manageBtn(container).classList.contains('hidden')).toBe(false);
+    expect(container.querySelector('[data-ref="material"] option[value=""]')).toBeNull();
+    manageBtn(container).click();
+    expect(onManage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the link hidden in a read-only host', async () => {
+    const h = mount();
+    await flush();
+    h.modal.setManageMaterialsHandler(() => undefined);
+    expect(manageBtn(h.container).classList.contains('hidden')).toBe(true);
+  });
+
+  it('reloadMaterials refills the dropdown from the given list and re-fetches without one', async () => {
+    const h = mount();
+    await flush();
+    h.modal.setSelectedShape('sTop');
+    const options = () => Array.from(h.container.querySelectorAll<HTMLOptionElement>('[data-ref="material"] option')).map((o) => o.value);
+    expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel']);
+
+    await h.modal.reloadMaterials([...MATERIALS, { id: 'pine', name: 'Pine', density: 0.5, densityUnit: 'g/cm³', source: 'project' }]);
+    expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel', 'pine']);
+    expect(h.client.getMaterials).toHaveBeenCalledTimes(1);
+
+    // A transient pick that vanished falls back to the first entry.
+    h.q<HTMLSelectElement>('[data-ref="material"]')!.value = 'pine';
+    h.q<HTMLSelectElement>('[data-ref="material"]')!.dispatchEvent(new Event('change'));
+    expect(h.text('density-value')).toBe('0.5 g/cm³');
+    vi.mocked(h.client.getMaterials).mockResolvedValueOnce(MATERIALS);
+    await h.modal.reloadMaterials();
+    expect(h.client.getMaterials).toHaveBeenCalledTimes(2);
+    expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel']);
+    expect(h.text('density-value')).toBe('7.87 g/cm³');
+  });
+});

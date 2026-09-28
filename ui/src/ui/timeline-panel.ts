@@ -184,6 +184,8 @@ export class TimelinePanel {
    * already in its targets. Unset, connector rows offer no such item.
    */
   onCopyConnector?: (obj: SceneObjectRender) => void;
+  /** Opens the Manage materials… dialog; without it the Set material… popup has no such row. */
+  onManageMaterials?: () => void;
   /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
@@ -1884,6 +1886,16 @@ export class TimelinePanel {
         label: material.source === 'project' ? `${material.name} (project)` : material.name,
         title: `${material.id} — ${material.density} ${material.densityUnit}`,
         onSelect: () => pick(material.id),
+      });
+    }
+    const manage = this.onManageMaterials;
+    if (manage) {
+      items.push({
+        icon: ICON_ADJUSTMENTS,
+        label: 'Manage materials…',
+        title: "Add, edit or remove the project's own materials (fluidcad.json)",
+        className: 'border-t border-base-content/10 mt-1 pt-1.5',
+        onSelect: () => manage(),
       });
     }
     showPopupMenu(this.panel, position, items);

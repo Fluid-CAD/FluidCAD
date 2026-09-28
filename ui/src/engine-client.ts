@@ -8,8 +8,10 @@ import type {
   MeasureResult,
   MoveToPartResult,
   PartProperties,
+  ProjectMaterials,
   RemoveFeaturePreview,
   RemoveFeatureResult,
+  SaveProjectMaterialsResult,
   SetUnitResult,
   ShapeProperties,
   SourceLocationParam,
@@ -65,6 +67,11 @@ export interface EngineEditorClient {
    * statement at `sourceLocation`. Acked: resolves once the edit landed.
    */
   setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult>;
+  /**
+   * Replace the project's `materials` map (`fluidcad.json`). Answers the
+   * merged list on success so the dropdowns refresh without a re-fetch.
+   */
+  saveProjectMaterials(materials: ProjectMaterials): Promise<SaveProjectMaterialsResult>;
 }
 
 /**

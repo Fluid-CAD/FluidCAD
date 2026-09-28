@@ -51,6 +51,7 @@ export class ShapePropertiesModal {
   private formEl!: HTMLDivElement;
   private selectEl!: HTMLSelectElement;
   private materialSelectBlock!: HTMLDivElement;
+  private manageBtn!: HTMLButtonElement;
   private materialRow!: HTMLDivElement;
   private materialVal!: HTMLSpanElement;
   private densityVal!: HTMLSpanElement;
@@ -81,6 +82,7 @@ export class ShapePropertiesModal {
   private centroidHandler: ((centroid: { x: number; y: number; z: number } | null) => void) | null = null;
   private openHandler: (() => void) | null = null;
   private partSelectionHandler: ((part: SceneObjectRender | null) => void) | null = null;
+  private manageMaterialsHandler: (() => void) | null = null;
   private sceneProvider: () => SceneObjectRender[] = () => [];
   private selectedPartProvider: () => SourceLocation | null = () => null;
 
@@ -136,6 +138,7 @@ export class ShapePropertiesModal {
         <div class="mb-2.5" data-ref="material-select-block">
           <label class="label text-[11px] uppercase tracking-wide">Material</label>
           <select class="select select-sm select-bordered w-full" data-ref="material"></select>
+          <button type="button" class="btn btn-link btn-xs px-0 h-auto min-h-0 mt-1 text-[11px] text-base-content/50 hidden" data-action="manage-materials">Manage materials…</button>
         </div>
         <div class="flex justify-between items-baseline py-0.5 hidden" data-ref="material-row">
           <span class="text-base-content/50 text-[11px]">Material</span>
@@ -174,6 +177,7 @@ export class ShapePropertiesModal {
     this.formEl = this.panel.querySelector<HTMLDivElement>('[data-ref="form"]')!;
     this.selectEl = this.panel.querySelector<HTMLSelectElement>('[data-ref="material"]')!;
     this.materialSelectBlock = this.panel.querySelector<HTMLDivElement>('[data-ref="material-select-block"]')!;
+    this.manageBtn = this.panel.querySelector<HTMLButtonElement>('[data-action="manage-materials"]')!;
     this.materialRow = this.panel.querySelector<HTMLDivElement>('[data-ref="material-row"]')!;
     this.materialVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="material-value"]')!;
     this.densityVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="density-value"]')!;
@@ -237,6 +241,16 @@ export class ShapePropertiesModal {
     this.partSelectionHandler = fn;
   }
 
+  /**
+   * What the Manage materials… link under the dropdown opens. The link
+   * shows only with a handler and an editor-backed host (a read-only host
+   * has no `fluidcad.json` to write).
+   */
+  setManageMaterialsHandler(fn: () => void): void {
+    this.manageMaterialsHandler = fn;
+    this.manageBtn.classList.toggle('hidden', this.client.editor === null);
+  }
+
   private bindEvents(): void {
     this.btn.addEventListener('click', () => this.toggle());
 
@@ -254,6 +268,8 @@ export class ShapePropertiesModal {
     this.massUnitEl.addEventListener('change', () => this.renderResults());
 
     this.calcBtn.addEventListener('click', () => void this.calculate());
+
+    this.manageBtn.addEventListener('click', () => this.manageMaterialsHandler?.());
   }
 
   private toggle(): void {
@@ -283,10 +299,27 @@ export class ShapePropertiesModal {
     if (!materials) {
       return;
     }
+    this.applyMaterials(materials);
+  }
+
+  /**
+   * Take a new merged list — after the Manage materials… dialog wrote
+   * `fluidcad.json` — either the list its save answered, or a fresh fetch.
+   * A transient pick that vanished from the list falls back to the first.
+   */
+  reloadMaterials(materials?: Material[]): Promise<void> {
+    if (!materials) {
+      return this.loadMaterials();
+    }
+    this.applyMaterials(materials);
+    return Promise.resolve();
+  }
+
+  private applyMaterials(materials: Material[]): void {
     this.materials = materials;
     this.materialsById = new Map(materials.map((m) => [m.id, m]));
     this.fillMaterialSelect();
-    if (this.transientMaterialId === null) {
+    if (this.transientMaterialId === null || !this.materialsById.has(this.transientMaterialId)) {
       this.transientMaterialId = materials[0]?.id ?? null;
     }
     this.renderMaterial();

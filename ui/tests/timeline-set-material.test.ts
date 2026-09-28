@@ -156,3 +156,23 @@ describe('timeline — material warnings', () => {
     expect(h.row('C').querySelector('[data-warning]')).not.toBeNull();
   });
 });
+
+describe('timeline — Manage materials…', () => {
+  it('ends the Set material… popup with the entry once a handler is set, and calls it', async () => {
+    const h = mount();
+    const onManage = vi.fn();
+    h.timeline.onManageMaterials = onManage;
+    const rows = await h.openMaterials('A');
+    expect(rows.map((r) => r.textContent!.trim())).toEqual(['None', 'Steel', 'Alloy Steel (project)', 'Manage materials…']);
+    rows[3].click();
+    expect(onManage).toHaveBeenCalledTimes(1);
+    expect(h.editor.setPartMaterial).not.toHaveBeenCalled();
+    expect(h.popupRows()).toEqual([]);
+  });
+
+  it('has no such row without a handler', async () => {
+    const h = mount();
+    const rows = await h.openMaterials('A');
+    expect(rows.map((r) => r.textContent!.trim())).not.toContain('Manage materials…');
+  });
+});

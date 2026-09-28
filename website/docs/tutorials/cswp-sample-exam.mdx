@@ -20,12 +20,31 @@ The tutorial is split into two parts matching the exam stages:
 - **Part 2** — Modify the part with additional features
 
 :::tip Checking mass properties
-In the CSWP exam, each question asks you to calculate the mass of the part for a given set of parameters. To check the mass of your model in FluidCAD, click the **info button** in the bottom-right corner of the 3D viewer, then select the shape. The mass properties panel will display the volume and mass of the selected shape. Use this to verify your answers against the exam answer key.
+In the CSWP exam, each question asks you to calculate the mass of the part for a given set of parameters. To check the mass of your model in FluidCAD, click the **scale icon** in the bottom-right corner of the 3D viewer to open **Shape properties**, click the shape, pick **Alloy Steel (project)** under **Material** — the exam material, registered in the [Setup](#setup) below — and click **Calculate**. The panel reports the volume and the mass. Use this to verify your answers against the exam answer key.
 :::
 
 Create a new file called `cswp-sample-exam.fluid.js` in your project.
 
 ## Setup
+
+### Register the exam material
+
+The exam specifies **Alloy Steel** at **0.0077 g/mm³**, which is not one of FluidCAD's built-in materials, and a density is never typed into Shape properties — a material has to exist before it can be picked. Register it once in the project's `fluidcad.json`, next to the unit:
+
+```json
+{
+  "unit": "mm",
+  "materials": {
+    "alloy-steel": { "name": "Alloy Steel", "density": 0.0077, "densityUnit": "g/mm³" }
+  }
+}
+```
+
+The same entry can be made from the UI: open **Shape properties** (the scale icon at the bottom right), click **Manage materials…** under the material dropdown, fill in the name, the density `0.0077` with the unit `g/mm³`, and **Save** — the dialog writes the entry above into `fluidcad.json`. Either way, the file is re-read on the next render, and **Alloy Steel (project)** appears in every material list. See [Project configuration](/docs/project-configuration#materials).
+
+If you wrap the model in a [`part()`](/docs/part/part-definition#material), right-click its row in the History panel and choose **Set material…** → **Alloy Steel (project)** instead: the part then carries the material in the file, and Shape properties reads it without a pick.
+
+### Parameters
 
 Start with imports and the exam parameters. Using variables makes the model fully parametric — change a value and the entire part updates, just like in the real exam.
 
@@ -323,7 +342,7 @@ fillet(10, c.internalEdges())
 
 ### Verify with exam answers
 
-With the Stage 1 test 1 parameters above (A=213, B=200, C=170, D=130, E=41), the mass should be **14207.34 grams** (using Alloy Steel with density 0.0077 g/mm^3). Try changing the parameters to test 2 (A=225, B=210, C=176, D=137, E=39) and test 3 (A=209, B=218, C=169, D=125, E=41) to verify you get **16490.45 g** and **15100.47 g** respectively.
+Open **Shape properties**, click the part, pick **Alloy Steel (project)** — the material registered in [Setup](#register-the-exam-material), 0.0077 g/mm³ — and click **Calculate**. With the Stage 1 test 1 parameters above (A=213, B=200, C=170, D=130, E=41), **Mass** should read **14207.34 g**. Try changing the parameters to test 2 (A=225, B=210, C=176, D=137, E=39) and test 3 (A=209, B=218, C=169, D=125, E=41) to verify you get **16490.45 g** and **15100.47 g** respectively.
 
 ## Part 2: Modify the Part
 
@@ -511,7 +530,7 @@ fillet(10, base.sideEdges())
 
 ### Verify with exam answers
 
-With the Stage 2 test 4 parameters above (A=221, B=211, C=165, D=121, E=37), the mass should be **13206.40 grams**. Try changing to test 5 (A=229, B=217, C=163, D=119, E=34) to verify you get **14208.00 g**.
+With the Stage 2 test 4 parameters above (A=221, B=211, C=165, D=121, E=37) and **Alloy Steel (project)** picked in Shape properties, the mass should be **13206.40 g**. Try changing to test 5 (A=229, B=217, C=163, D=119, E=34) to verify you get **14208.00 g**.
 
 ## What you practiced
 

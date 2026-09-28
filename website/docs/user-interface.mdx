@@ -26,7 +26,7 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
     {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
     {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'One row per solid. Click to select it; the row menu hides it, sets transparency, or exports it.'},
     {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
-    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume and mass of the selected solid, for a chosen material.'},
+    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume, surface area, mass and centre of mass of a solid or of a whole part, from the part’s material.'},
     {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
     {n: 14, x: 96.5, y: 16.5, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: fit to view, and the grid / projection toggles.'},
   ]}
@@ -62,7 +62,7 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
   ![Row context menu](/img/docs/ui/history-context-menu.png)
 
-  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm.
+  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm. A part row also offers **Set material…**, described under [Shape properties](#setting-a-parts-material).
 - The **⋮** menu on the panel header:
 
   ![History menu](/img/docs/ui/history-menu.png)
@@ -77,9 +77,43 @@ A `breakpoint()` statement stops evaluation at that line. The viewport shows the
 
 The **Shapes** panel lists the solids the model produced, grouped by type. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
 
-The scale icon at the bottom right opens **Shape properties**. Select a solid, pick a material (or type a density), and **Calculate** reports its volume and mass in the chosen units.
+The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 
-![Shape properties](/img/docs/ui/shape-properties.png)
+- **Solid** (the default) measures one solid: click a face or edge in the viewport, or a row in the Shapes panel. A solid inside a part that declares a material shows **Material** and **Density** read-only — the part owns them.
+
+  ![Shape properties, Solid tab, a solid inside a part](/img/docs/ui/shape-properties-solid.png)
+
+  A solid outside any part has a **Material** dropdown instead, grouped **Built-in** and **Project**. The pick is for this calculation only; nothing is written to the file. **Manage materials…** under it opens the dialog described [below](#managing-project-materials).
+
+  ![Shape properties, Solid tab, a solid outside any part](/img/docs/ui/shape-properties-top-level.png)
+
+- **Part** measures a whole part: click any of its solids in the viewport — every solid of the part highlights — or click the part's row in the History panel; in an assembly, click an instance. **Calculate** sums the part's final solids, the ones the Shapes panel lists under it. The material is read-only here; it is set from the History panel.
+
+  ![Shape properties, Part tab, the whole part highlighted](/img/docs/ui/shape-properties-part.png)
+
+### Setting a part's material
+
+Right-click the part's row in the History panel and choose **Set material…**.
+
+![A part row's context menu](/img/docs/ui/history-context-menu-part.png)
+
+The list holds the built-in materials followed by the project's own (marked *(project)*), with the current one checked and **None** on top to remove the material. Picking one writes `.material('<id>')` on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render.
+
+![The Set material… menu](/img/docs/ui/set-material-menu.png)
+
+An id that neither list knows — a typo in the file, or a project entry that was removed — is a warning, not an error. The geometry builds, the row carries a warning triangle (hover it for the message), and the panel reads `Unknown material: <id>` with no mass:
+
+![A part row with the unknown-material warning](/img/docs/ui/part-row-warning.png)
+
+![Shape properties reporting an unknown material](/img/docs/ui/shape-properties-unknown-material.png)
+
+### Managing project materials
+
+The last row of the **Set material…** menu, and the **Manage materials…** link under the dropdown in Solid mode, open the **Manage materials** dialog: the project's own materials, stored under `materials` in `fluidcad.json`.
+
+![The Manage materials dialog](/img/docs/ui/manage-materials-dialog.png)
+
+The list shows each project entry with its id and density; the pencil edits it, the bin removes it. **Add material** takes a **Name**, a **Density** with its **Unit** (g/cm³, kg/m³, g/mm³ or lbs/in³) and an **Id**, filled from the name until you type your own; give an entry a built-in's id to override that built-in for this project. Built-ins themselves cannot be edited. **Save** writes the whole map to `fluidcad.json` and re-renders, so a part whose id was unknown resolves at once. Editing the file by hand works the same way; [Project configuration](/docs/project-configuration#materials) has the schema.
 
 ## Parameters
 

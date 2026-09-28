@@ -3,6 +3,9 @@ sidebar_position: 2
 title: "Part"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partMaterial from '!!raw-loader!./_examples/part-material.js';
+
 # part()
 
 `part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters, properties — belongs to that part.
@@ -45,6 +48,31 @@ Because the body runs later, it must be self-contained: read parameters with [`p
 | `def.features.<name>` | The source object an [`expose()`](./expose) published, for another part to build on: `extrude(15, donor.features.profile)`. |
 | `def.properties.<name>` | A value a [`property()`](./property) published, from the default variant: `donor.properties.pocketDiameter`. |
 | `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>`, `instance.features.<name>` and `instance.properties.<name>` bound to it. |
+
+## Material
+
+A part can carry a material, and Shape properties turns its volume into a mass with that material's density.
+
+1. Right-click the part's row in the History panel and choose **Set material…**.
+2. Pick one from the list: the built-in materials first, then the project's own marked *(project)*. The current one is checked; **None** removes the material. The statement is written the moment you pick.
+3. Open **Shape properties** (the scale icon at the bottom right), choose the **Part** tab, click the part in the viewport — every solid of the part highlights — and click **Calculate**.
+
+![The Set material… menu on a part row](/img/docs/ui/set-material-menu.png)
+
+![Shape properties in Part mode, with the mass](/img/docs/ui/shape-properties-part.png)
+
+<ExplainedCode code={partMaterial} fileName="plate.part.js" />
+
+The pick is a `.material('<id>')` chain on the `part()` statement, next to where `.name()` goes. The argument is an id, never a density:
+
+| Id | Where it comes from |
+|----|---------------------|
+| `fluidcad-steel-1020`, `fluidcad-stainless-304`, `fluidcad-aluminum-6061`, `fluidcad-aluminum-1060`, `fluidcad-aluminum-7075`, `fluidcad-brass-c260`, `fluidcad-copper`, `fluidcad-titanium-6al4v`, `fluidcad-cast-iron-gray`, `fluidcad-bronze`, `fluidcad-pc`, `fluidcad-abs`, `fluidcad-pla`, `fluidcad-nylon-pa6`, `fluidcad-carbon-fiber`, `fluidcad-pine`, `fluidcad-carbon-steel` | Built in. Always available; listed under **Built-in**. |
+| `alloy-steel`, `acme-pla`, … | A key of the `materials` map in the project's [`fluidcad.json`](/docs/project-configuration#materials). Listed under **Project**; added from the **Manage materials…** row of the menu or by editing the file. |
+
+A material that is in neither list is registered in `fluidcad.json` first, then picked. An id the lists do not know is a warning rather than a build error: the part still builds, its row shows a warning triangle, and Shape properties reads `Unknown material: <id>` with no mass.
+
+Only parts carry a material. A solid outside any part is measured with a material picked in Shape properties for that calculation alone; nothing is written to the file. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
 
 ## Export it
 

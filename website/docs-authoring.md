@@ -212,7 +212,12 @@ a row: **Rename** (edits `.name('…')`), **Edit feature**, **Breakpoint here**
 (a `breakpoint()` after the row, so features you add next land there),
 **Remove** (deletes the statement; if later features depend on it, a dialog
 lists them and deletes the closure on confirm); a connector row nothing
-copies yet also offers **Copy…** (the Copy dialog with that connector).
+copies yet also offers **Copy…** (the Copy dialog with that connector); a
+part row offers **Set material…** (popup: **None**, the built-ins, the
+project's materials as *Name (project)*, current one checked, **Manage
+materials…** at the bottom — the dialog that edits the `materials` map of
+`fluidcad.json`: Name / Density / Unit / Id, Add, pencil, bin, Save). A part
+row whose material id is unknown carries a warning triangle.
 Sketch rows fold their constraints behind an *N constraints* toggle row;
 part rows fold *N connectors* (declared connectors only; a Copy row stays
 among the features) and *N exposed*. Feature status glyph: check = served from cache,
@@ -223,8 +228,13 @@ sit above it.
 **Shapes panel** — one row per solid; eye toggle, **Transparency**, **Export**
 (row menu). Clicking a row selects the solid.
 
-**Shape properties** (from a shape row) — **Volume**, **Material** (density
-presets) → **Mass**, plus centre of mass; **Calculate** runs it.
+**Shape properties** (scale icon, bottom right) — **Part | Solid** tabs;
+**Length Unit** / **Mass Unit**; **Material** and **Density** are read-only
+rows for a solid inside a part (the part's `.material()`) and in Part mode,
+a **Built-in / Project** dropdown only for a solid outside any part
+(transient, never written) with a **Manage materials…** link under it;
+**Calculate** → **Volume**, **Surface Area**, **Mass**, **Center of Mass**.
+Part mode sums the part's final solids. There is no density input.
 
 **Parameters panel** — one control per `param()` (number, slider, text,
 select, checkbox, color); **+** adds a parameter through a dialog (writes the

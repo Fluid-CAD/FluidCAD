@@ -1,12 +1,7 @@
 // The feature-ghost router: validates a ghost request and asks the server for the preview solids.
 
 import { Router } from 'express';
-import {
-  extractNumericParams,
-  resolveParamValues,
-  type PlaneRotationAxes,
-} from '../../apply-feature-edit/index.ts';
-import { getJavaScriptParser } from '../../code-editor/index.ts';
+import type { PlaneRotationAxes } from '../../apply-feature-edit/index.ts';
 import type {
   FeatureGhostRequest,
   FluidCadServer,
@@ -16,7 +11,6 @@ import type {
 } from '../../fluidcad-server/index.ts';
 import { MAX_COPY_TARGETS, validateRegionPicks } from '../apply-feature/index.ts';
 import type { RegionPickSpec } from '../../apply-feature-edit/index.ts';
-import { augmentDerivedParams, resolveExpr } from './expressions.ts';
 import { parseCondition, parseLoftConnections } from './loft.ts';
 import {
   parseAxis,
@@ -42,6 +36,7 @@ import {
   type RawRepeat,
   type RawRotate,
 } from './transforms.ts';
+import { ValueScope } from './value-scope.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
 
@@ -101,6 +96,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       || !isValueExprOrNull(body.rotateY) || !isValueExprOrNull(body.rotateZ)
       || !isValueExprOrNull(body.position) || !isValueExprOrNull(body.thickness)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
+      return;
+    }
+    const valueScope = ValueScope.parse(body.valueScope);
+    if (valueScope === 'invalid') {
+      res.status(400).json({ success: false, reason: 'Invalid value scope' });
       return;
     }
     let edgeRefs: GhostEntityRef[] | null = null;
@@ -275,23 +275,20 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       return;
     }
 
-    const code = fluidCadServer.getCurrentCode();
-    const parser = await getJavaScriptParser();
-    const params = new Map<string, number>(
-      code
-        ? resolveParamValues(await extractNumericParams(code), fluidCadServer.getParamDefinitions())
-          .map(p => [p.name, p.value] as const)
-        : [],
-    );
-    if (code) {
-      augmentDerivedParams(parser.parse(code), params);
-    }
+    // A dialog value names variables the way its statement will read them,
+    // so `depth` resolves to the `param()` of the part the statement lives
+    // in — see ValueScope.
+    const scope = await ValueScope.open({
+      code: fluidCadServer.getCurrentCode(),
+      filePath: fluidCadServer.getCurrentFileName(),
+      definitions: fluidCadServer.getParamDefinitions(),
+    }, valueScope);
     const values: (number | null)[] = [];
     const resolve = (value: unknown): number | null => {
       if (value === null || value === undefined) {
         return null;
       }
-      const resolved = resolveExpr(value as ValueExpr, params, parser);
+      const resolved = scope.resolve(value as ValueExpr);
       values.push(resolved);
       return resolved;
     };
@@ -405,6 +402,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
+        ...(copy!.pattern ? { pattern: copy!.pattern } : {}),
       };
     } else if (isMirror) {
       request = {
@@ -551,7 +549,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       });
       return;
     }
-    res.json({ success: true, solids: result.solids });
+    res.json({ success: true, solids: result.solids, ...(result.frames ? { frames: result.frames } : {}) });
   });
 
   /**

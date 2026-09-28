@@ -1,5 +1,7 @@
 import {
   getPartCatalogFiles,
+  getScopeVariables,
+  type NewVariable,
   insertCatalogParts,
   scanPartCatalogFile,
   type CatalogEntryKind,
@@ -9,6 +11,8 @@ import {
   type CatalogScanResult,
 } from '../../api';
 import { ICON_CLOSE } from '../icons';
+import type { VariableInfo } from '../expression-core';
+import { collectNewVariablesChecked } from '../expression-field';
 import { ParamForm } from '../param-controls';
 import { PartThumbnailRenderer } from './part-thumbnails';
 import { sceneUnit } from '../../units/scene-unit';
@@ -94,6 +98,7 @@ export class InsertPartDialog {
   private thumbs = new PartThumbnailRenderer();
   private abort: AbortController | null = null;
   private inserting = false;
+  private variables: VariableInfo[] = [];
   /** Sticky across opens — reset only by the user clicking another chip. */
   private filter: CatalogFilter = 'all';
   /** The open assembly file — its own entries are excluded from the grid. */
@@ -143,7 +148,7 @@ export class InsertPartDialog {
         e.stopPropagation();
         this.hide();
       }
-    }, true);
+    });
   }
 
   show(currentAbsPath: string | null = null): void {
@@ -156,7 +161,9 @@ export class InsertPartDialog {
   hide(): void {
     this.abort?.abort();
     this.abort = null;
+    this.inserting = false;
     this.thumbs.dispose();
+    this.basket.forEach(entry => entry.form?.destroy());
     this.basket = [];
     this.pages = [];
     this.overlay.classList.add('hidden');
@@ -215,20 +222,29 @@ export class InsertPartDialog {
   }
 
   private async load(): Promise<void> {
+    if (this.inserting) return;
+    this.showSelectStep();
     this.abort?.abort();
     const ac = new AbortController();
     this.abort = ac;
     this.inserting = false;
     this.gridEl.innerHTML = '';
     this.tiles.clear();
+    this.basket.forEach(entry => entry.form?.destroy());
     this.basket = [];
+    this.pages = [];
+    this.pageHostEl.replaceChildren();
     this.updateFooter();
     this.setStatus('Looking for part files…');
 
-    const allFiles = await getPartCatalogFiles(ac.signal);
+    const [allFiles, variables] = await Promise.all([
+      getPartCatalogFiles(ac.signal),
+      getScopeVariables(null, 'assembly').catch(() => []),
+    ]);
     if (ac.signal.aborted) {
       return;
     }
+    this.variables = variables;
     if (allFiles === null) {
       this.setStatus('Could not reach the FluidCAD server.', true);
       return;
@@ -444,6 +460,7 @@ export class InsertPartDialog {
   private unqueue(key: string): void {
     for (let i = this.basket.length - 1; i >= 0; i--) {
       if (this.basket[i].key === key) {
+        this.basket[i].form?.destroy();
         this.basket.splice(i, 1);
         break;
       }
@@ -577,7 +594,8 @@ export class InsertPartDialog {
         right.appendChild(label);
       }
       if (!entry.form) {
-        entry.form = new ParamForm(entry.params);
+        entry.form = new ParamForm(entry.params, { expressions: { seeds: {}, variables: this.variables } });
+        entry.form.onSubmit = () => void this.pageForward();
       }
       right.appendChild(entry.form.element);
       row.appendChild(right);
@@ -615,20 +633,35 @@ export class InsertPartDialog {
     if (this.inserting || this.basket.length === 0) {
       return false;
     }
-    this.inserting = true;
-    this.updateFooter();
-    this.setStatus(`Inserting ${this.basket.length}…`);
-
-    const inserts: CatalogInsertRequest[] = this.basket.map(entry => {
-      const params = entry.form?.nonDefaultValues() ?? {};
-      return {
+    const inserts: CatalogInsertRequest[] = [];
+    const reads: { newVariables?: NewVariable[] }[] = [];
+    for (const entry of this.basket) {
+      const commit = entry.form?.commitChanges() ?? { set: {} };
+      if ('error' in commit) {
+        const page = this.pages.findIndex(group => group.entries.includes(entry));
+        if (page >= 0) this.showPage(page);
+        this.setStatus(commit.error, true);
+        return false;
+      }
+      reads.push(commit);
+      inserts.push({
         file: entry.file.absPath,
         exportName: entry.exportName,
         kind: entry.kind,
-        ...(Object.keys(params).length > 0 ? { params } : {}),
-      };
-    });
-    const result = await insertCatalogParts(inserts);
+        ...(Object.keys(commit.set).length > 0 ? { params: commit.set } : {}),
+      });
+    }
+    const declarations = collectNewVariablesChecked(reads);
+    if ('error' in declarations) {
+      this.setStatus(declarations.error, true);
+      return false;
+    }
+    this.inserting = true;
+    this.updateFooter();
+    this.setStatus(`Inserting ${this.basket.length}…`);
+    const session = this.abort;
+    const result = await insertCatalogParts(inserts, declarations.newVariables);
+    if (session !== this.abort) return false;
     this.inserting = false;
 
     if (!result.success) {

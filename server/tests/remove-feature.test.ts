@@ -234,3 +234,37 @@ shell(1, sel2);
     expect(result.newCode).toContain(`const sel2 = select(edge().nearest('x'));\nshell(1, sel2);`);
   });
 });
+
+// A connector copy that follows a repeat (`copy(holes, bolt)`) names the
+// repeat by its binding, so removing the repeat — or the connector — takes
+// the copy statement along, listed first.
+describe('RemoveFeature — a copy that follows a repeat', () => {
+  const FLANGE = `import { part, sketch, circle, extrude, cut, repeat, connector, copy } from "fluidcad/core";
+
+export const flange = part('Flange', () => {
+  sketch('xy', () => { circle([0, 0], 200); });
+  const e = extrude(10);
+  sketch(e.endFaces(), () => { circle([40, 0], 20); });
+  const hole = cut();
+  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole);
+  const bolt = connector('bolt', hole.startEdges());
+  copy(holes, bolt);
+});
+`;
+
+  it('lists the follow copy as the repeat\'s dependant and removes it with the repeat', async () => {
+    const { analysis } = await analyze(FLANGE, 'const holes = repeat');
+    expect(analysis).toEqual({ ok: true, dependents: [{ name: 'copy', line: lineOf(FLANGE, 'copy(holes') }] });
+
+    const removed = await remove(FLANGE, 'const holes = repeat');
+    expect(removed).not.toContain('repeat(');
+    expect(removed).not.toContain('copy(holes');
+    expect(removed).toContain(`  const bolt = connector('bolt', hole.startEdges());\n});`);
+  });
+
+  it('removes the follow copy with its connector, keeping the repeat', async () => {
+    const removed = await remove(FLANGE, 'const bolt = connector');
+    expect(removed).toContain(`  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole);\n});`);
+    expect(removed).not.toContain('copy(holes');
+  });
+});

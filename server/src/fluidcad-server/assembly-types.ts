@@ -57,7 +57,10 @@ export type SerializedAssembly = {
     /** Present on a replicated mate produced by a `replicate()` statement. */
     replica?: { of: string; statement: string; row: number };
   }>;
-  /** Assembly-level connectors — absent on engines predating them. */
+  /**
+   * Assembly-level connectors — absent on engines predating them. A copy a
+   * top-level `copy()` made (`bay.instance(2)`) is listed too, with `copy`.
+   */
   connectors?: Array<{
     connectorId: string;
     name: string;
@@ -67,6 +70,8 @@ export type SerializedAssembly = {
     yDirection: { x: number; y: number; z: number };
     normal: { x: number; y: number; z: number };
     sourceLocation?: { filePath: string; line: number; column: number };
+    /** A copy's pattern slot and its seed's id — absent on engines predating assembly connector copies. */
+    copy?: { slot: number; seedId: string };
   }>;
   /** `replicate()` statements — absent on engines predating them. */
   replicates?: Array<{

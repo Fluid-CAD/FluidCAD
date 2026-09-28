@@ -24,7 +24,7 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // 'first-face'/'last-face' render as that literal — no pick involved,
 // the kernel resolves the face at build time.
 export async function handleExtrude(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateExtrude(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -128,6 +128,7 @@ export async function handleExtrude(ctx: ApplyFeatureRequestContext, req: Reques
       res.json({ success: true, preview: statement });
       return;
     }
+    const activePart = activePartFor(request.profile.filePath);
     await dispatcher.dispatch(res, {
       feature: 'extrude',
       extrude: options,
@@ -136,6 +137,7 @@ export async function handleExtrude(ctx: ApplyFeatureRequestContext, req: Reques
       parts,
       imports,
       newVariables,
+      ...(activePart ? { activePart } : {}),
     }, { success: true, preview: statement });
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });

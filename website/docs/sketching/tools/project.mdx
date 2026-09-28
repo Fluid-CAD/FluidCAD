@@ -24,7 +24,7 @@ A face's outline is what you would see of it from the sketch plane: its boundary
 
 ## From another part
 
-Inside a part you can project the faces and edges of a part declared **before** it. Pick them like any other source: the dialog shows a notice naming the part they belong to, and Apply stays put until you press **Expose and project**.
+Inside a part you can project the faces and edges of a part declared **before** it, and a sketch at the file's top level can project those of any part above it. Pick them like any other source: the dialog shows a notice naming the part they belong to, and Apply stays put until you press **Expose and project**.
 
 Confirming does two things in one edit: it writes an `expose()` for each picked face or edge into that part's body (a face or edge it already exposes is reused as is), and it projects the references in your sketch:
 

@@ -92,7 +92,7 @@ By default a mate aligns the two frames **face-to-face**: origins coincide and t
 ## The rail
 
 - **Parts** — one row per instance. The eye hides it, the menu offers *Show in source*, *Toggle grounded*, *Rename*, *Delete* and, for parametric parts, *Edit parameters…*. Sub-assemblies group under a collapsible header.
-- **Connectors** — the assembly's own free frames (below).
+- **Connectors** — the assembly's own free frames (below). A copied connector heads its family: the row carries the family's size and a chevron that folds out one `instance(k)` row per copy.
 - **Joints** — one row per `mate()`. Clicking a row highlights both connectors; a revolute or slider row offers **Animate…** in its menu, which opens the [animate bar](/docs/getting-started/animate-joint).
 
 ## Sub-assemblies
@@ -113,6 +113,26 @@ Assembly connectors are root-scope only: declare them in the file that inserts a
   The parts this file imports are the ones the rest of this section uses: the base plate below, and the [lever and pin](./revolute) on the revolute page.
   <ExplainedCode code={asmPlate} fileName="plate.part.js" title="plate.part.js — the base plate" />
 </ExplainedCode>
+
+### Copying an assembly connector
+
+A row of bays, or stations round a turntable, needs one connector and its copies. A copy is an assembly connector with no statement of its own, addressed `bay.instance(1)`, `bay.instance(2)`, …: *copy 1 of `bay`*, and so on.
+
+1. Open the connector's menu in the **Connectors** rail (**⋮**, or right-click the row) and choose **Copy…**. The Copy dialog opens with the connector in its **Connectors** slot; a click on another assembly connector's triad, or on its row, adds it.
+2. Pick **Linear** or **Circular** and fill the **Axis** slot: a world axis clicked in the viewport, or another assembly connector, which stands for its Z axis. Enter the **Total Count** and the spacing or angle, as in the [Copy](/docs/patterns/copy) dialog for solids. Triads preview the copies.
+3. Click **Apply**. The `copy()` statement is written at the end of the assembly, after the mates, and the rail folds the copies under the connector.
+
+![The Connectors rail: bay heads a family of four, its copies instance(1) to instance(3) folded out below it](/img/docs/ui/assembly-connectors-family.png)
+
+A copy's row opens the Copy dialog on its statement; while a mate or replicate dialog is picking, any row picks that connector. A copy's eye hides that copy, the connector's eye its whole family. A copy's menu offers **Show in source**, **Edit copy…** and **Remove copies**, which deletes the statement and every mate on its copies; **Delete** on the connector itself also removes its copies and every mate on the connector or a copy.
+
+```js
+const bay = connector('bay', [0, 0, 20]);
+copy('linear', 'x', { count: 4, offset: 50 }, bay);   // bay.instance(1) … bay.instance(3), 50 apart along X
+mate('slider', bay.instance(2), card.connectors.edge);
+```
+
+At an assembly's top level `copy()` copies assembly connectors only: solids are copied inside a part, and a part's connectors are [copied in the part](/docs/part/connector#copying-a-connector), where an assembly reaches them as `f.connectors.bolt.instance(3)`. A copy is the connector's frame moved by the pattern, and it follows the connector when the connector moves.
 
 ## Units
 

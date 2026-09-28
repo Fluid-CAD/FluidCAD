@@ -11,8 +11,14 @@ import { normalizePath } from '../normalize-path.ts';
 export type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
 export type PickChain = { seed: Pick; members: Pick[] };
 
-/** A `part()` statement as the scene captured it — the consumer of a cross-part reference. */
+/** A `part()` statement as the scene captured it — a pick's donor, or the part reading it. */
 export type PartSite = { filePath: string; line: number; column: number };
+
+/**
+ * Where a cross-part reference is read: a part's body, or — `part` null —
+ * the file's top level, to which every part's geometry is foreign.
+ */
+export type ReferenceConsumer = { filePath: string; part: PartSite | null };
 
 /** One pick another part owns, as the response describes it to the dialog. */
 export type ForeignPickSummary = {
@@ -73,11 +79,12 @@ type ResolvedDonor = {
 
 /**
  * The consumer side of a cross-part pick: which picks belong to a part OTHER
- * than the statement's own, and the find-or-create reference for each — an
- * existing exposure that already serves the geometry, or a fresh `expose()`
- * synthesized in the donor (the Phase-B rail). Shared by the sketch-on-face
- * and the projection arms; read-only over the scene and the code buffers,
- * the caller dispatches what comes back.
+ * than the statement's own (any part, for a statement at the file's top
+ * level), and the find-or-create reference for each — an existing exposure
+ * that already serves the geometry, or a fresh `expose()` synthesized in the
+ * donor (the Phase-B rail). Shared by the sketch-on-face and the projection
+ * arms; read-only over the scene and the code buffers, the caller
+ * dispatches what comes back.
  */
 export class ForeignPickResolver {
   constructor(
@@ -93,10 +100,11 @@ export class ForeignPickResolver {
 
   /**
    * Split the picks by owner without synthesizing anything: the parts other
-   * than `consumer` that own picks, by name. Empty when every pick is the
-   * consumer's own (or the workspace kernel predates the lookup).
+   * than the consumer's that own picks, by name. Empty when every pick is
+   * the consumer's own or lies outside every part (or the workspace kernel
+   * predates the lookup).
    */
-  async classify(picks: Pick[], consumer: PartSite): Promise<
+  async classify(picks: Pick[], consumer: ReferenceConsumer): Promise<
     | { ok: true; foreign: { pick: Pick; donor: Donor }[] }
     | { ok: false; status: 422; reason: string; pick?: Pick }
   > {
@@ -110,7 +118,7 @@ export class ForeignPickResolver {
         return { ok: false, status: 422, reason: resolution.reason, pick };
       }
       const donor: Donor | null = resolution.donor ?? null;
-      if (donor && !ForeignPickResolver.sameSite(donor, consumer)) {
+      if (donor && !(consumer.part && ForeignPickResolver.sameSite(donor, consumer.part))) {
         foreign.push({ pick, donor });
       }
     }
@@ -118,7 +126,7 @@ export class ForeignPickResolver {
   }
 
   /** Resolve every pick: the consumer's own stay as they are, the others become references. */
-  async resolve(picks: Pick[], chains: PickChain[], consumer: PartSite): Promise<ForeignPickResolution> {
+  async resolve(picks: Pick[], chains: PickChain[], consumer: ReferenceConsumer): Promise<ForeignPickResolution> {
     const classified = await this.classify(picks, consumer);
     if (classified.ok === false) {
       return classified;
@@ -190,7 +198,7 @@ export class ForeignPickResolver {
    * (same file, read off the live buffer) or its export identifier plus an
    * import (cross-file, resolved from the donor file on disk).
    */
-  private async resolveDonor(donor: Donor, consumer: PartSite): Promise<ResolvedDonor | { error: string }> {
+  private async resolveDonor(donor: Donor, consumer: ReferenceConsumer): Promise<ResolvedDonor | { error: string }> {
     const sameFile = normalizePath(donor.filePath) === normalizePath(consumer.filePath);
     const taken = (donor.existingNames ?? []).slice();
     if (sameFile) {

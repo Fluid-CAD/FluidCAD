@@ -1,6 +1,7 @@
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  suggestionItemHtml, trailingIdentifier, ParamDeclareMode, Suggestion, VariableInfo,
+  suggestionItemHtml, suggestsExistingName, trailingIdentifier, ParamDeclareMode, Suggestion,
+  VariableInfo,
 } from './expression-core';
 
 /** A read field value: a plain number, or an expression (with an optional
@@ -33,6 +34,22 @@ export function collectNewVariables(
     }
   }
   return seen.size > 0 ? [...seen.values()] : undefined;
+}
+
+/** Merge independently edited fields/forms without silently dropping conflicting declarations. */
+export function collectNewVariablesChecked(
+  reads: Parameters<typeof collectNewVariables>[0],
+): { newVariables?: { name: string; initializer: string }[] } | { error: string } {
+  const newVariables = collectNewVariables(reads);
+  const initializers = new Map(newVariables?.map(variable => [variable.name, variable.initializer]));
+  for (const read of reads) {
+    for (const variable of read?.newVariables ?? (read?.newVariable ? [read.newVariable] : [])) {
+      if (initializers.get(variable.name) !== variable.initializer) {
+        return { error: `Conflicting values for ${variable.name}. Use distinct variable names.` };
+      }
+    }
+  }
+  return newVariables ? { newVariables } : {};
 }
 
 /**
@@ -257,7 +274,10 @@ export class ExpressionField {
 
   private updateParamBtn(): void {
     const raw = this.input.value.trim();
-    if (this.isUnchangedSource(raw) || declaredVariableName(raw, this.variables, this.seedValue) === null) {
+    // A bare name the open dropdown matches is hidden from, not barred
+    // from, declaring: read() still honours the session's toggle.
+    if (this.isUnchangedSource(raw) || declaredVariableName(raw, this.variables, this.seedValue) === null
+      || suggestsExistingName(raw, this.filtered)) {
       this.hideParamBtn();
       return;
     }
@@ -310,6 +330,8 @@ export class ExpressionField {
     this.selectedIndex = 0;
     this.openDropdown();
     this.renderDropdown();
+    // The toggle's visibility reads the list just drawn.
+    this.updateParamBtn();
   }
 
   private fillName(name: string, opts: { keepOpen: boolean }): void {
@@ -361,6 +383,9 @@ export class ExpressionField {
     document.removeEventListener('mousedown', this.onDocMousedown, true);
     window.removeEventListener('scroll', this.onViewportChange, true);
     window.removeEventListener('resize', this.onViewportChange);
+    // With no match on offer, a bare new name brings the toggle back (Escape,
+    // picking the new-variable offer). A blur or setValue hides it after.
+    this.updateParamBtn();
   }
 
   private position(): void {
@@ -371,8 +396,10 @@ export class ExpressionField {
   }
 
   private renderDropdown(): void {
+    // The new-variable offer only shows over a fresh name, which is always a
+    // declaration — the session's toggle alone decides it.
     this.dropdown.innerHTML = this.filtered
-      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex, ParamDeclareMode.enabled))
       .join('');
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {
       item.addEventListener('mousedown', (e) => {

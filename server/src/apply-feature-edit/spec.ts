@@ -11,6 +11,7 @@ import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
+import type { AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import type { InsertParamsEditSpec } from '../insert-params-edit.ts';
 import type {
   AssemblyExportEditSpec,
@@ -21,7 +22,7 @@ import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
-import type { CopyEditOptions } from './features/copy.ts';
+import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/copy.ts';
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
 import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
@@ -99,7 +100,7 @@ export type ApplyFeatureEditSpec = {
    * — the connector insertion mechanism minus the frame adjustments.
    */
   expose?: ExposeEditOptions;
-  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
+  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part, or at the top level without one. */
   sketchForeign?: ForeignExposureRef;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around
@@ -261,6 +262,14 @@ export type ApplyFeatureEditSpec = {
    */
   assemblyConnector?: AssemblyConnectorEditSpec;
   /**
+   * Assembly Copy-dialog write: append a `copy('linear' | 'circular', …)` of
+   * the assembly's own connectors in their scope, re-render the one at its
+   * source line, or remove it with the delete sweep. Rides the same round
+   * trip as `assemblyConnector` (expression extras land through
+   * `newVariables`); every other spec field is ignored.
+   */
+  assemblyConnectorCopy?: AssemblyConnectorCopyEditSpec;
+  /**
    * Mate-dialog pen-button edit: rewrite a `connector()` statement's name
    * and adjustment chain in its part file (the spec's `filePath` addresses
    * that file, so the current-file preflight self-skips). Rides the same
@@ -312,10 +321,14 @@ export type ApplyFeatureEditSpec = {
   sketchClosed?: SketchClosedEditSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
-   * statement — the timeline's active part. Only the producer-less appends
-   * honor it (pick-less sketch, standard-only plane, standard-axis helix):
-   * a producer-carrying create already lands in its producers' scope, which
-   * is the part body exactly when the picked inputs live inside it.
+   * statement — the timeline's active part — whenever no input pins it
+   * elsewhere: the producer-less appends (pick-less sketch, standard-only
+   * plane, standard-axis helix) and any create built from top-level
+   * sketches, planes, axes and wires alone (an extrude of a sketch drawn
+   * before the part). An input the kernel resolves in its own scope — a
+   * picked face or edge, a solid the feature works on, an implicitly
+   * consumed sketch — pins the statement to that scope regardless (see
+   * `ProducerBinding.pinsScope`).
    */
   activePart?: { line: number; column: number };
   /**
@@ -613,18 +626,24 @@ export type FeatureStatementEditTarget = {
    * Copy options. Axis slots and the target list carry keep
    * (`keep`/`verbatim`) entries that re-read the statement's own argument
    * texts at apply time; re-sourced entries render from producers/parts like
-   * create mode. An absent target list keeps every statement target.
+   * create mode. An absent target list keeps every statement target. The
+   * follow form (`pattern`) carries its repeat instead of axes and options.
    */
   copy?: {
-    kind: 'linear' | 'circular';
+    kind: 'linear' | 'circular' | 'pattern';
+    /**
+     * Pattern only: the repeat the copies follow — `keep` re-emits the
+     * statement's own; absent keeps it too.
+     */
+    pattern?: CopyEditPattern;
     /** Linear directions in axis order — each its own axis, count and value. */
-    directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
+    directions?: { axis: CopyEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
     /** Linear only: center the pattern on the original instance. */
     centered?: boolean;
     /** The copy axis (circular); linear carries axes per direction. */
-    axis?: RepeatEditAxis;
+    axis?: CopyEditAxis;
     /**
      * The 2D circular form's center point (inside a sketch) — replaces the
      * axis argument outright; the dialog always sends its field values.

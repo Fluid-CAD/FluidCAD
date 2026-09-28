@@ -19,7 +19,7 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // axis, an existing axis statement bound to a variable, or a picked edge
 // synthesized into `axis(<selector>)`.
 export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateRevolve(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -130,6 +130,7 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
       res.json({ success: true, preview: statement, args: axisArgs ?? undefined, alternatives });
       return;
     }
+    const activePart = activePartFor(request.profile.filePath);
     await dispatcher.dispatch(res, {
       feature: 'revolve',
       revolve: options,
@@ -138,6 +139,7 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
       parts,
       imports,
       newVariables,
+      ...(activePart ? { activePart } : {}),
     }, { success: true, preview: statement });
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });

@@ -2,7 +2,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { FluidCadServer, sceneUnitFields } from './fluidcad-server/index.ts';
+import { FluidCadServer, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
 import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
@@ -55,7 +55,7 @@ import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -244,6 +244,7 @@ const pageWrites = new PageWriteLedger();
 const lastSceneByFile = new Map<string, {
   result: any[];
   rollbackStop: number;
+  rollbackScopePartId?: string;
   sceneKind: FluidScriptKind;
   unit: LengthUnit;
   declaredUnit: LengthUnit | null;
@@ -253,8 +254,8 @@ const lastSceneByFile = new Map<string, {
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
 function emitSuccess(version: number, data: SceneRenderedData) {
-  const { absPath, sceneKind, unit, declaredUnit, result, rollbackStop, breakpointHit, assembly, params } = data;
-  lastSceneByFile.set(absPath, { result, rollbackStop, sceneKind, unit, declaredUnit, assembly });
+  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params } = data;
+  lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
     type: 'scene-rendered',
@@ -262,7 +263,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     sceneKind,
     ...sceneUnitFields(data),
     result,
-    rollbackStop,
+    ...sceneStopFields(data),
     ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({
@@ -271,7 +272,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     absPath,
     sceneKind,
     ...sceneUnitFields(data),
-    rollbackStop,
+    ...sceneStopFields(data),
     breakpointHit,
     params,
     ...(assembly ? { assembly } : {}),
@@ -281,8 +282,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
 
 function buildCompileError(filePath: string, err: any): CompileError {
   const message = err?.message || String(err);
-  const stack = typeof err?.stack === 'string' ? err.stack : '';
-  let sourceLocation = stack ? extractSourceLocation(stack) : null;
+  let sourceLocation = extractErrorSourceLocation(err);
   const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
   if (sourceLocation) {
     sourceLocation = {
@@ -303,7 +303,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
   const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
   const prev = lastSceneByFile.get(key);
   const result = prev?.result ?? [];
-  const rollbackStop = prev?.rollbackStop ?? -1;
+  const stop = sceneStopFields({ rollbackStop: prev?.rollbackStop ?? -1, rollbackScopePartId: prev?.rollbackScopePartId });
   const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
   // The replayed scene is the last good one, so it keeps that render's
   // unit; the project unit is not the scene's and is read live.
@@ -320,7 +320,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
     sceneKind,
     ...units,
     result,
-    rollbackStop,
+    ...stop,
     compileError,
     ...(assembly ? { assembly } : {}),
   });
@@ -330,7 +330,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
     absPath: key,
     sceneKind,
     ...units,
-    rollbackStop,
+    ...stop,
     compileError,
     ...(assembly ? { assembly } : {}),
   });

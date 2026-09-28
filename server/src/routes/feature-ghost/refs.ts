@@ -290,6 +290,40 @@ export function parseAxes(value: unknown): GhostAxisRef[] | null {
 }
 
 /**
+ * The copy's axis slots: the repeat's forms, plus a connector — its
+ * `connector()` statement by call site, with the slot of one of its copies —
+ * standing for its Z axis through its origin. Only the copy takes one; the
+ * other axis slots have no statement form that writes it.
+ */
+export function parseCopyAxes(value: unknown): GhostAxisRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const axes: GhostAxisRef[] = [];
+  for (const raw of value) {
+    const ref = raw as { kind?: unknown; filePath?: unknown; line?: unknown; slot?: unknown };
+    if (ref?.kind !== 'connector') {
+      const axis = parseAxis(raw as GhostBody['axis']);
+      if (!axis) {
+        return null;
+      }
+      axes.push(axis);
+      continue;
+    }
+    if (typeof ref.filePath !== 'string' || typeof ref.line !== 'number') {
+      return null;
+    }
+    if (ref.slot !== undefined && !(Number.isSafeInteger(ref.slot) && (ref.slot as number) >= 0)) {
+      return null;
+    }
+    axes.push(ref.slot === undefined
+      ? { kind: 'connector', filePath: ref.filePath, line: ref.line }
+      : { kind: 'connector', filePath: ref.filePath, line: ref.line, slot: ref.slot as number });
+  }
+  return axes;
+}
+
+/**
  * The 2D copy's direction slots: sketch-plane axes (the Sketch X / Sketch Y
  * quick buttons) and picked sketch lines by shapeId. The 3D family's
  * axis-statement and standard-axis forms never appear here.

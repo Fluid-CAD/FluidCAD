@@ -519,12 +519,15 @@ export type RevolveGhostRequest = {
  * {@link RevolveAxisRef} flattened to what the kernel can resolve without
  * reading code: a world axis, an `axis()` statement's call site, or the
  * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
- * before it ships, so "keep" itself never travels.
+ * before it ships, so "keep" itself never travels. The copy's axis slot also
+ * takes a connector — its `connector()` call site, plus a copy's slot —
+ * standing for its Z axis through its origin.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -696,8 +699,17 @@ export type GhostRepeatDirection = {
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  /**
+   * `pattern` is "Along a repeat" (`copy(holes, bolt)`): the copies land on
+   * the repeat's own instances, read off it by the kernel — the axes,
+   * directions, count, sweep and skip stay empty.
+   */
+  kind: 'linear' | 'circular' | 'pattern';
+  /**
+   * The statements being copied, by call site: solid-bearing ones, stamped,
+   * and `connector()` statements, whose copies come back as
+   * {@link GhostFrame}s.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -715,6 +727,8 @@ export type CopyGhostRequest = {
    * — the dialog's Skip field takes literal positions.
    */
   skip: number[][];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -927,6 +941,73 @@ export type GhostSolid = {
 };
 
 /**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it — in the four vectors a rendered connector serializes, so the
+ * overlay draws it with the connector's own triad.
+ */
+export type GhostFrame = {
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
+};
+
+/** Everything one ghost answer draws: bodies, and the connector frames a copy places. */
+export type GhostGeometry = {
+  solids: GhostSolid[];
+  frames: GhostFrame[];
+};
+
+/**
+ * Where a ghost's dialog values are read. A value names variables the way
+ * its statement will: an edited statement at its own call site
+ * (`'statement'`), a created one at the end of the callback body it lands in
+ * (`'append'`, at the site of that `part()` or `sketch()` call). So `depth`
+ * resolves to the `param()` of the part the statement lives in, and a
+ * sketch's own `const`s shadow the part's. Null reads the file's top level.
+ */
+export type GhostValueScope = {
+  kind: 'statement' | 'append';
+  filePath: string;
+  line: number;
+  column: number;
+};
+
+/**
+ * A feature dialog's value scope: the statement it edits, or — creating —
+ * the end of the timeline's active part, where the new statement lands. The
+ * same part {@link getScopeVariables} lists the value fields' variables
+ * from, so every name a field offers resolves in the ghost too. Null with no
+ * part active: the statement lands at the file's top level.
+ */
+export function featureGhostScope(editTarget: FeatureEditTarget | null): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  const part = activePartProvider?.() ?? null;
+  return part ? { kind: 'append', filePath: part.filePath, line: part.line, column: part.column } : null;
+}
+
+/**
+ * A sketch op's value scope: the statement it edits, or — creating — the end
+ * of the active sketch's body, where the sketch's own names are visible
+ * too. Null with no sketch to append to.
+ */
+export function sketchGhostScope(
+  editTarget: FeatureEditTarget | null,
+  sketch: SketchSourceRef | null,
+): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  return sketch ? { kind: 'append', filePath: sketch.filePath, line: sketch.line, column: sketch.column } : null;
+}
+
+function statementGhostScope(target: FeatureEditTarget): GhostValueScope {
+  return { kind: 'statement', filePath: target.filePath, line: target.line, column: target.column };
+}
+
+/**
  * The bodies the dialog's current values would produce, meshed server-side.
  * Null whenever there is nothing to draw — an unresolvable expression, an
  * empty profile, a scene that moved on — so callers just clear the overlay.
@@ -934,9 +1015,10 @@ export type GhostSolid = {
  */
 export async function fetchFeatureGhost(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<GhostSolid[] | null> {
-  return (await fetchFeatureGhostResult(request, signal)).solids;
+  return (await fetchFeatureGhostResult(request, valueScope, signal)).solids;
 }
 
 /**
@@ -951,26 +1033,27 @@ export async function fetchFeatureGhost(
  */
 export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; notice: string | null }> {
+): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
   try {
     const res = await fetch('/api/feature-ghost', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
-      body: JSON.stringify(request),
+      body: JSON.stringify({ ...request, valueScope }),
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], notice: null };
+      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
     }
     const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, notice };
+    return { solids: null, frames: [], notice };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, notice: null };
+    return { solids: null, frames: [], notice: null };
   }
 }
 
@@ -1125,15 +1208,17 @@ export async function getDimensionExpression(
  * dialogs' create mode: the statement lands in the timeline's active part
  * (attached here from the provider the apply payloads read), so the scope is
  * that part's body — its `param()`s included, never another part's — or the
- * whole file when no part is active.
+ * whole file when no part is active. Explicit assembly scope uses the catalog
+ * insertion point inside the assembly body, ignoring the active part.
  */
 export async function getScopeVariables(
   sketchSourceLine: number | null,
+  scope?: 'assembly',
 ): Promise<VariableInfo[]> {
-  const part = sketchSourceLine === null ? activePartProvider?.() ?? null : null;
+  const part = sketchSourceLine === null && scope !== 'assembly' ? activePartProvider?.() ?? null : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
     '/api/scope-variables',
-    part ? { sketchSourceLine, part } : { sketchSourceLine },
+    scope === 'assembly' ? { sketchSourceLine, assembly: true } : part ? { sketchSourceLine, part } : { sketchSourceLine },
   );
   return data?.variables ?? [];
 }
@@ -2602,10 +2687,23 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/**
+ * A copy's axis: the revolve axis shapes, or a connector standing for its Z
+ * axis through its origin — its `connector()` statement by call site, plus
+ * the pattern slot for one of its copies (`bolt.instance(2)`).
+ */
+export type CopyAxisRef = RevolveAxisRef | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
+
+/**
+ * A copy target by call site: a solid-bearing statement (the default), or a
+ * `connector()` statement the copy copies as frames.
+ */
+export type CopyTargetRef = SketchSourceRef & { kind?: 'feature' | 'connector' };
+
 /** One linear copy direction: its axis plus that direction's count and value. */
 export type CopyDirectionRef = {
-  /** The direction's axis — the revolve axis shapes. */
-  axis: RevolveAxisRef;
+  /** The direction's axis — the revolve axis shapes, or a connector. */
+  axis: CopyAxisRef;
   /** Instance count along this direction, the original included. */
   count: ValueExpr;
   /** Spacing along this direction, read through the shared `spacingMode`. */
@@ -2613,15 +2711,18 @@ export type CopyDirectionRef = {
 };
 
 export type CopyApplyOptions = {
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being copied (whole-solid picks), in order. */
-  targets: SketchSourceRef[];
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /** The statements being copied (whole-solid and connector picks), in order. */
+  targets: CopyTargetRef[];
+  /** Pattern only: the `repeat()` statement the copies follow, by call site. */
+  pattern?: SketchSourceRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: CopyDirectionRef[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** The copy axis (circular) — the revolve axis shapes. */
-  axis?: RevolveAxisRef;
+  /** The copy axis (circular) — the revolve axis shapes, or a connector. */
+  axis?: CopyAxisRef;
   /** Instance count, original included (circular). */
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -2650,6 +2751,7 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
     feature: 'copy',
     kind: options.kind,
     targets: options.targets,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     axis: options.axis,
@@ -2820,9 +2922,10 @@ export type FeatureSourcesResult =
    * A copy: the solids it clones, by call site, plus the axis each direction
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all — reports an
-   * empty target list.
+   * empty target list. A copy along a repeat walks no axis: it reports the
+   * repeat it follows as its `pattern`.
    */
-  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[] }
+  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; pattern?: SourceSlotRef }
   /**
    * A standalone mirror: the solids it reflects, by call site, plus the plane
    * it reflects them across. An origin-plane literal is `opaque` as it is for
@@ -3105,12 +3208,20 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'copy';
-      kind: 'linear' | 'circular';
+      /** `pattern` is the follow form, `copy(holes, bolt)` — no axis, no options. */
+      kind: 'linear' | 'circular' | 'pattern';
       /**
        * Axis argument texts, verbatim — one per linear direction, a single
-       * entry for circular.
+       * entry for circular, none for the follow form.
        */
       axisTexts: string[];
+      /**
+       * Per-axis source location of the statement an axis names — a bound
+       * `axis()` or `connector()`, plus `slot` for one of a connector's
+       * copies — or null for a world axis or another expression. Absent on
+       * servers predating it; empty for the 2D center form.
+       */
+      axisRefs?: ({ line: number; column: number; slot?: number } | null)[];
       /** Linear per-direction count and value, in axis order. */
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
@@ -3131,6 +3242,14 @@ export type ParsedFeatureStatement =
        * circular copy's entries carry one each); null when it names none.
        */
       skip: number[][] | null;
+      /** The follow form's repeat argument, verbatim (`holes`); null otherwise. Absent on older servers. */
+      patternText?: string | null;
+      /**
+       * The statement the follow form's repeat argument names — the bound
+       * `repeat()` call's own position, its timeline row's location — or
+       * null when it names none.
+       */
+      patternRef?: { line: number; column: number } | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
       targetTexts: string[];
       /**
@@ -3646,19 +3765,28 @@ export async function applyRepeatEdit(
  * position in the parsed `axisTexts`, or re-source it with any create-mode
  * axis shape.
  */
-export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | RevolveAxisRef;
+export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | CopyAxisRef;
 
 /**
  * One target of an edited copy, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
- * statement by call site.
+ * statement or connector by call site.
  */
 export type CopyEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
-  | ({ kind: 'feature' } & SketchSourceRef);
+  | ({ kind: 'feature' | 'connector' } & SketchSourceRef);
+
+/**
+ * The repeat an edited "Along a repeat" copy follows: keep the statement's
+ * own, or a re-picked `repeat()` statement by call site.
+ */
+export type CopyEditPatternRef = { kind: 'keep' } | ({ kind: 'repeat' } & SketchSourceRef);
 
 export type CopyEditOptions = EditSessionFields & {
-  kind: 'linear' | 'circular';
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /** Pattern only: the repeat the copies follow; omitted keeps the statement's own. */
+  pattern?: CopyEditPatternRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
@@ -3696,6 +3824,7 @@ export async function applyCopyEdit(
     expectedStatement: options.expectedStatement,
     before: options.before,
     kind: options.kind,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     centered: options.centered,
@@ -4001,7 +4130,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' | 'repeat' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {
@@ -4021,10 +4150,12 @@ export async function fetchSketchNames(
 
 /**
  * The timeline's active part, attached to every /api/apply-feature payload.
- * The server forwards it only into the producer-less creates (pick-less
- * sketch, standard-only plane, standard-axis helix) so their statements land
- * inside the part's callback body — everything else inserts in its
- * producers' scope regardless, so the extra field is inert there.
+ * The server forwards it into the creates that can be built from sketches,
+ * planes and axes alone, and lands those inside the part's callback body
+ * whenever no input pins them elsewhere — the pick-less sketch, a standard
+ * plane or helix, an extrude of a sketch drawn before the part. Picked
+ * geometry and solid targets insert in their own scope regardless, so the
+ * extra field is inert there.
  */
 let activePartProvider: (() => SourceLocation | null) | null = null;
 
@@ -4487,13 +4618,13 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
 /**
  * Declare a new parameter at the top of `part`'s callback body (the Add
  * dialog's Part choice — the file the part lives in takes the edit). A
- * parameter only lives inside a part body, so without one the server refuses
- * and says so. The variable it binds is derived from the label server-side —
+ * parameter requires a part target unless assembly scope is requested; then
+ * it lands in the current file's single assembly callback body. The variable it binds is derived from the label server-side —
  * only the file knows what names are free, so a clashing one gets a numeric
  * suffix rather than a refusal.
  */
-export function addParam(param: ParamSpec, part: SourceLocation | null): Promise<ParamEditResponse> {
-  const body = part
+export function addParam(param: ParamSpec, part: SourceLocation | null, scope: 'part' | 'assembly' = 'part'): Promise<ParamEditResponse> {
+  const body = scope === 'assembly' ? { param, assembly: true } : part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };
   return postParamEdit('/api/params/add', body);
@@ -4635,7 +4766,7 @@ export type CatalogInsertRequest = {
   exportName: string;
   kind: CatalogEntryKind;
   /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
-  params?: Record<string, CatalogParamValue>;
+  params?: Record<string, CatalogParamValue | CatalogParamExpr>;
 };
 
 /**
@@ -4646,12 +4777,13 @@ export type CatalogInsertRequest = {
  */
 export async function insertCatalogParts(
   inserts: CatalogInsertRequest[],
+  newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/part-catalog/insert', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ inserts }),
+      body: JSON.stringify({ inserts, newVariables }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -4743,6 +4875,11 @@ export type AssemblyMateConnectorRef = {
    * line and the side lives on its row-th (0-based) copy.
    */
   replicaRow?: number;
+  /**
+   * The side is a copy of the connector, made by the part's `copy()`
+   * statement: the server writes `.connectors.<connectorName>.instance(slot)`.
+   */
+  slot?: number;
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */
@@ -4770,11 +4907,14 @@ export type AssemblyMateGeometryRef = {
 
 /**
  * One assembly-connector side: the `connector('name', [x, y, z])` statement
- * starting on `connectorLine` — the server dereferences its binding.
+ * starting on `connectorLine` — the server dereferences its binding. With
+ * `slot`, one of its copies (`bay.instance(2)`): `connectorLine` stays the
+ * seed's statement.
  */
 export type AssemblyMateFrameRef = {
   connectorLine: number;
   connectorName: string;
+  slot?: number;
 };
 
 export type AssemblyMatePayload = {
@@ -5092,6 +5232,77 @@ export async function applyAssemblyConnector(
     }
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * One axis of an assembly connector copy: a world axis, an assembly
+ * connector's Z axis ({@link AssemblyMateFrameRef}, `slot` for one of its
+ * copies), or — editing — the statement's own axis kept by position.
+ */
+export type AssemblyCopyAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | ({ kind: 'connector' } & AssemblyMateFrameRef)
+  | { kind: 'keep'; sourceIndex: number };
+
+/**
+ * One target of an assembly connector copy: an assembly connector by its
+ * `connector()` statement, or — editing — a statement target kept verbatim.
+ */
+export type AssemblyCopyTargetRef =
+  | { kind: 'connector'; connectorLine: number; connectorName: string }
+  | { kind: 'verbatim'; sourceIndex: number };
+
+/** The assembly Copy dialog's statement, in the part copy's option shapes. */
+export type AssemblyConnectorCopyPayload = {
+  kind: 'linear' | 'circular';
+  targets: AssemblyCopyTargetRef[];
+  directions?: { axis: AssemblyCopyAxisRef; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  axis?: AssemblyCopyAxisRef;
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+};
+
+/**
+ * The assembly Copy dialog's commit: `create` appends a `copy()` of the
+ * assembly's own connectors, `edit` re-renders the one at `sourceLine`,
+ * `remove` deletes it (and every mate or replicate cell on its copies).
+ * With `preview`, the server answers the statement it would write without
+ * touching the file — the dialog's preview row.
+ */
+export async function applyAssemblyConnectorCopy(
+  filePath: string,
+  spec:
+    | { create: AssemblyConnectorCopyPayload }
+    | { edit: AssemblyConnectorCopyPayload & { sourceLine: number } }
+    | { remove: { sourceLine: number } },
+  opts: { newVariables?: NewVariable[]; preview?: boolean; signal?: AbortSignal } = {},
+): Promise<ApplyFeatureResponse> {
+  try {
+    const res = await fetch('/api/assembly-connector-copy', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal: opts.signal,
+      body: JSON.stringify({
+        filePath,
+        ...spec,
+        newVariables: opts.newVariables ?? null,
+        ...(opts.preview ? { preview: true } : {}),
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
 }

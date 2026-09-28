@@ -1,3 +1,6 @@
+import { assemblyBodies } from './code-editor/assembly.ts';
+import { declareInPartBody } from './code-editor/parts.ts';
+import { splitLines } from './code-editor/lines.ts';
 import {
   getJavaScriptParser,
   walkTree,
@@ -56,10 +59,11 @@ export type ParamPartTarget = { line: number; column: number };
  * it and the file can only spell it in one place. `line` (1-indexed, from the
  * definition's captured source location) only disambiguates a label declared
  * more than once, and is omitted when the render carried no location. An
- * `add` always names its `part`: a parameter only lives inside a part body.
+ * An `add` names its part, or explicitly targets the current assembly body.
  */
 export type ParamEditSpec =
-  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget }
+  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never }
+  | { kind: 'add'; param: ParamSpec; assembly: true; part?: never }
   | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
@@ -120,7 +124,7 @@ export class ParamEditor {
   static async apply(code: string, spec: ParamEditSpec): Promise<ParamEditResult> {
     switch (spec?.kind) {
       case 'add':
-        return ParamEditor.add(code, spec.param, spec.part);
+        return ParamEditor.add(code, spec.param, spec.part, spec.assembly);
       case 'update':
         return ParamEditor.update(code, spec.line, spec.expectedLabel, spec.param);
       case 'remove':
@@ -159,7 +163,7 @@ export class ParamEditor {
   // -------------------------------------------------------------------------
 
   /**
-   * Declare a new parameter at the top of `part`'s callback body — below the
+   * Declare a new parameter at the top of the part or assembly callback body — below the
    * `param()` declarations already there, above the features that read it
    * (`declareParamStatements`, the same spot an expression field's `param()`
    * lands in). The variable it binds is derived here rather than asked for:
@@ -168,13 +172,14 @@ export class ParamEditor {
   private static async add(
     code: string,
     param: ParamSpec,
-    part: ParamPartTarget,
+    part: ParamPartTarget | undefined,
+    assembly = false,
   ): Promise<ParamEditResult> {
     const invalid = ParamEditor.validate(param);
     if (invalid) {
       return { newCode: code, error: invalid };
     }
-    if (!part || !Number.isInteger(part.line) || part.line < 1) {
+    if (!assembly && (!part || !Number.isInteger(part.line) || part.line < 1)) {
       return { newCode: code, error: 'malformed param edit spec: a new parameter needs the part it goes in' };
     }
     const tree = await ParamEditor.parse(code);
@@ -183,7 +188,16 @@ export class ParamEditor {
     }
     const variable = ParamEditor.variableNameFor(param.label, tree);
     const statement = `const ${variable} = ${ParamEditor.renderCall(param)};`;
-    const declared = await declareParamStatements(code, part.line, [statement]);
+    let declared: { newCode: string } | { error: string };
+    if (assembly) {
+      const bodies = assemblyBodies(tree.rootNode);
+      if (bodies.length !== 1) {
+        return { newCode: code, error: 'Adding an assembly parameter requires a single assembly() callback body in the current file.' };
+      }
+      declared = { newCode: declareInPartBody(code, splitLines(code), bodies[0], [statement]) };
+    } else {
+      declared = await declareParamStatements(code, part!.line, [statement]);
+    }
     if ('error' in declared) {
       return { newCode: code, error: declared.error };
     }

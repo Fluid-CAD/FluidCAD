@@ -20,6 +20,7 @@ import {
   FUNCTION_NODE_TYPES,
   LOOP_NODE_TYPES,
   sameNode,
+  topLevelStatement,
 } from './ast/nodes.ts';
 import type { ProducerBinding } from './producers/bindings.ts';
 import { renderNewVariableDecls } from './render/variable-decls.ts';
@@ -91,21 +92,23 @@ export async function appendTopLevelStatement(
 }
 
 /**
- * Where the feature statement goes: at the end of the producers' scope —
- * before an active `breakpoint();` or a trailing `return` — regardless of
- * how the inputs are sourced. End of scope matches what the user saw when
- * picking (selectors resolve on the final model, an implicit profile
- * consumes the scope's last sketch), and bound-variable inputs resolve
- * anywhere after their declaration. The one exception is a projection,
- * which reads the sketch it is called from and so lands inside that
- * sketch's body rather than in the producers' scope.
+ * Where the feature statement goes: at the end of the scope its inputs pin
+ * (see `ProducerBinding.pinsScope`) — before an active `breakpoint();` or a
+ * trailing `return`. End of scope matches what the user saw when picking
+ * (selectors resolve on the final model, an implicit profile consumes the
+ * scope's last sketch), and bound-variable inputs resolve anywhere after
+ * their declaration. A statement whose inputs pin no scope — top-level
+ * sketches, planes, axes and wires alone — goes to the timeline's active
+ * part instead (see {@link resolveUnpinnedInsertion}). The exceptions name
+ * their own body: a projection reads the sketch it is called from, so it
+ * lands inside that sketch's body, and a connector or exposure registers on
+ * its part.
  */
 export type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
 
 export function resolveInsertion(
   spec: ApplyFeatureEditSpec,
   bindings: ProducerBinding[],
-  scope: TSNode,
   lines: string[],
   tree: TSTree,
 ): Insertion | { error: string } {
@@ -121,7 +124,52 @@ export function resolveInsertion(
   if (spec.feature === 'expose') {
     return resolvePartBodyInsertion(spec.expose!.part, bindings, lines, tree);
   }
+  const pinning = bindings.filter(binding => binding.pinsScope);
+  if (pinning.length === 0) {
+    return resolveUnpinnedInsertion(spec.activePart, bindings, lines, tree);
+  }
+  // The top-level inputs join the pinned scope by variable, so each must be
+  // declared before the module statement holding that scope — the part()
+  // whose body the pinned inputs live in.
+  const scope = pinning[0].scope;
+  const holder = topLevelStatement(scope);
+  if (holder) {
+    const late = bindings.find(binding => !binding.pinsScope && binding.statement.startIndex >= holder.startIndex);
+    if (late) {
+      const holderLine = holder.startPosition.row + 1;
+      return {
+        error: `the input at line ${late.statement.startPosition.row + 1} is declared below line ${holderLine}, `
+          + `whose body the other inputs place the statement in — move it above line ${holderLine}, then retry`,
+      };
+    }
+  }
   return findInsertionPoint(scope, lines, bindings);
+}
+
+/**
+ * Where a statement whose inputs pin no scope lands: at the end of the
+ * timeline's active part — the home a pick-less sketch takes — so a part
+ * body consumes the sketches and datums drawn before the part existed. An
+ * input declared below the part would be read before its declaration runs
+ * whenever the part builds early, so the statement then stays beside its
+ * inputs at the top level, as it does with no part active.
+ */
+function resolveUnpinnedInsertion(
+  partLoc: { line: number; column: number } | undefined,
+  bindings: ProducerBinding[],
+  lines: string[],
+  tree: TSTree,
+): Insertion | { error: string } {
+  if (partLoc) {
+    const call = findEditableCallAt(tree, lines, partLoc.line);
+    const partStatement = call && chainRootCallee(call) === 'part' ? topLevelStatement(call) : null;
+    // A line that holds no part() goes through too: the part-body
+    // resolution refuses it as out of sync.
+    if (!partStatement || bindings.every(binding => binding.statement.endIndex <= partStatement.startIndex)) {
+      return resolvePartBodyInsertion(partLoc, [], lines, tree);
+    }
+  }
+  return findInsertionPoint(tree.rootNode, lines, bindings);
 }
 
 /**
@@ -192,14 +240,15 @@ function resolveSketchBodyInsertion(
 /**
  * Insertion at the end of a part's callback body — the connector tool's
  * target, and (with no bindings) the active-part home for the producer-less
- * appends. Within the body, the statement prefers the producers' own nearest
- * block: a parameterized part builds each variant inside an `if/else` branch
- * and returns from it, so end-of-branch (before that branch's `return`) is
- * where the statement still executes. The walk from that block up to the
- * part body must cross only plain statement blocks — crossing a nested
- * function or loop (a scope that runs zero-or-many times) falls back to the
- * part body itself. Bound producers must live inside the body: a variable
- * declared elsewhere isn't visible at the insertion point.
+ * appends and the unpinned creates. Within the body, the statement prefers
+ * the producers' own nearest block: a parameterized part builds each variant
+ * inside an `if/else` branch and returns from it, so end-of-branch (before
+ * that branch's `return`) is where the statement still executes. The walk
+ * from that block up to the part body must cross only plain statement
+ * blocks — crossing a nested function or loop (a scope that runs
+ * zero-or-many times) falls back to the part body itself. Bound producers
+ * must live inside the body: a variable declared elsewhere isn't visible at
+ * the insertion point.
  */
 export function resolvePartBodyInsertion(
   partLoc: { line: number; column: number },

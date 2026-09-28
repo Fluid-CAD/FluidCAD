@@ -207,6 +207,30 @@ describe('PointInput variables', () => {
     expect(h.container.querySelector('.point-dropdown')!.textContent).not.toContain('plate');
   });
 
+  it('chips the new-variable offer by the pill\'s own P toggle', () => {
+    const h = mount();
+    type(h.x, 'cx');
+    const chips = () => Array.from(h.container.querySelectorAll('.point-dropdown [data-idx]'))
+      .map((row) => row.firstElementChild?.textContent);
+    // The pill's toggle opens off: the offer to declare `cx` is a plain variable.
+    expect(chips()).toEqual(['V']);
+
+    h.container.querySelector('.point-param-btn')!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(chips()).toEqual(['P']);
+  });
+
+  it('hides the P toggle while the dropdown matches the bare name', () => {
+    const h = mount();
+    const toggle = h.container.querySelector('.point-param-wrap')!;
+    // `w` is fresh, but `width` is on offer for it.
+    type(h.x, 'w');
+    expect(toggle.classList.contains('hidden')).toBe(true);
+
+    type(h.x, 'cx');
+    expect(toggle.classList.contains('hidden')).toBe(false);
+  });
+
   it('declares a new variable per axis', () => {
     const h = mount();
     type(h.x, 'cx = 100');

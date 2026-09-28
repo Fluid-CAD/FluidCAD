@@ -1,10 +1,10 @@
 ---
 id: api/repeat
 title: repeat(kind, axis | plane, options, ...features)
-summary: Re-applies a modeling feature (extrude, cut, fillet, …) at multiple positions, producing one solid with N copies of the feature.
+summary: Re-applies a modeling feature (extrude, cut, fillet, …) at multiple positions, producing one solid with N copies of the feature. Refuses connectors — copy them with copy(), or follow the repeat with copy(holes, bolt).
 tags: [api, pattern, transform]
 symbols: [repeat]
-seeAlso: [api/extrude, concepts/scene-graph]
+seeAlso: [api/extrude, api/copy, api/connector, concepts/scene-graph]
 ---
 
 # repeat
@@ -34,6 +34,21 @@ argument — each repetition re-executes that operation, so the output is
 
 Passing `count` alone is not enough — the runtime needs either the
 spacing or the span.
+
+**Circular step.** A full turn (`angle: 360`, or any whole number of
+turns) steps `angle / count`: six instances 60° apart. Any other angle
+steps `angle / (count - 1)`, so the last instance lands on `angle`:
+`{ count: 4, angle: 90 }` puts instances at 0°, 30°, 60° and 90°. `copy()`
+always steps `angle / count` (0°, 22.5°, 45°, 67.5° for the same options) —
+the two differ on partial arcs, by design.
+
+**Connectors are refused.** `repeat()` re-applies features, and a
+connector is a frame, not a feature — an explicit connector target, or a
+connector as the implicit last object, refuses the statement on its row:
+`repeat() re-applies features — copy a connector with copy('circular',
+axis, options, bolt), or copy(<this repeat>, bolt) to follow it`. Repeat
+the hole, then lay the connector on its instances with
+`copy(holes, bolt)` (see [[api/copy]]).
 
 ## Examples
 
@@ -90,10 +105,15 @@ repeat("circular", "z", { count: 6, offset: 60 }, spoke);
 | Clone the whole finished shape at new positions (each copy independent) | `copy()` |
 | Many separate solids of the same shape | `copy()` with `.new()` on the original |
 | Mirror a feature across a plane | `repeat("mirror", plane, feature)` |
+| Copies of a connector (mate frame) in a row or around an axis | `copy("linear" \| "circular", …, bolt)` — `repeat()` refuses connectors |
+| A connector on every instance of a repeated hole | `copy(holes, bolt)` — follows the repeat's own slots and moves when it changes |
+| A partial arc whose last instance lands on `angle` | `repeat()` (`angle / (count - 1)`); `copy()` steps `angle / count` |
 
 The key intuition: `copy()` duplicates a finished shape; `repeat()`
 re-executes a feature. The latter respects auto-fusion semantics, so
-overlapping copies merge rather than producing duplicate geometry.
+overlapping copies merge rather than producing duplicate geometry. A
+connector is neither a shape nor a feature to re-run: only `copy()` takes
+one.
 
 See [[api/extrude]] / [[concepts/scene-graph]] for the underlying feature
 model `repeat` re-applies.

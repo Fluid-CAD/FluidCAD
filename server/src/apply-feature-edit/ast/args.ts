@@ -1,6 +1,6 @@
 // Reading call arguments back out of the tree: literals, value expressions, object entries and identifier references.
 
-import { isExpressionText, walkTree, type TSNode, type TSTree } from '../../code-editor/index.ts';
+import { isExpressionText, walkTree, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
 import { enclosingScope } from './nodes.ts';
 import type { ValueExpr } from '../value-expr.ts';
 
@@ -27,25 +27,43 @@ export function numericArgValue(node: TSNode): number | null {
 }
 
 /**
- * Read an argument slot that competes with profile/target expressions for
- * its position (extrude distances, the revolve angle): a numeric literal, a
- * variable known to hold a number, or arithmetic. Bare identifiers NOT known
- * to be numeric (profile variables) and call expressions (selector targets)
- * stay null so the positional disambiguation keeps working.
+ * Node types whose value an operator computes — the "expression" side of a
+ * value slot, as opposed to a reference (identifier, call, member access).
  */
-export function numericValueArg(node: TSNode, numericVars: Set<string>): ValueExpr | null {
+const OPERATOR_EXPRESSIONS = new Set([
+  'binary_expression', 'unary_expression', 'parenthesized_expression', 'ternary_expression',
+]);
+
+/**
+ * Read an argument slot that competes with profile/target expressions for
+ * its position (extrude distances, the revolve angle): anything that
+ * evaluates to a number at the call site, resolved through `bindings` the
+ * way JavaScript scoping resolves it — a `param()` or `const` declared in
+ * the enclosing part or sketch body reads exactly like a top-level one.
+ *
+ * The two sides of the competition get opposite defaults. A reference — a
+ * bare identifier, a call, a member access — is a value only when it is
+ * provably a number (`depth` bound to `param('Depth', 50)`, `inch(1)`,
+ * `Math.max(a, b)`): profile variables and selector targets
+ * (`e.endFaces()`) are references too, so an undecidable one (an import, a
+ * function parameter) stays null and the positional disambiguation keeps
+ * reading it as the profile/target. An operator expression (arithmetic,
+ * negation, a ternary) is a value unless it provably is not one.
+ */
+export function numericValueArg(node: TSNode, bindings: LexicalBindings): ValueExpr | null {
   const literal = numericArgValue(node);
   if (literal !== null) {
     return literal;
   }
+  const kind = bindings.kindOf(node);
+  const isValue = OPERATOR_EXPRESSIONS.has(node.type) ? kind !== 'other' : kind === 'number';
+  if (!isValue) {
+    return null;
+  }
   if (node.type === 'identifier') {
-    return numericVars.has(node.text) ? node.text : null;
+    return node.text;
   }
-  if (node.type === 'binary_expression' || node.type === 'unary_expression'
-    || node.type === 'parenthesized_expression') {
-    return isExpressionText(node.text) ? node.text : null;
-  }
-  return null;
+  return isExpressionText(node.text) ? node.text : null;
 }
 
 /**
@@ -59,57 +77,6 @@ export function anyValueArg(node: TSNode): ValueExpr | null {
     return literal;
   }
   return isExpressionText(node.text) ? node.text : null;
-}
-
-/**
- * Top-level variable names whose initializers read as numeric values —
- * literals, arithmetic (over earlier such variables), `param()` and `Math.*`
- * calls. Backs {@link numericValueArg}'s identifier disambiguation.
- */
-export function numericVarNames(tree: TSTree): Set<string> {
-  const names = new Set<string>();
-  const isNumericInit = (node: TSNode): boolean => {
-    if (numericLiteralText(node) !== null) {
-      return true;
-    }
-    if (node.type === 'binary_expression' || node.type === 'unary_expression'
-      || node.type === 'parenthesized_expression') {
-      return true;
-    }
-    if (node.type === 'identifier') {
-      return names.has(node.text);
-    }
-    if (node.type === 'call_expression') {
-      const fn = node.childForFieldName('function');
-      if (!fn) {
-        return false;
-      }
-      if (fn.type === 'identifier' && fn.text === 'param') {
-        return true;
-      }
-      return fn.type === 'member_expression' && fn.childForFieldName('object')?.text === 'Math';
-    }
-    return false;
-  };
-  for (const statement of tree.rootNode.namedChildren) {
-    const decl = statement.type === 'export_statement'
-      ? statement.namedChildren.find(c => c.type === 'lexical_declaration' || c.type === 'variable_declaration')
-      : statement;
-    if (!decl || (decl.type !== 'lexical_declaration' && decl.type !== 'variable_declaration')) {
-      continue;
-    }
-    for (const declarator of decl.namedChildren) {
-      if (declarator.type !== 'variable_declarator') {
-        continue;
-      }
-      const name = declarator.childForFieldName('name');
-      const value = declarator.childForFieldName('value');
-      if (name?.type === 'identifier' && value && isNumericInit(value)) {
-        names.add(name.text);
-      }
-    }
-  }
-  return names;
 }
 
 /** Boolean literal value of an argument node, or null when it is anything else. */

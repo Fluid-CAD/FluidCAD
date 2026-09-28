@@ -31,6 +31,20 @@ export function sceneUnitFields(
   return { unit: data.unit, declaredUnit: data.declaredUnit, projectUnit: data.projectUnit };
 }
 
+/**
+ * The stop every `scene-rendered` message carries: the row the render stops
+ * at, and the part that stop is scoped to (a part-scoped rollback, or a pause
+ * inside a part) when there is one. Spread by each emitter, like the units.
+ */
+export function sceneStopFields(
+  data: Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId'>,
+): Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId'> {
+  return {
+    rollbackStop: data.rollbackStop,
+    ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
+  };
+}
+
 export type SceneSummary = {
   schemaVersion: 1;
   file: string;

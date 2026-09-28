@@ -11,6 +11,12 @@ export type SelectionScene = {
   getAllSceneObjects(): SceneObject[];
   findEnclosingPart(obj: SceneObject): SceneObject | null;
   /**
+   * The objects in timeline order — the rows a render lists and a boundary
+   * index counts (Scene.getTimelineObjects). Absent on a truncated view,
+   * whose rows are its build-order list.
+   */
+  getTimelineObjects?(): SceneObject[];
+  /**
    * The statement the view is truncated before — the one being re-authored
    * (every boundary comes from an edit session; creation never scopes).
    * Registries that live outside the object list (a part's connectors)
@@ -20,14 +26,25 @@ export type SelectionScene = {
   editedStatement?: SceneObject;
 };
 
-/** View of `scene` truncated to objects strictly before `boundaryIndex`. */
+/** The object on timeline row `index` — the row a boundary names. */
+export function objectAtRow(scene: SelectionScene, index: number): SceneObject | undefined {
+  return (scene.getTimelineObjects?.() ?? scene.getAllSceneObjects())[index];
+}
+
+/**
+ * View of `scene` truncated before the statement on row `boundaryIndex`:
+ * the objects built before it, in build order — the world its arguments see
+ * at build time, even where the timeline lists a part above it that built
+ * later.
+ */
 export function scopedSceneBefore(scene: SelectionScene, boundaryIndex: number): SelectionScene {
   const all = scene.getAllSceneObjects();
-  const objects = all.slice(0, boundaryIndex);
+  const edited = objectAtRow(scene, boundaryIndex);
+  const objects = edited ? all.slice(0, all.indexOf(edited)) : all.slice(0, boundaryIndex);
   return {
     getAllSceneObjects: () => objects,
     findEnclosingPart: (obj) => scene.findEnclosingPart(obj),
-    editedStatement: all[boundaryIndex],
+    editedStatement: edited,
   };
 }
 
@@ -54,7 +71,7 @@ export function resolveScopedScene(
   scene: SelectionScene,
   boundary: SelectionBoundary,
 ): { ok: true; scene: SelectionScene } | { ok: false; reason: string } {
-  const obj = scene.getAllSceneObjects()[boundary.index];
+  const obj = objectAtRow(scene, boundary.index);
   const loc = obj?.getSourceLocation() ?? null;
   const matches = !!obj && obj.getType() === boundary.type
     && !!loc && loc.line === boundary.line && loc.column === boundary.column;

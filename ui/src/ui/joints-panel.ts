@@ -11,7 +11,7 @@
 // empty state. The real row rendering and click-to-highlight wiring lands
 // alongside `mate()` in phase 06+.
 
-import type { SerializedAssemblyMate, RenderedInstance } from '../types';
+import { connectorLabel, type SerializedAssemblyMate, type RenderedInstance } from '../types';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ICON_PLAY } from './icons';
 import { AccordionSection } from './accordion-section';
@@ -98,9 +98,10 @@ export class JointsPanel {
   update(
     mates: SerializedAssemblyMate[],
     instances: RenderedInstance[],
-    connectors: ReadonlyArray<{ connectorId: string; name: string }> = [],
+    connectors: ReadonlyArray<{ connectorId: string; name: string; copy?: { slot: number } }> = [],
   ): void {
-    this.worldConnectorNames = new Map(connectors.map(c => [c.connectorId, c.name]));
+    // Labelled the way code names them — a copy as `bay.instance(2)`.
+    this.worldConnectorNames = new Map(connectors.map(c => [c.connectorId, connectorLabel(c.name, c.copy?.slot)]));
     this.mates = mates;
     this.instancesById.clear();
     for (const inst of instances) {

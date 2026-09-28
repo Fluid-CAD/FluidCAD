@@ -13,26 +13,29 @@ import { Revolve } from "../features/revolve.js";
 import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { RepeatAxisSource } from "../features/repeat-base.js";
+import { RepeatAxisSource, RepeatBase } from "../features/repeat-base.js";
 import { RepeatCircular } from "../features/repeat-circular.js";
 import { RepeatLinear } from "../features/repeat-linear.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { CopyAxisSource } from "../features/copy-base.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
+import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
 import {
-  PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
+  PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
 } from "./types.js";
 
 /**
@@ -94,9 +97,10 @@ export type FeatureSources =
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all, cloning every
    * active solid — reports an empty target list, which is what "implicit"
-   * looks like from here.
+   * looks like from here. A copy that follows a repeat (`copy(holes, bolt)`)
+   * walks no axis: it reports the repeat it follows as its `pattern`.
    */
-  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[] }
+  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[]; pattern?: SourceSlot }
   /**
    * A standalone `mirror(plane, …)`: the solids it reflects, by call site,
    * plus the plane it reflects them across. An origin-plane literal is
@@ -139,7 +143,7 @@ export function resolveFeatureSources(
   if (scoped.ok === false) {
     return scoped;
   }
-  const feature = scene.getAllSceneObjects()[boundary.index];
+  const feature = objectAtRow(scene, boundary.index);
   const resolver = new SourceResolver(scoped.scene.getAllSceneObjects(), boundary);
   try {
     if (feature instanceof Shell) {
@@ -299,6 +303,15 @@ export function resolveFeatureSources(
         axes: [resolver.axisSourceSlot(feature.axis)],
       };
     }
+    if (feature instanceof CopyPattern) {
+      return {
+        ok: true,
+        feature: 'copy',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [],
+        pattern: resolver.repeatSlot(feature.pattern),
+      };
+    }
     // The plane family, each form holding its own bases. All three extend
     // PlaneObjectBase, so the two that carry sources come first and the bare
     // literal (`plane('xy', 10)`) falls through to a base it can't re-target.
@@ -357,6 +370,15 @@ class SourceResolver {
   }
 
   /**
+   * The repeat a copy follows, by call site — a `repeat()` statement the
+   * dialog's Pattern slot can point at; a repeat written inline in the copy
+   * itself has none of its own and stays opaque.
+   */
+  repeatSlot(obj: SceneObject | null): SourceSlot {
+    return obj instanceof RepeatBase ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
    * A wire input (a loft guide), by call site: a sketch or a helix — the two
    * statements a wire slot can re-target.
    */
@@ -367,21 +389,46 @@ class SourceResolver {
   /**
    * A revolve's axis input, by call site — an axis statement the dialog can
    * point at and highlight. An axis built inline in the revolve's own
-   * arguments (`revolve('z')`, `revolve(axis(…))`) captures a line on the
-   * statement itself and stays opaque; the dialog keeps its verbatim text.
+   * arguments captures a line on the statement itself: see
+   * {@link axisObjectSlot} for the one inline form that still resolves.
    */
   axisSlot(obj: SceneObject | null): SourceSlot {
-    return obj instanceof AxisObjectBase ? this.callSiteSlot(obj) : OPAQUE;
+    return obj instanceof AxisObjectBase ? this.axisObjectSlot(obj) : OPAQUE;
   }
 
   /**
    * A repeat's or a copy's axis input. A world-axis literal
    * (`repeat('linear', 'x', …)`) builds no scene object at all and stays
    * opaque — nothing to re-target, and the dialog reads `'x'` straight off the
-   * argument text.
+   * argument text. A copy's connector axis resolves to its `connector()`
+   * statement; a connector copy (`bolt.instance(2)`) has none of its own and
+   * stays opaque, its text kept verbatim.
    */
   axisSourceSlot(source: RepeatAxisSource | CopyAxisSource): SourceSlot {
-    return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
+    if (source instanceof ConnectorAxis) {
+      return source.connector.copySlot() === undefined ? this.callSiteSlot(source.connector) : OPAQUE;
+    }
+    return source instanceof AxisObjectBase ? this.axisObjectSlot(source) : OPAQUE;
+  }
+
+  /**
+   * An axis object by call site — the axis sibling of {@link planeSlot}. An
+   * axis built inline in the statement's own arguments (`revolve('z')`,
+   * `copy('linear', axis(…), …)`) has no standalone statement to re-target,
+   * but one inline form still resolves: the bare `axis(<edge>)` a dialog's
+   * edge pick writes resolves to that edge, the pick the slot holds. An axis
+   * carrying its own offset or rotation does not — the edge alone would name a
+   * different line than the statement builds.
+   */
+  private axisObjectSlot(obj: AxisObjectBase): SourceSlot {
+    const slot = this.callSiteSlot(obj);
+    if (slot.kind !== 'opaque') {
+      return slot;
+    }
+    if (obj instanceof AxisFromEdge && obj.options == null && !(obj.source instanceof AxisObjectBase)) {
+      return this.entitiesSlot([obj.source]);
+    }
+    return OPAQUE;
   }
 
   /**

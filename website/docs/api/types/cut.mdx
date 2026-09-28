@@ -85,7 +85,7 @@ Offsets the cut end face by a specified distance along the cut direction.
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+startEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges at the top of the cut: the rims where the tool entered the
@@ -97,14 +97,14 @@ the sketch plane lies in a void and the tool meets material further out.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+endEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges at the bottom of the cut: every edge of a floor the tool
@@ -114,14 +114,14 @@ stopped at, and the rims where a through cut left the material.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+internalEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges created inside the solid: creases between the cut's own
@@ -131,14 +131,14 @@ walls, and rims along faces the cut runs parallel to.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+internalFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
@@ -147,7 +147,7 @@ Selects internal faces exposed by the cut — newly created surfaces not from th
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 

@@ -85,7 +85,7 @@ Sets a custom display name for this object, overriding the default type-based na
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+startFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces at the start (base) of the rib — the profile face at the sketch plane.
@@ -94,14 +94,14 @@ Selects faces at the start (base) of the rib — the profile face at the sketch 
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+endFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces at the end (top) of the rib — where the rib meets the boundary.
@@ -110,14 +110,14 @@ Selects faces at the end (top) of the rib — where the rib meets the boundary.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+sideFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the lateral wall faces of the rib.
@@ -126,14 +126,14 @@ Selects the lateral wall faces of the rib.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+capFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the small cap faces at the spine endpoints.
@@ -142,14 +142,14 @@ Selects the small cap faces at the spine endpoints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+startEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the start faces.
@@ -158,14 +158,14 @@ Selects edges on the start faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+endEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the end faces.
@@ -174,14 +174,14 @@ Selects edges on the end faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+sideEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
@@ -190,14 +190,14 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+capEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the cap faces.
@@ -206,7 +206,7 @@ Selects edges on the cap faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 

@@ -19,6 +19,7 @@ import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig }
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { BuildError } from "../common/build-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
 import { debug } from "../common/log.js";
@@ -78,8 +79,7 @@ function computeCallSiteOccurrences(sceneObjects: SceneObject[]): Map<SceneObjec
  * The parts in this render whose definition unit differs from the unit they
  * are consumed in, keyed by the scene index of their LAST member — where the
  * renderer rescales them. Members are found by enclosing part, not by
- * position: a donor definition materialized mid-body interleaves with the
- * consumer's children in the flat list.
+ * position.
  */
 function collectForeignParts(
   scene: Scene,
@@ -212,7 +212,9 @@ export class SceneRenderer {
 
     this.aggregateContainerDurations(sceneObjects, scene, buildDurations);
 
-    for (const object of sceneObjects) {
+    // Built in build order, listed in timeline order — the rows hosts show
+    // and count rollbacks in (Scene.getTimelineObjects).
+    for (const object of scene.getTimelineObjects()) {
       this.emitRenderObject(
         object,
         scene,
@@ -233,24 +235,22 @@ export class SceneRenderer {
    * Re-emit the scene restricted to `scope` — the view-only rollback pass
    * (nothing rebuilds; consumed shapes whose consumer is out of scope
    * reappear via the membership rule in getOwnShapes). Without an explicit
-   * scope the classic prefix `[0..rollbackIndex]` is used; callers that
-   * want a non-prefix view (part-scoped rollback) pass their own set.
+   * scope the classic prefix `[0..rollbackIndex]` of the timeline rows is
+   * used; callers that want a non-prefix view (part-scoped rollback) pass
+   * their own set.
    */
   renderRollback(scene: Scene, rollbackIndex: number, scope?: Set<SceneObject>): Scene {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
 
-    const allObjects = scene.getAllSceneObjects();
-    this.occurrenceIndexes = computeCallSiteOccurrences(allObjects);
+    this.occurrenceIndexes = computeCallSiteOccurrences(scene.getAllSceneObjects());
+    const rows = scene.getTimelineObjects();
     if (!scope) {
-      scope = new Set<SceneObject>();
-      for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
-        scope.add(allObjects[i]);
-      }
+      scope = new Set<SceneObject>(rows.slice(0, rollbackIndex + 1));
     }
 
     scene.clearRenderedObjects();
 
-    for (const obj of allObjects) {
+    for (const obj of rows) {
       if (!scope.has(obj) || obj.isLazy()) {
         this.emitRendered(obj, scene, {
           sceneShapes: [],
@@ -426,6 +426,12 @@ export class SceneRenderer {
       // Ahead of validate(): an unresolved late selection would otherwise
       // surface as its symptom ("guide 1 (select) has no shapes").
       this.assertSelectionsPrecede(object, scene);
+      // A statement its builder refused never builds — the refusal is its
+      // build error (SceneObject.refuse).
+      const refusal = object.getRefusal();
+      if (refusal) {
+        throw new BuildError(refusal);
+      }
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).

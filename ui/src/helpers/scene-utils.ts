@@ -77,11 +77,11 @@ export function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRend
 }
 
 /**
- * The timeline's active part, injected by main.ts from the ActivePartTracker.
- * The tracker re-syncs against every render before the scope helpers below
- * run (see the scene-rendered handler), so matching its location by exact
- * file + line is safe — a shifted or renamed part row has already been
- * re-adopted.
+ * The timeline's active part, injected by main.ts from the ActivePartTracker
+ * — null while the user works at the file's top level. The tracker re-syncs
+ * against every render before the scope helpers below run (see the
+ * scene-rendered handler), so matching its location by exact file + line is
+ * safe — a shifted or renamed part row has already been re-adopted.
  */
 let activePartLocationProvider: () => SourceLocation | null = () => null;
 
@@ -137,25 +137,27 @@ export function findEnclosingPartRow(
 
 /**
  * The rows of the active scope, in scene order: the active part's direct
- * children while a part is active, else every top-level row. New statements
+ * children while a part is active, else the file's top-level rows — its
+ * statements and its parts, listed where the file wrote them (the engine
+ * renders in timeline order, a part at its `part()` call). New statements
  * land at the end of this scope, so its tail is "where the user is working".
  */
 export function activeScopeObjects(sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
   const part = findActivePart(sceneObjects);
-  const index = SceneIndex.of(sceneObjects);
   if (part) {
-    return [...index.children(part.id)];
+    return [...SceneIndex.of(sceneObjects).children(part.id)];
   }
-  return sceneObjects.filter(o => index.isTopLevel(o));
+  return sceneObjects.filter(o => !o.parentId);
 }
 
 /**
  * The "active" feature — the last object of the active scope. With a part
  * active this is that part's last feature (an empty part has none), NOT the
  * scene's last object: another part further down may keep building, but the
- * user is editing here. Returned regardless of visibility so a non-sketch
- * tip with no shapes doesn't fall through to an earlier sketch and wrongly
- * enter sketch mode.
+ * user is editing here. At the top level it is the file's last row, which is
+ * a part row when the file ends in a part. Returned regardless of visibility
+ * so a non-sketch tip with no shapes doesn't fall through to an earlier
+ * sketch and wrongly enter sketch mode.
  */
 export function findActiveObject(sceneObjects: SceneObjectRender[]): SceneObjectRender | undefined {
   const scope = activeScopeObjects(sceneObjects);
@@ -167,11 +169,14 @@ export function findActiveObject(sceneObjects: SceneObjectRender[]): SceneObject
  * the one thing every sketch-mode derivation keys off (camera lock, sketch
  * toolbar, dialog adoption, timeline gating). A trailing sketch that carries
  * `.close()` is finished: the scope ends in it, but nothing enters sketch
- * mode for it, so it reads as no active sketch here.
+ * mode for it, so it reads as no active sketch here. So does one a feature
+ * already took (`consumedBy`): the top level can end in a sketch a part body
+ * above it extruded — a part body builds after the top level, so it may read
+ * a sketch written below it — and that sketch is used, not drawn.
  */
 export function findActiveSketch(sceneObjects: SceneObjectRender[]): SceneObjectRender | undefined {
   const active = findActiveObject(sceneObjects);
-  return active?.type === 'sketch' && active.closed !== true ? active : undefined;
+  return active?.type === 'sketch' && active.closed !== true && active.consumedBy === undefined ? active : undefined;
 }
 
 /**

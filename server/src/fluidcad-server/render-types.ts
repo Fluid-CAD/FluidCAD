@@ -42,8 +42,9 @@ export type SceneRenderedData = {
    * features after `rollbackStop` are hidden, everything else is fully
    * rendered — and when the stop is the part's last feature, nothing is
    * hidden at all (the UI derives truncation from stop + part id, and the
-   * stop stays on the clicked row for the timeline's current marker).
-   * Absent on global rollbacks and full renders.
+   * stop stays on the clicked row for the timeline's current marker). A
+   * render a breakpoint paused inside a part sets it too, with the stop on
+   * the part's paused row. Absent on global rollbacks and full renders.
    */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;

@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRotate, applyRotateEdit, FeatureEditTarget, fetchFeatureGhostResult, fetchFeatureSources,
+  applyRotate, applyRotateEdit, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RotateApplyOptions, RotateEditAxisRef,
   RotateEditOptions, RotateEditTargetRef, RotateGhostRequest, SourceSlotRef,
 } from '../../api';
@@ -14,6 +14,7 @@ import { RotatePanel } from './rotate-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
@@ -633,7 +634,7 @@ export class RotateFeatureService {
       axis,
       angle: values.angle,
     };
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, an expression the server can't evaluate: those
     // just leave the viewport as it was). A superseded fetch says nothing
@@ -696,11 +697,8 @@ export class RotateFeatureService {
         : null;
     }
     // The kept statement axis, as the sources query resolved it — an `axis()`
-    // the statement names by variable. A world-axis literal never reaches here
-    // (the slot reads `'z'` as the standard selection itself), and anything
-    // else is an expression no ghost can stand in for.
-    const loc = sourceStatement(this.sourceSlots?.axis);
-    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
+    // statement, or the edge an inline `axis(<edge>)` was built on.
+    return KeptAxisSlot.ghostRef(this.sourceSlots?.axis);
   }
 
   private buildRequest(): RotateApplyOptions | { error: string } {

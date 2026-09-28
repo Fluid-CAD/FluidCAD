@@ -3,7 +3,7 @@ import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
@@ -41,31 +41,40 @@ function isRegionRow(obj: SceneObjectRender): boolean {
 
 /**
  * Child rows a container folds into their own sub-container instead of
- * listing inline: a part's mate connectors (`connector(…)`) and published
- * selections (`expose(…)`), a sketch's region declarations (`region(…)`).
- * All are references rather than geometry, so a container with a dozen of
- * them would otherwise bury its modeling history. Each kind renders behind
- * one "N connectors" / "N exposed" / "N regions" toggle row, collapsed by
- * default — the same shape the solved-sketch constraint group uses.
+ * listing inline: a part's declared mate connectors (`connector(…)`) and
+ * published selections (`expose(…)`), a sketch's region declarations
+ * (`region(…)`). All are references rather than geometry, so a container
+ * with a dozen of them would otherwise bury its modeling history. Each kind
+ * renders behind one "N connectors" / "N exposed" / "N regions" toggle row,
+ * collapsed by default — the same shape the solved-sketch constraint group
+ * uses. A `copy()` of connectors is one statement however many copies it
+ * makes, so it lists among the features like any pattern.
  */
 interface GroupKind {
   /** Key into expandedGroupKeys (`<containerId>:<key>`). */
   key: string;
   /** The container type the group sits under. */
   parent: 'part' | 'sketch';
-  type: string;
+  /** Whether a child row files into the group. */
+  holds: (obj: SceneObjectRender) => boolean;
   label: (count: number) => string;
   icon: string;
 }
 
 const GROUP_KINDS: readonly GroupKind[] = [
-  { key: 'connectors', parent: 'part', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
-  { key: 'exposed', parent: 'part', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
-  { key: 'regions', parent: 'sketch', type: 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
+  {
+    key: 'connectors',
+    parent: 'part',
+    holds: (obj) => obj.type === 'connector',
+    label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`,
+    icon: 'mate-connector',
+  },
+  { key: 'exposed', parent: 'part', holds: (obj) => obj.type === 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+  { key: 'regions', parent: 'sketch', holds: (obj) => obj.type === 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
 ];
 
 function groupOf(parent: SceneObjectRender | undefined, obj: SceneObjectRender): GroupKind | undefined {
-  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && obj.type === kind.type);
+  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && kind.holds(obj));
 }
 
 /**
@@ -152,12 +161,15 @@ export class TimelinePanel {
   onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
 
   /**
-   * A part row was clicked. Part rows don't navigate: instead of the
-   * rollback preview they toggle the timeline's ACTIVE part — the part whose
-   * callback body receives newly created statements. The source jump stays.
-   * Unset (a host without the tracker), part rows keep the default rollback.
+   * Point the timeline's ACTIVE part — the part whose callback body receives
+   * newly created statements — at a part row, or with null step out of it to
+   * the file's top level. Part rows don't navigate: instead of the rollback
+   * preview a click toggles the active part, and the pause gestures point it
+   * at the paused row's scope. The source jump stays. Returns whether the
+   * active part changed. Unset (a host without the tracker), part rows keep
+   * the default rollback.
    */
-  onPartActivate?: (obj: SceneObjectRender) => void;
+  setActivePart?: (part: SceneObjectRender | null) => boolean;
 
   /**
    * A connector or exposed row was clicked. These rows are references, not
@@ -165,7 +177,12 @@ export class TimelinePanel {
    * what they publish (the connector's gizmo, the exposure's faces).
    */
   onFeatureShow?: (obj: SceneObjectRender) => void;
-  /** Whether this part row is the active part (drives its highlight). */
+  /**
+   * A connector row's "Copy…": open the Copy dialog with that connector
+   * already in its targets. Unset, connector rows offer no such item.
+   */
+  onCopyConnector?: (obj: SceneObjectRender) => void;
+  /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
   /**
@@ -895,18 +912,28 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
-        if (obj && obj.type === 'part' && this.onPartActivate) {
-          // Part rows toggle the active part instead of rolling back; the
-          // re-render repaints the highlight from the tracker's new state.
-          this.onPartActivate(obj);
+        if (obj && obj.type === 'part' && this.setActivePart) {
+          // Part rows toggle the active part instead of rolling back: an
+          // inactive row becomes the active part, the active one steps out to
+          // the file's top level. A double-click's second click only
+          // activates, so that gesture always ends inside the part. The
+          // re-render repaints the rows from the tracker's state.
+          const stepOut = e.detail < 2 && this.isPartRowActive?.(obj) === true;
+          const changed = this.setActivePart(stepOut ? null : obj);
           this.goToSource(obj);
-          this.renderTimeline();
+          if (changed) {
+            this.renderTimeline();
+          }
           return;
         }
-        if (obj && groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part' && this.onFeatureShow) {
+        const publishes = obj !== undefined && (SceneIndex.copiesOnlyConnectors(obj)
+          || groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part');
+        if (obj && publishes && this.onFeatureShow) {
           // Connector / exposed rows show what they publish instead of
-          // rolling back — they are references, not modeling steps. (A
-          // region row is a statement of its sketch and rolls back like one.)
+          // rolling back — they are references, not modeling steps — and so
+          // does a copy of connectors, listed among the features: it shows
+          // its whole family. (A region row is a statement of its sketch and
+          // rolls back like one.)
           this.onFeatureShow(obj);
           this.goToSource(obj);
           return;
@@ -927,9 +954,9 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
         if (obj && obj.type === 'part') {
-          // Parts have no edit dialog and their single click already toggles
-          // activation — a double-click must not place a breakpoint. The
-          // context menu's "Breakpoint here" stays the explicit path.
+          // Parts have no edit dialog and their clicks already activated the
+          // part — a double-click must not place a breakpoint. The context
+          // menu's "Breakpoint here" stays the explicit path.
           return;
         }
         if (this.sketchActive && !(obj && this.isFeatureEditable?.(obj))) {
@@ -1083,7 +1110,7 @@ export class TimelinePanel {
     }
     const obj = this.sceneObjects[index];
     if (obj) {
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
     }
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
@@ -1095,27 +1122,27 @@ export class TimelinePanel {
   }
 
   /**
-   * The pause gestures work "here": pausing a build inside a part makes that
-   * part the user's working scope, so an inactive enclosing part is activated
-   * first — the same path as clicking its row. Without this the breakpoint
-   * render derives sketch-mode entry (and every scope-sensitive service) from
-   * the previously active part — whose build the pause never touches, since
-   * the leftover-definitions pass still materializes it fully — and a paused
-   * tip sketch never opens for editing. Skipped while sketching: the only
-   * gestures allowed then either stay inside the active part or open an edit
-   * dialog that suspends the active sketch and restores it on exit, which a
-   * scope switch would close for good instead.
+   * The pause gestures work "here": pausing a build makes the paused row's
+   * scope the user's working scope — the part around a row inside one is
+   * activated, the same path as clicking its row, and a top-level row steps
+   * out of the active part to the file's top level. Without this the
+   * breakpoint render derives sketch-mode entry (and every scope-sensitive
+   * service) from the previously active scope — whose build the pause never
+   * touches, since the leftover-definitions pass still materializes every
+   * part fully — and a paused tip sketch never opens for editing. A part row
+   * picks no scope: its statement only declares the part, whose body builds
+   * after the pause either way. Skipped while sketching: the only gestures
+   * allowed then either stay inside the active scope or open an edit dialog
+   * that suspends the active sketch and restores it on exit, which a scope
+   * switch would close for good instead.
    */
-  private activateEnclosingPart(obj: SceneObjectRender): void {
-    if (this.sketchActive || !this.onPartActivate) {
+  private enterScopeOf(obj: SceneObjectRender): void {
+    if (this.sketchActive || !this.setActivePart || obj.type === 'part') {
       return;
     }
-    const part = findEnclosingPartRow(obj, this.sceneObjects);
-    if (!part || this.isPartRowActive?.(part) === true) {
-      return;
+    if (this.setActivePart(findEnclosingPartRow(obj, this.sceneObjects) ?? null)) {
+      this.renderTimeline();
     }
-    this.onPartActivate(part);
-    this.renderTimeline();
   }
 
   /**
@@ -1318,7 +1345,10 @@ export class TimelinePanel {
     const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
-    const iconSrc = obj.type === 'part' ? '/icons/box-blue.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    let iconSrc = `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    if (obj.type === 'part') {
+      iconSrc = isActivePart ? '/icons/box-blue.png' : '/icons/box.png';
+    }
 
     let itemClass = 'group flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
     const indent = TimelinePanel.indentClass(depth);
@@ -1329,7 +1359,9 @@ export class TimelinePanel {
     // Part rows opt out of the "current" navigation highlight: with part
     // clicks toggling activation instead of rolling back, a current-tinted
     // part next to the active one would read as two active parts. Only the
-    // active part row is tinted (and carries the dot).
+    // active part row is highlighted — tint, blue cube, bold name and dot.
+    // Every other part row stays plain with the white cube, the one just
+    // stepped out of included: a click on any of them activates it.
     const highlightCurrent = isCurrent && obj.type !== 'part';
     // A viewer pick outranks the navigation tints: the picked row answers
     // "which feature made this face?", so it must read distinctly even when
@@ -1410,13 +1442,14 @@ export class TimelinePanel {
     const activeDot = isActivePart
       ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
       : '';
+    const nameClass = isActivePart ? 'truncate font-semibold' : 'truncate';
 
     return `
       <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
-        <span class="truncate">${name}</span>
+        <span class="${nameClass}">${name}</span>
         ${activeDot}
         ${eyeBtn}
         ${durationSpan}
@@ -1598,6 +1631,16 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
         </button></li>`;
+    // A declared connector copies from its own menu — the Copy dialog opens
+    // with it already in the targets. A copy of one is never copied again,
+    // and one a copy() already copies is edited on that copy's row.
+    const copyConnectorItem = !this.onCopyConnector || this.sketchActive || obj.type !== 'connector'
+      || SceneIndex.isConnectorCopy(obj) || SceneIndex.of(this.sceneObjects).copyStatementOf(obj.id)
+      ? '' : `
+        <li><button data-action="copy-connector" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_COPY}</span>
+          <span>Copy…</span>
+        </button></li>`;
     const tangencyAction = this.distanceTangencyAction(obj);
     const tangencyItem = !tangencyAction ? '' : `
         <li><button data-action="tangency" class="flex items-center gap-2">
@@ -1609,7 +1652,7 @@ export class TimelinePanel {
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -1633,11 +1676,16 @@ export class TimelinePanel {
       this.enterBreakpointAt(index);
     });
 
+    dropdown.querySelector('[data-action="copy-connector"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.onCopyConnector?.(obj);
+    });
+
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
-      // Same scope rule as the edit gesture: the pause makes this row's part
+      // Same scope rule as the edit gesture: the pause makes this row's scope
       // the working scope, so a paused tip sketch actually enters sketch mode.
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
       this.addBreakpointAfter(index);
       this.goToSource(obj);
     });

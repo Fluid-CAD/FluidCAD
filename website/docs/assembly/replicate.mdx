@@ -6,6 +6,7 @@ title: "Replicate"
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import asmReplicate from '!!raw-loader!./_examples/asm-replicate.assembly.js';
 import asmStandoff from '!!raw-loader!./_examples/asm-standoff.part.js';
+import asmPlate from '!!raw-loader!./_examples/asm-plate.part.js';
 
 # Replicate
 
@@ -16,12 +17,15 @@ import asmStandoff from '!!raw-loader!./_examples/asm-standoff.part.js';
 1. Mate the first instance the way every copy should be mated — the seed.
 2. Click **Replicate** on the assembly toolbar and pick the seed.
 3. The dialog lists the seed's outer mate sides — the connectors or faces on *other* parts its mates reference. For each replica, pick the replacement for each one.
-4. Click **Apply**. The replicas appear as ordinary rows in the **Parts** panel, named after the seed with a suffix, marked as replicas.
+4. Or click **Suggest copies**. It fills one row per connector the seed could move to: when the connector the seed is mated to has [copies](/docs/part/connector#copying-a-connector), its other copies, in slot order; otherwise the part's other connectors. Connectors a mate already uses are skipped.
+5. Click **Apply**. The replicas appear as ordinary rows in the **Parts** panel, named after the seed with a suffix, marked as replicas.
 
 ![Four standoffs replicated onto the plate's mounting holes](/img/docs/assembly/asm-replicate.png)
 
 <ExplainedCode code={asmReplicate} fileName="standoffs.assembly.js">
+  The plate declares one `hole` connector and copies it onto the other three holes, so the rows name `hole.instance(1)` to `hole.instance(3)` — the rows **Suggest copies** proposes for this seed.
   <ExplainedCode code={asmStandoff} fileName="standoff.part.js" title="standoff.part.js" />
+  <ExplainedCode code={asmPlate} fileName="plate.part.js" title="plate.part.js" />
 </ExplainedCode>
 
 ## Signature
@@ -42,5 +46,6 @@ It returns the replica handles in row order, so `const [b, c, d] = replicate(...
 
 - Only mates written **before** the statement replicate. Mate options (flip, rotate, offset, limits) are copied verbatim.
 - Replicas start at the seed's pose and are never grounded — their mates place them.
-- A target can be any mate side: `instance.connectors.<name>`, an assembly connector, or `instance.features.<name>` for a tangent mate.
+- A target can be any mate side: `instance.connectors.<name>`, a copy of one (`instance.connectors.<name>.instance(k)`), an assembly connector or its copy (`bay.instance(k)`), or `instance.features.<name>` for a tangent mate.
+- Rows are always written out. Nothing follows the part's pattern: when the plate copies its hole connector onto six holes instead of four, add the rows (or run **Suggest copies** again).
 - Replicating a sub-assembly re-runs its body with the same parameters; its inner mates come along.

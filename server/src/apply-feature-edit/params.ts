@@ -1,6 +1,13 @@
 // Numeric parameter extraction and value resolution for ghost previews and selection synthesis.
 
-import { getJavaScriptParser } from '../code-editor/index.ts';
+import {
+  getJavaScriptParser,
+  stringLiteralValue,
+  walkTree,
+  type LexicalBindings,
+  type TSNode,
+} from '../code-editor/index.ts';
+import { normalizePath } from '../normalize-path.ts';
 import { numericLiteralText } from './ast/args.ts';
 
 export type ExtractedParam = {
@@ -102,4 +109,98 @@ export function resolveParamValues(
     }
   }
   return resolved;
+}
+
+/**
+ * A registry definition as the server reads it back: its label, the value
+ * the last render gave it (override-aware), and where its `param()` call
+ * sits — 1-based, as the render captured it, and absent when the stack
+ * carried no model-file frame.
+ */
+export type ParamSiteDefinition = {
+  label: string;
+  currentValue: unknown;
+  sourceLocation?: { filePath: string; line: number };
+};
+
+/**
+ * Which registry definition each `param()` call of one file produced, so a
+ * name bound to that call reads the value the last render built with — a
+ * panel override included — instead of the source default.
+ *
+ * A label is only unique within a part: two parts of one file may each
+ * declare `'Width'`, and a lookup by label alone hands one part the other's
+ * value. A definition therefore belongs to the call that declared it: same
+ * file, same line. The label alone still decides when the buffer has moved
+ * since the render and shifted the line, but only where it can't belong to
+ * anyone else — this file spells it in a single `param()` call, the
+ * registry holds a single definition of it, and that definition wasn't
+ * declared in another file. A call nothing matches has no definition, and
+ * its value is its own default argument.
+ */
+export class ParamSites {
+  /** How many `param()` calls of the file spell each label — built on first use. */
+  private labelCounts: Map<string, number> | null = null;
+
+  constructor(
+    private readonly bindings: LexicalBindings,
+    private readonly filePath: string,
+    private readonly definitions: readonly ParamSiteDefinition[],
+  ) {}
+
+  /** The definition the `param()` call `call` produced, or null when none is its. */
+  definitionOf(call: TSNode): ParamSiteDefinition | null {
+    const label = ParamSites.labelOf(call);
+    if (label === null) {
+      return null;
+    }
+    const line = call.startPosition.row + 1;
+    const candidates = this.definitions.filter(d => d.label === label);
+    const declaredHere = candidates.find(d => d.sourceLocation !== undefined
+      && this.isThisFile(d.sourceLocation.filePath) && d.sourceLocation.line === line);
+    if (declaredHere) {
+      return declaredHere;
+    }
+    if (candidates.length !== 1 || this.labelCount(label) !== 1) {
+      return null;
+    }
+    const [only] = candidates;
+    return only.sourceLocation === undefined || this.isThisFile(only.sourceLocation.filePath) ? only : null;
+  }
+
+  /** The default a `param()` call declares — its second argument — or null. */
+  static defaultOf(call: TSNode): TSNode | null {
+    return ParamSites.argumentsOf(call)[1] ?? null;
+  }
+
+  /** A `param()` call's label: its first argument, when that is a string literal. */
+  private static labelOf(call: TSNode): string | null {
+    const first = ParamSites.argumentsOf(call)[0];
+    return first ? stringLiteralValue(first) : null;
+  }
+
+  private static argumentsOf(call: TSNode): TSNode[] {
+    return call.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment') ?? [];
+  }
+
+  private labelCount(label: string): number {
+    if (!this.labelCounts) {
+      const counts = new Map<string, number>();
+      for (const node of walkTree(this.bindings.tree.rootNode)) {
+        if (node.type !== 'call_expression' || this.bindings.fluidCadCallee(node)?.name !== 'param') {
+          continue;
+        }
+        const spelled = ParamSites.labelOf(node);
+        if (spelled !== null) {
+          counts.set(spelled, (counts.get(spelled) ?? 0) + 1);
+        }
+      }
+      this.labelCounts = counts;
+    }
+    return this.labelCounts.get(label) ?? 0;
+  }
+
+  private isThisFile(filePath: string): boolean {
+    return normalizePath(filePath) === normalizePath(this.filePath);
+  }
 }

@@ -49,9 +49,9 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -62,6 +62,7 @@ import { normalizeAssemblyPayload } from './scene/assembly-payload';
 import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
+import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
@@ -293,6 +294,8 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 // this same instance into whichever column is current.
 const paramEditorDialog = new ParamEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog);
+const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
+const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -316,23 +319,28 @@ const fileImporter = new FileImporter(container, {
 // the rail flips back from assembly to part mode.
 let timelinePanel: TimelinePanel;
 
-// The timeline's active part — one part is ALWAYS active while the scene
+// The timeline's active part — one part is ALWAYS selected while the scene
 // contains any (last part by default; a part-row click re-points it, no
-// rollback). Producer-less creates (pick-less sketch, standard plane/helix)
-// land inside its callback body instead of at top level. Every apply-feature
-// payload carries its location through the provider below.
+// rollback), and it is the active part unless the user stepped out of it to
+// the file's top level (a click on the active row). Creates whose inputs pin
+// no other scope (pick-less sketch, standard plane/helix, features of
+// sketches drawn at the top level) land inside the active part's callback
+// body, or at the top level with none. Every apply-feature payload carries
+// its location through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
 // The Parameters panel's Part dropdown (and the Add dialog's, which opens on
-// the panel's choice) list the same parts and default to the active one — a
+// the panel's choice) list the same parts and default to the selected one —
+// active or stepped out of, since a param() only lives in a part body — and a
 // new param() lands in the chosen part's callback body.
-const partChoices = () => ({ parts: activePartTracker.parts, active: activePartTracker.location });
+const partChoices = () => ({ parts: activePartTracker.parts, selected: activePartTracker.selectedLocation });
 paramsPanel.setPartProvider(partChoices);
 paramEditorDialog.setPartProvider(partChoices);
 // The scene-utils scope helpers (findActiveObject & co.) read the same
-// tracker: the "active" feature is the active part's last child, so the
-// viewer, sketch toolbar, timeline and pick services all follow the part a
-// timeline click chose instead of whatever part the file happens to end in.
+// tracker: the "active" feature is the active part's last child — the top
+// level's last statement once the user stepped out — so the viewer, sketch
+// toolbar, timeline and pick services all follow the scope a timeline click
+// chose instead of whatever part the file happens to end in.
 setActivePartLocationProvider(() => activePartTracker.location);
 
 function disposeRail(): void {
@@ -569,24 +577,46 @@ function buildAssemblyRail(): LeftRail {
     () => {},
   );
   dragReadout.setObstacle(() => animateBar.openElement());
-  // The assembly's own connectors, between Parts and Joints: a row opens
-  // the connector dialog on it; the eye hides its gizmo by name.
+  assemblyParamsPanel.mount(parts.getParamsHost());
+  assemblyParamsPanel.setVisible(true);
+  // The assembly's own connectors, between Parts and Joints: a connector's
+  // row opens the connector dialog on it, a copy's row the Copy dialog on
+  // the statement that made it; the eye hides a gizmo by label.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
-    // While the mate dialog is picking, a row is a pick (no gizmo to hunt
-    // for under a coincident part connector); otherwise it opens the dialog.
-    onEdit: (connector) => {
+    // While a dialog is picking, a row is a pick (no gizmo to hunt for
+    // under a coincident part connector).
+    onPick: (connector) => {
+      if (assemblyConnectorCopyService.isPicking) {
+        assemblyConnectorCopyService.pickWorldConnector(connector.connectorId);
+        return;
+      }
       if (assemblyMateService.isPicking) {
         assemblyMateService.pickWorldConnector(connector.connectorId);
         return;
       }
       if (assemblyReplicateService.isPicking) {
         assemblyReplicateService.pickWorldConnector(connector.connectorId);
-        return;
       }
-      void assemblyConnectorService.edit(connector);
     },
-    onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
-    isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
+    onEdit: (connector) => void assemblyConnectorService.edit(connector),
+    onEditCopy: (copy) => void editAssemblyConnectorCopy(copy),
+    onCopy: (connector) => assemblyConnectorCopyService.enterWithConnector(connector.connectorId),
+    onShowInSource: (connector) => {
+      if (connector.sourceLocation) {
+        gotoSource(connector.sourceLocation);
+      }
+    },
+    // Drops the whole `connector(...)` statement; the server sweeps the
+    // mates, replicate cells and copy() statements that named it (the same
+    // path as the parts panel's Delete).
+    onDelete: (connector) => {
+      if (connector.sourceLocation) {
+        removeFeature(connector.sourceLocation);
+      }
+    },
+    onRemoveCopies: (copy) => void removeAssemblyConnectorCopy(copy),
+    onToggleVisibility: (label, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(label, !visible),
+    isHidden: (label) => viewer.getAssemblyController()?.isWorldConnectorHidden(label) ?? false,
   });
   return { kind: 'assembly', parts, connectors, joints, dragReadout, animateBar, instanceVisibility: visibility };
 }
@@ -604,6 +634,33 @@ let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
 /** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
 const lastPartTemplates = new Map<string, any>();
+
+/**
+ * A copy row's editor: the Copy dialog over the `copy()` statement that
+ * made it (the copy's own location) — or, when that statement can't be
+ * edited here, the reason as a toast.
+ */
+async function editAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  if (!copy.sourceLocation) {
+    return;
+  }
+  const refused = await assemblyConnectorCopyService.enterEdit(copy.sourceLocation);
+  if (refused) {
+    showToast(refused);
+  }
+}
+
+/** A copy row's "Remove copies": the `copy()` statement goes, with every mate and replicate cell on its copies. */
+async function removeAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  const location = copy.sourceLocation;
+  if (!location) {
+    return;
+  }
+  const result = await applyAssemblyConnectorCopy(location.filePath, { remove: { sourceLine: location.line } });
+  if (!result.success) {
+    showToast(result.reason ?? 'Could not remove the copies.');
+  }
+}
 
 function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
@@ -1248,18 +1305,18 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
-  // statements land inside its callback body instead of at top level, and
-  // the view re-derives its mode from the new scope (a part ending in a
-  // sketch enters sketch editing). One part is always active while the
-  // scene has any (tracker invariant), so re-clicking the active row is a
-  // no-op rather than a toggle.
-  panel.onPartActivate = (obj) => {
-    if (activePartTracker.isActive(obj)) {
-      return;
+  // statements land inside its callback body instead of at top level — and
+  // a click on the active part steps out to the file's top level, the part
+  // staying selected in the Parameters panel. Either way the view re-derives
+  // its mode from the new scope (a scope ending in an open sketch enters
+  // sketch editing).
+  panel.setActivePart = (part) => {
+    const changed = part === null ? activePartTracker.deactivate() : activePartTracker.activate(part);
+    if (changed) {
+      paramsPanel.syncParts();
+      refreshActivePartScope();
     }
-    activePartTracker.activate(obj);
-    paramsPanel.syncParts();
-    refreshActivePartScope();
+    return changed;
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
   // The eye on a consumed sketch, plane or axis row: view state in the
@@ -1275,12 +1332,22 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
 
   // Connector / exposed rows are references, not modeling steps: a click
-  // shows what they publish in the viewer instead of a rollback preview.
+  // shows what they publish in the viewer instead of a rollback preview. A
+  // copy row that copies only connectors shows its whole family — the seeds
+  // and every copy.
   panel.onFeatureShow = (obj) => {
     if (obj.type === 'connector' && obj.id != null) {
-      viewer.highlightConnector(obj.id);
+      viewer.highlightConnector([obj.id]);
+    } else if (SceneIndex.copiesOnlyConnectors(obj)) {
+      viewer.highlightConnector(SceneIndex.of(viewer.currentSceneObjects).connectorFamilyOf(obj));
     } else if (obj.type === 'exposed') {
       viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
+    }
+  };
+  // A connector row's "Copy…" opens the Copy dialog on that connector.
+  panel.onCopyConnector = (obj) => {
+    if (obj.id != null) {
+      copyService.enterWithConnector(obj.id);
     }
   };
   // Multi-selected rows dropped onto a part row → move their statements
@@ -1309,6 +1376,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    && !SceneIndex.isConnectorCopy(obj)
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint. A
@@ -1351,11 +1419,16 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
 const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
-  'copy-linear', 'copy-circular',
+  // A copy row opens the Copy dialog — a connector copy row too, filed with
+  // its part's connectors in the timeline; a copy that follows a repeat
+  // (`copy(holes, bolt)`) opens it on "Along a repeat".
+  'copy-linear', 'copy-circular', 'copy-pattern',
   'fuse', 'subtract', 'common',
   'plane',
   // A connector row sits inside its part() body; its dialog re-opens over the
-  // statement with the frame the row itself carries.
+  // statement with the frame the row itself carries. The copies a `copy()`
+  // made of one are the exception (SceneIndex.isConnectorCopy): they have no
+  // statement of their own.
   'connector',
   // 2D: an offset/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (Slot rows are deliberately absent — the slot
@@ -1397,7 +1470,10 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
   }
-  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
+  // A connector copy shares its copy statement's call site but is no
+  // statement of its own: it never opens a dialog — the copy row edits the
+  // pattern, the seed's pen its frame.
+  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation || SceneIndex.isConnectorCopy(obj)) {
     return;
   }
   const target = obj.sourceLocation;
@@ -1451,12 +1527,18 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     repeatService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'copy') {
     if (isCopy2DRow(obj)) {
+      if (parsed.kind === 'pattern') {
+        // Following a repeat is 3D only — a 2D row never parses as it.
+        addBreakpoint(target);
+        showEditRefusal('This copy follows a repeat — edit it in the source.');
+        return;
+      }
       // A 2D copy lives inside a sketch body and edits on the sketch rails —
       // the offset edit's pause-before contract, its originals visible and
       // re-pickable in the paused sketch.
       closeFeatureDialogs();
       pauseBeforeSketchStatement(obj, index);
-      sketchService.enterCopyEdit(target, parsed, result.statement);
+      sketchService.enterCopyEdit(target, { ...parsed, kind: parsed.kind }, result.statement);
     } else {
       copyService.enterEdit(target, parsed, info);
     }
@@ -2219,9 +2301,10 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
-    // One picking dialog at a time: a replicate session yields to the mate
-    // dialog (and vice versa below).
+    // One picking dialog at a time: a replicate or copy session yields to
+    // the mate dialog (and vice versa below).
     assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2237,9 +2320,12 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
   // file.
   onEditConnector: (state) => void connectorPropsEditor.open(state),
   // The pen on an assembly-connector chip: the connector dialog in edit
-  // mode on that statement.
+  // mode on that statement — a copy's seed's, since a copy has none of its
+  // own and follows its seed.
   onEditWorldConnector: (state) => {
-    const connector = lastAssemblyPayload?.connectors?.find(c => c.connectorId === state.connectorId);
+    const connectors = lastAssemblyPayload?.connectors ?? [];
+    const picked = connectors.find(c => c.connectorId === state.connectorId);
+    const connector = picked?.copy ? connectors.find(c => c.connectorId === picked.copy!.seedId) : picked;
     if (connector) {
       void assemblyConnectorService.edit(connector);
     }
@@ -2260,6 +2346,33 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+    assemblyConnectorCopyService.exit();
+  },
+});
+
+// The assembly Copy dialog: a Connectors row's "Copy…" opens it on that
+// connector, a copy's row (or "Edit copy…") on the copy() statement that
+// made it. Apply writes the statement via /api/assembly-connector-copy.
+const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  getCurrentFile: () => currentSceneAbsPath,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    // One picking dialog at a time.
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorService.exit();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(true, 'Pick for the copy');
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(false);
+    }
   },
 });
 
@@ -2274,6 +2387,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
     assemblyMateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2365,7 +2479,7 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking && !assemblyConnectorCopyService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2398,6 +2512,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // panels and the measure tool; the part-design pick services aren't
   // active here.
   if (currentRail?.kind === 'assembly') {
+    // The open Copy dialog owns every viewport click: an assembly
+    // connector's gizmo fills its armed slot.
+    if (assemblyConnectorCopyService.isPicking) {
+      assemblyConnectorCopyService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
     // The armed mate dialog owns every viewport click: connector picks fill
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
@@ -2446,6 +2566,17 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // face pick toggles into the set of sources its sketch projects.
   if (projectionService.isPicking) {
     projectionService.handleClick(shapeId, sub);
+    return;
+  }
+  // A connector-gizmo pick exists only while a part dialog armed connector
+  // picking (viewer.setConnectorPicking) — the Copy dialog takes it as a
+  // target or its axis; the Repeat dialog explains that Copy does.
+  if (sub?.type === 'connector') {
+    if (copyService.isPicking) {
+      copyService.handleConnectorPick(shapeId, modifiers);
+    } else if (repeatService.isPicking) {
+      repeatService.handleConnectorPick();
+    }
     return;
   }
   // A sketch-wire pick exists only while a create dialog is armed (the
@@ -2843,15 +2974,15 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
 let lastPartRender: { result: SceneObjectRender[]; isRollback: boolean; rollbackStop?: number } | null = null;
 
 /**
- * A part-row click repointed the active part: re-run the render cascade's
- * scope-derived pieces against the current scene so the view reacts now —
- * a newly active part ending in a sketch enters sketch editing (camera,
- * ghosting, toolbar, sketch dialog); anything else leaves it. Safe by
- * construction: this is the exact sequence a real render runs, and every
- * service already handles the scene's active sketch appearing or vanishing
- * between renders. Rolled-back views are left alone — their mode derives
- * from the rollback stop, not the active scope, and the next full render
- * re-derives everything.
+ * A part-row click repointed the active part (or stepped out of it to the
+ * top level): re-run the render cascade's scope-derived pieces against the
+ * current scene so the view reacts now — a new scope ending in an open
+ * sketch enters sketch editing (camera, ghosting, toolbar, sketch dialog);
+ * anything else leaves it. Safe by construction: this is the exact sequence
+ * a real render runs, and every service already handles the scene's active
+ * sketch appearing or vanishing between renders. Rolled-back views are left
+ * alone — their mode derives from the rollback stop, not the active scope,
+ * and the next full render re-derives everything.
  */
 function refreshActivePartScope(): void {
   if (!lastPartRender || lastPartRender.isRollback) {
@@ -3006,8 +3137,9 @@ function applySceneRendered(msg: any): void {
     assemblyMateService.handleSceneRendered(sceneKind);
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
+    assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      paramsPanel.update(msg.params);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);

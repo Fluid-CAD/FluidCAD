@@ -44,10 +44,12 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     const newVariables = nvResult.newVariables;
 
     // The timeline's active part: the part() statement whose callback body
-    // receives the created statement when nothing else pins a scope. Only the
-    // producer-less creates (pick-less sketch, standard-only plane,
-    // standard-axis helix) forward it — a producer-carrying spec inserts in
-    // its producers' scope regardless, so the field would be inert there.
+    // receives the created statement when no input pins a scope. The creates
+    // that can be built from sketches, planes, axes and wires alone forward
+    // it — sketch, plane, helix, extrude, revolve, sweep, loft, rib — and the
+    // transform homes them there when those inputs are declared at the top
+    // level. Picked geometry and solid targets always pin their own scope,
+    // so the field would be inert on every other create.
     let activePartLoc: SketchLoc | null = null;
     if (req.body?.activePart !== undefined && req.body?.activePart !== null) {
       activePartLoc = validateSketchLoc(req.body.activePart);
@@ -177,10 +179,11 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     }
 
     // A pick-less sketch: no face selector — a sketch on an origin plane or
-    // an existing plane() feature, appended after the file's last statement.
-    // No synthesis is involved; `plane` picks an origin target
-    // ('xy'/'xz'/'yz'), `planeRef` an existing plane statement by call site
-    // (bound to a variable — `sketch(p, () => {})`), absent defaults to xy.
+    // an existing plane() feature, landing in the active part's body unless
+    // the plane pins it to its own. No synthesis is involved; `plane` picks an
+    // origin target ('xy'/'xz'/'yz'), `planeRef` an existing plane statement by
+    // call site (bound to a variable — `sketch(p, () => {})`), absent defaults
+    // to xy.
     if (feature === 'sketch' && Array.isArray(req.body?.entities) && req.body.entities.length === 0) {
       await handlePlaneSketch(ctx, req, res);
       return;

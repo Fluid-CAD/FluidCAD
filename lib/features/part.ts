@@ -102,24 +102,67 @@ export class Part extends SceneObject implements IPart {
     return unitFactor(this.getDefinitionUnit(), this.getTargetUnit());
   }
 
-  getConnectors(): Connector[] {
-    return this.getChildren().filter(c => c instanceof Connector) as Connector[];
+  /**
+   * The connectors the part body declared with `connector('name', …)`, in
+   * statement order — its direct children. Their copies live under the
+   * `copy()` statements that made them.
+   */
+  getDeclaredConnectors(): Connector[] {
+    return this.getChildren().filter(
+      (c): c is Connector => c instanceof Connector && c.copySlot() === undefined,
+    );
   }
 
   /**
-   * The part's connectors keyed by the name each `connector('name', …)`
-   * statement registered. Mates reference connectors through this map
+   * Every connector frame the part carries: each declared connector followed
+   * by its copies in slot order (`bolt`, `bolt.instance(1)`, …) — what the
+   * render, the hosts and the mate solver see.
+   */
+  getConnectors(): Connector[] {
+    const out: Connector[] = [];
+    for (const connector of this.getDeclaredConnectors()) {
+      out.push(connector);
+      const family = connector.getFamily();
+      if (family) {
+        out.push(...family.getCopies());
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The part's declared connectors keyed by the name each `connector('name',
+   * …)` statement registered. Mates reference connectors through this map
    * (`instance.connectors.main`), so the binding is robust to source
    * reordering inside the part — adding or moving a `connector(...)` call
    * doesn't shuffle which name maps to which connector. Uniqueness is
-   * enforced at creation time by `connector()`.
+   * enforced at creation time by `connector()`. A copy is reached through
+   * its seed (`instance.connectors.bolt.instance(3)`), never by a name of
+   * its own — see {@link resolveConnector}.
    */
   getNamedConnectors(): Record<string, Connector> {
     const out: Record<string, Connector> = {};
-    for (const c of this.getConnectors()) {
+    for (const c of this.getDeclaredConnectors()) {
       out[c.connectorName] = c;
     }
     return out;
+  }
+
+  /**
+   * The connector a `(name, slot)` address names — the declared connector,
+   * or with a slot its copy there (the connector itself at the original's
+   * slot) — or null when either is missing. How `replicate()` rebinds a
+   * replica's own sides.
+   */
+  resolveConnector(name: string, slot?: number): Connector | null {
+    const connector = this.getDeclaredConnectors().find(c => c.connectorName === name);
+    if (!connector) {
+      return null;
+    }
+    if (slot === undefined) {
+      return connector;
+    }
+    return connector.getFamily()?.memberAt(slot) ?? null;
   }
 
   getExposed(): Exposed[] {

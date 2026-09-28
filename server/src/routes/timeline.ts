@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sceneUnitFields } from '../fluidcad-server/index.ts';
+import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
@@ -38,8 +38,7 @@ export function createTimelineRouter(
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
       result: data.result,
-      rollbackStop: data.rollbackStop,
-      ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -48,8 +47,7 @@ export function createTimelineRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
-      rollbackStop: data.rollbackStop,
-      ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
       // The last full render's paused state — a refresh replays whatever
       // scene message went out last, and the indicator must survive it.

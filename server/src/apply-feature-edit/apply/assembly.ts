@@ -3,6 +3,7 @@
 import { getJavaScriptParser, isExpressionText, walkTree } from '../../code-editor/index.ts';
 import { applyInstancePoseEdit } from '../../insert-chain-edit.ts';
 import { applyAssemblyConnectorEdit } from '../../assembly-connector-edit.ts';
+import { AssemblyConnectorCopyEdit } from '../../assembly-connector-copy-edit.ts';
 import { applyInsertParamsEdit } from '../../insert-params-edit.ts';
 import { applyAssemblyMateEdit, mateSideRefs, type AssemblyMateEditSpec } from '../../assembly-mate-edit.ts';
 import { landNewVariableDecls } from './create.ts';
@@ -55,6 +56,26 @@ export async function applyAssemblyConnectorWithDecls(
     return { newCode: code, error: result.error };
   }
   return landNewVariableDecls(code, result.newCode, result.statementLine!, spec.newVariables);
+}
+
+/**
+ * The `assemblyConnectorCopy` side-channel plus its expression extras, like
+ * the connector dialog's: apply the statement write, then land any
+ * declarations the dialog's count and spacing fields committed before the
+ * written statement. A removal lands none.
+ */
+export async function applyAssemblyConnectorCopyWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const result = await AssemblyConnectorCopyEdit.apply(code, spec.assemblyConnectorCopy!);
+  if (result.error !== undefined) {
+    return { newCode: code, error: result.error };
+  }
+  if (result.statementLine === undefined) {
+    return { newCode: result.newCode };
+  }
+  return landNewVariableDecls(code, result.newCode, result.statementLine, spec.newVariables);
 }
 
 /**

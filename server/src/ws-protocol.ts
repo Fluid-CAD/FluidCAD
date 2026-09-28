@@ -199,7 +199,11 @@ export type SerializedAssemblyReplicate = {
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
-/** One `connector('name', [x, y, z])` declared at assembly level, with its built frame. */
+/**
+ * One `connector('name', [x, y, z])` declared at assembly level, with its
+ * built frame — or a copy a top-level `copy()` made of one: its seed's name,
+ * its copy statement's location, and `copy`.
+ */
 export type SerializedAssemblyConnector = {
   connectorId: string;
   name: string;
@@ -209,6 +213,8 @@ export type SerializedAssemblyConnector = {
   yDirection: { x: number; y: number; z: number };
   normal: { x: number; y: number; z: number };
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a copy (`bay.instance(2)`): its pattern slot and its seed's id. Absent on older engines. */
+  copy?: { slot: number; seedId: string };
 };
 
 export type SerializedAssembly = {
@@ -235,7 +241,7 @@ export type SceneRenderedMessage = {
   projectUnit: LengthUnit;
   result: any[];
   rollbackStop: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
@@ -466,7 +472,7 @@ export type UISceneRenderedMessage = {
   /** See `SceneRenderedMessage.projectUnit`. */
   projectUnit: LengthUnit;
   rollbackStop?: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
   compileError?: CompileError;

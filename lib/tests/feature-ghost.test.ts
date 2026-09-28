@@ -14,6 +14,11 @@ import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
+import part from "../core/part.js";
+import connector from "../core/connector.js";
+import select from "../core/select.js";
+import { face } from "../filters/index.js";
+import { Connector } from "../features/connector.js";
 import { bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -29,6 +34,7 @@ import {
   SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
+import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
 import { horizontal } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
@@ -1552,7 +1558,7 @@ describe("feature ghost — copy", () => {
   /**
    * The dialog's Skip field, drawn: the instances it names are the ones the
    * apply won't place, so the ghost leaves exactly those holes
-   * (copy-linear.ts:82).
+   * (`CopyLayout.linear`).
    */
   it("leaves out the instances the skip list names", () => {
     locatedBox(5);
@@ -1646,7 +1652,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The one placement rule a copy does not share with a repeat: a partial
-   * sweep is divided by the instance count (copy-circular.ts:48), not by the
+   * sweep is divided by the instance count (`CopyLayout.circularStep`), not by the
    * gaps between them, so the last clone stops short of the stated angle.
    */
   it("divides a partial sweep by the count, not the gaps", () => {
@@ -1719,7 +1725,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The edit dialog's own blind spot: a copy takes its targets' shapes over
-   * (copy-linear.ts:33-38), so re-previewing the statement being edited finds
+   * (`CopyBase.build`), so re-previewing the statement being edited finds
    * them already consumed — by itself. Re-reading as if no removal applied
    * brings the body back, and without it editing any copy would draw nothing.
    */
@@ -1812,6 +1818,300 @@ describe("feature ghost — copy", () => {
     });
 
     expect(result.ok).toBe(false);
+  });
+
+  /**
+   * Connector copies: a connector target comes back as frames — its built
+   * frame moved by each slot's matrix, `ConnectorCopy.build`'s own rule — and
+   * a connector in the axis slot stands for its Z axis through its origin.
+   */
+  describe("connectors", () => {
+    type Frame = { origin: Vec; xDirection: Vec; yDirection: Vec; normal: Vec };
+    type Vec = { x: number; y: number; z: number };
+
+    const BOLT_LINE = 7;
+    const PIVOT_LINE = 8;
+
+    function near(v: Vec, x: number, y: number, z: number): void {
+      expect(v.x).toBeCloseTo(x, 6);
+      expect(v.y).toBeCloseTo(y, 6);
+      expect(v.z).toBeCloseTo(z, 6);
+    }
+
+    function framesOf(result: FeatureGhostResult): Frame[] {
+      if (!result.ok) {
+        throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+      }
+      return result.frames ?? [];
+    }
+
+    /**
+     * A 100 × 100 × 10 plate with `bolt` on its top face at (30, 0, 10) and
+     * `pivot` at (-20, 0, 10), both Z up, each addressable at its line like
+     * the parser's; `more` writes the rest of the part body.
+     */
+    function flange(more: (bolt: Connector) => void = () => {}): { bolt: Connector } {
+      const out = {} as { bolt: Connector };
+      part("flange", () => {
+        sketch("xy", () => {
+          testRect(100, 100, { at: [-50, -50] });
+        });
+        extrude(10).new();
+        out.bolt = (connector("bolt", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(30, 0, 0);
+        out.bolt.setSourceLocation({ filePath: FILE, line: BOLT_LINE, column: 0 });
+        const pivot = (connector("pivot", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(-20, 0, 0);
+        pivot.setSourceLocation({ filePath: FILE, line: PIVOT_LINE, column: 0 });
+        more(out.bolt);
+      });
+      return out;
+    }
+
+    const CIRCULAR: Partial<CopyGhostRequest> = {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+    };
+
+    it("places a connector target's copies as frames, the seed left alone", () => {
+      flange();
+      const scene = render();
+
+      const result = copyGhost(scene, [BOLT_LINE], CIRCULAR);
+
+      expect(result.ok && result.solids).toEqual([]);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, 0, 30, 10);
+      near(frames[0].xDirection, 0, 1, 0);
+      near(frames[0].normal, 0, 0, 1);
+      near(frames[1].origin, -30, 0, 10);
+      near(frames[2].origin, 0, -30, 10);
+    });
+
+    it("places the frames the statement builds — editing a copy that already made them", () => {
+      const made = flange(bolt => {
+        copy("circular", "z", { count: 5, angle: 360 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], { ...CIRCULAR, count: 5 }));
+
+      expect(frames).toHaveLength(4);
+      frames.forEach((frame, i) => {
+        const built = made.bolt.instance(i + 1).getFrame();
+        near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+        near(frame.xDirection, built.xDirection.x, built.xDirection.y, built.xDirection.z);
+        near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+      });
+    });
+
+    it("stamps solids and places frames for mixed targets", () => {
+      flange(() => {
+        locatedBox(5);
+      });
+      const scene = render();
+
+      const result = copyGhost(scene, [5, BOLT_LINE], {
+        directions: [{ count: 2, offset: 40, length: null }],
+      });
+
+      expect(solidsOf(result)).toHaveLength(1);
+      expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 70, 0, 10);
+    });
+
+    it("turns the copies around a connector's Z axis", () => {
+      flange();
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], {
+        ...CIRCULAR,
+        axes: [{ kind: 'connector', filePath: FILE, line: PIVOT_LINE }],
+      }));
+
+      // The bolt sits 50 out from the pivot's axis at (-20, 0).
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, -20, 50, 10);
+      near(frames[1].origin, -70, 0, 10);
+      near(frames[2].origin, -20, -50, 10);
+    });
+
+    it("takes a connector copy as the axis by its slot", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [PIVOT_LINE], {
+        ...CIRCULAR,
+        count: 2,
+        axes: [{ kind: 'connector', filePath: FILE, line: BOLT_LINE, slot: 1 }],
+      }));
+
+      // Half a turn around bolt.instance(1) at (70, 0): the pivot at (-20, 0) lands on (160, 0).
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 160, 0, 10);
+    });
+
+    it("refuses a connector axis the scene doesn't hold, or a slot the copy never made", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      for (const axis of [
+        { kind: 'connector' as const, filePath: FILE, line: 99 },
+        { kind: 'connector' as const, filePath: FILE, line: BOLT_LINE, slot: 5 },
+      ]) {
+        const result = copyGhost(scene, [PIVOT_LINE], { ...CIRCULAR, axes: [axis] });
+        expect(result.ok).toBe(false);
+        expect(refusal(result)).toBe('That axis is not in the rendered scene.');
+      }
+    });
+
+    describe("following a repeat", () => {
+      const REPEAT_LINE = 9;
+
+      const FOLLOW: Partial<CopyGhostRequest> = {
+        kind: 'pattern',
+        axes: [],
+        directions: [],
+        pattern: { filePath: FILE, line: REPEAT_LINE },
+      };
+
+      /** A boss beside the bolt, repeated by `repeatIt` — the repeat addressable at its line. */
+      function repeatedBoss(repeatIt: (boss: SceneObject) => SceneObject): (bolt: Connector) => void {
+        return () => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new() as unknown as SceneObject;
+          repeatIt(boss).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+        };
+      }
+
+      it("places the copies on the repeat's own slots — a partial arc spaced its way", () => {
+        flange(repeatedBoss(boss => repeat("circular", "z", { count: 4, angle: 90 }, boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const result = copyGhost(scene, [BOLT_LINE], FOLLOW);
+
+        expect(result.ok && result.solids).toEqual([]);
+        const frames = framesOf(result);
+        expect(frames).toHaveLength(3);
+        [30, 60, 90].forEach((degrees, i) => {
+          const a = (degrees * Math.PI) / 180;
+          near(frames[i].origin, 30 * Math.cos(a), 30 * Math.sin(a), 10);
+          near(frames[i].xDirection, Math.cos(a), Math.sin(a), 0);
+        });
+      });
+
+      it("places the frames the statement builds — editing a copy that already follows", () => {
+        const made = flange(bolt => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new();
+          const r = repeat("linear", ["x", "y"], { count: [2, 2], offset: [15, 25], skip: [[1, 1]] }, boss as never);
+          (r as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+          copy(r, bolt);
+        });
+        const scene = render();
+
+        const frames = framesOf(copyGhost(scene, [BOLT_LINE], FOLLOW));
+
+        // Cells (0, 1) and (1, 0); (1, 1) is skipped.
+        expect(frames).toHaveLength(2);
+        frames.forEach((frame, i) => {
+          const built = made.bolt.instance(i + 1).getFrame();
+          near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+          near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+        });
+        near(frames[0].origin, 30, 25, 10);
+        near(frames[1].origin, 45, 0, 10);
+      });
+
+      it("refuses, surfaced, a repeat the statement would refuse; quietly, one the scene doesn't hold", () => {
+        flange(repeatedBoss(boss => repeat("mirror", "yz", boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const mirrored = copyGhost(scene, [BOLT_LINE], FOLLOW);
+        expect(mirrored).toEqual({
+          ok: false,
+          reason: "copy(): copy(pattern, …) follows a linear or circular repeat() — a mirror repeat reflects its "
+            + "instance, and a copied connector is never reflected",
+          surface: true,
+        });
+
+        const gone = copyGhost(scene, [BOLT_LINE], { ...FOLLOW, pattern: { filePath: FILE, line: 99 } });
+        expect(gone).toEqual({ ok: false, reason: 'That repeat is not in the rendered scene.', surface: undefined });
+      });
+    });
+
+    describe("in an assembly", () => {
+      const BAY_LINE = 3;
+      const HUB_LINE = 4;
+
+      /**
+       * An assembly scene with `bay` at (0, 0, 20) and `hub` at (100, 0, 0),
+       * both on world axes, each addressable at its line like the parser's;
+       * `more` writes the rest of the file's top level.
+       */
+      function assemblyScene(more: (bay: Connector) => void = () => {}): Scene {
+        const scene = getSceneManager().startAssemblyScene();
+        const bay = connector("bay", [0, 0, 20]) as unknown as Connector;
+        bay.setSourceLocation({ filePath: FILE, line: BAY_LINE, column: 0 });
+        const hub = connector("hub", [100, 0, 0]) as unknown as Connector;
+        hub.setSourceLocation({ filePath: FILE, line: HUB_LINE, column: 0 });
+        more(bay);
+        getSceneManager().renderScene(scene);
+        return scene;
+      }
+
+      it("places an assembly connector's copies along a world axis", () => {
+        const scene = assemblyScene();
+
+        const frames = framesOf(copyGhost(scene, [BAY_LINE], {
+          directions: [{ count: 4, offset: 50, length: null }],
+        }));
+
+        expect(frames).toHaveLength(3);
+        near(frames[0].origin, 50, 0, 20);
+        near(frames[1].origin, 100, 0, 20);
+        near(frames[2].origin, 150, 0, 20);
+        near(frames[2].normal, 0, 0, 1);
+      });
+
+      it("turns them around another assembly connector's Z axis, or a copy's", () => {
+        const scene = assemblyScene(bay => {
+          copy("linear", "x", { count: 2, offset: 40 }, bay);
+        });
+
+        const aroundHub = framesOf(copyGhost(scene, [BAY_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: HUB_LINE }],
+        }));
+        // Half a turn about the vertical through the hub at (100, 0).
+        expect(aroundHub).toHaveLength(1);
+        near(aroundHub[0].origin, 200, 0, 20);
+
+        const aroundCopy = framesOf(copyGhost(scene, [HUB_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: BAY_LINE, slot: 1 }],
+        }));
+        // Half a turn about bay.instance(1) at (40, 0): the hub at (100, 0) lands on (-20, 0).
+        expect(aroundCopy).toHaveLength(1);
+        near(aroundCopy[0].origin, -20, 0, 0);
+      });
+    });
   });
 });
 

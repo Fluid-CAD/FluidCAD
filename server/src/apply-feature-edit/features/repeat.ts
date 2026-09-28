@@ -1,6 +1,6 @@
 // repeat(): option types, statement rendering, chain parsing and the edit renderer.
 
-import type { TSNode } from '../../code-editor/index.ts';
+import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   booleanArgValue,
@@ -196,7 +196,7 @@ export function parseRepeatChain(
   args: TSNode[],
   start: number,
   end: number,
-  numericVars: Set<string> = new Set(),
+  bindings: LexicalBindings,
 ): ChainParse {
   const rawKind = args.length > 0 ? stringArgValue(args[0]) : null;
   if (rawKind === null) {
@@ -247,7 +247,7 @@ export function parseRepeatChain(
     let rest = args.slice(2);
     let angle: ValueExpr | null = null;
     if (rest.length > 0) {
-      const value = numericValueArg(rest[0], numericVars);
+      const value = numericValueArg(rest[0], bindings);
       if (value !== null) {
         angle = value;
         rest = rest.slice(1);

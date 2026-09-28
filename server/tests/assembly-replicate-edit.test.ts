@@ -197,6 +197,80 @@ describe('validateReplicatePayload', () => {
   });
 });
 
+// Copies of a part connector (`copy(…, pin)` in the crank's part) are
+// ordinary columns and cells: each writes `.connectors.<name>.instance(slot)`.
+describe('applyAssemblyReplicateEdit — connector copies', () => {
+  const CRANK = `${HEADER}
+const crank = insert(crankShaft);
+const cyl1 = insert(pistonAssembly);
+mate('revolute', cyl1.parts.connectingRodCap1.connectors.c2, crank.connectors.pin);
+`;
+
+  it('writes copy targets and cells with .instance(slot)', async () => {
+    const crankLine = lineOf(CRANK, 'const crank');
+    const result = await applyAssemblyReplicateEdit(CRANK, {
+      create: {
+        seed: { instanceLine: lineOf(CRANK, 'const cyl1') },
+        targets: [{ instanceLine: crankLine, connectorName: 'pin' }],
+        rows: [
+          [{ instanceLine: crankLine, connectorName: 'pin', slot: 1 }],
+          [{ instanceLine: crankLine, connectorName: 'pin', slot: 2 }],
+        ],
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `replicate(cyl1, [crank.connectors.pin], [\n  [crank.connectors.pin.instance(1)],\n  [crank.connectors.pin.instance(2)],\n]);`,
+    );
+  });
+
+  it('writes a copy column and a copy on a replica anchor', async () => {
+    const code = `${CRANK}const cranks = replicate(crank, [cyl1.parts.connectingRodCap1.connectors.c2], [\n  [cyl1.parts.connectingRodCap1.connectors.c3],\n]);\n`
+      + `const cyl2 = insert(pistonAssembly);\nmate('revolute', cyl2.parts.connectingRodCap1.connectors.c2, crank.connectors.pin.instance(1));\n`;
+    const result = await applyAssemblyReplicateEdit(code, {
+      create: {
+        seed: { instanceLine: lineOf(code, 'const cyl2') },
+        targets: [{ instanceLine: lineOf(code, 'const crank'), connectorName: 'pin', slot: 1 }],
+        rows: [[{ instanceLine: lineOf(code, 'const cranks'), replicaRow: 0, connectorName: 'pin', slot: 3 }]],
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `replicate(cyl2, [crank.connectors.pin.instance(1)], [\n  [cranks[0].connectors.pin.instance(3)],\n]);`,
+    );
+  });
+
+  it('validates the slot, and a copy on the seed still sits on the seed', () => {
+    const seed = { instanceLine: 6 };
+    const crankPin = { instanceLine: 3, connectorName: 'pin' };
+    expect(validateReplicatePayload({ seed, targets: [crankPin], rows: [[{ ...crankPin, slot: -1 }]] }))
+      .toBe("row 1, column 1: a connector copy's slot must be a non-negative integer, got -1");
+    expect(validateReplicatePayload({ seed, targets: [{ ...crankPin, slot: 0.5 }], rows: [[crankPin]] }))
+      .toBe("target 1: a connector copy's slot must be a non-negative integer, got 0.5");
+    expect(validateReplicatePayload({ seed, targets: [crankPin], rows: [[{ instanceLine: 6, connectorName: 'c2', slot: 1 }]] }))
+      .toBe('row 1, column 1 — the replacement sits on the seed itself');
+    expect(validateReplicatePayload({ seed, targets: [crankPin], rows: [[{ ...crankPin, slot: 4 }]] })).toBeNull();
+  });
+
+  it('writes copies of an assembly connector as bore1.instance(k), and validates their slot', async () => {
+    const code = `${ENGINE}copy('linear', 'y', { count: 3, offset: 114 }, bore1);\n`;
+    const bore1 = { connectorLine: lineOf(code, "connector('bore1'"), connectorName: 'bore1' };
+    const result = await applyAssemblyReplicateEdit(code, {
+      create: {
+        seed: { instanceLine: lineOf(code, 'const cyl1') },
+        targets: [bore1],
+        rows: [[{ ...bore1, slot: 1 }], [{ ...bore1, slot: 2 }]],
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `replicate(cyl1, [bore1], [\n  [bore1.instance(1)],\n  [bore1.instance(2)],\n]);`,
+    );
+    expect(validateReplicatePayload({ seed: { instanceLine: 6 }, targets: [bore1], rows: [[{ ...bore1, slot: -2 }]] }))
+      .toBe("row 1, column 1: a connector copy's slot must be a non-negative integer, got -2");
+  });
+});
+
 describe('applyAssemblyReplicateEdit — edit', () => {
   it('re-renders the statement in place, keeping an array binding', async () => {
     const code = REPLICATED.replace(HEADER, HEADER_R).replace('replicate(cyl1', 'const cyls = replicate(cyl1');

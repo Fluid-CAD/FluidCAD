@@ -92,6 +92,48 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
     expect(lines[0]).toContain('sketch');
   });
 
+  it('lands the sketch at the file\'s top level, below the donor, without an active part', async () => {
+    const result = await applyFeatureEdit(TWO_PART_CODE, foreignSpec({ activePart: undefined }));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const sketchRow = lines.findIndex(l => l.startsWith(`sketch(p1.features.endFace, () => {`));
+    // Unindented, right after the last part's closing brace.
+    expect(sketchRow).toBeGreaterThan(lines.findIndex(l => l.includes(`part('Consumer'`)));
+    expect(lines[sketchRow - 1]).toBe('})');
+  });
+
+  it('creates the exposure first, then lands the top-level sketch without an active part', async () => {
+    const code = [
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
+      ``,
+      `export const p1 = part('Donor', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const create: ApplyFeatureEditSpec = {
+      feature: 'expose',
+      filePath: '/ws/model.fluid.js',
+      expose: { name: 'g1', part: { line: 3, column: 18 } },
+      producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+      imports: [],
+    };
+
+    const result = await applyFeatureEdit(code, foreignSpec({
+      activePart: undefined,
+      sketchForeign: { exposeName: 'g1', donor: { line: 3, column: 18 }, create },
+    }));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const exposeRow = lines.findIndex(l => l.includes(`expose('g1', e.endFaces(0))`));
+    const sketchRow = lines.findIndex(l => l.startsWith(`sketch(p1.features.g1, () => {`));
+    expect(exposeRow).toBeGreaterThan(-1);
+    expect(sketchRow).toBeGreaterThan(exposeRow);
+    expect(lines[0]).toContain('expose');
+  });
+
   it('refuses a donor part that is not bound to a const', async () => {
     const code = [
       `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
@@ -148,8 +190,8 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
       foreignSpec({ sketchForeign: { exposeName: 'g1', donor: { line: 3, column: 0 }, ident: 'p1' } }),
       // Bad name.
       foreignSpec({ sketchForeign: { exposeName: 'not an id', donor: { line: 3, column: 0 } } }),
-      // No active part.
-      foreignSpec({ activePart: undefined }),
+      // A half-addressed active part (no active part at all is the top level).
+      foreignSpec({ activePart: { line: 9 } as ApplyFeatureEditSpec['activePart'] }),
       // A cross-file spec cannot carry a create stage.
       foreignSpec({ sketchForeign: { exposeName: 'g1', ident: 'p1', importFrom: './d.fluid.js', create: foreignSpec() } }),
       // importFrom is cross-file-only.

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sceneUnitFields } from '../fluidcad-server/index.ts';
+import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { setDocumentUnit } from '../code-editor/index.ts';
 import { detectKind } from '../file-kind.ts';
@@ -104,7 +104,7 @@ export function createUnitRouter(deps: UnitRouterDeps): Router {
         sceneKind: data.sceneKind,
         ...sceneUnitFields(data),
         result: data.result,
-        rollbackStop: data.rollbackStop,
+        ...sceneStopFields(data),
         ...(data.assembly ? { assembly: data.assembly } : {}),
       });
       broadcastToUI({
@@ -113,6 +113,7 @@ export function createUnitRouter(deps: UnitRouterDeps): Router {
         absPath: data.absPath,
         sceneKind: data.sceneKind,
         ...sceneUnitFields(data),
+        ...sceneStopFields(data),
         breakpointHit: data.breakpointHit,
         params: data.params,
         ...(data.assembly ? { assembly: data.assembly } : {}),

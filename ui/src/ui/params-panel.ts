@@ -88,23 +88,24 @@ export class ParamsPanel extends AccordionSection {
   private list: HTMLDivElement;
   /** The header's +, or null on a host without an editor to open. */
   private addButton: HTMLElement | null = null;
-  /** Where the Part dropdown reads the scene's parts and the active one from. */
+  /** Where the Part dropdown reads the scene's parts and the timeline's selected one from. */
   private partProvider: (() => PartChoices) | null = null;
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
   /**
    * What the user chose in the dropdown: a part, or undefined while nothing
-   * was chosen — the dropdown then follows the active part. A choice lasts
-   * until the active part changes (a timeline click, a new part), which
-   * resets it to that default.
+   * was chosen — the dropdown then follows the timeline's selected part. A
+   * choice lasts until that selection moves (a click on another part row, a
+   * new part), which resets it to that default; stepping out of the selected
+   * part to the file's top level keeps it.
    */
   private pick: PartChoice | undefined = undefined;
   /** True while update() runs syncParts — it decides the redraw itself. */
   private syncing = false;
-  /** File and name of the active part at the last sync — the identity a line shift keeps. */
-  private lastActiveKey: string | null = null;
+  /** File and name of the timeline's selected part at the last sync — the identity a line shift keeps. */
+  private lastSelectedKey: string | null = null;
 
-  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
+  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog, private scope: 'part' | 'assembly' = 'part') {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
     super('Parameters', {
@@ -174,6 +175,9 @@ export class ParamsPanel extends AccordionSection {
    * when the scene has no parts to filter by.
    */
   private visibleParams(): UIParamDefinition[] {
+    if (this.scope === 'assembly') {
+      return this.currentParams.filter(p => p.part === undefined);
+    }
     const selected = this.partChoices.length === 0 ? null : this.selectedPart;
     if (selected === null) {
       return this.currentParams;
@@ -183,10 +187,10 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * Where the Part dropdown reads the scene's parts and the active one from —
-   * the timeline's part tracker. Without a provider (a host with no timeline)
-   * the dropdown never shows and, with no part to declare in, neither does
-   * the +, as in a scene with no parts.
+   * Where the Part dropdown reads the scene's parts and the selected one
+   * from — the timeline's part tracker. Without a provider (a host with no
+   * timeline) the dropdown never shows and, with no part to declare in,
+   * neither does the +, as in a scene with no parts.
    */
   setPartProvider(provider: () => PartChoices): void {
     this.partProvider = provider;
@@ -194,22 +198,22 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * The part a new parameter goes into: the dropdown's choice, or the active
-   * part while nothing was chosen. Null only in a scene with no parts, which
-   * has nowhere to declare one.
+   * The part a new parameter goes into: the dropdown's choice, or the
+   * timeline's selected part while nothing was chosen. Null only in a scene
+   * with no parts, which has nowhere to declare one.
    */
   get selectedPart(): SourceLocation | null {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    const choices = this.partProvider?.() ?? { parts: [], selected: null };
     if (this.pick === undefined) {
-      return choices.active;
+      return choices.selected;
     }
-    return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.active;
+    return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.selected;
   }
 
   /**
    * The chosen part as the current render lists it — by statement line, else
    * by file and name: an insert above the statement shifts its line, a rename
-   * keeps the line. Same rule the tracker re-resolves the active part by.
+   * keeps the line. Same rule the tracker re-resolves the selected part by.
    */
   private static resolve(wanted: PartChoice, parts: PartChoice[]): PartChoice | null {
     return parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted.sourceLocation))
@@ -225,25 +229,30 @@ export class ParamsPanel extends AccordionSection {
   /**
    * Redraw the Part dropdown from the provider. Every render calls this
    * through {@link update}; the timeline calls it when a part-row click moves
-   * the active part without a render. The row hides when the scene has no
+   * the selection without a render. The row hides when the scene has no
    * parts, and so does the +: there is no part to declare a parameter in.
    */
   syncParts(): void {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
-    const active = choices.active === null
+    if (this.scope === 'assembly') {
+      this.partBar.hidden = true;
+      if (this.addButton) this.addButton.hidden = false;
+      return;
+    }
+    const choices = this.partProvider?.() ?? { parts: [], selected: null };
+    const timelinePart = choices.selected === null
       ? null
-      : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.active!)) ?? null;
-    const activeKey = ParamsPanel.keyOf(active);
-    const activeMoved = activeKey !== this.lastActiveKey;
-    if (activeMoved) {
+      : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.selected!)) ?? null;
+    const selectedKey = ParamsPanel.keyOf(timelinePart);
+    const selectionMoved = selectedKey !== this.lastSelectedKey;
+    if (selectionMoved) {
       this.pick = undefined;
     }
-    this.lastActiveKey = activeKey;
+    this.lastSelectedKey = selectedKey;
     const hadParts = this.partChoices.length > 0;
     this.partChoices = choices.parts;
     // Called outside update() (a timeline click), a moved selection changes
     // which rows show — redraw the list to match.
-    if (!this.syncing && (activeMoved || hadParts !== choices.parts.length > 0)) {
+    if (!this.syncing && (selectionMoved || hadParts !== choices.parts.length > 0)) {
       this.renderParams();
     }
 
@@ -267,7 +276,7 @@ export class ParamsPanel extends AccordionSection {
     const index = selected === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, selected));
-    // A scene with parts always has an active one among them; the first
+    // A scene with parts always has a selected one among them; the first
     // entry only stands in for a tracker mid-resolution.
     select.value = String(Math.max(index, 0));
     select.addEventListener('change', () => {
@@ -412,6 +421,11 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private emptyMessage(): string {
+    if (this.scope === 'assembly') {
+      return this.editor
+        ? 'No assembly parameters yet. Use + above to add one.'
+        : 'No assembly parameters yet. Declare one with <code>param(...)</code> inside the assembly body.';
+    }
     // A parameter only lives inside a part body: without a part there is no
     // + to offer, only the call to write.
     if (this.partChoices.length === 0) {

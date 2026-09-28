@@ -22,6 +22,7 @@ export type {
   FilletGhostRequest,
   GhostAxisRef,
   GhostEntityRef,
+  GhostFrame,
   GhostHelixSourceRef,
   GhostLoftCondition,
   GhostPathRef,
@@ -47,6 +48,7 @@ export type {
   SweepGhostRequest,
 } from './ghost-requests.ts';
 export {
+  sceneStopFields,
   sceneUnitFields,
   type SceneSummary,
   type SceneSummaryObject,

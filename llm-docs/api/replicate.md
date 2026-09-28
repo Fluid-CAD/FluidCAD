@@ -31,6 +31,14 @@ Rules:
   `const [b, c] = replicate(...)` can name or mate them further.
 - A sub-assembly seed is re-run with the same parameters, inner mates
   included.
+- A target or row cell is any mate side, a connector's copy included:
+  `f.connectors.bolt.instance(k)` (copy k of `bolt`), or `bay.instance(k)`
+  for a copied assembly connector.
+- Rows are always explicit. Nothing follows the part's pattern: if the part
+  copies `bolt` six times instead of four, add the rows. In the Replicate
+  dialog, **Suggest copies** fills the rows for you — for a column whose
+  connector the part copies, one row per unused member of its family, in
+  slot order; otherwise one per unused connector on the same part.
 
 ```js
 import { assembly, insert, mate, replicate } from "fluidcad/core";
@@ -42,16 +50,19 @@ export const standoffs = assembly("standoffs", () => {
 
   // the seed: one standoff fastened onto the first mounting hole
   const first = insert(standoff);
-  mate("fastened", base.connectors.hole1, first.connectors.foot);
+  mate("fastened", base.connectors.hole, first.connectors.foot);
 
-  // three more, one per remaining hole
-  replicate(first, [base.connectors.hole1], [
-    [base.connectors.hole2],
-    [base.connectors.hole3],
-    [base.connectors.hole4],
+  // three more, one per remaining hole: the plate copies its `hole`
+  // connector onto them with
+  //   copy("linear", ["x", "y"], { count: [2, 2], offset: [60, 35] }, hole)
+  replicate(first, [base.connectors.hole], [
+    [base.connectors.hole.instance(1)],
+    [base.connectors.hole.instance(2)],
+    [base.connectors.hole.instance(3)],
   ]);
 });
 ```
 
-Use `repeat()` / `copy()` for geometric patterns inside a part; `replicate()`
+Use `repeat()` / `copy()` for geometric patterns inside a part (and
+`copy()` of assembly connectors at an assembly's top level); `replicate()`
 is for placing a mated thing again on new references.

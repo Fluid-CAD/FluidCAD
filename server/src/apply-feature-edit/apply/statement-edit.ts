@@ -8,11 +8,11 @@ import {
   findEnclosingPart,
   getJavaScriptParser,
   indentOf,
+  LexicalBindings,
   spliceCode,
   splitLines,
 } from '../../code-editor/index.ts';
 import { SelectHoist } from '../../select-hoist.ts';
-import { numericVarNames } from '../ast/args.ts';
 import { enclosingScope, enclosingSketchStatement, enclosingStatement, sameNode } from '../ast/nodes.ts';
 import { declarationsBefore } from '../insertion.ts';
 import { parseFeatureChain } from '../parse/feature-chain.ts';
@@ -32,9 +32,10 @@ import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
  * Re-sourced slots bind their producers exactly like create mode (reuse an
  * existing `const`, or prepend `const <name> = ` to the bare statement) —
  * with one extra rule the create path never needs: a producer's statement
- * must lie strictly before the edited statement in the same scope, because
- * the rewritten statement executes where it already is. A producer at or
- * after it would be a self or forward reference.
+ * must lie strictly before the edited statement in the same scope (any
+ * enclosing scope for a top-level identity input), because the rewritten
+ * statement executes where it already is. A producer at or after it would
+ * be a self or forward reference.
  */
 export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Promise<ApplyFeatureEditResult> {
   const edit = spec.edit!;
@@ -48,7 +49,7 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
   if (!call) {
     return { newCode: code, error: `no call found at line ${edit.line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code, numericVarNames(tree));
+  const chain = parseFeatureChain(call, code, new LexicalBindings(tree));
   if ('error' in chain) {
     return { newCode: code, error: chain.error };
   }
@@ -89,12 +90,14 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
       }
       // A projection's sources live OUTSIDE the sketch body its statement
       // sits in, so any scope enclosing the edited statement is in reach
-      // (the ordering check above already guarantees visibility). Everything
+      // (the ordering check above already guarantees visibility), and a
+      // top-level identity input reaches every scope below it — a part-body
+      // extrude re-sourced to a sketch drawn before the part. Everything
       // else keeps the strict same-scope rule.
-      const scopeOk = spec.feature === 'project'
+      const scopeOk = !binding.pinsScope || (spec.feature === 'project'
         ? binding.scope.startIndex <= editedStatement.startIndex
           && binding.scope.endIndex >= editedStatement.endIndex
-        : sameNode(binding.scope, enclosingScope(editedStatement));
+        : sameNode(binding.scope, enclosingScope(editedStatement)));
       if (!scopeOk) {
         return {
           newCode: code,

@@ -140,9 +140,11 @@ export class ForeignExposures {
 /**
  * The consumer-side cross-part sketch: render
  * `sketch(<ident>.features.<exposeName>, () => {})` into the ACTIVE part's
- * body. With a same-file `create` spec the exposure statement is applied
- * first in the same transform, the active part's call site relocated
- * across it, so both stages stay atomic in one editor round trip.
+ * body, or — with no active part — at the file's top level, which lands it
+ * below every part the render built (reading `.features` builds the donor
+ * right there). With a same-file `create` spec the exposure statement is
+ * applied first in the same transform, the active part's call site
+ * relocated across it, so both stages stay atomic in one editor round trip.
  */
 export async function applySketchForeign(
   code: string,
@@ -150,14 +152,15 @@ export async function applySketchForeign(
   apply: FeatureEditApply,
 ): Promise<ApplyFeatureEditResult> {
   const sf = spec.sketchForeign;
+  const part = spec.activePart;
   const valid = ForeignExposures.valid(sf)
-    && Number.isInteger(spec.activePart?.line) && Number.isInteger(spec.activePart?.column)
+    && (part === undefined || (Number.isInteger(part.line) && Number.isInteger(part.column)))
     && spec.producers.length === 0 && spec.parts.length === 0;
   if (!valid) {
     return { newCode: code, error: 'malformed foreign sketch spec' };
   }
 
-  const staged = await ForeignExposures.applyCreates(apply, code, [sf], [spec.activePart!.line]);
+  const staged = await ForeignExposures.applyCreates(apply, code, [sf], part ? [part.line] : []);
   if ('error' in staged) {
     return { newCode: code, error: staged.error };
   }
@@ -172,7 +175,7 @@ export async function applySketchForeign(
     indent => `sketch(${ForeignExposures.reference(ident.ident, ref)}, () => {\n\n${indent}})`,
     'sketch',
     spec.newVariables,
-    { line: staged.anchors[0], column: spec.activePart!.column },
+    part ? { line: staged.anchors[0], column: part.column } : undefined,
   );
   if (result.error) {
     return { newCode: code, error: result.error };

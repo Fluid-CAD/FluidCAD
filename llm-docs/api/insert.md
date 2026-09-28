@@ -34,6 +34,7 @@ and exposes the part's interface:
 | member | meaning |
 |--------|---------|
 | `instance.connectors.<name>` | a connector the part declared, bound to this instance — a `mate()` side |
+| `instance.connectors.<name>.instance(k)` | copy k of that connector, when the part `copy()`s it — a `mate()` side too |
 | `instance.features.<name>` | an `expose()`d face/edge bound to this instance — a `mate('tangent')` side |
 | `occurrence.parts` | a sub-assembly's return value, for deep references |
 

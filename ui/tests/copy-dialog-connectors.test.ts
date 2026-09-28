@@ -338,6 +338,68 @@ describe('Copy dialog — connectors', () => {
     expect(service.isActive).toBe(true);
     expect(chips('targets-slot')).toEqual(['Connector pivot']);
   });
+
+  it('ghosts an edited copy as soon as it reopens, before any field changes', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [FRAME, FRAME], notice: null });
+    const { service, ghostGroup } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', kind: 'circular', axisTexts: ["'z'"], axisRefs: [null], directions: null, spacingMode: null,
+      centered: false, count: 6, sweep: { mode: 'angle', value: 360 }, center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, { index: 7, type: 'copy-circular', expectedStatement: "copy('circular', 'z', { count: 6, angle: 360 }, bolt)" });
+    const edited = {
+      id: 'edited', type: 'copy-circular', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+
+    const request = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0];
+    expect(request).toMatchObject({
+      feature: 'copy', kind: 'circular', targets: [{ filePath: FILE, line: 6 }],
+      axes: [{ kind: 'standard', axis: 'z' }], count: 6,
+    });
+    expect(ghostGroup().children).toHaveLength(2);
+    service.exit();
+  });
+
+  it('ghosts an edited copy whose kept axis is an inline axis(<edge>), turning the edge it was built on', async () => {
+    // What an edge pick writes: the axis lands inline, so the sources query
+    // answers with the edge it names rather than a statement.
+    vi.mocked(api.fetchFeatureSources).mockResolvedValue({
+      ok: true, feature: 'copy',
+      targets: [{ kind: 'sketch', ...at(6, 15) }],
+      axes: [{ kind: 'entities', entities: [{ shapeId: 'solid', sub: { type: 'edge', index: 3 } }] }],
+    });
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [FRAME, FRAME, FRAME], notice: null });
+    const { service, text, ghostGroup } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', kind: 'linear', axisTexts: ["axis(e.startEdges(edge().farthest('z')))"], axisRefs: [null],
+      directions: [{ count: 4, value: -200 }], spacingMode: 'offset', centered: false, count: null, sweep: null,
+      center: null, skip: null, targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, {
+      index: 7, type: 'copy-linear',
+      expectedStatement: "copy('linear', axis(e.startEdges(edge().farthest('z'))), { count: 4, offset: -200 }, bolt)",
+    });
+    expect(text('axis-slot-1')).toContain('Current: axis(');
+    const edited = {
+      id: 'edited', type: 'copy-linear', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+
+    const request = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0];
+    expect(request).toMatchObject({
+      feature: 'copy', kind: 'linear', targets: [{ filePath: FILE, line: 6 }],
+      axes: [{ kind: 'edge', shapeId: 'solid', index: 3 }],
+      directions: [{ count: 4, offset: -200, length: null }],
+    });
+    expect(ghostGroup().children).toHaveLength(3);
+    service.exit();
+  });
 });
 
 describe('Repeat dialog — connectors (B9)', () => {

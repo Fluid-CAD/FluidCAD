@@ -15,6 +15,7 @@ import { RepeatDirection, RepeatPanel } from './repeat-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
@@ -1037,11 +1038,8 @@ export class RepeatFeatureService {
       return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
     }
     // The kept statement axis, as the sources query resolved it — an `axis()`
-    // the statement names by variable. A world-axis literal never reaches here
-    // (the slot reads `'z'` as the standard selection itself), and anything
-    // else is an expression no ghost can stand in for.
-    const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
-    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
+    // statement, or the edge an inline `axis(<edge>)` was built on.
+    return KeptAxisSlot.ghostRef(this.sourceSlots?.axes[selection.sourceIndex]);
   }
 
   /** The mirror plane slot, in the form the kernel resolves. */

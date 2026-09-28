@@ -18,6 +18,7 @@ import { PatternOption, PatternOptions, PatternPick } from './pattern-options';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
@@ -1068,17 +1069,16 @@ export class CopyFeatureService {
       const entity = this.axisEdgeEntities.get(direction);
       return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
     }
-    // The kept statement axis, as the sources query resolved it — an `axis()`
-    // or a connector the statement names by variable. A world-axis literal
-    // never reaches here (the slot reads `'z'` as the standard selection
-    // itself), and anything else is an expression no ghost can stand in for.
-    const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
-    if (!loc) {
-      return null;
+    // The kept statement axis, as the sources query resolved it — a connector
+    // the statement names by variable turns its Z axis; anything else is what
+    // every dialog's kept axis resolves to (an `axis()` statement, or the edge
+    // an inline `axis(<edge>)` was built on).
+    const slot = this.sourceSlots?.axes[selection.sourceIndex];
+    const loc = KeptAxisSlot.statement(slot);
+    if (loc && ConnectorOptions.forLocation(loc, this.connectorOptions)) {
+      return { kind: 'connector', filePath: loc.filePath, line: loc.line };
     }
-    return ConnectorOptions.forLocation(loc, this.connectorOptions)
-      ? { kind: 'connector', filePath: loc.filePath, line: loc.line }
-      : { kind: 'axis', filePath: loc.filePath, line: loc.line };
+    return KeptAxisSlot.ghostRef(slot);
   }
 
   /** One target as the apply request names it: its statement, a connector's marked as one. */

@@ -14,6 +14,7 @@ import { RevolvePanel } from './revolve-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -648,12 +649,11 @@ export class RevolveFeatureService {
         ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index }
         : null;
     }
-    // Keep: the statement's own axis, which resolves to an `axis()` call site
-    // or to nothing the ghost can address (a standard literal reads as the
-    // standard selection above, never as keep).
-    return this.sourceSlots?.axis.kind === 'sketch'
-      ? { kind: 'axis', filePath: this.sourceSlots.axis.filePath, line: this.sourceSlots.axis.line }
-      : null;
+    // Keep: the statement's own axis, which resolves to an `axis()` call site,
+    // to the edge an inline `axis(<edge>)` was built on, or to nothing the
+    // ghost can address (a standard literal reads as the standard selection
+    // above, never as keep).
+    return KeptAxisSlot.ghostRef(this.sourceSlots?.axis);
   }
 
   /** The axis slot's request field, or the message blocking it. */

@@ -122,7 +122,8 @@ export class SettingsModal {
     // Capture phase, like the other modals: the dialog is on top, so its
     // Escape must not reach the feature dialog or sketch underneath.
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isOpen()) {
+      // A modal that has left the document keeps no hold on the keyboard.
+      if (e.key === 'Escape' && this.overlay.isConnected && this.isOpen()) {
         e.stopPropagation();
         this.hide();
       }

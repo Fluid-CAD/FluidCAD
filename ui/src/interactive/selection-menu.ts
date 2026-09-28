@@ -49,7 +49,8 @@ export class SelectionContextMenu {
     // Capture phase: an Escape that closes the menu must not also reach a
     // pick mode's own Escape handler (which would exit the whole mode).
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isOpen) {
+      // A menu that has left the document keeps no hold on the keyboard.
+      if (e.key === 'Escape' && this.el.isConnected && this.isOpen) {
         e.preventDefault();
         e.stopPropagation();
         this.hide();

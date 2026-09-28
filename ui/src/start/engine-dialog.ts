@@ -119,8 +119,9 @@ export class EngineDialog {
     );
   }
 
+  /** Showing, in the page: a dialog that left the document keeps no hold on its keys. */
   isOpen(): boolean {
-    return !this.element.classList.contains('hidden');
+    return this.element.isConnected && !this.element.classList.contains('hidden');
   }
 
   get working(): boolean {

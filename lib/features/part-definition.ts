@@ -46,6 +46,9 @@ export class PartDefinition<T = unknown> {
   /** Display name new variants materialize with — `.name()` overrides partName. */
   private displayName: string;
 
+  /** Material id new variants materialize with — `.material()` sets it; null until then. */
+  private materialId: string | null = null;
+
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
@@ -75,6 +78,31 @@ export class PartDefinition<T = unknown> {
   name(value: string): this {
     this.displayName = value;
     return this;
+  }
+
+  /**
+   * Assigns the part's material by id — a built-in (`'fluidcad-steel-1020'`,
+   * `'fluidcad-aluminum-6061'`, …) or a key of the `materials` map in the
+   * project's `fluidcad.json`. Mass in Shape Properties derives from it.
+   * An id the merged list does not know is a warning on the part's row,
+   * never a build error: the geometry builds and the raw id stays on the
+   * part. Variants materialized after this call carry it, like `.name()`.
+   *
+   *     part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
+   *
+   * @param id - A material id from the built-in list or the project's `fluidcad.json` `materials` map.
+   */
+  material(id: string): this {
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error(`part '${this.partName}': .material() takes a material id, e.g. .material('fluidcad-steel-1020').`);
+    }
+    this.materialId = id;
+    return this;
+  }
+
+  /** The material id `.material()` assigned, or null. */
+  getMaterial(): string | null {
+    return this.materialId;
   }
 
   private variantsIn(scene: Scene): Map<string, Part> {
@@ -156,6 +184,7 @@ export class PartDefinition<T = unknown> {
     if (this.sourceLocation) {
       partObj.setSourceLocation(this.sourceLocation);
     }
+    partObj.setMaterial(this.materialId);
     // The Part itself bypasses registerBuilder so it is stamped here.
     partObj.setUnit(definitionUnit);
     partObj.setTargetUnit(targetUnit);

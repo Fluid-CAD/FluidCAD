@@ -439,3 +439,82 @@ describe("assembly definition parameters", () => {
     expect(partSaw).toBe(100);
   });
 });
+
+describe("part(...).material(id)", () => {
+  setupOC();
+
+  function startAssembly(): AssemblyScene {
+    return getSceneManager().startAssemblyScene();
+  }
+
+  it("is a chained setter beside .name() and reads back from the definition", () => {
+    const def = part("m", () => {}).material("fluidcad-steel-1020");
+    expect(def).toBeInstanceOf(PartDefinition);
+    expect(def.getMaterial()).toBe("fluidcad-steel-1020");
+    expect(part("n", () => {}).getMaterial()).toBeNull();
+    expect(def.name("Renamed").material("fluidcad-pla").getMaterial()).toBe("fluidcad-pla");
+  });
+
+  it("rejects an empty or non-string id", () => {
+    expect(() => part("m", () => {}).material("")).toThrow(/material id/);
+    expect(() => part("m", () => {}).material(7 as any)).toThrow(/material id/);
+  });
+
+  it("the entry-file variant carries the id and serializes it as `material`", () => {
+    const def = part("plate", () => {
+      sketch("xy", () => { testRect(10, 10); });
+      extrude(2);
+    }).material("fluidcad-aluminum-6061");
+    const scene = render();
+    const parts = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(parts).toHaveLength(1);
+    expect(scene.getAllSceneObjects().filter(o => o.getError())).toEqual([]);
+    expect(parts[0].getMaterial()).toBe("fluidcad-aluminum-6061");
+    expect(parts[0].serialize().material).toBe("fluidcad-aluminum-6061");
+    expect(def.getMaterial()).toBe("fluidcad-aluminum-6061");
+  });
+
+  it("serializes no material key value when the definition assigned none", () => {
+    part("bare", () => {});
+    const scene = render();
+    const [bare] = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(bare.getMaterial()).toBeNull();
+    expect(bare.serialize().material).toBeUndefined();
+  });
+
+  it("an unknown id still builds — the raw id rides the payload, no object error", () => {
+    part("odd", () => {
+      sketch("xy", () => { testRect(10, 10); });
+      extrude(2);
+    }).material("unobtainium");
+    const scene = render();
+    expect(scene.getAllSceneObjects().filter(o => o.getError())).toEqual([]);
+    const [odd] = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(odd.serialize().material).toBe("unobtainium");
+  });
+
+  it("rides the serialized assembly instance, absent when none", () => {
+    const scene = startAssembly();
+    const steel = part("steel", () => {}).material("fluidcad-steel-1020");
+    const bare = part("bare", () => {});
+    insert(steel);
+    insert(bare);
+    const [a, b] = scene.getSerializedInstances();
+    expect(a.material).toBe("fluidcad-steel-1020");
+    expect(b.material).toBeUndefined();
+    expect("material" in b).toBe(true);
+  });
+
+  it("compareTo differs on the material alone, so a material-only edit misses the render cache", () => {
+    const same = new Part("p");
+    const other = new Part("p");
+    expect(same.compareTo(other)).toBe(true);
+    other.setMaterial("fluidcad-steel-1020");
+    expect(same.compareTo(other)).toBe(false);
+    expect(other.compareTo(same)).toBe(false);
+    same.setMaterial("fluidcad-steel-1020");
+    expect(same.compareTo(other)).toBe(true);
+    other.setMaterial("fluidcad-pla");
+    expect(same.compareTo(other)).toBe(false);
+  });
+});

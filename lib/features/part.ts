@@ -47,6 +47,14 @@ export class Part extends SceneObject implements IPart {
    */
   private _targetUnit: LengthUnit | null = null;
 
+  /**
+   * The material id the definition's `.material()` assigned, copied here by
+   * `PartDefinition.buildVariant`; null when none. Kept as the raw id (the
+   * server resolves it against the merged materials list — an unknown id
+   * is a warning there, not a build error here).
+   */
+  private _material: string | null = null;
+
   constructor(public partName: string) {
     super();
     this.name(partName);
@@ -82,11 +90,26 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
+    // The material rides the serialized payload: a cached Part served for
+    // a material-only edit would keep reporting the old id.
+    if (this._material !== other._material) {
+      return false;
+    }
+
     return true;
   }
 
   getType(): string {
     return "part";
+  }
+
+  setMaterial(id: string | null): void {
+    this._material = id;
+  }
+
+  /** The material id `.material()` assigned on the definition, or null. */
+  getMaterial(): string | null {
+    return this._material;
   }
 
   /** The unit the defining file's numbers are in. */
@@ -296,6 +319,8 @@ export class Part extends SceneObject implements IPart {
   serialize() {
     return {
       name: this.partName,
+      /** The material id, absent when the definition assigned none. */
+      material: this._material ?? undefined,
       paramValues: this.paramValues,
       // Control metadata for per-instance parameter editing (sourceLocation
       // stripped — that serves the panel's declaration edits, not the wire).

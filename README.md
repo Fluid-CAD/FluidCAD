@@ -257,7 +257,13 @@ Step-by-step tutorials from simple shapes to exam-level parts. [Browse all tutor
 
 ## Getting Started
 
-The quickest route is the [desktop app](#download): install it, open a folder, and start modeling. The steps below are for running FluidCAD from a Node.js project in your browser.
+The quickest route is the [desktop app](#download): install it, open a folder, and start modeling. In a browser, the same start screen is one command away, from any folder:
+
+```bash
+npx fluidcad
+```
+
+Create or open projects there; each opens in a tab of its own. The steps below set a project up from the terminal instead.
 
 ### 1. Create a New Project
 

@@ -35,14 +35,28 @@ Open the disk image and drag FluidCAD into **Applications**. The build is signed
 
 ## npm installation
 
-If you would rather run FluidCAD from a Node.js project and model in your browser, install the `fluidcad` package into a folder, start its server, and model in the tab it opens.
+If you would rather run FluidCAD from a terminal and model in your browser, run it with `npx`: on its own for the start screen, or inside a project to open just that one.
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) version 24 or higher
 - npm (comes with Node.js)
 
+### The start screen
+
+```bash
+npx fluidcad
+```
+
+opens the start screen in your browser, the same one the desktop app shows: your
+recent projects, **New Project**, **Open Project**, and the engine each project
+runs on. Each project opens in a tab of its own. Leave the command running while
+you work; `Ctrl+C` stops FluidCAD and every project it opened. See [`fluidcad`
+in the CLI Reference](/docs/cli#fluidcad).
+
 ### Create a new project
+
+To set a project up from the terminal instead:
 
 ```bash
 mkdir my-hinge && cd my-hinge
@@ -176,7 +190,7 @@ whichever fits your workflow.
 
 ### The built-in editor (recommended)
 
-The desktop app and `npx fluidcad serve` both open the whole product: the 3D
+The desktop app, `npx fluidcad` and `npx fluidcad serve` all open the whole product: the 3D
 viewport, every interactive modelling tool, and a code editor with completion
 driven by the engine's own type declarations — so `extrude(` shows its signature
 and `edge().onPlane(` completes, always matching the version you're running.

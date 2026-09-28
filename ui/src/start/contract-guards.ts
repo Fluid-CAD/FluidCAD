@@ -12,16 +12,21 @@
  */
 
 import type {
+  ActionResult,
   Appearance,
-  ApplyPinResult,
   EngineChoice,
   EngineOptions,
   FeedNotification,
   FeedTutorial,
+  FolderCheck,
+  FolderEntry,
+  FolderListing,
   HelloReply,
   ModelDiff,
   OpeningProject,
   OpeningStatus,
+  SessionEvent,
+  SessionView,
   StartFeed,
   StartProject,
   StartProjectList,
@@ -51,6 +56,14 @@ type Guard<T> = (value: unknown, where: string) => T;
 const string: Guard<string> = (value, where) => {
   if (typeof value !== 'string') {
     throw new ContractError(where, 'a string');
+  }
+  return value;
+};
+
+/** An engine's page: the one URL a session may send its tab to. */
+const httpUrl: Guard<string> = (value, where) => {
+  if (typeof value !== 'string' || !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+\/?$/.test(value)) {
+    throw new ContractError(where, 'an http://localhost URL');
   }
   return value;
 };
@@ -122,9 +135,13 @@ const hello = object<HelloReply>({ ok: boolean, appVersion: string, platform: st
 
 const openingProject = object<OpeningProject>({ path: string, name: string });
 
+const openingSource = oneOf('project', 'cache', 'builtin', 'downloaded');
+
 const openingStatus: Guard<OpeningStatus> = (value, where) => {
-  const step = oneOf('resolving', 'downloading', 'starting')(record(value, where).step, `${where}.step`);
+  const step = oneOf('creating', 'resolving', 'downloading', 'starting')(record(value, where).step, `${where}.step`);
   switch (step) {
+    case 'creating':
+      return object<{ step: 'creating' }>({ step: oneOf('creating') })(value, where);
     case 'resolving':
       return object<{ step: 'resolving' }>({ step: oneOf('resolving') })(value, where);
     case 'downloading':
@@ -138,7 +155,7 @@ const openingStatus: Guard<OpeningStatus> = (value, where) => {
       return object<Extract<OpeningStatus, { step: 'starting' }>>({
         step: oneOf('starting'),
         version: string,
-        source: oneOf('project', 'cache', 'builtin', 'downloaded'),
+        source: openingSource,
       })(value, where);
   }
 };
@@ -221,9 +238,55 @@ const upgradeDiff = object<UpgradeDiff>({
 
 const upgradePreview = object<UpgradePreview>({ diff: optional(upgradeDiff), error: optional(string) });
 
-const applyPinResult = object<ApplyPinResult>({ ok: boolean, error: optional(string) });
+const actionResult = object<ActionResult>({ ok: boolean, error: optional(string) });
 
 const upgradeProgress = object<UpgradeProgress>({ workspacePath: string, message: string });
+
+const sessionView: Guard<SessionView> = (value, where) => {
+  const phase = oneOf('opening', 'failed', 'running', 'closed')(record(value, where).phase, `${where}.phase`);
+  switch (phase) {
+    case 'opening':
+      return object<Extract<SessionView, { phase: 'opening' }>>({
+        phase: oneOf('opening'),
+        project: openingProject,
+        status: openingStatus,
+      })(value, where);
+    case 'failed':
+      return object<Extract<SessionView, { phase: 'failed' }>>({
+        phase: oneOf('failed'),
+        project: openingProject,
+        message: string,
+      })(value, where);
+    case 'running':
+      return object<Extract<SessionView, { phase: 'running' }>>({
+        phase: oneOf('running'),
+        project: openingProject,
+        url: httpUrl,
+        version: string,
+        source: openingSource,
+      })(value, where);
+    case 'closed':
+      return object<Extract<SessionView, { phase: 'closed' }>>({ phase: oneOf('closed'), project: openingProject })(value, where);
+  }
+};
+
+const sessionEvent = object<SessionEvent>({ path: string, view: sessionView });
+
+const folderEntry = object<FolderEntry>({ name: string, path: string, project: boolean });
+
+const folderListing = object<FolderListing>({
+  path: string,
+  project: boolean,
+  parent: nullable(string),
+  home: string,
+  roots: arrayOf(string),
+  entries: arrayOf(folderEntry),
+});
+
+const folderCheck = object<FolderCheck>({
+  path: string,
+  state: oneOf('missing', 'empty', 'project', 'not-empty', 'not-a-folder', 'unreadable', 'invalid-name'),
+});
 
 // ---------------------------------------------------------------------------
 // One entry point per reply, named after the call it checks
@@ -236,5 +299,10 @@ export const checkProjectList = (value: unknown): StartProjectList => projectLis
 export const checkFeed = (value: unknown): StartFeed => feed(value, 'feed()');
 export const checkEngineOptions = (value: unknown): EngineOptions => engineOptions(value, 'engineOptions()');
 export const checkUpgradePreview = (value: unknown): UpgradePreview => upgradePreview(value, 'previewUpgrade()');
-export const checkApplyPinResult = (value: unknown): ApplyPinResult => applyPinResult(value, 'applyPin()');
+export const checkApplyPinResult = (value: unknown): ActionResult => actionResult(value, 'applyPin()');
+export const checkActionResult = (value: unknown): ActionResult => actionResult(value, 'close()');
 export const checkUpgradeProgress = (value: unknown): UpgradeProgress => upgradeProgress(value, 'onUpgradeProgress()');
+export const checkSessionView = (value: unknown): SessionView => sessionView(value, 'session');
+export const checkSessionEvent = (value: unknown): SessionEvent => sessionEvent(value, 'session event');
+export const checkFolderListing = (value: unknown): FolderListing => folderListing(value, 'folders');
+export const checkFolderCheck = (value: unknown): FolderCheck => folderCheck(value, 'folder check');

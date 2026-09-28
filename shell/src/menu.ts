@@ -1,8 +1,8 @@
 import { app, Menu, MenuItemConstructorOptions, shell } from 'electron';
-import { listRecentProjects } from './state';
+import { listRecentProjects } from '../../launcher/src/projects/app-state';
+import type { OpenPhase } from '../../launcher/src/projects/open-state';
 import { pendingUpdateVersion, restartToUpdate } from './updater';
 import { AppWindow } from './window/app-window';
-import type { WindowPhase } from './window/window-state';
 
 /**
  * The application menu.
@@ -42,7 +42,7 @@ export type MenuEnablement = {
 };
 
 /** What the focused window's phase allows; null when no window is focused. */
-export function menuEnablement(phase: WindowPhase | null): MenuEnablement {
+export function menuEnablement(phase: OpenPhase | null): MenuEnablement {
   return { projectCommands: phase === 'project', windowCommands: phase !== null };
 }
 

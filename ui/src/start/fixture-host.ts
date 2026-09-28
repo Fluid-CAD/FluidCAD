@@ -1,8 +1,12 @@
 import type {
+  ActionResult,
   Appearance,
   ApplyPinResult,
   EngineOptions,
+  FolderCheck,
+  FolderListing,
   HelloReply,
+  ProjectDialogs,
   StartFeed,
   StartProject,
   StartProjectList,
@@ -26,8 +30,9 @@ import { START_SCREEN_PROTOCOL } from './host';
  *
  *   recents=0|1|12|mixed        how many recent projects (mixed: one per chip state)
  *   feed=normal|hostile|empty|offline
- *   state=home|resolving|downloading|starting|failed
+ *   state=home|creating|resolving|downloading|starting|failed
  *   theme=fluidcad-dark|fluidcad-light
+ *   dialogs=native|page         the desktop's native dialogs, or the browser's own folder picker
  *
  * Actions behave plausibly: opening walks through resolve → download → start
  * (a project named `broken-*` fails), Cancel returns home, and the engine
@@ -129,6 +134,8 @@ function feedFor(kind: string | null): StartFeed | null {
 function initialState(kind: string | null, projects: StartProject[]): WindowState {
   const target = { path: projects[0]?.path ?? `${HOME}/cad/bracket`, name: projects[0]?.name ?? 'bracket' };
   switch (kind) {
+    case 'creating':
+      return { phase: 'opening', project: target, status: { step: 'creating' } };
     case 'resolving':
       return { phase: 'opening', project: target, status: { step: 'resolving' } };
     case 'downloading':
@@ -144,7 +151,56 @@ function initialState(kind: string | null, projects: StartProject[]): WindowStat
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** A small tree for the page's folder picker: folder → its subfolders, `*` marking a project. */
+const FOLDERS: Record<string, string[]> = {
+  '/': ['home', 'mnt'],
+  '/home': ['you'],
+  '/home/you': ['cad', 'Documents', 'Downloads'],
+  '/home/you/cad': ['bracket*', 'lantern*', 'clamp*', 'empty-folder', 'old stuff'],
+  '/home/you/cad/old stuff': ['2019*'],
+  '/home/you/Documents': [],
+  '/home/you/Downloads': [],
+  '/mnt': [],
+};
+
+function folderListing(path: string): FolderListing {
+  const children = FOLDERS[path];
+  if (!children) {
+    throw new Error(`${path} does not exist.`);
+  }
+  const parent = path === '/' ? null : path.slice(0, path.lastIndexOf('/')) || '/';
+  const isProject = (FOLDERS[parent ?? ''] ?? []).includes(`${path.slice(path.lastIndexOf('/') + 1)}*`);
+  return {
+    path,
+    project: isProject,
+    parent,
+    home: HOME,
+    roots: ['/'],
+    entries: children.map((child) => {
+      const name = child.replace(/\*$/, '');
+      const full = `${path === '/' ? '' : path}/${name}`;
+      return { name, path: full, project: child.endsWith('*') };
+    }),
+  };
+}
+
+function folderCheck(parent: string, name: string): FolderCheck {
+  const path = `${parent === '/' ? '' : parent}/${name}`;
+  if (/[<>:"/\\|?*]/.test(name) || /[. ]$/.test(name)) {
+    return { path: parent, state: 'invalid-name' };
+  }
+  const existing = (FOLDERS[parent] ?? []).find((child) => child.replace(/\*$/, '') === name);
+  if (!existing) {
+    return { path, state: 'missing' };
+  }
+  if (existing.endsWith('*')) {
+    return { path, state: 'project' };
+  }
+  return { path, state: (FOLDERS[path] ?? []).length === 0 && name === 'empty-folder' ? 'empty' : 'not-empty' };
+}
+
 export class FixtureStartHost implements StartScreenHost {
+  readonly dialogs: ProjectDialogs;
   private projects: StartProject[];
   private readonly feedData: StartFeed | null;
   private state: WindowState;
@@ -160,6 +216,33 @@ export class FixtureStartHost implements StartScreenHost {
     this.feedData = feedFor(params.get('feed'));
     this.state = initialState(params.get('state'), this.projects);
     this.theme = params.get('theme') ?? document.documentElement.dataset.theme ?? 'fluidcad-dark';
+    this.dialogs =
+      params.get('dialogs') === 'page'
+        ? {
+            kind: 'page',
+            browse: async (path) => {
+              await delay(120);
+              return folderListing(path ?? '/home/you/cad');
+            },
+            check: async (parent, name) => {
+              await delay(80);
+              return folderCheck(parent, name);
+            },
+            create: async (path) => {
+              await this.walkOpen({ path, name: path.split('/').pop() ?? path }, { create: true });
+            },
+          }
+        : {
+            kind: 'native',
+            open: async () => {
+              await delay(300);
+              console.info('[fixture] the native Open dialog was cancelled');
+            },
+            create: async () => {
+              await delay(300);
+              console.info('[fixture] the native New Project dialog was cancelled');
+            },
+          };
   }
 
   async hello(protocol: number): Promise<HelloReply> {
@@ -214,14 +297,15 @@ export class FixtureStartHost implements StartScreenHost {
     await this.walkOpen({ path, name: entry?.name ?? path.split('/').pop() ?? path });
   }
 
-  async openDialog(): Promise<void> {
-    await delay(300);
-    console.info('[fixture] the native Open dialog was cancelled');
-  }
-
-  async newProject(): Promise<void> {
-    await delay(300);
-    console.info('[fixture] the native New Project dialog was cancelled');
+  async close(path: string): Promise<ActionResult> {
+    await delay(200);
+    const entry = this.projects.find((candidate) => candidate.path === path);
+    if (entry?.name === 'gearbox-housing') {
+      return { ok: false, error: 'gearbox-housing has unsaved changes in housing.part.js. Save them in its tab, then close it.' };
+    }
+    this.projects = this.projects.map((candidate) => (candidate.path === path ? { ...candidate, open: false } : candidate));
+    this.changed();
+    return { ok: true };
   }
 
   async forget(path: string): Promise<void> {
@@ -313,9 +397,16 @@ export class FixtureStartHost implements StartScreenHost {
     return null;
   }
 
-  private async walkOpen(target: { path: string; name: string }): Promise<void> {
+  private async walkOpen(target: { path: string; name: string }, options: { create?: boolean } = {}): Promise<void> {
     const generation = ++this.openGeneration;
     const live = () => generation === this.openGeneration;
+    if (options.create) {
+      this.setState({ phase: 'opening', project: target, status: { step: 'creating' } });
+      await delay(700);
+      if (!live()) {
+        return;
+      }
+    }
     this.setState({ phase: 'opening', project: target, status: { step: 'resolving' } });
     await delay(500);
     const total = 31_800_000;

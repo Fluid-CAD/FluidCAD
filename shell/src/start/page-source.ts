@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { START_PAGE_FILE } from './protocol';
+import { START_PAGE_FILE } from '../../../launcher/src/start/page-files';
 
 /**
  * Where the start page is served from: the engine that ships inside the app.

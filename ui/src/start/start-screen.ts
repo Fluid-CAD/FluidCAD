@@ -1,6 +1,7 @@
 import { closePopupMenu } from '../ui/popup-menu';
 import { ContractError } from './contract-guards';
 import { EngineDialog } from './engine-dialog';
+import { FolderPicker } from './folder-picker';
 import { START_SCREEN_PROTOCOL, type StartProject, type StartScreenHost } from './host';
 import { LearnPanel } from './learn-panel';
 import { Notices } from './notices';
@@ -12,11 +13,11 @@ import { StartTopBar } from './start-top-bar';
 const THEME_NAME = /^[\w-]+$/;
 
 /**
- * The desktop app's start screen: what a window shows when no project is open
- * in it. A top bar with Open Project and New Project, the feed's
+ * The start screen: where the desktop app's windows and `npx fluidcad`'s
+ * browser tabs begin. A top bar with Open Project and New Project, the feed's
  * notifications, the recent projects, and "Learn FluidCAD". Opening a project
- * draws the opening overlay over it until the shell swaps this page for the
- * project's.
+ * gives it a window or tab of its own, which shows this page under the
+ * opening overlay until the project's own page takes its place.
  *
  * Everything it shows comes from the host and every action goes back to it;
  * the page keeps no state of its own beyond what is on screen. It re-reads the
@@ -31,6 +32,8 @@ export class StartScreen {
   private readonly learn: LearnPanel;
   private readonly overlay: OpeningOverlay;
   private readonly engineDialog: EngineDialog;
+  /** The page's own folder picker, for a host without native dialogs (a browser). */
+  private readonly folderPicker: FolderPicker | null;
   private readonly content: HTMLElement;
   private home = '';
 
@@ -40,9 +43,19 @@ export class StartScreen {
   ) {
     root.classList.add('relative', 'flex', 'flex-col', 'overflow-hidden');
 
+    const dialogs = host.dialogs;
+    this.folderPicker =
+      dialogs.kind === 'page'
+        ? new FolderPicker(dialogs, {
+            open: (path) => void this.run(() => this.host.open(path)),
+            create: (path) => void this.run(() => dialogs.create(path)),
+          })
+        : null;
     this.topBar = new StartTopBar({
-      openProject: () => this.run(() => this.host.openDialog()),
-      newProject: () => this.run(() => this.host.newProject()),
+      openProject: () =>
+        this.run(() => (dialogs.kind === 'native' ? dialogs.open() : this.folderPicker!.show('open'))),
+      newProject: () =>
+        this.run(() => (dialogs.kind === 'native' ? dialogs.create() : this.folderPicker!.show('create'))),
     });
 
     this.problem = document.createElement('div');
@@ -57,6 +70,13 @@ export class StartScreen {
       {
         open: (project) => this.run(() => this.host.open(project.path)),
         changeEngine: (project) => void this.openEngineDialog(project),
+        close: (project) => this.run(async () => {
+          const result = await this.host.close(project.path);
+          if (!result.ok) {
+            this.showProblem(result.error ?? `${project.name} could not be closed.`);
+          }
+          await this.refreshProjects();
+        }),
         forget: (project) => this.run(async () => {
           await this.host.forget(project.path);
           await this.refreshProjects();
@@ -80,7 +100,13 @@ export class StartScreen {
     });
     this.engineDialog = new EngineDialog(this.host, { applied: () => void this.refreshProjects() });
 
-    root.replaceChildren(this.topBar.element, this.content, this.overlay.element, this.engineDialog.element);
+    root.replaceChildren(
+      this.topBar.element,
+      this.content,
+      this.overlay.element,
+      this.engineDialog.element,
+      ...(this.folderPicker ? [this.folderPicker.element] : []),
+    );
   }
 
   /** Introduce the page to its host, subscribe, and draw everything once. */
@@ -156,6 +182,7 @@ export class StartScreen {
     if (this.overlay.visible) {
       closePopupMenu();
       this.engineDialog.close();
+      this.folderPicker?.close();
     }
   }
 
@@ -164,7 +191,11 @@ export class StartScreen {
     await this.run(() => this.engineDialog.open(project));
   }
 
-  /** Run one host call; a failure becomes a line on the page instead of an unhandled rejection. */
+  /**
+   * Run one host call; a failure becomes a line on the page instead of an
+   * unhandled rejection. The action starts synchronously, inside the event
+   * that asked for it: a browser opens a project's tab only then.
+   */
   private async run(action: () => Promise<void>): Promise<void> {
     try {
       await action();

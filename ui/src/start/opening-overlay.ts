@@ -9,11 +9,11 @@ export type OpeningOverlayHandlers = {
 };
 
 /**
- * Drawn over the start screen while this window opens a project: resolving
- * its engine, downloading it if the pin is not installed, starting it. When
- * the engine is ready the shell replaces this whole page with the project's,
- * so the overlay never has a "done" state. If the open fails, the same panel
- * says why and offers to try again or go back.
+ * Drawn over the start screen while its window or tab opens a project:
+ * setting a new one up, resolving its engine, downloading it if the pin is not
+ * installed, starting it. When the engine is ready the project's own page
+ * replaces this whole one, so the overlay never has a "done" state. If the
+ * open fails, the same panel says why and offers to try again or go back.
  */
 export class OpeningOverlay {
   readonly element: HTMLDivElement;
@@ -109,6 +109,8 @@ export class OpeningOverlay {
     status: OpeningStatus,
   ): { line: string; detail: string; fraction: number | null } {
     switch (status.step) {
+      case 'creating':
+        return { line: 'Setting the new project up…', detail: project.path, fraction: null };
       case 'resolving':
         return { line: 'Finding the engine for this project…', detail: project.path, fraction: null };
       case 'downloading': {

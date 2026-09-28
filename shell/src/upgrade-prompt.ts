@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron';
-import { EngineUpgrade, type ApplyDeps, type UpgradeCandidate } from './engine-upgrade';
-import type { UpgradeDiff } from './engine/upgrade-diff';
-import { rememberUpgradeChoice } from './state';
+import { EngineUpgrade, type ApplyDeps, type UpgradeCandidate } from '../../launcher/src/engine/upgrade';
+import type { UpgradeDiff } from '../../launcher/src/engine/upgrade-diff';
+import { rememberUpgradeChoice } from '../../launcher/src/projects/app-state';
 
 /**
  * The prompt a project window shows when the app carries a newer engine than

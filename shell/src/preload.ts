@@ -106,6 +106,8 @@ const startApi = {
   open: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-open', workspacePath),
   openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
   newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
+  /** Close an open project, from its card: its window goes, as File › Close Project does it. */
+  close: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-close', workspacePath),
   forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
   /** Open an http(s) link in the user's browser. */
   openLink: (url: string): Promise<void> => ipcRenderer.invoke('shell:start-open-link', url),

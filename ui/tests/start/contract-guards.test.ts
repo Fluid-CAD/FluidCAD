@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   ContractError,
+  checkActionResult,
   checkApplyPinResult,
   checkEngineOptions,
   checkFeed,
+  checkFolderCheck,
+  checkFolderListing,
   checkHello,
   checkProjectList,
+  checkSessionEvent,
+  checkSessionView,
   checkUpgradePreview,
   checkWindowState,
 } from '../../src/start/contract-guards';
@@ -98,5 +103,38 @@ describe('contract guards', () => {
     expect(contractError(() => checkEngineOptions({ ...options, choices: [{ version: '0.0.45', builtin: 'yes', installed: true }] })).where).toBe(
       'engineOptions().choices[0].builtin',
     );
+  });
+
+  it("accepts a new project's set-up step", () => {
+    const creating = { phase: 'opening', project: { path: '/p', name: 'p' }, status: { step: 'creating' } };
+    expect(checkWindowState(creating)).toEqual(creating);
+  });
+
+  it("checks npx fluidcad's sessions, and sends a tab only to a localhost engine", () => {
+    const project = { path: '/home/you/cad/bracket', name: 'bracket' };
+    const running = { phase: 'running', project, url: 'http://localhost:3101', version: '0.0.46', source: 'builtin' };
+    expect(checkSessionView(running)).toEqual(running);
+    expect(checkSessionView({ phase: 'closed', project })).toEqual({ phase: 'closed', project });
+    expect(checkSessionEvent({ path: project.path, view: running }).view).toEqual(running);
+    for (const url of ['https://evil.example/', 'http://evil.example:3101', 'javascript:alert(1)', 'http://localhost:3101/../x']) {
+      expect(contractError(() => checkSessionView({ ...running, url })).where, url).toBe('session.url');
+    }
+    expect(contractError(() => checkSessionView({ phase: 'project', project })).where).toBe('session.phase');
+  });
+
+  it("checks the folder picker's listings and checks, and a close's result", () => {
+    const listing = {
+      path: '/home/you/cad',
+      project: false,
+      parent: '/home/you',
+      home: '/home/you',
+      roots: ['/'],
+      entries: [{ name: 'bracket', path: '/home/you/cad/bracket', project: true }],
+    };
+    expect(checkFolderListing(listing)).toEqual(listing);
+    expect(contractError(() => checkFolderListing({ ...listing, parent: undefined })).where).toBe('folders.parent');
+    expect(checkFolderCheck({ path: '/home/you/cad/x', state: 'invalid-name' })).toEqual({ path: '/home/you/cad/x', state: 'invalid-name' });
+    expect(contractError(() => checkFolderCheck({ path: '/x', state: 'sort-of' })).where).toBe('folder check.state');
+    expect(checkActionResult({ ok: false, error: 'unsaved' })).toEqual({ ok: false, error: 'unsaved' });
   });
 });

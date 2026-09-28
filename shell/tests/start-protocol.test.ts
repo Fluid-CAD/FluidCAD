@@ -137,7 +137,7 @@ describe('start page URLs', () => {
   });
 
   it('bust the image cache with the mtime', () => {
-    expect(thumbnailUrl(`${SHA}.png`, 1727000000123.4)).toBe(`fluidcad-app://thumbnails/${SHA}.png?v=1727000000123`);
+    expect(thumbnailUrl({ fileName: `${SHA}.png`, mtimeMs: 1727000000123.4 })).toBe(`fluidcad-app://thumbnails/${SHA}.png?v=1727000000123`);
   });
 });
 

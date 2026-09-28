@@ -9,7 +9,7 @@
   "desktopName": "fluidcad-desktop.desktop",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build.js",
     "stage:engine": "node scripts/stage-engine.js",
     "dev": "npm run build && electron .",
     "pack": "npm run build && npm run stage:engine && electron-builder --dir",
@@ -25,6 +25,7 @@
     "cross-env": "^10.1.0",
     "electron": "^40.0.0",
     "electron-builder": "^26.0.12",
+    "esbuild": "^0.27.7",
     "typescript": "^5.9.2"
   }
 }

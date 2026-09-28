@@ -25,6 +25,7 @@ function handlers() {
   return {
     open: vi.fn(async () => undefined),
     changeEngine: vi.fn(),
+    close: vi.fn(async () => undefined),
     forget: vi.fn(async () => undefined),
   };
 }
@@ -116,6 +117,16 @@ describe('project card', () => {
     rows[1].click();
     expect(h.forget).toHaveBeenCalledWith(expect.objectContaining({ path: '/home/you/cad/bracket' }));
     expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('offers Close project in its ⋯ menu while the project is open', () => {
+    const { card, h } = mount(project({ open: true }));
+    card.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click();
+    const rows = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
+    expect(rows.map((row) => row.textContent!.trim())).toEqual(['Change engine version…', 'Close project', 'Remove from recent']);
+    rows[1].click();
+    expect(h.close).toHaveBeenCalledWith(expect.objectContaining({ path: '/home/you/cad/bracket' }));
+    expect(h.open).not.toHaveBeenCalled();
   });
 
   it('disables Change engine version for a project on its own install, and says why', () => {

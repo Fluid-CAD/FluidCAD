@@ -1,118 +1,57 @@
 import type { BrowserWindow } from 'electron';
 import { dialog } from 'electron';
-import type { ChildProcess } from 'child_process';
-import { EngineDownloadError } from '../engine/download';
-import { startEngine, stopEngine, type EngineEvents } from '../engine/process';
-import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from '../engine/resolver';
-import { BuiltinEngineRetention } from '../engine/retention';
-import { isFluidScriptFile } from '../file-kind';
-import type { OpeningStatus } from '../start/contract';
-import { rememberProject } from '../state';
-import { captureThumbnail } from '../thumbnails';
+import { BuiltinEngineRetention } from '../../../launcher/src/engine/retention';
+import { EngineSession, type EngineStartOptions } from '../../../launcher/src/projects/engine-session';
+import type { OpeningStatus } from '../../../launcher/src/start/contract';
 import { UpgradePrompt, type UpgradeChoice } from '../upgrade-prompt';
 
+export { OpenCancelledError } from '../../../launcher/src/projects/engine-session';
+
 /**
- * One project's engine, for as long as a window shows the project: resolve it
- * (downloading if the pin is not installed), start it as a child process, and
- * everything the window needs from it afterwards — the file to open first,
- * the upgrade offer, a restart after a crash, and the start-screen thumbnail
- * when the project closes.
+ * One project's engine, for as long as a window shows the project. The engine
+ * itself — setting a new project up, resolving, downloading, starting,
+ * stopping, the preview — is the launcher's {@link EngineSession}, shared with
+ * `npx fluidcad`. What only a desktop window can do is added here: the
+ * upgrade prompt and the crash banner drawn onto the project's page, and a
+ * native dialog when a restart fails.
  *
  * The window outlives its engine on purpose (Invariant 4): OCC wasm can abort
  * the process hard, and Monaco's unsaved buffers live in the renderer. So a
  * dead engine gets a banner and a restart button, not a closed window.
  */
-
-/** Thrown when the open was cancelled; the window already went home, so there is nothing to report. */
-export class OpenCancelledError extends Error {
-  constructor() {
-    super('The open was cancelled.');
-    this.name = 'OpenCancelledError';
-  }
-}
-
 export class ProjectSession {
-  private child: ChildProcess | null = null;
-  private engine: ResolvedEngine | null = null;
-  /** The engine version the project pins once opened: the pin it had, or the one written for it. */
-  private pin: string | null = null;
-  private port: number | null = null;
-  private url: string | null = null;
-  private stopped = false;
-  private restarting = false;
+  private readonly engine: EngineSession;
   private readonly upgradePrompt: UpgradePrompt;
 
   constructor(
     readonly workspacePath: string,
     readonly browserWindow: BrowserWindow,
   ) {
+    this.engine = new EngineSession(workspacePath, { onEngineExit: (code, signal) => this.onEngineExit(code, signal) });
     this.upgradePrompt = new UpgradePrompt(this);
   }
 
   /** The engine's page, once started. */
   get engineUrl(): string | null {
-    return this.url;
+    return this.engine.engineUrl;
   }
 
-  /**
-   * Resolve an engine, pin and remember the project, and start the engine.
-   * Resolves with the engine's URL. Rejects with a sentence the user can read,
-   * or with {@link OpenCancelledError} after {@link stop} — an engine spawned
-   * after a cancel is reaped the moment it appears, never left running.
-   */
-  async start(signal: AbortSignal, onStatus: (status: OpeningStatus) => void): Promise<string> {
-    const cancelled = () => this.stopped || signal.aborted;
-    try {
-      onStatus({ step: 'resolving' });
-      const engine = await resolveEngine(this.workspacePath, {
-        signal,
-        onDownloadStart: (version) => onStatus({ step: 'downloading', version, receivedBytes: 0, totalBytes: null }),
-        onProgress: (progress) =>
-          onStatus({
-            step: 'downloading',
-            version: progress.version,
-            receivedBytes: progress.receivedBytes,
-            totalBytes: progress.totalBytes,
-          }),
-      });
-      if (cancelled()) {
-        throw new OpenCancelledError();
-      }
-      this.engine = engine;
-
-      const written = pinProjectIfNeeded(this.workspacePath, engine);
-      this.pin = written ?? engine.pin;
-      rememberProject(this.workspacePath, this.pin);
-
-      onStatus({ step: 'starting', version: engine.version, source: engine.source });
-      await this.spawn(engine);
-      if (cancelled()) {
-        throw new OpenCancelledError();
-      }
-      return this.url!;
-    } catch (err: any) {
-      if (err instanceof OpenCancelledError || cancelled()) {
-        throw new OpenCancelledError();
-      }
-      throw new Error(
-        err instanceof EngineResolutionError || err instanceof EngineDownloadError
-          ? err.message
-          : err?.message ?? String(err),
-      );
-    }
+  /** See {@link EngineSession.start}. */
+  start(signal: AbortSignal, onStatus: (status: OpeningStatus) => void, options: EngineStartOptions = {}): Promise<string> {
+    return this.engine.start(signal, onStatus, options);
   }
 
   /** Once the window shows the engine's page: render something, then offer an upgrade if there is one. */
   async afterLoad(): Promise<void> {
-    if (!this.url) {
+    if (!this.engine.engineUrl) {
       return;
     }
-    await this.openLastFile(this.url);
+    await this.engine.openLastFile();
     // Only once the model is up: the offer is about geometry the user can see.
     await this.upgradePrompt.offer();
     // Also once the model is up, so the copy never competes with the kernel
     // bring-up. A no-op unless the pin names the engine inside the app.
-    BuiltinEngineRetention.ensureInBackground(this.pin);
+    BuiltinEngineRetention.ensureInBackground(this.engine.pin);
   }
 
   /** A button on the upgrade prompt was pressed in this project's page. */
@@ -122,41 +61,27 @@ export class ProjectSession {
 
   /** The start-screen preview, from the live engine. Resolves either way, within the capture's own timeout. */
   async captureThumbnail(): Promise<void> {
-    if (!this.url || !this.child || this.child.exitCode !== null) {
-      // No engine, no page worth photographing — keep the previous preview.
-      return;
-    }
-    await captureThumbnail(this.url, this.workspacePath);
+    await this.engine.captureThumbnail();
   }
 
   /** Stop the engine for good. Idempotent; an engine still starting is reaped when it appears. */
   stop(): void {
-    this.stopped = true;
-    if (this.child) {
-      stopEngine(this.child);
-      this.child = null;
-    }
+    this.engine.stop();
   }
 
   /** Restart the engine on the same port; the page reconnects on its own. */
   async restartEngine(): Promise<void> {
-    if (this.restarting || !this.engine || this.stopped) {
-      return;
-    }
-    this.restarting = true;
     try {
-      if (this.child) {
-        stopEngine(this.child);
-        this.child = null;
+      const restarted = await this.engine.restart();
+      if (!restarted) {
+        return;
       }
-      const previousUrl = this.url;
-      await this.spawn(this.engine);
       this.clearCrashBanner();
-      if (this.url !== previousUrl) {
+      if (!restarted.samePort && this.engine.engineUrl) {
         // The old port was taken in the meantime; a reload is the only way back.
-        await this.browserWindow.loadURL(this.url!);
+        await this.browserWindow.loadURL(this.engine.engineUrl);
       } else {
-        await this.openLastFile(this.url!);
+        await this.engine.openLastFile();
       }
     } catch (err: any) {
       if (!this.browserWindow.isDestroyed()) {
@@ -166,87 +91,13 @@ export class ProjectSession {
           detail: err?.message ?? String(err),
         });
       }
-    } finally {
-      this.restarting = false;
-    }
-  }
-
-  private async spawn(engine: ResolvedEngine): Promise<void> {
-    const events: EngineEvents = {
-      onSpawn: (child) => {
-        this.child = child;
-        if (this.stopped) {
-          // Cancelled while the engine was resolving or downloading: an
-          // engine nobody will ever look at must not be left running.
-          stopEngine(child);
-          this.child = null;
-        }
-      },
-      onLog: (line, stream) => {
-        // The engine's stdout is the shell's log. Keeping it visible is what
-        // makes "it didn't open" diagnosable from a terminal launch.
-        if (stream === 'stderr') {
-          console.error(`[engine] ${line}`);
-        } else {
-          console.log(`[engine] ${line}`);
-        }
-      },
-      onExit: (code, signal) => this.onEngineExit(code, signal),
-    };
-    const started = await startEngine(engine, this.workspacePath, events, { preferredPort: this.port ?? undefined });
-    if (this.stopped) {
-      stopEngine(started.child);
-      this.child = null;
-      return;
-    }
-    this.child = started.child;
-    this.port = started.port;
-    this.url = started.url;
-  }
-
-  /**
-   * Render something on open. Which file is the project's business — the
-   * engine records the last active tab next to the project — so the shell asks
-   * it rather than deciding for itself.
-   */
-  private async openLastFile(url: string): Promise<void> {
-    try {
-      const state = await fetch(`${url}/api/workspace/editor-state`).then((r) => r.json());
-      const candidate: string | null = state?.activeTab ?? null;
-      const target = candidate ?? (await this.firstModel(url));
-      if (!target) {
-        return;
-      }
-      await fetch(`${url}/api/files/open`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path: target }),
-      });
-    } catch {
-      // A workspace with nothing to open is a legitimate state — the page shows
-      // its empty editor and the user creates a file.
-    }
-  }
-
-  /** The shallowest model (part or assembly file) in the workspace — a first-open fallback. */
-  private async firstModel(url: string): Promise<string | null> {
-    try {
-      const tree = await fetch(`${url}/api/files/tree`).then((r) => r.json());
-      const files: { path: string }[] = tree?.files ?? [];
-      const models = files
-        .filter((entry) => typeof entry.path === 'string' && isFluidScriptFile(entry.path))
-        .sort((a, b) => a.path.split('/').length - b.path.split('/').length || a.path.localeCompare(b.path));
-      return models[0]?.path ?? null;
-    } catch {
-      return null;
     }
   }
 
   private onEngineExit(code: number | null, signal: NodeJS.Signals | null): void {
-    if (this.stopped || this.restarting || this.browserWindow.isDestroyed()) {
+    if (this.browserWindow.isDestroyed()) {
       return;
     }
-    this.child = null;
     const detail = signal ? `signal ${signal}` : `exit code ${code}`;
     void this.showCrashBanner(`The FluidCAD engine stopped (${detail}).`);
   }

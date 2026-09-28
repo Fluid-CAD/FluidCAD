@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { guardedHost, type StartScreenBridge, type WindowState } from '../../src/start/host';
+import { START_SCREEN_PROTOCOL, guardedHost, type ProjectDialogs, type StartScreenBridge, type WindowState } from '../../src/start/host';
 import { StartScreen } from '../../src/start/start-screen';
 
 function fakeBridge(overrides: Partial<StartScreenBridge> = {}) {
@@ -35,6 +35,7 @@ function fakeBridge(overrides: Partial<StartScreenBridge> = {}) {
     open: vi.fn(async () => undefined),
     openDialog: vi.fn(async () => undefined),
     newProject: vi.fn(async () => undefined),
+    close: vi.fn(async () => ({ ok: true })),
     forget: vi.fn(async () => undefined),
     openLink: vi.fn(async () => undefined),
     engineOptions: vi.fn(),
@@ -63,7 +64,7 @@ afterEach(() => {
 describe('StartScreen', () => {
   it('introduces itself, then draws the projects, the feed and the saved theme', async () => {
     const { root, bridge } = await start();
-    expect(bridge.hello).toHaveBeenCalledWith(1);
+    expect(bridge.hello).toHaveBeenCalledWith(START_SCREEN_PROTOCOL);
     expect(root.querySelectorAll('[data-project-path]')).toHaveLength(1);
     expect(root.querySelector('[data-notice-id="n"]')!.textContent).toContain('Hi there');
     expect(root.textContent).toContain('Learn FluidCAD');
@@ -128,5 +129,50 @@ describe('StartScreen', () => {
     root.querySelector<HTMLButtonElement>('[data-notice-id="n"] button')!.click();
     expect(root.querySelector('[data-notice-id="n"]')).toBeNull();
     expect(bridge.dismissNotification).toHaveBeenCalledWith('n');
+  });
+
+  it("uses the desktop app's native dialogs for Open and New Project", async () => {
+    const { root, bridge } = await start();
+    const button = (label: string) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)!;
+    button('Open Project').click();
+    await vi.waitFor(() => expect(bridge.openDialog).toHaveBeenCalled());
+    // One native dialog at a time: the buttons wait for it.
+    await vi.waitFor(() => expect(button('New Project').disabled).toBe(false));
+    button('New Project').click();
+    await vi.waitFor(() => expect(bridge.newProject).toHaveBeenCalled());
+    expect(root.querySelector('#fluidcad-folder-picker-title')).toBeNull();
+  });
+
+  it("draws its own folder picker for a host without native dialogs, as a browser's is", async () => {
+    const { bridge } = fakeBridge();
+    const listing = { path: '/home/you/cad', project: false, parent: '/home/you', home: '/home/you', roots: ['/'], entries: [] };
+    const dialogs: ProjectDialogs = {
+      kind: 'page',
+      browse: vi.fn(async () => listing),
+      check: vi.fn(async () => ({ path: '/home/you/cad/bracket', state: 'missing' as const })),
+      create: vi.fn(async () => undefined),
+    };
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    await new StartScreen(root, { ...guardedHost(bridge), dialogs }).start();
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'New Project')!.click();
+    await vi.waitFor(() => expect(dialogs.browse).toHaveBeenCalled());
+    const title = root.querySelector('#fluidcad-folder-picker-title')!;
+    expect(title.textContent).toBe('New project');
+    expect(title.closest('[role="dialog"]')!.classList.contains('hidden')).toBe(false);
+  });
+
+  it('says why a project could not be closed', async () => {
+    const { root } = await start({
+      list: vi.fn(async () => ({
+        projects: [
+          { path: '/home/you/cad/bracket', name: 'bracket', engine: '0.0.45', engineSource: 'pin', latest: true, upgradeTo: null, lastOpenedAt: new Date().toISOString(), open: true, thumbnail: null },
+        ],
+      })),
+      close: vi.fn(async () => ({ ok: false, error: 'bracket has unsaved changes in bracket.part.js. Save them in its tab, then close it.' })),
+    });
+    root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent!.includes('Close project'))!.click();
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain('bracket has unsaved changes'));
   });
 });

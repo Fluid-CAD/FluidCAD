@@ -1,7 +1,7 @@
 import { protocol } from 'electron';
 import fs from 'fs';
+import { readSavedTheme } from '../../../launcher/src/start/theme';
 import { APP_SCHEME, resolveAppRequest, responseHeaders, withTheme, type AppRoots } from './protocol';
-import { readSavedTheme } from './theme';
 
 /**
  * Registers `fluidcad-app:` with the privileges the start page needs. Must run

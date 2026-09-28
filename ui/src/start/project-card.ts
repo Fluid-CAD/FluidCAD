@@ -1,4 +1,4 @@
-import { ICON_CLOSE, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_REFRESH } from '../ui/icons';
+import { ICON_CLOSE, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_REFRESH, ICON_STOP } from '../ui/icons';
 import { closePopupMenu, showPopupMenu } from '../ui/popup-menu';
 import { engineChip } from './engine-chip';
 import { openedAgo, shortenPath } from './format';
@@ -7,6 +7,8 @@ import type { StartProject } from './host';
 export type ProjectCardHandlers = {
   open(project: StartProject): Promise<void>;
   changeEngine(project: StartProject): void;
+  /** Close an open project: its engine stops and its window or tab goes. */
+  close(project: StartProject): Promise<void>;
   forget(project: StartProject): Promise<void>;
 };
 
@@ -131,6 +133,7 @@ function moreButton(project: StartProject, context: ProjectCardContext, handlers
           title: own ? "This project runs the engine from its own node_modules; its lockfile decides." : undefined,
           onSelect: () => handlers.changeEngine(project),
         },
+        ...(project.open ? [{ icon: ICON_STOP, label: 'Close project', onSelect: () => void handlers.close(project) }] : []),
         { icon: ICON_CLOSE, label: 'Remove from recent', onSelect: () => void handlers.forget(project) },
       ],
       { align: 'end', focusFirst: true },

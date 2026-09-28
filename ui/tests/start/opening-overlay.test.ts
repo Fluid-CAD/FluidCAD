@@ -21,6 +21,11 @@ afterEach(() => {
 
 describe('OpeningOverlay.describe', () => {
   it('says what each step is doing', () => {
+    expect(OpeningOverlay.describe(target, { step: 'creating' })).toEqual({
+      line: 'Setting the new project up…',
+      detail: target.path,
+      fraction: null,
+    });
     expect(OpeningOverlay.describe(target, { step: 'resolving' })).toEqual({
       line: 'Finding the engine for this project…',
       detail: target.path,

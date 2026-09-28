@@ -1,20 +1,22 @@
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { builtinEngine, pruneEngines } from './engine/cache';
-import { EngineTransport } from './engine/download';
-import { thumbnailsDir } from './engine/paths';
-import { EngineScratch } from './engine/scratch';
+import { builtinEngine, pruneEngines, setBuiltinEngineLocation } from '../../launcher/src/engine/cache';
+import { EngineTransport } from '../../launcher/src/engine/download';
+import { EngineScratch } from '../../launcher/src/engine/scratch';
+import { thumbnailsDir } from '../../launcher/src/paths';
+import { pinnedVersions, workspaceForPath } from '../../launcher/src/projects/app-state';
+import { StartApi } from '../../launcher/src/start/api';
 import { buildApplicationMenu, refreshApplicationMenu, type MenuActions } from './menu';
-import { createNewProject } from './new-project';
+import { chooseNewProjectFolder } from './new-project';
 import { handleAppScheme, registerAppScheme } from './start/app-protocol';
 import { registerStartScreenIpc } from './start/ipc';
 import { startPageRoot } from './start/page-source';
-import { pinnedVersions, workspaceForPath } from './state';
+import { thumbnailUrl } from './start/protocol';
 import { initAutoUpdate } from './updater';
 import { UpgradePrompt, type UpgradeChoice } from './upgrade-prompt';
 import { AppWindow } from './window/app-window';
-import { routeOpen, type OpenRequest } from './window/registry';
+import { routeOpen } from './window/registry';
 
 /**
  * The FluidCAD desktop shell.
@@ -29,9 +31,10 @@ import { routeOpen, type OpenRequest } from './window/registry';
  * `static/startup.html`, the fallback for when that start page cannot be used.
  */
 
-// `cache.ts` reads this to find the engine that ships inside the app. Set from
-// here because `process.resourcesPath` only exists once Electron is running.
-process.env.FLUIDCAD_RESOURCES_PATH ??= process.resourcesPath;
+// The engine that ships inside the app, staged by `scripts/stage-engine.js`
+// into the bundle's `resources/engine/`. A dev run has none there and points
+// `FLUIDCAD_BUILTIN_ENGINE` at a build instead.
+setBuiltinEngineLocation({ kind: 'root', root: path.join(process.resourcesPath, 'engine') });
 
 // An overridden home (E2E runs, a second dev instance) gets its own Electron
 // profile too: the single-instance lock lives in userData, so without this an
@@ -119,46 +122,44 @@ function installSmokeHooks(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Send an open to the window it belongs in (see `window/registry.ts`): focus
- * the window that already holds the project, open it in an idle start
- * screen, or open a new window for it.
+ * Open a project where it belongs (see `window/registry.ts`): the window that
+ * already holds it comes forward, and any other project gets a new window —
+ * the start screen that asked stays as it is.
  */
-function requestOpen(request: OpenRequest): void {
-  const route = routeOpen(AppWindow.snapshots(), request);
+function requestOpen(workspacePath: string, options: { create?: boolean } = {}): void {
+  const route = routeOpen(AppWindow.snapshots(), workspacePath);
   switch (route.action) {
     case 'focus':
       AppWindow.byId(route.windowId)?.focus();
       return;
-    case 'open-in':
-      AppWindow.byId(route.windowId)?.openProject(request.path);
-      return;
     case 'new-window':
-      AppWindow.create().openProject(request.path);
+      AppWindow.create().openProject(workspacePath, options);
       return;
   }
 }
 
-/** A path from outside the app: the command line, a second launch, Finder or Explorer. */
-function openFromOs(target: string): void {
+/** A path from outside the app: the command line, a second launch, Finder or Explorer. False when it names nothing. */
+function openFromOs(target: string): boolean {
   const workspacePath = workspaceForPath(target);
   if (workspacePath) {
-    requestOpen({ source: 'os', path: workspacePath });
+    requestOpen(workspacePath);
   }
+  return workspacePath !== null;
 }
 
 /** File › Open Project… (null asks, as a sheet on the focused window) and Open Recent. */
 async function openFromMenu(target: string | null): Promise<void> {
   const workspacePath = target ? workspaceForPath(target) : await promptForProject(BrowserWindow.getFocusedWindow());
   if (workspacePath) {
-    requestOpen({ source: 'menu', path: workspacePath });
+    requestOpen(workspacePath);
   }
 }
 
 /** File › New Project…: the same `fluidcad init` scaffold the start screen offers. */
 async function newProjectFromMenu(): Promise<void> {
-  const outcome = await createNewProject(BrowserWindow.getFocusedWindow());
-  if (outcome) {
-    requestOpen({ source: 'menu', path: outcome.path });
+  const choice = await chooseNewProjectFolder(BrowserWindow.getFocusedWindow());
+  if (choice) {
+    requestOpen(choice.path, { create: choice.create });
   }
 }
 
@@ -190,6 +191,15 @@ function onAppChanged(): void {
 // ---------------------------------------------------------------------------
 // Renderer bridge
 // ---------------------------------------------------------------------------
+
+/** The start screen's data and actions, the same `npx fluidcad` serves; what is desktop about them comes from here. */
+const startApi = new StartApi({
+  appVersion: app.getVersion(),
+  isOpen: (workspacePath) => AppWindow.holding(workspacePath) !== undefined,
+  thumbnailUrl,
+  openProjectFor: (workspacePath) => AppWindow.showing(workspacePath) ?? null,
+  changed: () => AppWindow.changed(),
+});
 
 function registerIpcHandlers(): void {
   ipcMain.handle('desktop:show-open-dialog', async (event, request) => {
@@ -249,13 +259,16 @@ function registerIpcHandlers(): void {
   });
 
   registerStartScreenIpc({
-    openFromStartScreen: (window, target) => {
+    api: startApi,
+    openFromStartScreen: (_window, target, options) => {
+      // A new project's folder is empty, not missing: the dialog only returns folders that exist.
       const workspacePath = workspaceForPath(target);
       if (workspacePath) {
-        requestOpen({ source: 'start-screen', windowId: window.id, path: workspacePath });
+        requestOpen(workspacePath, options);
       }
     },
     promptForProject: (window) => promptForProject(window.browserWindow),
+    promptForNewProject: (window) => chooseNewProjectFolder(window.browserWindow),
   });
 }
 
@@ -306,7 +319,7 @@ if (singleInstance) {
     });
     handleAppScheme({ start: root, thumbnails: thumbnailsDir() });
     AppWindow.configure({ startPageRoot: root, onChanged: onAppChanged });
-    UpgradePrompt.configure({ openWindowFor: (workspacePath) => AppWindow.showing(workspacePath) ?? null });
+    UpgradePrompt.configure({ openProjectFor: (workspacePath) => AppWindow.showing(workspacePath) ?? null });
     registerIpcHandlers();
     installSmokeHooks();
     buildApplicationMenu(menuActions);
@@ -315,13 +328,12 @@ if (singleInstance) {
     // A staged update shows up as a menu item; the menu is a snapshot, so rebuild.
     initAutoUpdate(() => refreshApplicationMenu(menuActions));
 
-    // Every launch starts on the start screen; a path on the command line (or
-    // a Finder double-click) then opens in that same window. It never assumes
-    // the last project is the one wanted now.
-    AppWindow.create();
+    // A launch with a path (the command line, a Finder double-click) opens
+    // just that project's window; any other launch starts on the start
+    // screen. It never assumes the last project is the one wanted now.
     const explicit = pendingOpen ?? pathFromArgv(process.argv);
-    if (explicit) {
-      openFromOs(explicit);
+    if (!explicit || !openFromOs(explicit)) {
+      AppWindow.create();
     }
 
     // Reclaim disk from engines nothing pins any more. Never touches a version

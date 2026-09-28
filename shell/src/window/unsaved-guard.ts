@@ -1,4 +1,5 @@
 import path from 'path';
+import type { DirtyFile, DirtyProbe } from '../../../launcher/src/projects/dirty-files';
 
 /**
  * Asked before anything tears down a project's page: Close Project, closing
@@ -18,9 +19,7 @@ import path from 'path';
  * a test, so everything around them is injected ({@link GuardIO}).
  */
 
-export type DirtyFile = { path: string; lastModifiedMs: number };
-
-export type DirtyProbe = { reachable: true; files: DirtyFile[] } | { reachable: false };
+export type { DirtyFile, DirtyProbe } from '../../../launcher/src/projects/dirty-files';
 
 export type TeardownAction = 'close-project' | 'close-window' | 'quit' | 'reopen';
 
@@ -48,7 +47,6 @@ const PROCEED_LABEL: Record<TeardownAction, string> = {
 /** Save All waits this long for the page to report its buffers clean. */
 export const SAVE_TIMEOUT_MS = 5_000;
 export const SAVE_POLL_MS = 250;
-const PROBE_TIMEOUT_MS = 2_000;
 
 /** At most this many file names in a prompt; the rest are counted. */
 const MAX_LISTED = 8;
@@ -153,27 +151,4 @@ export async function confirmTeardown(io: GuardIO, context: GuardContext): Promi
   }
   const second = afterSavePrompt(after, context);
   return !second || answerOf(second, await io.ask(second)) === 'proceed';
-}
-
-/** Ask the engine at `engineUrl` which buffers are dirty. Any failure is "unreachable". */
-export async function probeDirtyFiles(engineUrl: string | null): Promise<DirtyProbe> {
-  if (!engineUrl) {
-    return { reachable: false };
-  }
-  try {
-    const response = await fetch(`${engineUrl}/api/editor/dirty-files`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-    if (!response.ok) {
-      return { reachable: false };
-    }
-    const list: unknown = await response.json();
-    if (!Array.isArray(list)) {
-      return { reachable: false };
-    }
-    const files = list
-      .filter((entry): entry is DirtyFile => typeof entry?.path === 'string')
-      .map((entry) => ({ path: entry.path, lastModifiedMs: Number(entry.lastModifiedMs) || 0 }));
-    return { reachable: true, files };
-  } catch {
-    return { reachable: false };
-  }
 }

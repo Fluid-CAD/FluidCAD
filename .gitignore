@@ -13,6 +13,7 @@ server/dist/
 ui/dist/
 ui/dist-lib/
 ui/dist-start/
+launcher/dist/
 .vscode-test
 .fluidcad/
 llm-docs/index.json

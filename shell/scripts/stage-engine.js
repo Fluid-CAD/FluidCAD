@@ -78,7 +78,7 @@ function isStale(tarball) {
   } catch {
     return true;
   }
-  return ['lib/dist', 'server/dist', 'server/vendor', 'ui/dist', 'ui/dist-start', 'bin', 'llm-docs'].some(
+  return ['lib/dist', 'server/dist', 'server/vendor', 'ui/dist', 'ui/dist-start', 'launcher/dist', 'bin', 'llm-docs'].some(
     (rel) => newestMtime(path.join(REPO_ROOT, rel)) > builtAt,
   );
 }

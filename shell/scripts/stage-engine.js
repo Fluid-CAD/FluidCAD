@@ -78,14 +78,37 @@ function isStale(tarball) {
   } catch {
     return true;
   }
-  return ['lib/dist', 'server/dist', 'server/vendor', 'ui/dist', 'bin', 'llm-docs'].some(
+  return ['lib/dist', 'server/dist', 'server/vendor', 'ui/dist', 'ui/dist-start', 'launcher/dist', 'bin', 'llm-docs'].some(
     (rel) => newestMtime(path.join(REPO_ROOT, rel)) > builtAt,
   );
 }
 
+function readVersion(packageJson) {
+  return JSON.parse(fs.readFileSync(packageJson, 'utf8')).version;
+}
+
+/**
+ * The staged engine and the shell must carry one version. The built-in engine
+ * is what the shell calls "latest", `app.getVersion()` is what the feed's
+ * `minVersion` is compared with, and the start screen the shell shows is
+ * rendered by this engine and talks to this shell only — so the two ship in
+ * lockstep or not at all. They agree today only because `npm run bump` edits
+ * both files; this is what notices when one was edited by hand.
+ */
+function assertVersionLockstep() {
+  const engine = readVersion(path.join(REPO_ROOT, 'package.json'));
+  const shell = readVersion(path.join(SHELL_DIR, 'package.json'));
+  if (engine !== shell) {
+    throw new Error(
+      `The engine is ${engine} but the shell is ${shell}. They must match — run \`npm run bump\` from the repo root.`,
+    );
+  }
+  return engine;
+}
+
 function main() {
   const { target, force } = parseArgs(process.argv.slice(2));
-  const version = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
+  const version = assertVersionLockstep();
   const tarball = path.join(ENGINES_DIR, `fluidcad-engine-${version}-${target}.tar.gz`);
 
   if (force || isStale(tarball)) {
@@ -109,9 +132,16 @@ function main() {
   fs.mkdirSync(DESTINATION, { recursive: true });
   tar.x({ file: tarball, cwd: DESTINATION, sync: true });
 
-  const serverEntry = path.join(DESTINATION, 'node_modules', 'fluidcad', 'server', 'dist', 'index.js');
+  const packageRoot = path.join(DESTINATION, 'node_modules', 'fluidcad');
+  const serverEntry = path.join(packageRoot, 'server', 'dist', 'index.js');
   if (!fs.existsSync(serverEntry)) {
     throw new Error(`The staged engine has no server at ${serverEntry}.`);
+  }
+  // The shell renders its start screen from here; without it every launch
+  // would land on the bare fallback page.
+  const startPage = path.join(packageRoot, 'ui', 'dist-start', 'start.html');
+  if (!fs.existsSync(startPage)) {
+    throw new Error(`The staged engine has no start screen at ${startPage}.`);
   }
   console.log(`Staged engine ${version} (${target}) → ${DESTINATION}`);
 }

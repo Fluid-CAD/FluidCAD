@@ -5,7 +5,7 @@ title: "CLI Reference"
 
 # CLI Reference
 
-FluidCAD ships a command-line tool alongside the library. It scaffolds a project, opens FluidCAD in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
+FluidCAD ships a command-line tool alongside the library. It opens FluidCAD's start screen in your browser, scaffolds a project, opens one project in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
 
 FluidCAD is installed per-project, so the CLI is run through `npx` from inside the project:
 
@@ -14,20 +14,66 @@ npm i fluidcad
 npx fluidcad --help
 ```
 
+The start screen, `npx fluidcad` on its own, is the exception: it runs from any
+folder, and the projects it opens need no `npm i` of their own.
+
 :::note
 A global install (`npm install -g fluidcad`) is not supported — the engine and your editor's type hints both resolve from the project's `node_modules`. If you see `Cannot find module 'fluidcad' imported from …`, run `npm i fluidcad` inside the project.
 :::
 
 | Command | What it does |
 |---------|--------------|
+| [`fluidcad`](#fluidcad) | Open the start screen in the browser: your projects, new projects, and the engine each one runs on |
 | [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory |
-| [`fluidcad serve`](#fluidcad-serve) | Open FluidCAD in the browser and watch the workspace |
+| [`fluidcad serve`](#fluidcad-serve) | Open one project in the browser and watch its workspace |
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
 | [`fluidcad mcp`](#fluidcad-mcp) | Run the MCP server over stdio |
 
 Every command accepts `--help`, and `npx fluidcad --version` prints the installed version.
+
+---
+
+## `fluidcad`
+
+```bash
+npx fluidcad
+```
+
+Opens FluidCAD's start screen in your browser: the same one the desktop app
+shows, with your recent projects, **New Project** and **Open Project**, and the
+engine each project runs on. It is the one command you can run from anywhere;
+it is not tied to a project folder. (`npx fluidcad start` is the same command
+by its name.)
+
+Every project opens in a tab of its own, and the start screen stays in its tab.
+Opening a project that is already open brings its tab forward. **New Project**
+asks where the project should live and what to call it, creates the folder, and
+sets the project up in it, the same scaffold as [`fluidcad init`](#fluidcad-init).
+Close a project from the **⋯** menu on its card; FluidCAD refuses while its tab
+has unsaved changes.
+
+Each project runs on the engine its `fluidcad.json` pins, the way the desktop
+app runs it: a pin that is not on your machine is downloaded once and kept in
+`~/.fluidcad/engines`, and an unpinned project is pinned to the version of
+`fluidcad` you ran. The start screen and the desktop app share the recent
+projects, the previews and the downloaded engines, so a project opened in one
+is on the other's list too. See [Project
+configuration](/docs/project-configuration#engine).
+
+Leave the command running while you work. `Ctrl+C` stops FluidCAD and every
+project it opened. Running `npx fluidcad` again while it runs opens the running
+one in a new tab instead of starting a second.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-p, --port <port>` | Port for the start screen — if it's taken, the first free port above it is used | `3100` |
+| `--no-open` | Don't launch a browser, only print the start screen's link | _opens by default_ |
+
+The link it prints carries a key for the session, so that no other page or user
+on your machine can drive FluidCAD through it. Open it yourself when the
+browser does not open on its own (over SSH, say), and don't share it.
 
 ---
 
@@ -77,9 +123,10 @@ tool, and a code editor. It renders the model you had open last (or the first
 made anywhere — the in-page editor, your own editor, an AI agent through MCP —
 rebuilds the model. Press `Ctrl+C` to stop.
 
-This is the primary way to run FluidCAD. The [VS Code and Neovim
-extensions](/docs/installation#editor-setup) drive the same server if you'd
-rather stay in your own editor.
+Where [`fluidcad`](#fluidcad) opens the start screen, `serve` opens one
+project, runs it on the `fluidcad` it was installed with, and suits CI and
+scripts. The [VS Code and Neovim extensions](/docs/installation#editor-setup)
+drive the same server if you'd rather stay in your own editor.
 
 | Flag | Description | Default |
 |------|-------------|---------|

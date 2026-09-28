@@ -212,7 +212,9 @@ export function engineArtifactStem(version: string, targetKey: string): string {
  * artifact by construction — the engine is that package minus MCP, not a fork.
  */
 function packRepo(outDir: string, version: string): string {
-  const required = ['lib/dist/index.js', 'server/dist/index.js', 'ui/dist/index.html'];
+  // `ui/dist-start` is the desktop start screen: the shell serves it from the
+  // engine it ships with, and falls back to a bare page when it is missing.
+  const required = ['lib/dist/index.js', 'server/dist/index.js', 'ui/dist/index.html', 'ui/dist-start/start.html'];
   const missing = required.filter((rel) => !fs.existsSync(path.join(REPO_ROOT, rel)));
   if (missing.length > 0) {
     throw new Error(

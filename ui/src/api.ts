@@ -212,6 +212,8 @@ export interface UserPreferences {
   timelineShowConstraints?: boolean;
   /** The timeline lists a sketch's region declarations. Default false. */
   timelineShowRegions?: boolean;
+  /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
+  maxWorkers?: number;
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */

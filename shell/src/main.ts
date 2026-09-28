@@ -1,44 +1,40 @@
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { pruneEngines } from './engine/cache';
-import { EngineTransport } from './engine/download';
-import { EngineScratch } from './engine/scratch';
-import { buildApplicationMenu, refreshApplicationMenu } from './menu';
-import { createNewProject } from './new-project';
-import {
-  allProjectWindows,
-  findProjectWindow,
-  onProjectWindowClosed,
-  openProjectWindow,
-  windowFor,
-  type ProjectWindow,
-} from './project-window';
-import {
-  closeStartScreen,
-  isStartScreenOpen,
-  openStartScreen,
-  refreshStartScreen,
-  registerStartScreenHandlers,
-} from './start-screen';
-import { pinnedVersions, workspaceForPath } from './state';
+import { builtinEngine, pruneEngines, setBuiltinEngineLocation } from '../../launcher/src/engine/cache';
+import { EngineTransport } from '../../launcher/src/engine/download';
+import { EngineScratch } from '../../launcher/src/engine/scratch';
+import { thumbnailsDir } from '../../launcher/src/paths';
+import { pinnedVersions, workspaceForPath } from '../../launcher/src/projects/app-state';
+import { StartApi } from '../../launcher/src/start/api';
+import { buildApplicationMenu, refreshApplicationMenu, type MenuActions } from './menu';
+import { chooseNewProjectFolder } from './new-project';
+import { handleAppScheme, registerAppScheme } from './start/app-protocol';
+import { registerStartScreenIpc } from './start/ipc';
+import { startPageRoot } from './start/page-source';
+import { thumbnailUrl } from './start/protocol';
 import { initAutoUpdate } from './updater';
 import { UpgradePrompt, type UpgradeChoice } from './upgrade-prompt';
+import { AppWindow } from './window/app-window';
+import { routeOpen, type OpenRequest } from './window/registry';
 
 /**
  * The FluidCAD desktop shell.
  *
  * It does two things: spawn a child process, and load one URL. Everything a
- * user sees inside the window — the viewport, the editor, the dialogs — is the
- * engine's page, served from the engine that this project pins. That is the
- * whole design: see `docs/desktop/00-architecture.md`, and resist every urge
- * to put product UI in here. The start screen is the exception, and it exists
- * precisely for the moment when there is no engine to show anything.
+ * user sees inside a project — the viewport, the editor, the dialogs — is the
+ * engine's page, served from the engine that project pins. That is the whole
+ * design: see `docs/desktop/00-architecture.md`, and resist every urge to put
+ * product UI in here. The start screen is engine UI too, rendered by the engine
+ * that ships with the app and served over `fluidcad-app://start/`; the shell
+ * owns only its data and actions. The shell's one page of its own is
+ * `static/startup.html`, the fallback for when that start page cannot be used.
  */
 
-// `cache.ts` reads this to find the engine that ships inside the app. Set from
-// here because `process.resourcesPath` only exists once Electron is running.
-process.env.FLUIDCAD_RESOURCES_PATH ??= process.resourcesPath;
+// The engine that ships inside the app, staged by `scripts/stage-engine.js`
+// into the bundle's `resources/engine/`. A dev run has none there and points
+// `FLUIDCAD_BUILTIN_ENGINE` at a build instead.
+setBuiltinEngineLocation({ kind: 'root', root: path.join(process.resourcesPath, 'engine') });
 
 // An overridden home (E2E runs, a second dev instance) gets its own Electron
 // profile too: the single-instance lock lives in userData, so without this an
@@ -46,6 +42,9 @@ process.env.FLUIDCAD_RESOURCES_PATH ??= process.resourcesPath;
 if (process.env.FLUIDCAD_HOME) {
   app.setPath('userData', path.join(path.resolve(process.env.FLUIDCAD_HOME), 'electron'));
 }
+
+// Before `ready`, or Electron ignores it.
+registerAppScheme();
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
@@ -118,58 +117,96 @@ function installSmokeHooks(): void {
   });
 }
 
-/** The window that a menu action or an IPC call belongs to. */
-function callerWindow(event?: Electron.IpcMainInvokeEvent) {
-  const browserWindow = event
-    ? BrowserWindow.fromWebContents(event.sender)
-    : BrowserWindow.getFocusedWindow();
-  return windowFor(browserWindow);
-}
+// ---------------------------------------------------------------------------
+// Opening projects
+// ---------------------------------------------------------------------------
 
 /**
- * Open (or focus) a project; `null` asks the user for one, as a sheet on
- * `parent` when given. Returns the window, or null when nothing was opened —
- * the start screen uses that to know whether it should stay up.
+ * Send an open to the window it belongs in (see `window/registry.ts`): focus
+ * the window that already holds the project, open it in the start screen that
+ * asked (or an idle one), or open a new window for it.
  */
-export async function openProject(
-  target: string | null,
-  parent: BrowserWindow | null = null,
-): Promise<ProjectWindow | null> {
-  const workspacePath = target ? workspaceForPath(target) : await promptForProject(parent);
-  if (!workspacePath) {
-    return null;
+function requestOpen(request: OpenRequest, options: { create?: boolean } = {}): void {
+  const route = routeOpen(AppWindow.snapshots(), request);
+  switch (route.action) {
+    case 'focus':
+      AppWindow.byId(route.windowId)?.focus();
+      return;
+    case 'open-in': {
+      const window = AppWindow.byId(route.windowId);
+      window?.openProject(request.path, options);
+      // An OS open may land in a start screen behind other windows.
+      window?.focus();
+      return;
+    }
+    case 'new-window':
+      AppWindow.create().openProject(request.path, options);
+      return;
   }
-  const existing = findProjectWindow(workspacePath);
-  if (existing) {
-    existing.focus();
-    closeStartScreen();
-    return existing;
-  }
-  const opened = await openProjectWindow(workspacePath);
-  // The start screen is a launcher: once a project is up it has done its job.
-  closeStartScreen();
-  // Open Recent is a snapshot taken when the menu was built; the project just
-  // opened has to appear in it without restarting the app.
-  refreshApplicationMenu(menuActions);
-  return opened;
 }
+
+/** A path from outside the app: the command line, a second launch, Finder or Explorer. False when it names nothing. */
+function openFromOs(target: string): boolean {
+  const workspacePath = workspaceForPath(target);
+  if (workspacePath) {
+    requestOpen({ source: 'os', path: workspacePath });
+  }
+  return workspacePath !== null;
+}
+
+/** File › Open Project… (null asks, as a sheet on the focused window) and Open Recent. */
+async function openFromMenu(target: string | null): Promise<void> {
+  const workspacePath = target ? workspaceForPath(target) : await promptForProject(BrowserWindow.getFocusedWindow());
+  if (workspacePath) {
+    requestOpen({ source: 'menu', path: workspacePath });
+  }
+}
+
+/** File › New Project…: the same `fluidcad init` scaffold the start screen offers. */
+async function newProjectFromMenu(): Promise<void> {
+  const choice = await chooseNewProjectFolder(BrowserWindow.getFocusedWindow());
+  if (choice) {
+    requestOpen({ source: 'menu', path: choice.path }, { create: choice.create });
+  }
+}
+
+const menuActions: MenuActions = {
+  openProject: openFromMenu,
+  newProject: newProjectFromMenu,
+  newWindow: () => void AppWindow.create(),
+};
 
 /**
- * File › New Project…: the same `fluidcad init` scaffold the start screen
- * offers, as a sheet on whichever window is in front (a project window or the
- * start screen), and the result opens like any other project.
+ * Something a menu or a start screen shows has changed — a window's phase,
+ * the recents, a pin. Coalesced: one burst of changes rebuilds the menu once.
  */
-async function newProject(): Promise<ProjectWindow | null> {
-  const parent = BrowserWindow.getFocusedWindow();
-  const outcome = await createNewProject(parent);
-  return outcome ? openProject(outcome.path, parent) : null;
+let changePending = false;
+function onAppChanged(): void {
+  if (changePending) {
+    return;
+  }
+  changePending = true;
+  setImmediate(() => {
+    changePending = false;
+    refreshApplicationMenu(menuActions);
+    for (const window of AppWindow.all()) {
+      window.notifyStartChanged();
+    }
+  });
 }
-
-const menuActions = { openProject, newProject, openStartScreen };
 
 // ---------------------------------------------------------------------------
 // Renderer bridge
 // ---------------------------------------------------------------------------
+
+/** The start screen's data and actions, the same `npx fluidcad` serves; what is desktop about them comes from here. */
+const startApi = new StartApi({
+  appVersion: app.getVersion(),
+  isOpen: (workspacePath) => AppWindow.holding(workspacePath) !== undefined,
+  thumbnailUrl,
+  openProjectFor: (workspacePath) => AppWindow.showing(workspacePath) ?? null,
+  changed: () => AppWindow.changed(),
+});
 
 function registerIpcHandlers(): void {
   ipcMain.handle('desktop:show-open-dialog', async (event, request) => {
@@ -216,7 +253,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('desktop:restart-engine', async (event) => {
-    await callerWindow(event)?.restartEngine();
+    await AppWindow.fromWebContents(event.sender)?.restartEngine();
   });
 
   // The upgrade prompt drawn onto a project's page. The choice is validated
@@ -224,21 +261,22 @@ function registerIpcHandlers(): void {
   const UPGRADE_CHOICES = new Set<UpgradeChoice>(['upgrade', 'preview', 'keep', 'never', 'dismiss']);
   ipcMain.handle('desktop:engine-upgrade-respond', async (event, choice: unknown) => {
     if (typeof choice === 'string' && UPGRADE_CHOICES.has(choice as UpgradeChoice)) {
-      await callerWindow(event)?.respondToUpgrade(choice as UpgradeChoice);
+      await AppWindow.fromWebContents(event.sender)?.respondToUpgrade(choice as UpgradeChoice);
     }
   });
-  UpgradePrompt.configure({ openProject });
 
-  // The startup splash, when an engine could not be resolved.
-  ipcMain.handle('shell:retry', async (event) => {
-    await callerWindow(event)?.open();
+  registerStartScreenIpc({
+    api: startApi,
+    openFromStartScreen: (window, target, options) => {
+      // A new project's folder is empty, not missing: the dialog only returns folders that exist.
+      const workspacePath = workspaceForPath(target);
+      if (workspacePath) {
+        requestOpen({ source: 'start-screen', windowId: window.id, path: workspacePath }, options);
+      }
+    },
+    promptForProject: (window) => promptForProject(window.browserWindow),
+    promptForNewProject: (window) => chooseNewProjectFolder(window.browserWindow),
   });
-
-  ipcMain.handle('shell:open-project', async () => {
-    await openProject(null);
-  });
-
-  registerStartScreenHandlers({ openProject });
 }
 
 // ---------------------------------------------------------------------------
@@ -248,20 +286,22 @@ function registerIpcHandlers(): void {
 if (singleInstance) {
   /** A macOS `open-file` that arrived before the app was ready. */
   let pendingOpen: string | null = null;
-  /** Set on the first `before-quit`; the start screen must not reappear while windows go down. */
-  let quitting = false;
+  /** Unsaved buffers and thumbnails are handled; the next `before-quit` goes through. */
+  let quitApproved = false;
+  /** A quit is being prepared (a question may be up); further requests wait for it. */
+  let quitPending = false;
 
   app.on('second-instance', (_event, argv) => {
     const target = pathFromArgv(argv);
     if (target) {
-      void openProject(target);
+      openFromOs(target);
       return;
     }
-    const front = allProjectWindows()[0];
+    const front = AppWindow.focused() ?? AppWindow.all()[0];
     if (front) {
       front.focus();
     } else {
-      openStartScreen();
+      AppWindow.create();
     }
   });
 
@@ -269,42 +309,38 @@ if (singleInstance) {
   app.on('open-file', (event, filePath) => {
     event.preventDefault();
     if (app.isReady()) {
-      void openProject(filePath);
+      openFromOs(filePath);
     } else {
       pendingOpen = filePath;
     }
   });
 
-  app.whenReady().then(async () => {
+  app.whenReady().then(() => {
     // Engine downloads go through Chromium's network stack, so they follow the
     // system proxy and PAC settings the same way the updater does.
     EngineTransport.use((url, init) => net.fetch(url, init));
+    const root = startPageRoot({
+      packaged: app.isPackaged,
+      env: process.env,
+      builtinPackageRoot: builtinEngine()?.packageRoot ?? null,
+    });
+    handleAppScheme({ start: root, thumbnails: thumbnailsDir() });
+    AppWindow.configure({ startPageRoot: root, onChanged: onAppChanged });
+    UpgradePrompt.configure({ openProjectFor: (workspacePath) => AppWindow.showing(workspacePath) ?? null });
     registerIpcHandlers();
     installSmokeHooks();
     buildApplicationMenu(menuActions);
+    // The menu's enablement follows the window in front.
+    app.on('browser-window-focus', () => refreshApplicationMenu(menuActions));
     // A staged update shows up as a menu item; the menu is a snapshot, so rebuild.
     initAutoUpdate(() => refreshApplicationMenu(menuActions));
 
-    // Closing a project window closes it, full stop — no start screen pops
-    // up in its place. An already-open start screen just refreshes so the
-    // thumbnail captured on close shows up.
-    onProjectWindowClosed((_window, info) => {
-      if (quitting || info.reopening) {
-        return;
-      }
-      if (isStartScreenOpen()) {
-        refreshStartScreen();
-      }
-    });
-
-    // A path on the command line (or a Finder double-click) opens that
-    // project; otherwise the app starts on the start screen and the user
-    // picks — it never assumes the last project is the one wanted now.
+    // A launch with a path (the command line, a Finder double-click) opens
+    // just that project's window; any other launch starts on the start
+    // screen. It never assumes the last project is the one wanted now.
     const explicit = pendingOpen ?? pathFromArgv(process.argv);
-    if (explicit) {
-      await openProject(explicit);
-    } else {
-      openStartScreen();
+    if (!explicit || !openFromOs(explicit)) {
+      AppWindow.create();
     }
 
     // Reclaim disk from engines nothing pins any more. Never touches a version
@@ -319,32 +355,37 @@ if (singleInstance) {
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      openStartScreen();
+    if (AppWindow.all().length === 0) {
+      AppWindow.create();
     }
   });
 
   app.on('window-all-closed', () => {
-    // A pin-change reopen may already be spinning up the next window; only a
-    // truly empty app quits.
     if (process.platform !== 'darwin' && BrowserWindow.getAllWindows().length === 0) {
       app.quit();
     }
   });
 
   app.on('before-quit', (event) => {
-    quitting = true;
-    // Thumbnails come from the live pages, and the engines die below — so on
-    // the first pass hold the quit, capture every open project at once, and
-    // quit again with the pictures in hand.
-    const pending = allProjectWindows().filter((window) => !window.readyToClose);
-    if (pending.length > 0) {
-      event.preventDefault();
-      void Promise.allSettled(pending.map((window) => window.prepareClose())).then(() => app.quit());
+    if (quitApproved) {
+      AppWindow.shutdownAll();
       return;
     }
-    for (const window of allProjectWindows()) {
-      window.shutdown();
+    // Unsaved buffers and thumbnails both need the live pages and engines, so
+    // hold the quit: ask each project in turn, capture every preview at once,
+    // then quit again with everything in hand. A Cancel anywhere keeps the
+    // app running as it was.
+    event.preventDefault();
+    if (quitPending) {
+      return;
     }
+    quitPending = true;
+    void AppWindow.prepareQuit().then((ok) => {
+      quitPending = false;
+      if (ok) {
+        quitApproved = true;
+        app.quit();
+      }
+    });
   });
 }

@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { registerStartCommand } from './commands/start.js';
 import { registerInitCommand } from './commands/init.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerMcpCommand } from './commands/mcp.js';
@@ -20,6 +21,7 @@ const program = new Command()
   .description('FluidCAD CLI')
   .version(pkg.version);
 
+registerStartCommand(program);
 registerInitCommand(program);
 registerServeCommand(program);
 registerMcpCommand(program);

@@ -1,7 +1,7 @@
-import { EngineUpgrade, type UpgradeCandidate } from './engine-upgrade';
-import type { UpgradeDiff } from './engine/upgrade-diff';
-import type { ProjectWindow } from './project-window';
-import { rememberUpgradeChoice } from './state';
+import type { BrowserWindow } from 'electron';
+import { EngineUpgrade, type ApplyDeps, type UpgradeCandidate } from '../../launcher/src/engine/upgrade';
+import type { UpgradeDiff } from '../../launcher/src/engine/upgrade-diff';
+import { rememberUpgradeChoice } from '../../launcher/src/projects/app-state';
 
 /**
  * The prompt a project window shows when the app carries a newer engine than
@@ -23,22 +23,24 @@ type PanelState =
   | { phase: 'diff'; from: string; to: string; diff: UpgradeDiff }
   | { phase: 'error'; from: string; to: string; message: string };
 
-export type UpgradePromptDeps = {
-  openProject: (target: string) => Promise<unknown>;
+/** The project the prompt is about, and the window whose page it is drawn on. */
+export type UpgradePromptTarget = {
+  readonly workspacePath: string;
+  readonly browserWindow: BrowserWindow;
 };
 
 export class UpgradePrompt {
-  private static deps: UpgradePromptDeps | null = null;
+  private static deps: ApplyDeps | null = null;
 
   private static readonly PANEL_ID = 'fluidcad-engine-upgrade';
 
   private candidate: UpgradeCandidate | null = null;
   private busy = false;
 
-  constructor(private readonly window: ProjectWindow) {}
+  constructor(private readonly window: UpgradePromptTarget) {}
 
   /** Wired once from `main.ts`; `apply` reopens the project through it. */
-  static configure(deps: UpgradePromptDeps): void {
+  static configure(deps: ApplyDeps): void {
     UpgradePrompt.deps = deps;
   }
 
@@ -112,12 +114,9 @@ export class UpgradePrompt {
     }
     this.busy = true;
     await this.render({ phase: 'working', ...candidate, message: `Switching to engine ${candidate.to}…` });
-    const result = await EngineUpgrade.apply(this.window.workspacePath, candidate.to, {
-      openWindow: this.window,
-      openProject: deps.openProject,
-    });
-    // On success this window is gone and the project is back up on the new
-    // engine; only a failure has anything left to draw on.
+    const result = await EngineUpgrade.apply(this.window.workspacePath, candidate.to, deps);
+    // On success this page is gone — the window reopened the project on the
+    // new engine — and only a failure has anything left to draw on.
     this.busy = false;
     if (!result.ok) {
       await this.render({ phase: 'error', ...candidate, message: result.error ?? 'The pin could not be changed.' });

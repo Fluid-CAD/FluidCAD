@@ -31,7 +31,7 @@ export function closeDropupMenu(): void {
 /**
  * A small menu that opens *upward* from a control sitting at the bottom of
  * the viewer (the status-row chips), right-aligned to it. Same look and
- * dismissal rules as the tab context menu (`editor/tab-menu.ts`): mounted
+ * dismissal rules as the tab context menu (`ui/popup-menu.ts`): mounted
  * in `host` — the positioning context every overlay shares — one at a
  * time, closed on an outside press, Escape, or a pick. Arrow keys move
  * between rows; focus starts on the current item so Enter re-affirms it.

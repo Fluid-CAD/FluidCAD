@@ -144,7 +144,8 @@ export class InsertPartDialog {
       }
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
+      // A dialog that has left the document keeps no hold on the keyboard.
+      if (e.key === 'Escape' && this.overlay.isConnected && !this.overlay.classList.contains('hidden')) {
         e.stopPropagation();
         this.hide();
       }

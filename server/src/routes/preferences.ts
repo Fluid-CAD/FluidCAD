@@ -3,6 +3,7 @@ import {
   EDITOR_FONT_SIZE_RANGE,
   GRID_MAJOR_EVERY_RANGE,
   GRID_MIN_CELL_PX_RANGE,
+  MAX_WORKERS_RANGE,
   MEASURE_LENGTH_UNITS,
   PICK_RADIUS_PX_RANGE,
   SNAP_RADIUS_PX_RANGE,
@@ -10,6 +11,7 @@ import {
   loadPreferences,
   resetPreferences,
   savePreferences,
+  type Preferences,
 } from '../preferences.ts';
 
 /** Bounds an editor font family: one line of plain text, no CSS injection surface. */
@@ -24,7 +26,12 @@ function clampedNumber(value: unknown, [min, max]: [number, number]): number | n
   return Math.min(max, Math.max(min, value));
 }
 
-export function createPreferencesRouter(): Router {
+/**
+ * `onSaved` hears every preferences file this router writes, a merge or a
+ * reset, so the settings the engine itself acts on (the kernel's worker
+ * count) apply without waiting for a restart.
+ */
+export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = () => {}): Router {
   const router = Router();
   // Writes are read-modify-write on one file, so two POSTs in flight at once
   // (the grid chip persists a pitch and the lock back to back) would each
@@ -135,9 +142,14 @@ export function createPreferencesRouter(): Router {
         if (typeof body.timelineShowRegions === 'boolean') {
           current.timelineShowRegions = body.timelineShowRegions;
         }
+        const maxWorkers = clampedNumber(body.maxWorkers, MAX_WORKERS_RANGE);
+        if (maxWorkers !== null) {
+          current.maxWorkers = Math.round(maxWorkers);
+        }
         await savePreferences(current);
         return current;
       });
+      onSaved(saved);
       res.json(saved);
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
@@ -150,6 +162,7 @@ export function createPreferencesRouter(): Router {
   router.post('/preferences/reset', async (_req, res) => {
     try {
       const prefs = await serialized(() => resetPreferences());
+      onSaved(prefs);
       res.json(prefs);
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });

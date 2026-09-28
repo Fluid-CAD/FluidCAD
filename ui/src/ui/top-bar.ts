@@ -1,4 +1,5 @@
 import { FileTabs, type FileTab, type FileTabsHandlers } from '../editor/tabs';
+import { createBrand } from './brand';
 import { TopBarActions, type TopBarAction, type TopBarActionHandlers } from './top-bar-actions';
 import type { SceneObjectRender, SerializedAssembly } from '../types';
 
@@ -36,21 +37,14 @@ export class TopBar {
       'panel-bg border-b border-base-content/10 select-none';
 
     // Logo + wordmark
-    const brand = document.createElement('div');
-    brand.className = 'flex items-center gap-1.5 shrink-0';
-    brand.innerHTML = `
-      <img src="/logo.svg" alt="FluidCAD" class="h-8 w-8 shrink-0" />
-      <div class="flex flex-col justify-center">
-        <span class="text-[17px] leading-5 font-bold text-base-content/80 tracking-tight">FluidCAD</span>
-      </div>
-    `;
+    const brand = createBrand();
     // The engine version (the server's package version — not the desktop
     // shell's, which can run several engines), under the wordmark. Hidden
     // until the host reports it, so the wordmark stays centered meanwhile.
     this.engineVersion = document.createElement('span');
     this.engineVersion.className = 'hidden text-[8px] leading-[10px] text-base-content/50 whitespace-nowrap';
-    brand.querySelector('div')!.appendChild(this.engineVersion);
-    this.el.appendChild(brand);
+    brand.wordmarkColumn.appendChild(this.engineVersion);
+    this.el.appendChild(brand.element);
 
     // Divider — the brand on one side, the open document on the other.
     const divider = document.createElement('div');

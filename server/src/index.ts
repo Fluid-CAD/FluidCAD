@@ -56,6 +56,7 @@ import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
 import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { setMaxWorkers } from '../../lib/dist/oc/init.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -169,7 +170,7 @@ app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatche
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadServer.resolveSelection(request)));
-app.use('/api', createPreferencesRouter());
+app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
 app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes), core.awaitLatestSceneApplied));
@@ -685,8 +686,13 @@ httpServer.listen(PORT, HOST, () => {
   // Signal ready immediately so extension can show the webview
   sendToExtension({ type: 'ready', port: PORT, url });
 
-  // Initialize FluidCAD server in the background
-  fluidCadServer.init(WORKSPACE_PATH).then(() => {
+  // Initialize FluidCAD server in the background. The stored worker count
+  // reaches the kernel first: loading it (from the workspace's init.js) fixes
+  // how many workers it starts with.
+  loadPreferences().then((prefs) => {
+    setMaxWorkers(prefs.maxWorkers);
+    return fluidCadServer.init(WORKSPACE_PATH);
+  }).then(() => {
     // Starting without an engine is legal — the UI and the editor still work —
     // but it is never what someone wants silently, so it lands in the terminal
     // as well as in the page.

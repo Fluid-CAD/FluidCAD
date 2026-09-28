@@ -19,6 +19,7 @@ export default defineConfig({
       "ui/tests/**/*.test.ts",
       "scripts/tests/**/*.test.ts",
       "shell/tests/**/*.test.ts",
+      "launcher/tests/**/*.test.ts",
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

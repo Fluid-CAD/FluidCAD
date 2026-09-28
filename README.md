@@ -120,7 +120,13 @@ Bring in existing STEP models with their colors, export STEP to other CAD tools,
 
 ### Prefer the terminal?
 
-With Node.js and npm installed:
+With Node.js and npm installed, the desktop app's start screen opens in your browser from any folder:
+
+```bash
+npx fluidcad
+```
+
+Create or open projects there; each opens in a tab of its own. To set a project up from the terminal instead:
 
 ```bash
 mkdir my-model && cd my-model

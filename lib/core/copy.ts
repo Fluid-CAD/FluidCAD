@@ -11,6 +11,7 @@ import { CopyCircular2D } from "../features/copy-circular2d.js";
 import { SketchDatum } from "../features/2d/solved/datum.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource, CopyBase } from "../features/copy-base.js";
+import { CopyPattern } from "../features/copy-pattern.js";
 import { BoundConnector, Connector } from "../features/connector.js";
 import { ConnectorAxis } from "../features/connector-axis.js";
 import { ConnectorCopyRules, ConnectorCopyScope } from "../features/connector-copy.js";
@@ -19,7 +20,7 @@ import { Axis } from "../math/axis.js";
 import { resolveAxis } from "../helpers/resolve.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { Scene } from "../rendering/scene.js";
-import { IConnector, ICopy, ISceneObject } from "./interfaces.js";
+import { IConnector, ICopy, IRepeat, ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
 
@@ -63,6 +64,29 @@ function addCopy<T extends CopyBase>(
     }
   }
   return copy;
+}
+
+/**
+ * Add the follow form, `copy(pattern, ...connectors)`: copies of connectors
+ * laid on a linear or circular repeat's own instances. Only scene objects
+ * join the statement's targets — an inserted instance's connector refuses it
+ * and stays out, as it does for the other forms — and every rule the form
+ * adds refuses the statement on its own row ({@link
+ * CopyPattern.statementRefusal}); the connectors' own rules follow when its
+ * copies are made.
+ */
+function addPatternCopy(
+  context: SceneParserContext,
+  pattern: unknown,
+  targets: unknown[],
+  scope: ConnectorCopyScope,
+): CopyPattern {
+  const refusal = CopyPattern.statementRefusal(pattern, targets, scope, context.getActiveSketch() !== null);
+  const copy = new CopyPattern(
+    pattern instanceof SceneObject ? pattern : null,
+    targets.filter((target): target is SceneObject => target instanceof SceneObject),
+  );
+  return addCopy(context, copy, scope, refusal);
 }
 
 /**
@@ -186,11 +210,34 @@ interface CopyFunction {
    * @param objects - The objects to copy (defaults to last object)
    */
   (type: 'circular', axis: AxisLike | IConnector, options: CircularCopyOptions, ...objects: ISceneObject[]): ICopy;
+
+  /**
+   * [3D] Copies connectors onto the instances of a linear or circular
+   * `repeat()`: each copy is the connector's frame moved the way the repeat
+   * moved that instance, so `copy(holes, bolt)` puts `bolt.instance(k)` on
+   * `holes.instance(k)` — the repeat's own slots, skipped ones included, and
+   * a partial arc spaced the repeat's way. Edit the repeat and the copies
+   * follow. Connectors only, inside the part body that declares both the
+   * repeat and the connectors; a mirror, rotate or matrix repeat is refused.
+   * @param pattern - The linear or circular `repeat()` to follow
+   * @param connectors - The connectors to copy
+   */
+  (pattern: IRepeat, ...connectors: IConnector[]): ICopy;
 }
 
 function build(context: SceneParserContext): CopyFunction {
   return function copy() {
     const args = Array.from(arguments);
+
+    if (args.length === 0) {
+      throw new Error("Invalid arguments for copy function: expected (type, axis, options, …objects) or (pattern, …connectors)");
+    }
+
+    const scope = copyScope(getCurrentScene());
+    // The follow form: a repeat() where the copy type goes.
+    if (typeof args[0] !== 'string') {
+      return addPatternCopy(context, args[0], args.slice(1), scope);
+    }
 
     if (args.length < 3) {
       throw new Error("Invalid arguments for copy function: expected at least (type, axis, options)");
@@ -200,7 +247,6 @@ function build(context: SceneParserContext): CopyFunction {
     const activeSketch = context.getActiveSketch();
     const options = args[2] as LinearCopyOptions | CircularCopyOptions;
     const restObjects = args.slice(3) as unknown[];
-    const scope = copyScope(getCurrentScene());
     // An inserted instance's connector refuses the statement, as a target or
     // as the axis; it is no scene object, so it stays out of the targets the
     // statement compares and builds. Explicit targets stay explicit even when

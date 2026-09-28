@@ -683,6 +683,40 @@ describe("feature sources (edit-dialog seeding)", () => {
   });
 
   /**
+   * A copy that follows a repeat walks no axis: its keep chips are the
+   * connectors it copies and the repeat it follows, each by its statement —
+   * what the edit ghost reads the repeat's slots off.
+   */
+  it("resolves a follow copy's repeat and connector targets to their statements", () => {
+    part("flange", () => {
+      sketch("xy", () => {
+        testRect(200, 200, { at: [-100, -100] });
+      });
+      const e = extrude(10);
+      sketch(e.endFaces(), () => {
+        circle([40, 0], 20);
+      });
+      const hole = cut();
+      const holes = repeat("circular", "z", { count: 6, angle: 360 }, hole as never);
+      setLocation(holes as never, 6);
+      const bolt = connector("bolt", hole.startEdges());
+      setLocation(bolt as never, 7);
+      const statement = copy(holes as never, bolt as never);
+      setLocation(statement as never, 8);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "copy-pattern", 8));
+    expect(result).toEqual({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 7, column: 0 }],
+      axes: [],
+      pattern: { kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 },
+    });
+  });
+
+  /**
    * An implicit copy names no targets at all — it clones every active solid —
    * and reports the empty list that says so. Its world-axis literals build no
    * statement to point at, one per direction.

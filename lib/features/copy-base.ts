@@ -18,7 +18,9 @@ export type CopyAxisSource = Axis | AxisObjectBase | ConnectorAxis;
 /**
  * Shared base for the 3D copy features. A copy takes the shapes its targets
  * hold and adds one moved clone of them per slot of its layout — the slots
- * `CopyLayout` numbers from the statement's axes and options.
+ * `CopyLayout` numbers from the statement's axes and options, or, for
+ * `copy(pattern, …)` ({@link CopyPattern}), the slots of the repeat it
+ * follows.
  *
  * Connector targets never go through that shape path (a connector's only
  * shape is its meta marker): each one gets a {@link ConnectorFamily} instead,
@@ -54,6 +56,14 @@ export abstract class CopyBase extends SceneObject {
    */
   protected abstract connectorOptionsRefusal(): string | null;
 
+  /**
+   * The `repeat()` whose slots the statement follows, or null when it lays
+   * out its own pattern — the families name it for the slots it skipped.
+   */
+  protected followedPattern(): SceneObject | null {
+    return null;
+  }
+
   override hidesChildren(): boolean {
     return true;
   }
@@ -82,9 +92,10 @@ export abstract class CopyBase extends SceneObject {
       return [];
     }
     const layout = this.slotLayout();
+    const pattern = this.followedPattern();
     const copies: ConnectorCopy[] = [];
     for (const seed of seeds) {
-      const family = new ConnectorFamily(seed, this, layout.originalSlot, layout.slotCount);
+      const family = new ConnectorFamily(seed, this, layout.originalSlot, layout.slotCount, pattern);
       for (const { slot, matrix } of layout.slots) {
         const copy = new ConnectorCopy(seed, slot, matrix);
         this.addChildObject(copy);

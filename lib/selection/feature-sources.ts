@@ -19,7 +19,7 @@ import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { RepeatAxisSource } from "../features/repeat-base.js";
+import { RepeatAxisSource, RepeatBase } from "../features/repeat-base.js";
 import { RepeatCircular } from "../features/repeat-circular.js";
 import { RepeatLinear } from "../features/repeat-linear.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
@@ -27,6 +27,7 @@ import { CopyAxisSource } from "../features/copy-base.js";
 import { ConnectorAxis } from "../features/connector-axis.js";
 import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
+import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
@@ -95,9 +96,10 @@ export type FeatureSources =
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all, cloning every
    * active solid — reports an empty target list, which is what "implicit"
-   * looks like from here.
+   * looks like from here. A copy that follows a repeat (`copy(holes, bolt)`)
+   * walks no axis: it reports the repeat it follows as its `pattern`.
    */
-  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[] }
+  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[]; pattern?: SourceSlot }
   /**
    * A standalone `mirror(plane, …)`: the solids it reflects, by call site,
    * plus the plane it reflects them across. An origin-plane literal is
@@ -300,6 +302,15 @@ export function resolveFeatureSources(
         axes: [resolver.axisSourceSlot(feature.axis)],
       };
     }
+    if (feature instanceof CopyPattern) {
+      return {
+        ok: true,
+        feature: 'copy',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [],
+        pattern: resolver.repeatSlot(feature.pattern),
+      };
+    }
     // The plane family, each form holding its own bases. All three extend
     // PlaneObjectBase, so the two that carry sources come first and the bare
     // literal (`plane('xy', 10)`) falls through to a base it can't re-target.
@@ -355,6 +366,15 @@ class SourceResolver {
   /** A sketch input, by call site — opaque when binding it could mis-target. */
   sketchSlot(obj: SceneObject | null): SourceSlot {
     return obj instanceof Sketch ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
+   * The repeat a copy follows, by call site — a `repeat()` statement the
+   * dialog's Pattern slot can point at; a repeat written inline in the copy
+   * itself has none of its own and stays opaque.
+   */
+  repeatSlot(obj: SceneObject | null): SourceSlot {
+    return obj instanceof RepeatBase ? this.callSiteSlot(obj) : OPAQUE;
   }
 
   /**

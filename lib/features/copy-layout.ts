@@ -4,6 +4,7 @@ import { type NumberParam, resolveParam } from "../core/param.js";
 import type { CopyAxisSource } from "./copy-base.js";
 import type { LinearCopyOptions } from "./copy-linear.js";
 import type { CircularCopyOptions } from "./copy-circular.js";
+import type { RepeatBase } from "./repeat-base.js";
 
 /** One slot a copy lands in: its number, and the move from the original to it. */
 export type CopySlot = {
@@ -45,6 +46,9 @@ export type CopySlotLayout = {
  * Slot numbers need only the options (counts resolve here), so a layout can be
  * taken at parse time, before any axis object is built. Each slot's move stays
  * a LazyMatrix until something resolves it at build time.
+ *
+ * The third form, `copy(pattern, …)`, lays out nothing of its own: it takes
+ * the slots of the repeat it follows ({@link CopyLayout.follow}).
  */
 export class CopyLayout {
 
@@ -152,5 +156,28 @@ export class CopyLayout {
       return resolveParam(options.offset as NumberParam);
     }
     return resolveParam((options as { angle: NumberParam }).angle) / count;
+  }
+
+  /**
+   * The slots of a `repeat()` that `copy(pattern, …)` follows — the repeat's
+   * own, none of copy()'s rules: its numbering and original slot, the slots
+   * its `skip` left out, and each placed slot's move, the very transform its
+   * clones carry (`RepeatBase.getSlotMatrix`). So `bolt.instance(k)` lands
+   * where `holes.instance(k)` did, a partial arc spaced the repeat's way. Each
+   * move compares by the repeat and the slot (`LazyMatrix.ofSlot`): a linear
+   * repeat's moves are opaque, but an unchanged repeat places every slot
+   * where it did before.
+   */
+  static follow(pattern: RepeatBase): CopySlotLayout {
+    const numbered = pattern.getInstanceSlots();
+    const originalSlot = pattern.getOriginalSlot();
+    const slots: CopySlot[] = [];
+    numbered.forEach((roots, slot) => {
+      if (slot === originalSlot || roots === null) {
+        return;
+      }
+      slots.push({ slot, matrix: LazyMatrix.ofSlot(pattern, slot, pattern.getSlotMatrix(slot)) });
+    });
+    return { originalSlot, slotCount: numbered.length, slots };
   }
 }

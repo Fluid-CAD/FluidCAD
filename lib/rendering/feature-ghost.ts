@@ -7,6 +7,9 @@ import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Connector } from "../features/connector.js";
 import { ConnectorAxis } from "../features/connector-axis.js";
+import { CopyLayout } from "../features/copy-layout.js";
+import { CopyPattern } from "../features/copy-pattern.js";
+import { RepeatBase } from "../features/repeat-base.js";
 import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
@@ -333,10 +336,14 @@ export type GhostRepeatDirection = {
  * transform. Per keystroke that is N array transforms and no OCC work.
  *
  * The origin instance is never drawn — it is the geometry already on screen.
+ *
+ * A copy that follows a repeat (`kind: 'pattern'`, `copy(holes, bolt)`)
+ * states no instances of its own: they are the repeat's, read off it at its
+ * call site, and its targets are connectors only — the ghost answers frames.
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
+  kind: 'linear' | 'circular' | 'pattern';
   /**
    * The statements being copied, by call site: solid-bearing ones, whose
    * bodies are stamped, and `connector()` statements, whose frames come back
@@ -359,6 +366,12 @@ export type CopyGhostRequest = {
    * copy's entries carry a single index each; absent skips none.
    */
   skip?: number[][];
+  /**
+   * Pattern: the `repeat()` the copies follow, by call site — each copy lands
+   * where the repeat put its instance (`CopyLayout.follow`). Only the pattern
+   * kind carries one, and it carries no axes, directions, count or sweep.
+   */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -1754,12 +1767,18 @@ function buildCopyGhost(
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
   const seeds = copyTargetFrames(targets);
-  const meshes = stampMeshes(
+  // A copy that follows a repeat copies connectors only — the statement
+  // refuses anything else, so nothing else is ever stamped.
+  const following = request.kind === 'pattern';
+  const meshes = following ? [] : stampMeshes(
     copyTargetSolids(targets.filter(target => !(target instanceof Connector))),
     new MeshBuilder(meshConfig),
   );
   if (meshes.length === 0 && seeds.length === 0) {
-    return { ok: false, reason: 'That statement has no solid to copy.' };
+    return {
+      ok: false,
+      reason: following ? 'That statement has no connector to copy.' : 'That statement has no solid to copy.',
+    };
   }
   // Every target rides in one body per instance: they move together, and the
   // overlay draws a mesh list whatever it was gathered from. A connector
@@ -1815,6 +1834,9 @@ function copyGhostMatrices(
   scene: Scene,
   request: CopyGhostRequest,
 ): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  if (request.kind === 'pattern') {
+    return followedRepeatMatrices(scene, request.pattern);
+  }
   const total = requestedInstanceCount(request);
   if (total > MAX_GHOST_INSTANCES) {
     // The one refusal here the user can do something about, and the one where
@@ -1856,6 +1878,36 @@ function copyGhostMatrices(
     offset: directionOffset(direction),
   }));
   return { matrices: buildLinearCopyGhostMatrices(directions, request.centered, request.skip ?? []) };
+}
+
+/**
+ * Where a copy that follows a repeat puts its copies: the rendered repeat's
+ * own slot moves, read at its call site through the rule the statement
+ * builds with (`CopyLayout.follow`). A repeat the statement would refuse —
+ * a mirror, rotate or matrix one, a centered circular one, a refused one —
+ * is refused here in the statement's words and surfaced, so the dialog says
+ * why before the apply writes a row that would.
+ */
+function followedRepeatMatrices(
+  scene: Scene,
+  ref: { filePath: string; line: number } | undefined,
+): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  // The repeat, never a clone of one it repeated — those share its line.
+  const repeat = ref
+    ? findByLocation(scene, ref, obj => obj instanceof RepeatBase && obj.getCloneSource() === null)
+    : null;
+  if (!(repeat instanceof RepeatBase)) {
+    return { reason: 'That repeat is not in the rendered scene.' };
+  }
+  const refusal = CopyPattern.followRefusal(repeat);
+  if (refusal) {
+    return { reason: refusal, surface: true };
+  }
+  const { slots } = CopyLayout.follow(repeat);
+  if (slots.length > MAX_GHOST_INSTANCES) {
+    return { reason: `${slots.length} instances is more than the preview draws.`, surface: true };
+  }
+  return { matrices: slots.map(slot => slot.matrix.resolve()) };
 }
 
 /**

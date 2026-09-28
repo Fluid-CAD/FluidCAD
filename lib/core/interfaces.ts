@@ -238,10 +238,12 @@ export interface IConnector extends ISceneObject {
    * Slots are numbered like `repeat().instance(k)`: a linear grid counts its
    * cells with the first axis varying slowest, the original keeping its own
    * cell (0, or the centre cell when `centered`); a circular copy counts
-   * rotation steps from the original at 0. The original's slot is the
-   * connector itself. A copy is the connector's frame moved by the pattern —
-   * it does not re-attach to geometry at its new place. A slot the copy
-   * skipped, a slot out of range, or a connector nothing copies throws.
+   * rotation steps from the original at 0. A copy that follows a repeat —
+   * `copy(holes, bolt)` — takes the repeat's own slots, so `bolt.instance(k)`
+   * sits on `holes.instance(k)`. The original's slot is the connector
+   * itself. A copy is the connector's frame moved by the pattern — it does
+   * not re-attach to geometry at its new place. A slot the copy skipped, a
+   * slot out of range, or a connector nothing copies throws.
    * @param slot - The pattern slot.
    */
   instance(slot: number): IConnector;

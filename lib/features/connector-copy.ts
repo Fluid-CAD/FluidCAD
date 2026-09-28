@@ -6,14 +6,15 @@ import { Part } from "./part.js";
 
 /**
  * One copy of a connector, made by a `copy('linear' | 'circular', …)`
- * statement that lists the connector among its targets: the seed's frame
- * moved rigidly by one slot of the pattern, `frame = M_slot · frame_seed`.
+ * statement that lists the connector among its targets — or by
+ * `copy(pattern, …)`, which follows a repeat: the seed's frame moved rigidly
+ * by one slot of the pattern, `frame = M_slot · frame_seed`.
  *
  * A copy is not re-derived from geometry at its new place — a `select()`
  * re-evaluated there falls back to the seed's own match when nothing matches,
  * and an assembly connector has no geometry at all — so it lands where the
- * pattern puts it, whatever is there. To keep copies on holes, pattern the
- * holes with the same pattern.
+ * pattern puts it, whatever is there. To keep copies on holes, follow the
+ * holes' own repeat: `copy(holes, bolt)` replays its slot moves.
  *
  * Everything that takes a connector takes a copy unchanged, since it is one:
  * mates hold it, replicate compares it by identity, and the render stamps it
@@ -92,8 +93,9 @@ export class ConnectorCopy extends Connector {
 /**
  * The copies one `copy()` statement made of one connector — what
  * `seed.instance(k)` reads. Slots are the statement's own numbering
- * (`CopyLayout`): the seed holds the original's slot, each placed slot holds
- * its copy, and the rest of `[0, slotCount)` are slots `skip` left out.
+ * (`CopyLayout`) — or, for `copy(pattern, …)`, the numbering of the repeat
+ * it follows: the seed holds the original's slot, each placed slot holds its
+ * copy, and the rest of `[0, slotCount)` are slots a `skip` left out.
  */
 export class ConnectorFamily {
   private readonly copies = new Map<number, ConnectorCopy>();
@@ -104,6 +106,12 @@ export class ConnectorFamily {
     readonly statement: SceneObject,
     readonly originalSlot: number,
     readonly slotCount: number,
+    /**
+     * The `repeat()` the statement follows (`copy(holes, bolt)`), whose own
+     * `skip` left out the slots the family skips; null when the statement
+     * lays out its own pattern.
+     */
+    readonly pattern: SceneObject | null = null,
   ) {}
 
   /** Record a copy at its slot (parse time). */
@@ -133,19 +141,37 @@ export class ConnectorFamily {
     }
     const member = this.memberAt(slot);
     if (!member) {
-      throw new Error(`${name}.instance(${slot}) was skipped by ${this.statementLabel()}`);
+      throw new Error(`${name}.instance(${slot}) was skipped by ${this.skipLabel()}`);
     }
     return member;
   }
 
   /** `the copy at flange.part.js:14` — the statement as messages name it. */
   statementLabel(): string {
-    const location = this.statement.getSourceLocation();
+    return ConnectorFamily.located("the copy", this.statement) ?? "the copy statement";
+  }
+
+  /**
+   * Whose `skip` left a slot out: the copy's own, or — following a repeat —
+   * that repeat's (`the repeat at flange.part.js:12 that the copy at
+   * flange.part.js:14 follows`).
+   */
+  private skipLabel(): string {
+    if (!this.pattern) {
+      return this.statementLabel();
+    }
+    const repeat = ConnectorFamily.located("the repeat", this.pattern) ?? "the repeat";
+    return `${repeat} that ${this.statementLabel()} follows`;
+  }
+
+  /** `<noun> at flange.part.js:14`, or null for an object the parser didn't locate. */
+  private static located(noun: string, object: SceneObject): string | null {
+    const location = object.getSourceLocation();
     if (!location) {
-      return "the copy statement";
+      return null;
     }
     const file = location.filePath.split("/").pop() ?? location.filePath;
-    return `the copy at ${file}:${location.line}`;
+    return `${noun} at ${file}:${location.line}`;
   }
 }
 

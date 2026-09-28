@@ -1975,6 +1975,85 @@ describe("feature ghost — copy", () => {
       }
     });
 
+    describe("following a repeat", () => {
+      const REPEAT_LINE = 9;
+
+      const FOLLOW: Partial<CopyGhostRequest> = {
+        kind: 'pattern',
+        axes: [],
+        directions: [],
+        pattern: { filePath: FILE, line: REPEAT_LINE },
+      };
+
+      /** A boss beside the bolt, repeated by `repeatIt` — the repeat addressable at its line. */
+      function repeatedBoss(repeatIt: (boss: SceneObject) => SceneObject): (bolt: Connector) => void {
+        return () => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new() as unknown as SceneObject;
+          repeatIt(boss).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+        };
+      }
+
+      it("places the copies on the repeat's own slots — a partial arc spaced its way", () => {
+        flange(repeatedBoss(boss => repeat("circular", "z", { count: 4, angle: 90 }, boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const result = copyGhost(scene, [BOLT_LINE], FOLLOW);
+
+        expect(result.ok && result.solids).toEqual([]);
+        const frames = framesOf(result);
+        expect(frames).toHaveLength(3);
+        [30, 60, 90].forEach((degrees, i) => {
+          const a = (degrees * Math.PI) / 180;
+          near(frames[i].origin, 30 * Math.cos(a), 30 * Math.sin(a), 10);
+          near(frames[i].xDirection, Math.cos(a), Math.sin(a), 0);
+        });
+      });
+
+      it("places the frames the statement builds — editing a copy that already follows", () => {
+        const made = flange(bolt => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new();
+          const r = repeat("linear", ["x", "y"], { count: [2, 2], offset: [15, 25], skip: [[1, 1]] }, boss as never);
+          (r as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+          copy(r, bolt);
+        });
+        const scene = render();
+
+        const frames = framesOf(copyGhost(scene, [BOLT_LINE], FOLLOW));
+
+        // Cells (0, 1) and (1, 0); (1, 1) is skipped.
+        expect(frames).toHaveLength(2);
+        frames.forEach((frame, i) => {
+          const built = made.bolt.instance(i + 1).getFrame();
+          near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+          near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+        });
+        near(frames[0].origin, 30, 25, 10);
+        near(frames[1].origin, 45, 0, 10);
+      });
+
+      it("refuses, surfaced, a repeat the statement would refuse; quietly, one the scene doesn't hold", () => {
+        flange(repeatedBoss(boss => repeat("mirror", "yz", boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const mirrored = copyGhost(scene, [BOLT_LINE], FOLLOW);
+        expect(mirrored).toEqual({
+          ok: false,
+          reason: "copy(): copy(pattern, …) follows a linear or circular repeat() — a mirror repeat reflects its "
+            + "instance, and a copied connector is never reflected",
+          surface: true,
+        });
+
+        const gone = copyGhost(scene, [BOLT_LINE], { ...FOLLOW, pattern: { filePath: FILE, line: 99 } });
+        expect(gone).toEqual({ ok: false, reason: 'That repeat is not in the rendered scene.', surface: undefined });
+      });
+    });
+
     describe("in an assembly", () => {
       const BAY_LINE = 3;
       const HUB_LINE = 4;

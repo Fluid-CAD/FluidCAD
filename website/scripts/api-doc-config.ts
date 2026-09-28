@@ -177,6 +177,7 @@ export const types: TypeEntry[] = [
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
+  { name: 'IConnector', displayName: 'Connector', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 21 },
   { name: 'Point2DLike', displayName: 'Point2DLike', sourceFile: 'math/point.ts', sidebarPosition: 23 },
   { name: 'PointLike', displayName: 'PointLike', sourceFile: 'math/point.ts', sidebarPosition: 24 },
   { name: 'PlaneLike', displayName: 'PlaneLike', sourceFile: 'math/plane.ts', sidebarPosition: 25 },
@@ -347,8 +348,10 @@ export const typeDisplayNameMap: Record<string, string> = {
   'ISketch': 'Sketch',
   'IAxis': 'Axis',
   'ISelect': 'Select',
+  'ICopy': 'Copy',
   'IRepeat': 'Repeat',
   'IRepeatInstance': 'RepeatInstance',
+  'IConnector': 'Connector',
   'FaceFilterBuilder': 'FaceFilter',
   'EdgeFilterBuilder': 'EdgeFilter',
   'Point2DLike': 'Point2DLike',
@@ -384,14 +387,15 @@ export function typeSlug(displayName: string): string {
 
 /** Resolves a raw type string to its display name */
 export function resolveTypeName(raw: string): string {
-  // Handle union types: resolve each part individually
-  if (raw.includes(' | ')) {
-    return raw.split(' | ').map(part => resolveTypeName(part.trim())).join(' | ');
-  }
-  // Handle parenthesized array wrapper: (Foo | Bar)[]
+  // Handle parenthesized array wrapper: (Foo | Bar)[] — before the union
+  // split, which would cut it at its inner bar
   const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
   if (parenArrayMatch) {
     return `(${resolveTypeName(parenArrayMatch[1])})[]`;
+  }
+  // Handle union types: resolve each part individually
+  if (raw.includes(' | ')) {
+    return raw.split(' | ').map(part => resolveTypeName(part.trim())).join(' | ');
   }
   // Handle simple array type: Foo[]
   const simpleArrayMatch = raw.match(/^(.+)\[\]$/);

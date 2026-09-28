@@ -211,9 +211,11 @@ places a breakpoint after it and opens the feature's edit dialog. Right-click
 a row: **Rename** (edits `.name('…')`), **Edit feature**, **Breakpoint here**
 (a `breakpoint()` after the row, so features you add next land there),
 **Remove** (deletes the statement; if later features depend on it, a dialog
-lists them and deletes the closure on confirm). Sketch rows fold their
-constraints behind an *N constraints* toggle row; part rows fold *N
-connectors* and *N exposed*. Feature status glyph: check = served from cache,
+lists them and deletes the closure on confirm); a connector row nothing
+copies yet also offers **Copy…** (the Copy dialog with that connector).
+Sketch rows fold their constraints behind an *N constraints* toggle row;
+part rows fold *N connectors* (a connector-only Copy row files there too,
+counted by its copies) and *N exposed*. Feature status glyph: check = served from cache,
 refresh = recomputed. The panel's **⋯** menu: **Recompute scene** (clears the
 cache and rebuilds everything) and **Show execution time**. **Undo / Redo**
 sit above it.
@@ -281,7 +283,12 @@ Dialog fields:
   or the X / Y / Z quick buttons; `axis()` statements with transform options are code-only.
 - **Mirror** (3D): tabs Add / Remove / New; **Solids** slot; **Plane** slot.
 - **Copy / Repeat**: kind (linear / circular / mirror), **Axis** slots,
-  count, offset / length / angle, centered, skip.
+  count, offset / length / angle, centered, skip. Copy's **Type** is
+  **Linear / Circular / Along a repeat**; its targets slot is **Solids &
+  connectors** (connector triads and rows too), and **Along a repeat**
+  (offered while every target is a connector) swaps the axis, count,
+  spacing and skip fields for a **Pattern** slot (a repeat row, or a
+  feature it repeated). Repeat refuses connectors and points to Copy.
 - **Rotate**: tabs **Move** (turn in place) / **Copy** (keep originals, add
   turned copies); **Solids** slot; **Axis** slot; **Angle**.
 - **Boolean**: **Fuse / Subtract / Common**, **Target** and **Tool** solids.
@@ -332,7 +339,10 @@ is solved live as a preview while the dialog is open.
 
 **Assembly rail** — **Parts** (one row per instance; eye toggle; menu: Show
 in source, Toggle grounded, Rename, Delete; sub-assemblies group under a
-header), **Connectors** (assembly-level connectors), **Joints** (one row per
+header), **Connectors** (assembly-level connectors; a copied one heads a
+family — count, chevron, `instance(k)` rows; menu: Show in source,
+Copy… / Edit copy…, Delete; on a copy: Show in source, Edit copy…, Remove
+copies), **Joints** (one row per
 `mate()`; click highlights both connectors; right-click a revolute/slider
 row → **Animate…**).
 

@@ -25,7 +25,7 @@ See the [guide](/docs/sketching/tools/offset) for detailed usage examples.
 ## Signatures
 
 ```ts
-offset(distance?: NumberParam, ...targets: (ISceneObject | EdgeFilterBuilder)[]): Offset
+offset(distance?: NumberParam, ...targets: (SceneObject | EdgeFilter)[]): Offset
 ```
 
 Offsets sketch geometry by the given distance. With no targets, offsets
@@ -41,4 +41,4 @@ any sketch.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | NumberParam | The offset distance (defaults to 1) *(optional)* |
-| `...targets` | (ISceneObject \| EdgeFilterBuilder)[] | Optional geometries, edge accessors (`r.edge('top')`), edge filters (`edge().arc()`), or (outside a sketch) coplanar face selections to offset instead of the whole sketch *(optional)* |
+| `...targets` | ([SceneObject](/docs/api/types/scene-object) \| EdgeFilter)[] | Optional geometries, edge accessors (`r.edge('top')`), edge filters (`edge().arc()`), or (outside a sketch) coplanar face selections to offset instead of the whole sketch *(optional)* |

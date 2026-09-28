@@ -8,7 +8,7 @@ description: "[2D] Creates linear copies along an axis inside a sketch."
 
 [2D] Creates linear copies along an axis inside a sketch.
 
-**Returns**: **`ICopy`**
+**Returns**: [**`Copy`**](/docs/api/types/copy)
 
 :::tip
 See the [guide](/docs/patterns/copy) for detailed usage examples.
@@ -17,7 +17,7 @@ See the [guide](/docs/patterns/copy) for detailed usage examples.
 ## Signatures
 
 ```ts
-copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
 [2D] Creates linear copies along an axis inside a sketch.
@@ -32,7 +32,7 @@ copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: Sce
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
 [2D] Creates linear copies along multiple axes inside a sketch.
@@ -47,37 +47,45 @@ copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: S
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "linear", axis: AxisLike | Connector, options: LinearCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
-[3D] Creates linear copies along an axis.
+[3D] Creates linear copies along an axis. A connector among the objects
+is copied as a frame: its copies are `bolt.instance(1)`, … (see
+`IConnector.instance`), made inside the connector's own part body. At an
+assembly file's top level it copies assembly connectors only:
+`copy('linear', 'x', { count: 4, offset: 50 }, bay)` makes
+`bay.instance(1)` … `bay.instance(3)`, the axis a world axis or an
+assembly connector.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy along |
+| `axis` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to copy along — a world axis, an `axis()`, an edge, or a connector (its Z axis) |
 | `options` | LinearCopyOptions | Copy count, spacing, etc. |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "linear", axis: (AxisLike | Connector)[], options: LinearCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
-[3D] Creates linear copies along multiple axes.
+[3D] Creates linear copies along multiple axes. A connector among the
+objects is copied as a frame, one copy per grid cell — see
+`IConnector.instance` for the numbering.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to copy along |
+| `axis` | ([AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector))[] | The axes to copy along — each a world axis, an `axis()`, an edge, or a connector (its Z axis) |
 | `options` | LinearCopyOptions | Copy count, spacing, etc. |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
 [2D] Creates circular copies around a center point inside a sketch.
@@ -92,14 +100,37 @@ copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...obj
 ---
 
 ```ts
-copy(type: "circular", axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): ICopy
+copy(type: "circular", axis: AxisLike | Connector, options: CircularCopyOptions, ...objects: SceneObject[]): Copy
 ```
 
-[3D] Creates circular copies around an axis.
+[3D] Creates circular copies around an axis. A connector among the
+objects is copied as a frame: `copy('circular', 'z', { count: 6, angle:
+360 }, bolt)` makes `bolt.instance(1)` … `bolt.instance(5)`. At an
+assembly file's top level it copies assembly connectors only, around a
+world axis or an assembly connector's Z axis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "circular" | Must be `'circular'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy around |
+| `axis` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to copy around — a world axis, an `axis()`, an edge, or a connector (its Z axis through its origin) |
 | `options` | CircularCopyOptions | Copy count, angle, etc. |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(pattern: Repeat, ...connectors: Connector[]): Copy
+```
+
+[3D] Copies connectors onto the instances of a linear or circular
+`repeat()`: each copy is the connector's frame moved the way the repeat
+moved that instance, so `copy(holes, bolt)` puts `bolt.instance(k)` on
+`holes.instance(k)` — the repeat's own slots, skipped ones included, and
+a partial arc spaced the repeat's way. Edit the repeat and the copies
+follow. Connectors only, inside the part body that declares both the
+repeat and the connectors; a mirror, rotate or matrix repeat is refused.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pattern` | [Repeat](/docs/api/types/repeat) | The linear or circular `repeat()` to follow |
+| `...connectors` | [Connector](/docs/api/types/connector)[] | The connectors to copy *(optional)* |

@@ -13,5 +13,5 @@ export const groundedExample = assembly('grounded-example', () => {
     // written here is only where it starts.
     const post = insert(standoff).translate(0, 0, 40).name('Front-left standoff');
 
-    mate('fastened', base.connectors.hole1, post.connectors.foot);
+    mate('fastened', base.connectors.hole, post.connectors.foot);
 });

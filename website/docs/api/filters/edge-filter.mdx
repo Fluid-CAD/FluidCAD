@@ -210,7 +210,7 @@ Excludes straight-line edges, optionally matching a specific length.
 ### .outerOf()
 
 ```ts
-.outerOf(...faces: (ISceneObject | FilterBuilderBase<Face>)[][]): this
+.outerOf(...faces: (SceneObject | FilterBuilderBase<Face>)[][]): this
 ```
 
 Selects edges on the outer loop of a face — the rim of a plate's top
@@ -226,12 +226,12 @@ edits.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faces` | (ISceneObject \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
+| `...faces` | ([SceneObject](/docs/api/types/scene-object) \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
 
 ### .notOuterOf()
 
 ```ts
-.notOuterOf(...faces: (ISceneObject | FilterBuilderBase<Face>)[][]): this
+.notOuterOf(...faces: (SceneObject | FilterBuilderBase<Face>)[][]): this
 ```
 
 Excludes edges on the outer loop of a face given as face filters or as a
@@ -239,14 +239,14 @@ face reference. An edge bounding no such face survives.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faces` | (ISceneObject \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
+| `...faces` | ([SceneObject](/docs/api/types/scene-object) \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
 
 ---
 
 ### .holeOf()
 
 ```ts
-.holeOf(...faces: (ISceneObject | FilterBuilderBase<Face>)[][]): this
+.holeOf(...faces: (SceneObject | FilterBuilderBase<Face>)[][]): this
 ```
 
 Selects edges on a hole loop of a face — a bore's rim on the plate's top
@@ -258,12 +258,12 @@ outer loop of the bore's wall: the face decides.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faces` | (ISceneObject \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
+| `...faces` | ([SceneObject](/docs/api/types/scene-object) \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
 
 ### .notHoleOf()
 
 ```ts
-.notHoleOf(...faces: (ISceneObject | FilterBuilderBase<Face>)[][]): this
+.notHoleOf(...faces: (SceneObject | FilterBuilderBase<Face>)[][]): this
 ```
 
 Excludes edges on a hole loop of a face given as face filters or as a
@@ -271,7 +271,7 @@ face reference. An edge bounding no such face survives.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faces` | (ISceneObject \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
+| `...faces` | ([SceneObject](/docs/api/types/scene-object) \| FilterBuilderBase&lt;Face&gt;)[] | Face filter builders, or a scene object whose faces are the reference. *(optional)* |
 
 ---
 

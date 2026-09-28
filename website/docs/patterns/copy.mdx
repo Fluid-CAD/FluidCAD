@@ -9,15 +9,15 @@ import copyCircular from '!!raw-loader!./_examples/copy-circular.js';
 
 # Copy
 
-`copy()` duplicates a **finished solid** at several positions, in a row or around an axis. The copies are clones of the shape as it is — no modelling operation is re-run. To re-apply a feature (a cut, an extrude) at each position instead, use [Repeat](/docs/patterns/repeat).
+`copy()` duplicates a **finished solid** at several positions, in a row or around an axis. The copies are clones of the shape as it is — no modelling operation is re-run. To re-apply a feature (a cut, an extrude) at each position instead, use [Repeat](/docs/patterns/repeat). `copy()` also copies [connectors](#copying-connectors), the frames an assembly mates to.
 
 ## In the viewport
 
 1. Click **Copy** on the toolbar. The Copy dialog docks on the right.
-2. Pick the kind at the top: **Linear** copies along one or two axes, **Circular** around an axis.
-3. Click the solid to copy — any face or edge click in the viewport, or its timeline row. It fills the **Solids** slot.
-4. **Linear**: in **Direction 1**, fill the **Axis** slot (click a world axis shown in the viewport, an `axis()` feature, or an edge), enter the **Total Count** (the original included) and the spacing — the **Offset / Total** switch decides whether the value is the gap between neighbours or the whole span, spread evenly. **Add second direction** opens a second axis and count for a grid.
-5. **Circular**: fill the **Axis** slot (empty defaults to world Z), the **Total Count**, and the **Angle** — **Total** for the whole sweep, **Offset** for the degrees between neighbours.
+2. Pick the **Type** at the top: **Linear** copies along one or two axes, **Circular** around an axis. The third type, **Along a repeat**, is for [connectors](#copying-connectors).
+3. Click the solid to copy — any face or edge click in the viewport, or its timeline row. It fills the **Solids & connectors** slot.
+4. **Linear**: in **Direction 1**, fill the **Axis** slot (click a world axis shown in the viewport, an `axis()` feature, an edge, or a connector), enter the **Total Count** (the original included) and the spacing — the **Offset / Total** switch decides whether the value is the gap between neighbours or the whole span, spread evenly. **Add second direction** opens a second axis and count for a grid.
+5. **Circular**: fill the **Axis** slot (empty defaults to world Z), the **Total Count**, and the **Angle** — **Total** for the sweep, **Offset** for the degrees between neighbours.
 6. **Centered** spreads the pattern around the original instead of away from it. **Skip** lists instance indices to leave out (`1, 3`).
 7. Click **Apply**.
 
@@ -26,7 +26,7 @@ import copyCircular from '!!raw-loader!./_examples/copy-circular.js';
 ![Four cylinders in a row](/img/docs/patterns/copy-linear.png)
 
 <ExplainedCode code={copyLinear} fileName="row.part.js">
-The Copy dialog's Linear kind with world X as the direction, a count of 4 and an offset of 150 writes this statement. No target is passed, so it copies the object built last.
+The Copy dialog's Linear kind with world X as the direction, a count of 4 and an offset of 150 writes this statement. No target is passed, so it copies every solid built so far — here, the one cylinder.
 </ExplainedCode>
 
 Options:
@@ -62,29 +62,56 @@ Options:
 | Option | Meaning |
 |--------|---------|
 | `count` | total number of instances, the original included |
-| `angle` | the whole sweep, spread evenly (default 360) |
+| `angle` | the sweep, cut into `count` equal steps |
 | `offset` | degrees between neighbours instead of `angle` |
 | `centered` | centre the sweep on the original |
 | `skip` | indices to leave out |
 
-The axis is anything axis-like — a world axis name, an `axis()` feature, an edge — see [Axes](/docs/datums/axes).
+With `angle`, the step is always `angle / count`. Six copies over 360° sit 60° apart; over a partial arc the last copy stops one step short of the angle, so `count: 4, angle: 90` puts them at 0°, 22.5°, 45° and 67.5°. [Repeat](/docs/patterns/repeat#circular-repeat) spaces a partial arc the other way, `angle / (count - 1)`, and lands its last instance on the angle: 0°, 30°, 60° and 90°. To match a repeat, give the copy `offset: 30`, or, for connectors, [follow the repeat](#copying-connectors).
+
+The axis is anything axis-like — a world axis name, an `axis()` feature, an edge — see [Axes](/docs/datums/axes). A connector works too: its Z axis, through its origin.
 
 ## Code forms
 
 ```js
 import { copy } from 'fluidcad/core';
 
-copy("linear", "x", { count: 4, offset: 150 })            // the last solid
+copy("linear", "x", { count: 4, offset: 150 })            // every solid built so far
 copy("linear", "x", { count: 4, offset: 150 }, a, b)      // specific solids
 copy("circular", "z", { count: 6, angle: 360 })
 copy("circular", axis(e.sideEdges(0)), { count: 6, angle: 180, centered: true })
+copy("circular", "z", { count: 6, angle: 360 }, bolt)     // a connector: bolt.instance(1) … bolt.instance(5)
+copy(holes, bolt)                                         // a copy of bolt on each instance of the repeat holes
 ```
 
-Each copy is an independent solid; the result's `.instance(i)` accessor addresses one of them for later features.
+Each copy is an independent solid. Later features reach the copies through their faces and edges, with [selections and filters](/docs/3d-operations/selection-and-filters): the value a 3D `copy()` returns has no `.instance(i)` accessor. That accessor belongs to [sketch copies](/docs/sketching/tools/copy), and to a copied connector, which is addressed on the connector — `bolt.instance(3)`.
 
 :::info[Copy versus repeat]
 `copy()` stamps the finished shape. `repeat()` re-applies a feature so that it interacts with the solid at every position — one solid with four pockets rather than four solids with one pocket each. See [Repeat](/docs/patterns/repeat).
 :::
+
+## Copying connectors
+
+A [connector](/docs/part/connector), the frame an assembly mates to, is copied with the same dialog; [Repeat](/docs/patterns/repeat) refuses connectors and points here. Each copy is a connector with no statement of its own, addressed `bolt.instance(1)`, `bolt.instance(2)`, …: *copy 1 of `bolt`*, and so on. An assembly mates one as `flange.connectors.bolt.instance(3)`.
+
+<img src="/img/docs/ui/copy-dialog-connector.png" alt="The Copy dialog on Circular: the bolt connector in Solids & connectors, world Z as the axis, Total Count 6, Angle 360" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Click the connector's triad in the viewport (every connector shows while the dialog is open), or right-click its timeline row and choose **Copy…**. Solids and connectors can share the **Solids & connectors** slot; each one gets its copies.
+2. **Linear** and **Circular** work as they do for solids, except that a Circular copy of a connector can't be **Centered** yet: the statement is refused.
+3. **Along a repeat**, offered while every target is a connector, puts one copy on each instance of a repeat. Click the Repeat row in the timeline, or the repeated feature in the viewport, to fill the **Pattern** slot. The count, spacing, axis and skip fields go away: the repeat decides them, and when it changes the copies move with it.
+4. Triads preview the copies. **Apply** writes the statement, and the Copy row joins the part's connectors in the timeline.
+
+<div style={{clear: 'both'}} />
+
+```js
+copy("circular", "z", { count: 6, angle: 360 }, bolt)         // bolt.instance(1) … bolt.instance(5)
+copy("circular", "z", { count: 6, angle: 360 }, boss, bolt)   // a boss and the connector on it
+copy(holes, bolt)                                             // bolt.instance(k) on instance k of the repeat holes
+```
+
+A copy is the connector's frame moved by the pattern. It does not re-attach to the geometry where it lands, so a connector on a repeated hole should be copied **Along a repeat**: the copies then stay on the holes, over a partial arc too, where a Circular copy steps differently (above). The numbering, the read-only rules and how a grid renumbers are on the [connector page](/docs/part/connector#copying-a-connector).
+
+An assembly's own connectors are copied from its **Connectors** rail, Linear or Circular about a world axis or another assembly connector: see [Assembly connectors](/docs/assembly/introduction#copying-an-assembly-connector).
 
 ## Inside a sketch
 

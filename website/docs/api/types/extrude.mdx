@@ -95,7 +95,7 @@ Enables symmetric mode — extrudes equally in both directions from the sketch p
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+startFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces at the start (base) of the extrusion.
@@ -104,14 +104,14 @@ Selects faces at the start (base) of the extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+endFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces at the end (cap) of the extrusion.
@@ -120,14 +120,14 @@ Selects faces at the end (cap) of the extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+startEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the start (base) faces of the extrusion.
@@ -136,14 +136,14 @@ Selects edges on the start (base) faces of the extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+endEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the end (cap) faces of the extrusion.
@@ -152,14 +152,14 @@ Selects edges on the end (cap) faces of the extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+sideFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the lateral faces created by the extrusion.
@@ -168,14 +168,14 @@ Selects the lateral faces created by the extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+sideEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
@@ -184,14 +184,14 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+internalFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces created inside the solid during extrusion (e.g., from holes or intersections).
@@ -200,14 +200,14 @@ Selects faces created inside the solid during extrusion (e.g., from holes or int
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+internalEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges bounding the internal geometry created during extrusion.
@@ -216,14 +216,14 @@ Selects edges bounding the internal geometry created during extrusion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+capFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
@@ -233,14 +233,14 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+capEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the cap faces of a thin-walled extrusion from an open profile.
@@ -249,7 +249,7 @@ Selects edges on the cap faces of a thin-walled extrusion from an open profile.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 

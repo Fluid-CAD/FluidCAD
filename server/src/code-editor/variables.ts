@@ -4,6 +4,7 @@ import { assemblyBodies, assemblyInsertAnchors } from './assembly.ts';
 
 import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
+import { InstanceProperties, type InstancePropertyValue } from './instance-properties.ts';
 import { indentOf, joinLines, resolveSourceRow, splitLines, type CodeEditResult } from './lines.ts';
 import { findEditableCallAt, walkTree } from './nodes.ts';
 import { getParser, type TSNode, type TSTree } from './parser.ts';
@@ -165,6 +166,7 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
 export async function extractVariablesInScope(
   code: string,
   sketchSourceLine: number,
+  instances: InstanceProperties = InstanceProperties.none(),
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -173,7 +175,7 @@ export async function extractVariablesInScope(
   if (sketchRow < 0) {
     return [];
   }
-  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine));
+  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), instances);
 }
 
 /**
@@ -186,6 +188,7 @@ export async function extractVariablesInScope(
 export async function extractVariablesInPart(
   code: string,
   partLine: number,
+  instances: InstanceProperties = InstanceProperties.none(),
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -194,21 +197,33 @@ export async function extractVariablesInPart(
   if ('error' in part) {
     return [];
   }
-  return collectVariablesInScope(tree, part.body.endPosition.row, null);
+  return collectVariablesInScope(tree, part.body.endPosition.row, null, instances);
 }
 
-/** Variables visible where the catalog appends an insert in the current assembly. */
-export async function extractVariablesInAssembly(code: string): Promise<VariableInfo[]> {
+/**
+ * Variables visible where the catalog appends an insert in the current
+ * assembly — the instances inserted above it included, each with the
+ * properties its last render computed (see {@link InstanceProperties}).
+ */
+export async function extractVariablesInAssembly(
+  code: string,
+  instances: InstanceProperties = InstanceProperties.none(),
+): Promise<VariableInfo[]> {
   const parser = await getParser();
   const tree = parser.parse(code);
   const bodies = assemblyBodies(tree.rootNode);
   if (bodies.length !== 1) {
-    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null);
+    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, instances);
   }
   const body = bodies[0];
   const { lastInsert, returnStmt } = assemblyInsertAnchors(body);
   const row = lastInsert?.endPosition.row ?? returnStmt?.startPosition.row ?? body.endPosition.row;
-  return collectVariablesInScope(tree, row, null);
+  return collectVariablesInScope(tree, row, null, instances);
+}
+
+/** How a dropdown shows a property's rendered value: source-shaped, so `480` reads as a number and `'oak'` as text. */
+function propertyInitializer(value: InstancePropertyValue): string {
+  return typeof value === 'number' ? String(value) : JSON.stringify(value);
 }
 
 /**
@@ -216,11 +231,17 @@ export async function extractVariablesInAssembly(code: string): Promise<Variable
  * above it, the `sketchCall` body's own, and those of every block enclosing
  * the row up to the row itself — a part body's `param()`s reach a statement
  * inside that part, and never one in another.
+ *
+ * A name bound to an `insert()` call is no value itself, but the instance
+ * it holds publishes the part's `property()` values: each one the render
+ * computed is listed as `<name>.properties.<property>`, the way the
+ * assembly body reads it, numeric when the value is a number.
  */
 function collectVariablesInScope(
   tree: TSTree,
   sketchRow: number,
   sketchCall: TSNode | null,
+  instances: InstanceProperties,
 ): VariableInfo[] {
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
@@ -235,6 +256,20 @@ function collectVariablesInScope(
     }
   }
 
+  function addInstanceProperties(name: string, insertCall: TSNode) {
+    const properties = instances.ofCall(insertCall);
+    if (!properties) {
+      return;
+    }
+    for (const [property, value] of Object.entries(properties)) {
+      const dotted = `${name}.properties.${property}`;
+      if (!seen.has(dotted)) {
+        seen.add(dotted);
+        variables.push({ name: dotted, initializer: propertyInitializer(value), numeric: typeof value === 'number' });
+      }
+    }
+  }
+
   function collectDeclarators(node: TSNode) {
     for (const child of node.namedChildren) {
       if (child.type === 'variable_declarator') {
@@ -243,6 +278,10 @@ function collectVariablesInScope(
         if (nameNode && nameNode.type === 'identifier') {
           const init = valueNode ? valueNode.text : undefined;
           addVar(nameNode.text, init, valueNode ?? undefined);
+          const insertCall = valueNode ? InstanceProperties.insertCallOf(valueNode) : null;
+          if (insertCall) {
+            addInstanceProperties(nameNode.text, insertCall);
+          }
         }
       }
     }

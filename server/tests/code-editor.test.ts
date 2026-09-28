@@ -18,8 +18,10 @@ import {
   updateDimensionExpression,
   getDimensionExpression,
   getPointExpression,
+  extractVariablesInAssembly,
   extractVariablesInPart,
   extractVariablesInScope,
+  InstanceProperties,
   declareTopLevelVariable,
   readUnitStatement,
   setDocumentUnit,
@@ -1491,5 +1493,69 @@ describe('declareParamStatementsFor', () => {
     const out = await declareParamStatementsFor(code, 6, ['const span = param("span", 80);']);
     expect(out).toContain(`  const width = param('Width', 80);\n  const span = param("span", 80);\n  sketch('xy', () => {`);
     expect(out).not.toContain(`});\n  const span`);
+  });
+});
+
+// An `insert()` binding is no number, but the instance it holds publishes
+// its part's `property()` values: an insert's expression field offers them
+// as `<binding>.properties.<name>`, the way the assembly body reads them.
+describe('instance properties in scope', () => {
+  const FILE = '/ws/kitchen.assembly.js';
+  const code = [
+    "import { assembly, insert } from 'fluidcad/core';",
+    "import { Drawer } from './drawer.part.js';",
+    '',
+    "export const kitchen = assembly('kitchen', () => {",
+    '  const drawer = insert(Drawer, {',
+    '    Width: 400,',
+    '  });',
+    '  const spare = insert(Drawer);',
+    '  const box1 = insert(Drawer, { Width: 600 }).grounded().translate([0, 0, 10]);',
+    '  return { drawer, spare, box1 };',
+    '});',
+  ].join('\n');
+  const rendered = [
+    // The call's own line, as the render stamps it — the const's, not the closing brace's.
+    { sourceLocation: { filePath: FILE, line: 5, column: 18 }, properties: { frontWidth: 480, finish: 'oak', 'odd name': 1 } },
+    // The spare's render found no `property()` at all.
+    { sourceLocation: { filePath: FILE, line: 8, column: 17 } },
+    // A handle bound through its own methods — the way the catalog's grounded insert reads.
+    { sourceLocation: { filePath: FILE, line: 9, column: 16 }, properties: { frontWidth: 680 } },
+    // Another file's instance — a sub-assembly's — is never this file's binding.
+    { sourceLocation: { filePath: '/ws/other.assembly.js', line: 5, column: 18 }, properties: { frontWidth: 1 } },
+    // A replica shares the statement's shape but not an insert() of its own.
+    { sourceLocation: { filePath: FILE, line: 5, column: 18 }, properties: { frontWidth: 2 }, replica: { of: 'drawer', statement: 'r', row: 0 } },
+  ];
+
+  it('lists each rendered property after its instance, numeric when its value is', async () => {
+    const vars = await extractVariablesInAssembly(code, new InstanceProperties(FILE, rendered));
+    const names = vars.map(v => v.name);
+    expect(names.indexOf('drawer.properties.frontWidth')).toBe(names.indexOf('drawer') + 1);
+    expect(vars.find(v => v.name === 'drawer.properties.frontWidth')).toEqual({
+      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true,
+    });
+    expect(vars.find(v => v.name === 'drawer.properties.finish')).toEqual({
+      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false,
+    });
+    // Only an identifier-shaped name spells as a member access.
+    expect(names.some(n => n.includes('odd name'))).toBe(false);
+    expect(names.some(n => n.startsWith('spare.'))).toBe(false);
+    expect(vars.find(v => v.name === 'drawer')!.numeric).toBe(false);
+    expect(vars.find(v => v.name === 'box1.properties.frontWidth')).toMatchObject({ initializer: '680', numeric: true });
+  });
+
+  it('reads the instance the live-render path stamped', async () => {
+    const virtual = rendered.map(r => ({ ...r, sourceLocation: { ...r.sourceLocation, filePath: `virtual:live-render:${r.sourceLocation.filePath}` } }));
+    const vars = await extractVariablesInAssembly(code, new InstanceProperties(FILE, virtual));
+    expect(vars.map(v => v.name)).toContain('drawer.properties.frontWidth');
+  });
+
+  it('offers nothing without a render, and nothing to a statement above the insert', async () => {
+    expect((await extractVariablesInAssembly(code)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
+    const instances = new InstanceProperties(FILE, rendered);
+    // The Edit-parameters dialog of the spare sits below the drawer's insert.
+    expect((await extractVariablesInScope(code, 8, instances)).map(v => v.name)).toContain('drawer.properties.frontWidth');
+    // A top-level statement above the assembly never sees its body.
+    expect((await extractVariablesInScope(code, 2, instances)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
   });
 });

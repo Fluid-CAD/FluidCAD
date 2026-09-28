@@ -55,6 +55,7 @@ import type {
 } from './query-types.ts';
 import type { ObjectBuildError, RenderOptions, SceneRenderedData } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
+import type { SerializedAssembly } from './assembly-types.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
 /**
@@ -148,6 +149,21 @@ export class FluidCadServer {
    */
   getParamDefinitions(): ParamDefinition[] {
     return getParamRegistry().getDefinitions();
+  }
+
+  /**
+   * The instances the current file's last render inserted, each with the
+   * `property()` values its part computed and the `insert()` call's
+   * location — what a dialog's expression fields offer and the ghost reads
+   * as `<binding>.properties.<name>`. Empty for a part file, or before any
+   * render.
+   */
+  getRenderedInstances(): SerializedAssembly['instances'] {
+    const scene = this.currentFileName ? this.previousScenes.get(this.currentFileName) : undefined;
+    if (!scene || !this.sceneManager) {
+      return [];
+    }
+    return this.sceneManager.getAssemblyData(scene)?.instances ?? [];
   }
 
   async init(workspacePath: string) {

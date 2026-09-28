@@ -3,6 +3,7 @@
 
 export { getJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
 export { isExpressionText } from './expression-text.ts';
+export { InstanceProperties, type InstancePropertyValue, type RenderedInstanceProperties } from './instance-properties.ts';
 export { LexicalBindings, type Binding, type BindingKind, type ValueKind } from './lexical-bindings.ts';
 export {
   indentOf,

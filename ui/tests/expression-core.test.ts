@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
   resolveExpressionValue, suggestionItemHtml, suggestionKind, suggestsExistingName,
-  trailingIdentifier,
+  suggestionValueHint, trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -188,6 +188,41 @@ describe('trailing identifier helpers', () => {
     expect(trailingIdentifier('25')).toBeNull();
     expect(applyVariableName('2 * hei', 'height')).toBe('2 * height');
     expect(applyVariableName('2 * ', 'height')).toBe('2 * height');
+  });
+
+  // An inserted instance's property is spelled `drawer.properties.width`:
+  // the token being typed keeps its dots, so the dropdown matches the whole
+  // spelling and a fill replaces all of it.
+  it('reads a dotted name as one token', () => {
+    expect(trailingIdentifier('2 * drawer.prop')).toBe('drawer.prop');
+    expect(trailingIdentifier('drawer.')).toBe('drawer.');
+    expect(trailingIdentifier('2.5')).toBeNull();
+    expect(applyVariableName('2 * drawer.prop', 'drawer.properties.width')).toBe('2 * drawer.properties.width');
+    expect(applyVariableName('drawer.', 'drawer.properties.width')).toBe('drawer.properties.width');
+  });
+
+  it('offers an instance property while its binding stays hidden', () => {
+    const vars = [
+      ...VARS,
+      { name: 'drawer', initializer: 'insert(Drawer, { Width: 400 })', numeric: false },
+      { name: 'drawer.properties.frontWidth', initializer: '480', numeric: true },
+      { name: 'drawer.properties.finish', initializer: '"oak"', numeric: false },
+    ];
+    expect(filterSuggestions('drawer', vars, 'drawer', '25').map(s => s.name)).toEqual(['drawer.properties.frontWidth']);
+    expect(filterSuggestions('drawer.', vars, '2 * drawer.', '25').map(s => s.name)).toEqual(['drawer.properties.frontWidth']);
+    expect(filterSuggestions('drawer.properties.frontWidth', vars, 'drawer.properties.frontWidth', '25').some(s => s.isNew)).toBe(false);
+    expect(classifyCommit('drawer.properties.frontWidth - 36', vars, '25'))
+      .toEqual({ kind: 'expression', expression: 'drawer.properties.frontWidth - 36' });
+  });
+
+  it("shows an instance property's rendered value beside its name, and nothing for other rows", () => {
+    const property = { name: 'drawer.properties.frontWidth', initializer: '480', numeric: true };
+    expect(suggestionValueHint(property)).toBe('480');
+    expect(suggestionItemHtml(property, 0, false, false)).toContain('>480</span>');
+    expect(suggestionValueHint({ name: 'drawer.properties.finish', initializer: '"oak"' })).toBeNull();
+    expect(suggestionValueHint(VARS[0])).toBeNull();
+    expect(suggestionItemHtml(VARS[0], 0, false, false)).not.toContain('>30</span>');
+    expect(suggestionValueHint({ name: 'x.properties.y', initializer: '12', isNew: true })).toBeNull();
   });
 });
 

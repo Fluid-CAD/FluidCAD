@@ -14,6 +14,8 @@ export type SerializedAssembly = {
     name: string;
     /** Resolved parameter values of the instance's template variant — absent pre-parameters engines. */
     paramValues?: Record<string, string | number | boolean | (string | number)[]>;
+    /** The variant's `property()` values as the assembly reads them — set only when the part declares any. */
+    properties?: Record<string, string | number | boolean | (string | number)[]>;
     sourceLocation?: { filePath: string; line: number; column: number };
     /** Present on a replica produced by a `replicate()` statement. */
     replica?: { of: string; statement: string; row: number };

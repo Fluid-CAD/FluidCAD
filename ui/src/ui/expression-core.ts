@@ -6,7 +6,12 @@
  */
 
 export const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
-export const TRAILING_IDENT_RE = /([a-zA-Z_$][\w$]*)$/;
+/**
+ * The name being typed at the end of a value — dotted, so `drawer.prop` and
+ * `drawer.` both read as one token the dropdown completes to
+ * `drawer.properties.width`, the way an inserted instance's property is spelled.
+ */
+export const TRAILING_IDENT_RE = /([a-zA-Z_$][\w$]*(?:\.[\w$]*)*)$/;
 export const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
 
 const RESERVED = new Set([
@@ -434,9 +439,23 @@ const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors
 };
 
 /**
+ * The value an inserted instance's property row shows beside its name: the
+ * number the last render computed. The file never spells that value — it
+ * is the part's to compute — so the row is the only place to read it.
+ * Nothing for every other row, whose value the file shows.
+ */
+export function suggestionValueHint(v: Suggestion): string | null {
+  const initializer = v.initializer?.trim() ?? '';
+  return !v.isNew && v.name.includes('.properties.') && initializer !== '' && Number.isFinite(Number(initializer))
+    ? initializer
+    : null;
+}
+
+/**
  * One dropdown row's markup, shared so every host renders identically: the
- * kind chip, then the name. `newAsParam` is the host's P-toggle state, which
- * picks the new-variable offer's chip.
+ * kind chip, then the name, then — an instance property — its rendered
+ * value. `newAsParam` is the host's P-toggle state, which picks the
+ * new-variable offer's chip.
  */
 export function suggestionItemHtml(
   v: Suggestion,
@@ -450,5 +469,9 @@ export function suggestionItemHtml(
   const badge = v.isNew
     ? '<span class="text-primary/70 ml-0.5 text-[10px] uppercase select-none">new</span>'
     : '';
-  return `<div class="flex items-center gap-1.5 px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${chipHtml}<span>${escapeHtml(v.name)}</span>${badge}</div>`;
+  const hint = suggestionValueHint(v);
+  const hintHtml = hint === null
+    ? ''
+    : `<span class="ml-auto pl-3 text-base-content/50 select-none">${escapeHtml(hint)}</span>`;
+  return `<div class="flex items-center gap-1.5 px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${chipHtml}<span>${escapeHtml(v.name)}</span>${badge}${hintHtml}</div>`;
 }

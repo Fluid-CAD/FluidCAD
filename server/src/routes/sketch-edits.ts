@@ -23,6 +23,7 @@ import {
   extractVariablesInPart,
   extractVariablesInAssembly,
   extractVariablesInScope,
+  InstanceProperties,
   type VariableInfo,
 } from '../code-editor/index.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
@@ -323,15 +324,18 @@ export function createSketchEditsRouter(
       return;
     }
     try {
+      // An instance's binding also offers the properties its last render
+      // computed, so an insert's field can complete `drawer.properties.<name>`.
+      const instances = new InstanceProperties(fluidCadServer.getCurrentFileName(), fluidCadServer.getRenderedInstances());
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
-        variables = await extractVariablesInScope(code, sketchSourceLine);
+        variables = await extractVariablesInScope(code, sketchSourceLine, instances);
       } else if (assembly === true) {
-        variables = await extractVariablesInAssembly(code);
+        variables = await extractVariablesInAssembly(code, instances);
       } else if (typeof partLine === 'number') {
-        variables = await extractVariablesInPart(code, partLine);
+        variables = await extractVariablesInPart(code, partLine, instances);
       } else {
-        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, instances);
       }
       res.json({ variables });
     } catch (err: any) {

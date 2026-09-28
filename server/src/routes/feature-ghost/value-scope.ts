@@ -5,9 +5,11 @@ import {
   findEditableCallAt,
   findSketchBody,
   getJavaScriptParser,
+  InstanceProperties,
   LexicalBindings,
   splitLines,
   type Binding,
+  type RenderedInstanceProperties,
   type TSNode,
   type TSTree,
 } from '../../code-editor/index.ts';
@@ -35,6 +37,12 @@ export type ValueScopeSource = {
   code: string | null;
   filePath: string;
   definitions: readonly ParamSiteDefinition[];
+  /**
+   * The instances the last render inserted, with their `property()` values
+   * — what `<binding>.properties.<name>` reads (see {@link InstanceProperties}).
+   * Absent, no such access resolves.
+   */
+  instances?: readonly RenderedInstanceProperties[];
 };
 
 /**
@@ -52,6 +60,11 @@ export type ValueScopeSource = {
  * reassigned, destructured, imported or a function parameter has no single
  * value to read, and resolves to nothing.
  *
+ * A member access `<binding>.properties.<name>` reads the property the
+ * last render computed for the instance the binding's `insert()` call
+ * created — the one value of an instance the assembly body reads as a
+ * number. Any other member access resolves to nothing.
+ *
  * Without a site in the rendered file — an older client, a statement in
  * another file — names resolve at the file's top level.
  */
@@ -65,6 +78,7 @@ export class ValueScope {
     private readonly parser: ExpressionParser,
     private readonly bindings: LexicalBindings,
     private readonly params: ParamSites,
+    private readonly instances: InstanceProperties,
     /** The node the dialog's names resolve from. */
     private readonly anchor: TSNode,
   ) {}
@@ -93,9 +107,10 @@ export class ValueScope {
     const tree = parser.parse(code);
     const bindings = new LexicalBindings(tree);
     const params = new ParamSites(bindings, source.filePath, source.definitions);
+    const instances = new InstanceProperties(source.filePath, source.instances ?? []);
     const inFile = at !== null && normalizePath(at.filePath) === normalizePath(source.filePath);
     const anchor = inFile ? ValueScope.anchorAt(tree, splitLines(code), at) : tree.rootNode;
-    return new ValueScope(parser, bindings, params, anchor);
+    return new ValueScope(parser, bindings, params, instances, anchor);
   }
 
   /** A dialog value's number, or null when it isn't one the preview can work out. */
@@ -110,7 +125,10 @@ export class ValueScope {
     const expression = Arithmetic.parse(text, this.parser);
     // Dialog text names the statement's scope, whatever tree it parsed into.
     return expression
-      ? Arithmetic.evaluate(expression, { identifier: (id) => this.valueAt(id.text, this.anchor) })
+      ? Arithmetic.evaluate(expression, {
+        identifier: (id) => this.valueAt(id.text, this.anchor),
+        member: (access) => this.propertyValue(access, this.anchor),
+      })
       : null;
   }
 
@@ -176,7 +194,46 @@ export class ValueScope {
     return Arithmetic.evaluate(node, {
       identifier: (id) => this.valueAt(id.text, id),
       call: (call) => this.paramValue(call),
+      member: (access) => this.propertyValue(access, access),
     });
+  }
+
+  /**
+   * The number `<binding>.properties.<name>` stands for where `at` sits:
+   * the binding must hold an `insert()` call's instance, and the render
+   * must have computed that property as a number for it.
+   */
+  private propertyValue(access: TSNode, at: TSNode): number | null {
+    const properties = access.childForFieldName('object');
+    const name = access.childForFieldName('property');
+    if (properties?.type !== 'member_expression' || name?.type !== 'property_identifier') {
+      return null;
+    }
+    const instance = properties.childForFieldName('object');
+    if (instance?.type !== 'identifier' || properties.childForFieldName('property')?.text !== 'properties') {
+      return null;
+    }
+    const binding = this.bindings.resolve(instance.text, at);
+    const declared = binding && (binding.kind === 'const' || binding.kind === 'let' || binding.kind === 'var');
+    if (!declared || binding.destructured || !binding.init || this.bindings.isReassigned(binding)) {
+      return null;
+    }
+    // The handle may be bound through its own methods: `insert(…).grounded()`.
+    const insertCall = InstanceProperties.insertCallOf(binding.init);
+    if (!insertCall || !this.isInsertCall(insertCall)) {
+      return null;
+    }
+    const value = this.instances.ofCall(insertCall)?.[name.text];
+    return typeof value === 'number' ? value : null;
+  }
+
+  /** Whether the `insert(…)` call names FluidCAD's — imported from a fluidcad module, or bare and unbound like `param`. */
+  private isInsertCall(call: TSNode): boolean {
+    if (this.bindings.fluidCadCallee(call)?.name === 'insert') {
+      return true;
+    }
+    const fn = call.childForFieldName('function');
+    return fn?.type === 'identifier' && this.bindings.resolve(fn.text, fn) === null;
   }
 
   /**

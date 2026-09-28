@@ -18,6 +18,12 @@ export type ArithmeticNames = {
    * it. Absent, every such call is refused.
    */
   call?(node: TSNode): number | null;
+  /**
+   * The number a member access other than `Math`'s stands for, or null to
+   * refuse it — an inserted instance's `<binding>.properties.<name>`.
+   * Absent, every such access is refused.
+   */
+  member?(node: TSNode): number | null;
 };
 
 /**
@@ -26,8 +32,9 @@ export type ArithmeticNames = {
  * constants and (pure) functions — so any other call, member access, or an
  * assignment resolves to nothing rather than running: this reads text a
  * dialog typed, and it must not be able to *do* anything. What a name
- * stands for, and whether a source-level call such as `param()` evaluates,
- * is up to the caller's {@link ArithmeticNames}.
+ * stands for, whether a source-level call such as `param()` evaluates, and
+ * what a member access such as `drawer.properties.width` reads, is up to
+ * the caller's {@link ArithmeticNames}.
  */
 export class Arithmetic {
   /** A bare JS identifier — the expression form that resolves without a parse. */
@@ -81,7 +88,10 @@ export class Arithmetic {
       }
       case 'member_expression': {
         const property = Arithmetic.mathMember(node);
-        const value = property === null ? undefined : Math[property as keyof Math];
+        if (property === null) {
+          return names.member ? names.member(node) : null;
+        }
+        const value = Math[property as keyof Math];
         return typeof value === 'number' ? value : null;
       }
       case 'call_expression':

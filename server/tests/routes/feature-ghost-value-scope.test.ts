@@ -254,3 +254,60 @@ describe('ValueScope.parse', () => {
     }
   });
 });
+
+// An insert's dialog values may read another instance's computed
+// properties — `drawer.properties.frontWidth` — the one member access the
+// preview evaluates, from the values the last render gave that instance.
+describe('ValueScope — instance properties', () => {
+  const ASSEMBLY_FILE = '/ws/kitchen.assembly.js';
+  const KITCHEN = [
+    `import { assembly, insert } from 'fluidcad/core';`,
+    `import { Drawer } from './drawer.part.js';`,
+    `export const kitchen = assembly('kitchen', () => {`,
+    `  const drawer = insert(Drawer, {`,
+    `    Width: 400,`,
+    `  });`,
+    `  const gap = drawer.properties.frontWidth / 10;`,
+    `  const second = insert(Drawer, { Width: drawer.properties.frontWidth });`,
+    `  const box1 = insert(Drawer, { Width: 600 }).grounded();`,
+    `  return { drawer, second, box1 };`,
+    `});`,
+  ].join('\n');
+  const rendered = [
+    { sourceLocation: { filePath: ASSEMBLY_FILE, line: 4, column: 18 }, properties: { frontWidth: 480, finish: 'oak' } },
+    { sourceLocation: { filePath: ASSEMBLY_FILE, line: 8, column: 18 }, properties: { frontWidth: 560, finish: 'oak' } },
+    { sourceLocation: { filePath: ASSEMBLY_FILE, line: 9, column: 16 }, properties: { frontWidth: 680 } },
+  ];
+  /** The second insert — an edited statement. */
+  const SECOND_INSERT = 8;
+
+  async function kitchenScope(at: GhostValueScope | null, instances = rendered): Promise<ValueScope> {
+    return ValueScope.open({ code: KITCHEN, filePath: ASSEMBLY_FILE, definitions: [], instances }, at);
+  }
+
+  it('reads a rendered property through its binding, in arithmetic too', async () => {
+    const scope = await kitchenScope(statement(SECOND_INSERT, 3, ASSEMBLY_FILE));
+    expect(scope.resolve('drawer.properties.frontWidth')).toBe(480);
+    expect(scope.resolve('drawer.properties.frontWidth - 2 * 18')).toBe(444);
+    // A source binding over the property evaluates the same way.
+    expect(scope.resolve('gap')).toBe(48);
+    // A handle bound through its own methods still reads its instance.
+    expect(scope.resolve('box1.properties.frontWidth')).toBe(680);
+  });
+
+  it('refuses what is not a numeric property of an inserted instance', async () => {
+    const scope = await kitchenScope(statement(SECOND_INSERT, 3, ASSEMBLY_FILE));
+    expect(scope.resolve('drawer.properties.finish')).toBeNull();
+    expect(scope.resolve('drawer.properties.depth')).toBeNull();
+    expect(scope.resolve('drawer.frontWidth')).toBeNull();
+    expect(scope.resolve('drawer.paramValues.Width')).toBeNull();
+    expect(scope.resolve('Drawer.properties.frontWidth')).toBeNull();
+    // `Math` keeps its own members.
+    expect(scope.resolve('Math.PI')).toBeCloseTo(Math.PI);
+  });
+
+  it('reads nothing without a render behind the binding', async () => {
+    const scope = await kitchenScope(statement(SECOND_INSERT, 3, ASSEMBLY_FILE), []);
+    expect(scope.resolve('drawer.properties.frontWidth')).toBeNull();
+  });
+});

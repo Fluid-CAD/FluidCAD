@@ -21,6 +21,7 @@ const fakeServer = {
   getCurrentCode: () => code,
   getCurrentFileName: () => FILE,
   getParamDefinitions: () => [] as unknown[],
+  getRenderedInstances: () => [] as unknown[],
   featureGhost: async (request: unknown) => {
     received = request;
     return { status: 200, solids: [] };

@@ -2,7 +2,7 @@ import { Part } from "./part.js";
 import { registerPartDefinitionClass } from "./part-args.js";
 import type { Connector } from "./connector.js";
 import type { Exposed } from "./exposed.js";
-import type { PartProperty } from "./part-property.js";
+import type { PartProperty, PropertyValues } from "./part-property.js";
 import type { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "../rendering/scene.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -254,7 +254,7 @@ export class PartDefinition<T = unknown> {
    * `def.properties.internalWidth`). An inserted variant's own values
    * are on its instance: `instance.properties.<name>`.
    */
-  get properties(): Record<string, ParamVal> {
+  get properties(): PropertyValues {
     return this.materialize().properties;
   }
 

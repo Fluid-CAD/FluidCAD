@@ -2,7 +2,7 @@ import { AssemblyInstance } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "./connector.js";
 import { BoundExposure } from "./exposed.js";
 import { PoseHandle } from "./pose-handle.js";
-import type { ParamVal } from "../param-registry.js";
+import type { PropertyValues } from "./part-property.js";
 
 /**
  * `Instance.connectors`: every connector the part registered, keyed by the
@@ -28,7 +28,7 @@ export type InstanceFeatures<_P = unknown> = Record<string, BoundExposure>;
  * file's unit. Plain values, so they feed `.translate()`, mate offsets and
  * other inserts' overrides directly.
  */
-export type InstanceProperties<_P = unknown> = Record<string, ParamVal>;
+export type InstanceProperties<_P = unknown> = PropertyValues;
 
 /**
  * `connectors` is a Record keyed by connector name. Part authors register

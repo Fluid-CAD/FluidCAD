@@ -6,7 +6,7 @@ import { IPart } from "../core/interfaces.js";
 import { serializableParamDefs } from "./param-overrides.js";
 import { guardedRecord } from "./guarded-record.js";
 import { propertyValues, serializedProperties } from "./part-property.js";
-import type { PartProperty } from "./part-property.js";
+import type { PartProperty, PropertyValues } from "./part-property.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
@@ -265,7 +265,7 @@ export class Part extends SceneObject implements IPart {
    * error naming the declared properties, and a build paused before the
    * `property()` statement ran re-throws the breakpoint instead.
    */
-  get properties(): Record<string, ParamVal> {
+  get properties(): PropertyValues {
     return guardedRecord(this.getPropertyValues(), name => {
       this.rethrowIfPaused();
       throw new Error(this.missingPropertyMessage(name));

@@ -18,6 +18,18 @@ export type PartProperty = {
   sourceLocation?: SourceLocation;
 };
 
+/**
+ * The record `instance.properties` / `def.properties` serve: each value a
+ * `property()` published, by name. Every value IS a {@link ParamVal} at
+ * runtime, but the record types each one as `any`: which name holds a
+ * number and which a string is decided inside the part's callback, where
+ * no static type flows back to the definition, and typing every value as
+ * the whole union would refuse the arithmetic these values exist for
+ * (`box1.properties.internalWidth - 20`) in every checked assembly file.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type PropertyValues = Record<string, any>;
+
 /** Whether `value` is something a property may publish: a number, string, boolean, or array of numbers/strings. */
 export function isPropertyValue(value: unknown): value is ParamVal {
   return isParamValue(value);

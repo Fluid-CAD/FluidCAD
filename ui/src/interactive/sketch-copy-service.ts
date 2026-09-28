@@ -13,7 +13,8 @@ import { SketchCopyDirection, SketchCopyPanel, SketchCopyArmedSlot } from './ske
 const PREVIEW_DEBOUNCE_MS = 250;
 
 /** A `copy()` statement as the parse route reads it. */
-type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }>;
+/** A 2D copy statement's parse — never the 3D-only follow form (`copy(holes, bolt)`). */
+export type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }> & { kind: 'linear' | 'circular' };
 
 /**
  * The in-sketch copy dialog on the 2D op rails: armed from the sketch

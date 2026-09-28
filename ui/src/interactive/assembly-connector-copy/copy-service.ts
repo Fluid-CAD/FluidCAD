@@ -83,6 +83,8 @@ export class AssemblyConnectorCopyService {
       targetsLabel: 'Connectors',
       targetsPrompt: 'Pick assembly connectors — a gizmo, or a row of the Connectors list',
       axisPrompt: 'Pick a world axis or an assembly connector',
+      // Following a repeat is part-only: an assembly has no repeat() to follow.
+      followsRepeats: false,
     });
     this.pickMenu = new ConnectorPickMenu(container);
     this.ghost = new FeatureGhostOverlay(viewer);
@@ -163,6 +165,9 @@ export class AssemblyConnectorCopyService {
     const statement = parsed.parsed;
     if (statement.feature !== 'copy' || statement.center !== null) {
       return `The statement on line ${location.line} is not a copy the dialog can edit.`;
+    }
+    if (statement.kind === 'pattern') {
+      return `The copy on line ${location.line} follows a repeat — that form is part-only; edit it in the source.`;
     }
     if (this.armed) {
       this.exit();
@@ -390,6 +395,9 @@ export class AssemblyConnectorCopyService {
     if ('error' in values) {
       return values;
     }
+    if (values.kind === 'pattern') {
+      return { error: 'Following a repeat is part-only — copy along or around an axis.' };
+    }
     if (this.targets.length === 0) {
       return { error: 'Pick the assembly connectors to copy — a gizmo, or a row of the Connectors list.' };
     }
@@ -472,7 +480,7 @@ export class AssemblyConnectorCopyService {
    */
   private async fetchGhost(signal: AbortSignal): Promise<GhostGeometry | null> {
     const values = this.panel.values();
-    if ('error' in values) {
+    if ('error' in values || values.kind === 'pattern') {
       return null;
     }
     const targets = this.ghostTargets();

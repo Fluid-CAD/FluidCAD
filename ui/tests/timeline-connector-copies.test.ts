@@ -170,3 +170,46 @@ describe('timeline — connector copies', () => {
     );
   });
 });
+
+// A copy that follows a repeat (`copy(holes, bolt)`, connector-copies stage
+// 4) copies nothing but connectors: its `copy-pattern` row files with its
+// part's connectors like any connector-only copy, and a click shows the
+// family — the repeat itself stays among the features.
+describe('timeline — a copy that follows a repeat', () => {
+  function follow(): SceneObjectRender[] {
+    return [
+      row(0, { type: 'part', isContainer: true }),
+      row(1, { type: 'extrude', parentId: 'id-0' }),
+      row(2, { type: 'repeat-circular', name: 'Repeat', parentId: 'id-0', hideChildren: true }),
+      row(3, { type: 'extrude', parentId: 'id-2', sourceLocation: loc(3) }),
+      row(4, { type: 'connector', name: 'bolt', parentId: 'id-0', object: { name: 'bolt', ...FRAME } }),
+      row(5, {
+        type: 'copy-pattern', name: 'Copy', parentId: 'id-0', hideChildren: true,
+        object: { connectorCopies: { seeds: [{ id: 'id-4', name: 'bolt' }], originalSlot: 0, slotCount: 3, slots: [1, 2], connectorsOnly: true } },
+      }),
+      row(6, { type: 'connector', name: 'bolt.instance(1)', parentId: 'id-5', sourceLocation: loc(6), object: { name: 'bolt', ...FRAME, copy: { slot: 1, seedId: 'id-4' } } }),
+      row(7, { type: 'connector', name: 'bolt.instance(2)', parentId: 'id-5', sourceLocation: loc(6), object: { name: 'bolt', ...FRAME, copy: { slot: 2, seedId: 'id-4' } } }),
+    ];
+  }
+
+  it('files the copy-pattern row with the part\'s connectors and shows its family on a click', () => {
+    const h = mount();
+    const shown: SceneObjectRender[] = [];
+    h.timeline.onFeatureShow = (obj) => shown.push(obj);
+    const scene = follow();
+    h.timeline.update(scene, 7);
+
+    expect(h.rowOf(2)).not.toBeNull();
+    expect(h.rowOf(5)).toBeNull();
+    const toggle = h.groupToggle('id-0:connectors')!;
+    // bolt and its two copies.
+    expect(toggle.textContent).toContain('— 3 connectors');
+    toggle.click();
+
+    h.rowOf(5)!.click();
+    expect(shown.map(obj => obj.id)).toEqual(['id-5']);
+    expect(h.client.rollback).not.toHaveBeenCalled();
+    expect(SceneIndex.of(scene).connectorFamilyOf(scene[5])).toEqual(['id-4', 'id-6', 'id-7']);
+    expect(SceneIndex.of(scene).copyStatementOf('id-4')?.id).toBe('id-5');
+  });
+});

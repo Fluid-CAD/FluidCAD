@@ -1420,8 +1420,9 @@ const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
   // A copy row opens the Copy dialog — a connector copy row too, filed with
-  // its part's connectors in the timeline.
-  'copy-linear', 'copy-circular',
+  // its part's connectors in the timeline; a copy that follows a repeat
+  // (`copy(holes, bolt)`) opens it on "Along a repeat".
+  'copy-linear', 'copy-circular', 'copy-pattern',
   'fuse', 'subtract', 'common',
   'plane',
   // A connector row sits inside its part() body; its dialog re-opens over the
@@ -1526,12 +1527,18 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     repeatService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'copy') {
     if (isCopy2DRow(obj)) {
+      if (parsed.kind === 'pattern') {
+        // Following a repeat is 3D only — a 2D row never parses as it.
+        addBreakpoint(target);
+        showEditRefusal('This copy follows a repeat — edit it in the source.');
+        return;
+      }
       // A 2D copy lives inside a sketch body and edits on the sketch rails —
       // the offset edit's pause-before contract, its originals visible and
       // re-pickable in the paused sketch.
       closeFeatureDialogs();
       pauseBeforeSketchStatement(obj, index);
-      sketchService.enterCopyEdit(target, parsed, result.statement);
+      sketchService.enterCopyEdit(target, { ...parsed, kind: parsed.kind }, result.statement);
     } else {
       copyService.enterEdit(target, parsed, info);
     }

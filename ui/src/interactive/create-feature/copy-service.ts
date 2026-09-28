@@ -1,7 +1,7 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyCopy, applyCopyEdit, CopyApplyOptions, CopyDirectionRef, CopyEditAxisRef, CopyEditOptions,
-  CopyEditTargetRef, CopyGhostRequest, CopyTargetRef, FeatureEditTarget, featureGhostScope,
+  CopyEditPatternRef, CopyEditTargetRef, CopyGhostRequest, CopyTargetRef, FeatureEditTarget, featureGhostScope,
   fetchFeatureGhostResult, fetchFeatureSources, GhostAxisRef, GhostGeometry, ParsedFeatureStatement,
   SourceSlotRef,
 } from '../../api';
@@ -14,6 +14,7 @@ import { SolidPickSelection } from '../solid-pick';
 import { ConnectorPickMenu } from '../assembly-mate/connector-pick-menu';
 import { CopyDirection, CopyPanel } from './copy-panel';
 import { ConnectorOption, ConnectorOptions } from './connector-options';
+import { PatternOption, PatternOptions, PatternPick } from './pattern-options';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
@@ -45,6 +46,23 @@ type CopyTargetChoice =
   | { kind: 'option'; option: SolidTargetOption }
   | { kind: 'connector'; option: ConnectorOption }
   | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
+
+/**
+ * The repeat an "Along a repeat" copy follows: a picked repeat — its row, or
+ * a shape it placed — by its statement, or (edit mode only) the statement's
+ * own repeat argument kept verbatim. A keep whose expression resolved to a
+ * statement carries its location (`loc`): it converts into that repeat's
+ * option at the rollback boundary, so the chip reads like a fresh pick.
+ */
+type CopyPatternChoice =
+  | { kind: 'option'; option: PatternOption }
+  | { kind: 'keep'; label: string; loc?: { filePath: string; line: number; column: number } };
+
+/** What an empty "Along a repeat" pattern asks for. */
+const PICK_PATTERN_MESSAGE = 'Pick the repeat to follow — its row in the timeline, or a feature it repeated in the viewport.';
+
+/** Why a solid can't be an "Along a repeat" target. */
+const CONNECTORS_ONLY_MESSAGE = 'Along a repeat copies connectors only — pick a connector, or switch the type to copy solids.';
 
 /**
  * The statement a resolved source slot names, or null when it names none —
@@ -83,6 +101,10 @@ export class CopyFeatureService {
   private pickMenu: ConnectorPickMenu;
   /** The chosen targets, in pick order — the copy's argument order. */
   private targets: CopyTargetChoice[] = [];
+  /** Every linear or circular repeat the scene holds — what "Along a repeat" can follow. */
+  private patternOptions: PatternOption[] = [];
+  /** The repeat an "Along a repeat" copy follows, or null while none is chosen. */
+  private pattern: CopyPatternChoice | null = null;
   private axes: AxisOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private sceneSketchActive = false;
@@ -104,9 +126,11 @@ export class CopyFeatureService {
    * copied solids by call site, and the axis each direction walks. Null until
    * the query lands (or when it can't answer).
    */
-  private sourceSlots: { targets: SourceSlotRef[]; axes: SourceSlotRef[] } | null = null;
+  private sourceSlots: { targets: SourceSlotRef[]; axes: SourceSlotRef[]; pattern: SourceSlotRef | null } | null = null;
   private runner: ApplyRunner<CopyApplyOptions | CopyEditOptions, GhostGeometry>;
   private relabeler: OptionRelabeler<AxisOption[]>;
+  /** The followable repeats' variable names (`holes`), looked up as they change. */
+  private patternRelabeler: OptionRelabeler<PatternOption[]>;
   /** The translucent clones the current copy would place. */
   private ghost: FeatureGhostOverlay;
 
@@ -173,6 +197,13 @@ export class CopyFeatureService {
       this.axisEdgeEntities.set(direction, null);
       this.refreshHighlight();
     };
+    this.panel.onRemovePattern = () => {
+      this.pattern = null;
+      this.panel.armSlot('pattern');
+      this.panel.setMessage(null);
+      this.refresh();
+      this.runner.schedulePreview();
+    };
     this.panel.onArmedSlotChange = () => this.syncViewport();
 
     this.runner = new ApplyRunner({
@@ -209,6 +240,16 @@ export class CopyFeatureService {
         this.panel.setOptions(axes);
       },
     });
+    this.patternRelabeler = new OptionRelabeler({
+      sign: (options) => PatternOptions.signature(options),
+      load: (options) => PatternOptions.labelWithNames(options),
+      isArmed: () => this.armed,
+      apply: (options) => {
+        this.patternOptions = options;
+        this.rematchPattern();
+        this.refresh();
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -229,9 +270,10 @@ export class CopyFeatureService {
     return this.armed;
   }
 
-  /** Axis-line and edge clicks route here (an armed axis slot). */
+  /** Axis-line and edge clicks route here (an armed axis slot — never along a repeat, which walks none). */
   get isAxisPicking(): boolean {
-    return this.armed && (this.panel.armedSlot === 'axis1' || this.panel.armedSlot === 'axis2');
+    return this.armed && this.panel.copyType !== 'pattern'
+      && (this.panel.armedSlot === 'axis1' || this.panel.armedSlot === 'axis2');
   }
 
   /** True while armed picking has suspended sketch editing. */
@@ -273,6 +315,7 @@ export class CopyFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.connectorOptions = ConnectorOptions.collect(sceneObjects);
+    this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -302,6 +345,15 @@ export class CopyFeatureService {
       }
       return this.rematchTarget(target);
     });
+    // The followed repeat likewise: a keep naming a repeat becomes its option.
+    if (this.pattern?.kind === 'keep' && this.pattern.loc) {
+      const option = PatternOptions.forLocation(this.pattern.loc, this.patternOptions);
+      if (option) {
+        this.pattern = { kind: 'option', option };
+      }
+    } else {
+      this.rematchPattern();
+    }
     if (!this.sourceSlots) {
       void this.loadEditSources();
     }
@@ -317,6 +369,7 @@ export class CopyFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.connectorOptions = ConnectorOptions.collect(sceneObjects);
+    this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty});
@@ -351,6 +404,7 @@ export class CopyFeatureService {
       }
       return this.rematchTarget(target);
     });
+    this.rematchPattern();
     for (const direction of [1, 2] as const) {
       if (this.axisEdgeEntities.get(direction)) {
         this.axisEdgeEntities.set(direction, null);
@@ -399,6 +453,15 @@ export class CopyFeatureService {
         loc: ref ? { filePath: target.filePath, line: ref.line, column: ref.column } : undefined,
       };
     });
+    // A copy along a repeat keeps its repeat argument the same way.
+    const patternRef = parsed.patternRef ?? null;
+    this.pattern = parsed.kind === 'pattern' && parsed.patternText
+      ? {
+        kind: 'keep',
+        label: parsed.patternText,
+        loc: patternRef ? { filePath: target.filePath, line: patternRef.line, column: patternRef.column } : undefined,
+      }
+      : null;
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -431,6 +494,7 @@ export class CopyFeatureService {
     const seeded = this.hooks.onEnter?.();
     this.armed = true;
     this.targets = [];
+    this.pattern = null;
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     // Composing a copy means looking at the whole scene, not down the
@@ -503,6 +567,7 @@ export class CopyFeatureService {
     this.editSceneStale = false;
     this.sourceSlots = null;
     this.targets = [];
+    this.pattern = null;
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.solidPick.set([]);
@@ -530,6 +595,14 @@ export class CopyFeatureService {
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
     if (!this.armed || !shapeId || !sub) {
+      return;
+    }
+    // Along a repeat walks no axis and copies no solid: a face or edge click
+    // names the repeat that placed it.
+    if (this.panel.copyType === 'pattern') {
+      if (sub.type === 'face' || sub.type === 'edge') {
+        this.pickPattern(PatternOptions.forShape(shapeId, this.sceneObjects, this.patternOptions));
+      }
       return;
     }
     if (sub.type === 'axis') {
@@ -626,6 +699,18 @@ export class CopyFeatureService {
     if (!this.armed) {
       return false;
     }
+    // Along a repeat: a repeat row is the pattern to follow, a connector row
+    // a target, and nothing else is either.
+    if (this.panel.copyType === 'pattern' && obj.type !== 'connector') {
+      if (PatternOptions.isRepeatRow(obj)) {
+        this.pickPattern(PatternOptions.forRow(obj, this.patternOptions));
+      } else {
+        this.panel.setMessage(
+          'Along a repeat copies connectors onto a repeat\'s instances — pick a connector, or the repeat to follow.',
+        );
+      }
+      return true;
+    }
     if (obj.type === 'connector') {
       if (obj.id == null) {
         return true;
@@ -651,8 +736,12 @@ export class CopyFeatureService {
     return true;
   }
 
-  /** Toggle a solid target chip (viewport or timeline pick). */
+  /** Toggle a solid target chip (viewport or timeline pick) — never along a repeat, which copies connectors only. */
   private toggleTarget(option: SolidTargetOption): void {
+    if (this.panel.copyType === 'pattern') {
+      this.panel.setMessage(CONNECTORS_ONLY_MESSAGE);
+      return;
+    }
     // A kept target that resolved to this statement counts as the same chip
     // — the pick toggles it off instead of duplicating the solid.
     this.toggleChoice({ kind: 'option', option }, option);
@@ -736,6 +825,35 @@ export class CopyFeatureService {
     return connector ? { kind: 'connector', option: connector } : target;
   }
 
+  /**
+   * A repeat picked for "Along a repeat" — its row, or a shape it placed —
+   * lands in the Pattern slot; a repeat the form can't follow (mirror,
+   * rotate, matrix) or anything that isn't one is refused with the reason.
+   */
+  private pickPattern(pick: PatternPick): void {
+    if ('refusal' in pick) {
+      this.panel.setMessage(pick.refusal);
+      return;
+    }
+    this.pattern = { kind: 'option', option: pick.option };
+    this.panel.armSlot('pattern');
+    this.panel.setMessage(null);
+    this.refresh();
+    this.runner.schedulePreview();
+  }
+
+  /**
+   * The picked repeat after a render (or a name lookup): re-found by its
+   * statement, since scene ids re-mint. A repeat the scene lost drops.
+   */
+  private rematchPattern(): void {
+    if (this.pattern?.kind !== 'option') {
+      return;
+    }
+    const option = PatternOptions.forLocation(this.pattern.option, this.patternOptions);
+    this.pattern = option ? { kind: 'option', option } : null;
+  }
+
   /** A connector landed in the armed direction's axis slot — its Z axis. */
   private pickConnectorAxis(option: ConnectorOption): void {
     this.axisEdgeEntities.set(this.panel.armedAxis, null);
@@ -798,8 +916,8 @@ export class CopyFeatureService {
       return;
     }
     this.sourceSlots = result.ok && result.feature === 'copy'
-      ? { targets: result.targets, axes: result.axes }
-      : { targets: [], axes: [] };
+      ? { targets: result.targets, axes: result.axes, pattern: result.pattern ?? null }
+      : { targets: [], axes: [], pattern: null };
     // The ghost's keep slots read `sourceSlots`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the ghost appears
     // now that the statement's own sources are known.
@@ -838,9 +956,16 @@ export class CopyFeatureService {
       centered: false,
       count: null,
       sweep: null,
-      skip: values.skip,
+      skip: values.kind === 'pattern' ? [] : values.skip,
     };
-    if (values.kind === 'linear') {
+    if (values.kind === 'pattern') {
+      // The instances are the repeat's own — the kernel reads them off it.
+      const pattern = this.ghostPattern();
+      if (!pattern) {
+        return null;
+      }
+      request.pattern = pattern;
+    } else if (values.kind === 'linear') {
       const active = this.panel.directions;
       for (let i = 0; i < active.length; i++) {
         const axis = this.ghostAxis(active[i]);
@@ -910,6 +1035,18 @@ export class CopyFeatureService {
     return refs;
   }
 
+  /**
+   * The repeat "Along a repeat" follows, by call site: a pick's statement, a
+   * keep's resolved statement, or — for a keep the parse couldn't address —
+   * whatever the sources query resolved it to. None means no ghost.
+   */
+  private ghostPattern(): { filePath: string; line: number } | null {
+    const loc = this.pattern?.kind === 'option'
+      ? this.pattern.option
+      : this.pattern?.loc ?? sourceStatement(this.sourceSlots?.pattern ?? undefined);
+    return loc ? { filePath: loc.filePath, line: loc.line } : null;
+  }
+
   /** One direction's axis slot, in the form the kernel resolves. */
   private ghostAxis(direction: CopyDirection): GhostAxisRef | null {
     const selection = this.panel.axisSelection(direction);
@@ -955,6 +1092,9 @@ export class CopyFeatureService {
     if ('error' in values) {
       return values;
     }
+    if (values.kind === 'pattern') {
+      return this.buildFollowRequest();
+    }
     if (this.targets.length === 0) {
       return { error: 'Pick the solids or connectors to copy in the viewport first.' };
     }
@@ -996,6 +1136,34 @@ export class CopyFeatureService {
   }
 
   /**
+   * "Along a repeat"'s create payload: the connectors and the repeat they
+   * follow, nothing else — `copy(holes, bolt)`.
+   */
+  private buildFollowRequest(): CopyApplyOptions | { error: string } {
+    const blocked = this.followBlocked();
+    if (blocked) {
+      return blocked;
+    }
+    if (this.pattern?.kind !== 'option') {
+      return { error: PICK_PATTERN_MESSAGE };
+    }
+    const { filePath, line, column } = this.pattern.option;
+    const targets = this.targets.flatMap(t => t.kind === 'keep' ? [] : [CopyFeatureService.targetRef(t)]);
+    return { kind: 'pattern', targets, pattern: { filePath, line, column } };
+  }
+
+  /** Why "Along a repeat" can't apply its targets as they stand, or null. */
+  private followBlocked(): { error: string } | null {
+    if (this.targets.length === 0) {
+      return { error: 'Pick the connectors to copy — a gizmo in the viewport, or a connector row.' };
+    }
+    if (this.targets.some(t => t.kind === 'option')) {
+      return { error: CONNECTORS_ONLY_MESSAGE };
+    }
+    return null;
+  }
+
+  /**
    * The edit-mode apply payload. Slots still on their "Current: …" entries
    * ship as keeps — the transform preserves the statement's expressions byte
    * for byte; the target list mixes kept statement targets with re-picked
@@ -1026,6 +1194,24 @@ export class CopyFeatureService {
       expectedStatement: this.session.expectedStatement,
       before: needsBoundary ? this.session.boundary ?? undefined : undefined,
     });
+    if (values.kind === 'pattern') {
+      // The repeat stays as written until another is picked; the targets
+      // follow the rules create mode does.
+      const blocked = this.followBlocked();
+      if (blocked) {
+        return blocked;
+      }
+      let pattern: CopyEditPatternRef;
+      if (this.pattern?.kind === 'option') {
+        const { filePath, line, column } = this.pattern.option;
+        pattern = { kind: 'repeat', filePath, line, column };
+      } else if (this.pattern?.kind === 'keep') {
+        pattern = { kind: 'keep' };
+      } else {
+        return { error: PICK_PATTERN_MESSAGE };
+      }
+      return { kind: 'pattern', targets, pattern, ...sessionFields(false) };
+    }
     if (values.kind === 'linear') {
       const active = this.panel.directions;
       const directions: NonNullable<CopyEditOptions['directions']> = [];
@@ -1112,6 +1298,13 @@ export class CopyFeatureService {
         ? ConnectorOptions.chip(target.option, { removable: true })
         : sourceChip(target.option, { removable: true });
     }));
+    const pattern = this.pattern;
+    this.panel.setPattern(!pattern ? null : pattern.kind === 'option'
+      ? PatternOptions.chip(pattern.option, { removable: true })
+      : { label: `Current: ${pattern.label}`, removable: true });
+    // "Along a repeat" copies connectors only: a solid among the targets
+    // rules it out.
+    this.panel.setPatternAvailable(!this.targets.some(t => t.kind === 'option'));
     this.refreshHighlight();
   }
 
@@ -1129,7 +1322,9 @@ export class CopyFeatureService {
     const entities: SelectedEntity[] = [];
     const standardAxes: StandardAxisId[] = [];
     const connectorIds = this.targets.flatMap(t => t.kind === 'connector' ? [t.option.id] : []);
-    for (const direction of this.panel.directions) {
+    // Along a repeat walks no axis, whatever the hidden axis slots still hold.
+    const directions = this.panel.copyType === 'pattern' ? [] : this.panel.directions;
+    for (const direction of directions) {
       const selection = this.panel.axisSelection(direction);
       if (selection?.kind === 'standard') {
         standardAxes.push(selection.axis);
@@ -1157,6 +1352,7 @@ export class CopyFeatureService {
    */
   private refreshLabels(): void {
     void this.relabeler.refresh(this.axes);
+    void this.patternRelabeler.refresh(this.patternOptions);
   }
 
   private syncButton(): void {

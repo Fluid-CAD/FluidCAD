@@ -133,9 +133,16 @@ export type ObjectType =
   | 'thickness'
   | 'mirror'
   | 'linear-pattern'
-  // 3D copies — `copy('linear' | 'circular', …)`
+  // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
+  // following a repeat
   | 'copy-linear'
   | 'copy-circular'
+  | 'copy-pattern'
+  // 3D repeats — `repeat('linear' | 'circular', …)`, and the rotate/matrix
+  // forms (`repeat('mirror', …)` rows carry the mirror type)
+  | 'repeat-linear'
+  | 'repeat-circular'
+  | 'repeat-matrix'
   | 'boolean'
   // Direct solid reference
   | 'solid'

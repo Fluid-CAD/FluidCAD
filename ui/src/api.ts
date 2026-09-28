@@ -699,7 +699,12 @@ export type GhostRepeatDirection = {
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
+  /**
+   * `pattern` is "Along a repeat" (`copy(holes, bolt)`): the copies land on
+   * the repeat's own instances, read off it by the kernel — the axes,
+   * directions, count, sweep and skip stay empty.
+   */
+  kind: 'linear' | 'circular' | 'pattern';
   /**
    * The statements being copied, by call site: solid-bearing ones, stamped,
    * and `connector()` statements, whose copies come back as
@@ -722,6 +727,8 @@ export type CopyGhostRequest = {
    * — the dialog's Skip field takes literal positions.
    */
   skip: number[][];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -2704,9 +2711,12 @@ export type CopyDirectionRef = {
 };
 
 export type CopyApplyOptions = {
-  kind: 'linear' | 'circular';
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
   /** The statements being copied (whole-solid and connector picks), in order. */
   targets: CopyTargetRef[];
+  /** Pattern only: the `repeat()` statement the copies follow, by call site. */
+  pattern?: SketchSourceRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: CopyDirectionRef[];
   /** Linear spacing semantics shared by every direction. */
@@ -2741,6 +2751,7 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
     feature: 'copy',
     kind: options.kind,
     targets: options.targets,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     axis: options.axis,
@@ -2911,9 +2922,10 @@ export type FeatureSourcesResult =
    * A copy: the solids it clones, by call site, plus the axis each direction
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all — reports an
-   * empty target list.
+   * empty target list. A copy along a repeat walks no axis: it reports the
+   * repeat it follows as its `pattern`.
    */
-  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[] }
+  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; pattern?: SourceSlotRef }
   /**
    * A standalone mirror: the solids it reflects, by call site, plus the plane
    * it reflects them across. An origin-plane literal is `opaque` as it is for
@@ -3196,10 +3208,11 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'copy';
-      kind: 'linear' | 'circular';
+      /** `pattern` is the follow form, `copy(holes, bolt)` — no axis, no options. */
+      kind: 'linear' | 'circular' | 'pattern';
       /**
        * Axis argument texts, verbatim — one per linear direction, a single
-       * entry for circular.
+       * entry for circular, none for the follow form.
        */
       axisTexts: string[];
       /**
@@ -3229,6 +3242,14 @@ export type ParsedFeatureStatement =
        * circular copy's entries carry one each); null when it names none.
        */
       skip: number[][] | null;
+      /** The follow form's repeat argument, verbatim (`holes`); null otherwise. Absent on older servers. */
+      patternText?: string | null;
+      /**
+       * The statement the follow form's repeat argument names — the bound
+       * `repeat()` call's own position, its timeline row's location — or
+       * null when it names none.
+       */
+      patternRef?: { line: number; column: number } | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
       targetTexts: string[];
       /**
@@ -3755,8 +3776,17 @@ export type CopyEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
   | ({ kind: 'feature' | 'connector' } & SketchSourceRef);
 
+/**
+ * The repeat an edited "Along a repeat" copy follows: keep the statement's
+ * own, or a re-picked `repeat()` statement by call site.
+ */
+export type CopyEditPatternRef = { kind: 'keep' } | ({ kind: 'repeat' } & SketchSourceRef);
+
 export type CopyEditOptions = EditSessionFields & {
-  kind: 'linear' | 'circular';
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /** Pattern only: the repeat the copies follow; omitted keeps the statement's own. */
+  pattern?: CopyEditPatternRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
@@ -3794,6 +3824,7 @@ export async function applyCopyEdit(
     expectedStatement: options.expectedStatement,
     before: options.before,
     kind: options.kind,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     centered: options.centered,
@@ -4099,7 +4130,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' | 'repeat' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {

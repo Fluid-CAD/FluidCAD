@@ -6,25 +6,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // connector chip, written as `copy(…, bolt)`) or as an axis (its Z axis),
 // ghosts the copies as connector triads, and sends connector targets and
 // axes on the apply payload; the Repeat dialog refuses connectors at the
-// pick, pointing to Copy (B9).
+// pick, pointing to Copy (B9). Stage 4 adds "Along a repeat", the follow
+// form `copy(holes, bolt)` — tested here too: each dialog service keeps to
+// one test file, since the shared worker binds a service to the first
+// file's api mock.
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
   getScopeVariables: vi.fn(async () => []),
-  fetchSketchNames: vi.fn(async (lines: number[]) => lines.map(() => null)),
+  // Only the flange's `holes` repeat (line 8) is bound to a variable.
+  fetchSketchNames: vi.fn(async (lines: number[], callee?: string) =>
+    lines.map(line => (callee === 'repeat' && line === 8 ? 'holes' : null))),
   fetchFeatureSources: vi.fn(async () => ({ ok: false })),
   fetchFeatureGhostResult: vi.fn(async () => ({ solids: null, frames: [], notice: null })),
   applyCopy: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyCopyEdit: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyRepeat: vi.fn(async () => ({ success: true, preview: 'repeat(…)' })),
+  rollback: vi.fn(),
+  clearBreakpoints: vi.fn(),
 }));
 
 import { Group, PerspectiveCamera, Scene } from 'three';
 import * as api from '../src/api';
 import { CopyFeatureService } from '../src/interactive/create-feature/copy-service';
+import { PatternOptions } from '../src/interactive/create-feature/pattern-options';
 import { RepeatFeatureService } from '../src/interactive/create-feature/repeat-service';
 import { collectRepeatTargets } from '../src/interactive/create-feature/repeat-targets';
 import { Navbar } from '../src/ui/navbar';
+import type { ParsedFeatureStatement } from '../src/api';
 import type { SceneObjectRender } from '../src/types';
 import type { SelectionModifiers, Viewer } from '../src/viewer';
 
@@ -368,5 +377,355 @@ describe('Repeat dialog — connectors (B9)', () => {
 
     service.exit();
     expect(state.connectorPicking?.armed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Along a repeat (stage 4): the follow form `copy(holes, bolt)`.
+// ---------------------------------------------------------------------------
+
+/**
+ * A flange part: a plate, a hole cut through it and `holes`, a circular
+ * repeat of it — its last clone owns the flange's body — a mirror repeat, a
+ * rotate repeat, a standalone boss (a solid), and the connectors `bolt` and
+ * `pivot`. `suffix` re-mints every id — what a render does to rebuilt rows.
+ */
+function followScene(suffix = ''): SceneObjectRender[] {
+  const id = (name: string) => `${name}${suffix}`;
+  const base = { ownShapes: [], visible: true, sceneShapes: [] };
+  return [
+    { ...base, id: id('part'), type: 'part', isContainer: true, sourceLocation: at(3, 22) },
+    { ...base, id: id('plate'), type: 'extrude', name: 'Extrude', parentId: id('part'), sourceLocation: at(5, 12) },
+    { ...base, id: id('hole'), type: 'cut', name: 'Cut', parentId: id('part'), sourceLocation: at(7, 15) },
+    {
+      ...base, id: id('holes'), type: 'repeat-circular', uniqueType: 'repeat-circular', name: 'Repeat',
+      parentId: id('part'), isContainer: true, hideChildren: true, sourceLocation: at(8, 16),
+    },
+    { ...base, id: id('hole-1'), type: 'cut', name: 'Cut', parentId: id('holes'), sourceLocation: at(8, 16) },
+    {
+      ...base, id: id('hole-2'), type: 'cut', name: 'Cut', parentId: id('holes'), sourceLocation: at(8, 16),
+      sceneShapes: [{ shapeId: id('flange-solid'), shapeType: 'solid', meshes: [] }],
+    },
+    {
+      ...base, id: id('mirrored'), type: 'mirror', uniqueType: 'mirror-feature', name: 'Repeat',
+      parentId: id('part'), sourceLocation: at(9, 2),
+    },
+    {
+      ...base, id: id('turned'), type: 'repeat-matrix', uniqueType: 'repeat-matrix', name: 'Repeat',
+      parentId: id('part'), sourceLocation: at(10, 2),
+    },
+    {
+      ...base, id: id('boss'), type: 'extrude', name: 'Boss', parentId: id('part'), sourceLocation: at(11, 15),
+      sceneShapes: [{ shapeId: id('boss-solid'), shapeType: 'solid', meshes: [] }],
+    },
+    {
+      ...base, id: id('bolt'), type: 'connector', name: 'bolt', parentId: id('part'),
+      object: { name: 'bolt', ...FRAME }, sourceLocation: at(12, 15),
+    },
+    {
+      ...base, id: id('pivot'), type: 'connector', name: 'pivot', parentId: id('part'),
+      object: { name: 'pivot', ...FRAME, origin: { x: -20, y: 0, z: 10 } }, sourceLocation: at(13, 16),
+    },
+  ] as SceneObjectRender[];
+}
+
+/** A row of the followed flange by its id. */
+function followRowOf(id: string): SceneObjectRender {
+  return followScene().find(row => row.id === id)!;
+}
+
+/** A viewer recording what the Along a repeat dialog asks of it, the pick filter included. */
+function followViewer() {
+  const scene = new Scene();
+  const state = {
+    connectorPicking: null as { armed: boolean; reveal: boolean } | null,
+    picked: [] as string[],
+    pickFilter: 'all',
+  };
+  const viewer = {
+    get pickFilter() {
+      return state.pickFilter;
+    },
+    set pickFilter(value: string) {
+      state.pickFilter = value;
+    },
+    pickSketchWires: false,
+    pickAxes: false,
+    pickPlanes: false,
+    missedSketchRender: false,
+    sceneIsEmpty: false,
+    sceneContext: { scene, camera: new PerspectiveCamera(), requestRender: () => {} },
+    suspendSketchEditing: () => {},
+    resumeSketchEditing: () => {},
+    highlightEntities: () => {},
+    clearHighlight: () => {},
+    showStandardAxes: () => {},
+    hideStandardAxes: () => {},
+    setSelectedStandardAxes: () => {},
+    setConnectorPicking: (armed: boolean, opts: { reveal?: boolean } = {}) => {
+      state.connectorPicking = { armed, reveal: armed && (opts.reveal ?? true) };
+    },
+    setPickedConnectors: (ids: readonly string[]) => {
+      state.picked = [...ids];
+    },
+    setHoveredConnector: () => {},
+  };
+  return { viewer: viewer as unknown as Viewer, state, scene };
+}
+
+/** Every Along a repeat dialog a test opened — closed after it, so none lingers on the shared Escape stack. */
+const opened: CopyFeatureService[] = [];
+
+function mountFollow() {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const { viewer, state, scene } = followViewer();
+  const service = new CopyFeatureService(container, viewer, new Navbar(container), { onEnter: () => ({ seed: [] }) });
+  opened.push(service);
+  service.update(followScene());
+  const el = (role: string) => container.querySelector<HTMLElement>(`[data-role="${role}"]`)!;
+  const text = (role: string) => el(role)?.textContent ?? '';
+  const hidden = (role: string) => el(role).classList.contains('hidden');
+  const kindSelect = () => container.querySelector<HTMLSelectElement>('[data-role="kind"]')!;
+  const patternOption = () => kindSelect().querySelector<HTMLOptionElement>('option[value="pattern"]')!;
+  const setKind = (kind: 'linear' | 'circular' | 'pattern') => {
+    kindSelect().value = kind;
+    kindSelect().dispatchEvent(new Event('change'));
+  };
+  const apply = async () => {
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.runAllTimersAsync();
+  };
+  const ghostGroup = () => scene.getObjectByName('featureGhost') as Group;
+  return { service, container, state, text, hidden, kindSelect, patternOption, setKind, apply, ghostGroup };
+}
+
+describe('Copy dialog — Along a repeat', () => {
+  afterEach(() => {
+    for (const service of opened.splice(0)) {
+      service.exit();
+    }
+  });
+
+  it('is offered only while every target is a connector', () => {
+    const { service, patternOption } = mountFollow();
+    service.enter();
+    expect(patternOption().textContent).toBe('Along a repeat');
+    expect(patternOption().disabled).toBe(false);
+
+    // A solid among the targets rules it out; taking it back off offers it again.
+    service.handleTimelinePick(followRowOf('boss'));
+    expect(patternOption().disabled).toBe(true);
+    service.handleTimelinePick(followRowOf('boss'));
+    expect(patternOption().disabled).toBe(false);
+
+    service.handleConnectorPick('bolt');
+    expect(patternOption().disabled).toBe(false);
+  });
+
+  it('hides the count, spacing, axis and skip fields and shows the Pattern slot', () => {
+    const { service, hidden, text, setKind } = mountFollow();
+    service.enter();
+    expect(hidden('pattern-slot')).toBe(true);
+
+    setKind('pattern');
+
+    for (const role of ['axis-wrap', 'count-row', 'spacing-row', 'sweep-row', 'dir2-wrap', 'add-direction', 'centered-row', 'skip-row']) {
+      expect(hidden(role), role).toBe(true);
+    }
+    expect(hidden('pattern-slot')).toBe(false);
+    expect(text('pattern-slot')).toContain('Pick a repeat in the timeline, or a feature it repeated');
+
+    setKind('circular');
+    expect(hidden('pattern-slot')).toBe(true);
+    expect(hidden('count-row')).toBe(false);
+    expect(hidden('axis-wrap')).toBe(false);
+  });
+
+  it("takes a repeat's row into the Pattern slot, named by its variable", async () => {
+    const { service, text, setKind } = mountFollow();
+    service.enter();
+    await vi.runAllTimersAsync();
+    setKind('pattern');
+
+    expect(service.handleTimelinePick(followRowOf('holes'))).toBe(true);
+
+    expect(text('pattern-slot')).toContain('holes');
+    expect(text('pattern-slot')).toContain('8');
+    expect(text('message')).toBe('');
+  });
+
+  it('refuses a mirror, rotate or matrix repeat, and a row that is no repeat', () => {
+    const { service, text, setKind } = mountFollow();
+    service.enter();
+    setKind('pattern');
+
+    service.handleTimelinePick(followRowOf('mirrored'));
+    expect(text('message')).toBe(
+      "A mirror repeat can't be followed — a copied connector is never reflected. Pick a linear or circular repeat.",
+    );
+    service.handleTimelinePick(followRowOf('turned'));
+    expect(text('message')).toBe("A rotate or matrix repeat can't be followed — pick a linear or circular repeat.");
+    // A solid row is neither a repeat nor, along a repeat, a target.
+    service.handleTimelinePick(followRowOf('boss'));
+    expect(text('message')).toBe(
+      "Along a repeat copies connectors onto a repeat's instances — pick a connector, or the repeat to follow.",
+    );
+    expect(text('targets-slot')).not.toContain('Boss');
+    expect(text('pattern-slot')).toContain('Pick a repeat');
+  });
+
+  it('picks a repeated feature in the viewport — the repeat that placed the clicked shape', () => {
+    const { service, text, setKind, state } = mountFollow();
+    service.enter();
+    setKind('pattern');
+    // Faces and edges are pickable: they name the repeat.
+    expect(state.pickFilter).toBe('all');
+
+    service.handleClick('boss-solid', { type: 'face', index: 0 });
+    expect(text('message')).toContain('That shape was not placed by a repeat');
+
+    service.handleClick('flange-solid', { type: 'face', index: 3 });
+    expect(text('pattern-slot')).toContain('Repeat');
+    expect(text('message')).toBe('');
+    expect(PatternOptions.forShape('flange-solid', followScene(), PatternOptions.collect(followScene())))
+      .toEqual({ option: { id: 'holes', label: 'Repeat', ...at(8, 16) } });
+  });
+
+  it('sends the connectors and the repeat they follow on the apply payload — nothing else', async () => {
+    const { service, setKind, apply } = mountFollow();
+    service.enter();
+    setKind('pattern');
+    service.handleConnectorPick('bolt');
+    service.handleConnectorPick('pivot');
+    service.handleTimelinePick(followRowOf('holes'));
+
+    await apply();
+
+    const applied = vi.mocked(api.applyCopy).mock.calls.find(([options]) => !options.preview)![0];
+    expect(applied).toEqual({
+      kind: 'pattern',
+      targets: [{ kind: 'connector', ...at(12, 15) }, { kind: 'connector', ...at(13, 16) }],
+      pattern: at(8, 16),
+    });
+  });
+
+  it('blocks the apply until a repeat is picked, and keeps its connectors after a render re-mints ids', async () => {
+    const { service, setKind, apply, text } = mountFollow();
+    service.enter();
+    setKind('pattern');
+    service.handleConnectorPick('bolt');
+
+    await apply();
+    expect(vi.mocked(api.applyCopy).mock.calls.filter(([options]) => !options.preview)).toEqual([]);
+    expect(text('message')).toBe(
+      'Pick the repeat to follow — its row in the timeline, or a feature it repeated in the viewport.',
+    );
+
+    service.handleTimelinePick(followRowOf('holes'));
+    service.update(followScene('-r2'));
+    await apply();
+    const applied = vi.mocked(api.applyCopy).mock.calls.find(([options]) => !options.preview)![0];
+    expect(applied).toMatchObject({ kind: 'pattern', pattern: at(8, 16), targets: [{ kind: 'connector', ...at(12, 15) }] });
+  });
+
+  it("ghosts the copies from the repeat's own instances, asking with the repeat's call site", async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [FRAME, FRAME, FRAME], notice: null });
+    const { service, setKind, ghostGroup } = mountFollow();
+    service.enter();
+    setKind('pattern');
+    service.handleConnectorPick('bolt');
+    await vi.advanceTimersByTimeAsync(300);
+    // No repeat yet — nothing to ask for.
+    expect(vi.mocked(api.fetchFeatureGhostResult)).not.toHaveBeenCalled();
+
+    service.handleTimelinePick(followRowOf('holes'));
+    await vi.advanceTimersByTimeAsync(300);
+
+    const request = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0];
+    expect(request).toEqual({
+      feature: 'copy',
+      kind: 'pattern',
+      targets: [{ filePath: FILE, line: 12 }],
+      pattern: { filePath: FILE, line: 8 },
+      axes: [],
+      directions: [],
+      centered: false,
+      count: null,
+      sweep: null,
+      skip: [],
+    });
+    expect(ghostGroup().children).toHaveLength(3);
+  });
+
+  it('says why the kernel refuses to follow the picked repeat', async () => {
+    const reason = "copy(): a connector can't follow a centered circular repeat yet — drop centered on the repeat; "
+      + 'its pattern then starts at the original';
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: null, frames: [], notice: reason });
+    const { service, setKind, text } = mountFollow();
+    service.enter();
+    setKind('pattern');
+    service.handleConnectorPick('bolt');
+    service.handleTimelinePick(followRowOf('holes'));
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(text('message')).toBe(reason);
+  });
+
+  it('reopens a copy that follows a repeat on "Along a repeat", its repeat and connectors kept', async () => {
+    const { service, kindSelect, text, hidden, apply } = mountFollow();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }> = {
+      feature: 'copy', kind: 'pattern', patternText: 'holes', patternRef: { line: 8, column: 16 },
+      axisTexts: [], axisRefs: [], directions: null, spacingMode: null, centered: false,
+      count: null, sweep: null, center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 12, column: 15 }],
+    };
+    const target = at(14, 2);
+    service.enterEdit(target, parsed, { index: 11, type: 'copy-pattern', expectedStatement: 'copy(holes, bolt)' });
+
+    expect(kindSelect().value).toBe('pattern');
+    expect(hidden('count-row')).toBe(true);
+    expect(text('pattern-slot')).toContain('Current: holes');
+    expect(text('targets-slot')).toContain('Current: bolt');
+
+    // At the rolled-back boundary the keeps become their statements' options.
+    const scene = [
+      ...followScene(),
+      {
+        id: 'copy', type: 'copy-pattern', name: 'Copy', parentId: 'part', visible: true, ownShapes: [], sceneShapes: [],
+        hideChildren: true, sourceLocation: target,
+      } as SceneObjectRender,
+    ];
+    service.handleSceneRendered(scene, 10, true);
+    await vi.runAllTimersAsync();
+    expect(text('pattern-slot')).toContain('holes');
+    expect(text('pattern-slot')).not.toContain('Current');
+
+    await apply();
+    const [edit, options] = vi.mocked(api.applyCopyEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(edit).toEqual(target);
+    expect(options).toMatchObject({
+      kind: 'pattern',
+      pattern: { kind: 'repeat', ...at(8, 16) },
+      targets: [{ kind: 'connector', ...at(12, 15) }],
+      expectedStatement: 'copy(holes, bolt)',
+    });
+  });
+
+  it('keeps the repeat as written when the edit never reached its boundary', async () => {
+    const { service, apply } = mountFollow();
+    service.enterEdit(at(14, 2), {
+      feature: 'copy', kind: 'pattern', patternText: 'holes', patternRef: null,
+      axisTexts: [], axisRefs: [], directions: null, spacingMode: null, centered: false,
+      count: null, sweep: null, center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [null],
+    }, { index: 11, type: 'copy-pattern', expectedStatement: 'copy(holes, bolt)' });
+
+    await apply();
+    const [, options] = vi.mocked(api.applyCopyEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(options).toMatchObject({
+      kind: 'pattern', pattern: { kind: 'keep' }, targets: [{ kind: 'verbatim', sourceIndex: 0 }],
+    });
   });
 });

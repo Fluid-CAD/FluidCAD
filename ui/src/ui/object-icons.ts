@@ -38,6 +38,7 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'axis-middle': 'axis',
   'copy-circular-2d': 'copy-circular2d',
   'copy-linear-2d': 'copy-linear2d',
+  'copy-pattern': 'copy-linear',
   'cut': 'cut',
   'cut-symmetric': 'cut',
   'exposed': 'select',

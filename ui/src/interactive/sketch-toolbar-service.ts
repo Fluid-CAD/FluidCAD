@@ -31,7 +31,7 @@ import {
   SketchOpDialog, SketchOpScope, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail,
   SolvedPickRail,
 } from './sketch-op-service';
-import { SketchCopyService } from './sketch-copy-service';
+import { ParsedSketchCopy, SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { SketchSplitService } from './sketch-split-service';
 import { SketchTrimService } from './sketch-trim-service';
@@ -396,7 +396,7 @@ export class SketchToolbarService {
    */
   enterCopyEdit(
     target: FeatureEditTarget,
-    parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+    parsed: ParsedSketchCopy,
     expectedStatement: string,
   ): void {
     const service = this.copyOp;

@@ -2,6 +2,7 @@ import { Part } from "./part.js";
 import { registerPartDefinitionClass } from "./part-args.js";
 import type { Connector } from "./connector.js";
 import type { Exposed } from "./exposed.js";
+import type { PartProperty } from "./part-property.js";
 import type { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "../rendering/scene.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -245,6 +246,20 @@ export class PartDefinition<T = unknown> {
 
   getNamedExposures(): Record<string, SceneObject> {
     return this.materialize().getNamedExposures();
+  }
+
+  /**
+   * The definition's value interface: `property()` values of the DEFAULT
+   * variant, read in the current unit (a part file sizing itself from a
+   * donor's `def.properties.internalWidth`). An inserted variant's own values
+   * are on its instance: `instance.properties.<name>`.
+   */
+  get properties(): Record<string, ParamVal> {
+    return this.materialize().properties;
+  }
+
+  getProperties(): PartProperty[] {
+    return this.materialize().getProperties();
   }
 }
 

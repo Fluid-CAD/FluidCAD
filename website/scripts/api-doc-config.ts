@@ -134,10 +134,11 @@ export const features: FeatureEntry[] = [
   { name: 'param', displayName: 'param', category: 'assembly', sourceFile: 'core/param.ts', interfaceName: null, functionName: 'param', returnType: 'number | string | boolean', relatedGuide: '/docs/part/param', sidebarPosition: 2 },
   { name: 'connector', displayName: 'connector', category: 'assembly', sourceFile: 'core/connector.ts', interfaceName: 'ConnectorFunction', returnType: 'IConnector', relatedGuide: '/docs/part/connector', sidebarPosition: 3 },
   { name: 'expose', displayName: 'expose', category: 'assembly', sourceFile: 'core/expose.ts', interfaceName: 'ExposeFunction', returnType: 'ISceneObject', relatedGuide: '/docs/part/expose', sidebarPosition: 4 },
-  { name: 'assembly', displayName: 'assembly', category: 'assembly', sourceFile: 'core/assembly.ts', interfaceName: null, functionName: 'assembly', returnType: 'Assembly', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 5 },
-  { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 6 },
-  { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
-  { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 8 },
+  { name: 'property', displayName: 'property', category: 'assembly', sourceFile: 'core/property.ts', interfaceName: null, functionName: 'property', returnType: 'number | string | boolean | (string | number)[]', relatedGuide: '/docs/part/property', sidebarPosition: 5 },
+  { name: 'assembly', displayName: 'assembly', category: 'assembly', sourceFile: 'core/assembly.ts', interfaceName: null, functionName: 'assembly', returnType: 'Assembly', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 6 },
+  { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
+  { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 8 },
+  { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 9 },
   { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/extra/units', sidebarPosition: 10 },
 ];
 

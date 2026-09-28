@@ -4,6 +4,9 @@ import { Connector } from "./connector.js";
 import { Exposed } from "./exposed.js";
 import { IPart } from "../core/interfaces.js";
 import { serializableParamDefs } from "./param-overrides.js";
+import { guardedRecord } from "./guarded-record.js";
+import { propertyValues, serializedProperties } from "./part-property.js";
+import type { PartProperty } from "./part-property.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
@@ -17,6 +20,14 @@ export class Part extends SceneObject implements IPart {
   params?: ParamDefinition[];
   /** Resolved parameter values of the variant build — rides SerializedInstance. */
   paramValues?: Record<string, ParamVal>;
+
+  /**
+   * The values the body published with `property('name', value)`, in
+   * statement order — this variant's scalar interface. Recorded as the
+   * statements execute (a breakpoint pause keeps the ones before it), so
+   * they are per-variant like `paramValues`.
+   */
+  private readonly _properties: PartProperty[] = [];
 
   /**
    * The breakpoint() that cut this variant's build short, if any — stamped
@@ -213,35 +224,10 @@ export class Part extends SceneObject implements IPart {
    * which stays an unguarded plain record.
    */
   get features(): Record<string, SceneObject> {
-    const exposures = this.getNamedExposures();
-    return new Proxy(exposures, {
-      get: (target, prop, receiver) => {
-        if (typeof prop === "string" && !(prop in target) && Part.isExposureLookup(prop)) {
-          if (this.pausedBy) {
-            throw new BreakpointHit(this.pausedBy.sourceLocation);
-          }
-          throw new Error(this.missingExposureMessage(prop));
-        }
-        return Reflect.get(target, prop, receiver);
-      },
+    return guardedRecord(this.getNamedExposures(), name => {
+      this.rethrowIfPaused();
+      throw new Error(this.missingExposureMessage(name));
     });
-  }
-
-  /**
-   * Names the runtime itself may probe on any object — never treated as a
-   * missing exposure so the guarded `features` record still awaits,
-   * stringifies, and logs like a plain object.
-   */
-  private static readonly PROTOCOL_PROPS = new Set([
-    "then", "catch", "finally", "toJSON", "toString", "valueOf", "constructor", "inspect",
-  ]);
-
-  /** Whether a missing-property read looks like a real `def.features.<name>` lookup. */
-  private static isExposureLookup(name: string): boolean {
-    if (Part.PROTOCOL_PROPS.has(name)) {
-      return false;
-    }
-    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
   }
 
   private missingExposureMessage(name: string): string {
@@ -253,6 +239,62 @@ export class Part extends SceneObject implements IPart {
       + `Publish it inside the part body with expose('${name}', source).`;
   }
 
+  /** Register a `property()` declaration of the running body — `property()` enforces name uniqueness. */
+  addProperty(property: PartProperty): void {
+    this._properties.push(property);
+  }
+
+  /** The body's `property()` declarations, in statement order. */
+  getProperties(): PartProperty[] {
+    return [...this._properties];
+  }
+
+  /**
+   * name → value of every property as a CONSUMER reads it: a `'length'`
+   * property is rescaled from the defining file's unit into the unit this
+   * variant is consumed in (identity when they match), everything else is
+   * verbatim. An unguarded plain record — the wire and internal enumerators
+   * use this; user reads go through `properties`.
+   */
+  getPropertyValues(): Record<string, ParamVal> {
+    return propertyValues(this._properties, this.getUnitScaleFactor());
+  }
+
+  /**
+   * The part's value interface: `property()` values by name, as
+   * `instance.properties.<name>` / `def.properties.<name>` serve them.
+   * Guarded exactly like `features` — an undeclared name throws a pointed
+   * error naming the declared properties, and a build paused before the
+   * `property()` statement ran re-throws the breakpoint instead.
+   */
+  get properties(): Record<string, ParamVal> {
+    return guardedRecord(this.getPropertyValues(), name => {
+      this.rethrowIfPaused();
+      throw new Error(this.missingPropertyMessage(name));
+    });
+  }
+
+  private missingPropertyMessage(name: string): string {
+    const declared = this._properties.map(p => p.name);
+    const listing = declared.length > 0
+      ? `declared properties: ${declared.join(", ")}`
+      : "it declares none";
+    return `part "${this.partName}" has no property "${name}" — ${listing}. `
+      + `Declare it inside the part body with property('${name}', value).`;
+  }
+
+  /**
+   * A variant whose build paused at a breakpoint() before a publication
+   * statement ran: the consumer pauses like everything else downstream of
+   * the breakpoint (with the original hit's location) instead of failing
+   * the whole render over a name that would have registered.
+   */
+  private rethrowIfPaused(): void {
+    if (this.pausedBy) {
+      throw new BreakpointHit(this.pausedBy.sourceLocation);
+    }
+  }
+
   serialize() {
     return {
       name: this.partName,
@@ -260,6 +302,7 @@ export class Part extends SceneObject implements IPart {
       // Control metadata for per-instance parameter editing (sourceLocation
       // stripped — that serves the panel's declaration edits, not the wire).
       params: this.params ? serializableParamDefs(this.params) : undefined,
+      properties: serializedProperties(this),
     };
   }
 }

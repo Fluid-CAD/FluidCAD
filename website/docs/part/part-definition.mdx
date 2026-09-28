@@ -5,7 +5,7 @@ title: "Part"
 
 # part()
 
-`part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters — belongs to that part.
+`part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters, properties — belongs to that part.
 
 ```js
 import { part, sketch, circle, extrude } from 'fluidcad/core';
@@ -43,7 +43,8 @@ Because the body runs later, it must be self-contained: read parameters with [`p
 | Member | Meaning |
 |--------|---------|
 | `def.features.<name>` | The source object an [`expose()`](./expose) published, for another part to build on: `extrude(15, donor.features.profile)`. |
-| `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>` and `instance.features.<name>` bound to it. |
+| `def.properties.<name>` | A value a [`property()`](./property) published, from the default variant: `donor.properties.pocketDiameter`. |
+| `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>`, `instance.features.<name>` and `instance.properties.<name>` bound to it. |
 
 ## Export it
 

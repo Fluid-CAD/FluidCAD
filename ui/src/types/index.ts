@@ -420,6 +420,8 @@ export type SerializedAssemblyInstance = {
   name: string;
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The variant's `property()` values as the assembly reads them; absent when the part declares none. */
+  properties?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
   /**
    * Present on a replica produced by a `replicate()` statement. Its

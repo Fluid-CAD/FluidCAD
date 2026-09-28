@@ -6,7 +6,8 @@ import type { ParamDefinition, ParamOverrides, ParamScope, ParamVal } from "../p
  * validate, merge, key, and warn identically.
  */
 
-function isOverrideValue(value: unknown): value is ParamVal {
+/** Whether `value` has the shape a `param()` can produce: a scalar or an array of numbers/strings. */
+export function isParamValue(value: unknown): value is ParamVal {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return true;
   }
@@ -22,7 +23,7 @@ export function validateParamOverrides(context: string, overrides: ParamOverride
     throw new Error(`${context}: parameter overrides must be a plain object of { label: value }.`);
   }
   for (const [label, value] of Object.entries(overrides)) {
-    if (!isOverrideValue(value)) {
+    if (!isParamValue(value)) {
       throw new Error(
         `${context}: parameter '${label}' must be a number, string, boolean, `
         + `or array of numbers/strings — got ${value === null ? 'null' : typeof value}.`,

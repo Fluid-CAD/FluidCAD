@@ -7,6 +7,7 @@ import { SceneObject, SourceLocation } from "../common/scene-object.js";
 import type { ParamDefinition, ParamOverrides, ParamVal } from "../param-registry.js";
 import type { Assembly } from "../features/assembly.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
+import { serializedProperties } from "../features/part-property.js";
 import { composePose, IDENTITY_POSE } from "../math/pose.js";
 import type { Pose, Quat, Vec3 } from "../math/pose.js";
 
@@ -206,6 +207,12 @@ export type SerializedInstance = {
   name: string;
   /** Resolved parameter values of the instance's template variant (insert-path builds only). */
   paramValues?: Record<string, ParamVal>;
+  /**
+   * The variant's `property()` values as the assembly reads them
+   * (`'length'` properties in the assembly's unit). Set only when the part
+   * declares any.
+   */
+  properties?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
   /** Present on a replica produced by a `replicate()` statement. */
   replica?: ReplicaTag;
@@ -588,6 +595,7 @@ export class AssemblyScene extends Scene {
         owner: inst.owner,
         name: inst.name,
         paramValues: inst.part.paramValues,
+        properties: serializedProperties(inst.part),
         sourceLocation: inst.sourceLocation,
         replica: inst.replica,
       };

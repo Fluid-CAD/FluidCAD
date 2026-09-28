@@ -50,5 +50,10 @@ export interface BrowserRenderResult {
   breakpointHit: boolean;
   params?: ParamDefinition[];
   objectErrors: BrowserObjectBuildError[];
+  /**
+   * Non-fatal notices per row (`Unknown material: <id>` on a part row),
+   * same shape and numbering as `objectErrors`; absent on a compile error.
+   */
+  objectWarnings?: BrowserObjectBuildError[];
   compileError: { message: string; stack?: string } | null;
 }

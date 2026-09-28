@@ -9,5 +9,5 @@ export { VIEWER_PROTOCOL_VERSION } from "./types.js";
 export type { BrowserRenderResult, BrowserObjectBuildError, BrowserSceneKind, BrowserSerializedAssembly, EngineInfo } from "./types.js";
 export { ENGINE_NAMESPACE_SPECIFIERS, installEngineNamespaces, engineShimModuleSource } from "./linking.js";
 export { BLOCKED_NODE_MODULES, getBlockedNodeModule } from "./blocked-imports.js";
-export { getMaterials } from "../common/materials.js";
-export type { Material } from "../common/materials.js";
+export { getMaterials, mergeMaterials, resolveMaterial, materialDensityGcm3, densityToGcm3 } from "../common/materials.js";
+export type { Material, ProjectMaterial, ProjectMaterials, DensityUnit, MaterialSource } from "../common/materials.js";

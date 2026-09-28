@@ -29,9 +29,11 @@ export type CopyTargetInput = SketchLoc & { kind: 'feature' | 'connector' };
 type CopyDirectionInput = { axis: CopyAxisInput; count: ValueExpr; value: ValueExpr };
 
 type CopyRequest = {
-  kind: 'linear' | 'circular';
+  kind: 'linear' | 'circular' | 'pattern';
   /** The statements being copied, in argument order. */
   targets: CopyTargetInput[];
+  /** Pattern only: the `repeat()` statement the copies follow, by call site. */
+  pattern?: SketchLoc;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: CopyDirectionInput[];
   /** Linear spacing semantics shared by every direction. */
@@ -146,14 +148,18 @@ function axisFile(axis: CopyAxisInput): string | null {
  */
 export function validateCopy(body: any): CopyRequest | { error: string } {
   const { kind, targets, count, centered } = body ?? {};
-  if (kind !== 'linear' && kind !== 'circular') {
-    return { error: 'kind must be "linear" or "circular"' };
+  if (kind !== 'linear' && kind !== 'circular' && kind !== 'pattern') {
+    return { error: 'kind must be "linear", "circular" or "pattern"' };
   }
   const targetLocs = validateCopyTargets(targets);
   if ('error' in targetLocs) {
     return targetLocs;
   }
   const filePath = targetLocs[0].filePath;
+
+  if (kind === 'pattern') {
+    return validateFollowCopy(body, targetLocs);
+  }
 
   if (body?.plane !== undefined && body?.plane !== null) {
     return { error: `a ${kind} copy takes an axis, not a plane` };
@@ -245,6 +251,43 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
 }
 
 /**
+ * The option fields only the linear and circular kinds carry — a copy that
+ * follows a repeat states its instances through the repeat and takes none.
+ */
+const PATTERN_FORM_FIELDS = [
+  'axis', 'directions', 'spacingMode', 'count', 'sweep', 'angle', 'centered', 'skip', 'center', 'plane',
+] as const;
+
+/** A field the follow form never carries, or null when it carries none. */
+function patternFormField(body: any): string | null {
+  return PATTERN_FORM_FIELDS.find(key => body?.[key] !== undefined && body?.[key] !== null) ?? null;
+}
+
+/**
+ * The follow form's request, `copy(<repeat>, …connectors)`: the repeat to
+ * follow by its `repeat()` call site, in the targets' file, and connectors
+ * as the targets — no axis, count, spacing, sweep, centered or skip: the
+ * repeat states every instance.
+ */
+function validateFollowCopy(body: any, targets: CopyTargetInput[]): CopyRequest | { error: string } {
+  const pattern = validateSketchLoc(body?.pattern);
+  if (!pattern) {
+    return { error: 'a copy along a repeat must carry the {filePath, line} of the repeat() it follows' };
+  }
+  if (pattern.filePath !== targets[0].filePath) {
+    return { error: 'the repeat and the connectors live in different files' };
+  }
+  if (targets.some(target => target.kind !== 'connector')) {
+    return { error: 'a copy along a repeat copies connectors only' };
+  }
+  const field = patternFormField(body);
+  if (field !== null) {
+    return { error: `a copy along a repeat takes no ${field} — the repeat states its instances` };
+  }
+  return { kind: 'pattern', targets, pattern };
+}
+
+/**
  * One copy-edit axis field: the repeat shapes, a connector (see
  * {@link validateCopyAxis}), plus the 2D in-sketch forms — a sketch-local
  * axis, or a picked sketch edge whose `{shapeId}` rides `sketchAxisEntities`
@@ -285,8 +328,8 @@ export function validateCopyEdit(
   edit: FeatureStatementEditTarget,
 ): StatementEditRequest | { error: string } {
   const { kind, count, centered } = body ?? {};
-  if (kind !== 'linear' && kind !== 'circular') {
-    return { error: 'kind must be "linear" or "circular"' };
+  if (kind !== 'linear' && kind !== 'circular' && kind !== 'pattern') {
+    return { error: 'kind must be "linear", "circular" or "pattern"' };
   }
   const result: StatementEditRequest = base;
   const cp: NonNullable<FeatureStatementEditTarget['copy']> = { kind };
@@ -354,6 +397,10 @@ export function validateCopyEdit(
       }
     }
     result.copyTargets = targets;
+  }
+
+  if (kind === 'pattern') {
+    return validateFollowCopyEdit(body, result);
   }
 
   if (body?.plane !== undefined && body?.plane !== null) {
@@ -471,5 +518,35 @@ export function validateCopyEdit(
   cp.count = count;
   cp.sweep = { mode: sweep.mode, value: sweep.value };
   cp.skip = skip.length > 0 ? skip : undefined;
+  return result;
+}
+
+/**
+ * The follow form's edit: its repeat slot — `keep` (or absent) re-emits the
+ * statement's own, a `{filePath, line}` re-picks a `repeat()` statement —
+ * and re-picked targets that are connectors only. It carries no 2D picks
+ * and none of the other kinds' fields.
+ */
+function validateFollowCopyEdit(body: any, result: StatementEditRequest): StatementEditRequest | { error: string } {
+  if (result.copySketchTargets || result.copyAxisPicks) {
+    return { error: 'a copy along a repeat takes no sketch picks' };
+  }
+  if ((result.copyTargets ?? []).some(target => target.kind === 'feature')) {
+    return { error: 'a copy along a repeat copies connectors only' };
+  }
+  const field = patternFormField(body);
+  if (field !== null) {
+    return { error: `a copy along a repeat takes no ${field} — the repeat states its instances` };
+  }
+  const raw = body?.pattern;
+  if (raw === undefined || raw === null || raw?.kind === 'keep') {
+    result.copyPattern = { kind: 'keep' };
+    return result;
+  }
+  const loc = validateSketchLoc(raw);
+  if (!loc) {
+    return { error: 'pattern must be {kind: "keep"} or the {filePath, line} of the repeat() to follow' };
+  }
+  result.copyPattern = { kind: 'repeat', loc };
   return result;
 }

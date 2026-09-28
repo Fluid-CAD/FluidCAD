@@ -22,7 +22,7 @@ import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
-import type { CopyEditAxis, CopyEditOptions } from './features/copy.ts';
+import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/copy.ts';
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
 import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
@@ -626,10 +626,16 @@ export type FeatureStatementEditTarget = {
    * Copy options. Axis slots and the target list carry keep
    * (`keep`/`verbatim`) entries that re-read the statement's own argument
    * texts at apply time; re-sourced entries render from producers/parts like
-   * create mode. An absent target list keeps every statement target.
+   * create mode. An absent target list keeps every statement target. The
+   * follow form (`pattern`) carries its repeat instead of axes and options.
    */
   copy?: {
-    kind: 'linear' | 'circular';
+    kind: 'linear' | 'circular' | 'pattern';
+    /**
+     * Pattern only: the repeat the copies follow — `keep` re-emits the
+     * statement's own; absent keeps it too.
+     */
+    pattern?: CopyEditPattern;
     /** Linear directions in axis order — each its own axis, count and value. */
     directions?: { axis: CopyEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */

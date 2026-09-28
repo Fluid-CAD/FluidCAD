@@ -153,8 +153,10 @@ export function parseRepeat(body: GhostBody): RawRepeat | string {
 
 /** A copy request's slots, before its numbers are resolved. */
 export type RawCopy = {
-  kind: 'linear' | 'circular';
+  kind: 'linear' | 'circular' | 'pattern';
   targets: { filePath: string; line: number }[];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
   axes: GhostAxisRef[];
   directions: RawDirection[];
   centered: boolean;
@@ -175,6 +177,9 @@ export type RawCopy = {
  * shapes validated for different purposes must not drift into each other.
  */
 export function parseCopy(body: GhostBody): RawCopy | string {
+  if (body.kind === 'pattern') {
+    return parseFollowCopy(body);
+  }
   if (typeof body.kind !== 'string' || !COPY_KINDS.includes(body.kind)) {
     return 'Invalid copy kind';
   }
@@ -225,6 +230,28 @@ export function parseCopy(body: GhostBody): RawCopy | string {
     sweep,
     skip,
   };
+}
+
+/**
+ * The Copy dialog's "Along a repeat" slots: the connectors to copy and the
+ * `repeat()` they follow, by call site — no axis, direction, count, sweep or
+ * skip: the repeat states every instance, and the kernel reads them off it.
+ */
+function parseFollowCopy(body: GhostBody): RawCopy | string {
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_COPY_TARGETS) {
+    return 'Invalid copy targets';
+  }
+  const [pattern] = parseSourceRefs(body.pattern === undefined ? null : [body.pattern]) ?? [];
+  if (!pattern) {
+    return 'Invalid repeat reference';
+  }
+  const stated = [body.axes, body.directions, body.count, body.sweep, body.skip]
+    .some(value => value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0));
+  if (stated || body.centered === true) {
+    return 'Invalid copy along a repeat';
+  }
+  return { kind: 'pattern', targets, pattern, axes: [], directions: [], centered: false, count: null, sweep: null, skip: [] };
 }
 
 /** A mirror request's slots — a plane and targets, nothing to resolve. */

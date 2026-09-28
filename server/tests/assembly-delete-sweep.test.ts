@@ -268,3 +268,42 @@ describe('removeStatementWithAssemblySweep — deleting a connector copy (D11)',
     expect(result.newCode).toBe(`${RACK}mate('fastened', bay, card.connectors.top);\n`);
   });
 });
+
+// The follow form, `copy(<repeat>, …connectors)`, is part-only — the kernel
+// refuses it at an assembly's top level — but the sweep never reads it by
+// position as the other forms: its first argument is what it follows (a
+// reference there takes the statement whole, like an axis), and its
+// connectors start at the second.
+describe('removeStatementWithAssemblySweep — a copy() that follows', () => {
+  it('drops a deleted connector from its targets, keeping the statement for the others', async () => {
+    const code = `${RACK}const dock = connector('dock', [0, 50, 20]);\n`
+      + `copy(pivot, bay, dock);\n`
+      + `mate('slider', dock.instance(1), card.connectors.edge);\n`;
+    const result = await removeStatementWithAssemblySweep(code, lineOf(code, 'const bay'));
+    expect(result.newCode).toBe(
+      `${RACK_HEADER}\nconst card = insert(cardPart);\nconst pivot = connector('pivot', [100, 0, 0]);\n`
+      + `const dock = connector('dock', [0, 50, 20]);\n`
+      + `copy(pivot, dock);\n`
+      + `mate('slider', dock.instance(1), card.connectors.edge);\n`,
+    );
+  });
+
+  it('goes whole when what it follows is deleted, with the mates on its copies', async () => {
+    const code = `${RACK}copy(pivot, bay);\n`
+      + `mate('slider', bay.instance(1), card.connectors.edge);\n`
+      + `mate('fastened', bay, card.connectors.top);\n`;
+    const result = await removeStatementWithAssemblySweep(code, lineOf(code, 'const pivot'));
+    expect(result.newCode).toBe(
+      `${RACK_HEADER}\nconst card = insert(cardPart);\nconst bay = connector('bay', [0, 0, 20]);\n`
+      + `mate('fastened', bay, card.connectors.top);\n`,
+    );
+  });
+
+  it('takes the mates on its copies when it is deleted itself', async () => {
+    const code = `${RACK}copy(pivot, bay);\n`
+      + `mate('slider', bay.instance(2), card.connectors.edge);\n`
+      + `mate('fastened', bay, card.connectors.top);\n`;
+    const result = await removeStatementWithAssemblySweep(code, lineOf(code, 'copy(pivot'));
+    expect(result.newCode).toBe(`${RACK}mate('fastened', bay, card.connectors.top);\n`);
+  });
+});

@@ -402,6 +402,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
+        ...(copy!.pattern ? { pattern: copy!.pattern } : {}),
       };
     } else if (isMirror) {
       request = {

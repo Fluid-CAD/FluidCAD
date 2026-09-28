@@ -41,6 +41,38 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
       }),
     }));
 
+    if (request.kind === 'pattern') {
+      // The follow form: the repeat binds like any feature target (`const
+      // holes = repeat(…)` is reused as written) and stands where the type
+      // goes. It and the connectors pin the statement to their part body,
+      // so it lands after both.
+      const pattern = {
+        producer: mergeProducer({
+          line: request.pattern!.line, column: request.pattern!.column,
+          featureType: 'feature', nameHint: 'r', bind: true,
+        }),
+      };
+      const options: CopyEditOptions = { kind: 'pattern', pattern, targets };
+      const producerVars = await allocateProducerVars(producers, code);
+      const statement = renderCopyStatement(
+        options, [producerVars[pattern.producer] ?? 'r'], targets.map(t => producerVars[t.producer] ?? 'c'),
+      );
+      if (preview === true) {
+        res.json({ success: true, preview: statement });
+        return;
+      }
+      await dispatcher.dispatch(res, {
+        feature: 'copy',
+        copy: options,
+        filePath,
+        producers,
+        parts,
+        imports: [...imports],
+        newVariables,
+      }, { success: true, preview: statement });
+      return;
+    }
+
     const synthesizePick = makePickSynthesizer({
       res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
     });

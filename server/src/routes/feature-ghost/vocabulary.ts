@@ -54,6 +54,8 @@ export type GhostBody = {
   rotationAxes?: unknown;
   position?: unknown;
   skip?: unknown;
+  /** The copy's "Along a repeat" kind: the `repeat()` it follows, by call site. */
+  pattern?: unknown;
   close?: unknown;
   entities?: unknown;
   center?: unknown;

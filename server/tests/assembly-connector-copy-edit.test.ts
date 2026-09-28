@@ -206,6 +206,15 @@ describe('AssemblyConnectorCopyEdit — edit', () => {
     expect(stale.error).toMatch(/kept target no longer matches/);
     expect(stale.newCode).toBe(COPIED);
   });
+
+  it('refuses a copy() that follows a repeat — that form is part-only', async () => {
+    const code = `${RACK}copy(pivot, bay);\n`;
+    const result = await AssemblyConnectorCopyEdit.apply(code, {
+      edit: { sourceLine: lineOf(code, 'copy(pivot'), ...linear(code) },
+    });
+    expect(result.error).toBe(`the copy() on line ${lineOf(code, 'copy(pivot')} follows a repeat — that form is part-only`);
+    expect(result.newCode).toBe(code);
+  });
 });
 
 describe('AssemblyConnectorCopyEdit — remove', () => {

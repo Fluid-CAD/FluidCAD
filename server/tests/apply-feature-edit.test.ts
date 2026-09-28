@@ -5033,6 +5033,8 @@ describe('parseFeatureStatement — copy', () => {
         feature: 'copy', kind: 'linear', axisTexts: [`'x'`], axisRefs: [null],
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
         count: null, sweep: null, center: null, skip: null, targetTexts: ['e'],
+        // Only a copy that follows a repeat names one.
+        patternText: null, patternRef: null,
         // The bound extrude call's own position — the timeline row's location.
         targetRefs: [{ line: 4, column: 10 }],
       },
@@ -5595,6 +5597,222 @@ describe('copy statement templates — connectors', () => {
       { line: 7, nameHint: 'c', featureType: 'connector' },
       { line: 5, nameHint: 'f', featureType: 'feature' },
     ])).toEqual(['bolt', 'pivot', 'e']);
+  });
+});
+
+describe('copy statement templates — following a repeat', () => {
+  const flange = [
+    `import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+    ``,
+    `export const flange = part('Flange', () => {`,
+    `  sketch('xy', () => { circle([0, 0], 200) })`,
+    `  const e = extrude(10)`,
+    `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+    `  const hole = cut()`,
+    `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+    `  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)`,
+    `  connector('bolt', hole.startEdges())`,
+    `  connector('pivot', e.endFaces())`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** `code` with `statement` appended to the part body, before its closing `})`. */
+  function withStatement(code: string, statement: string): string {
+    return code.replace(/\}\)\n$/, `  ${statement}\n})\n`);
+  }
+
+  const HOLES = { line: 8, column: 16, featureType: 'feature', nameHint: 'r', bind: true };
+  const SLOTS = { line: 9, column: 16, featureType: 'feature', nameHint: 'r', bind: true };
+  const BOLT = { line: 10, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+  const PIVOT = { line: 11, column: 2, featureType: 'connector', nameHint: 'c', bind: true };
+
+  function followSpec(
+    copy: NonNullable<ApplyFeatureEditSpec['copy']>,
+    producers: ApplyFeatureEditSpec['producers'],
+  ): ApplyFeatureEditSpec {
+    return { feature: 'copy', copy, filePath: '/ws/flange.part.js', producers, parts: [], imports: [] };
+  }
+
+  it('writes copy(<repeat>, <connector>) at the end of the part body, after the repeat and the connector', async () => {
+    const result = await applyFeatureEdit(flange, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }],
+    }, [HOLES, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { copy, part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 200) })`,
+      `  const e = extrude(10)`,
+      `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+      `  const hole = cut()`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)`,
+      `  const bolt = connector('bolt', hole.startEdges())`,
+      `  connector('pivot', e.endFaces())`,
+      `  copy(holes, bolt)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('binds a bare repeat under r, and copies several connectors in pick order', async () => {
+    const bare = flange.replace(`  const holes = repeat(`, `  repeat(`);
+    const result = await applyFeatureEdit(bare, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }, { producer: 2 }],
+    }, [{ ...HOLES, column: 2 }, PIVOT, BOLT]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const r = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`);
+    expect(result.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())\n  copy(r, pivot, bolt)\n})`);
+  });
+
+  it('lands after both when the connector is declared above the repeat', async () => {
+    const early = [
+      `import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'`,
+      ``,
+      `export const flange = part('Flange', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 200) })`,
+      `  const e = extrude(10)`,
+      `  sketch(e.endFaces(), () => { circle([40, 0], 20) })`,
+      `  const hole = cut()`,
+      `  connector('bolt', hole.startEdges())`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  sketch('xz', () => { circle([0, 0], 5) })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(early, followSpec({
+      kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }],
+    }, [{ ...HOLES, line: 9 }, { ...BOLT, line: 8 }]));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const bolt = connector('bolt', hole.startEdges())`,
+      `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
+      `  sketch('xz', () => { circle([0, 0], 5) })`,
+      `  copy(holes, bolt)`,
+      `})`,
+    ].join('\n'));
+  });
+
+  it('refuses a pattern that is no feature producer, a solid target, and the other kinds\' options', async () => {
+    const cases: [NonNullable<ApplyFeatureEditSpec['copy']>, ApplyFeatureEditSpec['producers']][] = [
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }] }, [{ ...HOLES, featureType: 'connector' }, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }] }, [HOLES, { ...BOLT, featureType: 'feature' }]],
+      [{ kind: 'pattern', targets: [{ producer: 1 }] }, [HOLES, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 0 }] }, [HOLES, BOLT]],
+      [{
+        kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }], axis: { kind: 'standard', axis: 'z' },
+      }, [HOLES, BOLT]],
+      [{ kind: 'pattern', pattern: { producer: 0 }, targets: [{ producer: 1 }], skip: [[1]] }, [HOLES, BOLT]],
+    ];
+    for (const [copy, producers] of cases) {
+      const result = await applyFeatureEdit(flange, followSpec(copy, producers));
+      expect(result.error).toBe('malformed copy edit spec');
+      expect(result.newCode).toBe(flange);
+    }
+  });
+
+  /** The flange importing `copy`, as a file holding a copy statement does. */
+  const withCopy = flange.replace(`import { part,`, `import { copy, part,`);
+
+  /** …and with both connectors bound, as a dialog-written copy leaves it. */
+  const bound = withCopy
+    .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`)
+    .replace(`  connector('pivot'`, `  const pivot = connector('pivot'`);
+
+  it('parses the follow form: its repeat and connectors verbatim, each at its statement', async () => {
+    const result = await parseFeatureStatement(withStatement(bound, `copy(holes, bolt, pivot)`), 12);
+    expect(result).toMatchObject({
+      ok: true,
+      statement: 'copy(holes, bolt, pivot)',
+      parsed: {
+        feature: 'copy', kind: 'pattern',
+        patternText: 'holes',
+        // The bound repeat call's own position — its timeline row's location.
+        patternRef: { line: 8, column: 16 },
+        axisTexts: [], axisRefs: [],
+        directions: null, count: null, sweep: null, skip: null, centered: false,
+        targetTexts: ['bolt', 'pivot'],
+        targetRefs: [{ line: 10, column: 15 }, { line: 11, column: 16 }],
+      },
+    });
+
+    // A pattern form whose kind is no literal still refuses — it is read by position, not as a repeat.
+    const variableKind = await parseFeatureStatement(
+      withStatement(bound, `copy(kind, 'z', { count: 6, angle: 360 }, bolt)`), 12,
+    );
+    expect(variableKind).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain string literal') });
+  });
+
+  it('keeps the repeat and the connectors exactly as written through an edit', async () => {
+    const code = withStatement(bound, `copy(holes, bolt, pivot)`);
+    for (const copy of [{ kind: 'pattern' as const }, { kind: 'pattern' as const, pattern: { kind: 'keep' as const } }]) {
+      const result = await applyFeatureEdit(code, editSpec('copy', { line: 12, column: 2, copy },
+        { filePath: '/ws/flange.part.js' }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toBe(code);
+    }
+  });
+
+  it('re-picks the repeat and the connectors in an edit — connectors only', async () => {
+    const code = withStatement(withCopy, `copy(holes, bolt)`)
+      .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: {
+        kind: 'pattern',
+        pattern: { kind: 'feature', producer: 0 },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+      },
+    }, { filePath: '/ws/flange.part.js', producers: [SLOTS, PIVOT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(withStatement(bound, `copy(slots, bolt, pivot)`));
+
+    const solid = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'pattern', targets: [{ kind: 'feature', producer: 0 }] },
+    }, { filePath: '/ws/flange.part.js', producers: [{ line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true }] }));
+    expect(solid.error).toBe('a copy along a repeat copies connectors only');
+  });
+
+  it('switches a copy into the follow form and back', async () => {
+    const circular = withStatement(bound, `copy('circular', 'z', { count: 6, angle: 360 }, bolt)`);
+    const follow = await applyFeatureEdit(circular, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'pattern', pattern: { kind: 'feature', producer: 0 } },
+    }, { filePath: '/ws/flange.part.js', producers: [HOLES] }));
+    expect(follow.error).toBeUndefined();
+    expect(follow.newCode).toBe(withStatement(bound, `copy(holes, bolt)`));
+
+    // A statement that follows nothing has no repeat to keep.
+    const kept = await applyFeatureEdit(circular, editSpec('copy', {
+      line: 12, column: 2, copy: { kind: 'pattern' },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(kept.error).toBe('pick the repeat the copy follows');
+
+    const code = withStatement(bound, `copy(holes, bolt)`);
+    const back = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'circular', axis: { kind: 'standard', axis: 'z' }, count: 4, sweep: { mode: 'angle', value: 360 } },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(back.error).toBeUndefined();
+    expect(back.newCode).toBe(withStatement(bound, `copy('circular', 'z', { count: 4, angle: 360 }, bolt)`));
+
+    // …and the follow form has no axis of its own to keep.
+    const keptAxis = await applyFeatureEdit(code, editSpec('copy', {
+      line: 12, column: 2,
+      copy: { kind: 'circular', axis: { kind: 'keep', sourceIndex: 0 }, count: 4, sweep: { mode: 'angle', value: 360 } },
+    }, { filePath: '/ws/flange.part.js' }));
+    expect(keptAxis.error).toBe('malformed copy edit spec: a kept axis no longer matches the statement');
+  });
+
+  it("previews the repeat's and the connector's names through the producer namer", async () => {
+    const namer = await makeProducerNamer(flange.replace(`  const holes = repeat(`, `  repeat(`));
+    expect(namer([
+      { line: 8, nameHint: 'r', featureType: 'feature' },
+      { line: 10, nameHint: 'c', featureType: 'connector' },
+    ])).toEqual(['r', 'bolt']);
   });
 });
 

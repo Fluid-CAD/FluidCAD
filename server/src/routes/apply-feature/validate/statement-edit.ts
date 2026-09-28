@@ -140,6 +140,11 @@ export type StatementEditRequest = {
   copySketchTargets?: { shapeId: string }[];
   /** The 2D copy's axis edge picks, one per sketch-edge direction in order. */
   copyAxisPicks?: { shapeId: string }[];
+  /**
+   * The edited follow copy's repeat (`copy(holes, bolt)`): keep the
+   * statement's own, or re-pick a `repeat()` statement by call site.
+   */
+  copyPattern?: { kind: 'keep' } | { kind: 'repeat'; loc: SketchLoc };
   /** Edited mirror's plane; keep stays the statement's own text. */
   mirrorPlane?: { kind: 'keep' } | RepeatPlaneInput;
   /** Full replacement mirror target list; absent keeps the statement's. */

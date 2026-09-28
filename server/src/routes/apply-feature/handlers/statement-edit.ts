@@ -80,6 +80,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
       ...(request.copyAxis?.kind === 'axis' || request.copyAxis?.kind === 'connector' ? [request.copyAxis.loc] : []),
       ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' || t.kind === 'connector' ? [t.loc] : []),
+      ...(request.copyPattern?.kind === 'repeat' ? [request.copyPattern.loc] : []),
       ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
       ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
@@ -665,6 +666,19 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           return;
         }
         cp.axis = axis;
+      }
+      if (request.copyPattern) {
+        // The follow form's repeat: kept as written, or a re-picked repeat()
+        // statement bound to a variable like any feature target.
+        cp.pattern = request.copyPattern.kind === 'keep'
+          ? { kind: 'keep' }
+          : {
+            kind: 'feature',
+            producer: mergeProducer({
+              line: request.copyPattern.loc.line, column: request.copyPattern.loc.column,
+              featureType: 'feature', nameHint: 'r', bind: true,
+            }),
+          };
       }
       if (sketchTargetProducers) {
         // The 2D re-pick replaces the whole target list, in pick order.

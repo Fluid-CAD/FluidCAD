@@ -328,6 +328,9 @@ export class AssemblyConnectorCopyEdit {
     if (chain.parsed.feature !== 'copy' || chain.parsed.center !== null) {
       return { error: `the copy() on line ${line} is a sketch copy — edit it in its sketch` };
     }
+    if (chain.parsed.kind === 'pattern') {
+      return { error: `the copy() on line ${line} follows a repeat — that form is part-only` };
+    }
     return { base: found.base, parsed: chain.parsed };
   }
 

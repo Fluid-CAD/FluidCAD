@@ -302,6 +302,8 @@ export async function applyCreateEdit(
     // axis edge references its own selector part, and every part must
     // belong to exactly one axis — the parts' producers ride the list
     // alongside the targets. A connector axis is a bound connector producer.
+    // The follow form names a bound repeat — a feature producer, never one
+    // of its targets — copies bound connectors only, and states nothing else.
     const cp = spec.copy;
     const targets = cp?.targets ?? [];
     const selectorParts: number[] = [];
@@ -339,13 +341,19 @@ export async function applyCreateEdit(
           && cp.count === undefined && cp.sweep === undefined
         : cp.kind === 'circular'
           // The 2D in-sketch form carries a center pair instead of an axis.
-          && (cp.center !== undefined
+          ? (cp.center !== undefined
             ? cp.axis === undefined && Array.isArray(cp.center) && cp.center.length === 2
               && cp.center.every(v => validValueExpr(v))
             : validAxis(cp.axis))
-          && cp.directions === undefined
-          && validCountValue(cp.count) && validSweep
-          && cp.spacingMode === undefined && cp.centered === undefined)
+            && cp.directions === undefined
+            && validCountValue(cp.count) && validSweep
+            && cp.spacingMode === undefined && cp.centered === undefined
+          : cp.kind === 'pattern'
+            && cp.pattern !== undefined && isFeatureProducer(spec, cp.pattern.producer)
+            && targets.every(t => isConnectorProducer(spec, t.producer) && t.producer !== cp.pattern!.producer)
+            && cp.directions === undefined && cp.spacingMode === undefined && cp.axis === undefined
+            && cp.center === undefined && cp.count === undefined && cp.sweep === undefined
+            && cp.centered === undefined && cp.skip === undefined)
       // Every selector part belongs to exactly one axis input.
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length;

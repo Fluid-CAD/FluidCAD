@@ -20,6 +20,7 @@ import {
   statementMentions,
 } from './assembly-chain-tools.ts';
 import { parseReplicateAt, renderReplicateStatement, type ParsedReplicate } from './assembly-replicate-edit.ts';
+import { isFollowCopyForm } from './apply-feature-edit/features/copy.ts';
 
 /**
  * The timeline / parts-panel / joints-panel / connectors-rail "Delete" for
@@ -358,13 +359,30 @@ type DoomedReference = { binding: string; copiesOnly: boolean };
  */
 class ConnectorReferenceSweep {
   /**
-   * The connectors a `copy(kind, axis, options, …targets)` call copies, by
-   * their bindings: the plain identifiers among its targets.
+   * The connectors a `copy()` call copies, by their bindings: the plain
+   * identifiers among its targets ({@link copyArgs}).
    */
   static copySeeds(base: TSNode): string[] {
-    return ConnectorReferenceSweep.args(base).slice(3)
+    return ConnectorReferenceSweep.copyArgs(ConnectorReferenceSweep.args(base)).targets
       .filter(arg => arg.type === 'identifier')
       .map(arg => arg.text);
+  }
+
+  /**
+   * A `copy()` call's arguments by the part they play: what the copies are
+   * laid `along` — a reference there takes the whole statement — and the
+   * `targets` it copies. `copy(kind, axis | [axes], options, …targets)` lays
+   * them along its axes; the follow form, `copy(pattern, …connectors)`, along
+   * the repeat standing where the kind goes, its connectors from the second
+   * argument on. The follow form is part-only and never copies an assembly
+   * connector, but it is never read by position as the other forms are.
+   * `args` are the call's own ({@link args}) — splices find targets in it.
+   */
+  private static copyArgs(args: TSNode[]): { along: TSNode[]; targets: TSNode[] } {
+    if (isFollowCopyForm(args)) {
+      return { along: args.slice(0, 1), targets: args.slice(1) };
+    }
+    return { along: ConnectorReferenceSweep.axisNodes(args[1]), targets: args.slice(3) };
   }
 
   /** A `connector()` bound to `binding` is gone. */
@@ -394,9 +412,10 @@ class ConnectorReferenceSweep {
 
   /**
    * Every `copy()` naming `doomed`, last first so earlier lines stay valid:
-   * an axis naming it removes the statement (and sweeps the copies it made
-   * of its other connectors); targets naming it are dropped from the
-   * argument list, the statement going with its last one.
+   * an axis — or a followed repeat — naming it removes the statement (and
+   * sweeps the copies it made of its other connectors); targets naming it
+   * are dropped from the argument list, the statement going with its last
+   * one.
    */
   private static async sweepCopies(code: string, doomed: DoomedReference): Promise<string> {
     const parser = await getJavaScriptParser();
@@ -411,18 +430,17 @@ class ConnectorReferenceSweep {
       }
       const args = ConnectorReferenceSweep.args(entry.base);
       const line = entry.statement.startPosition.row + 1;
-      const axisNamed = ConnectorReferenceSweep.axisTexts(args[1])
-        .some(text => ConnectorReferenceSweep.expressionNames(text, doomed));
-      const targets = args.slice(3);
+      const { along, targets } = ConnectorReferenceSweep.copyArgs(args);
+      const alongNamed = along.some(arg => ConnectorReferenceSweep.expressionNames(arg.text, doomed));
       const keptTargets = targets.filter(arg => !ConnectorReferenceSweep.expressionNames(arg.text, doomed));
       let next: string;
-      if (axisNamed || keptTargets.length === 0) {
+      if (alongNamed || keptTargets.length === 0) {
         next = (await removeStatement(working, line)).newCode;
         // The copies it made of its other connectors went with it — a
         // connector swept by name already took its own.
         const others = ConnectorReferenceSweep.copySeeds(entry.base)
           .filter(seed => doomed.copiesOnly || seed !== doomed.binding);
-        if (axisNamed && others.length > 0) {
+        if (alongNamed && others.length > 0) {
           next = await ConnectorReferenceSweep.afterCopy(next, others);
         }
       } else {
@@ -435,22 +453,21 @@ class ConnectorReferenceSweep {
     }
   }
 
-  /** Whether a `copy()` call names `doomed` as its axis or among its targets. */
+  /** Whether a `copy()` call names `doomed` as what it copies along or among its targets. */
   private static copyNames(base: TSNode, doomed: DoomedReference): boolean {
-    const args = ConnectorReferenceSweep.args(base);
-    return [...ConnectorReferenceSweep.axisTexts(args[1]), ...args.slice(3).map(arg => arg.text)]
-      .some(text => ConnectorReferenceSweep.expressionNames(text, doomed));
+    const { along, targets } = ConnectorReferenceSweep.copyArgs(ConnectorReferenceSweep.args(base));
+    return [...along, ...targets].some(arg => ConnectorReferenceSweep.expressionNames(arg.text, doomed));
   }
 
-  /** A copy's axis argument texts — the elements of a linear copy's axis list, or the one axis. */
-  private static axisTexts(axis: TSNode | undefined): string[] {
+  /** A copy's axis arguments — the elements of a linear copy's axis list, or the one axis. */
+  private static axisNodes(axis: TSNode | undefined): TSNode[] {
     if (!axis) {
       return [];
     }
     if (axis.type === 'array') {
-      return axis.namedChildren.filter(c => c.type !== 'comment').map(c => c.text);
+      return axis.namedChildren.filter(c => c.type !== 'comment');
     }
-    return [axis.text];
+    return [axis];
   }
 
   /** Whether an argument or cell expression names `doomed`. */
@@ -490,8 +507,8 @@ class ConnectorReferenceSweep {
 
   /**
    * Splice `doomed` out of the argument list `args`, each with the comma
-   * before it — a copy's targets always follow its options, so there is one.
-   * Last first, so earlier offsets stay valid.
+   * before it — a copy's targets always follow its options, or the follow
+   * form's repeat, so there is one. Last first, so earlier offsets stay valid.
    */
   private static dropArguments(code: string, args: TSNode[], doomed: TSNode[]): string {
     let working = code;

@@ -557,6 +557,43 @@ describe('feature-ghost route — copy', () => {
     expect(received).toBeUndefined();
   });
 
+  /**
+   * The follow form, "Along a repeat": the connectors and the repeat they
+   * follow cross by call site, and nothing else rides — the kernel reads the
+   * instances off the repeat.
+   */
+  it('passes a copy along a repeat through as the repeat it follows', async () => {
+    const { status } = await postGhost({
+      feature: 'copy', kind: 'pattern',
+      targets: [{ filePath: FILE, line: 9 }],
+      pattern: { filePath: FILE, line: 8 },
+    });
+
+    expect(status).toBe(200);
+    expect(received).toEqual({
+      feature: 'copy', kind: 'pattern',
+      targets: [{ filePath: FILE, line: 9 }],
+      axes: [], directions: [], centered: false, count: null, sweep: null, skip: [],
+      pattern: { filePath: FILE, line: 8 },
+    });
+  });
+
+  it("refuses a copy along a repeat with no repeat, or with the other kinds' fields", async () => {
+    const base = { feature: 'copy', kind: 'pattern', targets: [{ filePath: FILE, line: 9 }], pattern: { filePath: FILE, line: 8 } };
+    for (const body of [
+      { ...base, pattern: undefined },
+      { ...base, pattern: { line: 8 } },
+      { ...base, targets: [] },
+      { ...base, axes: [{ kind: 'standard', axis: 'z' }] },
+      { ...base, count: 6 },
+      { ...base, centered: true },
+    ]) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(received).toBeUndefined();
+  });
+
   it('refuses a body no kind accepts', async () => {
     const bodies: Record<string, unknown>[] = [
       // A repeat kind the copy doesn't have — copy walks or spins, nothing else.

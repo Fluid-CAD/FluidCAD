@@ -56,12 +56,14 @@ export {
   type RepeatPlaneSpec,
 } from './features/repeat.ts';
 export {
+  isFollowCopyForm,
   renderCopyAxisExpr,
   renderCopyCenterExpr,
   renderCopyStatement,
   type CopyAxisSpec,
   type CopyEditAxis,
   type CopyEditOptions,
+  type CopyEditPattern,
 } from './features/copy.ts';
 export {
   renderMirrorAxisExpr,

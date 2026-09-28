@@ -12,7 +12,12 @@ import {
 } from '../ast/args.ts';
 import { renderRepeatAxisExpr, type RepeatAxisSpec } from './repeat.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
-import { isAxisProducer, isConnectorProducer, isCopyTargetProducer } from '../producers/predicates.ts';
+import {
+  isAxisProducer,
+  isConnectorProducer,
+  isCopyTargetProducer,
+  isFeatureProducer,
+} from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 
@@ -34,6 +39,14 @@ export type CopyAxisSpec =
 export type CopyEditAxis = { kind: 'keep'; sourceIndex: number } | CopyAxisSpec;
 
 /**
+ * The repeat an edited follow copy (`copy(holes, bolt)`) follows: keep the
+ * statement's own pattern text, or re-source it with a `repeat()` statement
+ * bound to a variable — a `feature` producer, `repeat` being a bindable
+ * callee.
+ */
+export type CopyEditPattern = { kind: 'keep' } | { kind: 'feature'; producer: number };
+
+/**
  * How a copy statement is rendered and placed:
  * `copy('linear', <axis>, { count, offset|length[, centered] }, …targets)`
  * — or, with several directions, the array forms `copy('linear', [<a1>,
@@ -48,9 +61,20 @@ export type CopyEditAxis = { kind: 'keep'; sourceIndex: number } | CopyAxisSpec;
  * scope: a copy replays its targets over the finished model, a picked
  * selector must resolve there, and a connector is copied inside its own part
  * body.
+ *
+ * The third kind, `pattern`, is the follow form `copy(<repeat>, …connectors)`
+ * — part-only, connectors only: no axis, count, spacing or skip, just the
+ * repeat whose slots the copies take, rendered where the type goes. Its
+ * inputs pin it to the part body that holds the repeat and the connectors,
+ * so it lands after both.
  */
 export type CopyEditOptions = {
-  kind: 'linear' | 'circular';
+  kind: 'linear' | 'circular' | 'pattern';
+  /**
+   * Pattern only: the `repeat()` the copies follow — its statement bound to
+   * a variable (`const holes = repeat(…)`), a `feature` producer.
+   */
+  pattern?: { producer: number };
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: { axis: CopyAxisSpec; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
@@ -116,8 +140,10 @@ export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
  * array forms with several directions, `copy('linear', ['x', a], { count:
  * [3, 2], offset: [40, 30] }, e)` — or `copy('circular', a, { count: 6,
  * angle: 360 }, e)`. `inputExprs` is one axis expression per linear
- * direction; a single-element list for circular. Shared with the route's
- * preview so the previewed text is exactly what the transform writes.
+ * direction; a single-element list for circular — or, for the follow form,
+ * the repeat it follows, which stands where the type goes and states no
+ * options: `copy(holes, bolt)`. Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
  */
 export function renderCopyStatement(
   cp: Pick<CopyEditOptions, 'kind' | 'spacingMode' | 'centered' | 'count' | 'sweep' | 'skip'>
@@ -125,6 +151,9 @@ export function renderCopyStatement(
   inputExprs: string[],
   targetExprs: string[],
 ): string {
+  if (cp.kind === 'pattern') {
+    return `copy(${[inputExprs[0], ...targetExprs].join(', ')})`;
+  }
   const single = inputExprs.length === 1;
   const args = [`'${cp.kind}'`, single ? inputExprs[0] : `[${inputExprs.join(', ')}]`];
   const skip = cp.skip && cp.skip.length > 0 ? renderCopySkip(cp.skip, cp.kind) : null;
@@ -219,23 +248,18 @@ export function resolveCopyAxisRef(
  * tuples — and refuses options the dialog doesn't offer (circular `centered`).
  * Each axis and target also reports the statement it names, when it names
  * one ({@link resolveCopyAxisRef}, `resolveRepeatTargetRef`).
+ *
+ * The follow form, `copy(holes, bolt)`, reads as kind `pattern`: the repeat
+ * it follows verbatim (`patternText`) with the statement it names
+ * (`patternRef`), then the connectors — no axis, no options.
  */
 export function parseCopyChain(
   args: TSNode[],
   start: number,
   end: number,
 ): ChainParse {
-  const rawKind = args.length > 0 ? stringArgValue(args[0]) : null;
-  if (rawKind === null) {
-    return { error: 'the copy kind is not a plain string literal — edit it in the source' };
-  }
-  if (rawKind !== 'linear' && rawKind !== 'circular') {
-    return { error: `the copy type '${rawKind}' is not one the dialog knows` };
-  }
-  const kind = rawKind as 'linear' | 'circular';
   const base = {
     feature: 'copy' as const,
-    kind,
     axisTexts: [] as string[],
     axisRefs: [] as ({ line: number; column: number; slot?: number } | null)[],
     directions: null as { count: ValueExpr; value: ValueExpr }[] | null,
@@ -245,9 +269,34 @@ export function parseCopyChain(
     sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
     center: null as [ValueExpr, ValueExpr] | null,
     skip: null as number[][] | null,
+    patternText: null as string | null,
+    patternRef: null as { line: number; column: number } | null,
     targetTexts: [] as string[],
     targetRefs: [] as ({ line: number; column: number } | null)[],
   };
+  if (isFollowCopyForm(args)) {
+    const nodes = args.slice(1);
+    return {
+      parsed: {
+        ...base,
+        kind: 'pattern',
+        patternText: args[0].text,
+        patternRef: resolveRepeatTargetRef(args[0], start),
+        targetTexts: nodes.map(n => n.text),
+        targetRefs: nodes.map(n => resolveRepeatTargetRef(n, start)),
+      },
+      start,
+      end,
+    };
+  }
+  const rawKind = args.length > 0 ? stringArgValue(args[0]) : null;
+  if (rawKind === null) {
+    return { error: 'the copy kind is not a plain string literal — edit it in the source' };
+  }
+  if (rawKind !== 'linear' && rawKind !== 'circular') {
+    return { error: `the copy type '${rawKind}' is not one the dialog knows` };
+  }
+  const kind = rawKind as 'linear' | 'circular';
 
   // Linear / circular: copy('<kind>', <axis|[axes]>, {…}, …targets).
   if (args.length < 3) {
@@ -307,7 +356,7 @@ export function parseCopyChain(
     }
     return {
       parsed: {
-        ...base, axisTexts, axisRefs: center ? [] : axisRefs, count, sweep: { mode, value }, center,
+        ...base, kind, axisTexts, axisRefs: center ? [] : axisRefs, count, sweep: { mode, value }, center,
         skip: skip.entries.length > 0 ? skip.entries : null,
         ...targets,
       },
@@ -380,6 +429,7 @@ export function parseCopyChain(
   return {
     parsed: {
       ...base,
+      kind,
       axisTexts,
       axisRefs,
       directions: dirCounts.map((count, i) => ({ count, value: dirValues[i] })),
@@ -391,6 +441,19 @@ export function parseCopyChain(
     start,
     end,
   };
+}
+
+/**
+ * Whether a copy call's arguments are the follow form, `copy(holes, bolt)`: a
+ * repeat where the kind goes, then the connectors — expressions naming
+ * statements, never a string, an options object or an axis list. That tells
+ * it apart from a pattern form whose kind isn't a literal (`copy(kind, 'x',
+ * { … }, e)`), which the parse keeps refusing and every reader keeps reading
+ * by position.
+ */
+export function isFollowCopyForm(args: TSNode[]): boolean {
+  return args.length > 0 && args.every(arg => arg.type !== 'string' && arg.type !== 'template_string'
+    && arg.type !== 'object' && arg.type !== 'array');
 }
 
 /**
@@ -457,7 +520,9 @@ function parseCopySkip(
  * render from producers/parts like create mode — and the target list
  * (`verbatim` keeps by position, re-picked features by bound producer; an
  * absent list keeps every statement target). Selector parts must be covered
- * exactly once across the inputs — never dropped, never duplicated.
+ * exactly once across the inputs — never dropped, never duplicated. The
+ * follow form renders its repeat instead of axes — kept verbatim or
+ * re-picked — and re-picks connectors only.
  */
 export function renderEditedCopy(
   parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
@@ -465,7 +530,7 @@ export function renderEditedCopy(
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.copy;
-  if (!opts || (opts.kind !== 'linear' && opts.kind !== 'circular')) {
+  if (!opts || (opts.kind !== 'linear' && opts.kind !== 'circular' && opts.kind !== 'pattern')) {
     return { error: 'malformed copy edit spec' };
   }
   const usedParts = new Set<number>();
@@ -509,7 +574,19 @@ export function renderEditedCopy(
 
   let inputExprs: string[];
   let directions: { count: ValueExpr; value: ValueExpr }[] | undefined;
-  if (opts.kind === 'linear') {
+  if (opts.kind === 'pattern') {
+    // The follow form states nothing but the repeat and the connectors.
+    if (opts.directions !== undefined || opts.spacingMode !== undefined || opts.axis !== undefined
+      || opts.count !== undefined || opts.sweep !== undefined || opts.centered !== undefined
+      || opts.center !== undefined || opts.skip !== undefined) {
+      return { error: 'malformed copy edit spec' };
+    }
+    const pattern = resolveEditedPattern(parsed, opts.pattern, spec, varFor);
+    if (typeof pattern !== 'string') {
+      return pattern;
+    }
+    inputExprs = [pattern];
+  } else if (opts.kind === 'linear') {
     if (!Array.isArray(opts.directions) || opts.directions.length < 1
       || (opts.spacingMode !== 'offset' && opts.spacingMode !== 'length')
       || !opts.directions.every(d => validCountValue(d?.count)
@@ -569,9 +646,13 @@ export function renderEditedCopy(
         exprs.push(parsed.targetTexts[target.sourceIndex]);
       } else if (target?.kind === 'feature') {
         // A re-picked target: a feature statement, or a connector the copy
-        // copies as frames — both bound producers.
+        // copies as frames — both bound producers. The follow form copies
+        // connectors only.
         if (!isCopyTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed copy edit spec: a target references a non-feature producer' };
+        }
+        if (opts.kind === 'pattern' && !isConnectorProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'a copy along a repeat copies connectors only' };
         }
         exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
       } else {
@@ -599,4 +680,25 @@ export function renderEditedCopy(
       targetExprs,
     ),
   };
+}
+
+/**
+ * The repeat an edited follow copy renders: the statement's own pattern text
+ * kept verbatim, or a re-picked `repeat()` statement's variable. A keep over
+ * a statement that follows nothing — a linear or circular copy switched to
+ * the follow form — has no text to keep: the repeat must be picked.
+ */
+function resolveEditedPattern(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+  pattern: CopyEditPattern | undefined,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): string | { error: string } {
+  if (pattern === undefined || pattern.kind === 'keep') {
+    return parsed.patternText ?? { error: 'pick the repeat the copy follows' };
+  }
+  if (pattern.kind !== 'feature' || !isFeatureProducer(spec as ApplyFeatureEditSpec, pattern.producer)) {
+    return { error: 'malformed copy edit spec: the pattern references a non-feature producer' };
+  }
+  return varFor(pattern.producer) ?? spec.producers[pattern.producer].nameHint ?? 'r';
 }

@@ -252,7 +252,8 @@ export type GhostRepeatDirection = {
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
+  /** `pattern` follows a repeat (`copy(holes, bolt)`): its instances are the repeat's. */
+  kind: 'linear' | 'circular' | 'pattern';
   /**
    * The statements being copied, by call site: solid-bearing ones, stamped,
    * and `connector()` statements, whose copies come back as frames.
@@ -273,6 +274,8 @@ export type CopyGhostRequest = {
    * copy's entries carry a single index each. Absent skips none.
    */
   skip?: number[][];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
 };
 
 /**

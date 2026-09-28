@@ -2035,6 +2035,25 @@ describe('apply-feature route validation', () => {
     expect((await res.json()).names).toEqual(['spine', null, null, null]);
   });
 
+  it("resolves bound repeat names with the repeat callee — the Copy dialog's followed repeat", async () => {
+    currentCode = [
+      `import { sketch, circle, extrude, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { circle([0, 0], 10) })`,
+      `const e = extrude(30)`,
+      `const holes = repeat('circular', 'z', { count: 6, angle: 360 }, e)`,
+      `repeat('linear', 'x', { count: 2, offset: 40 }, e)`,
+      ``,
+    ].join('\n');
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [4, 5, 6], callee: 'repeat' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).names).toEqual([null, 'holes', null]);
+  });
+
   it('returns all-null sketch names without a code buffer', async () => {
     const res = await fetch(`${baseUrl}/api/sketch-names`, {
       method: 'POST',
@@ -3967,6 +3986,65 @@ describe('apply-feature route validation', () => {
         expect(elsewhere.body.error).toContain('different files');
       });
     });
+
+    // The follow form: `copy(<repeat>, …connectors)` — the repeat rides as
+    // its repeat() statement's call site and binds as a `feature` producer.
+    describe('following a repeat', () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 200) })",
+        '  const e = extrude(10)',
+        "  sketch(e.endFaces(), () => { circle([40, 0], 20) })",
+        '  const hole = cut()',
+        "  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)",
+        "  connector('bolt', hole.startEdges())",
+        '})',
+        '',
+      ].join('\n');
+      const BOLT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 9, column: 2 };
+      const HOLES = { filePath: '/ws/flange.part.js', line: 8, column: 16 };
+
+      it('binds the repeat and the connector, and writes copy(holes, bolt)', async () => {
+        currentCode = PART;
+        const body = { feature: 'copy', kind: 'pattern', targets: [BOLT], pattern: HOLES };
+        const preview = await post({ ...body, preview: true });
+        expect(preview.status).toBe(200);
+        expect(preview.body.preview).toBe('copy(holes, bolt)');
+
+        const { status } = await post(body);
+        expect(status).toBe(200);
+        const spec = relayed[0].spec;
+        expect(spec.producers).toEqual([
+          { line: 9, column: 2, featureType: 'connector', nameHint: 'c', bind: true },
+          { line: 8, column: 16, featureType: 'feature', nameHint: 'r', bind: true },
+        ]);
+        expect(spec.copy).toEqual({ kind: 'pattern', pattern: { producer: 1 }, targets: [{ producer: 0 }] });
+      });
+
+      it("rejects a solid target, a missing or foreign repeat, and the other kinds' options", async () => {
+        const base = { feature: 'copy', kind: 'pattern', targets: [BOLT], pattern: HOLES };
+        const solid = await post({ ...base, targets: [BOLT, { filePath: '/ws/flange.part.js', line: 5, column: 12 }] });
+        expect(solid.status).toBe(400);
+        expect(solid.body.error).toBe('a copy along a repeat copies connectors only');
+
+        const missing = await post({ ...base, pattern: undefined });
+        expect(missing.status).toBe(400);
+        expect(missing.body.error).toContain('repeat() it follows');
+
+        const elsewhere = await post({ ...base, pattern: { ...HOLES, filePath: '/ws/other.part.js' } });
+        expect(elsewhere.status).toBe(400);
+        expect(elsewhere.body.error).toContain('different files');
+
+        for (const extra of [{ axis: { kind: 'standard', axis: 'z' } }, { count: 6 }, { skip: [[1]] }, { centered: true }]) {
+          const { status, body } = await post({ ...base, ...extra });
+          expect(status).toBe(400);
+          expect(body.error).toContain('a copy along a repeat takes no');
+        }
+        expect(relayed).toEqual([]);
+      });
+    });
   });
 
   describe('copy edit', () => {
@@ -4136,6 +4214,63 @@ describe('apply-feature route validation', () => {
           },
         },
       });
+    });
+
+    it('keeps or re-picks the repeat a follow copy follows, its connectors re-picked as connectors only', async () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, cut, repeat, connector, copy } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 200) })",
+        '  const e = extrude(10)',
+        "  sketch(e.endFaces(), () => { circle([40, 0], 20) })",
+        '  const hole = cut()',
+        "  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)",
+        "  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)",
+        "  const bolt = connector('bolt', hole.startEdges())",
+        "  connector('pivot', e.endFaces())",
+        '  copy(holes, bolt)',
+        '})',
+        '',
+      ].join('\n');
+      currentCode = PART;
+      currentFileName = '/ws/flange.part.js';
+      const edit = { filePath: '/ws/flange.part.js', line: 12, column: 2 };
+
+      const kept = await post({ feature: 'copy', edit, kind: 'pattern', preview: true });
+      expect(kept.status).toBe(200);
+      expect(kept.body.preview).toBe('copy(holes, bolt)');
+
+      const { status, body } = await post({
+        feature: 'copy', edit, kind: 'pattern',
+        pattern: { filePath: '/ws/flange.part.js', line: 9, column: 16 },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: '/ws/flange.part.js', line: 11, column: 2 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('copy(slots, bolt, pivot)');
+      expect(relayed[0].spec).toMatchObject({
+        producers: [
+          { line: 9, featureType: 'feature', nameHint: 'r', bind: true },
+          { line: 11, featureType: 'connector', bind: true },
+        ],
+        edit: {
+          copy: {
+            kind: 'pattern',
+            pattern: { kind: 'feature', producer: 0 },
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+          },
+        },
+      });
+
+      const solid = await post({
+        feature: 'copy', edit, kind: 'pattern',
+        targets: [{ kind: 'feature', filePath: '/ws/flange.part.js', line: 5, column: 12 }],
+      });
+      expect(solid.status).toBe(400);
+      expect(solid.body.error).toBe('a copy along a repeat copies connectors only');
     });
 
     it('rejects an unknown kind on an edit', async () => {

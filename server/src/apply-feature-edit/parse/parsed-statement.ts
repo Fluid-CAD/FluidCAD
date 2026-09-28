@@ -255,10 +255,14 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'copy';
-    kind: 'linear' | 'circular';
+    /**
+     * `pattern` is the follow form, `copy(holes, bolt)`: no axis and no
+     * options, just the repeat it follows and the connectors.
+     */
+    kind: 'linear' | 'circular' | 'pattern';
     /**
      * Axis argument texts, verbatim — one per linear direction, a single
-     * entry for circular.
+     * entry for circular, none for the follow form.
      */
     axisTexts: string[];
     /**
@@ -289,6 +293,14 @@ export type ParsedFeatureStatement =
      * the statement names none.
      */
     skip: number[][] | null;
+    /** The follow form's repeat argument, verbatim (`holes`); null for the other forms. */
+    patternText: string | null;
+    /**
+     * The statement the follow form's repeat argument names — the bound
+     * `repeat()` call's own position, what its timeline row reports — or
+     * null when it names none (or the form follows nothing).
+     */
+    patternRef: { line: number; column: number } | null;
     /** Trailing target texts, verbatim; empty replays the previous feature. */
     targetTexts: string[];
     /**

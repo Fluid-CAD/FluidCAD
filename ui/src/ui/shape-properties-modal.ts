@@ -1,4 +1,5 @@
 import { ICON_SCALE } from './icons';
+import { globalMaterials } from './settings/global-materials';
 import type { EngineClient } from '../engine-client';
 import type { Material, PartProperties, ShapeProperties } from '../api';
 import type { SceneObjectRender, SourceLocation } from '../types';
@@ -42,7 +43,7 @@ type PropertiesReadout = {
  * reads the part's `.material()` (read-only, with its density); a solid
  * outside any part picks from the merged materials list, transiently. Part
  * mode is read-only throughout — the material is set from the timeline
- * row's Set material… menu.
+ * row's Set material… dialog.
  */
 export class ShapePropertiesModal {
   private btn: HTMLButtonElement;
@@ -101,6 +102,7 @@ export class ShapePropertiesModal {
     this.bindRefs();
     this.bindEvents();
     void this.loadMaterials();
+    globalMaterials.subscribe(() => void this.loadMaterials());
     // Results open in the document's own unit; the selector then converts
     // away from it. Follow the document when it changes (file switch).
     this.lengthUnitEl.value = sceneUnit.current;
@@ -242,9 +244,9 @@ export class ShapePropertiesModal {
   }
 
   /**
-   * What the Manage materials… link under the dropdown opens. The link
-   * shows only with a handler and an editor-backed host (a read-only host
-   * has no `fluidcad.json` to write).
+   * What the Manage materials… link under the dropdown opens (Settings →
+   * Materials). The link shows only with a handler and an editor-backed
+   * host (a read-only host has no settings to write).
    */
   setManageMaterialsHandler(fn: () => void): void {
     this.manageMaterialsHandler = fn;
@@ -303,9 +305,9 @@ export class ShapePropertiesModal {
   }
 
   /**
-   * Take a new merged list — after the Manage materials… dialog wrote
-   * `fluidcad.json` — either the list its save answered, or a fresh fetch.
-   * A transient pick that vanished from the list falls back to the first.
+   * Take a new merged list — after Settings → Materials changed or
+   * `fluidcad.json` was written — either a list given, or a fresh fetch. A
+   * transient pick that vanished from the list falls back to the first.
    */
   reloadMaterials(materials?: Material[]): Promise<void> {
     if (!materials) {
@@ -316,7 +318,7 @@ export class ShapePropertiesModal {
   }
 
   private applyMaterials(materials: Material[]): void {
-    this.materials = materials;
+    this.materials = ShapePropertiesModal.withGlobalMaterials(materials);
     this.materialsById = new Map(materials.map((m) => [m.id, m]));
     this.fillMaterialSelect();
     if (this.transientMaterialId === null || !this.materialsById.has(this.transientMaterialId)) {
@@ -326,15 +328,31 @@ export class ShapePropertiesModal {
     this.renderResults();
   }
 
-  /** The dropdown for a solid outside any part: built-ins, then the project's own entries. */
+  /**
+   * The server's list plus the user's global materials it does not hold
+   * yet: a Settings save reaches the store before its write lands, so the
+   * dropdown follows the page's copy rather than a fetch that may race it.
+   */
+  private static withGlobalMaterials(materials: Material[]): Material[] {
+    const known = new Set(materials.map((m) => m.id));
+    const extra: Material[] = [];
+    for (const [id, entry] of Object.entries(globalMaterials.current)) {
+      if (!known.has(id)) {
+        extra.push({ id, name: entry.name, density: entry.density, densityUnit: entry.densityUnit ?? 'g/cm³', source: 'global' });
+      }
+    }
+    return extra.length === 0 ? materials : [...materials, ...extra];
+  }
+
+  /** The dropdown for a solid outside any part: built-ins, then the custom ones (the project's and the user's own). */
   private fillMaterialSelect(): void {
     this.selectEl.innerHTML = '';
-    const groups: { label: string; source: Material['source'] }[] = [
-      { label: 'Built-in', source: 'builtin' },
-      { label: 'Project', source: 'project' },
+    const groups: { label: string; sources: Material['source'][] }[] = [
+      { label: 'Built-in', sources: ['builtin'] },
+      { label: 'Custom', sources: ['project', 'global'] },
     ];
-    for (const { label, source } of groups) {
-      const entries = this.materials.filter((m) => m.source === source);
+    for (const { label, sources } of groups) {
+      const entries = this.materials.filter((m) => sources.includes(m.source));
       if (entries.length === 0) {
         continue;
       }

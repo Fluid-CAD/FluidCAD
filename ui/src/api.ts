@@ -55,15 +55,20 @@ export type EdgeProperties = {
   unit?: LengthUnit;
 };
 
-/** One entry of the merged materials list: the built-ins plus the project's `fluidcad.json` map. */
+/**
+ * One entry of the merged materials list: the built-ins, the project's
+ * `fluidcad.json` map, then the user's global list (Settings → Materials)
+ * for the ids the project does not hold yet.
+ */
 export type Material = {
-  /** The id `.material('…')` takes — `fluidcad-…` for a built-in, the map key for a project entry. */
+  /** The id `.material('…')` takes — `fluidcad-…` for a built-in, the map key for a custom entry. */
   id: string;
   name: string;
   density: number;
   /** One of g/cm³, kg/m³, g/mm³, lbs/in³. */
   densityUnit: string;
-  source: 'builtin' | 'project';
+  /** `global`: not in the project yet — picking it for a part copies it into `fluidcad.json`. */
+  source: 'builtin' | 'project' | 'global';
 };
 
 /**
@@ -257,6 +262,8 @@ export interface UserPreferences {
   timelineShowRegions?: boolean;
   /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
   maxWorkers?: number;
+  /** The user's own materials (Settings → Materials), in the `fluidcad.json` map shape; a pick copies one into the project. */
+  materials?: ProjectMaterials;
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
@@ -4523,38 +4530,15 @@ export type DensityUnit = 'g/cm³' | 'kg/m³' | 'g/mm³' | 'lbs/in³';
 
 export const DENSITY_UNITS: readonly DensityUnit[] = ['g/cm³', 'kg/m³', 'g/mm³', 'lbs/in³'];
 
-/** One `fluidcad.json` materials entry; `densityUnit` defaults to g/cm³. */
+/** One custom material — a `fluidcad.json` entry or a Settings → Materials one; `densityUnit` defaults to g/cm³. */
 export type ProjectMaterial = {
   name: string;
   density: number;
   densityUnit?: DensityUnit;
 };
 
-/** The `materials` map, keyed by the id `part(...).material(id)` refers to. */
+/** A `materials` map, keyed by the id `part(...).material(id)` refers to. */
 export type ProjectMaterials = Record<string, ProjectMaterial>;
-
-export type SaveProjectMaterialsResult =
-  | { success: true; materials: Material[] }
-  | { success: false; reason: string };
-
-/**
- * Replace the project's `materials` map (`POST api/project/materials`,
- * every other `fluidcad.json` key kept). Answers the merged built-in +
- * project list the dropdowns are built from, so no second request is
- * needed; the server recomputes the current file on its own.
- */
-export async function saveProjectMaterials(materials: ProjectMaterials): Promise<SaveProjectMaterialsResult> {
-  try {
-    const res = await fetch('api/project/materials', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ materials }) });
-    const answer = await res.json().catch(() => null);
-    if (!res.ok || answer?.success !== true || !Array.isArray(answer.materials)) {
-      return { success: false, reason: answer?.reason ?? answer?.error ?? `HTTP ${res.status}` };
-    }
-    return { success: true, materials: answer.materials as Material[] };
-  } catch (err: any) {
-    return { success: false, reason: err?.message || String(err) };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Timeline move-to-part (acked — a dry-run analyzes dependencies against the

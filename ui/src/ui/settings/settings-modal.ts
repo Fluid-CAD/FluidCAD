@@ -1,8 +1,9 @@
-import type { UserPreferences } from '../../api';
+import type { Material, UserPreferences } from '../../api';
 import { ICON_CLOSE } from '../icons';
 import { AdvancedTab } from './advanced-tab';
 import { AppearanceTab } from './appearance-tab';
 import { EditorTab } from './editor-tab';
+import { MaterialsTab } from './materials-tab';
 import type { SettingsContext, SettingsTab } from './settings-tab';
 import { SketchTab } from './sketch-tab';
 import { TimelineTab } from './timeline-tab';
@@ -15,6 +16,8 @@ export interface SettingsModalHandlers {
   resetPreferences(): Promise<UserPreferences | null>;
   /** Apply a full preference set to the page — the same routine the page runs at startup. */
   applyPreferences(prefs: UserPreferences): void;
+  /** The merged materials list; the Materials tab reads the built-ins off it for its override hint. Optional. */
+  loadMaterials?(): Promise<Material[] | null>;
 }
 
 const TAB_BTN = 'flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-[13px] whitespace-nowrap';
@@ -45,7 +48,15 @@ export class SettingsModal {
   private readonly ctx: SettingsContext;
 
   constructor(container: HTMLElement, private readonly handlers: SettingsModalHandlers) {
-    this.tabs = [new AppearanceTab(), new EditorTab(), new SketchTab(), new TimelineTab(), new UnitsTab(), new AdvancedTab()];
+    this.tabs = [
+      new AppearanceTab(),
+      new EditorTab(),
+      new SketchTab(),
+      new TimelineTab(),
+      new UnitsTab(),
+      new MaterialsTab(handlers.loadMaterials ? () => handlers.loadMaterials!() : null),
+      new AdvancedTab(),
+    ];
     this.activeId = this.tabs[0].id;
     this.ctx = {
       changed: () => this.refreshDirty(),

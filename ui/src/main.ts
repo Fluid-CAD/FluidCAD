@@ -1,7 +1,7 @@
 import { Viewer, type SelectedEntity } from './viewer';
 import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
-import { ManageMaterialsDialog } from './ui/manage-materials-dialog';
+import { SetMaterialDialog } from './ui/set-material-dialog';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
@@ -74,6 +74,7 @@ import { applyEditorPreferences } from './editor/editor-prefs';
 import { SettingsModal } from './ui/settings';
 import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
+import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -229,6 +230,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyEditorPreferences(prefs);
   applyNewProjectPreferences(prefs);
   applyEnginePreferences(prefs);
+  applyGlobalMaterialsPreferences(prefs);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
@@ -249,16 +251,13 @@ loadPreferences().then((prefs) => {
 // ---------------------------------------------------------------------------
 
 const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
-// The project's own materials (fluidcad.json): opened from the timeline's
-// Set material… popup and from under the properties panel's dropdown. The
-// dropdown takes the merged list the save answered; the popup re-reads the
-// list every time it opens, and the server's recompute clears any
-// unknown-material warning on its own.
-const manageMaterialsDialog = new ManageMaterialsDialog(container, engineClient);
-manageMaterialsDialog.onSaved = (materials) => {
-  void shapePropertiesModal.reloadMaterials(materials);
-};
-shapePropertiesModal.setManageMaterialsHandler(() => manageMaterialsDialog.open());
+// Materials are managed globally in Settings → Materials (the dialog is
+// built further down; these handlers run only on a click). The part row's
+// Set material… dialog re-reads the merged list every time it opens, and
+// the server copies a picked global material into fluidcad.json itself.
+const openMaterialSettings = () => settingsModal.show('materials');
+shapePropertiesModal.setManageMaterialsHandler(openMaterialSettings);
+const setMaterialDialog = new SetMaterialDialog(container, engineClient, { onManage: openMaterialSettings });
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
@@ -795,6 +794,7 @@ const settingsModal = new SettingsModal(container, {
   savePreference,
   resetPreferences,
   applyPreferences: applyLoadedPreferences,
+  loadMaterials: () => engineClient.getMaterials(),
 });
 
 const topBar = new TopBar(container, {
@@ -1339,7 +1339,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     return changed;
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
-  panel.onManageMaterials = () => manageMaterialsDialog.open();
+  panel.onSetMaterial = (obj) => setMaterialDialog.open(obj);
   // The eye on a consumed sketch, plane or axis row: view state in the
   // viewer, keyed by source location so it survives re-renders. Never
   // written to the file.

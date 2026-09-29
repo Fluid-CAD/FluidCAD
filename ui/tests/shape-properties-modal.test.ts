@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ShapePropertiesModal } from '../src/ui/shape-properties-modal';
+import { globalMaterials } from '../src/ui/settings/global-materials';
 import type { EngineClient } from '../src/engine-client';
 import type { Material, PartProperties, ShapeProperties } from '../src/api';
 import type { SceneObjectRender, SourceLocation } from '../src/types';
@@ -81,6 +82,7 @@ function mount(opts: { partProps?: (partId: string) => PartProperties | null; no
 
 afterEach(() => {
   document.body.innerHTML = '';
+  globalMaterials.update({});
 });
 
 describe('shape properties — Part | Solid tabs', () => {
@@ -150,7 +152,7 @@ describe('shape properties — Solid mode', () => {
     expect(h.hidden('material-select-block')).toBe(false);
     expect(h.hidden('material-row')).toBe(true);
     const select = h.q<HTMLSelectElement>('[data-ref="material"]')!;
-    expect(Array.from(select.querySelectorAll('optgroup')).map((g) => g.label)).toEqual(['Built-in', 'Project']);
+    expect(Array.from(select.querySelectorAll('optgroup')).map((g) => g.label)).toEqual(['Built-in', 'Custom']);
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel']);
     // The first entry is the default; the density row follows the pick.
     expect(h.text('density-value')).toBe('7.87 g/cm³');
@@ -281,7 +283,7 @@ describe('Shape Properties — Manage materials…', () => {
     const client = {
       getMaterials: vi.fn(async () => MATERIALS),
       getShapeProperties: vi.fn(async () => SHAPE_PROPS),
-      editor: { saveProjectMaterials: vi.fn() },
+      editor: { setPartMaterial: vi.fn() },
     } as unknown as EngineClient;
     const modal = new ShapePropertiesModal(container, client);
     await flush();
@@ -322,5 +324,21 @@ describe('Shape Properties — Manage materials…', () => {
     expect(h.client.getMaterials).toHaveBeenCalledTimes(2);
     expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel']);
     expect(h.text('density-value')).toBe('7.87 g/cm³');
+  });
+
+  it('follows Settings → Materials: the user\'s own entries join the Custom group as soon as the store changes', async () => {
+    const h = mount();
+    await flush();
+    h.modal.setSelectedShape('sTop');
+    const options = () => Array.from(h.container.querySelectorAll<HTMLOptionElement>('[data-ref="material"] option')).map((o) => o.value);
+    globalMaterials.update({ 'acme-pla': { name: 'ACME PLA+', density: 1.27, densityUnit: 'kg/m³' }, 'alloy-steel': { name: 'Shadowed', density: 1 } });
+    await flush();
+    // The project's alloy-steel wins over the global one with the same id.
+    expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel', 'acme-pla']);
+    const custom = h.container.querySelector<HTMLOptGroupElement>('[data-ref="material"] optgroup[label="Custom"]')!;
+    expect(Array.from(custom.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Alloy Steel', 'ACME PLA+']);
+    globalMaterials.update({});
+    await flush();
+    expect(options()).toEqual(['fluidcad-steel', 'fluidcad-aluminum', 'alloy-steel']);
   });
 });

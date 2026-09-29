@@ -4,7 +4,6 @@ import { SceneIndex } from '../helpers/scene-index';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
-import { showPopupMenu, type PopupMenuItem } from './popup-menu';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
@@ -184,8 +183,8 @@ export class TimelinePanel {
    * already in its targets. Unset, connector rows offer no such item.
    */
   onCopyConnector?: (obj: SceneObjectRender) => void;
-  /** Opens the Manage materials… dialog; without it the Set material… popup has no such row. */
-  onManageMaterials?: () => void;
+  /** A part row's Set material…: open the pick dialog for that part. */
+  onSetMaterial?: (obj: SceneObjectRender) => void;
   /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
@@ -1727,9 +1726,9 @@ export class TimelinePanel {
       this.onCopyConnector?.(obj);
     });
 
-    dropdown.querySelector<HTMLButtonElement>('[data-action="set-material"]')?.addEventListener('click', (ev: MouseEvent) => {
+    dropdown.querySelector<HTMLButtonElement>('[data-action="set-material"]')?.addEventListener('click', () => {
       this.closeDropdown();
-      void this.showMaterialMenu(obj, { clientX: ev.clientX, clientY: ev.clientY });
+      this.onSetMaterial?.(obj);
     });
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
@@ -1851,54 +1850,6 @@ export class TimelinePanel {
       this.dropdownCleanup();
       this.dropdownCleanup = null;
     }
-  }
-
-  /**
-   * The Set material… list for a part row: the merged materials (built-ins,
-   * then the project's own), the part's current one checked, None to take
-   * the `.material()` chain off. An id the list lacks shows as a checked,
-   * unpickable "Unknown material" row so the user sees what the source says.
-   */
-  private async showMaterialMenu(obj: SceneObjectRender, position: { clientX: number; clientY: number }): Promise<void> {
-    const materials = (await this.client.getMaterials()) ?? [];
-    const current = typeof obj.object?.material === 'string' ? obj.object.material as string : null;
-    const location = obj.sourceLocation!;
-    const pick = (id: string | null) => {
-      void this.client.editor?.setPartMaterial(location, id);
-    };
-    const check = (checked: boolean) => (checked ? ICON_CHECK : '');
-    const items: PopupMenuItem[] = [
-      { icon: check(current === null), label: 'None', onSelect: () => pick(null) },
-    ];
-    const knownIds = new Set(materials.map((m) => m.id));
-    if (current !== null && !knownIds.has(current)) {
-      items.push({
-        icon: check(true),
-        label: `Unknown material: ${current}`,
-        onSelect: () => undefined,
-        disabled: true,
-        title: 'The source names an id the materials list lacks',
-      });
-    }
-    for (const material of materials) {
-      items.push({
-        icon: check(material.id === current),
-        label: material.source === 'project' ? `${material.name} (project)` : material.name,
-        title: `${material.id} — ${material.density} ${material.densityUnit}`,
-        onSelect: () => pick(material.id),
-      });
-    }
-    const manage = this.onManageMaterials;
-    if (manage) {
-      items.push({
-        icon: ICON_ADJUSTMENTS,
-        label: 'Manage materials…',
-        title: "Add, edit or remove the project's own materials (fluidcad.json)",
-        className: 'border-t border-base-content/10 mt-1 pt-1.5',
-        onSelect: () => manage(),
-      });
-    }
-    showPopupMenu(this.panel, position, items);
   }
 
   // ---------------------------------------------------------------------------

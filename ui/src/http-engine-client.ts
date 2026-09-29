@@ -19,12 +19,11 @@ import {
   renameFeature,
   rollback,
   savePreference,
-  saveProjectMaterials,
   setDocumentUnit,
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, ProjectMaterials, RemoveFeaturePreview, RemoveFeatureResult, SaveProjectMaterialsResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -80,10 +79,6 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
     return setPartMaterial(sourceLocation, material);
-  }
-
-  saveProjectMaterials(materials: ProjectMaterials): Promise<SaveProjectMaterialsResult> {
-    return saveProjectMaterials(materials);
   }
 }
 

@@ -1,14 +1,15 @@
 import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
-  fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
+  fetchFeatureGhost, fetchSketchFeatureSources, fetchSketchOffsetPlan, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
-  SketchApplyEntity, SketchOpFeature, sketchGhostScope, SketchSourceRef, ValueExpr,
+  SketchApplyEntity, SketchOffsetPlanChain, SketchOpFeature, sketchGhostScope, SketchSourceRef, ValueExpr,
 } from '../api';
 import type { SolvedSketchModel } from '../sketch-solver-client/model';
 import type { SolvedPick } from './sketch-hover-select-handler';
 import {
   buildFilletEmission, type FilletEmissionError, type FilletEmissionPlan,
 } from './tools/fillet-emission';
+import { buildOffsetEmission, offsetSourcePicks } from './tools/offset-emission';
 import type { SolvedEmissionRequest, SolvedEmitResult } from './tools/solved-emission';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
@@ -119,6 +120,11 @@ export type SketchOpConfig = {
   toggles?: { key: SketchOpToggleKey; label: string; title: string; defaultChecked?: boolean }[];
 };
 
+/** A constrained offset plan as the dialog keeps it between preview and Apply. */
+type OffsetPlanOutcome =
+  | { ok: true; chains: SketchOffsetPlanChain[]; sources: SolvedPick[]; solids: GhostSolid[]; distanceExpr: string }
+  | { ok: false; reason: string };
+
 /** An `offset()` or 2D `fillet()` statement as the parse route reads it. */
 type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { feature: 'fillet' }>;
 
@@ -184,6 +190,13 @@ export class SketchOpService {
    * variable-named radius to its numeric initializer for the guess. */
   private scopeVariables: VariableInfo[] = [];
 
+  /**
+   * The constrained offset's last server plan (OCCT, sharp corners) with
+   * the picks it was made for and a key of everything it depends on — Apply
+   * reuses it when nothing changed, else re-plans first.
+   */
+  private offsetPlan: { key: string; chains: SketchOffsetPlanChain[]; sources: SolvedPick[] } | null = null;
+
   constructor(
     container: HTMLElement,
     private readonly config: SketchOpConfig,
@@ -192,8 +205,9 @@ export class SketchOpService {
     private onDone: () => void,
     /** The live viewport geometry overlay; offset and fillet draw into it. */
     private readonly ghost?: FeatureGhostOverlay,
-    /** Constraint-native fillet rail (P8) — fillet dialog only. */
-    private readonly solvedFillet?: SolvedOpRail,
+    /** Constraint-native rail — the fillet and offset CREATE paths plan
+     * against the solved picks + model and emit through insert-solved. */
+    private readonly solved?: SolvedOpRail,
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;
@@ -507,8 +521,74 @@ export class SketchOpService {
    * legacy `fillet()` statement through the synthesis rail. */
   private isConstraintNativeFillet(): boolean {
     return this.config.feature === 'fillet'
-      && this.solvedFillet !== undefined
+      && this.solved !== undefined
       && this.editTarget === null;
+  }
+
+  /** Whether this dialog opening emits a constraint-native offset: the
+   * offset CREATE path in a solved sketch. Edits keep rewriting their
+   * legacy `offset()` statement through the synthesis rail. */
+  private isConstraintNativeOffset(): boolean {
+    return this.config.feature === 'offset'
+      && this.solved !== undefined
+      && this.editTarget === null;
+  }
+
+  /** The signed numeric distance behind the committed value (the OCCT plan
+   * needs a number; its sign picks the side), or null when it is not one. */
+  private numericDistance(value: ValueExpr, newVariable?: NewVariable): number | null {
+    if (typeof value === 'number') {
+      return value !== 0 ? value : null;
+    }
+    const initializer = newVariable?.name === value
+      ? newVariable.initializer
+      : this.scopeVariables.find(v => v.name === value)?.initializer;
+    const n = initializer !== undefined ? parseFloat(initializer) : NaN;
+    return isFinite(n) && n !== 0 ? n : null;
+  }
+
+  /**
+   * Plan the constrained offset for the current picks + value: the server
+   * offsets the chain (OCCT, sharp corners) and hands back the primitives
+   * and their ghost. The plan is kept for Apply under a key of its inputs.
+   */
+  private async planConstrainedOffset(signal: AbortSignal): Promise<OffsetPlanOutcome | null> {
+    const read = this.readValue();
+    if (!read || 'error' in read) {
+      return null;
+    }
+    const distance = this.numericDistance(read.value, read.newVariable);
+    if (distance === null) {
+      return {
+        ok: false,
+        reason: 'enter a numeric distance or a numeric variable — the offset dimension can be edited to any expression afterwards',
+      };
+    }
+    // The statement's value is the positive distance; the side is the
+    // guesses'. A negative literal flips to its magnitude; a negative
+    // variable would write a statement that refuses at build.
+    let distanceExpr: string;
+    if (typeof read.value === 'number') {
+      distanceExpr = String(Math.abs(read.value));
+    } else if (distance < 0) {
+      return { ok: false, reason: `${read.value} is negative — offsetFrom takes a positive distance; type the number with a sign to pick the side, or use a positive variable` };
+    } else {
+      distanceExpr = read.value;
+    }
+    const picked = offsetSourcePicks(this.solved!.picks());
+    if ('reason' in picked) {
+      return { ok: false, reason: picked.reason };
+    }
+    const entities = picked.picks.map(p => ({ shapeId: p.shapeId! }));
+    const close = this.offsetOptions()?.close === true;
+    const key = JSON.stringify([entities, distance, close]);
+    const result = await fetchSketchOffsetPlan({ entities, distance, close }, signal);
+    if ('reason' in result) {
+      this.offsetPlan = null;
+      return { ok: false, reason: result.reason };
+    }
+    this.offsetPlan = { key, chains: result.chains, sources: picked.picks };
+    return { ok: true, chains: result.chains, sources: picked.picks, solids: result.solids, distanceExpr };
   }
 
   /** The numeric radius behind the committed value — the guess geometry
@@ -531,7 +611,7 @@ export class SketchOpService {
     if (!read || 'error' in read) {
       return null;
     }
-    const model = this.solvedFillet!.model();
+    const model = this.solved!.model();
     if (!model) {
       return { ok: false, reason: 'the sketch has not rendered yet' };
     }
@@ -543,7 +623,7 @@ export class SketchOpService {
       };
     }
     return buildFilletEmission({
-      picks: this.solvedFillet!.picks(),
+      picks: this.solved!.picks(),
       model,
       radius,
       radiusExpr: typeof read.value === 'number' ? String(read.value) : read.value,
@@ -568,6 +648,7 @@ export class SketchOpService {
     this.expectedStatement = undefined;
     this.awaitingEditSketch = false;
     this.seedSignature = null;
+    this.offsetPlan = null;
     this.panel.classList.add('hidden');
     viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
@@ -722,6 +803,39 @@ export class SketchOpService {
         this.applyBtn.disabled = true;
         this.setHint(null);
         this.setError(plan && 'reason' in plan ? plan.reason : 'Enter a positive radius');
+        this.ghost?.clear();
+      }
+      return;
+    }
+
+    // Constraint-native offset: the server plans the chain (OCCT, sharp
+    // corners) and the plan's own meshed wires are the ghost — no statement
+    // synthesis, no separate ghost round trip.
+    if (this.isConstraintNativeOffset()) {
+      this.expression.hide();
+      let plan: Awaited<ReturnType<typeof this.planConstrainedOffset>>;
+      try {
+        plan = await this.planConstrainedOffset(abort.signal);
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          this.setError('Could not reach the FluidCAD server');
+          this.ghost?.clear();
+        }
+        return;
+      }
+      if (abort.signal.aborted || !this.active) {
+        return;
+      }
+      if (plan !== null && !('reason' in plan)) {
+        const edges = plan.chains.reduce((n, chain) => n + chain.edges.length, 0);
+        this.setHint(`${edges} ${edges === 1 ? 'edge' : 'edges'} will be offset as constrained geometry`);
+        this.setError(null);
+        this.applyBtn.disabled = false;
+        this.ghost?.set(plan.solids, 'wire');
+      } else {
+        this.applyBtn.disabled = true;
+        this.setHint(null);
+        this.setError(plan !== null && 'reason' in plan ? plan.reason : 'Enter a nonzero distance');
         this.ghost?.clear();
       }
       return;
@@ -884,7 +998,7 @@ export class SketchOpService {
       this.applying = true;
       this.applyBtn.disabled = true;
       try {
-        const result = await this.solvedFillet!.emit({
+        const result = await this.solved!.emit({
           ...plan.request,
           ...(newVariables ? { newVariables } : {}),
         });
@@ -894,6 +1008,59 @@ export class SketchOpService {
           this.setError(result.reason ?? 'Could not apply the fillet');
           this.applyBtn.disabled = false;
         }
+      } finally {
+        this.applying = false;
+      }
+      return;
+    }
+
+    // Constraint-native offset: emit the plan's primitives + one offsetFrom
+    // statement (+ corner coincidents, caps) through the insert-solved rail.
+    if (this.isConstraintNativeOffset()) {
+      this.applying = true;
+      this.applyBtn.disabled = true;
+      try {
+        // Apply re-plans unless the kept plan was made for exactly these
+        // picks, distance and toggles.
+        this.cancelPreview();
+        const plan = await this.planConstrainedOffset(new AbortController().signal);
+        if (plan === null) {
+          this.setError('Enter a nonzero distance');
+          this.applyBtn.disabled = false;
+          return;
+        }
+        if ('reason' in plan) {
+          this.setError(plan.reason);
+          this.applyBtn.disabled = false;
+          return;
+        }
+        const model = this.solved!.model();
+        if (!model) {
+          this.setError('the sketch has not rendered yet');
+          this.applyBtn.disabled = false;
+          return;
+        }
+        const emission = buildOffsetEmission({
+          sources: plan.sources, chains: plan.chains, model, distanceExpr: plan.distanceExpr,
+        });
+        if (emission.ok === false) {
+          this.setError(emission.reason);
+          this.applyBtn.disabled = false;
+          return;
+        }
+        const result = await this.solved!.emit({
+          ...emission.request,
+          ...(newVariables ? { newVariables } : {}),
+        });
+        if (result.success) {
+          this.onDone();
+        } else {
+          this.setError(result.reason ?? 'Could not apply the offset');
+          this.applyBtn.disabled = false;
+        }
+      } catch {
+        this.setError('Could not reach the FluidCAD server');
+        this.applyBtn.disabled = false;
       } finally {
         this.applying = false;
       }

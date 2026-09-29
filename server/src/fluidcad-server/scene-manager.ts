@@ -12,7 +12,7 @@ import type {
   ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import type { SerializedAssembly } from './assembly-types.ts';
-import type { FeatureGhostRequest, SketchRegionsRequest } from './ghost-requests.ts';
+import type { FeatureGhostRequest, SketchOffsetPlanRequest, SketchRegionsRequest } from './ghost-requests.ts';
 import type { MeasureRef, SelectionBoundary, SelectionSynthesisOptions } from './query-types.ts';
 
 export type SceneManager = {
@@ -157,6 +157,8 @@ export type SceneManager = {
   buildFeatureGhost?(scene: any, request: FeatureGhostRequest): any;
   // Optional: predates the dialog region picker.
   buildSketchRegions?(scene: any, request: SketchRegionsRequest): any;
+  // Optional: predates the sketcher's constrained Offset tool.
+  planSketchOffset?(scene: any, request: SketchOffsetPlanRequest): any;
   hitTest(
     scene: any,
     shapeId: string,

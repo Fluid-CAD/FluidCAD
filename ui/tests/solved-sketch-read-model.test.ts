@@ -930,3 +930,36 @@ describe('anchor-point entities (P8) and the ellipse entity', () => {
     expect(model.entities.size).toBe(0);
   });
 });
+
+describe('offset-from glyph', () => {
+  it('spans from the first offset entity back to its source, labelled with the distance', () => {
+    const objects = [
+      line(0, [0, 0], [40, 0]),
+      line(1, [0, 3], [40, 3]),
+      constraint('offsetFrom', 0, {
+        kind: 'offset-from', targets: [{ entity: 1 }], sources: [{ entity: 0 }], value: 3,
+      }, 3),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const leader = glyphs.find(g => g.type === 'leader')!;
+    expect(leader).toBeDefined();
+    expect(leader.type === 'leader' && leader.from).toEqual([20, 0]);
+    expect(leader.type === 'leader' && leader.to).toEqual([20, 3]);
+    const text = glyphs.find(g => g.type === 'text')!;
+    expect(text.type === 'text' && text.label).toBe('3 mm');
+  });
+
+  it('measures radially for an arc pair', () => {
+    const objects = [
+      child('solved-arc', { entityId: 0, center: { x: 0, y: 0 }, radius: 10, start: { x: 10, y: 0 }, end: { x: 0, y: 10 }, cw: false }),
+      child('solved-arc', { entityId: 1, center: { x: 0, y: 0 }, radius: 13, start: { x: 13, y: 0 }, end: { x: 0, y: 13 }, cw: false }),
+      constraint('offsetFrom', 0, {
+        kind: 'offset-from', targets: [{ entity: 1 }], sources: [{ entity: 0 }], value: 3,
+      }, 3),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const leader = glyphs.find(g => g.type === 'leader')!;
+    expect(leader.type === 'leader' && Math.hypot(leader.from[0], leader.from[1])).toBeCloseTo(10, 6);
+    expect(leader.type === 'leader' && Math.hypot(leader.to[0], leader.to[1])).toBeCloseTo(13, 6);
+  });
+});

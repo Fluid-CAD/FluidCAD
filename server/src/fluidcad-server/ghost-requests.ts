@@ -491,6 +491,39 @@ export type SketchRegionPreview = {
   meshes: any[];
 };
 
+/** The sketcher's constrained Offset plan request — see lib `SketchOffsetPlanRequest`. */
+export type SketchOffsetPlanRequest = {
+  entities: { shapeId: string }[];
+  /** Signed distance in the sketch's unit (negative = the other side / inward). Nonzero. */
+  distance: number;
+  close: boolean;
+};
+
+export type SketchOffsetPlanJoin = 'corner' | 'tangent';
+
+/** One offset primitive of the plan, sketch-local — see lib `OffsetPlanEdge`. */
+export type SketchOffsetPlanEdge =
+  | { kind: 'line'; source: number; start: [number, number]; end: [number, number]; joinNext: SketchOffsetPlanJoin | null }
+  | {
+    kind: 'arc'; source: number; start: [number, number]; end: [number, number]; center: [number, number];
+    radius: number; cw: boolean; joinNext: SketchOffsetPlanJoin | null;
+  }
+  | { kind: 'circle'; source: number; center: [number, number]; radius: number; joinNext: null };
+
+export type SketchOffsetPlanChain = {
+  closed: boolean;
+  edges: SketchOffsetPlanEdge[];
+  caps?: { start: [number, number]; end: [number, number] }[];
+};
+
+export type SketchOffsetPlanOutcome = {
+  status: number;
+  chains?: SketchOffsetPlanChain[];
+  /** The offset wires (and caps) meshed for the dialog's ghost. */
+  solids?: GhostSolid[];
+  reason?: string;
+};
+
 export type SketchRegionsOutcome = {
   status: number;
   regions?: SketchRegionPreview[];

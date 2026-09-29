@@ -234,7 +234,11 @@ export class SketchToolbarService {
     // reads the picks + model, plans reflected geometry + symmetric rows
     // client-side and emits through the insert-solved rail.
     this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, { ...opRail, ...datumRail });
-    this.offsetOp = opService({
+    // The offset CREATE path is constraint-native too: the server plans the
+    // chain with OCCT (sharp corners), the dialog emits the primitives + one
+    // offsetFrom statement through the same rail. Edits of an existing
+    // `offset()` statement keep the synthesis rewrite.
+    this.offsetOp = new SketchOpService(container, {
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
       toggles: [
@@ -245,7 +249,7 @@ export class SketchToolbarService {
             + 'making a closed loop (no-op on already-closed profiles)',
         },
       ],
-    });
+    }, opSelection, opScope, opDone, opGhost, opRail);
     // The Split and Trim tools have no dialog: a single edge click is the
     // whole input, so they ride the op-dialog surface (hover handler active,
     // selection changes delivered) and act on the click's own pick.

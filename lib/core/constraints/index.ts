@@ -8,6 +8,7 @@ export { default as angle } from './angle.js';
 export { default as distance } from './distance.js';
 export { default as radius } from './radius.js';
 export { default as diameter } from './diameter.js';
+export { default as offsetFrom } from './offset-from.js';
 export { default as equal } from './equal.js';
 export { default as concentric } from './concentric.js';
 export { default as collinear } from './collinear.js';

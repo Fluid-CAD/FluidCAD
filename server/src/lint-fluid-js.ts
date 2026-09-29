@@ -64,7 +64,7 @@ const CONSTRAINT_SYMBOLS = new Set<string>([
   // Solved-sketch constraint statements (sketch-rewrite P2).
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
   'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',
-  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
+  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix', 'offsetFrom',
 ]);
 
 const SHAPE_SYMBOLS = new Set<string>([

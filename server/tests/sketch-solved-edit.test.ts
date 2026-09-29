@@ -667,3 +667,57 @@ describe('applySolvedEmission: ellipse geometry', () => {
     expect(result.names).toEqual(['el1']);
   });
 });
+
+describe('applySolvedEmission: offsetFrom (paired kind)', () => {
+  it('renders a chain as two arrays — the offset entities, then their sources — with the value last', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [
+        { kind: 'line', text: 'line([0, -3], [103, -3])' },
+        { kind: 'line', text: 'line([103, -3], [103, 50])' },
+      ],
+      constraints: [
+        {
+          kind: 'offsetFrom',
+          targets: [
+            { newIndex: 0 }, { newIndex: 1 },
+            { line: 5, featureType: 'line' }, { line: 6, featureType: 'line' },
+          ],
+          valueExpr: '3',
+        },
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1, role: 'start' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('offsetFrom([l1, l2], [a, l3], 3);');
+    expect(result.newCode).toContain('coincident(l1.end(), l2.start());');
+    expect(result.newCode).toMatch(/import \{ [^}]*offsetFrom[^}]* \} from "fluidcad\/constraints";/);
+  });
+
+  it('renders a single pair bare', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 3], [100, 3])' }],
+      constraints: [{
+        kind: 'offsetFrom',
+        targets: [{ newIndex: 0 }, { line: 5, featureType: 'line' }],
+        valueExpr: 'wall',
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('offsetFrom(l1, a, wall);');
+  });
+
+  it('refuses an odd target count', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 3], [100, 3])' }],
+      constraints: [{
+        kind: 'offsetFrom',
+        targets: [{ newIndex: 0 }, { line: 5, featureType: 'line' }, { line: 6, featureType: 'line' }],
+        valueExpr: '3',
+      }],
+    });
+    expect(result.error).toMatch(/offset entities followed by one source each/);
+  });
+});

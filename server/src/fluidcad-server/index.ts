@@ -46,6 +46,11 @@ export type {
   SketchRegionPreview,
   SketchRegionsOutcome,
   SketchRegionsRequest,
+  SketchOffsetPlanChain,
+  SketchOffsetPlanEdge,
+  SketchOffsetPlanJoin,
+  SketchOffsetPlanOutcome,
+  SketchOffsetPlanRequest,
   SweepGhostRequest,
 } from './ghost-requests.ts';
 export {

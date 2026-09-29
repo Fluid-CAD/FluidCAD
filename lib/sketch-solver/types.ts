@@ -176,7 +176,18 @@ export type ConstraintSpec =
       source: number;
       target: number;
       axis: SolverRef | [number, number, number, number];
-    };
+    }
+  /**
+   * USER offset tie (the `offsetFrom` statement): `targets[i]` is held at
+   * `value` (> 0) from `sources[i]` — a line parallel at that distance, an
+   * arc/circle concentric at R ± value — with the side locked from the
+   * guess. A target endpoint a user coincident joins to another target of
+   * the same statement is a chain corner and slides along its offset rail;
+   * every other endpoint sits at the perpendicular foot of the matching
+   * source endpoint (open ends, tangent junctions). Zero net DOF per pair,
+   * bidirectional. Rows in constraints/offset-from.ts.
+   */
+  | { kind: 'offset-from'; targets: SolverRef[]; sources: SolverRef[]; value: number };
 
 export type ConstraintKind = ConstraintSpec['kind'];
 

@@ -43,6 +43,9 @@ import type {
   SketchRegionPreview,
   SketchRegionsOutcome,
   SketchRegionsRequest,
+  SketchOffsetPlanChain,
+  SketchOffsetPlanOutcome,
+  SketchOffsetPlanRequest,
 } from './ghost-requests.ts';
 import { sanitizeParams } from './params.ts';
 import type {
@@ -1192,6 +1195,38 @@ export class FluidCadServer {
         return { status: 422, reason: result?.reason ?? 'Could not build the sketch regions.' };
       } catch (err: any) {
         return { status: 200, reason: err?.message ?? 'Could not build the sketch regions.' };
+      }
+    });
+  }
+
+  /**
+   * The sketcher's constrained Offset plan: the picked edges offset by OCCT,
+   * each result edge as the primitive the tool writes, plus the meshed
+   * wires as the dialog's ghost. Read-only over the rendered scene,
+   * serialized against renders like the ghost.
+   */
+  async sketchOffsetPlan(request: SketchOffsetPlanRequest): Promise<SketchOffsetPlanOutcome> {
+    return this.serialized(async () => {
+      if (!this.sceneManager?.planSketchOffset) {
+        return { status: 422, reason: 'This workspace kernel has no constrained offset.' };
+      }
+      const scene = this.previousScenes.get(this.currentFileName);
+      if (!scene) {
+        return { status: 422, reason: 'No rendered scene' };
+      }
+      try {
+        const result = this.sceneManager.planSketchOffset(scene, request);
+        if (result?.ok) {
+          const meshes = (result.meshes ?? []) as any[][];
+          return {
+            status: 200,
+            chains: (result.chains ?? []) as SketchOffsetPlanChain[],
+            solids: meshes.map(m => ({ meshes: m })),
+          };
+        }
+        return { status: 422, reason: result?.reason ?? 'Could not plan the offset.' };
+      } catch (err: any) {
+        return { status: 200, reason: err?.message ?? 'Could not plan the offset.' };
       }
     });
   }

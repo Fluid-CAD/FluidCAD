@@ -1151,6 +1151,57 @@ export async function fetchSketchRegions(
   }
 }
 
+/** One primitive of the constrained Offset plan, sketch-local, walked along the chain. */
+export type SketchOffsetPlanEdge =
+  | { kind: 'line'; source: number; start: [number, number]; end: [number, number]; joinNext: 'corner' | 'tangent' | null }
+  | {
+    kind: 'arc'; source: number; start: [number, number]; end: [number, number]; center: [number, number];
+    radius: number; cw: boolean; joinNext: 'corner' | 'tangent' | null;
+  }
+  | { kind: 'circle'; source: number; center: [number, number]; radius: number; joinNext: null };
+
+/** One connected chain of the plan — `source` indexes the request's entities. */
+export type SketchOffsetPlanChain = {
+  closed: boolean;
+  edges: SketchOffsetPlanEdge[];
+  /** Close-ends caps of an open chain: source end → offset end, offset start → source start. */
+  caps?: { start: [number, number]; end: [number, number] }[];
+};
+
+export type SketchOffsetPlanResult =
+  | { ok: true; chains: SketchOffsetPlanChain[]; solids: GhostSolid[] }
+  | { ok: false; reason: string };
+
+/**
+ * The constrained Offset dialog's plan: the picked edges offset by OCCT with
+ * sharp corners, each result edge as the primitive the tool writes (mapped to
+ * the pick it follows), and the wires meshed as the ghost. A refusal carries
+ * the reason the dialog shows; a network failure is a refusal too.
+ */
+export async function fetchSketchOffsetPlan(
+  request: { entities: SketchApplyEntity[]; distance: number; close: boolean },
+  signal: AbortSignal,
+): Promise<SketchOffsetPlanResult> {
+  try {
+    const res = await fetch('api/sketch-offset-plan', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal,
+      body: JSON.stringify(request),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body?.success === true && Array.isArray(body.chains)) {
+      return { ok: true, chains: body.chains, solids: body.solids ?? [] };
+    }
+    return { ok: false, reason: body?.reason ?? `Could not plan the offset (${res.status})` };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Drag / position updates (fire-and-forget)
 // ---------------------------------------------------------------------------

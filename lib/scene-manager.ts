@@ -9,6 +9,8 @@ import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
 import { buildSketchRegions } from "./rendering/sketch-regions.js";
 import type { SketchRegionsRequest, SketchRegionsResult } from "./rendering/sketch-regions.js";
+import { planSketchOffset } from "./rendering/offset-plan.js";
+import type { SketchOffsetPlanRequest, SketchOffsetPlanResult } from "./rendering/offset-plan.js";
 import { buildTextPathPreview } from "./rendering/text-path-preview.js";
 import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
 import { MESH_PRESETS, DEFAULT_MESH_QUALITY } from "./oc/mesh.js";
@@ -533,6 +535,16 @@ class SceneManager {
    */
   buildSketchRegions(scene: Scene, request: SketchRegionsRequest): SketchRegionsResult {
     return buildSketchRegions(scene, request, this.meshQuality);
+  }
+
+  /**
+   * The sketcher's constrained Offset plan: the picked edges offset by OCCT
+   * (Intersection join), each result edge described as the primitive the
+   * tool writes and mapped to its source, plus the meshed wires for the
+   * dialog's ghost. Read-only over the scene like the feature ghost.
+   */
+  planSketchOffset(scene: Scene, request: SketchOffsetPlanRequest): SketchOffsetPlanResult {
+    return planSketchOffset(scene, request, this.meshQuality);
   }
 
   /** Resolve a 2D statement's target arguments onto the active sketch's edges. */

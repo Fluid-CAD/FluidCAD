@@ -405,6 +405,84 @@ export class WireOps {
     return wires.map(w => oc.TopoDS.Wire(w));
   }
 
+  /**
+   * Offset a wire and keep the maker's provenance: which offset edge(s) each
+   * spine edge generated. `join` picks the corner treatment — GeomAbs_Arc
+   * rounds salient corners with an arc, GeomAbs_Intersection prolongs the two
+   * offset edges to their crossing (the sketcher's constrained offset, whose
+   * corners are plain coincidents). Same sign, side and plane conventions as
+   * {@link offsetWireRaw}; the caller owns the returned wire.
+   */
+  static offsetWireGenerated(
+    wire: Wire,
+    distance: number,
+    isOpen: boolean,
+    plane: Plane | undefined,
+    join: 'arc' | 'intersection',
+  ): { wire: Wire; generated: (spineEdge: Edge) => Edge[] } {
+    const oc = getOC();
+    const maker = new oc.BRepOffsetAPI_MakeOffset();
+    const joinType = join === 'arc' ? oc.GeomAbs_JoinType.GeomAbs_Arc : oc.GeomAbs_JoinType.GeomAbs_Intersection;
+    if (plane) {
+      const [pln, disposePlane] = Convert.toGpPln(plane);
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln);
+      if (!faceMaker.IsDone()) {
+        faceMaker.delete();
+        disposePlane();
+        maker.delete();
+        throw new Error("Failed to create reference face for wire offset");
+      }
+      const face = faceMaker.Face();
+      faceMaker.delete();
+      disposePlane();
+      maker.Init(face, joinType, isOpen);
+    } else {
+      maker.Init(joinType, isOpen);
+    }
+    maker.AddWire(wire.getShape() as TopoDS_Wire);
+    maker.Perform(distance, 0);
+    if (!maker.IsDone()) {
+      maker.delete();
+      throw new Error("Failed to offset wire");
+    }
+    const result = maker.Shape();
+    let resultWire: TopoDS_Wire;
+    if (Explorer.isWire(result)) {
+      resultWire = oc.TopoDS.Wire(result);
+    } else {
+      const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
+      if (wires.length === 0) {
+        maker.delete();
+        throw new Error("Offset produced no wires");
+      }
+      resultWire = oc.TopoDS.Wire(wires[0]);
+    }
+    // Read the provenance for every spine edge NOW — the maker goes with it.
+    const provenance = new Map<Edge, Edge[]>();
+    for (const spineEdge of wire.getEdges()) {
+      const list = maker.Generated(spineEdge.getShape());
+      const edges: Edge[] = [];
+      for (const shape of ShapeOps.shapeListToArray(list)) {
+        if (Explorer.isEdge(shape)) {
+          edges.push(Edge.fromTopoDSEdge(oc.TopoDS.Edge(shape)));
+        }
+      }
+      provenance.set(spineEdge, edges);
+    }
+    maker.delete();
+    return {
+      wire: Wire.fromTopoDSWire(resultWire),
+      generated: (spineEdge) => {
+        for (const [edge, edges] of provenance) {
+          if (edge === spineEdge || edge.getShape().IsSame(spineEdge.getShape())) {
+            return edges;
+          }
+        }
+        return [];
+      },
+    };
+  }
+
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean, plane?: Plane): TopoDS_Wire {
     const oc = getOC();
     const maker = new oc.BRepOffsetAPI_MakeOffset();

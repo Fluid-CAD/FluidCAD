@@ -1258,7 +1258,7 @@ function resolveSketchAxis(
  * empty-removal-scope fallback — the statement's own consumption hasn't
  * happened yet.
  */
-function resolveSketchOpTargets(
+export function resolveSketchOpTargets(
   scene: Scene,
   entities: { shapeId: string }[],
 ): { sketch: Sketch; edges: Edge[]; plane: Plane } | { reason: string } {

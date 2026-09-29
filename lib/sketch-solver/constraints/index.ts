@@ -21,6 +21,7 @@ import { compileSymmetric } from './symmetric.js';
 import { compileTangent } from './tangent.js';
 import { compileTransformTie } from './transform-tie.js';
 import { compileMirrorTie } from './mirror-tie.js';
+import { compileOffsetFrom } from './offset-from.js';
 import { compileVertical } from './vertical.js';
 
 export type { CompiledRow, CompileCtx } from './types.js';
@@ -67,6 +68,8 @@ export function compileConstraint(record: ConstraintRecord, ctx: CompileCtx): Co
         return compileTransformTie(spec, ctx);
       case 'mirror-tie':
         return compileMirrorTie(spec, ctx);
+      case 'offset-from':
+        return compileOffsetFrom(spec, ctx);
       default: {
         const never: never = spec;
         throw new Error(`unknown constraint kind ${(never as { kind: string }).kind}`);

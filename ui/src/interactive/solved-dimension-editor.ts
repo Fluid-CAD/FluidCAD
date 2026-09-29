@@ -34,6 +34,9 @@ const DIM_LABELS: Record<string, string> = {
   radius: 'R',
   diameter: '⌀',
   angle: '∠',
+  // The offset distance — `offsetFrom([...], [...], value)`: the value is the
+  // last non-array argument, so the default lookup finds it.
+  offsetFrom: 'Offset',
 };
 
 export class SolvedDimensionEditor {

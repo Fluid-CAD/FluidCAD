@@ -323,6 +323,15 @@ function emissionSpec(
       return refs.length === 3 ? { kind: 'symmetric', a, b, l: d } : null;
     case 'fix':
       return refs.length === 1 ? { kind: 'fix', p: a } : null;
+    case 'offsetFrom': {
+      // The offset entities first, then one source each; the value positive.
+      const value = numericValue(c.valueExpr);
+      if (refs.length < 2 || refs.length % 2 !== 0 || value === null) {
+        return null;
+      }
+      const half = refs.length / 2;
+      return { kind: 'offset-from', targets: refs.slice(0, half), sources: refs.slice(half), value };
+    }
     case 'angle': {
       const deg = numericValue(c.valueExpr);
       return refs.length === 2 && deg !== null ? { kind: 'angle', a, b, value: (deg * Math.PI) / 180 } : null;

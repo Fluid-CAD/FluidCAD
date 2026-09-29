@@ -6,11 +6,11 @@
 // carries the legacy geometry qualifiers (outside/enclosed/enclosing) — those
 // are import symbols, not constraint statements, and stay out of this set.
 
-/** The 16 solved-sketch constraint statement callees (fluidcad/constraints). */
+/** The 17 solved-sketch constraint statement callees (fluidcad/constraints). */
 export const SOLVED_CONSTRAINT_KINDS = new Set<string>([
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
   'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',
-  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
+  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix', 'offsetFrom',
 ]);
 
 export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse';

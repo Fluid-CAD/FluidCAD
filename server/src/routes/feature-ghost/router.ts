@@ -583,5 +583,34 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     res.json({ success: true, regions: result.regions });
   });
 
+  /**
+   * The sketcher's constrained Offset plan: the picked edges offset by OCCT
+   * with sharp corners, each result edge described as the line/arc/circle
+   * the tool writes plus the source it follows, and the wires meshed as the
+   * dialog's ghost. Read-only, the ghost's sibling.
+   */
+  router.post('/sketch-offset-plan', async (req, res) => {
+    const body = (req.body ?? {}) as { entities?: unknown; distance?: unknown; close?: unknown };
+    const entities = parseSketchEntityRefs(body.entities);
+    if (!entities || entities.length === 0) {
+      res.status(400).json({ success: false, reason: 'Invalid edge selection' });
+      return;
+    }
+    if (typeof body.distance !== 'number' || !Number.isFinite(body.distance) || body.distance === 0) {
+      res.status(400).json({ success: false, reason: 'Invalid distance' });
+      return;
+    }
+    const result = await fluidCadServer.sketchOffsetPlan({
+      entities,
+      distance: body.distance,
+      close: body.close === true,
+    });
+    if (!result.chains) {
+      res.status(result.status).json({ success: false, reason: result.reason });
+      return;
+    }
+    res.json({ success: true, chains: result.chains, solids: result.solids ?? [] });
+  });
+
   return router;
 }

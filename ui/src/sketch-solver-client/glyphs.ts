@@ -14,6 +14,7 @@ import { diameterChord } from './diameter-chord';
 import {
   Vec2,
   alongDirAt,
+  arcMidPoint,
   dist,
   entityAnchor,
   entityFor,
@@ -412,6 +413,31 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         break;
       }
 
+      case 'offset-from': {
+        // One dimension for the whole chain: a span leader across the band
+        // at the first pair — from the offset entity's midpoint straight
+        // back to its source (the foot on a line, the radial point on an
+        // arc or circle), so it reads as the offset distance.
+        const layout = offsetLeaderLayout(model, spec);
+        if (layout) {
+          const { from, to } = layout;
+          const dir = normalize(sub(to, from));
+          glyphs.push({ ...base, type: 'leader', from, to, arrows: 'both' });
+          glyphs.push({
+            ...base,
+            type: 'text',
+            label: formatLengthLabel(c.value ?? spec.value),
+            at: mid(from, to),
+            offsetDir: perp(dir),
+            alongDir: dir,
+            style: 'span',
+            slideRange: dist(from, to) / 2,
+            leader: [from, to],
+          });
+        }
+        break;
+      }
+
       case 'diameter': {
         const e = entityFor(model, spec.a);
         if (e) {
@@ -502,6 +528,31 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
   }
 
   return glyphs;
+}
+
+/**
+ * The offset dimension's span: the first offset entity's midpoint and the
+ * point of its source straight across — the perpendicular foot for a line
+ * pair, the radial point on the circumference for arcs and circles.
+ */
+function offsetLeaderLayout(
+  model: SolvedSketchModel,
+  spec: Extract<ConstraintSpec, { kind: 'offset-from' }>,
+): { from: Vec2; to: Vec2 } | null {
+  const target = spec.targets[0] ? entityFor(model, spec.targets[0]) : undefined;
+  const source = spec.sources[0] ? entityFor(model, spec.sources[0]) : undefined;
+  if (!target || !source) {
+    return null;
+  }
+  const to = target.kind === 'line' ? lineMid(target) : arcMidPoint(target) ?? entityAnchor(target);
+  if (!to) {
+    return null;
+  }
+  const from = source.kind === 'line' ? footOnLine(source, to) : pointOnCircumference(source, to);
+  if (!from || dist(from, to) < 1e-9) {
+    return null;
+  }
+  return { from, to };
 }
 
 /** `p` reflected across `c` — probes the FAR side of a circumference

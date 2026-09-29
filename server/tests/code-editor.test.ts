@@ -745,6 +745,12 @@ describe('updateDimensionExpression with dimensionOffset', () => {
 });
 
 describe('getDimensionExpression with dimensionOffset', () => {
+  it('reads the offsetFrom distance past its two target arrays', async () => {
+    const code = `offsetFrom([o1, o2], [l1, l2], wall);\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'offsetFrom');
+    expect(result?.expression).toBe('wall');
+  });
+
   it('dimensionCall reads the base scalar past a chained scalar call', async () => {
     const code = `ellipse(30, 20).rotated(tilt)\n`;
     const result = await getDimensionExpression(code, 1, 0, 'ellipse');

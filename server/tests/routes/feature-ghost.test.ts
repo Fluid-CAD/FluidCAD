@@ -31,6 +31,14 @@ const fakeServer = {
     received = request;
     return { status: 200, regions: [{ key: 'circle#1', index: 0, name: 'c1', items: [{ line: 4, callee: 'circle', far: false }], selected: true, meshes: [] }] };
   },
+  sketchOffsetPlan: async (request: unknown) => {
+    received = request;
+    return {
+      status: 200,
+      chains: [{ closed: false, edges: [{ kind: 'line', source: 0, start: [0, 3], end: [40, 3], joinNext: null }] }],
+      solids: [{ meshes: [] }],
+    };
+  },
 };
 
 /** A linear repeat exactly as the dialog sends it. */
@@ -1138,6 +1146,32 @@ describe('feature-ghost route — region picks', () => {
       body: JSON.stringify({ picks: [] }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('plans the constrained offset for the picked edges as the dialog sends them', async () => {
+    const res = await fetch(`${baseUrl}/api/sketch-offset-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entities: [{ shapeId: 'e1' }], distance: -3, close: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      success: true,
+      chains: [{ closed: false, edges: [{ kind: 'line', source: 0, start: [0, 3], end: [40, 3], joinNext: null }] }],
+      solids: [{ meshes: [] }],
+    });
+    expect(received).toEqual({ entities: [{ shapeId: 'e1' }], distance: -3, close: true });
+  });
+
+  it('refuses an offset plan without edges or with a zero distance', async () => {
+    for (const body of [{ entities: [], distance: 3 }, { entities: [{ shapeId: 'e1' }], distance: 0 }, { entities: [{ shapeId: 'e1' }], distance: '3' }]) {
+      const res = await fetch(`${baseUrl}/api/sketch-offset-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(400);
+    }
   });
 });
 

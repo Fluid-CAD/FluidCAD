@@ -22,7 +22,7 @@ import { allocateSolvedName, collectIdentifiers } from '../sketch-names.ts';
 import { renderSolvedTarget, type SolvedEmissionTarget } from '../../../lib/dist/selection/sketch-target.js';
 import { calleeName, chainBase, enclosingLoop, enclosingStatement } from './ast.ts';
 import { StatementBinder } from './statement-binder.ts';
-import { VARIADIC_CONSTRAINT_KINDS } from './constraint-arity.ts';
+import { PAIRED_CONSTRAINT_KINDS, VARIADIC_CONSTRAINT_KINDS } from './constraint-arity.ts';
 import {
   EmissionRefusal,
   refuse,
@@ -59,6 +59,12 @@ export async function applySolvedEmission(
     if (variadicMin !== undefined) {
       if (c.targets.length < variadicMin) {
         return refuse(code, `${c.kind} takes ${variadicMin === 1 ? 'one' : 'two'} or more targets`);
+      }
+    } else if (PAIRED_CONSTRAINT_KINDS.has(c.kind)) {
+      // The offset entities first, then one source each — rendered as two
+      // arrays below (or the bare pair for a single offset).
+      if (c.targets.length < 2 || c.targets.length % 2 !== 0) {
+        return refuse(code, `${c.kind} takes the offset entities followed by one source each`);
       }
     } else if (c.targets.length < 1 || c.targets.length > 3) {
       return refuse(code, 'a constraint takes one to three targets');
@@ -205,7 +211,12 @@ export async function applySolvedEmission(
       }
       argNames.push(name);
     }
-    const args = [...argNames];
+    // A paired kind groups its halves: offsetFrom([o1, o2], [s1, s2], d);
+    // a single pair stays bare: offsetFrom(o, s, d).
+    const half = argNames.length / 2;
+    const args = PAIRED_CONSTRAINT_KINDS.has(c.kind) && half > 1
+      ? [`[${argNames.slice(0, half).join(', ')}]`, `[${argNames.slice(half).join(', ')}]`]
+      : [...argNames];
     if (c.valueExpr !== undefined) {
       args.push(c.valueExpr);
     }

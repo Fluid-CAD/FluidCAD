@@ -1,11 +1,11 @@
 import { iconUrl } from './icon-url';
 /**
- * Artwork for the 16 solved-sketch constraint kinds, keyed by the kind itself
+ * Artwork for the 17 solved-sketch constraint kinds, keyed by the kind itself
  * (`SOLVED_CONSTRAINT_KINDS`) rather than by the `constraint-<kind>` unique
  * type, so the constraint toolbar — whose button ids ARE the kinds — and the
  * timeline read one set of names. Most map straight through; the exceptions:
- * `collinear` borrows the artwork's own one-l spelling, and radius/diameter
- * borrow the distance dimension until they have art of their own.
+ * `collinear` borrows the artwork's own one-l spelling, and radius/diameter/
+ * offsetFrom borrow the distance dimension until they have art of their own.
  */
 export const CONSTRAINT_KIND_ICONS: Record<string, string> = {
   'angle': 'constraint-angle',
@@ -18,6 +18,7 @@ export const CONSTRAINT_KIND_ICONS: Record<string, string> = {
   'fix': 'constraint-fix',
   'horizontal': 'constraint-horizontal',
   'midpoint': 'constraint-midpoint',
+  'offsetFrom': 'constraint-distance',
   'parallel': 'constraint-parallel',
   'perpendicular': 'constraint-perpendicular',
   'radius': 'constraint-distance',

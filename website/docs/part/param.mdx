@@ -26,7 +26,7 @@ There are three ways to declare a parameter, and they all write the same stateme
 
 1. Open the **Parameters** panel from the left rail.
 2. **Add to** names the part the new parameter goes into: the part highlighted in the History panel by default (the active part, or the one you stepped out of), or any other part of the file.
-3. Click **+** and choose **New parameter**. The dialog asks for **Label**, **Type** and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and a **Description**. (**New property** declares a [property](./property) instead.)
+3. Click **+** and choose **New parameter**. The dialog asks for **Label**, **Type** and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and a **Description**. **Expose as property**, off by default, also declares a [property](./property) of the same name valued by the new parameter, so an assembly can read it. (**New property** declares a property on its own instead.)
 4. Apply. The `param()` call is written at the top of that part's body, below the parameters already there, and its control appears in the panel. Edit or delete a parameter later from its row's menu.
 
 <div style={{clear: 'both'}} />

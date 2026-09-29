@@ -18,6 +18,7 @@ import {
   locateDeclarationCall,
   type DeclarationCall,
 } from './code-editor/declaration-calls.ts';
+import { PropertyEditor } from './property-edit.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -65,10 +66,12 @@ export type ParamPartTarget = { line: number; column: number };
  * definition's captured source location) only disambiguates a label declared
  * more than once, and is omitted when the render carried no location. An
  * An `add` names its part, or explicitly targets the current assembly body.
+ * `exposeAsProperty` (part scope only) also declares a `property()` named
+ * after the variable the parameter binds, valued with that variable.
  */
 export type ParamEditSpec =
-  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never }
-  | { kind: 'add'; param: ParamSpec; assembly: true; part?: never }
+  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never; exposeAsProperty?: boolean }
+  | { kind: 'add'; param: ParamSpec; assembly: true; part?: never; exposeAsProperty?: never }
   | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
@@ -119,7 +122,7 @@ export class ParamEditor {
   static async apply(code: string, spec: ParamEditSpec): Promise<ParamEditResult> {
     switch (spec?.kind) {
       case 'add':
-        return ParamEditor.add(code, spec.param, spec.part, spec.assembly);
+        return ParamEditor.add(code, spec.param, spec.part, spec.assembly, spec.exposeAsProperty === true);
       case 'update':
         return ParamEditor.update(code, spec.line, spec.expectedLabel, spec.param);
       case 'remove':
@@ -163,12 +166,19 @@ export class ParamEditor {
    * (`declareParamStatements`, the same spot an expression field's `param()`
    * lands in). The variable it binds is derived here rather than asked for:
    * only this side can see what the file already declares.
+   *
+   * With `exposeAsProperty` the same edit also publishes the parameter: a
+   * `property('<variable>', <variable>)` lands at the end of the part body
+   * through {@link PropertyEditor}, so the two declarations share one round
+   * trip and one render — and a property name the part already uses refuses
+   * the whole edit rather than leaving a parameter behind without its property.
    */
   private static async add(
     code: string,
     param: ParamSpec,
     part: ParamPartTarget | undefined,
     assembly = false,
+    exposeAsProperty = false,
   ): Promise<ParamEditResult> {
     const invalid = ParamEditor.validate(param);
     if (invalid) {
@@ -176,6 +186,9 @@ export class ParamEditor {
     }
     if (!assembly && (!part || !Number.isInteger(part.line) || part.line < 1)) {
       return { newCode: code, error: 'malformed param edit spec: a new parameter needs the part it goes in' };
+    }
+    if (assembly && exposeAsProperty) {
+      return { newCode: code, error: 'a property lives in a part body — an assembly parameter cannot be exposed as one' };
     }
     const tree = await ParamEditor.parse(code);
     if (ParamEditor.findAll(tree).some((d) => d.key === param.label)) {
@@ -195,6 +208,20 @@ export class ParamEditor {
     }
     if ('error' in declared) {
       return { newCode: code, error: declared.error };
+    }
+    if (exposeAsProperty) {
+      // The parameter went into the body below the part() line, so the part
+      // is still where the spec says; the property's own import is pulled in
+      // by the property editor, the param's below — after every line splice.
+      const exposed = await PropertyEditor.apply(declared.newCode, {
+        kind: 'add',
+        property: { name: variable, expression: variable },
+        part: part!,
+      });
+      if (exposed.error) {
+        return { newCode: code, error: exposed.error };
+      }
+      declared = exposed;
     }
     return { newCode: await ensureSymbolImport(declared.newCode, 'param') };
   }

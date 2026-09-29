@@ -338,6 +338,7 @@ export function createParamsRouter(
       kind: 'add',
       param: spec,
       part: { line: part.line, column: part.column },
+      ...(req.body?.exposeAsProperty === true ? { exposeAsProperty: true } : {}),
     }, part.filePath);
   });
 

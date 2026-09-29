@@ -83,6 +83,8 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(vi.mocked(addParam)).toHaveBeenCalledWith(
       expect.objectContaining({ label: 'Depth' }),
       lid.sourceLocation,
+      'part',
+      false,
     );
   });
 
@@ -94,7 +96,7 @@ describe('ParamEditorDialog part dropdown', () => {
     labelInput(root).value = 'Depth';
     partSelect(root).value = '0';
     await save(root);
-    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), bracket.sourceLocation);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), bracket.sourceLocation, 'part', false);
   });
 
   it('opens on the part the panel hands it', () => {
@@ -111,7 +113,7 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(partRow(root).classList.contains('hidden')).toBe(true);
     labelInput(root).value = 'Depth';
     await save(root);
-    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), null);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), null, 'part', false);
   });
 
   it('re-reads the parts on every open, so a re-render is reflected', () => {
@@ -148,5 +150,66 @@ describe('ParamEditorDialog part dropdown', () => {
     };
     dialog.openForEdit(def);
     expect(partRow(root).classList.contains('hidden')).toBe(true);
+  });
+});
+
+// "Expose as property": a new part parameter can also be published as a
+// property of the same name in the same edit. Off by default, an add-time
+// choice only — never offered while editing, never in assembly scope.
+describe('ParamEditorDialog expose-as-property toggle', () => {
+  function exposeRow(root: HTMLElement): HTMLElement {
+    return root.querySelector<HTMLElement>('[data-ref="expose-row"]')!;
+  }
+  function exposeToggle(root: HTMLElement): HTMLInputElement {
+    return root.querySelector<HTMLInputElement>('[data-ref="expose"]')!;
+  }
+
+  it('shows the toggle off when adding a part parameter', () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    expect(exposeRow(root).classList.contains('hidden')).toBe(false);
+    expect(exposeToggle(root).checked).toBe(false);
+  });
+
+  it('sends the flag with the new declaration when switched on', async () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    labelInput(root).value = 'Wall thickness';
+    exposeToggle(root).checked = true;
+    await save(root);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ label: 'Wall thickness' }),
+      bracket.sourceLocation,
+      'part',
+      true,
+    );
+  });
+
+  it('resets to off on the next open', async () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    labelInput(root).value = 'A';
+    exposeToggle(root).checked = true;
+    await save(root);
+    dialog.openForCreate();
+    expect(exposeToggle(root).checked).toBe(false);
+  });
+
+  it('is absent while editing an existing declaration', () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForEdit({ label: 'Width', value: 100, defaultValue: 100, type: 'number', sourceLocation: bracket.sourceLocation } as UIParamDefinition);
+    expect(exposeRow(root).classList.contains('hidden')).toBe(true);
+  });
+
+  it('is absent in assembly scope, where a property has no home', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const dialog = new ParamEditorDialog(root, 'assembly');
+    dialog.openForCreate();
+    expect(exposeRow(root).classList.contains('hidden')).toBe(true);
   });
 });

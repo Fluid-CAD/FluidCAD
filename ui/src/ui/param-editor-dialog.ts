@@ -55,6 +55,8 @@ export class ParamEditorDialog {
   private multiToggle: HTMLInputElement;
   private multiControlRow: HTMLElement;
   private multiControlSelect: HTMLSelectElement;
+  private exposeRow: HTMLElement;
+  private exposeToggle: HTMLInputElement;
   private optionalToggle: HTMLInputElement;
   private groupInput: HTMLInputElement;
   private descriptionInput: HTMLInputElement;
@@ -99,6 +101,8 @@ export class ParamEditorDialog {
     this.multiToggle = ref('multi');
     this.multiControlRow = ref('multi-control-row');
     this.multiControlSelect = ref('multi-control');
+    this.exposeRow = ref('expose-row');
+    this.exposeToggle = ref('expose');
     this.optionalToggle = ref('optional-toggle');
     this.groupInput = ref('group');
     this.descriptionInput = ref('description');
@@ -141,6 +145,12 @@ export class ParamEditorDialog {
     this.seed({ label: '', defaultValue: 0, type: 'number' });
     this.bindingNote.classList.add('hidden');
     this.populateParts(preferredPart);
+    // Off on every open: exposing is a choice made per parameter, and only a
+    // new one can be exposed from here — a property lives in a part body, so
+    // the toggle has nothing to offer an assembly parameter.
+    this.exposeToggle.checked = false;
+    this.exposeRow.classList.toggle('hidden', this.scope !== 'part');
+    this.exposeRow.classList.toggle('flex', this.scope === 'part');
     this.editActions.classList.add('hidden');
     this.show();
     this.labelInput.focus();
@@ -162,8 +172,11 @@ export class ParamEditorDialog {
     this.seed(specFromDefinition(def));
     this.bindingNote.classList.add('hidden');
     // A declaration stays in the part it was written in — moving it is a
-    // code edit, not a dropdown change.
+    // code edit, not a dropdown change. Exposing is an add-time choice: the
+    // property, once declared, is its own row in the panel.
     this.partRow.classList.add('hidden');
+    this.exposeRow.classList.add('hidden');
+    this.exposeRow.classList.remove('flex');
     this.editActions.classList.remove('hidden');
     this.show();
     this.labelInput.focus();
@@ -234,6 +247,11 @@ export class ParamEditorDialog {
               ${field('Shown as', '<select data-ref="multi-control" class="select select-sm select-bordered w-full"></select>')}
             </div>
           </div>
+
+          <label data-ref="expose-row" class="hidden items-center justify-between cursor-pointer">
+            <span class="text-xs text-base-content/70">Expose as property</span>
+            <input data-ref="expose" type="checkbox" class="toggle toggle-sm toggle-primary" />
+          </label>
 
           <div class="collapse collapse-arrow !min-h-0 border border-base-content/10 rounded-md">
             <input data-ref="optional-toggle" type="checkbox" class="!min-h-0 !p-0 !h-8" />
@@ -609,7 +627,7 @@ export class ParamEditorDialog {
       const part = this.chosenPart();
       await this.commit(() => this.scope === 'assembly'
         ? addParam(spec, null, 'assembly')
-        : addParam(spec, part));
+        : addParam(spec, part, 'part', this.exposeToggle.checked));
       return;
     }
     await this.commit(() => updateParam(target, spec));

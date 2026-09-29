@@ -130,6 +130,21 @@ describe('parameter declaration routes', () => {
     );
   });
 
+  it('exposes the new parameter as a property when asked', async () => {
+    const pending = post('/params/add', {
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+      part: { filePath: FILE, line: 3, column: 0 },
+      exposeAsProperty: true,
+    });
+    const newCode = await actAsEditor();
+    const { status, body } = await pending;
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(newCode).toContain(`  const depth = param('Depth', 25);`);
+    expect(newCode).toContain(`  property('depth', depth);\n});`);
+  });
+
   it('refuses an add that names no part, before it reaches the editor', async () => {
     const { status, body } = await post('/params/add', {
       param: { label: 'Depth', defaultValue: 25, type: 'number' },

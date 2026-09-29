@@ -189,6 +189,57 @@ const PART_CODE = [
 const BRACKET_LINE = 3;
 const LID_LINE = 13;
 
+describe('ParamEditor.add exposed as a property', () => {
+  it('declares the param at the top and a property named after its variable at the end', async () => {
+    const result = await ParamEditor.apply(CODE, {
+      kind: 'add', param: spec({ label: 'Wall thickness', defaultValue: 3 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { property, part, param, sketch, circle, extrude } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  const wallThickness = param('Wall thickness', 3);\n`);
+    expect(result.newCode).toContain(`  extrude(width);\n  property('wallThickness', wallThickness);\n});`);
+  });
+
+  it('names the property after the stepped variable, not the label', async () => {
+    const result = await ParamEditor.apply(CODE, {
+      kind: 'add', param: spec({ label: 'width', defaultValue: 3 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const width2 = param('width', 3);`);
+    expect(result.newCode).toContain(`property('width2', width2);`);
+  });
+
+  it('pulls both imports into a file that has neither', async () => {
+    const bare = `import { part, sketch } from 'fluidcad/core';\n\nexport const p = part('P', () => {\n  sketch('xy', () => {});\n});\n`;
+    const result = await ParamEditor.apply(bare, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { param, property, part, sketch } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(
+      `part('P', () => {\n  const depth = param('Depth', 25);\n  sketch('xy', () => {});\n  property('depth', depth);\n});`,
+    );
+  });
+
+  it('refuses the whole edit when the part already declares that property', async () => {
+    const taken = CODE.replace(`  extrude(width);`, `  extrude(width);\n  property('depth', 1);`);
+    const result = await ParamEditor.apply(taken, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toContain(`already declares a property named "depth"`);
+    expect(result.newCode).toBe(taken);
+  });
+
+  it('refuses to expose an assembly parameter — a property has no home there', async () => {
+    const assembly = `import { assembly } from 'fluidcad/core';\n\nassembly(() => {\n});\n`;
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true, exposeAsProperty: true,
+    } as any);
+    expect(result.error).toContain('cannot be exposed');
+    expect(result.newCode).toBe(assembly);
+  });
+});
+
 describe('ParamEditor.add into a part body', () => {
   it('appends after the leading param() declarations of the chosen part', async () => {
     const result = await ParamEditor.apply(PART_CODE, {

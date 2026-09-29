@@ -4713,12 +4713,21 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
  * it lands in the current file's single assembly callback body. The variable it binds is derived from the label server-side —
  * only the file knows what names are free, so a clashing one gets a numeric
  * suffix rather than a refusal.
+ *
+ * `exposeAsProperty` (part scope only) has the same edit also declare a
+ * `property()` named after that variable and valued with it, at the end of
+ * the part body — one round trip, one render.
  */
-export function addParam(param: ParamSpec, part: SourceLocation | null, scope: 'part' | 'assembly' = 'part'): Promise<ParamEditResponse> {
+export function addParam(
+  param: ParamSpec,
+  part: SourceLocation | null,
+  scope: 'part' | 'assembly' = 'part',
+  exposeAsProperty = false,
+): Promise<ParamEditResponse> {
   const body = scope === 'assembly' ? { param, assembly: true } : part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };
-  return postParamEdit('api/params/add', body);
+  return postParamEdit('api/params/add', exposeAsProperty && scope === 'part' ? { ...body, exposeAsProperty: true } : body);
 }
 
 /**

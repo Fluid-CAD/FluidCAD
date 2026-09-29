@@ -417,6 +417,13 @@ export const DIALOG_BODY_CLASS =
   'flex flex-col items-stretch gap-3.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4';
 
 /**
+ * The box a dialog's direction group wears — the Copy and Repeat dialogs'
+ * Direction 1 and Direction 2, two like groups while the kind is linear.
+ * Toggled class by class (`classList` takes no compound string).
+ */
+export const DIRECTION_GROUP_CLASSES = ['border', 'border-base-content/10', 'rounded-md', 'p-3'] as const;
+
+/**
  * The pinned action row: a raised band under the body (second neutral, top
  * border), with a soft shade along its top edge while more body is hidden
  * beneath it. The bottom padding rides above a phone's home indicator.

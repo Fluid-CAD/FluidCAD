@@ -64,6 +64,12 @@ export class ConnectorsPanel {
   private pickMode = false;
   /** What a row's tooltip says a pick does while {@link pickMode} is on. */
   private pickHint = 'Pick as the mate side';
+  /**
+   * Whether a copy's row picks too while {@link pickMode} is on. The mate
+   * and replicate dialogs take a copy as a side; the Copy dialog's targets
+   * never do (a copy is never copied again), so its rows go inert there.
+   */
+  private pickCopies = true;
   /** Families folded out, by their seed's name (names survive the per-render id re-mint). */
   private expanded = new Set<string>();
   private readonly readOnly: boolean;
@@ -98,14 +104,18 @@ export class ConnectorsPanel {
   /**
    * Flip the rows between "edit this connector" and "pick it" — a dialog
    * picking connectors (the mate, replicate or copy dialog) takes a row
-   * click as a pick, which `hint` names in the row's tooltip.
+   * click as a pick, which `hint` names in the row's tooltip. `copies`
+   * says whether a copy's row picks as well (`'pick'`, the default) or
+   * sits inert (`'inert'`): a click does nothing, and its tooltip says why.
    */
-  setPickMode(pickMode: boolean, hint = 'Pick as the mate side'): void {
-    if (this.pickMode === pickMode && this.pickHint === hint) {
+  setPickMode(pickMode: boolean, hint = 'Pick as the mate side', copies: 'pick' | 'inert' = 'pick'): void {
+    const pickCopies = copies === 'pick';
+    if (this.pickMode === pickMode && this.pickHint === hint && this.pickCopies === pickCopies) {
       return;
     }
     this.pickMode = pickMode;
     this.pickHint = hint;
+    this.pickCopies = pickCopies;
     this.render();
   }
 
@@ -183,12 +193,15 @@ export class ConnectorsPanel {
       ? 'opacity-100 text-base-content/70'
       : 'opacity-0 group-hover:opacity-100 text-base-content/40';
     const isCopy = connector.copy !== undefined;
+    // A copy's row the picking dialog won't take: inert, and it says so.
+    const inert = this.pickMode && isCopy && !this.pickCopies;
     const title = this.readOnly ? ''
+      : inert ? `A copy is never copied again — pick ${connector.name}`
       : this.pickMode ? this.pickHint
       : isCopy ? `Edit the copy that makes ${label}`
       : 'Edit this connector';
-    const pickClass = this.pickMode ? ' text-primary' : '';
-    const rowCursor = this.readOnly ? 'cursor-default' : 'cursor-pointer';
+    const pickClass = this.pickMode && !inert ? ' text-primary' : '';
+    const rowCursor = this.readOnly || inert ? 'cursor-default' : 'cursor-pointer';
     // A copy row reads as the family's own numbering; an orphan copy keeps its whole label.
     const text = row.kind === 'copy' ? `instance(${connector.copy!.slot})` : label;
     const padding = row.kind === 'copy' ? 'pl-10 pr-3' : row.kind === 'seed' ? 'pl-1.5 pr-3' : 'px-3';
@@ -267,9 +280,16 @@ export class ConnectorsPanel {
     });
   }
 
-  /** A row click: a pick while a dialog picks, else the connector's editor — a copy's is its copy statement's. */
+  /**
+   * A row click: a pick while a dialog picks (a copy's row only when the
+   * dialog takes copies), else the connector's editor — a copy's is its
+   * copy statement's.
+   */
   private activate(connector: SerializedAssemblyConnector): void {
     if (this.pickMode) {
+      if (connector.copy && !this.pickCopies) {
+        return;
+      }
       (this.hooks.onPick ?? this.hooks.onEdit)(connector);
       return;
     }

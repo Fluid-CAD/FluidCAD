@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // "Copy…") or on a copy statement, picks assembly connectors — gizmos or
 // rail rows — as targets and axes through the mate dialog's pick channel,
 // refuses an inserted part's connector, a copy and an already-copied
-// connector at the pick, takes a world axis from the shown axes, ghosts the
+// connector at the pick (a copy's rail row is a no-op instead, the rail
+// having sat it out), takes a world axis from the shown axes, ghosts the
 // copies as triads, and applies through /api/assembly-connector-copy.
 
 vi.mock('../src/api', async (importOriginal) => ({
@@ -131,6 +132,7 @@ function mount() {
     getCurrentFile: () => FILE,
     onEnter: () => events.push('enter'),
     onExit: () => events.push('exit'),
+    onPickingChange: (picking) => events.push(`picking ${picking}`),
   });
   services.push(service);
   const text = (role: string) => container.querySelector<HTMLElement>(`[data-role="${role}"]`)?.textContent ?? '';
@@ -167,14 +169,15 @@ describe('assembly Copy dialog', () => {
     service.enterWithConnector('bay');
 
     expect(service.isActive).toBe(true);
-    expect(events).toEqual(['enter']);
+    // The rail learns what its rows pick into: the targets, on open.
+    expect(events).toEqual(['enter', 'picking targets']);
     expect(chips('targets-slot')).toEqual(['Connector bay']);
     // Assembly connectors all show; an inserted part's only on hover.
     expect(state.matePicking).toEqual({ armed: true, revealAll: false });
     expect(state.picked).toEqual([{ instanceId: WORLD_BODY_ID, connectorId: 'bay' }]);
 
     service.exit();
-    expect(events).toEqual(['enter', 'exit']);
+    expect(events).toEqual(['enter', 'picking targets', 'exit']);
     expect(state.matePicking).toEqual({ armed: false, revealAll: false });
     expect(state.picked).toEqual([]);
   });
@@ -188,13 +191,13 @@ describe('assembly Copy dialog', () => {
   });
 
   it("refuses an inserted part's connector, a copy, and a connector another copy() copies", () => {
-    const { service, text, chips } = mount();
+    const { service, text, chips, gizmo } = mount();
     service.enterWithConnector('bay');
 
     service.handleClick('edge', { type: 'connector', index: 0 }, 'inst-0');
     expect(text('message')).toBe("An inserted part's connectors are copied in its own part file — here, pick the assembly's own connectors.");
 
-    service.pickWorldConnector('lug-1');
+    gizmo('lug-1');
     expect(text('message')).toContain('lug.instance(1) is itself a copy — copy lug instead');
 
     service.pickWorldConnector('lug');
@@ -206,12 +209,26 @@ describe('assembly Copy dialog', () => {
     expect(chips('targets-slot')).toEqual(['Connector bay']);
   });
 
+  it("a copy's rail row is a no-op while the targets are armed — no chip, no message", () => {
+    const { service, text, chips, events } = mount();
+    service.enterWithConnector('bay');
+    service.pickWorldConnector('lug-1');
+    expect(chips('targets-slot')).toEqual(['Connector bay']);
+    expect(text('message')).toBe('');
+    // The rail was told the targets are picking, so it sat the copy rows out itself.
+    expect(events.at(-1)).toBe('picking targets');
+  });
+
   it('takes a world axis from the axes shown while an axis slot is armed, or a connector — a copy too', () => {
-    const { service, state, chips, setKind, armAxis, gizmo, text } = mount();
+    const { service, state, chips, setKind, armAxis, gizmo, text, events } = mount();
     service.enterWithConnector('bay');
     expect(state.axesShown).toBe(false);
     armAxis();
     expect(state.axesShown).toBe(true);
+    // The rail follows the armed slot: copy rows pick again as an axis.
+    expect(events.at(-1)).toBe('picking axis');
+    service.pickWorldConnector('lug-1');
+    expect(text('axis-slot-1')).toContain('lug.instance(1)');
 
     state.onAxisPick!('y');
     expect(text('axis-slot-1')).toContain('World Y axis');

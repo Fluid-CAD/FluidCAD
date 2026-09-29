@@ -73,9 +73,16 @@ export class AssemblyConnectorCopyService {
     private hooks: {
       getAssembly: () => SerializedAssembly | null;
       getCurrentFile: () => string | null;
-      /** The dialog opened — the page dismisses the other assembly dialogs and flips the rail into picking. */
+      /** The dialog opened — the page dismisses the other assembly dialogs. */
       onEnter?: () => void;
       onExit?: () => void;
+      /**
+       * What the rail's Connectors rows pick into now — reported on open and
+       * whenever the armed slot or the kind changes it. The targets never
+       * take a copy (a copy is never copied again), so the rail sits its
+       * copy rows out; an axis slot takes one, its Z axis being the axis.
+       */
+      onPickingChange?: (picking: 'targets' | 'axis') => void;
     },
   ) {
     this.panel = new CopyPanel(container, {
@@ -272,9 +279,17 @@ export class AssemblyConnectorCopyService {
     this.pickGizmo(shapeId, instanceId);
   }
 
-  /** A Connectors row clicked while the dialog is up: that connector into the armed slot. */
+  /**
+   * A Connectors row clicked while the dialog is up: that connector into
+   * the armed slot. A copy's row does nothing while the targets are armed
+   * (the rail shows it inert — {@link hooks.onPickingChange}); a gizmo pick
+   * of one still answers with why it's refused.
+   */
   pickWorldConnector(connectorId: string): void {
     if (!this.armed) {
+      return;
+    }
+    if (!this.isAxisPicking && ConnectorOptions.forId(connectorId, this.options)?.slot !== undefined) {
       return;
     }
     this.pickMenu.close();
@@ -590,6 +605,7 @@ export class AssemblyConnectorCopyService {
     } else {
       this.viewer.hideStandardAxes();
     }
+    this.hooks.onPickingChange?.(this.isAxisPicking ? 'axis' : 'targets');
   }
 
   /** A shown world axis was clicked — it lands in the armed direction's slot. */

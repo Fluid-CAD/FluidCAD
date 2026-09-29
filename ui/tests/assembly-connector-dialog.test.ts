@@ -209,11 +209,33 @@ describe('ConnectorsPanel — copy families', () => {
     row('w-bay').click();
     expect(calls).toEqual(['edit-copy w-bay-2', 'edit w-bay']);
 
-    panel.setPickMode(true, 'Pick for the copy');
-    expect(row('w-bay-2').title).toBe('Pick for the copy');
+    panel.setPickMode(true, 'Pick as the copy axis');
+    expect(row('w-bay-2').title).toBe('Pick as the copy axis');
     row('w-bay-2').click();
     row('w-hinge').click();
     expect(calls.slice(2)).toEqual(['pick w-bay-2', 'pick w-hinge']);
+  });
+
+  it('sits its copy rows out while the picking dialog takes no copies — a click does nothing, the tooltip says why', () => {
+    const { panel, calls, row } = mountPanel();
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    panel.setPickMode(true, 'Pick for the copy', 'inert');
+
+    expect(row('w-bay-2').title).toBe('A copy is never copied again — pick bay');
+    expect(row('w-bay-2').classList.contains('text-primary')).toBe(false);
+    expect(row('w-bay-2').classList.contains('cursor-default')).toBe(true);
+    expect(row('w-hinge').title).toBe('Pick for the copy');
+    expect(row('w-hinge').classList.contains('text-primary')).toBe(true);
+
+    row('w-bay-2').click();
+    row('w-hinge').click();
+    row('w-bay').click();
+    expect(calls).toEqual(['pick w-hinge', 'pick w-bay']);
+
+    // The same dialog arming an axis slot takes copies again.
+    panel.setPickMode(true, 'Pick as the copy axis');
+    row('w-bay-2').click();
+    expect(calls.at(-1)).toBe('pick w-bay-2');
   });
 
   it('offers Copy… on a connector nothing copies, Edit copy… once one does, and a copy\'s own actions', () => {

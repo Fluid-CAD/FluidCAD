@@ -2400,8 +2400,16 @@ const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container,
     assemblyMateService.exit();
     assemblyReplicateService.exit();
     assemblyConnectorService.exit();
+  },
+  // The rail's rows pick for the armed slot: a copy's row only as the axis
+  // (a copy is never copied again), so it sits inert while targets are picked.
+  onPickingChange: (picking) => {
     if (currentRail?.kind === 'assembly') {
-      currentRail.connectors.setPickMode(true, 'Pick for the copy');
+      currentRail.connectors.setPickMode(
+        true,
+        picking === 'axis' ? 'Pick as the copy axis' : 'Pick for the copy',
+        picking === 'axis' ? 'pick' : 'inert',
+      );
     }
   },
   onExit: () => {

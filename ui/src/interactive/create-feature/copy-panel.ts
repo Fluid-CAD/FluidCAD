@@ -8,6 +8,7 @@ import { ExpressionField, collectNewVariables } from '../../ui/expression-field'
 import { VariableInfo } from '../../ui/expression-core';
 import { formatSkipEntries, parseSkipEntries, skipRangeError, SKIP_HELP_HTML } from './copy-skip';
 import { HelpPopover, helpIconHtml } from '../../ui/help-popover';
+import { DIRECTION_GROUP_CLASSES } from './panel-controls';
 import { iconUrl } from '../../ui/icon-url';
 
 /**
@@ -119,6 +120,8 @@ export class CopyPanel extends FeaturePanel {
   private targetsSlot: PickSlot;
   private patternSlot: PickSlot;
   private patternWrap: HTMLElement;
+  /** The Direction 1 group — axis, count and spacing — boxed like Direction 2 while the kind is linear. */
+  private dir1Wrap: HTMLElement;
   private axisWrap: HTMLElement;
   private countRow: HTMLElement;
   private skipRow: HTMLElement;
@@ -162,25 +165,27 @@ export class CopyPanel extends FeaturePanel {
         </label>
         <div data-role="targets-slot"></div>
         <div data-role="pattern-slot" class="hidden"></div>
-        <div data-role="axis-wrap" class="flex flex-col gap-1.5">
-          <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
-          <div data-role="axis-slot-1"></div>
-        </div>
-        <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
-          <span class="text-base-content/70">Total Count</span>
-          <input data-role="count" type="number" step="1" min="2" value="3"
-            class="input input-sm input-bordered w-full text-xs" />
-        </label>
-        <div data-role="spacing-row" class="flex flex-col gap-1.5">
-          <span class="text-base-content/70">Spacing</span>
-          <div class="flex items-center gap-1.5">
-            <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
-              title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
-              <option value="offset">Offset</option>
-              <option value="length">Total</option>
-            </select>
-            <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
-              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+        <div data-role="dir1-wrap" class="flex flex-col gap-3">
+          <div data-role="axis-wrap" class="flex flex-col gap-1.5">
+            <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
+            <div data-role="axis-slot-1"></div>
+          </div>
+          <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
+            <span class="text-base-content/70">Total Count</span>
+            <input data-role="count" type="number" step="1" min="2" value="3"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <div data-role="spacing-row" class="flex flex-col gap-1.5">
+            <span class="text-base-content/70">Spacing</span>
+            <div class="flex items-center gap-1.5">
+              <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 shrink-0 text-xs"
+                title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
+                <option value="offset">Offset</option>
+                <option value="length">Total</option>
+              </select>
+              <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
+                class="input input-sm input-bordered w-full min-w-0 text-xs" />
+            </div>
           </div>
         </div>
         <div data-role="sweep-row" class="hidden flex-col gap-1.5">
@@ -195,7 +200,7 @@ export class CopyPanel extends FeaturePanel {
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
         </div>
-        <div data-role="dir2-wrap" class="hidden flex-col gap-1.5">
+        <div data-role="dir2-wrap" class="hidden flex-col gap-3 border border-base-content/10 rounded-md p-3">
           <div class="flex items-center justify-between">
             <span class="text-base-content/70 font-medium">Direction 2</span>
             <button data-role="dir2-remove" class="btn btn-ghost btn-xs px-1.5"
@@ -261,6 +266,7 @@ export class CopyPanel extends FeaturePanel {
     this.patternSlot = new PickSlot(this.patternWrap, { label: 'Pattern', multiple: false });
     this.patternSlot.onArm = () => this.armSlot('pattern');
     this.patternSlot.onRemove = () => this.onRemovePattern?.();
+    this.dir1Wrap = this.role('dir1-wrap');
     this.axisWrap = this.role('axis-wrap');
     this.countRow = this.role('count-row');
     this.skipRow = this.role('skip-row');
@@ -662,13 +668,16 @@ export class CopyPanel extends FeaturePanel {
     // the repeat's.
     const following = kind === 'pattern';
     this.patternWrap.classList.toggle('hidden', !following);
-    for (const row of [this.axisWrap, this.countRow, this.skipRow]) {
+    for (const row of [this.dir1Wrap, this.axisWrap, this.countRow, this.skipRow]) {
       row.classList.toggle('hidden', following);
       row.classList.toggle('flex', !following);
     }
-    // The Direction 1 header only earns its row when a second direction can
-    // exist; circular shows the bare axis slot.
+    // The Direction 1 header and its box only earn their place when a second
+    // direction can exist; circular shows the bare axis slot.
     this.dir1Header.classList.toggle('hidden', !linear);
+    for (const cls of DIRECTION_GROUP_CLASSES) {
+      this.dir1Wrap.classList.toggle(cls, linear);
+    }
     this.spacingRow.classList.toggle('hidden', !linear);
     this.spacingRow.classList.toggle('flex', linear);
     this.sweepRow.classList.toggle('hidden', linear || following);

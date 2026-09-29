@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import { getMaterials } from '../../../lib/dist/common/materials.js';
+import { MaterialCatalog } from '../material-catalog.ts';
+import type { ProjectMaterials } from '../project-config.ts';
 
 /**
  * Property routes answer in the document's unit — the kernel runs in it, so
@@ -8,14 +9,26 @@ import { getMaterials } from '../../../lib/dist/common/materials.js';
  * compatibility): an inch document reports in³ / in² under those names.
  * Each response carries `unit` so callers can label the values.
  */
-export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
+export function createPropertiesRouter(
+  fluidCadServer: FluidCadServer,
+  options: {
+    /** The user's global materials (Settings → Materials); tests inject a map, the app reads the preferences file. */
+    loadGlobalMaterials?: () => Promise<ProjectMaterials>;
+  } = {},
+): Router {
   const router = Router();
+  const loadGlobalMaterials = options.loadGlobalMaterials ?? MaterialCatalog.loadGlobal;
 
   // The merged materials list: built-ins (`fluidcad-…` ids, `source:
-  // 'builtin'`) followed by the project's `fluidcad.json` map (`source:
-  // 'project'`; an entry reusing a built-in id replaces it in place).
-  router.get('/materials', (_req, res) => {
-    res.json(getMaterials(fluidCadServer.getProjectMaterials()));
+  // 'builtin'`), the project's `fluidcad.json` map (`source: 'project'`; an
+  // entry reusing a built-in id replaces it in place), then the user's
+  // global materials the project does not hold yet (`source: 'global'`).
+  router.get('/materials', async (_req, res) => {
+    try {
+      res.json(MaterialCatalog.merged(fluidCadServer.getProjectMaterials(), await loadGlobalMaterials()));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   // A part's mass properties over its final solids, with `material` /

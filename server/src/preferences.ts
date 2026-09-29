@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { defaultMaxWorkers, logicalCpuCount } from '../../lib/dist/oc/workers.js';
+import { parseProjectMaterials, type ProjectMaterials } from './project-config.ts';
 
 export type MeasureLengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
 export type GridFixedSpacing = Record<MeasureLengthUnit, number>;
@@ -61,6 +62,13 @@ export interface Preferences {
   timelineShowRegions: boolean;
   /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
   maxWorkers: number;
+  /**
+   * The user's own materials (Settings → Materials), keyed by the id
+   * `part(...).material(id)` takes, in the same shape as a project's
+   * `fluidcad.json` map. Picking one for a part copies that entry into the
+   * project, so a model file never depends on this machine's list.
+   */
+  materials: ProjectMaterials;
 }
 
 export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
@@ -90,11 +98,12 @@ const DEFAULTS: Preferences = {
   timelineShowConstraints: true,
   timelineShowRegions: false,
   maxWorkers: defaultMaxWorkers(),
+  materials: {},
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
 export function defaultPreferences(): Preferences {
-  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing } };
+  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {} };
 }
 
 function getConfigDir(): string {
@@ -120,13 +129,17 @@ export async function loadPreferences(): Promise<Preferences> {
     const parsed = JSON.parse(data);
     // The spacing record is the one nested value: merge it per key so a
     // file written before a unit existed still yields a pitch for it.
+    // A hand-edited map that fails the fluidcad.json rules is dropped whole,
+    // like a bad project map: nothing downstream re-validates entries.
+    const materials = parseProjectMaterials(parsed.materials);
     return {
       ...DEFAULTS,
       ...parsed,
       gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
+      materials: 'materials' in materials ? materials.materials : {},
     };
   } catch {
-    return { ...DEFAULTS };
+    return defaultPreferences();
   }
 }
 

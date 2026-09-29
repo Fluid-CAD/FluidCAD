@@ -8,6 +8,11 @@ import { createMeasureRouter } from '../../src/routes/measure.ts';
 let server: http.Server;
 let baseUrl: string;
 let lastMeasureRefs: unknown[] = [];
+/** The user's Settings → Materials list: one id the project already holds (the project wins), one it does not. */
+const GLOBAL = {
+  'alloy-steel': { name: 'Global Alloy Steel', density: 9 },
+  'acme-pla': { name: 'ACME PLA+', density: 1.27, densityUnit: 'kg/m³' as const },
+};
 
 /**
  * The property and measure routes answer in the document's unit and say
@@ -41,7 +46,7 @@ describe('properties + measure routes — unit field', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api', createPropertiesRouter(engine));
+    app.use('/api', createPropertiesRouter(engine, { loadGlobalMaterials: async () => GLOBAL }));
     app.use('/api', createMeasureRouter(engine));
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
@@ -76,7 +81,12 @@ describe('properties + measure routes — unit field', () => {
     expect(pla).toEqual({ id: 'fluidcad-pla', name: 'House PLA', density: 1.3, densityUnit: 'g/cm³', source: 'project' });
     expect(list.filter((m) => m.id === 'fluidcad-pla')).toHaveLength(1);
     expect(list.find((m) => m.id === 'fluidcad-steel-1020')).toEqual({ id: 'fluidcad-steel-1020', name: 'Steel (AISI 1020)', density: 7.87, densityUnit: 'g/cm³', source: 'builtin' });
-    expect(list[list.length - 1]).toEqual({ id: 'alloy-steel', name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³', source: 'project' });
+    // The project map follows the built-ins; the user's global list comes
+    // last, only the ids the project does not hold (the project's own
+    // alloy-steel wins over the global one with the same id).
+    expect(list[list.length - 2]).toEqual({ id: 'alloy-steel', name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³', source: 'project' });
+    expect(list[list.length - 1]).toEqual({ id: 'acme-pla', name: 'ACME PLA+', density: 1.27, densityUnit: 'kg/m³', source: 'global' });
+    expect(list.filter((m) => m.id === 'alloy-steel')).toHaveLength(1);
     for (const material of list) {
       expect(Object.keys(material).sort()).toEqual(['density', 'densityUnit', 'id', 'name', 'source']);
     }

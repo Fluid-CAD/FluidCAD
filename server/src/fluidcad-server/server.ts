@@ -32,7 +32,7 @@ import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
 import { collectSceneProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
-import { PROJECT_CONFIG_FILENAME, readProjectConfig, type LengthUnit, type ProjectMaterials } from '../project-config.ts';
+import { PROJECT_CONFIG_FILENAME, readProjectConfig, writeProjectMaterials, type LengthUnit, type ProjectMaterial, type ProjectMaterials } from '../project-config.ts';
 import { PartPropertiesAggregator, type PartProperties } from './part-properties.ts';
 import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
@@ -316,12 +316,27 @@ export class FluidCadServer {
   }
 
   /**
-   * Re-read the project's `materials` map right away — after the Manage
-   * materials… dialog wrote `fluidcad.json` — so `GET /api/materials` answers
-   * from the file even when no render (the usual re-seed) follows.
+   * Re-read the project's `materials` map right away — after a write into
+   * `fluidcad.json` — so `GET /api/materials` answers from the file even
+   * when no render (the usual re-seed) follows.
    */
   reloadProjectMaterials(): void {
     this.projectMaterials = this.workspacePath ? readProjectConfig(this.workspacePath).materials : null;
+  }
+
+  /**
+   * Copy one material into the project's `fluidcad.json` map (every other
+   * key and entry kept) — what a pick of a global material does before the
+   * part's source names its id. Answers the config path, or null without a
+   * workspace to write into.
+   */
+  adoptProjectMaterial(id: string, entry: ProjectMaterial): string | null {
+    if (!this.workspacePath) {
+      return null;
+    }
+    const configPath = writeProjectMaterials(this.workspacePath, { ...(this.getProjectMaterials() ?? {}), [id]: entry });
+    this.reloadProjectMaterials();
+    return configPath;
   }
 
   /**

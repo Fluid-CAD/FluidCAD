@@ -155,7 +155,7 @@ function readUnitField(
 
 /**
  * Validate a `materials` map wherever it comes from (a config file, the
- * Manage materials… dialog's write): a map keyed by non-empty ids whose
+ * preferences file's global list, a pick copied into the project): a map keyed by non-empty ids whose
  * values carry a non-empty string `name`, a finite positive `density` and,
  * when present, a `densityUnit` from `DENSITY_UNITS`. One bad entry rejects
  * the map; `problem` is a clause the caller prefixes with its subject.

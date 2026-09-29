@@ -50,6 +50,26 @@ async function post(url: string, body: unknown): Promise<any> {
   return res.json();
 }
 
+describe.runIf(onLinux)('preferences — the global materials list', () => {
+  it('starts empty, round-trips a valid map through the route and drops an invalid one', async () => {
+    expect((await loadPreferences()).materials).toEqual({});
+    await withServer(async (base) => {
+      const map = { 'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/mm³' }, pine: { name: 'Pine', density: 0.5 } };
+      expect((await post(`${base}/preferences`, { materials: map })).materials).toEqual(map);
+      expect((await loadPreferences()).materials).toEqual(map);
+      // A bad map is ignored like any out-of-range value; the stored one stays.
+      expect((await post(`${base}/preferences`, { materials: { bad: { name: '', density: 1 } } })).materials).toEqual(map);
+      expect((await post(`${base}/preferences`, { materials: {} })).materials).toEqual({});
+    });
+  });
+
+  it('drops a hand-edited map that fails the fluidcad.json rules when loading', async () => {
+    const prefs = await loadPreferences();
+    await savePreferences({ ...prefs, materials: { x: { name: 'X', density: -1 } } as never });
+    expect((await loadPreferences()).materials).toEqual({});
+  });
+});
+
 describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
   it('starts from the defaults the dialog shows', async () => {
     const prefs = await loadPreferences();

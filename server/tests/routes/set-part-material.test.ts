@@ -19,9 +19,22 @@ let relayed: any[];
 let delivered: boolean;
 let dispatcher: FeatureEditDispatcher;
 
+/** The project already holds `house-pla`; the user's global list adds `alloy-steel` and its own `house-pla`. */
+const PROJECT = { 'house-pla': { name: 'House PLA', density: 1.3 } };
+const GLOBAL = {
+  'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/mm³' as const },
+  'house-pla': { name: 'Other PLA', density: 9 },
+};
+let adopted: { id: string; entry: unknown }[];
+
 const fakeServer = {
   getCurrentCode: () => CODE,
   getCurrentFileName: () => '/ws/m.fluid.js',
+  getProjectMaterials: () => PROJECT,
+  adoptProjectMaterial: (id: string, entry: unknown) => {
+    adopted.push({ id, entry });
+    return '/ws/fluidcad.json';
+  },
 } as unknown as FluidCadServer;
 
 async function post(body: unknown): Promise<{ status: number; body: any }> {
@@ -55,7 +68,7 @@ describe('POST /api/set-part-material', () => {
     );
     const app = express();
     app.use(express.json());
-    app.use('/api', createTimelineRouter(fakeServer, () => {}, () => {}, { dispatcher }));
+    app.use('/api', createTimelineRouter(fakeServer, () => {}, () => {}, { dispatcher, loadGlobalMaterials: async () => GLOBAL }));
     server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     const addr = server.address();
@@ -68,6 +81,7 @@ describe('POST /api/set-part-material', () => {
 
   beforeEach(() => {
     relayed = [];
+    adopted = [];
     delivered = true;
   });
 
@@ -103,6 +117,27 @@ describe('POST /api/set-part-material', () => {
     expect(msg.spec.partMaterial).toEqual({ sourceLine: 3, material: null });
     dispatcher.settle(msg.spec.editId, undefined);
     expect((await pending).status).toBe(200);
+  });
+
+  it('copies a global material into fluidcad.json before the source names it', async () => {
+    const pending = post({ sourceLocation: { filePath: '/ws/m.fluid.js', line: 3 }, material: 'alloy-steel' });
+    const msg = await untilRelayed();
+    // The copy landed before the edit went to the host.
+    expect(adopted).toEqual([{ id: 'alloy-steel', entry: { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/mm³' } }]);
+    expect(msg.spec.partMaterial).toEqual({ sourceLine: 3, material: 'alloy-steel' });
+    dispatcher.settle(msg.spec.editId, undefined);
+    expect((await pending).body).toEqual({ success: true });
+  });
+
+  it('copies nothing for a built-in, a project entry (even one the global list shadows) or an unknown id', async () => {
+    for (const material of ['fluidcad-steel-1020', 'house-pla', 'unobtainium']) {
+      const pending = post({ sourceLocation: { filePath: '/ws/m.fluid.js', line: 3 }, material });
+      const msg = await untilRelayed();
+      dispatcher.settle(msg.spec.editId, undefined);
+      await pending;
+      relayed = [];
+    }
+    expect(adopted).toEqual([]);
   });
 
   it('reports a host that never acks as a timeout, not success', async () => {

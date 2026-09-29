@@ -13,6 +13,7 @@ import {
   savePreferences,
   type Preferences,
 } from '../preferences.ts';
+import { parseProjectMaterials } from '../project-config.ts';
 
 /** Bounds an editor font family: one line of plain text, no CSS injection surface. */
 const MAX_FONT_FAMILY_CHARS = 120;
@@ -145,6 +146,15 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         const maxWorkers = clampedNumber(body.maxWorkers, MAX_WORKERS_RANGE);
         if (maxWorkers !== null) {
           current.maxWorkers = Math.round(maxWorkers);
+        }
+        // The Materials tab sends the whole map (an empty one clears it);
+        // a map that fails the fluidcad.json rules is ignored, like any
+        // other out-of-range value here.
+        if (body.materials !== undefined) {
+          const materials = parseProjectMaterials(body.materials);
+          if ('materials' in materials) {
+            current.materials = materials.materials;
+          }
         }
         await savePreferences(current);
         return current;

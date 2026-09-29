@@ -18,7 +18,7 @@ export type UnitRouterDeps = {
  * Fan a `fluidcad.json`-driven recompute out the way a source edit's render
  * is: the host gets the scene, the UI gets the scene plus its panels' fields
  * (`objectWarnings` included, so a part whose material id just became known
- * loses its warning). Shared by the project unit and materials writes.
+ * loses its warning). The project unit's write fans out through it.
  */
 export function broadcastProjectRecompute(
   deps: Pick<UnitRouterDeps, 'sendToExtension' | 'broadcastToUI'>,

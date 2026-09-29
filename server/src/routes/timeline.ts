@@ -3,14 +3,20 @@ import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
+import type { ProjectMaterials } from '../project-config.ts';
 import { RemoveFeature } from '../remove-feature.ts';
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
   broadcastToUI: (msg: any) => void,
-  options: { dispatcher?: FeatureEditDispatcher } = {},
+  options: {
+    dispatcher?: FeatureEditDispatcher;
+    /** The user's global materials (Settings → Materials); tests inject a map, the app reads the preferences file. */
+    loadGlobalMaterials?: () => Promise<ProjectMaterials>;
+  } = {},
 ): Router {
   const router = Router();
 
@@ -194,6 +200,17 @@ export function createTimelineRouter(
     if (!options.dispatcher) {
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
+    }
+    // A global material is copied into fluidcad.json before the source
+    // names it, so the render that follows the edit resolves the id (the
+    // file is re-read per render) and the project carries what it uses.
+    if (typeof material === 'string') {
+      try {
+        await MaterialCatalog.adoptForPick(fluidCadServer, material, options.loadGlobalMaterials);
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: `Could not copy the material into fluidcad.json: ${err?.message || String(err)}` });
+        return;
+      }
     }
     const spec: ApplyFeatureEditSpec = {
       feature: 'part',

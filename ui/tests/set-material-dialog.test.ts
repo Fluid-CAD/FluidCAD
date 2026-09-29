@@ -30,12 +30,12 @@ function part(id: string, line: number, material?: string): SceneObjectRender {
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function mount(opts: { onManage?: () => void; editor?: boolean } = {}) {
+function mount(opts: { onManage?: () => void; editor?: boolean; materials?: () => Promise<Material[] | null> } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const editor = { setPartMaterial: vi.fn(async () => ({ success: true })) };
   const client = {
-    getMaterials: vi.fn(async () => MATERIALS),
+    getMaterials: vi.fn(opts.materials ?? (async () => MATERIALS)),
     editor: opts.editor === false ? null : editor,
   } as unknown as EngineClient;
   const dialog = new SetMaterialDialog(container, client, { onManage: opts.onManage });
@@ -145,6 +145,40 @@ describe('SetMaterialDialog', () => {
     h.row('fluidcad-pla').click();
     h.overlay.querySelector<HTMLInputElement>('[data-ref="filter"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(h.editor.setPartMaterial).toHaveBeenCalledWith(loc(1), 'fluidcad-pla');
+  });
+
+  it('says it is loading until the list arrives, never calling the current id unknown before then', async () => {
+    let resolve!: (list: Material[] | null) => void;
+    const h = mount({ materials: () => new Promise<Material[] | null>((r) => { resolve = r; }) });
+    h.dialog.open(part('A', 1, 'fluidcad-pine'));
+    await flush();
+    expect(h.overlay.querySelector('[data-ref="loading"]')!.textContent).toBe('Loading materials…');
+    expect(h.rows()).toEqual([]);
+    expect(h.apply().disabled).toBe(true);
+    // Enter while loading applies nothing.
+    h.overlay.querySelector<HTMLInputElement>('[data-ref="filter"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(h.editor.setPartMaterial).not.toHaveBeenCalled();
+    resolve([...MATERIALS, { id: 'fluidcad-pine', name: 'Wood (Pine)', density: 0.53, densityUnit: 'g/cm³', source: 'builtin' }]);
+    await flush();
+    expect(h.overlay.querySelector('[data-ref="loading"]')).toBeNull();
+    expect(h.checked()).toEqual(['fluidcad-pine']);
+    expect(h.labels()).not.toContain('Unknown material: fluidcad-pine');
+  });
+
+  it('reports a failed request with a Retry instead of an empty list, and retries', async () => {
+    let answer: Material[] | null = null;
+    const h = mount({ materials: async () => answer });
+    await h.open(part('A', 1, 'fluidcad-steel'));
+    const failed = h.overlay.querySelector<HTMLElement>('[data-ref="failed"]')!;
+    expect(failed.textContent).toContain('Could not load the materials list.');
+    expect(h.rows()).toEqual([]);
+    expect(h.apply().disabled).toBe(true);
+    answer = MATERIALS;
+    h.overlay.querySelector<HTMLButtonElement>('[data-ref="retry"]')!.click();
+    await flush();
+    expect(h.client.getMaterials).toHaveBeenCalledTimes(2);
+    expect(h.labels()).toEqual(['None', 'Steel', 'PLA', 'Alloy Steel', 'ACME PLA+']);
+    expect(h.checked()).toEqual(['fluidcad-steel']);
   });
 
   it('re-reads the list on every open and offers Manage materials… only with a handler', async () => {

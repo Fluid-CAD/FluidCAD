@@ -33,6 +33,12 @@ export class SetMaterialDialog {
   private current: string | null = null;
   private selected: string | null = null;
   private materials: Material[] = [];
+  /**
+   * Whether the merged list has arrived. Until it has, nothing is judged
+   * against it: the current id is only "unknown" once a loaded list lacks
+   * it, and a request that failed says so instead of pretending.
+   */
+  private listState: 'loading' | 'ready' | 'failed' = 'loading';
 
   constructor(container: HTMLElement, private client: EngineClient, private handlers: SetMaterialDialogHandlers = {}) {
     this.overlay = document.createElement('div');
@@ -82,6 +88,7 @@ export class SetMaterialDialog {
     this.current = typeof part.object?.material === 'string' ? (part.object.material as string) : null;
     this.selected = this.current;
     this.materials = [];
+    this.listState = 'loading';
     this.titleEl.textContent = 'Set material';
     this.subtitleEl.textContent = part.object?.name ? String(part.object.name) : part.name;
     this.filterInput.value = '';
@@ -98,10 +105,19 @@ export class SetMaterialDialog {
 
   private async load(): Promise<void> {
     const materials = await this.client.getMaterials();
-    if (!materials || !this.isOpen) {
+    if (!this.isOpen) {
+      return;
+    }
+    // The engine answers null when the request failed (a server mid-restart,
+    // a lost connection); an empty answer is impossible since the built-ins
+    // are always listed.
+    if (!materials || materials.length === 0) {
+      this.listState = 'failed';
+      this.renderList();
       return;
     }
     this.materials = materials;
+    this.listState = 'ready';
     this.renderList();
   }
 
@@ -142,7 +158,7 @@ export class SetMaterialDialog {
     // None and an unknown current id are always shown, whatever the filter.
     const head: Row[] = [{ id: null, label: 'None', material: null }];
     const known = new Set(this.materials.map((m) => m.id));
-    if (this.current !== null && !known.has(this.current)) {
+    if (this.listState === 'ready' && this.current !== null && !known.has(this.current)) {
       head.push({ id: this.current, label: `Unknown material: ${this.current}`, material: null, disabled: true });
     }
     const toRow = (m: Material): Row => ({ id: m.id, label: m.name, material: m });
@@ -155,6 +171,11 @@ export class SetMaterialDialog {
 
   private renderList(): void {
     this.listEl.innerHTML = '';
+    if (this.listState !== 'ready') {
+      this.renderListState();
+      this.applyBtn.disabled = true;
+      return;
+    }
     let any = false;
     for (const { group, rows } of this.rows()) {
       if (rows.length === 0) {
@@ -179,6 +200,30 @@ export class SetMaterialDialog {
       this.listEl.appendChild(empty);
     }
     this.applyBtn.disabled = this.selected === this.current;
+  }
+
+  /** The list while the merged list is on its way, or after the request failed. */
+  private renderListState(): void {
+    const note = document.createElement('div');
+    note.className = 'text-[11px] text-base-content/50 text-center py-6';
+    note.dataset.ref = this.listState;
+    if (this.listState === 'loading') {
+      note.textContent = 'Loading materials…';
+    } else {
+      note.textContent = 'Could not load the materials list.';
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'btn btn-link btn-xs px-1 h-auto min-h-0 text-[11px]';
+      retry.dataset.ref = 'retry';
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', () => {
+        this.listState = 'loading';
+        this.renderList();
+        void this.load();
+      });
+      note.appendChild(retry);
+    }
+    this.listEl.appendChild(note);
   }
 
   private buildRow(row: Row): HTMLButtonElement {
@@ -234,7 +279,7 @@ export class SetMaterialDialog {
 
   private apply(): void {
     const part = this.part;
-    if (!part || !part.sourceLocation || this.selected === this.current) {
+    if (!part || !part.sourceLocation || this.listState !== 'ready' || this.selected === this.current) {
       return;
     }
     void this.client.editor?.setPartMaterial(part.sourceLocation, this.selected);

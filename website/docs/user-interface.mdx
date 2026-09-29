@@ -59,7 +59,7 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
 - **Single click** a row to roll the model back to that feature. The viewport shows the model as it was right after that row, and the toolbar shrinks to what makes sense there. Click the last row, or edit the file, to come back.
 - **Double-click** a row to edit the feature: a breakpoint is placed after it, so the model rolls back to that point, and the feature's dialog opens with its current values. Apply writes the change into the existing statement.
-- **Right-click** a row for its menu:
+- **Right-click** a row for its menu (a part row also carries a **⋮** button at its right edge that opens the same menu):
 
   ![Row context menu](/img/docs/ui/history-context-menu.png)
 
@@ -94,11 +94,11 @@ The scale icon at the bottom right opens **Shape properties**. The **Part | Soli
 
 ### Setting a part's material
 
-Right-click the part's row in the History panel and choose **Set material…**.
+Click the **⋮** button at the right edge of the part's row in the History panel (or right-click the row) and choose **Set material…**.
 
-![A part row's context menu](/img/docs/ui/history-context-menu-part.png)
+![A part row's menu, opened from its ⋮ button](/img/docs/ui/history-context-menu-part.png)
 
-The **Set material** dialog opens. **None** is on top and removes the material; **Built-in** lists the built-in materials and **Custom** the custom ones — the project's own, the `materials` map of `fluidcad.json`, tagged *in project*, followed by yours from [Settings → Materials](#your-own-materials). The current material is checked and every row shows its density; the box at the top filters by name or id. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>): `.material('<id>')` is written on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render. **Manage materials…** at the bottom left opens Settings → Materials.
+The **Set material** dialog opens. **None** is on top and removes the material; **Built-in** lists the built-in materials and **Custom** the custom ones — the project's own, the `materials` map of `fluidcad.json`, tagged *in project*, followed by yours from [Settings → Materials](#your-own-materials). The current material is checked and sits first in its group; every row shows its density, and the box at the top filters by name or id (the current material stays listed). While the list is on its way the dialog says *Loading materials…*, and if it cannot be fetched it says so with a **Retry**. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>): `.material('<id>')` is written on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render. **Manage materials…** at the bottom left opens Settings → Materials.
 
 ![The Set material dialog](/img/docs/ui/set-material-dialog.png)
 

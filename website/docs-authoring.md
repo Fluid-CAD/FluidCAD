@@ -223,11 +223,15 @@ copies yet also offers **Copy…** (the Copy dialog with that connector); a
 part row offers **Set material…** (the **Set material** dialog: a filter box,
 **None**, then **Built-in** and **Custom** groups — the project's
 `fluidcad.json` entries tagged *in project* plus the user's global materials
-from Settings → Materials — current one checked, density at the right,
-**Apply** / double-click / Enter writes `.material('id')`, **Manage
-materials…** bottom-left opens Settings → Materials; a global material that
-the project lacks is copied into `fluidcad.json` before the statement is
-written). A part row whose material id is unknown carries a warning triangle.
+from Settings → Materials — current one checked and first in its group,
+density at the right, *Loading materials…* until the list arrives and a
+**Retry** when it fails, **Apply** / double-click / Enter writes
+`.material('id')`, **Manage materials…** bottom-left opens Settings →
+Materials; a global material that the project lacks is copied into
+`fluidcad.json` before the statement is written). A part row also carries a
+**⋮** button at its right edge that opens the same menu under it without
+activating the part. A part row whose material id is unknown carries a
+warning triangle.
 Sketch rows fold their constraints behind an *N constraints* toggle row;
 part rows fold *N connectors* (declared connectors only; a Copy row stays
 among the features) and *N exposed*. Feature status glyph: check = served from cache,

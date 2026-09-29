@@ -1305,10 +1305,7 @@ export class Viewer {
     cc.getTarget(tgt);
     const camPos = tgt.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
-    this.ctx.camera.up.copy(yDir);
-    cc.updateCameraUp();
-    cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, true);
+    this.ctx.flyTo(camPos, tgt, yDir);
 
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
@@ -1319,8 +1316,7 @@ export class Viewer {
   /** Undo {@link holdSketchCamera}: unlock rotation and restore the world up. */
   releaseSketchCamera(): void {
     this.ctx.setRotationLocked(false);
-    this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
-    this.ctx.cameraControls.updateCameraUp();
+    this.ctx.setCameraUp(Object3D.DEFAULT_UP);
   }
 
   /**

@@ -2,6 +2,9 @@ import { Router, type Response } from 'express';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { DeclarationRefactor } from '../declaration-refactor.ts';
+import { DeclarationRewrite } from '../declaration-rewrite.ts';
+import { declaresName } from '../code-editor/declaration-calls.ts';
 import {
   PropertyEditor,
   type PropertyEditSpec,
@@ -54,8 +57,12 @@ function validPartLocation(input: unknown): (PropertyPartTarget & { filePath: st
 export function createPropertyEditsRouter(
   fluidCadServer: FluidCadServer,
   dispatcher: FeatureEditDispatcher,
+  workspacePath = '',
 ): Router {
   const router = Router();
+  // A rename or delete reaches every file that reads the property through
+  // `.properties.<name>`, sent ahead of the declaring file's own edit.
+  const refactor = new DeclarationRefactor(fluidCadServer, workspacePath, dispatcher);
 
   async function dispatchPropertyEdit(res: Response, propertyEdit: PropertyEditSpec, declaringFile?: string): Promise<void> {
     // The edit follows the declaration's file, not the file on screen; a
@@ -77,32 +84,29 @@ export function createPropertyEditsRouter(
   }
 
   /**
-   * What the panel needs before offering to edit or delete a declaration:
-   * the value's source text (the dialog's seed), the variable it
-   * binds and how much of the model reads it.
+   * What the panel needs before editing or deleting a declaration: the
+   * value's source text (the dialog's seed), the variable it binds, every
+   * file that reads the property, and what a delete would put in place of
+   * those reads — or which of them it cannot.
    */
   router.get('/properties/usage', async (req, res) => {
     const name = typeof req.query.name === 'string' ? req.query.name : '';
     const line = Number(req.query.line);
-    const filePath = typeof req.query.filePath === 'string' ? req.query.filePath : '';
+    const filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
+      ? req.query.filePath
+      : fluidCadServer.getCurrentFileName();
     if (name === '') {
       res.status(400).json({ error: 'name is required' });
       return;
     }
-    // Only the file being rendered is readable from here — a declaration in
-    // a sibling file still edits fine through the host, so report "nothing
-    // known" rather than a refusal it does not deserve.
-    if (filePath !== '' && filePath !== fluidCadServer.getCurrentFileName()) {
-      res.json({ name, expression: null, variable: null, references: 0, referenceLines: [], editable: true });
-      return;
-    }
-    const code = fluidCadServer.getCurrentCode();
+    const code = filePath ? await refactor.readFile(filePath) : null;
     if (code === null) {
       res.status(404).json({ error: 'No active scene' });
       return;
     }
     try {
-      res.json(await PropertyEditor.inspect(code, name, Number.isInteger(line) ? line : undefined));
+      const usage = await PropertyEditor.inspect(code, name, Number.isInteger(line) ? line : undefined, filePath);
+      res.json(await refactor.extendReport(usage));
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
@@ -135,12 +139,43 @@ export function createPropertyEditsRouter(
       res.status(400).json({ error: 'name and a well-formed property are required' });
       return;
     }
+    const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : fluidCadServer.getCurrentFileName();
+    const at = Number.isInteger(line) ? line : undefined;
+    let variable: string | undefined;
+    if (spec.name !== name) {
+      // A renamed property renames the const it binds after itself, and
+      // every other file's `.properties.<name>` reads follow first.
+      const code = declaringFile ? await refactor.readFile(declaringFile) : null;
+      if (code === null) {
+        res.status(404).json({ error: 'No active scene' });
+        return;
+      }
+      const planned = await PropertyEditor.plan(code, name, at, declaringFile);
+      if ('error' in planned) {
+        res.status(422).json({ success: false, reason: planned.error });
+        return;
+      }
+      const { plan, tree } = planned;
+      const current = plan.declaration.variable;
+      if (current !== null && current !== spec.name && !declaresName(tree, spec.name)) {
+        variable = spec.name;
+      }
+      const newVariable = variable ?? null;
+      const newExport = newVariable !== null && plan.declaration.variableExport === current
+        ? newVariable
+        : plan.declaration.variableExport;
+      const specs = await refactor.renameSpecs(plan.declaration, spec.name, newVariable, newExport);
+      if (!await refactor.dispatchConsumers(res, specs)) {
+        return;
+      }
+    }
     await dispatchPropertyEdit(res, {
       kind: 'update',
       expectedName: name,
-      line: Number.isInteger(line) ? line : undefined,
+      line: at,
       property: spec,
-    }, typeof filePath === 'string' ? filePath : undefined);
+      ...(variable !== undefined ? { variable } : {}),
+    }, declaringFile);
   });
 
   router.post('/properties/remove', async (req, res) => {
@@ -149,11 +184,36 @@ export function createPropertyEditsRouter(
       res.status(400).json({ error: 'name is required' });
       return;
     }
-    await dispatchPropertyEdit(res, {
-      kind: 'remove',
-      expectedName: name,
-      line: Number.isInteger(line) ? line : undefined,
-    }, typeof filePath === 'string' ? filePath : undefined);
+    const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : fluidCadServer.getCurrentFileName();
+    const at = Number.isInteger(line) ? line : undefined;
+    // The value stands in for every read of the property, in every file.
+    // Where it cannot — it names the part's own parameters — the whole
+    // delete is refused before any file changes.
+    const code = declaringFile ? await refactor.readFile(declaringFile) : null;
+    if (code === null) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    const planned = await PropertyEditor.plan(code, name, at, declaringFile);
+    if ('error' in planned) {
+      res.status(422).json({ success: false, reason: planned.error });
+      return;
+    }
+    const { plan, tree, declaration } = planned;
+    const refusal = DeclarationRewrite.inlineRefusal(tree, 'property', declaration, plan);
+    if (refusal) {
+      res.status(422).json({ success: false, reason: refusal });
+      return;
+    }
+    const consumers = await refactor.inlineSpecs(plan.declaration, plan.value, plan.portable);
+    if ('error' in consumers) {
+      res.status(422).json({ success: false, reason: consumers.error });
+      return;
+    }
+    if (!await refactor.dispatchConsumers(res, consumers.specs)) {
+      return;
+    }
+    await dispatchPropertyEdit(res, { kind: 'remove', expectedName: name, line: at }, declaringFile);
   });
 
   return router;

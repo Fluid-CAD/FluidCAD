@@ -8,6 +8,7 @@ import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
 import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
+import { DeclarationUsages } from '../../declaration-usages.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
@@ -103,10 +104,13 @@ async function applyFeatureEditTransform(
     return { newCode, ...(error !== undefined ? { error } : {}) };
   }
   if (spec.paramEdit) {
-    return ParamEditor.apply(code, spec.paramEdit);
+    return ParamEditor.apply(code, spec.paramEdit, spec.filePath);
   }
   if (spec.propertyEdit) {
-    return PropertyEditor.apply(code, spec.propertyEdit);
+    return PropertyEditor.apply(code, spec.propertyEdit, spec.filePath);
+  }
+  if (spec.usageEdit) {
+    return DeclarationUsages.apply(code, spec.filePath, spec.usageEdit);
   }
   if (spec.insertPart) {
     const result = await applyInsertPartEdit(code, spec.insertPart);

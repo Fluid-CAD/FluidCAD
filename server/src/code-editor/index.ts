@@ -14,6 +14,7 @@ export {
 } from './rendered-properties.ts';
 export { LexicalBindings, type Binding, type BindingKind, type ValueKind } from './lexical-bindings.ts';
 export {
+  applySpliceEdits,
   indentOf,
   isBlankRow,
   joinLines,
@@ -21,6 +22,7 @@ export {
   spliceCode,
   splitLines,
   type CodeEditResult,
+  type SpliceEdit,
 } from './lines.ts';
 export {
   chainRootCallee,
@@ -61,6 +63,7 @@ export {
   removeStatement,
   removeStatementNode,
   setFeatureName,
+  statementRemovalEdit,
   setPartMaterial,
   setSketchClosed,
 } from './statements.ts';

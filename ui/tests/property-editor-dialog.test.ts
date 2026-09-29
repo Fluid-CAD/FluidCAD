@@ -141,7 +141,7 @@ describe('PropertyEditorDialog edit', () => {
     );
   });
 
-  it('reports a declaration the editor cannot rewrite, and names the bound variable', async () => {
+  it('reports a declaration the editor cannot rewrite', async () => {
     vi.mocked(api.getPropertyUsage).mockResolvedValue({
       name: 'innerWidth', expression: '52', variable: 'inner', references: 2, referenceLines: [12, 14],
       editable: false, reason: 'this property() call has a chained method — edit it in the code instead',
@@ -150,7 +150,6 @@ describe('PropertyEditorDialog edit', () => {
     dialog.openForEdit(def);
     await flush();
     expect(ref(root, 'message').textContent).toContain('chained method');
-    expect(ref(root, 'binding-note').textContent).toContain('Bound to inner');
   });
 
   it('asks before deleting, naming the readers of a bound variable, then posts the removal', async () => {
@@ -169,5 +168,45 @@ describe('PropertyEditorDialog edit', () => {
     ref<HTMLButtonElement>(root, 'confirm-delete').click();
     await flush();
     expect(api.removeProperty).toHaveBeenCalledWith({ name: 'innerWidth', line: 9, filePath: FILE });
+  });
+
+  it('refuses the delete when the value only means something in its own part, naming the reads', async () => {
+    vi.mocked(api.getPropertyUsage).mockResolvedValue({
+      name: 'innerWidth', expression: 'width - 2 * wall', variable: null, references: 0, referenceLines: [],
+      editable: true, value: 'width - 2 * wall', portable: false, usages: [{ filePath: '/ws/plug.part.js', count: 1, lines: [8] }],
+      deletion: {
+        value: 'width - 2 * wall', replaced: [], dropped: [],
+        blocked: [{ filePath: '/ws/plug.part.js', count: 1, lines: [8] }],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-row').classList.contains('hidden')).toBe(true);
+    expect(ref(root, 'message').textContent).toBe(
+      '“innerWidth” cannot be deleted yet. Its value (width - 2 * wall) reads names that are out of scope in plug.part.js (line 8). '
+      + 'Rewrite those reads by hand, then delete the property.',
+    );
+    expect(api.removeProperty).not.toHaveBeenCalled();
+  });
+
+  it('confirms a delete with what the reads become', async () => {
+    vi.mocked(api.getPropertyUsage).mockResolvedValue({
+      name: 'innerWidth', expression: '52', variable: 'inner', references: 1, referenceLines: [12],
+      editable: true, value: '52', portable: true,
+      usages: [{ filePath: FILE, count: 1, lines: [12] }, { filePath: '/ws/frame.assembly.js', count: 2, lines: [5, 6] }],
+      deletion: {
+        value: '52', dropped: [], blocked: [],
+        replaced: [{ filePath: FILE, count: 1, lines: [12] }, { filePath: '/ws/frame.assembly.js', count: 2, lines: [5, 6] }],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-text').textContent).toBe(
+      'Delete “innerWidth”? Its 3 reads in model.fluid.js (line 12) and frame.assembly.js (lines 5, 6) become its value 52.',
+    );
   });
 });

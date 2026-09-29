@@ -2,23 +2,33 @@ import { assemblyBodies } from './code-editor/assembly.ts';
 import { declareInPartBody } from './code-editor/parts.ts';
 import { splitLines } from './code-editor/lines.ts';
 import {
+  applySpliceEdits,
+  enclosingStatementOf,
   getJavaScriptParser,
-  spliceCode,
   quoteForSingleQuotes,
   declareParamStatements,
   ensureSymbolImport,
-  removeStatement,
+  statementRemovalEdit,
+  type SpliceEdit,
   type TSTree,
 } from './code-editor/index.ts';
 import {
-  countVariableReferences,
   declaresName,
   findDeclarationCalls,
   isStandaloneDeclaration,
   locateDeclarationCall,
+  outermostExpression,
   type DeclarationCall,
 } from './code-editor/declaration-calls.ts';
 import { PropertyEditor } from './property-edit.ts';
+import {
+  emptyReport,
+  planDeclaringFile,
+  reportOf,
+  type DeclarationPlan,
+  type DeclarationReport,
+} from './declaration-usages.ts';
+import { DeclarationRewrite, isUsableVariableName } from './declaration-rewrite.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -65,29 +75,39 @@ export type ParamPartTarget = { line: number; column: number };
  * it and the file can only spell it in one place. `line` (1-indexed, from the
  * definition's captured source location) only disambiguates a label declared
  * more than once, and is omitted when the render carried no location. An
- * An `add` names its part, or explicitly targets the current assembly body.
+ * `add` names its part, or explicitly targets the current assembly body.
  * `exposeAsProperty` (part scope only) also declares a `property()` named
  * after the variable the parameter binds, valued with that variable.
+ *
+ * An `update` that changes the label follows it through the file's
+ * `insert()` overrides, and with `variable` also renames the const the
+ * declaration binds, every read of it included — the route derives that
+ * name from the new label. A `remove` stands the default value in for
+ * every read of the variable and drops every override, refusing when the
+ * value would not mean the same where it is read.
  */
 export type ParamEditSpec =
   | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never; exposeAsProperty?: boolean }
   | { kind: 'add'; param: ParamSpec; assembly: true; part?: never; exposeAsProperty?: never }
-  | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec }
+  | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec; variable?: string }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
 export type ParamEditResult = { newCode: string; error?: string };
 
 /**
- * What removing a parameter would cost: the variable its declaration binds
- * and how many other places read it. A referenced variable does not block the
- * removal — it is the user's model — but the panel warns before breaking it.
+ * What editing or removing a parameter would do: the variable its
+ * declaration binds and where the model reads it, and — the shared
+ * {@link DeclarationReport} — the value that replaces those reads when the
+ * declaration goes, split by file into the reads it replaces, the
+ * `insert()` overrides it drops and the reads it cannot replace, which
+ * block the delete until they are rewritten by hand.
  */
-export type ParamUsage = {
+export type ParamUsage = DeclarationReport & {
   label: string;
   variable: string | null;
-  /** References to `variable` outside its own declaration. */
+  /** Reads of `variable` in the declaring file. */
   references: number;
-  /** 1-indexed lines of those references, capped for display. */
+  /** 1-indexed lines of those reads, capped for display. */
   referenceLines: number[];
   /** False when this declaration cannot be rewritten in place; see `reason`. */
   editable: boolean;
@@ -96,16 +116,6 @@ export type ParamUsage = {
 
 /** A located `param(...)` call — `key` is its label. See {@link DeclarationCall}. */
 type ParamDeclaration = DeclarationCall;
-
-const IDENTIFIER_RE = /^[a-zA-Z_$][\w$]*$/;
-
-/** Reserved words a `const` declaration may not use as its name. */
-const RESERVED_NAMES = new Set([
-  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do',
-  'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import',
-  'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try',
-  'typeof', 'var', 'void', 'while', 'with', 'let', 'static', 'yield', 'await', 'param',
-]);
 
 /**
  * Add, retype, rename, and remove the `param()` declarations of a model's
@@ -119,14 +129,19 @@ const RESERVED_NAMES = new Set([
  */
 export class ParamEditor {
 
-  static async apply(code: string, spec: ParamEditSpec): Promise<ParamEditResult> {
+  /**
+   * `filePath` is the file `code` belongs to — what its reads of the
+   * declaration are attributed to, and what an importing file's edit is
+   * later resolved against.
+   */
+  static async apply(code: string, spec: ParamEditSpec, filePath = ''): Promise<ParamEditResult> {
     switch (spec?.kind) {
       case 'add':
         return ParamEditor.add(code, spec.param, spec.part, spec.assembly, spec.exposeAsProperty === true);
       case 'update':
-        return ParamEditor.update(code, spec.line, spec.expectedLabel, spec.param);
+        return ParamEditor.update(code, filePath, spec.line, spec.expectedLabel, spec.param, spec.variable);
       case 'remove':
-        return ParamEditor.remove(code, spec.line, spec.expectedLabel);
+        return ParamEditor.remove(code, filePath, spec.line, spec.expectedLabel);
       default:
         return { newCode: code, error: 'malformed param edit spec: unknown kind' };
     }
@@ -134,26 +149,51 @@ export class ParamEditor {
 
   /**
    * Report what the panel needs before offering to edit or delete the
-   * declaration at `line`: the variable it binds, who reads that variable, and
-   * whether the call is one this editor can rewrite at all.
+   * declaration at `line`: the variable it binds, who reads that variable,
+   * what a delete would put in its place, and whether the call is one this
+   * editor can rewrite at all. Only this file's reads are counted here; the
+   * route adds every other file's.
    */
-  static async inspect(code: string, label: string, line?: number): Promise<ParamUsage> {
+  static async inspect(code: string, label: string, line?: number, filePath = ''): Promise<ParamUsage> {
     const tree = await ParamEditor.parse(code);
     const found = ParamEditor.locate(tree, line, label);
     if ('error' in found) {
-      return { label, variable: null, references: 0, referenceLines: [], editable: false, reason: found.error };
+      return {
+        label, variable: null, references: 0, referenceLines: [], editable: false, reason: found.error,
+        ...emptyReport(),
+      };
     }
     const declaration = found.declaration;
+    const plan = planDeclaringFile(tree, filePath, 'param', declaration);
     const usage: ParamUsage = {
       label,
       variable: declaration.variable,
-      ...countVariableReferences(tree, declaration),
+      ...DeclarationRewrite.variableReads(plan),
       editable: !declaration.chained,
+      ...reportOf(plan),
     };
     if (declaration.chained) {
       usage.reason = 'this param() call has a chained method — edit it in the code instead';
     }
     return usage;
+  }
+
+  /**
+   * The declaration `label` names and the declaring file's {@link DeclarationPlan}
+   * for it — what the route builds the other files' edits from.
+   */
+  static async plan(
+    code: string,
+    label: string,
+    line: number | undefined,
+    filePath: string,
+  ): Promise<{ tree: TSTree; declaration: DeclarationCall; plan: DeclarationPlan } | { error: string }> {
+    const tree = await ParamEditor.parse(code);
+    const found = ParamEditor.locate(tree, line, label);
+    if ('error' in found) {
+      return found;
+    }
+    return { tree, declaration: found.declaration, plan: planDeclaringFile(tree, filePath, 'param', found.declaration) };
   }
 
   // -------------------------------------------------------------------------
@@ -231,8 +271,12 @@ export class ParamEditor {
    * anything the file already declares. `Wall thickness` binds `wallThickness`;
    * a second parameter that reduces to the same name binds `wallThickness2`,
    * so adding one can never shadow a name the model is already reading.
+   *
+   * `current` is the name a declaration being renamed already binds: when
+   * the new label reduces to it the name stays, and it is never counted as
+   * taken by itself.
    */
-  private static variableNameFor(label: string, tree: TSTree): string {
+  static variableNameFor(label: string, tree: TSTree, current: string | null = null): string {
     const camel = label
       .split(/[^a-zA-Z0-9]+/)
       .filter((word) => word !== '')
@@ -240,13 +284,14 @@ export class ParamEditor {
       .join('');
     // A label of pure punctuation leaves nothing to name; one starting with a
     // digit, or spelling a keyword, only needs a letter in front of it.
-    const usable = camel !== '' && IDENTIFIER_RE.test(camel) && !RESERVED_NAMES.has(camel);
+    const usable = camel !== '' && isUsableVariableName(camel);
     const seed = usable ? camel : `p${camel}`;
-    if (!declaresName(tree, seed)) {
+    const taken = (name: string) => name !== current && declaresName(tree, name);
+    if (!taken(seed)) {
       return seed;
     }
     let n = 2;
-    while (declaresName(tree, `${seed}${n}`)) {
+    while (taken(`${seed}${n}`)) {
       n++;
     }
     return `${seed}${n}`;
@@ -255,14 +300,18 @@ export class ParamEditor {
   /**
    * Rewrite an existing declaration's arguments in place. Only the argument
    * list is spliced, so the `const <name> =` binding, the trailing semicolon,
-   * and any comment on the line all survive — renaming the label never renames
-   * the variable, which the rest of the model refers to.
+   * and any comment on the line all survive. A new label is followed through
+   * the file's `insert()` overrides of it; with `variable`, the const the
+   * declaration binds is renamed too, every read of it included, so the
+   * model keeps reading the value under the name the label now suggests.
    */
   private static async update(
     code: string,
+    filePath: string,
     line: number | undefined,
     expectedLabel: string,
     param: ParamSpec,
+    variable?: string,
   ): Promise<ParamEditResult> {
     const invalid = ParamEditor.validate(param);
     if (invalid) {
@@ -285,18 +334,29 @@ export class ParamEditor {
       return { newCode: code, error: `this model already has a parameter labelled "${param.label}"` };
     }
     const args = declaration.args;
-    return { newCode: spliceCode(code, args.startIndex + 1, args.endIndex - 1, ParamEditor.renderArgs(param)) };
+    const edits: SpliceEdit[] = [
+      { start: args.startIndex + 1, end: args.endIndex - 1, text: ParamEditor.renderArgs(param) },
+    ];
+    const followed = DeclarationRewrite.rename(tree, filePath, 'param', declaration, param.label, variable);
+    if ('error' in followed) {
+      return { newCode: code, error: followed.error };
+    }
+    edits.push(...followed.edits);
+    return { newCode: applySpliceEdits(code, edits) };
   }
 
   /**
-   * Delete the whole declaration statement. Only a declaration that stands on
-   * its own comes out this way — a `param()` written inline as another call's
-   * argument would take that call with it, so it is refused instead. References
-   * to the removed variable are the user's to resolve; the panel warns about
-   * them first (`inspect`) and the next render surfaces whatever is left.
+   * Delete the declaration statement and stand its default value in for
+   * every read of the variable, dropping the `insert()` overrides that
+   * addressed it by label. Only a declaration that stands on its own comes
+   * out this way — a `param()` written inline as another call's argument
+   * would take that call with it. A default that reads names which mean
+   * something else (or nothing) where the variable is read cannot stand in
+   * for it, and the delete is refused naming those reads.
    */
   private static async remove(
     code: string,
+    filePath: string,
     line: number | undefined,
     expectedLabel: string,
   ): Promise<ParamEditResult> {
@@ -312,7 +372,14 @@ export class ParamEditor {
         error: 'this param() call is nested inside another expression — remove it in the code instead',
       };
     }
-    return removeStatement(code, declaration.line);
+    const plan = planDeclaringFile(tree, filePath, 'param', declaration);
+    const refusal = DeclarationRewrite.inlineRefusal(tree, 'param', declaration, plan);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+    const statement = enclosingStatementOf(outermostExpression(declaration.call))!;
+    const removal = statementRemovalEdit(code, splitLines(code), statement);
+    return { newCode: await plan.usages.inline(code, plan.sites, plan.value ?? '', [removal]) };
   }
 
   // -------------------------------------------------------------------------

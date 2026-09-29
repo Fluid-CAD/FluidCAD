@@ -16,7 +16,7 @@ import {
   MULTI_CONTROL_CHOICES,
   PARAM_TYPE_CHOICES,
   coerceDefaultValue,
-  describeDeletion,
+  deletionWording,
   specFromDefinition,
 } from './param-spec';
 
@@ -41,7 +41,6 @@ export class ParamEditorDialog {
   private overlay: HTMLDivElement;
   private title: HTMLElement;
   private labelInput: HTMLInputElement;
-  private bindingNote: HTMLElement;
   private partRow: HTMLElement;
   private partSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
@@ -87,7 +86,6 @@ export class ParamEditorDialog {
 
     this.title = ref('title');
     this.labelInput = ref('label');
-    this.bindingNote = ref('binding-note');
     this.partRow = ref('part-row');
     this.partSelect = ref('part');
     this.typeSelect = ref('type');
@@ -143,7 +141,6 @@ export class ParamEditorDialog {
     this.usage = null;
     this.title.textContent = 'Add parameter';
     this.seed({ label: '', defaultValue: 0, type: 'number' });
-    this.bindingNote.classList.add('hidden');
     this.populateParts(preferredPart);
     // Off on every open: exposing is a choice made per parameter, and only a
     // new one can be exposed from here — a property lives in a part body, so
@@ -170,7 +167,6 @@ export class ParamEditorDialog {
     this.usage = null;
     this.title.textContent = 'Edit parameter';
     this.seed(specFromDefinition(def));
-    this.bindingNote.classList.add('hidden');
     // A declaration stays in the part it was written in — moving it is a
     // code edit, not a dropdown change. Exposing is an add-time choice: the
     // property, once declared, is its own row in the panel.
@@ -216,8 +212,6 @@ export class ParamEditorDialog {
 
         <div class="flex flex-col gap-3">
           ${field('Label', '<input data-ref="label" type="text" class="input input-sm input-bordered w-full" placeholder="Wall thickness" />')}
-
-          <span data-ref="binding-note" class="hidden text-[11px] text-base-content/40 -mt-1"></span>
 
           <div data-ref="part-row" class="hidden flex-col gap-1">
             ${field('Part', '<select data-ref="part" class="select select-sm select-bordered w-full"></select>')}
@@ -633,12 +627,23 @@ export class ParamEditorDialog {
     await this.commit(() => updateParam(target, spec));
   }
 
+  /**
+   * Ask before deleting — or refuse: a read the default value cannot
+   * replace would leave the model unbuildable, so the server's plan turns
+   * the confirmation into an error naming the reads to rewrite first.
+   */
   private askToDelete(): void {
     if (!this.target) {
       return;
     }
     this.setMessage(null);
-    this.confirmText.textContent = describeDeletion(this.target.label, this.usage);
+    const wording = deletionWording(this.target.label, this.usage);
+    if (wording.blocked) {
+      this.confirmRow.classList.add('hidden');
+      this.setMessage(wording.text);
+      return;
+    }
+    this.confirmText.textContent = wording.text;
     this.confirmRow.classList.remove('hidden');
   }
 
@@ -683,13 +688,6 @@ export class ParamEditorDialog {
     this.usage = usage;
     if (usage && !usage.editable) {
       this.setMessage(usage.reason ?? 'This parameter has to be edited in the code.');
-    }
-    // Naming the variable is what makes "the label is not the variable" plain
-    // before the user renames anything.
-    if (usage?.variable) {
-      this.bindingNote.textContent =
-        `Bound to ${usage.variable} — renaming the label leaves the code alone.`;
-      this.bindingNote.classList.remove('hidden');
     }
   }
 

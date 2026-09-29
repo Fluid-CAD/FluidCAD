@@ -4657,8 +4657,35 @@ export type ParamSpec = {
   multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
-/** What deleting a parameter would cost — see `GET /api/params/usage`. */
-export type ParamUsage = {
+/** How much of one file reads a declaration: the count and the first few 1-indexed lines. */
+export type UsageFileSummary = { filePath: string; count: number; lines: number[] };
+
+/** What deleting a declaration does to the model, by file. */
+export type DeletionPlan = {
+  /** The source text that stands in for every read, or null when the declaration has no value to inline. */
+  value: string | null;
+  /** Reads the value replaces. */
+  replaced: UsageFileSummary[];
+  /** `insert()` overrides that are dropped — the instance falls back to the default. */
+  dropped: UsageFileSummary[];
+  /** Reads the value cannot replace; the server refuses the delete while any remain. */
+  blocked: UsageFileSummary[];
+};
+
+/**
+ * The part of a usage answer parameters and properties share: the value a
+ * delete puts in place of the reads, every file that reads the
+ * declaration, and the delete's plan. Absent on a server predating it.
+ */
+export type DeclarationUsageReport = {
+  value?: string | null;
+  portable?: boolean;
+  usages?: UsageFileSummary[];
+  deletion?: DeletionPlan;
+};
+
+/** What editing or deleting a parameter would do — see `GET /api/params/usage`. */
+export type ParamUsage = DeclarationUsageReport & {
   label: string;
   variable: string | null;
   references: number;
@@ -4691,9 +4718,9 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
 export type ParamTarget = { label: string; line?: number; filePath?: string };
 
 /**
- * The variable a parameter binds and how much of the model reads it — what the
- * dialog warns with before deleting, and how it learns a declaration is one it
- * cannot rewrite.
+ * The variable a parameter binds, every file that reads it, and what a
+ * delete would do to those reads — what the dialog warns or refuses with
+ * before deleting, and how it learns a declaration is one it cannot rewrite.
  */
 export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
   const query: Record<string, string | number> = { label: target.label };
@@ -4731,14 +4758,19 @@ export function addParam(
 }
 
 /**
- * Rewrite the declaration `target` names. Renaming the label is part of this —
- * the variable the model reads is never touched.
+ * Rewrite the declaration `target` names. A new label renames the variable
+ * the model reads after it, and follows both through every file that reads
+ * them — the `insert()` overrides keyed by the label included.
  */
 export function updateParam(target: ParamTarget, param: ParamSpec): Promise<ParamEditResponse> {
   return postParamEdit('api/params/update', { ...target, param });
 }
 
-/** Delete a parameter's declaration; references to its variable stay behind. */
+/**
+ * Delete a parameter's declaration. Its default value stands in for every
+ * read of the variable and its `insert()` overrides are dropped, in every
+ * file; the server refuses when the default cannot replace a read.
+ */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('api/params/remove', { ...target });
 }
@@ -4757,7 +4789,7 @@ export type PropertySpec = {
 export type PropertyTarget = { name: string; line?: number; filePath?: string };
 
 /** What the dialog seeds from and warns with — see `GET /api/properties/usage`. */
-export type PropertyUsage = {
+export type PropertyUsage = DeclarationUsageReport & {
   name: string;
   /** The value argument's source text; null when the server could not read it. */
   expression: string | null;
@@ -4787,12 +4819,19 @@ export function addProperty(property: PropertySpec, part: SourceLocation): Promi
   });
 }
 
-/** Rewrite the declaration `target` names — renaming included. */
+/**
+ * Rewrite the declaration `target` names. A new name is followed through
+ * every `.properties.<name>` read of it, in every file, and renames the
+ * variable the declaration binds after it.
+ */
 export function updateProperty(target: PropertyTarget, property: PropertySpec): Promise<ParamEditResponse> {
   return postParamEdit('api/properties/update', { ...target, property });
 }
 
-/** Delete a property's declaration; a variable it bound stays referenced wherever it was. */
+/**
+ * Delete a property's declaration. Its value stands in for every read, in
+ * every file; the server refuses when the value cannot replace a read.
+ */
 export function removeProperty(target: PropertyTarget): Promise<ParamEditResponse> {
   return postParamEdit('api/properties/remove', { ...target });
 }

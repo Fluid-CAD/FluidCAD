@@ -132,6 +132,19 @@ describe('PropertyEditor.update', () => {
     expect(lidOne.newCode).toContain(`property('pocketDiameter', width - 2 * wall);`);
   });
 
+  it('renames the property through the file\'s reads, and the bound const with it', async () => {
+    const read = CODE
+      .replace(`  const bolts = property('boltCount', 4);`, `  const bolts = property('boltCount', 4);\n  extrude(bolts);`)
+      + `const h = insert(housing).grounded();\nextrude(h.properties.boltCount + housing.properties.boltCount);\n`;
+    const result = await PropertyEditor.apply(read, {
+      kind: 'update', expectedName: 'boltCount', property: { name: 'boltTotal', expression: '4' }, variable: 'boltTotal',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const boltTotal = property('boltTotal', 4);\n  extrude(boltTotal);`);
+    expect(result.newCode).toContain('extrude(h.properties.boltTotal + housing.properties.boltTotal);');
+    expect(result.newCode).not.toContain('bolt' + 'Count');
+  });
+
   it('refuses a rename onto a name the part already declares', async () => {
     const result = await PropertyEditor.apply(CODE, {
       kind: 'update', line: POCKET_LINE, expectedName: 'pocketDiameter',
@@ -168,6 +181,27 @@ describe('PropertyEditor.remove', () => {
     const bound = await PropertyEditor.apply(CODE, { kind: 'remove', expectedName: 'boltCount' });
     expect(bound.error).toBeUndefined();
     expect(bound.newCode).not.toContain('boltCount');
+  });
+
+  it('stands the value in for the bound variable and every .properties read of it', async () => {
+    const read = CODE
+      .replace(`  const bolts = property('boltCount', 4);`, `  const bolts = property('boltCount', 4);\n  extrude(bolts);`)
+      .replace(`  property('pocketDiameter', 10);`, `  extrude(housing.properties.boltCount * 2);`)
+      + `const h = insert(housing, { Width: 80 }).grounded();\nextrude(h.properties.boltCount);\n`;
+    const result = await PropertyEditor.apply(read, { kind: 'remove', expectedName: 'boltCount' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('boltCount');
+    expect(result.newCode).not.toContain('bolts');
+    expect(result.newCode).toContain(`  property('pocketDiameter', width - 2 * wall);\n  extrude(4);\n});`);
+    expect(result.newCode).toContain('extrude(4 * 2);');
+    expect(result.newCode).toContain('extrude(4);\n');
+  });
+
+  it('refuses when another part reads a value that names this part\'s own parameters', async () => {
+    const read = CODE.replace(`  property('pocketDiameter', 10);`, `  extrude(housing.properties.pocketDiameter);`);
+    const result = await PropertyEditor.apply(read, { kind: 'remove', line: POCKET_LINE, expectedName: 'pocketDiameter' });
+    expect(result.error).toContain('the value of "pocketDiameter" (width - 2 * wall) reads names that are out of scope at this file (line 16)');
+    expect(result.newCode).toBe(read);
   });
 
   it('refuses a call nested inside another expression', async () => {

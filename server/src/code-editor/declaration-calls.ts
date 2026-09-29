@@ -1,10 +1,10 @@
 // Locating the `fn('literal', …)` declaration calls of a file — `param()`,
 // `property()` — and what a panel edit needs to know about each: the
-// variable it binds, whether a chained method follows it, whether deleting
-// its statement deletes it alone, and how much of the model reads the
-// variable. Shared by the parameter and property editors so both address a
-// declaration the same way: by its literal key, with the line only breaking
-// a tie.
+// variable it binds, whether a chained method follows it, and whether
+// deleting its statement deletes it alone. Shared by the parameter and
+// property editors so both address a declaration the same way: by its
+// literal key, with the line only breaking a tie. Who reads the variable is
+// `binding-references.ts`'s business.
 
 import { stringLiteralValue, walkTree } from './nodes.ts';
 import type { TSNode, TSTree } from './parser.ts';
@@ -168,36 +168,4 @@ export function declaresName(tree: TSTree, name: string): boolean {
     }
   }
   return false;
-}
-
-/** How many places read the declaration's variable, and where (1-indexed, capped for display). */
-export function countVariableReferences(
-  tree: TSTree,
-  declaration: DeclarationCall,
-): { references: number; referenceLines: number[] } {
-  const name = declaration.variable;
-  if (!name) {
-    return { references: 0, referenceLines: [] };
-  }
-  const lines: number[] = [];
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type !== 'identifier' || node.text !== name) {
-      continue;
-    }
-    const parent = node.parent;
-    // The declaration's own name, a property access (`o.width`), and a
-    // non-shorthand object key (`{ width: 1 }`) all spell the name without
-    // reading the variable.
-    if (parent?.type === 'variable_declarator' && isSameNode(parent.childForFieldName('name'), node)) {
-      continue;
-    }
-    if (parent?.type === 'member_expression' && isSameNode(parent.childForFieldName('property'), node)) {
-      continue;
-    }
-    if (parent?.type === 'pair' && isSameNode(parent.childForFieldName('key'), node)) {
-      continue;
-    }
-    lines.push(node.startPosition.row + 1);
-  }
-  return { references: lines.length, referenceLines: lines.slice(0, 5) };
 }

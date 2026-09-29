@@ -13,6 +13,7 @@ vi.mock('../src/api', () => ({
   getParamUsage: vi.fn(async () => null),
 }));
 
+import * as api from '../src/api';
 import { addParam } from '../src/api';
 import { ParamEditorDialog } from '../src/ui/param-editor-dialog';
 import type { UIParamDefinition } from '../src/types';
@@ -211,5 +212,66 @@ describe('ParamEditorDialog expose-as-property toggle', () => {
     const dialog = new ParamEditorDialog(root, 'assembly');
     dialog.openForCreate();
     expect(exposeRow(root).classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('ParamEditorDialog delete', () => {
+  const def: UIParamDefinition = {
+    label: 'Width', defaultValue: 100, currentValue: 100, controlType: 'number',
+    sourceLocation: { filePath: FILE, line: 4, column: 2 }, part: bracket.sourceLocation,
+  };
+  const usage = {
+    label: 'Width', variable: 'width', references: 2, referenceLines: [8, 11], editable: true,
+    value: '100', portable: true,
+    usages: [{ filePath: FILE, count: 2, lines: [8, 11] }, { filePath: '/ws/frame.assembly.js', count: 1, lines: [5] }],
+  };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const ref = <T extends HTMLElement>(root: HTMLElement, name: string) => root.querySelector<T>(`[data-ref="${name}"]`)!;
+
+  it('confirms a delete with the plan', async () => {
+    vi.mocked(api.getParamUsage).mockResolvedValue({
+      ...usage,
+      deletion: {
+        value: '100',
+        replaced: [{ filePath: FILE, count: 2, lines: [8, 11] }],
+        dropped: [{ filePath: '/ws/frame.assembly.js', count: 1, lines: [5] }],
+        blocked: [],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-row').classList.contains('hidden')).toBe(false);
+    expect(ref(root, 'confirm-text').textContent).toBe(
+      'Delete “Width”? Its 2 reads in model.fluid.js (lines 8, 11) become its default value 100, '
+      + 'and the Width override on one insert in frame.assembly.js (line 5) is dropped.',
+    );
+    ref<HTMLButtonElement>(root, 'confirm-delete').click();
+    await vi.waitFor(() => expect(vi.mocked(api.removeParam)).toHaveBeenCalled());
+  });
+
+  it('refuses the delete, naming the reads to rewrite, when the default cannot replace them', async () => {
+    vi.mocked(api.getParamUsage).mockResolvedValue({
+      ...usage,
+      value: 'base * 2',
+      portable: false,
+      deletion: {
+        value: 'base * 2',
+        replaced: [],
+        dropped: [],
+        blocked: [{ filePath: '/ws/plug.part.js', count: 3, lines: [8, 12] }],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-row').classList.contains('hidden')).toBe(true);
+    expect(ref(root, 'message').textContent).toBe(
+      '“Width” cannot be deleted yet. Its value (base * 2) reads names that are out of scope in plug.part.js (lines 8, 12, …). '
+      + 'Rewrite those reads by hand, then delete the parameter.',
+    );
+    expect(vi.mocked(api.removeParam)).not.toHaveBeenCalled();
   });
 });

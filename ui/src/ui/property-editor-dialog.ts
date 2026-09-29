@@ -10,6 +10,7 @@ import {
 } from '../api';
 import type { SourceLocation, UIPropertyDefinition } from '../types';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
+import { describeDeletionPlan, type DeletionWording } from './declaration-usage';
 import { ExpressionField } from './expression-field';
 import { ICON_CLOSE, ICON_TRASH } from './icons';
 import type { PartChoices } from './param-editor-dialog';
@@ -35,7 +36,6 @@ export class PropertyEditorDialog {
   private partSelect: HTMLSelectElement;
   private valueInput: HTMLInputElement;
   private valueField: ExpressionField;
-  private bindingNote: HTMLElement;
   private message: HTMLElement;
   private editActions: HTMLElement;
   private deleteBtn: HTMLButtonElement;
@@ -66,7 +66,6 @@ export class PropertyEditorDialog {
     this.partRow = ref('part-row');
     this.partSelect = ref('part');
     this.valueInput = ref('value');
-    this.bindingNote = ref('binding-note');
     this.message = ref('message');
     this.editActions = ref('edit-actions');
     this.deleteBtn = ref('delete');
@@ -96,7 +95,6 @@ export class PropertyEditorDialog {
     this.title.textContent = 'Add property';
     this.nameInput.value = '';
     this.valueField.setValue('');
-    this.bindingNote.classList.add('hidden');
     this.populateParts(preferredPart);
     this.editActions.classList.add('hidden');
     this.show();
@@ -121,7 +119,6 @@ export class PropertyEditorDialog {
     this.nameInput.value = def.name;
     // Until the source text arrives the field shows what the render computed.
     this.valueField.setValue(PropertyEditorDialog.valueText(def.value));
-    this.bindingNote.classList.add('hidden');
     // A declaration stays in the part it was written in.
     this.partRow.classList.add('hidden');
     this.partRow.classList.remove('flex');
@@ -166,8 +163,6 @@ export class PropertyEditorDialog {
 
           ${field('Value', '<input data-ref="value" type="text" class="input input-sm input-bordered w-full" placeholder="width - 2 * wall" />')}
           <span class="text-[11px] text-base-content/50 -mt-2">An expression over the part’s parameters. Type a name to see what is in scope.</span>
-
-          <span data-ref="binding-note" class="hidden text-[11px] text-base-content/40 -mt-1"></span>
         </div>
 
         <div data-ref="message" class="hidden mt-3 bg-error text-error-content rounded-md px-3 py-2 text-xs leading-snug"></div>
@@ -345,23 +340,44 @@ export class PropertyEditorDialog {
     await this.commit(() => updateProperty(target, spec));
   }
 
+  /**
+   * Ask before deleting — or refuse: a read the value cannot replace (one
+   * in another part, of a value over this part's own parameters) would
+   * leave the model unbuildable, so the server's plan turns the
+   * confirmation into an error naming the reads to rewrite first.
+   */
   private askToDelete(): void {
     if (!this.target) {
       return;
     }
     this.setMessage(null);
-    this.confirmText.textContent = PropertyEditorDialog.describeDeletion(this.target.name, this.usage);
+    const wording = PropertyEditorDialog.deletionWording(this.target.name, this.usage);
+    if (wording.blocked) {
+      this.confirmRow.classList.add('hidden');
+      this.setMessage(wording.text);
+      return;
+    }
+    this.confirmText.textContent = wording.text;
     this.confirmRow.classList.remove('hidden');
   }
 
-  /** The delete warning: what breaks when the statement goes. */
-  private static describeDeletion(name: string, usage: PropertyUsage | null): string {
+  /**
+   * The delete prompt: from the server's plan when it sent one, else (an
+   * older server) the warning that the reads stay behind and break.
+   */
+  private static deletionWording(name: string, usage: PropertyUsage | null): DeletionWording {
+    if (usage?.deletion) {
+      return describeDeletionPlan('property', name, usage.deletion);
+    }
     const consumers = `Assemblies reading instance.properties.${name} will fail on their next render.`;
     if (usage?.variable && usage.references > 0) {
       const where = usage.referenceLines.length > 0 ? ` (line ${usage.referenceLines.join(', ')})` : '';
-      return `Delete "${name}"? Its variable ${usage.variable} is read ${usage.references} time${usage.references === 1 ? '' : 's'}${where} — those references stay behind. ${consumers}`;
+      return {
+        blocked: false,
+        text: `Delete "${name}"? Its variable ${usage.variable} is read ${usage.references} time${usage.references === 1 ? '' : 's'}${where} — those references stay behind. ${consumers}`,
+      };
     }
-    return `Delete "${name}"? ${consumers}`;
+    return { blocked: false, text: `Delete "${name}"? ${consumers}` };
   }
 
   private async confirmDelete(): Promise<void> {
@@ -404,11 +420,6 @@ export class PropertyEditorDialog {
     }
     if (usage && !usage.editable) {
       this.setMessage(usage.reason ?? 'This property has to be edited in the code.');
-    }
-    if (usage?.variable) {
-      this.bindingNote.textContent =
-        `Bound to ${usage.variable} — renaming the property leaves the variable alone.`;
-      this.bindingNote.classList.remove('hidden');
     }
   }
 

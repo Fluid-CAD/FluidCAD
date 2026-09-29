@@ -12,6 +12,7 @@ import {
   spliceCode,
   splitLines,
   type CodeEditResult,
+  type SpliceEdit,
 } from './lines.ts';
 import {
   chainBaseCall,
@@ -120,20 +121,36 @@ export function removeStatement(code: string, sourceLine: number): Promise<CodeE
  * node was parsed from.
  */
 export function removeStatementNode(code: string, lines: string[], statement: TSNode): string {
+  const edit = statementRemovalEdit(code, lines, statement);
+  return spliceCode(code, edit.start, edit.end, edit.text);
+}
+
+/**
+ * {@link removeStatementNode} as one edit over `code`, for a batch with
+ * other edits of the same text. A statement alone on its lines takes the
+ * lines with it, and one blank line of the two it would leave touching;
+ * one sharing a line with other code is excised on its own.
+ */
+export function statementRemovalEdit(code: string, lines: string[], statement: TSNode): SpliceEdit {
   const startRow = statement.startPosition.row;
   const endRow = statement.endPosition.row;
   const aloneOnItsLines =
     lines[startRow].slice(0, statement.startPosition.column).trim() === '' &&
     lines[endRow].slice(statement.endPosition.column).trim() === '';
   if (!aloneOnItsLines) {
-    // Sharing a line with other code: excise just the statement's range.
-    return spliceCode(code, statement.startIndex, statement.endIndex, '');
+    return { start: statement.startIndex, end: statement.endIndex, text: '' };
   }
-  const remaining = lines.slice(0, startRow).concat(lines.slice(endRow + 1));
-  if (startRow > 0 && isBlankRow(remaining, startRow - 1) && isBlankRow(remaining, startRow)) {
-    remaining.splice(startRow, 1);
+  const offsets: number[] = [0];
+  for (const line of lines) {
+    offsets.push(offsets[offsets.length - 1] + line.length + 1);
   }
-  return joinLines(remaining);
+  const collapse = startRow > 0 && isBlankRow(lines, startRow - 1)
+    && endRow + 1 < lines.length && isBlankRow(lines, endRow + 1);
+  const lastRow = collapse ? endRow + 1 : endRow;
+  // The last rows of the file take the newline before them instead of one after.
+  const start = lastRow + 1 < lines.length ? offsets[startRow] : Math.max(offsets[startRow] - 1, 0);
+  const end = lastRow + 1 < lines.length ? offsets[lastRow + 1] : code.length;
+  return { start, end, text: '' };
 }
 
 // ---------------------------------------------------------------------------

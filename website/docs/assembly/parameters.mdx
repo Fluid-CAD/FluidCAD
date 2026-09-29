@@ -68,7 +68,7 @@ They are plain values, so they go anywhere a number goes: a pose, a mate offset,
 
 ## Assembly parameters
 
-`param()` is also legal at the top of an `assembly()` body, where it is the assembly's own value: the inserts below can pass it on, and a sub-assembly declared this way has a parameter interface of its own, overridden exactly like a part's — `insert(stack, { Levels: 4 })`. The Insert dialog shows the same parameter page for a queued sub-assembly as for a part. Use the assembly workspace's **Parameters** panel to change their values. Click **+** to declare a parameter inside the assembly body, or the pencil beside a parameter to edit its declaration. This panel manages only the current assembly, so it has no part selector. New declarations require a single `assembly()` callback body in the current file.
+`param()` is also legal at the top of an `assembly()` body, where it is the assembly's own value: the inserts below can pass it on, and a sub-assembly declared this way has a parameter interface of its own, overridden exactly like a part's — `insert(stack, { Levels: 4 })`. The Insert dialog shows the same parameter page for a queued sub-assembly as for a part. Use the assembly workspace's **Parameters** panel to change their values. Click **+** to declare a parameter inside the assembly body, or the pencil beside a parameter to edit its declaration — a new label renames the variable and its reads, and a delete puts the default value in their place. This panel manages only the current assembly, so it has no part selector. New declarations require a single `assembly()` callback body in the current file.
 
 ![Two plates and a sub-assembly, each insert with its own parameter values](/img/docs/assembly/asm-parameters.png)
 

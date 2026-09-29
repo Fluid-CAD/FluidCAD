@@ -159,8 +159,8 @@ app.use('/api', createHealthRouter({
   readUnit: projectUnitNow,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied));
-app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher));
+app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied, WORKSPACE_PATH));
+app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createResolveSelectionRouter(fluidCadServer));

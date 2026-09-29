@@ -546,6 +546,7 @@ export class ParamsPanel extends AccordionSection {
     }
     const rows = properties.map((p) => {
       const name = this.escapeHtml(p.name);
+      const label = this.escapeHtml(p.label ?? p.name);
       const editButton = !this.propertyEditor ? '' : `
         <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
           data-property-edit="${name}" title="Edit property">
@@ -553,7 +554,7 @@ export class ParamsPanel extends AccordionSection {
         </button>`;
       return `
         <div class="px-3 py-1.5 group flex items-center gap-2" data-property-row="${name}">
-          <span class="text-sm text-base-content/80 flex-1 truncate">${name}</span>
+          <span class="text-sm text-base-content/80 flex-1 truncate" title="${name}">${label}</span>
           <span class="text-sm text-base-content/80 tabular-nums font-mono truncate max-w-[45%]" data-property-value="${name}">${this.escapeHtml(ParamsPanel.propertyValueText(p.value))}</span>
           ${editButton}
         </div>

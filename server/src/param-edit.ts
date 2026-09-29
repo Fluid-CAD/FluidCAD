@@ -28,7 +28,7 @@ import {
   type DeclarationPlan,
   type DeclarationReport,
 } from './declaration-usages.ts';
-import { DeclarationRewrite, isUsableVariableName } from './declaration-rewrite.ts';
+import { DeclarationRewrite, identifierFromLabel } from './declaration-rewrite.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -208,7 +208,7 @@ export class ParamEditor {
    * only this side can see what the file already declares.
    *
    * With `exposeAsProperty` the same edit also publishes the parameter: a
-   * `property('<variable>', <variable>)` lands at the end of the part body
+   * `property('<label>', '<variable>', <variable>)` lands at the end of the part body
    * through {@link PropertyEditor}, so the two declarations share one round
    * trip and one render — and a property name the part already uses refuses
    * the whole edit rather than leaving a parameter behind without its property.
@@ -255,7 +255,7 @@ export class ParamEditor {
       // by the property editor, the param's below — after every line splice.
       const exposed = await PropertyEditor.apply(declared.newCode, {
         kind: 'add',
-        property: { name: variable, expression: variable },
+        property: { label: param.label, name: variable, expression: variable },
         part: part!,
       });
       if (exposed.error) {
@@ -277,15 +277,7 @@ export class ParamEditor {
    * taken by itself.
    */
   static variableNameFor(label: string, tree: TSTree, current: string | null = null): string {
-    const camel = label
-      .split(/[^a-zA-Z0-9]+/)
-      .filter((word) => word !== '')
-      .map((word, i) => (i === 0 ? word.charAt(0).toLowerCase() : word.charAt(0).toUpperCase()) + word.slice(1))
-      .join('');
-    // A label of pure punctuation leaves nothing to name; one starting with a
-    // digit, or spelling a keyword, only needs a letter in front of it.
-    const usable = camel !== '' && isUsableVariableName(camel);
-    const seed = usable ? camel : `p${camel}`;
+    const seed = identifierFromLabel(label);
     const taken = (name: string) => name !== current && declaresName(tree, name);
     if (!taken(seed)) {
       return seed;

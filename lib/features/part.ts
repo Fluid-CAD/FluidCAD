@@ -22,7 +22,7 @@ export class Part extends SceneObject implements IPart {
   paramValues?: Record<string, ParamVal>;
 
   /**
-   * The values the body published with `property('name', value)`, in
+   * The values the body published with `property('Label', 'name', value)`, in
    * statement order — this variant's scalar interface. Recorded as the
    * statements execute (a breakpoint pause keeps the ones before it), so
    * they are per-variant like `paramValues`.
@@ -301,7 +301,7 @@ export class Part extends SceneObject implements IPart {
       ? `declared properties: ${declared.join(", ")}`
       : "it declares none";
     return `part "${this.partName}" has no property "${name}" — ${listing}. `
-      + `Declare it inside the part body with property('${name}', value).`;
+      + `Declare it inside the part body with property('Label', '${name}', value).`;
   }
 
   /**

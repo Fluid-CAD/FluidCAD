@@ -8,6 +8,8 @@ import type { SourceLocation } from '../../../lib/dist/common/scene-object.js';
  * — what the panel's Part dropdown filters on.
  */
 export type ScenePropertyDefinition = {
+  /** What the panel shows for the row. */
+  label: string;
   name: string;
   value: ParamVal;
   sourceLocation?: SourceLocation;
@@ -28,7 +30,7 @@ export type RenderedPartProperties = {
 type PartLike = {
   getType?: () => string;
   getSourceLocation?: () => SourceLocation | null;
-  getProperties?: () => { name: string; value: ParamVal; sourceLocation?: SourceLocation }[];
+  getProperties?: () => { label?: string; name: string; value: ParamVal; sourceLocation?: SourceLocation }[];
   /** The variant's parameter interface — set on a scoped (insert-path) build only. */
   params?: { label: string; defaultValue: ParamVal; currentValue: ParamVal }[];
 };
@@ -66,6 +68,7 @@ export function collectSceneProperties(scene: { getAllSceneObjects?: () => unkno
     }
     for (const property of part.getProperties()) {
       const def: ScenePropertyDefinition = {
+        label: property.label ?? property.name,
         name: property.name,
         value: property.value,
         part: stripVirtual(partLocation),

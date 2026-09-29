@@ -378,6 +378,9 @@ export type UIParamDefinition = {
  * statement whose body declared it (what the Part dropdown filters on).
  */
 export type UIPropertyDefinition = {
+  /** What the panel shows for the row. */
+  label: string;
+  /** The identifier the code reads the property by. */
   name: string;
   value: string | number | boolean | (string | number)[];
   sourceLocation?: SourceLocation;

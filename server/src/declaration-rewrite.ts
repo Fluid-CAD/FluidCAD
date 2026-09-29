@@ -29,6 +29,23 @@ export function isUsableVariableName(name: string): boolean {
   return IDENTIFIER_RE.test(name) && !RESERVED_NAMES.has(name);
 }
 
+/**
+ * The identifier a label suggests: camel-cased over its words — `Wall
+ * thickness` → `wallThickness`. A label of pure punctuation leaves
+ * nothing to name; one starting with a digit, or spelling a keyword, only
+ * needs a letter in front of it (`2nd` → `p2nd`). The parameters panel
+ * derives it the same way (`ui/src/ui/label-identifier.ts`), so what the
+ * dialog previews is what the file gets.
+ */
+export function identifierFromLabel(label: string): string {
+  const camel = label
+    .split(/[^a-zA-Z0-9]+/)
+    .filter((word) => word !== '')
+    .map((word, i) => (i === 0 ? word.charAt(0).toLowerCase() : word.charAt(0).toUpperCase()) + word.slice(1))
+    .join('');
+  return camel !== '' && isUsableVariableName(camel) ? camel : `p${camel}`;
+}
+
 export class DeclarationRewrite {
   /** Reads of the bound variable in the declaring file, as the panel's `references` / `referenceLines`. */
   static variableReads(plan: DeclarationPlan): { references: number; referenceLines: number[] } {

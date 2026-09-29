@@ -147,7 +147,7 @@ describe('parameter declaration routes', () => {
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(newCode).toContain(`  const depth = param('Depth', 25);`);
-    expect(newCode).toContain(`  property('depth', depth);\n});`);
+    expect(newCode).toContain(`  property('Depth', 'depth', depth);\n});`);
   });
 
   it('refuses an add that names no part, before it reaches the editor', async () => {

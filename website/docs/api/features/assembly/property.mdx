@@ -18,8 +18,8 @@ export const bushing = part('Bushing', () => {
   const width = param('Width', 40);
   const wall = param('Wall', 3);
   ...
-  property('internalWidth', width - 2 * wall);
-  property('boltCount', 4);
+  property('Internal width', 'internalWidth', width - 2 * wall);
+  property('Bolt count', 'boltCount', 4);
 });
 
 // assembly:
@@ -46,7 +46,7 @@ See the [guide](/docs/part/property) for detailed usage examples.
 ## Signatures
 
 ```ts
-property(name: string, value: T): T
+property(label: string, name: string, value: T): T
 ```
 
 Publishes a named value computed by the part — the part's scalar
@@ -61,8 +61,8 @@ export const bushing = part('Bushing', () => {
   const width = param('Width', 40);
   const wall = param('Wall', 3);
   ...
-  property('internalWidth', width - 2 * wall);
-  property('boltCount', 4);
+  property('Internal width', 'internalWidth', width - 2 * wall);
+  property('Bolt count', 'boltCount', 4);
 });
 
 // assembly:
@@ -82,5 +82,6 @@ its shapes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `label` | string | What the parameters panel shows for the property, like a `param()` label. |
 | `name` | string | Identifier the property is registered under, unique within the part. |
-| `value` | T | The value to publish. Returned unchanged, so the statement doubles as the declaration of a local: `const w = property('w', ...)`. |
+| `value` | T | The value to publish. Returned unchanged, so the statement doubles as the declaration of a local: `const w = property('W', 'w', ...)`. |

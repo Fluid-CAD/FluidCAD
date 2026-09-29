@@ -4781,6 +4781,9 @@ export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
 
 /** One `property()` declaration as the editor dialog wants it written: the value is source text. */
 export type PropertySpec = {
+  /** What the panel shows for the row. */
+  label: string;
+  /** The identifier the code reads the property by — derived from the label. */
   name: string;
   expression: string;
 };
@@ -4791,6 +4794,8 @@ export type PropertyTarget = { name: string; line?: number; filePath?: string };
 /** What the dialog seeds from and warns with — see `GET /api/properties/usage`. */
 export type PropertyUsage = DeclarationUsageReport & {
   name: string;
+  /** The declaration's label; null when the server could not read it. */
+  label?: string | null;
   /** The value argument's source text; null when the server could not read it. */
   expression: string | null;
   variable: string | null;

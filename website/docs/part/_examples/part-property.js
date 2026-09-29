@@ -25,9 +25,9 @@ export const housing = part('Housing', () => {
     // highlight-start
     // Published values, computed from the parameters. A part reads them as
     // `housing.properties.<name>`, an assembly as `instance.properties.<name>`.
-    property('pocketDiameter', width - 2 * wall);
-    property('pocketDepth', height - wall);
-    property('boltCount', 4);
+    property('Pocket diameter', 'pocketDiameter', width - 2 * wall);
+    property('Pocket depth', 'pocketDepth', height - wall);
+    property('Bolt count', 'boltCount', 4);
     // highlight-end
 });
 

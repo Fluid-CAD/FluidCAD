@@ -18,8 +18,8 @@ import type { PartProperty } from "../features/part-property.js";
  *       const width = param('Width', 40);
  *       const wall = param('Wall', 3);
  *       ...
- *       property('internalWidth', width - 2 * wall);
- *       property('boltCount', 4);
+ *       property('Internal width', 'internalWidth', width - 2 * wall);
+ *       property('Bolt count', 'boltCount', 4);
  *     });
  *
  *     // assembly:
@@ -36,11 +36,12 @@ import type { PartProperty } from "../features/part-property.js";
  * computed from the part's parameters and arithmetic, never measured from
  * its shapes.
  *
+ * @param label - What the parameters panel shows for the property, like a `param()` label.
  * @param name - Identifier the property is registered under, unique within the part.
  * @param value - The value to publish. Returned unchanged, so the statement
- *   doubles as the declaration of a local: `const w = property('w', ...)`.
+ *   doubles as the declaration of a local: `const w = property('W', 'w', ...)`.
  */
-export default function property<T extends ParamVal>(name: string, value: T): T {
+export default function property<T extends ParamVal>(label: string, name: string, value: T): T {
   const scene = getCurrentScene();
   const part = scene?.getActivePart() ?? null;
   if (!part) {
@@ -49,10 +50,20 @@ export default function property<T extends ParamVal>(name: string, value: T): T 
       + "value interface; consumers read them as instance.properties.<name>.",
     );
   }
+  if (arguments.length < 3) {
+    throw new Error(
+      "property() takes (label, name, value) — a label for the parameters panel, the identifier "
+      + "consumers read as instance.properties.<name>, and the value: property('Bolt count', 'boltCount', 4).",
+    );
+  }
+  if (typeof label !== "string" || label.trim() === "") {
+    const got = typeof label === "string" ? JSON.stringify(label) : `a ${typeof label}`;
+    throw new Error(`property(): the first argument is the property's label, as the panel shows it (got ${got}).`);
+  }
   if (typeof name !== "string" || !MEMBER_NAME_PATTERN.test(name)) {
     const got = typeof name === "string" ? JSON.stringify(name) : `a ${typeof name}`;
     throw new Error(
-      `property(): the first argument is the property's name — a plain identifier like 'internalWidth' (got ${got}).`,
+      `property(): the second argument is the property's name — a plain identifier like 'internalWidth' (got ${got}).`,
     );
   }
   if (part.getProperties().some(p => p.name === name)) {
@@ -73,7 +84,7 @@ export default function property<T extends ParamVal>(name: string, value: T): T 
     );
   }
 
-  const record: PartProperty = { name, value };
+  const record: PartProperty = { label, name, value };
   const sourceLocation = captureSourceLocation();
   if (sourceLocation) {
     record.sourceLocation = sourceLocation;

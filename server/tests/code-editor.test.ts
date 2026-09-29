@@ -1619,8 +1619,8 @@ describe('part definition properties in scope', () => {
     '',
     "export const box = part('Box', () => {",
     "  const lidClearance = param('Lid Clearance', 1);",
-    "  property('lidClearance', lidClearance);",
-    "  property('finish', 'oak');",
+    "  property('Lid clearance', 'lidClearance', lidClearance);",
+    "  property('Finish', 'finish', 'oak');",
     '}).name(\'Carcase\');',
     "export const lid = part('Lid', () => {",
     "  const s = sketch('xy', () => {",
@@ -1675,7 +1675,7 @@ describe('part definition properties in scope', () => {
   it('keeps an instance and a definition on one line apart', async () => {
     const assembly = [
       "import { part, property, insert, assembly } from 'fluidcad/core';",
-      "const box = part('Box', () => { property('w', 1); }); const box1 = insert(box);",
+      "const box = part('Box', () => { property('W', 'w', 1); }); const box1 = insert(box);",
       "assembly('main', () => {});",
     ].join('\n');
     const file = '/ws/main.assembly.js';

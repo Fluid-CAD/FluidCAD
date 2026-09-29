@@ -9,6 +9,7 @@ import {
   findEnclosingPart,
   isExpressionText,
   statementRemovalEdit,
+  stringLiteralValue,
   type SpliceEdit,
   type TSTree,
 } from './code-editor/index.ts';
@@ -31,10 +32,12 @@ import { DeclarationRewrite } from './declaration-rewrite.ts';
 
 /**
  * One `property()` declaration as the parameters panel wants it written:
- * the name and the value EXPRESSION verbatim (`width - 2 * wall`, a number,
- * a quoted string — whatever the file should say).
+ * the label the panel shows, the name the code reads it by, and the value
+ * EXPRESSION verbatim (`width - 2 * wall`, a number, a quoted string —
+ * whatever the file should say).
  */
 export type PropertySpec = {
+  label: string;
   name: string;
   expression: string;
 };
@@ -69,6 +72,8 @@ export type PropertyEditResult = { newCode: string; error?: string };
  */
 export type PropertyUsage = DeclarationReport & {
   name: string;
+  /** The label the declaration shows, or null when the call could not be located. */
+  label: string | null;
   /** The value argument's source text, or null when the call could not be located. */
   expression: string | null;
   variable: string | null;
@@ -115,7 +120,7 @@ export class PropertyEditor {
     const found = PropertyEditor.locate(tree, line, name);
     if ('error' in found) {
       return {
-        name, expression: null, variable: null, references: 0, referenceLines: [],
+        name, label: null, expression: null, variable: null, references: 0, referenceLines: [],
         editable: false, reason: found.error, ...emptyReport(),
       };
     }
@@ -124,6 +129,7 @@ export class PropertyEditor {
     const plan = planDeclaringFile(tree, filePath, 'property', declaration);
     const usage: PropertyUsage = {
       name,
+      label: args.label,
       expression: args.expression,
       variable: declaration.variable,
       ...DeclarationRewrite.variableReads(plan),
@@ -279,14 +285,14 @@ export class PropertyEditor {
   // Rendering
   // -------------------------------------------------------------------------
 
-  /** The full `property('name', expr)` call text. */
+  /** The full `property('Label', 'name', expr)` call text. */
   static renderCall(property: PropertySpec): string {
     return `property(${PropertyEditor.renderArgs(property)})`;
   }
 
   /** The argument list, minus the parentheses. */
   private static renderArgs(property: PropertySpec): string {
-    return `'${quoteForSingleQuotes(property.name)}', ${property.expression.trim()}`;
+    return `'${quoteForSingleQuotes(property.label)}', '${quoteForSingleQuotes(property.name)}', ${property.expression.trim()}`;
   }
 
   // -------------------------------------------------------------------------
@@ -297,6 +303,12 @@ export class PropertyEditor {
   private static validate(property: PropertySpec): string | null {
     if (!property || typeof property !== 'object') {
       return 'malformed property edit spec: no property';
+    }
+    if (typeof property.label !== 'string' || property.label.trim() === '') {
+      return 'a property needs a label';
+    }
+    if (property.label !== property.label.trim()) {
+      return 'a property label cannot start or end with whitespace';
     }
     if (typeof property.name !== 'string' || !NAME_RE.test(property.name)) {
       return 'a property name is a plain identifier, like internalWidth';
@@ -311,19 +323,24 @@ export class PropertyEditor {
   }
 
   /**
-   * The value argument's source text, as the file spells it. A call with no
-   * value, or with arguments beyond the value, is reported rather than
-   * guessed at — the editor only rewrites the two-argument form.
+   * The label and the value argument's source text, as the file spells
+   * them. A call with no value, a computed label, or arguments beyond the
+   * value is reported rather than guessed at — the editor only rewrites
+   * the `property('Label', 'name', value)` form.
    */
-  private static readArgs(declaration: DeclarationCall): { expression: string | null; error?: string } {
-    const value = declaration.args.namedChild(1);
+  private static readArgs(declaration: DeclarationCall): { label: string | null; expression: string | null; error?: string } {
+    const label = stringLiteralValue(declaration.args.namedChild(0)!);
+    const value = declaration.value;
     if (!value) {
-      return { expression: null, error: 'this property() call has no value argument' };
+      return { label, expression: null, error: 'this property() call has no value argument' };
     }
-    if (declaration.args.namedChild(2)) {
-      return { expression: value.text, error: 'this property() call has extra arguments — edit it in the code instead' };
+    if (label === null) {
+      return { label, expression: value.text, error: 'this property() call has a computed label — edit it in the code instead' };
     }
-    return { expression: value.text };
+    if (declaration.args.namedChild(3)) {
+      return { label, expression: value.text, error: 'this property() call has extra arguments — edit it in the code instead' };
+    }
+    return { label, expression: value.text };
   }
 
   /**

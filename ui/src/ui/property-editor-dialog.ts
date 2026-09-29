@@ -13,17 +13,21 @@ import { ActivePartTracker, type PartChoice } from '../interactive/active-part-t
 import { describeDeletionPlan, type DeletionWording } from './declaration-usage';
 import { ExpressionField } from './expression-field';
 import { ICON_CLOSE, ICON_TRASH } from './icons';
+import { identifierFromLabel } from './label-identifier';
 import type { PartChoices } from './param-editor-dialog';
 
 const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
  * The parameters panel's add / edit / delete dialog for `property()`
- * declarations — the values a part publishes. A property's value is an
- * EXPRESSION over the part's parameters (`width - 2 * wall`), so the value
- * field is the 3D dialogs' expression field with the chosen part's
- * variables on offer; each commit is a source edit the server applies
- * through the editor host, and the resulting re-render feeds the panel.
+ * declarations — the values a part publishes. The label is what the panel
+ * shows; the name the code reads the property by is derived from it and
+ * shown read-only, so renaming the label renames the property (and, through
+ * the server, every read of it). A property's value is an EXPRESSION over
+ * the part's parameters (`width - 2 * wall`), so the value field is the 3D
+ * dialogs' expression field with the chosen part's variables on offer; each
+ * commit is a source edit the server applies through the editor host, and
+ * the resulting re-render feeds the panel.
  *
  * Nothing the user types is interpolated into markup: the shell is static
  * and every value goes through `.value` / `.textContent`.
@@ -31,6 +35,7 @@ const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export class PropertyEditorDialog {
   private overlay: HTMLDivElement;
   private title: HTMLElement;
+  private labelInput: HTMLInputElement;
   private nameInput: HTMLInputElement;
   private partRow: HTMLElement;
   private partSelect: HTMLSelectElement;
@@ -62,6 +67,7 @@ export class PropertyEditorDialog {
       this.overlay.querySelector<T>(`[data-ref="${name}"]`)!;
 
     this.title = ref('title');
+    this.labelInput = ref('label');
     this.nameInput = ref('name');
     this.partRow = ref('part-row');
     this.partSelect = ref('part');
@@ -93,12 +99,13 @@ export class PropertyEditorDialog {
     this.target = null;
     this.usage = null;
     this.title.textContent = 'Add property';
+    this.labelInput.value = '';
     this.nameInput.value = '';
     this.valueField.setValue('');
     this.populateParts(preferredPart);
     this.editActions.classList.add('hidden');
     this.show();
-    this.nameInput.focus();
+    this.labelInput.focus();
     void this.loadVariables();
   }
 
@@ -116,6 +123,9 @@ export class PropertyEditorDialog {
     this.target = target;
     this.usage = null;
     this.title.textContent = 'Edit property';
+    // The name only follows the label once the user edits it: a declaration
+    // whose name does not reduce from its label keeps that name until then.
+    this.labelInput.value = def.label ?? def.name;
     this.nameInput.value = def.name;
     // Until the source text arrives the field shows what the render computed.
     this.valueField.setValue(PropertyEditorDialog.valueText(def.value));
@@ -124,8 +134,8 @@ export class PropertyEditorDialog {
     this.partRow.classList.remove('flex');
     this.editActions.classList.remove('hidden');
     this.show();
-    this.nameInput.focus();
-    this.nameInput.select();
+    this.labelInput.focus();
+    this.labelInput.select();
     void this.loadUsage(target);
     void this.loadVariables(def.sourceLocation?.line ?? null);
   }
@@ -155,7 +165,10 @@ export class PropertyEditorDialog {
         </div>
 
         <div class="flex flex-col gap-3">
-          ${field('Name', '<input data-ref="name" type="text" class="input input-sm input-bordered w-full" placeholder="internalWidth" spellcheck="false" />')}
+          ${field('Label', '<input data-ref="label" type="text" class="input input-sm input-bordered w-full" placeholder="Internal width" />')}
+
+          ${field('Name', '<input data-ref="name" type="text" readonly class="input input-sm input-bordered w-full font-mono text-base-content/70" placeholder="internalWidth" spellcheck="false" />')}
+          <span class="text-[11px] text-base-content/50 -mt-2">What the code reads as <code>properties.name</code>, from the label.</span>
 
           <div data-ref="part-row" class="hidden flex-col gap-1">
             ${field('Part', '<select data-ref="part" class="select select-sm select-bordered w-full"></select>')}
@@ -233,6 +246,10 @@ export class PropertyEditorDialog {
     });
     // Another part, another set of variables to offer.
     this.partSelect.addEventListener('change', () => void this.loadVariables());
+    // The name follows the label as it is typed.
+    this.labelInput.addEventListener('input', () => {
+      this.nameInput.value = identifierFromLabel(this.labelInput.value.trim());
+    });
 
     this.deleteBtn.addEventListener('click', () => this.askToDelete());
     this.overlay.querySelector('[data-ref="confirm-cancel"]')!.addEventListener('click', () => {
@@ -300,18 +317,19 @@ export class PropertyEditorDialog {
 
   /** Everything the form describes, or the first reason it describes nothing. */
   private readSpec(): PropertySpec | { error: string } {
-    const name = this.nameInput.value.trim();
-    if (name === '') {
-      return { error: 'Give the property a name.' };
+    const label = this.labelInput.value.trim();
+    if (label === '') {
+      return { error: 'Give the property a label.' };
     }
+    const name = this.nameInput.value.trim();
     if (!NAME_RE.test(name)) {
-      return { error: 'A property name is a plain identifier, like internalWidth.' };
+      return { error: 'The label gives no usable name — start it with a letter.' };
     }
     const expression = this.valueInput.value.trim();
     if (expression === '') {
       return { error: 'Give the property a value.' };
     }
-    return { name, expression };
+    return { label, name, expression };
   }
 
   // ---------------------------------------------------------------------------
@@ -417,6 +435,9 @@ export class PropertyEditorDialog {
     this.usage = usage;
     if (usage?.expression !== null && usage?.expression !== undefined) {
       this.valueField.setValue(usage.expression);
+    }
+    if (usage?.label) {
+      this.labelInput.value = usage.label;
     }
     if (usage && !usage.editable) {
       this.setMessage(usage.reason ?? 'This property has to be edited in the code.');

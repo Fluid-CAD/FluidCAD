@@ -25,8 +25,9 @@ function param(label: string, part = bracket): UIParamDefinition {
 }
 
 function property(name: string, value: UIPropertyDefinition['value'], part = bracket): UIPropertyDefinition {
+  const label = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()).toLowerCase().replace(/^./, (c) => c.toUpperCase());
   return {
-    name, value, part: part.sourceLocation,
+    label, name, value, part: part.sourceLocation,
     sourceLocation: { filePath: FILE, line: part.sourceLocation.line + 5, column: 2 },
   };
 }
@@ -106,6 +107,8 @@ describe('ParamsPanel property rows', () => {
     );
     expect(host.querySelector('[data-properties]')?.textContent).toContain('Properties');
     expect(rows()).toEqual(['innerWidth', 'finish']);
+    // Rows are keyed by name but read by label.
+    expect(host.querySelector('[data-property-row="innerWidth"]')?.textContent).toContain('Inner width');
     expect(valueOf('innerWidth')).toBe('52');
     expect(valueOf('finish')).toBe('anodised');
   });

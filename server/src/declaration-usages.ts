@@ -44,6 +44,7 @@ import {
 import {
   boundVariable,
   declaresName,
+  findDeclarationCalls,
   isSameNode,
   outermostExpression,
   type DeclarationCall,
@@ -255,9 +256,9 @@ function usageNode(site: UsageSite): TSNode {
   }
 }
 
-/** The declaration's value: the source text of its second argument. */
+/** The declaration's value argument — a param's default, a property's value. */
 export function declarationValue(declaration: DeclarationCall): TSNode | null {
-  return declaration.args.namedChild(1);
+  return declaration.value;
 }
 
 /** Suffixes a workspace import may leave off: `./a.part` reaches `a.part.js`. */
@@ -510,25 +511,12 @@ export class DeclarationUsages {
     return sites;
   }
 
-  /** The declaring file's own binding named `name` at the top level or in a definition body. */
+  /** The binding of the declaration's own `const <name> = <kind>(…, '<key>', …)`. */
   private declaringBinding(name: string): Binding | null {
-    for (const node of walkTree(this.tree.rootNode)) {
-      if (node.type !== 'variable_declarator') {
-        continue;
-      }
-      const nameNode = node.childForFieldName('name');
-      if (nameNode?.type !== 'identifier' || nameNode.text !== name) {
-        continue;
-      }
-      const value = node.childForFieldName('value');
-      const call = value === null ? null : declarationCallOf(value);
-      const key = call?.childForFieldName('arguments')?.namedChild(0) ?? null;
-      if (call && key && stringLiteralValue(key) === this.declaration.key
-        && call.childForFieldName('function')?.text === this.declaration.kind) {
-        return bindingOfDeclarator(this.bindings, nameNode);
-      }
-    }
-    return null;
+    const declaration = findDeclarationCalls(this.tree, this.declaration.kind)
+      .find((d) => d.key === this.declaration.key && d.variable === name);
+    const nameNode = declaration ? outermostExpression(declaration.call).parent?.childForFieldName('name') ?? null : null;
+    return nameNode ? bindingOfDeclarator(this.bindings, nameNode) : null;
   }
 
   /** The import bindings of this file that resolve to the declaring file. */
@@ -751,25 +739,6 @@ export class DeclarationUsages {
 
 function isPortable(free: FreeIdentifier[]): boolean {
   return free.every((identifier) => identifier.binding === null);
-}
-
-/** The `fn(…)` call at the root of a declarator's value chain, or null. */
-function declarationCallOf(value: TSNode): TSNode | null {
-  let current: TSNode | null = value;
-  while (current) {
-    if (current.type === 'call_expression') {
-      const callee = current.childForFieldName('function');
-      if (callee?.type === 'identifier') {
-        return current;
-      }
-      current = callee?.type === 'member_expression' ? callee.childForFieldName('object') : null;
-    } else if (current.type === 'member_expression') {
-      current = current.childForFieldName('object');
-    } else {
-      return null;
-    }
-  }
-  return null;
 }
 
 /**

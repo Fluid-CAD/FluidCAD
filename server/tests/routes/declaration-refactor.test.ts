@@ -34,8 +34,8 @@ const HOUSING = [
   `    circle(width);`,
   `  });`,
   `  extrude(25);`,
-  `  property('pocketDiameter', width - 2 * wall);`,
-  `  property('boltCount', 4);`,
+  `  property('Pocket diameter', 'pocketDiameter', width - 2 * wall);`,
+  `  property('Bolt count', 'boltCount', 4);`,
   `});`,
   ``,
 ].join('\n');
@@ -186,7 +186,7 @@ describe('declaration rename and delete across the workspace', () => {
     const housing = buffers[join(workspace, 'parts/housing.part.js')];
     expect(housing).toContain(`const outerWidth = param('Outer width', 60);`);
     expect(housing).toContain(`circle(outerWidth);`);
-    expect(housing).toContain(`property('pocketDiameter', outerWidth - 2 * wall);`);
+    expect(housing).toContain(`property('Pocket diameter', 'pocketDiameter', outerWidth - 2 * wall);`);
     const frame = buffers[join(workspace, 'frame.assembly.js')];
     expect(frame).toContain(`insert(housing, { 'Outer width': 100, Wall: 3 }).grounded();`);
     expect(frame).toContain(`insert(housing, { 'Outer width': 50 }).translate(120, 0, 0);`);
@@ -197,7 +197,7 @@ describe('declaration rename and delete across the workspace', () => {
     expect(body.success).toBe(true);
     const housing = buffers[join(workspace, 'parts/housing.part.js')];
     expect(housing).not.toContain('Wall');
-    expect(housing).toContain(`property('pocketDiameter', width - 2 * 4);`);
+    expect(housing).toContain(`property('Pocket diameter', 'pocketDiameter', width - 2 * 4);`);
     expect(buffers[join(workspace, 'frame.assembly.js')]).toContain(`insert(housing, { Width: 100 }).grounded();`);
   });
 
@@ -205,7 +205,7 @@ describe('declaration rename and delete across the workspace', () => {
     const { body, order } = await actAsEditor(post('/properties/update', {
       name: 'boltCount',
       line: 11,
-      property: { name: 'bolts', expression: '4' },
+      property: { label: 'Bolts', name: 'bolts', expression: '4' },
     }));
     expect(body.success).toBe(true);
     expect(order).toEqual([
@@ -213,7 +213,7 @@ describe('declaration rename and delete across the workspace', () => {
       join(workspace, 'parts/plug.part.js'),
       join(workspace, 'parts/housing.part.js'),
     ]);
-    expect(buffers[join(workspace, 'parts/housing.part.js')]).toContain(`property('bolts', 4);`);
+    expect(buffers[join(workspace, 'parts/housing.part.js')]).toContain(`property('Bolts', 'bolts', 4);`);
     expect(buffers[join(workspace, 'parts/plug.part.js')]).toContain(`extrude(housing.properties.bolts * 2);`);
     expect(buffers[join(workspace, 'frame.assembly.js')]).toContain(`const gap = wide.properties.bolts;`);
   });
@@ -240,7 +240,7 @@ describe('declaration rename and delete across the workspace', () => {
   it('stops at a consumer the host refuses and leaves the declaration alone', async () => {
     // The host answers the assembly's edit honestly and refuses the plug's
     // — its buffer has moved on — so the sequence stops there.
-    const pending = post('/properties/update', { name: 'boltCount', line: 11, property: { name: 'bolts', expression: '4' } });
+    const pending = post('/properties/update', { name: 'boltCount', line: 11, property: { label: 'Bolts', name: 'bolts', expression: '4' } });
     let handled = 0;
     let result: { status: number; body: any } | null = null;
     void pending.then((value) => { result = value; });

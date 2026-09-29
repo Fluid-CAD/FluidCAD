@@ -1,7 +1,7 @@
 ---
 id: api/property
-title: "property(name, value)"
-summary: "Publishes a value a part computes from its parameters under a name. An assembly reads instance.properties.name (that instance's own values), another part reads def.properties.name (the default variant). Plain numbers/strings/booleans/arrays only — never geometry, never a measurement of the built shapes."
+title: "property(label, name, value)"
+summary: "Publishes a value a part computes from its parameters under a name, with a label for the Parameters panel. An assembly reads instance.properties.name (that instance's own values), another part reads def.properties.name (the default variant). Plain numbers/strings/booleans/arrays only — never geometry, never a measurement of the built shapes."
 tags: [api, part, assembly]
 symbols: [property]
 seeAlso: [api/part, api/param, api/insert, api/expose, concepts/assemblies]
@@ -12,7 +12,7 @@ seeAlso: [api/part, api/param, api/insert, api/expose, concepts/assemblies]
 Imported from `fluidcad/core`.
 
 ```ts
-property(name: string, value: number | string | boolean | (number | string)[]): value
+property(label: string, name: string, value: number | string | boolean | (number | string)[]): value
 ```
 
 The part's value interface — the outbound twin of `param()`: a parameter
@@ -28,7 +28,7 @@ from those parameters. `connector()` does the same for mate frames and
   gets the default variant's values.
 
 Values are plain, so they go anywhere a number goes. The statement returns
-the value, so `const w = property('w', width - 2 * wall)` declares a local
+the value, so `const w = property('W', 'w', width - 2 * wall)` declares a local
 and publishes it in one line. Reading a name the part never declared
 throws an error listing the declared names — never `undefined`.
 
@@ -36,7 +36,7 @@ Numbers are handed over verbatim, in the part file's unit, like a
 `param()` override — converting is the consumer's business.
 
 Rules: call it inside a `part()` body (anywhere in it, like `param()`);
-names are unique within a part; the value must be a number, string,
+all three arguments are required; names are unique within a part; the value must be a number, string,
 boolean or array of numbers/strings. Nothing is built while the body runs,
 so a property is arithmetic over parameters — it cannot measure the part's
 geometry (a bounding box, a volume). Geometry is published with `expose()`.
@@ -68,9 +68,9 @@ const housing = part("Housing", () => {
   });
   cut(height - wall);   // down into the body, leaving the floor
 
-  property("pocketDiameter", width - 2 * wall);
-  property("pocketDepth", height - wall);
-  property("boltCount", 4);
+  property("Pocket diameter", "pocketDiameter", width - 2 * wall);
+  property("Pocket depth", "pocketDepth", height - wall);
+  property("Bolt count", "boltCount", 4);
 });
 
 // A plug sized from the housing's published pocket (default variant).

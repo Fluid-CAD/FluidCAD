@@ -3,8 +3,9 @@ import type { ParamVal } from "../param-registry.js";
 import { isParamValue } from "./param-overrides.js";
 
 /**
- * One `property('name', value)` declaration of a part body — a value the
- * part computes from its parameters and publishes as its scalar interface.
+ * One `property('Label', 'name', value)` declaration of a part body — a
+ * value the part computes from its parameters and publishes as its scalar
+ * interface, under a name the code reads it by and a label the panel shows.
  * Stored on the built `Part` variant (never a scene object: it has no
  * geometry and no build order), so an inserted variant's properties are the
  * values ITS parameters produced. Numbers are handed over verbatim, in the
@@ -12,6 +13,9 @@ import { isParamValue } from "./param-overrides.js";
  * consumer's business.
  */
 export type PartProperty = {
+  /** What the parameters panel shows for the row. */
+  label: string;
+  /** The identifier `instance.properties.<name>` / `def.properties.<name>` read. */
   name: string;
   value: ParamVal;
   /** Where the `property()` call was authored — what the parameters panel addresses. */

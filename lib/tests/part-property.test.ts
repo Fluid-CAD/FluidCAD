@@ -23,10 +23,10 @@ function makeBushing() {
     const wall = param("Wall", 3);
     sketch("xy", () => { testRect(width, width); });
     extrude(10);
-    property("internalWidth", width - 2 * wall);
-    property("boltCount", 4);
-    property("finish", "anodised");
-    property("holes", [6, 8]);
+    property("Internal width", "internalWidth", width - 2 * wall);
+    property("Bolt count", "boltCount", 4);
+    property("Finish", "finish", "anodised");
+    property("Holes", "holes", [6, 8]);
   });
 }
 
@@ -36,19 +36,19 @@ describe("property() scope and validation", () => {
   });
 
   it("throws when called outside a part() block", () => {
-    expect(() => property("width", 10)).toThrow(/inside a part\(\) block/i);
+    expect(() => property("Width", "width", 10)).toThrow(/inside a part\(\) block/i);
   });
 
   it("throws at assembly top level with the same pointed error", () => {
     startAssembly();
-    expect(() => property("width", 10)).toThrow(/inside a part\(\) block/i);
+    expect(() => property("Width", "width", 10)).toThrow(/inside a part\(\) block/i);
   });
 
   it("is accepted inside a nested callback of the part body, like param()", () => {
     const def = part("nested", () => {
       sketch("xy", () => {
         testRect(20, 20);
-        property("fromSketch", 1);
+        property("From sketch", "fromSketch", 1);
       });
       extrude(5);
     });
@@ -58,26 +58,42 @@ describe("property() scope and validation", () => {
   it("rejects a missing or non-identifier name", () => {
     for (const bad of ["", "internal width", "1st", "a-b"]) {
       expect(() => {
-        part(`bad-name-${bad}`, () => { property(bad, 1); }).materialize();
+        part(`bad-name-${bad}`, () => { property("Bad", bad, 1); }).materialize();
       }).toThrow(/identifier/i);
     }
     expect(() => {
       part("no-name", () => { (property as unknown as (v: number) => void)(5); }).materialize();
-    }).toThrow(/name/i);
+    }).toThrow(/takes \(label, name, value\)/i);
+  });
+
+  it("rejects an empty label, and the old two-argument form with a pointer to the new one", () => {
+    expect(() => {
+      part("no-label", () => { property("", "w", 1); }).materialize();
+    }).toThrow(/label/i);
+    expect(() => {
+      part("two-args", () => { (property as unknown as (n: string, v: number) => void)("boltCount", 4); }).materialize();
+    }).toThrow(/property\('Bolt count', 'boltCount', 4\)/);
+  });
+
+  it("records the label beside the name", () => {
+    const bushing = makeBushing();
+    expect(bushing.getProperties().map(p => [p.label, p.name])).toEqual([
+      ["Internal width", "internalWidth"], ["Bolt count", "boltCount"], ["Finish", "finish"], ["Holes", "holes"],
+    ]);
   });
 
   it("throws on a duplicate name within the same part", () => {
     expect(() => {
       part("dup", () => {
-        property("w", 1);
-        property("w", 2);
+        property("W", "w", 1);
+        property("W", "w", 2);
       }).materialize();
     }).toThrow(/already declares "w"/i);
   });
 
   it("allows the same name in two different parts", () => {
-    const a = part("same-a", () => { property("w", 1); });
-    const b = part("same-b", () => { property("w", 2); });
+    const a = part("same-a", () => { property("W", "w", 1); });
+    const b = part("same-b", () => { property("W", "w", 2); });
     expect(a.properties.w).toBe(1);
     expect(b.properties.w).toBe(2);
   });
@@ -86,7 +102,7 @@ describe("property() scope and validation", () => {
     expect(() => {
       part("geometry", () => {
         const s = sketch("xy", () => { testRect(20, 20); });
-        property("profile", s as any);
+        property("Profile", "profile", s as any);
       }).materialize();
     }).toThrow(/expose\('profile', source\)/);
   });
@@ -94,21 +110,21 @@ describe("property() scope and validation", () => {
   it("refuses values that are not primitives or arrays of them", () => {
     for (const bad of [{ x: 1 }, () => 5, null, undefined, [1, { y: 2 }]]) {
       expect(() => {
-        part("bad-value", () => { property("v", bad as any); }).materialize();
+        part("bad-value", () => { property("V", "v", bad as any); }).materialize();
       }).toThrow(/must be a number, string, boolean, or array/i);
     }
   });
 
   it("returns the value so the statement can declare a local", () => {
     let seen: number | undefined;
-    part("returns", () => { seen = property("w", 12); }).materialize();
+    part("returns", () => { seen = property("W", "w", 12); }).materialize();
     expect(seen).toBe(12);
   });
 
   it("records the declarations in statement order on the variant", () => {
     const def = part("recorded", () => {
-      property("w", 12);
-      property("n", 3);
+      property("W", "w", 12);
+      property("N", "n", 3);
     });
     const declared = def.getProperties();
     expect(declared.map(p => [p.name, p.value])).toEqual([["w", 12], ["n", 3]]);
@@ -146,7 +162,7 @@ describe("reading properties", () => {
     const def = makeBushing();
     const plate = part("Plate", () => {
       const w = param("Width", 10);
-      property("width", w);
+      property("Width", "width", w);
     });
     startAssembly();
     const b = insert(def, { Width: 60 });
@@ -185,9 +201,9 @@ describe("reading properties", () => {
 
   it("re-throws the breakpoint when the variant paused before the declaration", () => {
     const def = part("paused", () => {
-      property("before", 1);
+      property("Before", "before", 1);
       (breakpoint as unknown as () => void)();
-      property("after", 2);
+      property("After", "after", 2);
     });
     startAssembly();
     let handle: ReturnType<typeof insert> | undefined;
@@ -211,8 +227,8 @@ describe("property units", () => {
     const variant = new Part("inch-part");
     variant.setUnit("in");
     variant.setTargetUnit("mm");
-    variant.addProperty({ name: "bore", value: 0.5 });
-    variant.addProperty({ name: "label", value: "half inch" });
+    variant.addProperty({ label: "Bore", name: "bore", value: 0.5 });
+    variant.addProperty({ label: "Label", name: "label", value: "half inch" });
     expect(variant.properties.bore).toBe(0.5);
     expect(variant.properties.label).toBe("half inch");
   });

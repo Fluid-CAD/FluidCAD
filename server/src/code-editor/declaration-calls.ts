@@ -9,12 +9,24 @@
 import { stringLiteralValue, walkTree } from './nodes.ts';
 import type { TSNode, TSTree } from './parser.ts';
 
-/** A located `fn('key', …)` call and everything the transforms need about it. */
+/**
+ * Where a declaration call keeps its key and its value: `param('Label',
+ * default)` is keyed by its first argument, `property('Label', 'name',
+ * value)` by its second — the name the code reads it by, not the label.
+ */
+export const DECLARATION_SHAPES: Record<string, { key: number; value: number }> = {
+  param: { key: 0, value: 1 },
+  property: { key: 1, value: 2 },
+};
+
+/** A located `fn(…, 'key', …)` call and everything the transforms need about it. */
 export type DeclarationCall = {
   call: TSNode;
   args: TSNode;
-  /** The first argument's string literal — the registry key / the property name. */
+  /** The key argument's string literal — the registry label / the property name. */
   key: string;
+  /** The value argument — a param's default, a property's value — or null when the call has none. */
+  value: TSNode | null;
   /** The `const <name> =` this declaration binds, when it binds one. */
   variable: string | null;
   /** True when a `.slider()`-style tail follows the call. */
@@ -23,8 +35,9 @@ export type DeclarationCall = {
   line: number;
 };
 
-/** Every `fn('literal', …)` call in the file, in source order. */
+/** Every `fn(…)` call in the file whose key is a string literal, in source order. */
 export function findDeclarationCalls(tree: TSTree, fn: string): DeclarationCall[] {
+  const shape = DECLARATION_SHAPES[fn] ?? { key: 0, value: 1 };
   const declarations: DeclarationCall[] = [];
   for (const node of walkTree(tree.rootNode)) {
     if (node.type !== 'call_expression') {
@@ -35,10 +48,10 @@ export function findDeclarationCalls(tree: TSTree, fn: string): DeclarationCall[
       continue;
     }
     const args = node.childForFieldName('arguments');
-    const first = args?.namedChild(0);
+    const keyNode = args?.namedChild(shape.key);
     // A computed key (a variable, a template string) is not something a
     // panel can address — the key it produces isn't in the source.
-    const key = first ? stringLiteralValue(first) : null;
+    const key = keyNode ? stringLiteralValue(keyNode) : null;
     if (!args || key === null) {
       continue;
     }
@@ -46,6 +59,7 @@ export function findDeclarationCalls(tree: TSTree, fn: string): DeclarationCall[
       call: node,
       args,
       key,
+      value: args.namedChild(shape.value),
       variable: boundVariable(node),
       chained: isChained(node),
       line: node.startPosition.row + 1,

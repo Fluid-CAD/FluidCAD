@@ -461,6 +461,8 @@ export type UIParamDefinition = {
  * panel's Part dropdown filters on it).
  */
 export type UIPropertyDefinition = {
+  /** What the panel shows for the row. */
+  label: string;
   name: string;
   value: string | number | boolean | (string | number)[];
   sourceLocation?: { filePath: string; line: number; column: number };

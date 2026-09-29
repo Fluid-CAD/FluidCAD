@@ -22,12 +22,13 @@ function validPropertySpec(input: unknown): PropertySpec | null {
     return null;
   }
   const raw = input as Record<string, unknown>;
+  const label = typeof raw.label === 'string' ? raw.label.trim() : '';
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   const expression = typeof raw.expression === 'string' ? raw.expression.trim() : '';
-  if (name === '' || expression === '') {
+  if (label === '' || name === '' || expression === '') {
     return null;
   }
-  return { name, expression };
+  return { label, name, expression };
 }
 
 /**

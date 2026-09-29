@@ -197,7 +197,7 @@ describe('ParamEditor.add exposed as a property', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { property, part, param, sketch, circle, extrude } from 'fluidcad/core';`);
     expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  const wallThickness = param('Wall thickness', 3);\n`);
-    expect(result.newCode).toContain(`  extrude(width);\n  property('wallThickness', wallThickness);\n});`);
+    expect(result.newCode).toContain(`  extrude(width);\n  property('Wall thickness', 'wallThickness', wallThickness);\n});`);
   });
 
   it('names the property after the stepped variable, not the label', async () => {
@@ -206,7 +206,7 @@ describe('ParamEditor.add exposed as a property', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const width2 = param('width', 3);`);
-    expect(result.newCode).toContain(`property('width2', width2);`);
+    expect(result.newCode).toContain(`property('width', 'width2', width2);`);
   });
 
   it('pulls both imports into a file that has neither', async () => {
@@ -217,12 +217,12 @@ describe('ParamEditor.add exposed as a property', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { param, property, part, sketch } from 'fluidcad/core';`);
     expect(result.newCode).toContain(
-      `part('P', () => {\n  const depth = param('Depth', 25);\n  sketch('xy', () => {});\n  property('depth', depth);\n});`,
+      `part('P', () => {\n  const depth = param('Depth', 25);\n  sketch('xy', () => {});\n  property('Depth', 'depth', depth);\n});`,
     );
   });
 
   it('refuses the whole edit when the part already declares that property', async () => {
-    const taken = CODE.replace(`  extrude(width);`, `  extrude(width);\n  property('depth', 1);`);
+    const taken = CODE.replace(`  extrude(width);`, `  extrude(width);\n  property('Depth', 'depth', 1);`);
     const result = await ParamEditor.apply(taken, {
       kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE, exposeAsProperty: true,
     });

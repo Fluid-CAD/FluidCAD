@@ -4,6 +4,7 @@ title: "Offset"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolOffsetConstrained from '!!raw-loader!../_examples/tool-offset-constrained.js';
 import toolOffsetBasic from '!!raw-loader!../_examples/tool-offset-basic.js';
 import toolOffsetRemove from '!!raw-loader!../_examples/tool-offset-remove.js';
 import toolOffsetClose from '!!raw-loader!../_examples/tool-offset-close.js';
@@ -17,15 +18,25 @@ Offset copies sketch geometry inward or outward by a distance: walls, clearances
 <img src="/img/docs/ui/sketch-offset-dialog.png" alt="The Offset dialog with the four edges of a stadium picked and a distance of 5" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
 
 1. Click **Offset** on the sketch toolbar. The Offset dialog opens docked on the right with a **Selection** slot, a **Distance** field (positive = outward, negative = inward) and a **Close ends** toggle.
-2. Click a sketch edge. It lands in **Selection** as a chip that names the primitive and its source line. A plain click replaces the pick; hold <kbd>Ctrl</kbd> (<kbd>⌘</kbd> on a Mac) to add more edges, and click a chip's **✕** to drop one. A blue preview of the offset follows the picks and the value, and the statement about to be written shows under the dialog.
-3. **Apply** writes the `offset()` statement after the geometry and constraints, at the end of the sketch body.
+2. Click a sketch edge. It lands in **Selection** as a chip that names the primitive and its source line. A plain click replaces the pick; hold <kbd>Ctrl</kbd> (<kbd>⌘</kbd> on a Mac) to add more edges, and click a chip's **✕** to drop one. A blue preview of the offset follows the picks and the value. Connected picks offset as one chain; where the chain turns a corner, the two offset edges are prolonged to their crossing — corners stay sharp.
+3. **Apply** writes the offset curves as real lines, arcs and circles — one per picked edge — after the geometry, held to their sources by a single [`offsetFrom`](/docs/sketching/constraints/dimensional/offset) statement, with a `coincident` at each sharp corner.
 
 <div style={{clear: 'both'}} />
 
-![A pocket outline offset outward into a wall](/img/docs/sketching/tool-offset-basic.png)
+![A pocket outline offset outward into a wall](/img/docs/sketching/tool-offset-constrained.png)
+
+<ExplainedCode code={toolOffsetConstrained} fileName="plate.part.js">
+The offset is **constrained geometry**: the four offset curves are ordinary statements you can pick, dimension and constrain further, and `offsetFrom` keeps each one 5 from the edge it follows. The stadium's junctions are all tangent, so the offsets meet on their own and no corner coincidents are written. Double-click the offset's label to change the distance; delete the statement to keep the curves as free geometry.
+</ExplainedCode>
+
+The tool handles lines, arcs and circles. For ellipses, beziers and text, or to offset a face outline outside a sketch, write the `offset()` operation below.
+
+## In code: the offset() operation
+
+![A pocket outline offset outward into a wall with rounded corners](/img/docs/sketching/tool-offset-basic.png)
 
 <ExplainedCode code={toolOffsetBasic} fileName="plate.part.js">
-Offset is a **derived operation**: it consumes the solved geometry, so its statement always comes after the geometry and constraint statements. The tool lists the edges you picked, `offset(5, top, right, bottom, left)`; with every edge picked, `offset(5)` on its own means the same thing.
+`offset()` is a **derived operation**: it consumes the solved geometry, so its statement always comes after the geometry and constraint statements, and its result rounds every corner with an arc. It lists the edges to offset, `offset(5, top, right, bottom, left)`; with every edge picked, `offset(5)` on its own means the same thing.
 </ExplainedCode>
 
 ## By hand
@@ -47,7 +58,7 @@ To use only the offset curve in the profile, make the sources guides with `.guid
 
 ## Closing an open offset
 
-**Close ends** (`.close()` in code) connects an open offset back to its original with two straight cap edges, producing a closed loop that can be extruded:
+**Close ends** connects an open offset back to its original with two straight cap edges, producing a closed loop that can be extruded. The tool writes the two caps as lines pinned to the chain's ends; in code, `.close()` does the same for `offset()`:
 
 ![An arched handle: an arc offset and closed](/img/docs/sketching/tool-offset-close.png)
 

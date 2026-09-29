@@ -288,6 +288,7 @@ export const constraints: ConstraintEntry[] = [
   { name: 'angle', sourceFile: 'core/constraints/angle.ts', group: 'dimension' },
   { name: 'radius', sourceFile: 'core/constraints/radius.ts', group: 'dimension' },
   { name: 'diameter', sourceFile: 'core/constraints/diameter.ts', group: 'dimension' },
+  { name: 'offsetFrom', sourceFile: 'core/constraints/offset-from.ts', group: 'dimension' },
 ];
 
 // ── Expandable options types ──

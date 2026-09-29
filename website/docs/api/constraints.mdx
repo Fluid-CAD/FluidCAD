@@ -12,7 +12,7 @@ are guesses; the sketch solver moves the entities so every constraint holds.
 Each statement appears in the timeline like any other feature.
 
 ```ts
-import { coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, fix, distance, angle, radius, diameter } from 'fluidcad/constraints';
+import { coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, fix, distance, angle, radius, diameter, offsetFrom } from 'fluidcad/constraints';
 ```
 
 ## Constraint targets
@@ -312,4 +312,32 @@ Dimensions the diameter of a circle or arc.
 |-----------|------|-------------|
 | `c` | [ConstraintTarget](#constraint-targets) | The circle or arc |
 | `value` | NumberParam | The diameter value |
+
+---
+
+### offsetFrom()
+
+```ts
+offsetFrom(offsets: ConstraintTarget | ConstraintTarget[], sources: ConstraintTarget | ConstraintTarget[], distance: NumberParam): SceneObject
+```
+
+Offset constraint: holds each offset entity at `distance` from its source —
+a line parallel to its source at that distance, an arc or circle concentric
+with its source at its radius ± distance. This is what the sketcher's
+Offset tool writes: the offset curves are real lines and arcs you can
+dimension and constrain further, held together by one statement. The
+distance is positive; the side (left or right of a line, outside or inside
+an arc) is read from where the offset entities are drawn.
+
+An offset entity's end that a `coincident` joins to another offset entity
+of the same statement is a corner of the chain and slides to where the two
+offsets meet; every other end sits straight across from its source's end,
+so open chains end square and tangent junctions stay joined without a
+coincident of their own. Deleting the statement leaves plain curves.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offsets` | ConstraintTarget \| ConstraintTarget[] | The offset entity, or the offset entities of a chain |
+| `sources` | ConstraintTarget \| ConstraintTarget[] | The entity each offset follows, in the same order |
+| `distance` | NumberParam | The offset distance (positive) |
 

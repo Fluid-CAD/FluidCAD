@@ -47,6 +47,7 @@ The gear in the top bar, just before the light/dark switch, opens the global set
 | Sketch | The snap radius and the pick radius, in screen pixels: how close the cursor has to be for the sketcher to snap to a vertex, axis or grid line, and for a line, arc or vertex to highlight under it. |
 | Timeline | Which rows the History panel lists under a sketch: all of its children or only the editable features (the ones with an edit dialog, such as offset, projection and intersect), whether its *N constraints* group shows (on by default), and whether its *N regions* group shows (off by default). |
 | Units | The unit new projects are created in. Existing projects keep theirs; change those from the unit chip at the bottom of the viewport. |
+| Materials | Your own materials — name, id, density and unit — kept on this machine and offered beside the built-ins wherever a material is picked. See [Your own materials](#your-own-materials). |
 | Advanced | Reset every setting to its default, after a confirmation. This one acts at once rather than on Save. |
 
 Project settings, such as the engine pin and the project unit in `fluidcad.json`, are not here; see [Project configuration](/docs/project-configuration).
@@ -83,7 +84,7 @@ The scale icon at the bottom right opens **Shape properties**. The **Part | Soli
 
   ![Shape properties, Solid tab, a solid inside a part](/img/docs/ui/shape-properties-solid.png)
 
-  A solid outside any part has a **Material** dropdown instead, grouped **Built-in** and **Project**. The pick is for this calculation only; nothing is written to the file. **Manage materials…** under it opens the dialog described [below](#managing-project-materials).
+  A solid outside any part has a **Material** dropdown instead, grouped **Built-in** and **Custom** — the project's `fluidcad.json` entries and your own from Settings → Materials. The pick is for this calculation only; nothing is written to the file. **Manage materials…** under it opens [Settings → Materials](#your-own-materials).
 
   ![Shape properties, Solid tab, a solid outside any part](/img/docs/ui/shape-properties-top-level.png)
 
@@ -97,9 +98,11 @@ Right-click the part's row in the History panel and choose **Set material…**.
 
 ![A part row's context menu](/img/docs/ui/history-context-menu-part.png)
 
-The list holds the built-in materials followed by the project's own (marked *(project)*), with the current one checked and **None** on top to remove the material. Picking one writes `.material('<id>')` on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render.
+The **Set material** dialog opens. **None** is on top and removes the material; **Built-in** lists the built-in materials and **Custom** the custom ones — the project's own, the `materials` map of `fluidcad.json`, tagged *in project*, followed by yours from [Settings → Materials](#your-own-materials). The current material is checked and every row shows its density; the box at the top filters by name or id. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>): `.material('<id>')` is written on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render. **Manage materials…** at the bottom left opens Settings → Materials.
 
-![The Set material… menu](/img/docs/ui/set-material-menu.png)
+![The Set material dialog](/img/docs/ui/set-material-dialog.png)
+
+A material of yours that the project has not used yet is copied into the `materials` map of `fluidcad.json` the moment it is applied, so the file names an id the project resolves on every machine.
 
 An id that neither list knows — a typo in the file, or a project entry that was removed — is a warning, not an error. The geometry builds, the row carries a warning triangle (hover it for the message), and the panel reads `Unknown material: <id>` with no mass:
 
@@ -107,13 +110,15 @@ An id that neither list knows — a typo in the file, or a project entry that wa
 
 ![Shape properties reporting an unknown material](/img/docs/ui/shape-properties-unknown-material.png)
 
-### Managing project materials
+### Your own materials
 
-The last row of the **Set material…** menu, and the **Manage materials…** link under the dropdown in Solid mode, open the **Manage materials** dialog: the project's own materials, stored under `materials` in `fluidcad.json`.
+The **Materials** tab of the [settings](#settings) — the gear in the top bar, or **Manage materials…** in the Set material dialog and under the dropdown in Solid mode — holds your own materials. They are kept on this machine, in the preferences file, not in a project.
 
-![The Manage materials dialog](/img/docs/ui/manage-materials-dialog.png)
+![Settings, the Materials tab](/img/docs/ui/settings-materials-tab.png)
 
-The list shows each project entry with its id and density; the pencil edits it, the bin removes it. **Add material** takes a **Name**, a **Density** with its **Unit** (g/cm³, kg/m³, g/mm³ or lbs/in³) and an **Id**, filled from the name until you type your own; give an entry a built-in's id to override that built-in for this project. Built-ins themselves cannot be edited. **Save** writes the whole map to `fluidcad.json` and re-renders, so a part whose id was unknown resolves at once. Editing the file by hand works the same way; [Project configuration](/docs/project-configuration#materials) has the schema.
+The list shows each entry's name, id, density and unit; the pencil loads it into the form, the bin removes it. **Add material** takes a **Name**, a **Density** with its **Unit** (g/cm³, kg/m³, g/mm³ or lbs/in³) and an **Id**, filled from the name until you type your own; **Add** puts the entry in the list. Like every settings tab this is a draft: **Save** persists it, **Cancel** drops it. Built-ins are not listed and cannot be edited, but an entry may reuse a built-in's id: set on a part, it overrides that built-in in the project it is copied into.
+
+A project carries exactly the custom materials it uses: applying one of these to a part copies its entry into `materials` in that project's `fluidcad.json`, which is what a teammate's render and the viewer resolve against. Removing an entry here touches no project, and nothing prunes a project's map. Editing `fluidcad.json` by hand works as before; [Project configuration](/docs/project-configuration#materials) has the schema.
 
 ## Parameters
 

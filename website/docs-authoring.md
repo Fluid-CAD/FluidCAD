@@ -198,8 +198,15 @@ Verified against `ui/src` at the time of writing. Use these names.
 rename; drag to reorder; **+** = *Open a file* — a quick-open box that opens
 an existing file or creates a new one when the name does not exist),
 **Import** (STEP), **Export** (menu of solids; in an assembly it leads with
-*Whole assembly*), theme toggle. On narrow windows these collapse into one
-**Actions** menu.
+*Whole assembly*), the **Settings** gear (tabs **Appearance / Editor / Sketch /
+Timeline / Units / Materials / Advanced**; every tab is a draft until the
+dialog's **Save**, Cancel drops it; **Materials** = the user's own materials
+kept in the preferences file: list rows name / id / density / unit with pencil
+and bin, an **Add material** form with **Name**, **Density** + **Unit**
+(g/cm³ / kg/m³ / g/mm³ / lbs/in³) and **Id** auto-slugged from the name until
+edited, **Add**; an entry may reuse a built-in id and then overrides it in the
+project it is copied into), theme toggle. On narrow windows these collapse
+into one **Actions** menu.
 
 **Panel rail** (left edge) — latch buttons: **Code editor** (<kbd>Ctrl</kbd>+<kbd>B</kbd>;
 docks left and takes width from the scene) and **Feature tree** (the
@@ -213,11 +220,14 @@ a row: **Rename** (edits `.name('…')`), **Edit feature**, **Breakpoint here**
 **Remove** (deletes the statement; if later features depend on it, a dialog
 lists them and deletes the closure on confirm); a connector row nothing
 copies yet also offers **Copy…** (the Copy dialog with that connector); a
-part row offers **Set material…** (popup: **None**, the built-ins, the
-project's materials as *Name (project)*, current one checked, **Manage
-materials…** at the bottom — the dialog that edits the `materials` map of
-`fluidcad.json`: Name / Density / Unit / Id, Add, pencil, bin, Save). A part
-row whose material id is unknown carries a warning triangle.
+part row offers **Set material…** (the **Set material** dialog: a filter box,
+**None**, then **Built-in** and **Custom** groups — the project's
+`fluidcad.json` entries tagged *in project* plus the user's global materials
+from Settings → Materials — current one checked, density at the right,
+**Apply** / double-click / Enter writes `.material('id')`, **Manage
+materials…** bottom-left opens Settings → Materials; a global material that
+the project lacks is copied into `fluidcad.json` before the statement is
+written). A part row whose material id is unknown carries a warning triangle.
 Sketch rows fold their constraints behind an *N constraints* toggle row;
 part rows fold *N connectors* (declared connectors only; a Copy row stays
 among the features) and *N exposed*. Feature status glyph: check = served from cache,
@@ -231,8 +241,9 @@ sit above it.
 **Shape properties** (scale icon, bottom right) — **Part | Solid** tabs;
 **Length Unit** / **Mass Unit**; **Material** and **Density** are read-only
 rows for a solid inside a part (the part's `.material()`) and in Part mode,
-a **Built-in / Project** dropdown only for a solid outside any part
-(transient, never written) with a **Manage materials…** link under it;
+a **Built-in / Custom** dropdown only for a solid outside any part
+(transient, never written) with a **Manage materials…** link under it that
+opens Settings → Materials;
 **Calculate** → **Volume**, **Surface Area**, **Mass**, **Center of Mass**.
 Part mode sums the part's final solids. There is no density input.
 

@@ -54,10 +54,10 @@ Because the body runs later, it must be self-contained: read parameters with [`p
 A part can carry a material, and Shape properties turns its volume into a mass with that material's density.
 
 1. Right-click the part's row in the History panel and choose **Set material…**.
-2. Pick one from the list: the built-in materials first, then the project's own marked *(project)*. The current one is checked; **None** removes the material. The statement is written the moment you pick.
+2. The **Set material** dialog lists the built-in materials under **Built-in** and the custom ones under **Custom** — the project's own, tagged *in project*, and yours from Settings → Materials. The current one is checked; **None** removes the material. Click a row and **Apply**.
 3. Open **Shape properties** (the scale icon at the bottom right), choose the **Part** tab, click the part in the viewport — every solid of the part highlights — and click **Calculate**.
 
-![The Set material… menu on a part row](/img/docs/ui/set-material-menu.png)
+![The Set material dialog on a part row](/img/docs/ui/set-material-dialog.png)
 
 ![Shape properties in Part mode, with the mass](/img/docs/ui/shape-properties-part.png)
 
@@ -68,9 +68,9 @@ The pick is a `.material('<id>')` chain on the `part()` statement, next to where
 | Id | Where it comes from |
 |----|---------------------|
 | `fluidcad-steel-1020`, `fluidcad-stainless-304`, `fluidcad-aluminum-6061`, `fluidcad-aluminum-1060`, `fluidcad-aluminum-7075`, `fluidcad-brass-c260`, `fluidcad-copper`, `fluidcad-titanium-6al4v`, `fluidcad-cast-iron-gray`, `fluidcad-bronze`, `fluidcad-pc`, `fluidcad-abs`, `fluidcad-pla`, `fluidcad-nylon-pa6`, `fluidcad-carbon-fiber`, `fluidcad-pine`, `fluidcad-carbon-steel` | Built in. Always available; listed under **Built-in**. |
-| `alloy-steel`, `acme-pla`, … | A key of the `materials` map in the project's [`fluidcad.json`](/docs/project-configuration#materials). Listed under **Project**; added from the **Manage materials…** row of the menu or by editing the file. |
+| `alloy-steel`, `acme-pla`, … | A key of the `materials` map in the project's [`fluidcad.json`](/docs/project-configuration#materials). Listed under **Custom**, with your own materials from [Settings → Materials](/docs/user-interface#your-own-materials); applying one of those copies its entry into the map, so the project carries what it uses. |
 
-A material that is in neither list is registered in `fluidcad.json` first, then picked. An id the lists do not know is a warning rather than a build error: the part still builds, its row shows a warning triangle, and Shape properties reads `Unknown material: <id>` with no mass.
+A material that is in neither list is added first — to Settings → Materials, or by hand to `fluidcad.json` — then picked. An id the lists do not know is a warning rather than a build error: the part still builds, its row shows a warning triangle, and Shape properties reads `Unknown material: <id>` with no mass.
 
 Only parts carry a material. A solid outside any part is measured with a material picked in Shape properties for that calculation alone; nothing is written to the file. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
 

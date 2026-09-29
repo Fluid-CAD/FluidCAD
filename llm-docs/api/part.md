@@ -85,7 +85,8 @@ The id is one of:
 `densityUnit` is optional (`g/cm³`; also `kg/m³`, `g/mm³`, `lbs/in³`). A
 project entry reusing a built-in id overrides it. There is no inline object
 form and no free density: a material that is not in either list is added to
-`fluidcad.json` first (by hand, or with the **Manage materials…** dialog),
+`fluidcad.json` first (by hand, or automatically when one of the user's own
+materials from Settings → Materials is picked through **Set material…**),
 then referenced by id.
 
 An id in neither list is a **warning, not a build error**: the geometry
@@ -95,7 +96,8 @@ and Shape Properties shows no mass. There is no `.material()` on a
 top-level solid; material is part metadata, like the name.
 
 The UI writes this chain: right-click the part's timeline row → **Set
-material…** picks from the merged list (None removes the chain).
+material…** opens a dialog over the merged list (Built-in / Custom groups;
+None removes the chain; Apply writes it).
 
 ## Example
 

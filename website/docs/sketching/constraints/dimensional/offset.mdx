@@ -41,5 +41,5 @@ A stadium offset outward by 5: the four offset curves in one statement. Every ju
 ## Limits
 
 - An inside offset of an arc or circle must stay smaller than its radius; the statement refuses otherwise.
-- Ellipses, beziers and text are not offset entities — `offset()`, the derived operation, still handles those in code.
+- Ellipses, beziers and text are not offset entities — the Offset tool writes a selection holding one as an `offset()` statement, the derived operation, which handles those curves exactly.
 - A `.cw()` change on a source arc after the offset is drawn turns its offset arc the other way, like any arc drawn to match.

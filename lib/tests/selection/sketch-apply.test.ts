@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
-import { circle, line } from "../../core/2d/index.js";
+import { bezier, circle, ellipse, line, offset } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { synthesizeSketchApplyFeature } from "../../selection/sketch-apply.js";
@@ -111,6 +112,51 @@ describe("sketch apply-feature synthesis", () => {
     if (filleted.ok) {
       expect(filleted.preview).toBe(`fillet(3, ${filleted.args})`);
     }
+  });
+
+  it("offsets a selection holding a bezier and an ellipse as one offset() statement", () => {
+    // The Offset tool writes these curves through this rail: their offsets
+    // are no sketch primitive, so no offsetFrom pair can hold them.
+    let l: SceneObject;
+    let bz: SceneObject;
+    let el: SceneObject;
+    sketch("xy", () => {
+      const a = line([0, 0], [40, 0]);
+      const b = bezier([40, 0], [50, 10], [50, 30], [40, 40]);
+      coincident(a.end(), b.point(0));
+      l = a as unknown as SceneObject;
+      bz = b as unknown as SceneObject;
+      el = ellipse([100, 0], 20, 10) as unknown as SceneObject;
+    });
+    const scene = render();
+    setLocation(l!, 4);
+    setLocation(bz!, 5);
+    setLocation(el!, 7);
+
+    const result = synthesizeSketchApplyFeature(
+      scene, [solvedRef(l!), solvedRef(bz!), solvedRef(el!)], 'offset', 3,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.spec.producers.map(p => p.featureType)).toEqual(['line', 'bezier', 'ellipse']);
+    expect(result.spec.producers.every(p => p.bind)).toBe(true);
+    expect(result.preview).toMatch(/^offset\(3, \w+, \w+, \w+\)$/);
+
+    // The statement builds: the line + bezier chain offsets as one wire
+    // (exact offset curves, rounded corner), the ellipse as a closed one.
+    let off: SceneObject;
+    sketch("xy", () => {
+      const a = line([0, 0], [40, 0]);
+      const b = bezier([40, 0], [50, 10], [50, 30], [40, 40]);
+      coincident(a.end(), b.point(0));
+      const e = ellipse([100, 0], 20, 10);
+      off = offset(3, a, b, e) as unknown as SceneObject;
+    });
+    render();
+    expect(off!.getError?.()).toBeFalsy();
+    expect(edgesOf(off!).length).toBeGreaterThanOrEqual(3);
   });
 
   it("hints instead of no-opping when fillet picks share no corner", () => {

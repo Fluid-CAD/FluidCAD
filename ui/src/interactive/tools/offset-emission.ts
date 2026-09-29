@@ -39,6 +39,25 @@ type V2 = [number, number];
 const p2 = (p: V2): V2 => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100];
 
 /**
+ * Whether the selection must be written as an `offset()` statement instead
+ * of constrained geometry: the offset of a bezier or an ellipse is neither
+ * a bezier nor an ellipse (nor any sketch primitive), so no `offsetFrom`
+ * pair can hold it exactly. The derived op offsets the whole selection
+ * with the kernel's exact curves — one statement, one distance, no solver
+ * identity — the way the tool wrote every offset before the constrained
+ * path existed.
+ */
+export function offsetNeedsStatement(picks: SolvedPick[]): boolean {
+  // An edge pick carries a shapeId and no role. A bezier's edge resolves to
+  // one of its control-point anchors (its only solver entities), so the
+  // pick reads `kind: 'point'` with `anchor.owner === 'bezier'`; a control
+  // point picked as a vertex has `role: null` and is not an edge pick.
+  return picks.some(pick =>
+    pick.role === undefined && pick.datum === undefined && pick.shapeId !== undefined
+    && (pick.kind === 'ellipse' || pick.anchor?.owner === 'bezier'));
+}
+
+/**
  * The edge picks the plan was requested for, in request order — the plan's
  * `source` indices address this list. Vertex, datum and anchor picks never
  * reach the plan; a pick the constrained offset cannot follow is refused
@@ -58,7 +77,7 @@ export function offsetSourcePicks(picks: SolvedPick[]): { ok: true; picks: Solve
       return fail(`a ${pick.anchor.owner} has no edge to offset — pick lines, arcs or circles`);
     }
     if (pick.kind !== 'line' && pick.kind !== 'arc' && pick.kind !== 'circle') {
-      return fail(`a ${pick.kind} cannot be offset as constrained geometry — pick lines, arcs or circles (offset() in code handles other curves)`);
+      return fail(`a ${pick.kind} cannot be offset as constrained geometry — a selection holding one is written as an offset() statement`);
     }
     if (pick.sourceLocation?.line === undefined) {
       return fail('a picked edge has no statement to follow');

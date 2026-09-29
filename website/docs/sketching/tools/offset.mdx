@@ -29,7 +29,7 @@ Offset copies sketch geometry inward or outward by a distance: walls, clearances
 The offset is **constrained geometry**: the four offset curves are ordinary statements you can pick, dimension and constrain further, and `offsetFrom` keeps each one 5 from the edge it follows. The stadium's junctions are all tangent, so the offsets meet on their own and no corner coincidents are written. Double-click the offset's label to change the distance; delete the statement to keep the curves as free geometry.
 </ExplainedCode>
 
-The tool handles lines, arcs and circles. For ellipses, beziers and text, or to offset a face outline outside a sketch, write the `offset()` operation below.
+Lines, arcs and circles are written this way. A selection that includes an ellipse or a bezier is written as one `offset()` statement instead (below): the offset of those curves is not a sketch primitive, so the derived operation carries it exactly, at the cost of geometry you cannot constrain further. For text, or to offset a face outline outside a sketch, write `offset()` by hand.
 
 ## In code: the offset() operation
 

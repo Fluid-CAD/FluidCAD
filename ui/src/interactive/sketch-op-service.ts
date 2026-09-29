@@ -9,7 +9,7 @@ import type { SolvedPick } from './sketch-hover-select-handler';
 import {
   buildFilletEmission, type FilletEmissionError, type FilletEmissionPlan,
 } from './tools/fillet-emission';
-import { buildOffsetEmission, offsetSourcePicks } from './tools/offset-emission';
+import { buildOffsetEmission, offsetNeedsStatement, offsetSourcePicks } from './tools/offset-emission';
 import type { SolvedEmissionRequest, SolvedEmitResult } from './tools/solved-emission';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
@@ -526,12 +526,17 @@ export class SketchOpService {
   }
 
   /** Whether this dialog opening emits a constraint-native offset: the
-   * offset CREATE path in a solved sketch. Edits keep rewriting their
-   * legacy `offset()` statement through the synthesis rail. */
+   * offset CREATE path in a solved sketch, for a selection the offsetFrom
+   * tie can hold (lines, arcs, circles). A selection with a bezier or an
+   * ellipse in it is written as an `offset()` statement through the
+   * synthesis rail, like edits, which keep rewriting their `offset()`
+   * statement there. Re-read on every preview and apply: a pick added or
+   * dropped mid-dialog moves the selection between the two rails. */
   private isConstraintNativeOffset(): boolean {
     return this.config.feature === 'offset'
       && this.solved !== undefined
-      && this.editTarget === null;
+      && this.editTarget === null
+      && !offsetNeedsStatement(this.solved.picks());
   }
 
   /** The signed numeric distance behind the committed value (the OCCT plan

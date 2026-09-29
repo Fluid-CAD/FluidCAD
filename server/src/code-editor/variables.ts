@@ -4,7 +4,7 @@ import { assemblyBodies, assemblyInsertAnchors } from './assembly.ts';
 
 import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
-import { InstanceProperties, type InstancePropertyValue } from './instance-properties.ts';
+import { RenderedProperties, type PropertySourceCall, type RenderedPropertyValue } from './rendered-properties.ts';
 import { indentOf, joinLines, resolveSourceRow, splitLines, type CodeEditResult } from './lines.ts';
 import { findEditableCallAt, walkTree } from './nodes.ts';
 import { getParser, type TSNode, type TSTree } from './parser.ts';
@@ -166,7 +166,7 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
 export async function extractVariablesInScope(
   code: string,
   sketchSourceLine: number,
-  instances: InstanceProperties = InstanceProperties.none(),
+  rendered: RenderedProperties = RenderedProperties.none(),
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -175,7 +175,7 @@ export async function extractVariablesInScope(
   if (sketchRow < 0) {
     return [];
   }
-  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), instances);
+  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), rendered);
 }
 
 /**
@@ -188,7 +188,7 @@ export async function extractVariablesInScope(
 export async function extractVariablesInPart(
   code: string,
   partLine: number,
-  instances: InstanceProperties = InstanceProperties.none(),
+  rendered: RenderedProperties = RenderedProperties.none(),
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -197,32 +197,32 @@ export async function extractVariablesInPart(
   if ('error' in part) {
     return [];
   }
-  return collectVariablesInScope(tree, part.body.endPosition.row, null, instances);
+  return collectVariablesInScope(tree, part.body.endPosition.row, null, rendered);
 }
 
 /**
  * Variables visible where the catalog appends an insert in the current
  * assembly — the instances inserted above it included, each with the
- * properties its last render computed (see {@link InstanceProperties}).
+ * properties its last render computed (see {@link RenderedProperties}).
  */
 export async function extractVariablesInAssembly(
   code: string,
-  instances: InstanceProperties = InstanceProperties.none(),
+  rendered: RenderedProperties = RenderedProperties.none(),
 ): Promise<VariableInfo[]> {
   const parser = await getParser();
   const tree = parser.parse(code);
   const bodies = assemblyBodies(tree.rootNode);
   if (bodies.length !== 1) {
-    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, instances);
+    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, rendered);
   }
   const body = bodies[0];
   const { lastInsert, returnStmt } = assemblyInsertAnchors(body);
   const row = lastInsert?.endPosition.row ?? returnStmt?.startPosition.row ?? body.endPosition.row;
-  return collectVariablesInScope(tree, row, null, instances);
+  return collectVariablesInScope(tree, row, null, rendered);
 }
 
 /** How a dropdown shows a property's rendered value: source-shaped, so `480` reads as a number and `'oak'` as text. */
-function propertyInitializer(value: InstancePropertyValue): string {
+function propertyInitializer(value: RenderedPropertyValue): string {
   return typeof value === 'number' ? String(value) : JSON.stringify(value);
 }
 
@@ -232,16 +232,19 @@ function propertyInitializer(value: InstancePropertyValue): string {
  * the row up to the row itself — a part body's `param()`s reach a statement
  * inside that part, and never one in another.
  *
- * A name bound to an `insert()` call is no value itself, but the instance
- * it holds publishes the part's `property()` values: each one the render
- * computed is listed as `<name>.properties.<property>`, the way the
- * assembly body reads it, numeric when the value is a number.
+ * A name bound to an `insert()` or `part()` call is no value itself, but
+ * the object it holds publishes `property()` values: an instance its
+ * part's, a definition its default variant's. Each one the render
+ * computed is listed as `<name>.properties.<property>`, the way the model
+ * reads it, numeric when the value is a number. A definition's are not
+ * offered to a statement inside that definition's own body: reading them
+ * there would materialize the part that is being built.
  */
 function collectVariablesInScope(
   tree: TSTree,
   sketchRow: number,
   sketchCall: TSNode | null,
-  instances: InstanceProperties,
+  rendered: RenderedProperties,
 ): VariableInfo[] {
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
@@ -256,8 +259,15 @@ function collectVariablesInScope(
     }
   }
 
-  function addInstanceProperties(name: string, insertCall: TSNode) {
-    const properties = instances.ofCall(insertCall);
+  function enclosesRow(node: TSNode): boolean {
+    return node.startPosition.row <= sketchRow && node.endPosition.row >= sketchRow;
+  }
+
+  function addRenderedProperties(name: string, source: PropertySourceCall) {
+    if (source.kind === 'part' && enclosesRow(source.call)) {
+      return;
+    }
+    const properties = rendered.of(source);
     if (!properties) {
       return;
     }
@@ -278,9 +288,9 @@ function collectVariablesInScope(
         if (nameNode && nameNode.type === 'identifier') {
           const init = valueNode ? valueNode.text : undefined;
           addVar(nameNode.text, init, valueNode ?? undefined);
-          const insertCall = valueNode ? InstanceProperties.insertCallOf(valueNode) : null;
-          if (insertCall) {
-            addInstanceProperties(nameNode.text, insertCall);
+          const source = valueNode ? RenderedProperties.sourceCallOf(valueNode) : null;
+          if (source) {
+            addRenderedProperties(nameNode.text, source);
           }
         }
       }

@@ -29,7 +29,7 @@ import {
   type ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
-import { collectSceneProperties } from './properties.ts';
+import { collectRenderedPartProperties, collectSceneProperties, type RenderedPartProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig, writeProjectMaterials, type LengthUnit, type ProjectMaterial, type ProjectMaterials } from '../project-config.ts';
@@ -171,6 +171,21 @@ export class FluidCadServer {
       return [];
     }
     return this.sceneManager.getAssemblyData(scene)?.instances ?? [];
+  }
+
+  /**
+   * The default variant of each `part()` definition the current file's
+   * last render built, with the `property()` values it computed and the
+   * `part()` call's location — what a dialog's expression fields offer and
+   * the ghost reads as `<definition>.properties.<name>`. Empty before any
+   * render.
+   */
+  getRenderedParts(): RenderedPartProperties[] {
+    const scene = this.currentFileName ? this.previousScenes.get(this.currentFileName) : undefined;
+    if (!scene) {
+      return [];
+    }
+    return collectRenderedPartProperties(scene);
   }
 
   async init(workspacePath: string) {

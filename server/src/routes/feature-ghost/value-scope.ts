@@ -5,11 +5,13 @@ import {
   findEditableCallAt,
   findSketchBody,
   getJavaScriptParser,
-  InstanceProperties,
   LexicalBindings,
+  RenderedProperties,
   splitLines,
   type Binding,
+  type PropertySourceKind,
   type RenderedInstanceProperties,
+  type RenderedPartProperties,
   type TSNode,
   type TSTree,
 } from '../../code-editor/index.ts';
@@ -39,10 +41,16 @@ export type ValueScopeSource = {
   definitions: readonly ParamSiteDefinition[];
   /**
    * The instances the last render inserted, with their `property()` values
-   * — what `<binding>.properties.<name>` reads (see {@link InstanceProperties}).
-   * Absent, no such access resolves.
+   * — what `<binding>.properties.<name>` reads through an `insert()`
+   * binding (see {@link RenderedProperties}). Absent, no such access resolves.
    */
   instances?: readonly RenderedInstanceProperties[];
+  /**
+   * The default variant of each `part()` definition the last render built,
+   * with its `property()` values — what the same access reads through a
+   * `part()` binding. Absent, no such access resolves.
+   */
+  parts?: readonly RenderedPartProperties[];
 };
 
 /**
@@ -62,8 +70,9 @@ export type ValueScopeSource = {
  *
  * A member access `<binding>.properties.<name>` reads the property the
  * last render computed for the instance the binding's `insert()` call
- * created — the one value of an instance the assembly body reads as a
- * number. Any other member access resolves to nothing.
+ * created, or for the default variant of the `part()` definition the
+ * binding holds — the one value of either the model reads as a number.
+ * Any other member access resolves to nothing.
  *
  * Without a site in the rendered file — an older client, a statement in
  * another file — names resolve at the file's top level.
@@ -78,7 +87,7 @@ export class ValueScope {
     private readonly parser: ExpressionParser,
     private readonly bindings: LexicalBindings,
     private readonly params: ParamSites,
-    private readonly instances: InstanceProperties,
+    private readonly rendered: RenderedProperties,
     /** The node the dialog's names resolve from. */
     private readonly anchor: TSNode,
   ) {}
@@ -107,10 +116,10 @@ export class ValueScope {
     const tree = parser.parse(code);
     const bindings = new LexicalBindings(tree);
     const params = new ParamSites(bindings, source.filePath, source.definitions);
-    const instances = new InstanceProperties(source.filePath, source.instances ?? []);
+    const rendered = new RenderedProperties(source.filePath, { instances: source.instances, parts: source.parts });
     const inFile = at !== null && normalizePath(at.filePath) === normalizePath(source.filePath);
     const anchor = inFile ? ValueScope.anchorAt(tree, splitLines(code), at) : tree.rootNode;
-    return new ValueScope(parser, bindings, params, instances, anchor);
+    return new ValueScope(parser, bindings, params, rendered, anchor);
   }
 
   /** A dialog value's number, or null when it isn't one the preview can work out. */
@@ -200,8 +209,9 @@ export class ValueScope {
 
   /**
    * The number `<binding>.properties.<name>` stands for where `at` sits:
-   * the binding must hold an `insert()` call's instance, and the render
-   * must have computed that property as a number for it.
+   * the binding must hold an `insert()` call's instance or a `part()`
+   * call's definition, and the render must have computed that property as
+   * a number for it.
    */
   private propertyValue(access: TSNode, at: TSNode): number | null {
     const properties = access.childForFieldName('object');
@@ -218,18 +228,18 @@ export class ValueScope {
     if (!declared || binding.destructured || !binding.init || this.bindings.isReassigned(binding)) {
       return null;
     }
-    // The handle may be bound through its own methods: `insert(…).grounded()`.
-    const insertCall = InstanceProperties.insertCallOf(binding.init);
-    if (!insertCall || !this.isInsertCall(insertCall)) {
+    // The handle may be bound through its own methods: `insert(…).grounded()`, `part(…).name(…)`.
+    const source = RenderedProperties.sourceCallOf(binding.init);
+    if (!source || !this.isFluidCadCall(source.call, source.kind)) {
       return null;
     }
-    const value = this.instances.ofCall(insertCall)?.[name.text];
+    const value = this.rendered.of(source)?.[name.text];
     return typeof value === 'number' ? value : null;
   }
 
-  /** Whether the `insert(…)` call names FluidCAD's — imported from a fluidcad module, or bare and unbound like `param`. */
-  private isInsertCall(call: TSNode): boolean {
-    if (this.bindings.fluidCadCallee(call)?.name === 'insert') {
+  /** Whether the call names FluidCAD's `insert` / `part` — imported from a fluidcad module, or bare and unbound like `param`. */
+  private isFluidCadCall(call: TSNode, callee: PropertySourceKind): boolean {
+    if (this.bindings.fluidCadCallee(call)?.name === callee) {
       return true;
     }
     const fn = call.childForFieldName('function');

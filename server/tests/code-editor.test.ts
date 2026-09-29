@@ -22,7 +22,7 @@ import {
   extractVariablesInAssembly,
   extractVariablesInPart,
   extractVariablesInScope,
-  InstanceProperties,
+  RenderedProperties,
   declareTopLevelVariable,
   readUnitStatement,
   setDocumentUnit,
@@ -1576,7 +1576,7 @@ describe('instance properties in scope', () => {
   ];
 
   it('lists each rendered property after its instance, numeric when its value is', async () => {
-    const vars = await extractVariablesInAssembly(code, new InstanceProperties(FILE, rendered));
+    const vars = await extractVariablesInAssembly(code, new RenderedProperties(FILE, { instances: rendered }));
     const names = vars.map(v => v.name);
     expect(names.indexOf('drawer.properties.frontWidth')).toBe(names.indexOf('drawer') + 1);
     expect(vars.find(v => v.name === 'drawer.properties.frontWidth')).toEqual({
@@ -1594,16 +1594,97 @@ describe('instance properties in scope', () => {
 
   it('reads the instance the live-render path stamped', async () => {
     const virtual = rendered.map(r => ({ ...r, sourceLocation: { ...r.sourceLocation, filePath: `virtual:live-render:${r.sourceLocation.filePath}` } }));
-    const vars = await extractVariablesInAssembly(code, new InstanceProperties(FILE, virtual));
+    const vars = await extractVariablesInAssembly(code, new RenderedProperties(FILE, { instances: virtual }));
     expect(vars.map(v => v.name)).toContain('drawer.properties.frontWidth');
   });
 
   it('offers nothing without a render, and nothing to a statement above the insert', async () => {
     expect((await extractVariablesInAssembly(code)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
-    const instances = new InstanceProperties(FILE, rendered);
+    const instances = new RenderedProperties(FILE, { instances: rendered });
     // The Edit-parameters dialog of the spare sits below the drawer's insert.
     expect((await extractVariablesInScope(code, 8, instances)).map(v => v.name)).toContain('drawer.properties.frontWidth');
     // A top-level statement above the assembly never sees its body.
     expect((await extractVariablesInScope(code, 2, instances)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
+  });
+});
+
+// A `part()` binding holds a definition, which publishes its default
+// variant's `property()` values: a second part's sketch (or a top-level
+// statement) offers them as `<definition>.properties.<name>`, the way
+// `def.properties` reads them — the lid of a box reading the box's clearance.
+describe('part definition properties in scope', () => {
+  const FILE = '/ws/box.part.js';
+  const code = [
+    "import { part, param, property, sketch, extrude } from 'fluidcad/core';",
+    '',
+    "export const box = part('Box', () => {",
+    "  const lidClearance = param('Lid Clearance', 1);",
+    "  property('lidClearance', lidClearance);",
+    "  property('finish', 'oak');",
+    '}).name(\'Carcase\');',
+    "export const lid = part('Lid', () => {",
+    "  const s = sketch('xy', () => {",
+    '  });',
+    '  extrude(2, s);',
+    '});',
+    "const gap = box.properties.lidClearance * 2;",
+  ].join('\n');
+  const rendered = [
+    // The call's own line — the const's, whatever the chain after the body.
+    { sourceLocation: { filePath: FILE, line: 3, column: 20 }, properties: { lidClearance: 1, finish: 'oak', 'odd name': 2 } },
+    // The lid declares no property.
+    { sourceLocation: { filePath: FILE, line: 8, column: 20 }, properties: {} },
+    // Another file's definition is never this file's binding.
+    { sourceLocation: { filePath: '/ws/other.part.js', line: 3, column: 20 }, properties: { lidClearance: 9 } },
+  ];
+  const parts = () => new RenderedProperties(FILE, { parts: rendered });
+
+  it('offers a definition\'s properties to another part\'s sketch, numeric when the value is', async () => {
+    const vars = await extractVariablesInScope(code, 9, parts());
+    const names = vars.map(v => v.name);
+    expect(names.indexOf('box.properties.lidClearance')).toBe(names.indexOf('box') + 1);
+    expect(vars.find(v => v.name === 'box.properties.lidClearance')).toEqual({
+      name: 'box.properties.lidClearance', initializer: '1', numeric: true,
+    });
+    expect(vars.find(v => v.name === 'box.properties.finish')).toEqual({
+      name: 'box.properties.finish', initializer: '"oak"', numeric: false,
+    });
+    expect(names.some(n => n.includes('odd name'))).toBe(false);
+    expect(names.some(n => n.startsWith('lid.'))).toBe(false);
+    expect(vars.find(v => v.name === 'box')!.numeric).toBe(false);
+  });
+
+  it('offers them to a statement appended to the other part and to a top-level one', async () => {
+    expect((await extractVariablesInPart(code, 8, parts())).map(v => v.name)).toContain('box.properties.lidClearance');
+    expect((await extractVariablesInScope(code, 13, parts())).map(v => v.name)).toContain('box.properties.lidClearance');
+  });
+
+  it('never offers a definition its own properties inside its body', async () => {
+    // Reading them there would materialize the part that is being built.
+    expect((await extractVariablesInScope(code, 4, parts())).map(v => v.name)).not.toContain('box.properties.lidClearance');
+    expect((await extractVariablesInPart(code, 3, parts())).map(v => v.name)).not.toContain('box.properties.lidClearance');
+  });
+
+  it('offers nothing without a render, and reads the live-render path', async () => {
+    expect((await extractVariablesInScope(code, 9)).map(v => v.name)).not.toContain('box.properties.lidClearance');
+    const virtual = rendered.map(r => ({ ...r, sourceLocation: { ...r.sourceLocation, filePath: `virtual:live-render:${r.sourceLocation.filePath}` } }));
+    const vars = await extractVariablesInScope(code, 9, new RenderedProperties(FILE, { parts: virtual }));
+    expect(vars.map(v => v.name)).toContain('box.properties.lidClearance');
+  });
+
+  it('keeps an instance and a definition on one line apart', async () => {
+    const assembly = [
+      "import { part, property, insert, assembly } from 'fluidcad/core';",
+      "const box = part('Box', () => { property('w', 1); }); const box1 = insert(box);",
+      "assembly('main', () => {});",
+    ].join('\n');
+    const file = '/ws/main.assembly.js';
+    const both = new RenderedProperties(file, {
+      parts: [{ sourceLocation: { filePath: file, line: 2, column: 13 }, properties: { w: 1 } }],
+      instances: [{ sourceLocation: { filePath: file, line: 2, column: 60 }, properties: { w: 5 } }],
+    });
+    const vars = await extractVariablesInScope(assembly, 3, both);
+    expect(vars.find(v => v.name === 'box.properties.w')).toMatchObject({ initializer: '1' });
+    expect(vars.find(v => v.name === 'box1.properties.w')).toMatchObject({ initializer: '5' });
   });
 });

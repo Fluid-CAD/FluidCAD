@@ -23,7 +23,7 @@ import {
   extractVariablesInPart,
   extractVariablesInAssembly,
   extractVariablesInScope,
-  InstanceProperties,
+  RenderedProperties,
   type VariableInfo,
 } from '../code-editor/index.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
@@ -324,18 +324,22 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      // An instance's binding also offers the properties its last render
-      // computed, so an insert's field can complete `drawer.properties.<name>`.
-      const instances = new InstanceProperties(fluidCadServer.getCurrentFileName(), fluidCadServer.getRenderedInstances());
+      // An instance's or a part definition's binding also offers the
+      // properties its last render computed, so a field can complete
+      // `drawer.properties.<name>` and `box.properties.<name>`.
+      const rendered = new RenderedProperties(fluidCadServer.getCurrentFileName(), {
+        instances: fluidCadServer.getRenderedInstances(),
+        parts: fluidCadServer.getRenderedParts(),
+      });
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
-        variables = await extractVariablesInScope(code, sketchSourceLine, instances);
+        variables = await extractVariablesInScope(code, sketchSourceLine, rendered);
       } else if (assembly === true) {
-        variables = await extractVariablesInAssembly(code, instances);
+        variables = await extractVariablesInAssembly(code, rendered);
       } else if (typeof partLine === 'number') {
-        variables = await extractVariablesInPart(code, partLine, instances);
+        variables = await extractVariablesInPart(code, partLine, rendered);
       } else {
-        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, instances);
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered);
       }
       res.json({ variables });
     } catch (err: any) {

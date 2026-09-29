@@ -311,3 +311,54 @@ describe('ValueScope — instance properties', () => {
     expect(scope.resolve('drawer.properties.frontWidth')).toBeNull();
   });
 });
+
+// A part file's dialog values may read another definition's computed
+// properties — `box.properties.lidClearance` — the default variant's, as
+// `def.properties` serves them, from the values the last render gave it.
+describe('ValueScope — part definition properties', () => {
+  const PART_FILE = '/ws/box.part.js';
+  const BOX = [
+    `import { part, param, property, sketch, extrude } from 'fluidcad/core';`,
+    `export const box = part('Box', () => {`,
+    `  const lidClearance = param('Lid Clearance', 1);`,
+    `  property('lidClearance', lidClearance);`,
+    `  property('finish', 'oak');`,
+    `}).name('Carcase');`,
+    `const gap = box.properties.lidClearance * 2;`,
+    `export const lid = part('Lid', () => {`,
+    `  const s = sketch('xy', () => {`,
+    `  });`,
+    `  extrude(2, s);`,
+    `});`,
+  ].join('\n');
+  const rendered = [
+    { sourceLocation: { filePath: PART_FILE, line: 2, column: 20 }, properties: { lidClearance: 1, finish: 'oak' } },
+    { sourceLocation: { filePath: PART_FILE, line: 8, column: 20 }, properties: {} },
+  ];
+  /** The lid's extrude — an edited statement. */
+  const LID_EXTRUDE = 11;
+
+  async function boxScope(at: GhostValueScope | null, parts = rendered): Promise<ValueScope> {
+    return ValueScope.open({ code: BOX, filePath: PART_FILE, definitions: [], parts }, at);
+  }
+
+  it('reads a rendered property through the definition, in arithmetic and through a source binding', async () => {
+    const scope = await boxScope(statement(LID_EXTRUDE, 3, PART_FILE));
+    expect(scope.resolve('box.properties.lidClearance')).toBe(1);
+    expect(scope.resolve('box.properties.lidClearance + 0.5')).toBe(1.5);
+    expect(scope.resolve('gap')).toBe(2);
+  });
+
+  it('refuses what is not a numeric property of a definition', async () => {
+    const scope = await boxScope(statement(LID_EXTRUDE, 3, PART_FILE));
+    expect(scope.resolve('box.properties.finish')).toBeNull();
+    expect(scope.resolve('box.properties.depth')).toBeNull();
+    expect(scope.resolve('lid.properties.lidClearance')).toBeNull();
+    expect(scope.resolve('box.lidClearance')).toBeNull();
+  });
+
+  it('reads nothing without a render behind the definition', async () => {
+    const scope = await boxScope(statement(LID_EXTRUDE, 3, PART_FILE), []);
+    expect(scope.resolve('box.properties.lidClearance')).toBeNull();
+  });
+});

@@ -283,6 +283,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       filePath: fluidCadServer.getCurrentFileName(),
       definitions: fluidCadServer.getParamDefinitions(),
       instances: fluidCadServer.getRenderedInstances(),
+      parts: fluidCadServer.getRenderedParts(),
     }, valueScope);
     const values: (number | null)[] = [];
     const resolve = (value: unknown): number | null => {

@@ -14,8 +14,8 @@ type Row = { id: string | null; label: string; material: Material | null; disabl
  * The Set material… dialog for a part row: the merged materials in two
  * groups, the built-ins and the custom ones (the project's `fluidcad.json`
  * entries plus the user's global list from Settings → Materials), with a
- * filter box, the part's current material checked and **None** to take the
- * `.material()` chain off. Apply dispatches the acked set-part-material
+ * filter box, the part's current material checked and pinned on top, and
+ * **None** to take the `.material()` chain off. Apply dispatches the acked set-part-material
  * edit; a global material is copied into the project by the server before
  * the source names it. An id the list lacks shows as a checked, unpickable
  * "Unknown material" row so the user sees what the source says.
@@ -151,21 +151,29 @@ export class SetMaterialDialog {
   // List
   // ---------------------------------------------------------------------------
 
-  /** The rows in display order: None, an unknown current id, then the two groups. */
+  /**
+   * The rows in display order: the part's current material pinned on top
+   * (or its unknown id), None, then the two groups without it. The head
+   * rows are always shown, whatever the filter.
+   */
   private rows(): { group: string | null; rows: Row[] }[] {
     const filter = this.filterInput.value.trim().toLowerCase();
     const matches = (m: Material) => filter === '' || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter);
-    // None and an unknown current id are always shown, whatever the filter.
-    const head: Row[] = [{ id: null, label: 'None', material: null }];
-    const known = new Set(this.materials.map((m) => m.id));
-    if (this.listState === 'ready' && this.current !== null && !known.has(this.current)) {
+    const toRow = (m: Material): Row => ({ id: m.id, label: m.name, material: m });
+    const byId = new Map(this.materials.map((m) => [m.id, m]));
+    const head: Row[] = [];
+    const currentMaterial = this.current !== null ? byId.get(this.current) : undefined;
+    if (currentMaterial) {
+      head.push(toRow(currentMaterial));
+    } else if (this.listState === 'ready' && this.current !== null) {
       head.push({ id: this.current, label: `Unknown material: ${this.current}`, material: null, disabled: true });
     }
-    const toRow = (m: Material): Row => ({ id: m.id, label: m.name, material: m });
+    head.push({ id: null, label: 'None', material: null });
+    const listed = (m: Material) => m !== currentMaterial && matches(m);
     return [
       { group: null, rows: head },
-      { group: 'Built-in', rows: this.materials.filter((m) => m.source === 'builtin' && matches(m)).map(toRow) },
-      { group: 'Custom', rows: this.materials.filter((m) => m.source !== 'builtin' && matches(m)).map(toRow) },
+      { group: 'Built-in', rows: this.materials.filter((m) => m.source === 'builtin' && listed(m)).map(toRow) },
+      { group: 'Custom', rows: this.materials.filter((m) => m.source !== 'builtin' && listed(m)).map(toRow) },
     ];
   }
 

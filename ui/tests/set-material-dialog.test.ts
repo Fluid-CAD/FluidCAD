@@ -59,14 +59,16 @@ afterEach(() => {
 });
 
 describe('SetMaterialDialog', () => {
-  it('lists None, then the built-ins and the custom materials, with the current one checked and named in the subtitle', async () => {
+  it('pins the current material on top, then None, then the built-ins and the custom materials, and names the part in the subtitle', async () => {
     const h = mount();
     await h.open(part('A', 1, 'alloy-steel'));
     expect(h.overlay.classList.contains('hidden')).toBe(false);
     expect(h.overlay.querySelector('[data-ref="subtitle"]')!.textContent).toBe('Bracket A');
-    expect(h.labels()).toEqual(['None', 'Steel', 'PLA', 'Alloy Steel', 'ACME PLA+']);
+    expect(h.labels()).toEqual(['Alloy Steel', 'None', 'Steel', 'PLA', 'ACME PLA+']);
     expect(h.groups()).toEqual(['Built-in', 'Custom']);
     expect(h.checked()).toEqual(['alloy-steel']);
+    // Pinned means listed once.
+    expect(h.rows().filter((r) => r.dataset.materialId === 'alloy-steel')).toHaveLength(1);
     expect(h.selected()).toEqual(['alloy-steel']);
     // A project entry says so; a global one carries no tag (it is copied on pick).
     expect(h.row('alloy-steel').textContent).toContain('in project');
@@ -105,26 +107,26 @@ describe('SetMaterialDialog', () => {
   it('shows an unknown current id as a checked, unpickable row', async () => {
     const h = mount();
     await h.open(part('B', 10, 'unobtainium'));
-    expect(h.labels()).toEqual(['None', 'Unknown material: unobtainium', 'Steel', 'PLA', 'Alloy Steel', 'ACME PLA+']);
+    expect(h.labels()).toEqual(['Unknown material: unobtainium', 'None', 'Steel', 'PLA', 'Alloy Steel', 'ACME PLA+']);
     const unknown = h.row('unobtainium');
     expect(unknown.disabled).toBe(true);
     expect(h.checked()).toEqual(['unobtainium']);
   });
 
-  it('filters by name or id, keeping None, and reports no match', async () => {
+  it('filters by name or id, keeping the pinned current and None, and reports no match', async () => {
     const h = mount();
     await h.open(part('A', 1, 'fluidcad-steel'));
     const filter = h.overlay.querySelector<HTMLInputElement>('[data-ref="filter"]')!;
     filter.value = 'pla';
     filter.dispatchEvent(new Event('input'));
-    expect(h.labels()).toEqual(['None', 'PLA', 'ACME PLA+']);
+    expect(h.labels()).toEqual(['Steel', 'None', 'PLA', 'ACME PLA+']);
     filter.value = 'alloy';
     filter.dispatchEvent(new Event('input'));
-    expect(h.labels()).toEqual(['None', 'Alloy Steel']);
+    expect(h.labels()).toEqual(['Steel', 'None', 'Alloy Steel']);
     expect(h.groups()).toEqual(['Custom']);
     filter.value = 'zzz';
     filter.dispatchEvent(new Event('input'));
-    expect(h.labels()).toEqual(['None']);
+    expect(h.labels()).toEqual(['Steel', 'None']);
     expect(h.overlay.querySelector('[data-ref="empty"]')).toBeNull();
   });
 
@@ -177,7 +179,7 @@ describe('SetMaterialDialog', () => {
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="retry"]')!.click();
     await flush();
     expect(h.client.getMaterials).toHaveBeenCalledTimes(2);
-    expect(h.labels()).toEqual(['None', 'Steel', 'PLA', 'Alloy Steel', 'ACME PLA+']);
+    expect(h.labels()).toEqual(['Steel', 'None', 'PLA', 'Alloy Steel', 'ACME PLA+']);
     expect(h.checked()).toEqual(['fluidcad-steel']);
   });
 

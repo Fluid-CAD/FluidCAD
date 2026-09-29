@@ -60,13 +60,15 @@ function mount() {
     container, client,
     () => undefined, () => undefined, () => undefined, () => false, () => undefined, () => 1, () => undefined,
   );
+  const setActivePart = vi.fn(() => false);
+  timeline.setActivePart = setActivePart;
   timeline.update(SCENE, SCENE.length - 1);
   const row = (id: string) => container.querySelector<HTMLElement>(`[data-index="${SCENE.findIndex((o) => o.id === id)}"]`)!;
   const openMenu = (id: string) => {
     row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
     return container.querySelector<HTMLButtonElement>('[data-action="set-material"]');
   };
-  return { container, timeline, editor, client, row, openMenu };
+  return { container, timeline, editor, client, row, openMenu, setActivePart };
 }
 
 afterEach(() => {
@@ -92,6 +94,23 @@ describe('timeline — Set material…', () => {
     expect(h.client.getMaterials).not.toHaveBeenCalled();
     // The row menu closed with the click.
     expect(h.container.querySelector('[data-action="set-material"]')).toBeNull();
+  });
+
+  it('gives part rows a dots button that opens the same menu without activating the part', () => {
+    const h = mount();
+    const onSetMaterial = vi.fn();
+    h.timeline.onSetMaterial = onSetMaterial;
+    expect(h.row('a1').querySelector('[data-row-menu]')).toBeNull();
+    expect(h.row('top').querySelector('[data-row-menu]')).toBeNull();
+    const dots = h.row('A').querySelector<HTMLButtonElement>('[data-row-menu]')!;
+    expect(dots).not.toBeNull();
+    dots.click();
+    const item = h.container.querySelector<HTMLButtonElement>('[data-action="set-material"]')!;
+    expect(item).not.toBeNull();
+    expect(h.container.querySelector('[data-action="rename"]')).not.toBeNull();
+    item.click();
+    expect(onSetMaterial.mock.calls[0][0]).toMatchObject({ id: 'A' });
+    expect(h.setActivePart).not.toHaveBeenCalled();
   });
 
   it('does nothing without an opener', () => {

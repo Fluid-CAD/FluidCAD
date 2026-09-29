@@ -934,6 +934,14 @@ export class TimelinePanel {
           }
           return;
         }
+        const dots = (e.target as HTMLElement).closest<HTMLElement>('[data-row-menu]');
+        if (dots) {
+          // A part row's dots open its action menu under the button — the
+          // same menu as a right-click — without activating the part.
+          const rect = dots.getBoundingClientRect();
+          this.showRowContextMenu({ clientX: rect.left, clientY: rect.bottom }, index);
+          return;
+        }
         // Ctrl/meta toggles a row into the drag-to-part selection, shift
         // extends it as a range; a plain click anywhere drops the selection
         // and keeps its normal meaning.
@@ -979,8 +987,7 @@ export class TimelinePanel {
         this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
-        if ((e.target as HTMLElement).closest('[data-toggle]') || (e.target as HTMLElement).closest('[data-show-eye]')) {
-
+        if ((e.target as HTMLElement).closest('[data-toggle], [data-show-eye], [data-row-menu]')) {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
@@ -1457,9 +1464,17 @@ export class TimelinePanel {
     }
 
 
-    // The eye, when present, is what pushes the right-aligned cluster over;
-    // otherwise the duration (or the status mark) does.
-    const pushRight = eyeBtn ? '' : 'ml-auto ';
+    // A part row carries a dots button opening its action menu (Rename, Set
+    // material…, Remove) so the menu is discoverable without a right-click;
+    // an editor-less host has no actions to offer, so no button.
+    let menuBtn = '';
+    if (isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
+      menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
+    }
+
+    // The eye or the dots, when present, is what pushes the right-aligned
+    // cluster over; otherwise the duration (or the status mark) does.
+    const pushRight = eyeBtn || menuBtn ? '' : 'ml-auto ';
     const showDuration = this.showBuildTimings && !obj.fromCache && obj.buildDurationMs != null;
     const durationSpan = showDuration
       ? `<span class="${pushRight}shrink-0 text-xs text-base-content/40 tabular-nums">${formatDuration(obj.buildDurationMs!)}</span>`
@@ -1489,7 +1504,7 @@ export class TimelinePanel {
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="${nameClass}">${name}</span>
         ${activeDot}
-        ${eyeBtn}
+        ${eyeBtn}${menuBtn}
         ${durationSpan}
         ${statusIcon}
       </div>
@@ -1628,7 +1643,8 @@ export class TimelinePanel {
    * statement from the code. Rows without a source location get no menu —
    * none of the actions can target them.
    */
-  private showRowContextMenu(e: MouseEvent, index: number): void {
+  /** Open the row's action menu at `position` (the right-click, or the row's dots button). */
+  private showRowContextMenu(position: { clientX: number; clientY: number }, index: number): void {
     this.closeDropdown();
     // Every menu action edits or navigates source — nothing to offer
     // without an editor-backed host.
@@ -1644,8 +1660,8 @@ export class TimelinePanel {
     dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 
     const panelRect = this.panel.getBoundingClientRect();
-    dropdown.style.left = `${e.clientX - panelRect.left}px`;
-    dropdown.style.top = `${e.clientY - panelRect.top}px`;
+    dropdown.style.left = `${position.clientX - panelRect.left}px`;
+    dropdown.style.top = `${position.clientY - panelRect.top}px`;
 
     // The edit action mirrors double-click: rows with an edit dialog offer
     // it, and those work even while sketching — the dialog suspends the

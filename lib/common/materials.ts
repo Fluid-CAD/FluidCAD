@@ -11,7 +11,12 @@ export const DENSITY_UNITS: readonly DensityUnit[] = ['g/cm³', 'kg/m³', 'g/mm�
 export const DEFAULT_DENSITY_UNIT: DensityUnit = 'g/cm³';
 
 /** Where a material in the merged list comes from. */
-export type MaterialSource = 'builtin' | 'project';
+/**
+ * Where a merged-list entry comes from: the built-in table, the project's
+ * `fluidcad.json` map, or (server only) the user's global list — an entry
+ * picked for a part is copied into the project before the source names it.
+ */
+export type MaterialSource = 'builtin' | 'project' | 'global';
 
 export type Material = {
   /**

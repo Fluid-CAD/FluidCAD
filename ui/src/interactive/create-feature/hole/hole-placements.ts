@@ -275,10 +275,15 @@ export class HolePlacements {
       }
       if (item.kind === 'anchor') {
         const anchor = item.locked.anchors[item.locked.anchorIndex];
+        const expression = `${item.locked.args}${anchor.suffix}`;
+        // Outside a part the hole takes the anchor expression itself — no connector is made.
+        if (!item.locked.inPart) {
+          return { label: anchorChipLabel(item.locked.entity, anchor), removable: true, title: expression };
+        }
         return {
           label: `${anchorChipLabel(item.locked.entity, anchor)} (new connector ${item.name})`,
           removable: true,
-          title: `${item.locked.args}${anchor.suffix} — a connector named ${item.name} is created here`,
+          title: `${expression} — a connector named ${item.name} is created here`,
         };
       }
       return { label: `Current: ${item.label}`, removable: true };

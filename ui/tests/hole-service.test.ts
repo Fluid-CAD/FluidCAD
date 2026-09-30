@@ -244,6 +244,36 @@ describe('Hole dialog service', () => {
     expect(chips('scope-slot')).toEqual(['Extrude']);
   });
 
+  it('asks for hole anchors and promises a connector only when the face is in a part', async () => {
+    const faceAnchor = (inPart: boolean) => ({
+      ok: true as const, inPart, defaultName: inPart ? 'c1' : null, args: 'e.endFaces()',
+      anchors: [{ anchor: { kind: 'center' as const }, suffix: '.center()', frame: { origin: { x: 0, y: 0, z: 10 }, ...FRAME } }],
+    });
+    const { service, container, chips, lastPreview } = mount();
+    const labels = () => [...container.querySelectorAll<HTMLElement>('[data-role="placements-slot"] span.truncate')]
+      .map(el => el.textContent);
+    service.enter();
+
+    // Outside a part the hole takes the bare anchor expression.
+    vi.mocked(api.fetchConnectorAnchors).mockResolvedValueOnce(faceAnchor(false));
+    service.handleClick('solid', { type: 'face', index: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(api.fetchConnectorAnchors).mock.calls.at(-1)![2]).toBe('hole');
+    expect(labels()).toEqual(['Face center']);
+    expect(chips('placements-slot')).toEqual(['e.endFaces().center()']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.placements).toEqual([
+      { kind: 'anchor', entity: { shapeId: 'solid', sub: { type: 'face', index: 0 } }, anchor: { kind: 'center' }, name: 'h1' },
+    ]);
+
+    // Inside a part the pick becomes a named connector.
+    vi.mocked(api.fetchConnectorAnchors).mockResolvedValueOnce(faceAnchor(true));
+    service.handleClick('solid', { type: 'face', index: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(labels()).toEqual(['Face center', 'Face center (new connector h2)']);
+    expect(chips('placements-slot')[1]).toBe('e.endFaces().center() — a connector named h2 is created here');
+  });
+
   it('refuses to apply without a placement, then applies the picked placements', async () => {
     const { service, container, text } = mount();
     service.enter();

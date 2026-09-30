@@ -1324,7 +1324,8 @@ export class FluidCadServer {
   /**
    * Hover-time connector anchor suggestions for a picked face/edge: exact
    * anchor frames plus the synthesized source expression and a free default
-   * name. Read-only over the rendered scene.
+   * name. A `'hole'` purpose also suggests anchors outside a part. Read-only
+   * over the rendered scene.
    */
   suggestConnectorAnchors(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
@@ -1333,6 +1334,7 @@ export class FluidCadServer {
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
     },
+    purpose: 'connector' | 'hole' = 'connector',
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -1345,7 +1347,7 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.suggestConnectorAnchors(scene, ref, options);
+    return this.sceneManager.suggestConnectorAnchors(scene, ref, options, purpose);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

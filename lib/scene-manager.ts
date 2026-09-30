@@ -56,7 +56,7 @@ import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
-import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
+import { AnchorPurpose, ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
 import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
@@ -453,8 +453,9 @@ class SceneManager {
     scene: Scene,
     ref: PickRef,
     options: SynthesizeOptions = {},
+    purpose: AnchorPurpose = 'connector',
   ): ConnectorAnchorSuggestions {
-    return suggestConnectorAnchors(scene, ref, options);
+    return suggestConnectorAnchors(scene, ref, options, purpose);
   }
 
   /**

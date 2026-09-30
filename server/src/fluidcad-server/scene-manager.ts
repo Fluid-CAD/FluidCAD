@@ -91,6 +91,7 @@ export type SceneManager = {
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
     },
+    purpose?: 'connector' | 'hole',
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate the 2D target resolver (offset edit seeding). The options

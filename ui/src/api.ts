@@ -1627,32 +1627,42 @@ export type ConnectorAnchorCandidate = {
 export type ConnectorAnchorsResult =
   | {
     ok: true;
-    /** A connector name unique within the enclosing part (`c1`, `c2`, …). */
-    defaultName: string;
+    /** Whether committing the anchor creates a connector in its part (always, for a connector). */
+    inPart: boolean;
+    /** A connector name unique within the enclosing part (`c1`, `c2`, …); null outside a part. */
+    defaultName: string | null;
     /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
     args: string;
     anchors: ConnectorAnchorCandidate[];
   }
   | { ok: false; reason: string | null };
 
+/** What a picked anchor becomes: a connector (inside a part only) or a hole placement (anywhere). */
+export type AnchorPurpose = 'connector' | 'hole';
+
 /**
  * The connector anchors a hovered face/edge supports — the suggestion the
- * tool draws before the user clicks. Refusals (geometry outside a part(),
- * an unresolvable pick) come back as `ok: false` with the reason to show.
+ * tool draws before the user clicks. Refusals (geometry outside a part() for
+ * a connector, an unresolvable pick) come back as `ok: false` with the
+ * reason to show.
  */
 export async function fetchConnectorAnchors(
   entity: ApplyFeatureEntity,
   signal?: AbortSignal,
+  purpose: AnchorPurpose = 'connector',
 ): Promise<ConnectorAnchorsResult> {
   const res = await fetch('api/selection/connector-anchors', {
     method: 'POST',
     headers: JSON_HEADERS,
     signal,
-    body: JSON.stringify({ entity }),
+    body: JSON.stringify({ entity, purpose }),
   });
   const body = await res.json().catch(() => null);
   if (res.ok && body?.success === true) {
-    return { ok: true, defaultName: body.defaultName, args: body.args, anchors: body.anchors ?? [] };
+    return {
+      ok: true, inPart: body.inPart ?? true, defaultName: body.defaultName ?? null,
+      args: body.args, anchors: body.anchors ?? [],
+    };
   }
   return { ok: false, reason: body?.reason ?? body?.error ?? null };
 }

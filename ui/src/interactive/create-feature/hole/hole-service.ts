@@ -102,6 +102,7 @@ export class HoleFeatureService {
     this.pickMenu = new ConnectorPickMenu(container);
     this.suggestions = new AnchorSuggestions(viewer, this.connectorGhost, {
       isTaken: (key, index) => this.placements.hasAnchor(key, index),
+      purpose: 'hole',
     });
     this.suggestions.onLock = (locked) => {
       this.placements.toggleAnchor(locked);

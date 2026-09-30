@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import {
-  ApplyFeatureEntity, ConnectorAnchorCandidate, ConnectorAnchorsResult, fetchConnectorAnchors,
+  AnchorPurpose, ApplyFeatureEntity, ConnectorAnchorCandidate, ConnectorAnchorsResult, fetchConnectorAnchors,
 } from '../../api';
 import { SubSelection } from '../../types';
 import { Viewer } from '../../viewer';
@@ -24,8 +24,10 @@ export type LockedAnchor = {
   anchorIndex: number;
   /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
   args: string;
-  /** A connector name unique within the enclosing part (`c1`, `c2`, …). */
-  defaultName: string;
+  /** Whether committing the anchor creates a connector in its part. */
+  inPart: boolean;
+  /** A connector name unique within the enclosing part (`c1`, `c2`, …); null outside a part. */
+  defaultName: string | null;
 };
 
 export function anchorEntityKey(entity: ApplyFeatureEntity): string {
@@ -76,6 +78,8 @@ export class AnchorSuggestions {
        * placement) — hovering it floats no faint twin underneath.
        */
       isTaken?: (key: string, anchorIndex: number) => boolean;
+      /** What the anchor becomes; a hole placement may sit outside a part. Defaults to a connector. */
+      purpose?: AnchorPurpose;
     } = {},
   ) {}
 
@@ -183,7 +187,7 @@ export class AnchorSuggestions {
 
     let result: ConnectorAnchorsResult;
     try {
-      result = await fetchConnectorAnchors(entity, abort.signal);
+      result = await fetchConnectorAnchors(entity, abort.signal, this.opts.purpose);
     } catch {
       return; // aborted
     }
@@ -221,6 +225,7 @@ export class AnchorSuggestions {
       anchors: result.anchors,
       anchorIndex,
       args: result.args,
+      inPart: result.inPart,
       defaultName: result.defaultName,
     });
   }

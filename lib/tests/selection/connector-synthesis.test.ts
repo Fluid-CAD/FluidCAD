@@ -264,6 +264,7 @@ describe("connector synthesis", () => {
     const suggestion = suggestConnectorAnchors(scene, topFace);
     expect(suggestion.ok).toBe(true);
     if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(true);
       expect(suggestion.defaultName).toBe('c1');
       expect(suggestion.args.length).toBeGreaterThan(0);
       expect(suggestion.anchors).toHaveLength(1);
@@ -429,6 +430,38 @@ describe("connector synthesis", () => {
     expect(suggestion.ok).toBe(false);
     if (suggestion.ok === false) {
       expect(suggestion.reason).toContain('part()');
+    }
+  });
+
+  it("suggests hole anchors outside a part() as bare anchor expressions", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30);
+    setLocation(e, 3);
+    const scene = render();
+    const solid = findSolid(scene);
+    const tops = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+
+    const suggestion = suggestConnectorAnchors(scene, tops[0], {}, 'hole');
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(false);
+      expect(suggestion.defaultName).toBeNull();
+      expect(suggestion.args.length).toBeGreaterThan(0);
+      expect(suggestion.anchors.map(a => a.anchor.kind)).toEqual(['center']);
+      expect(suggestion.anchors[0].frame.origin.z).toBeCloseTo(30, 5);
+    }
+  });
+
+  it("reports a hole anchor inside a part() as one that creates a connector", () => {
+    const { scene, topFace } = makePartScene();
+
+    const suggestion = suggestConnectorAnchors(scene, topFace, {}, 'hole');
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(true);
+      expect(suggestion.defaultName).toBe('c1');
     }
   });
 });

@@ -16,6 +16,7 @@ let relayed: any[];
 
 /** Picks forwarded to the connector anchor-suggestion endpoint. */
 let anchorCalls: unknown[];
+let anchorPurposes: unknown[];
 /** Per-test result for the anchor-suggestion endpoint. */
 let currentAnchors: any;
 /** Vertex-pick resolutions forwarded to the fake server's resolveSelection. */
@@ -113,8 +114,9 @@ const fakeServer = {
     resolveCalls.push(request);
     return currentResolution;
   },
-  suggestConnectorAnchors: (pick: unknown, _options?: unknown) => {
+  suggestConnectorAnchors: (pick: unknown, _options?: unknown, purpose?: unknown) => {
     anchorCalls.push(pick);
+    anchorPurposes.push(purpose);
     return currentAnchors;
   },
   explainSelection: (_picks: unknown, before?: unknown) => {
@@ -187,6 +189,7 @@ describe('apply-feature route validation', () => {
     queryCalls = [];
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
     anchorCalls = [];
+    anchorPurposes = [];
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
     resolveCalls = [];
     currentResolution = { ok: false, code: 'no-match', reason: 'no vertex resolution configured' };
@@ -6458,7 +6461,21 @@ describe('apply-feature route validation', () => {
       expect(body.args).toBe('e.endFaces(0)');
       expect(body.anchors).toHaveLength(1);
       expect(body.anchors[0].suffix).toBe('.center()');
+      expect(body.inPart).toBe(true);
       expect(anchorCalls).toEqual([PICK]);
+      expect(anchorPurposes).toEqual(['connector']);
+    });
+
+    it('anchors endpoint passes a hole purpose through and reports an anchor outside a part', async () => {
+      currentAnchors = { ok: true, inPart: false, defaultName: null, args: 'e.endFaces(0)', anchors: [] };
+      const { status, body } = await postAnchors({ entity: PICK, purpose: 'hole' });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.inPart).toBe(false);
+      expect(body.defaultName).toBeNull();
+      expect(anchorPurposes).toEqual(['hole']);
+      const bad = await postAnchors({ entity: PICK, purpose: 'rib' });
+      expect(bad.status).toBe(400);
     });
 
     it('anchors endpoint surfaces refusals as success:false', async () => {

@@ -239,11 +239,17 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
   // supports (face center; edge center/start/end) with exact frames, the
   // synthesized source expression, and a name unique within the part. The
   // connector tool renders the suggestion triad from these frames and the
-  // apply branch above re-synthesizes on commit.
+  // apply branch above re-synthesizes on commit. `purpose: 'hole'` (the
+  // Hole dialog) also suggests anchors outside a part and reports `inPart`.
   router.post('/selection/connector-anchors', async (req, res) => {
     const pick = validatePick(req.body?.entity);
     if (!pick) {
       res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+      return;
+    }
+    const purpose = req.body?.purpose ?? 'connector';
+    if (purpose !== 'connector' && purpose !== 'hole') {
+      res.status(400).json({ error: "purpose must be 'connector' or 'hole'" });
       return;
     }
     try {
@@ -251,7 +257,7 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       // learns the statement's target file; the real pass builds
       // namer/params over that file so the suggested args match what the
       // commit writes.
-      const probe = fluidCadServer.suggestConnectorAnchors(pick);
+      const probe = fluidCadServer.suggestConnectorAnchors(pick, undefined, purpose);
       if (!probe) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
@@ -262,7 +268,7 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       }
       const fileOptions = await synthesisOptionsForFile(probe.filePath);
       const result = fileOptions
-        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions) ?? probe
+        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions, purpose) ?? probe
         : probe;
       if (result.ok === false) {
         res.json({ success: false, reason: result.reason });
@@ -270,6 +276,8 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       }
       res.json({
         success: true,
+        // A kernel that predates `inPart` only ever answers inside a part.
+        inPart: result.inPart ?? true,
         defaultName: result.defaultName,
         args: result.args,
         filePath: result.filePath,

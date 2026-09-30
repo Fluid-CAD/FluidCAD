@@ -1,0 +1,100 @@
+---
+sidebar_position: 13
+title: "Hole"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import holePlate from '!!raw-loader!./_examples/hole-plate.js';
+import holeBasic from '!!raw-loader!./_examples/hole-basic.js';
+import holeCounterbore from '!!raw-loader!./_examples/hole-counterbore.js';
+import holeCountersink from '!!raw-loader!./_examples/hole-countersink.js';
+import holeBlind from '!!raw-loader!./_examples/hole-blind.js';
+import holeConnector from '!!raw-loader!./_examples/hole-connector.js';
+
+# Hole
+
+Hole cuts fastener holes into a solid at the places you point at: a plain drilled hole, a clearance hole for a bolt size, or a tap drill for a thread, with an optional counterbore or countersink at the entry. You never sketch the circle. You pick where the hole starts, and the standard tables supply the diameters.
+
+## In the viewport
+
+1. Click **Hole** on the toolbar. The dialog docks on the right with its **Placements** slot armed.
+2. Click where the holes go, as many places as you like: an existing connector, a vertex of a visible sketch (a circle centre, a line end, a sketch point), or the centre of a face or a round edge. Each pick becomes a chip. Inside a part, a face or edge pick becomes a new connector when you apply.
+3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Hole type** (**Drilled**, **Clearance** or **Tapped**), the **Size** and **Fastener fit** (or **Pitch**), and the **Termination** (**Through all** or **Blind**). The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
+4. Click **Apply**. The timeline gains a Hole row and the `hole()` statement is written to the file.
+
+<UiFigure
+  src="/img/docs/ui/hole-dialog.png"
+  alt="The Hole dialog with three placements, an M6 close-fit clearance hole and a counterbore"
+  markers={[
+    {n: 1, x: 5, y: 11.5, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
+    {n: 2, x: 5, y: 16, label: 'Metric / Inch', description: 'Which standard the size list reads: ISO sizes (M3, M6 …) or inch sizes (#10, 1/4 …). Table values are converted into the document unit.'},
+    {n: 3, x: 5, y: 25, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices, or face and edge centres in 3D; click a chip\'s ✕ to drop it.'},
+    {n: 4, x: 5, y: 38, label: 'Section drawing', description: 'The hole in section. The dimension of the field you are editing is drawn in colour.'},
+    {n: 5, x: 5, y: 52, label: 'Hole type, Size, Fastener fit', description: 'Drilled takes a Diameter you type. Clearance and Tapped take a fastener size; Clearance adds the fit (Close, Normal, Loose), Tapped the Pitch.'},
+    {n: 6, x: 5, y: 81.5, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
+    {n: 7, x: 5, y: 85.5, label: 'Flip direction', description: 'Drills along the placement\'s normal instead of into the material, for a connector whose Z points into the part.'},
+    {n: 8, x: 5, y: 90, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
+  ]}
+/>
+
+## The plate and its placements
+
+The examples below share one plate. Four sketch points on its top face mark the holes; returning them from the sketch callback names them for the hole statement (`holes.geometries.p1`). The dialog writes that return for you when you click a sketch vertex.
+
+<ExplainedCode code={holePlate} fileName="plate.part.js" title="The plate and the four points" />
+
+## Clearance holes
+
+<ModeTable columns={[
+  {title: 'Simple', code: "hole('M6', p1, p2, p3, p4)", image: '/img/docs/3d-operations/hole-basic.png', description: 'Four M6 clearance holes at the normal fit (Ø6.6), through the plate.'},
+  {title: 'Counterbore', code: ".clearance('close').counterbore()", image: '/img/docs/3d-operations/hole-counterbore.png', description: 'Close fit (Ø6.4) with the socket-head counterbore from the table: Ø11, 6.8 deep.'},
+  {title: 'Countersink', code: '.countersink()', image: '/img/docs/3d-operations/hole-countersink.png', description: 'The flat-head countersink from the table: Ø13.44 at the surface, 90°.'},
+]} />
+
+<ExplainedCode code={holeBasic} title="Simple" />
+
+<ExplainedCode code={holeCounterbore} title="Counterbore" />
+
+<ExplainedCode code={holeCountersink} title="Countersink" />
+
+A string size (`'M6'`, `'1/4'`, `'#10'`) reads the fastener tables. Without a chain it is a normal-fit clearance hole; `.clearance('close' | 'normal' | 'loose')` picks the fit. `.counterbore()` and `.countersink()` with no values take the table entry for that size; pass numbers to override them: `.counterbore(12, 7)`, `.countersink(14, 82)`. Metric tables are in millimetres and inch tables in inches; the values are converted into the file's unit.
+
+## Drilled and blind holes
+
+A numeric size is a drilled hole of that diameter; it has no table, so a counterbore or countersink on it needs explicit values. **Blind** stops the hole at a depth measured from the surface to the shoulder; the tip angle adds a drill point below it. In the dialog a tip angle of 0 leaves a flat bottom; in code, leave the second argument out: `.depth(6)`.
+
+![Blind drilled holes](/img/docs/3d-operations/hole-blind.png)
+
+<ExplainedCode code={holeBlind} />
+
+## Tapped holes
+
+`.tapped()` cuts the hole at the tap-drill diameter for the size: the coarse pitch by default, or a pitch you name (`.tapped(0.75)` for M6 fine; threads per inch for inch sizes). Threads themselves are not modelled yet; the size and pitch stay in the statement for a later thread feature.
+
+```js
+hole('M6', p1).tapped()                    // Ø5.0, for M6 × 1
+hole('M8', p2).tapped(1).depth(10, 118)    // Ø7.0, for M8 × 1, blind with a drill point
+```
+
+## Holes at connectors
+
+Inside a part, a hole can start at a [connector](/docs/part/connector). A connector's Z points out of the face it sits on, so the hole drills against it, into the material, and the same connector later mates the bolt in an assembly. Repeat the hole to make a bolt circle:
+
+![Bolt circle on a flange](/img/docs/3d-operations/hole-connector.png)
+
+<ExplainedCode code={holeConnector} fileName="flange.part.js" />
+
+When you click a face or a round edge in the dialog inside a part, Apply writes a connector at its centre and places the hole on it. Outside a part the hole takes the anchor expression directly: `hole(6, e.endFaces().center())`.
+
+## Direction, scope and selection
+
+- A hole drills opposite the placement's normal: into the face a sketch sits on, or against a connector's Z. `.flip()` reverses it.
+- By default a hole cuts every solid in the scene; `.scope(plate)` narrows it, as in the other dialogs.
+- The cut geometry is selectable: `h.faces()` are the walls, `h.edges()` every rim, `h.startEdges()` the rims on the entry face and `h.endEdges()` the floor rims of a blind hole or the exit rims of a through hole.
+
+```js
+const h = hole('M6', p1).counterbore();
+chamfer(0.5, h.startEdges());
+```

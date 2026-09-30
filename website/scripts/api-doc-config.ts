@@ -111,6 +111,7 @@ export const features: FeatureEntry[] = [
   { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/3d-operations/rib', sidebarPosition: 16 },
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
+  { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
@@ -173,6 +174,7 @@ export const types: TypeEntry[] = [
   { name: 'IRib', displayName: 'Rib', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.5 },
   { name: 'IWrap', displayName: 'Wrap', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.6 },
   { name: 'IHelix', displayName: 'Helix', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.7 },
+  { name: 'IHole', displayName: 'Hole', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.8 },
   { name: 'IText', displayName: 'Text', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17.5 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IOffsetEdge', displayName: 'OffsetEdge', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 32.1 },
@@ -345,6 +347,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IRib': 'Rib',
   'IWrap': 'Wrap',
   'IHelix': 'Helix',
+  'IHole': 'Hole',
   'IText': 'Text',
   'IOffset': 'Offset',
   'IOffsetEdge': 'OffsetEdge',

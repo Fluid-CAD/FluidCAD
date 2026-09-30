@@ -92,6 +92,8 @@ sketch(block.endFaces(), () => {
 cut(4);
 ```
 
+A fastener hole with its counterbore is one statement with `hole()`: `hole('M6', s.geometries.c.center()).counterbore()` reads the clearance diameter and the socket-head counterbore from the tables, so the sketch above only needs the circle's centre. Sketch and `cut()` the recess yourself when the drawing gives a shape the tables do not.
+
 `project(...)` registers as a fixed reference the solver never moves; `.ref(i)`, `.start()`, `.end()` and `.center()` pick one edge of it. Check which index is the hole by rolling back to the sketch and taking a screenshot, or by `resolve_selection` on `edge().circle(12)` at the face.
 
 ## Keep sketches small

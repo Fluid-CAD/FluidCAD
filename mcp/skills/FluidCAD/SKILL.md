@@ -20,7 +20,7 @@ You are driving a live FluidCAD workspace through the FluidCAD MCP. The MCP is t
 
 If your client can run sub-agents, turn that reading into one agent per API area and launch them concurrently, so the API knowledge is waiting when you start writing code.
 
-- **Two waves, so the reading overlaps the thinking.** The baseline (sketching and the 2D primitives, `extrude` and `cut`, plane and face references) is needed by almost every part: launch it as soon as you know roughly what the part is. Once the plan names its operations, launch one agent per operation mapped to its FluidCAD counterpart: revolved feature to `revolve`, patterned holes to `repeat`, edge break to `fillet` / `chamfer`, hollowing to `shell`, swept or lofted geometry to `sweep` / `loft`, plus the face and edge filters the plan's selections will need.
+- **Two waves, so the reading overlaps the thinking.** The baseline (sketching and the 2D primitives, `extrude` and `cut`, plane and face references) is needed by almost every part: launch it as soon as you know roughly what the part is. Once the plan names its operations, launch one agent per operation mapped to its FluidCAD counterpart: revolved feature to `revolve`, fastener holes (clearance, tapped, counterbored, countersunk) to `hole()`, patterned holes to `hole()` + `repeat`, edge break to `fillet` / `chamfer`, hollowing to `shell`, swept or lofted geometry to `sweep` / `loft`, plus the face and edge filters the plan's selections will need.
 - **Launch each wave in a single message** so its agents actually run concurrently.
 - **One agent per API area, not per doc page.** Each returns a compact digest: the exact signature verbatim from `get_api_signature`, every type in it resolved via `get_type_definition`, one minimal snippet with its imports, and the documented gotchas and limitations, including anything the docs say is not supported.
 - **Sub-agents read, they never build.** No `write_file`, `edit_range`, `recompute` or `rollback_to`. The MCP drives one live scene; concurrent writes race, and a rollback fired by a sub-agent truncates the scene you are looking at. Only the main agent touches the model.
@@ -38,7 +38,7 @@ Take these unless the user, the drawing, or the project says otherwise. Every on
 - **Origin.** Reference faces at the origin: a plate's bottom face on `z = 0`, a revolved part's axis on Z, a symmetric part's symmetry plane through the origin. A part that will be inserted into an assembly puts its mating face or axis at the origin.
 - **Wall thickness** for an unspecified enclosure or shell: 2 to 3 mm.
 - **Cosmetic fillets and edge breaks** where the user asked for "rounded" or "soft" edges without a number: 1 to 3 mm, applied last.
-- **Metric clearance holes** for an unspecified bolt fit: M3 3.4, M4 4.5, M5 5.5, M6 6.6 (diameters). Model threads as plain holes at nominal diameter unless asked for thread geometry.
+- **Metric clearance holes** for an unspecified bolt fit: M3 3.4, M4 4.5, M5 5.5, M6 6.6 (diameters); `hole('M6', …)` reads these from the tables. Model threads as tapped holes (`hole('M6', …).tapped()`, cut at the tap drill) unless asked for thread geometry.
 - **Tolerances.** Model nominal. A fit or tolerance is a comment, not a solid.
 
 ## Clarification policy

@@ -31,7 +31,7 @@ Read before a fillet, chamfer, shell, cut, repeat, `plane()` offset, a sketch on
 
 - **Signature.** A linear pattern marches off the part instead of across it; a circular pattern starts on the wrong side. The source looks right. Passing `count` alone fails the feature: the runtime needs spacing or span.
 - **Evidence.** `api/repeat`: `linear` needs `count` plus exactly one of `offset` or `length`; `circular` needs `count` plus one of `offset` (degrees) or `angle`. The direction sign is observed in sessions.
-- **Fix.** Prefer `length` (total span) when the drawing gives an overall; the sign of `offset` or `length` sets the direction. Repeat the feature (`repeat("linear", "x", { count: 4, offset: 30 }, hole)`), not the sketch. Gate every repeat on a screenshot, and `measure` the first and last instance centers.
+- **Fix.** Prefer `length` (total span) when the drawing gives an overall; the sign of `offset` or `length` sets the direction. Repeat the feature (`repeat("linear", "x", { count: 4, offset: 30 }, bore)`, where `bore` is the `cut()` or `hole()` statement), not the sketch. Gate every repeat on a screenshot, and `measure` the first and last instance centers.
 
 ## Shell offsets every face that exists when it runs
 

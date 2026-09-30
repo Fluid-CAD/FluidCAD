@@ -10,7 +10,7 @@ FluidCAD is a parametric CAD program whose native file format is JavaScript. You
 ## What a model is made of
 
 - **Sketches** are drawn on a plane or on a face. Geometry is drawn at rough positions and **constraints** pin it down: this line is horizontal, these two points touch, this distance is 30. A solver keeps the sketch consistent when a value changes.
-- **3D features** turn sketches into solids and reshape them: extrude, revolve, sweep, loft, shell, fillet, chamfer, wrap, rib, helix. Each one is a row in the timeline and a statement in the file.
+- **3D features** turn sketches into solids and reshape them: extrude, revolve, sweep, loft, shell, fillet, chamfer, wrap, rib, hole, helix. Each one is a row in the timeline and a statement in the file.
 - **Parts** wrap a body of features in a `part()` container. A part can declare **parameters** (values the user of the part can override) and **connectors** (mate frames attached to its geometry).
 - **Assemblies** insert parts, ground one of them, and connect the rest with **joints**: fastened, revolute, slider, cylindrical, planar and tangent. Joints solve live in the viewport and can be animated.
 

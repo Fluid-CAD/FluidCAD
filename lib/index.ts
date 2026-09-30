@@ -42,6 +42,20 @@ export function extractErrorSourceLocation(error: unknown): SourceLocation | nul
   return extractSourceLocation(header >= 0 ? stack.slice(header + (message as string).length) : stack);
 }
 
+/**
+ * A script frame's path arrives percent-encoded: `file://` URLs always are,
+ * and the server encodes the `sourceURL` it hands V8 because V8 drops one
+ * holding whitespace (a workspace under `My Projects`). A path that is not
+ * valid percent-encoding is kept as it came.
+ */
+function decodeFramePath(filePath: string): string {
+  try {
+    return decodeURIComponent(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
 export function extractSourceLocation(stack: string): SourceLocation | null {
   const frames = parseStackTrace(stack);
   for (const frame of frames) {
@@ -67,7 +81,7 @@ export function extractSourceLocation(stack: string): SourceLocation | null {
       continue;
     }
 
-    filePath = filePath.replace(/\\/g, '/');
+    filePath = decodeFramePath(filePath).replace(/\\/g, '/');
 
     return {
       filePath,

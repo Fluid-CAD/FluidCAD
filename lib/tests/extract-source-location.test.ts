@@ -125,6 +125,44 @@ describe("extractSourceLocation", () => {
     });
   });
 
+  // The server percent-encodes the sourceURL it hands V8, which drops one
+  // holding whitespace — a workspace under `My Projects` shows up encoded.
+  it("decodes a percent-encoded frame path", () => {
+    const stack = `Error
+    at eval (/home/user/My%20Projects/100%25/widget.part.js:12:3)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/My Projects/100%/widget.part.js",
+      line: 12,
+      column: 3,
+    });
+  });
+
+  it("decodes a file:/// URL", () => {
+    const stack = `Error
+    at Object.<anonymous> (file:///C:/Users/marwan/My%20Projects/test.fluid.js:4:11)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "C:/Users/marwan/My Projects/test.fluid.js",
+      line: 4,
+      column: 11,
+    });
+  });
+
+  it("keeps a path that is not valid percent-encoding as it came", () => {
+    const stack = `Error
+    at Object.<anonymous> (/home/user/50%off/test.fluid.js:4:11)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/50%off/test.fluid.js",
+      line: 4,
+      column: 11,
+    });
+  });
+
   it("skips frames with no file", () => {
     const stack = `Error
     at Array.forEach (<anonymous>)`;

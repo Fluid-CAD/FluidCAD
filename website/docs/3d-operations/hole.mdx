@@ -12,6 +12,7 @@ import holeCounterbore from '!!raw-loader!./_examples/hole-counterbore.js';
 import holeCountersink from '!!raw-loader!./_examples/hole-countersink.js';
 import holeBlind from '!!raw-loader!./_examples/hole-blind.js';
 import holeConnector from '!!raw-loader!./_examples/hole-connector.js';
+import holeGuide from '!!raw-loader!./_examples/hole-guide.js';
 
 # Hole
 
@@ -19,21 +20,27 @@ Hole cuts fastener holes into a solid at the places you point at: a plain drille
 
 ## In the viewport
 
-1. Click **Hole** on the toolbar. The dialog docks on the right with its **Placements** slot armed.
-2. Click where the holes go, as many places as you like: an existing connector, a vertex of a visible sketch (a circle centre, a line end, a sketch point), or the centre of a face or a round edge. Each pick becomes a chip. Inside a part, a face or edge pick becomes a new connector when you apply.
-3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Termination** (**Through all** or **Blind**), the **Hole type** (**Drilled**, **Clearance** or **Tapped**), and the **Size** and **Fastener fit** (or **Pitch**). The **Size** list holds both **Metric** and **Imperial** sizes. The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
+1. Click **Hole** on the toolbar. The dialog docks on the right with its **Placements** slot armed, and a section drawing of the hole floats in a card to its left.
+2. Click where the holes go, as many places as you like. Each pick becomes a chip:
+   - an existing connector;
+   - a vertex of a sketch: a circle centre, a line end, a sketch point, or the corner of a [guide](/docs/sketching/tools/guides). Guides stay drawn over the model after a feature has used their sketch, so a construction layout keeps its corners clickable;
+   - an anchor on a face or an edge. Hovering floats the anchor nearest the cursor as a translucent frame: the centre of a face, or the start, end or centre of an edge. On an arc, hover its middle for the arc's centre. Inside a part, the anchor becomes a new connector when you apply.
+3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Termination** (**Through all** or **Blind**) and the **Hole type** (**Drilled**, **Clearance** or **Tapped**). **Clearance** puts **Size** and **Fastener fit** on one row, and **Tapped** puts **Size** and **Pitch** there. The **Size** list groups **Metric** and **Imperial** sizes, and the **Pitch** list groups **Coarse** and **Fine**. **Drilled** hides the row and takes the **Diameter** you type. The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
 4. Click **Apply**. The timeline gains a Hole row and the `hole()` statement is written to the file.
+
+To change a hole later, double-click its row in the timeline. The dialog reopens with every placement as a chip, and the ghost shows the holes where they are cut now.
 
 <UiFigure
   src="/img/docs/ui/hole-dialog.png"
-  alt="The Hole dialog with two placements, an M6 close-fit clearance hole and a counterbore"
+  alt="The Hole dialog with its section drawing beside it: two guide-corner placements, an M6 close-fit clearance hole and a counterbore"
   markers={[
-    {n: 1, x: 5, y: 11, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
-    {n: 2, x: 5, y: 14.5, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices, or face and edge centres in 3D; click a chip\'s ✕ to drop it.'},
-    {n: 3, x: 5, y: 35, label: 'Section drawing', description: 'The hole in section. The dimension of the field you are editing is drawn in colour.'},
-    {n: 4, x: 5, y: 44.5, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
-    {n: 5, x: 5, y: 56.5, label: 'Hole type, Size, Fastener fit', description: 'Drilled takes a Diameter you type. Clearance and Tapped take a fastener size from the Metric (M3, M6 …) or Imperial (#10, 1/4 …) group, with table values converted into the document unit; Clearance adds the fit (Close, Normal, Loose), Tapped the Pitch.'},
-    {n: 6, x: 5, y: 87, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
+    {n: 1, x: 46.2, y: 15.9, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
+    {n: 2, x: 46.2, y: 27.7, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices (guide corners included), or face and edge anchors in 3D; click a chip\'s ✕ to drop it.'},
+    {n: 3, x: 2.3, y: 12, label: 'Section drawing', description: 'The hole in section, in a card that stays in view while the dialog scrolls. The dimension of the field you are editing is drawn in colour.'},
+    {n: 4, x: 46.2, y: 39.5, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
+    {n: 5, x: 46.2, y: 48.2, label: 'Hole type', description: 'Drilled takes a Diameter you type. Clearance and Tapped read the diameter from the fastener tables, converted into the document unit.'},
+    {n: 6, x: 46.2, y: 56.8, label: 'Size, Fastener fit or Pitch', description: 'The fastener size, from the Metric (M3, M6 …) or Imperial (#10, 1/4 …) group. Beside it, Clearance takes the fit (Close, Normal, Loose) and Tapped the Pitch, grouped into Coarse and Fine.'},
+    {n: 7, x: 46.2, y: 85, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
   ]}
 />
 
@@ -76,6 +83,14 @@ hole('M6', p1).tapped()                    // Ø5.0, for M6 × 1
 hole('M8', p2).tapped(1).depth(10, 118)    // Ø7.0, for M8 × 1, blind with a drill point
 ```
 
+## Holes on construction lines
+
+A [guide](/docs/sketching/tools/guides) never becomes part of a profile, and it stays drawn over the model once its sketch is finished, even after a feature has used the sketch. The ends of its lines stay clickable in the dialog, so a construction layout can position a whole pattern: dimension a guide rectangle once, then click its corners. Each corner is written as the end of one of the lines (`layout.geometries.b.start()`). A corner two lines share names the line that comes first in the sketch.
+
+![Four M5 holes on the corners of a construction rectangle](/img/docs/3d-operations/hole-guide.png)
+
+<ExplainedCode code={holeGuide} />
+
 ## Holes at connectors
 
 Inside a part, a hole can start at a [connector](/docs/part/connector). A connector's Z points out of the face it sits on, so the hole drills against it, into the material, and the same connector later mates the bolt in an assembly. Repeat the hole to make a bolt circle:
@@ -84,7 +99,7 @@ Inside a part, a hole can start at a [connector](/docs/part/connector). A connec
 
 <ExplainedCode code={holeConnector} fileName="flange.part.js" />
 
-When you click a face or a round edge in the dialog inside a part, Apply writes a connector at its centre and places the hole on it. Outside a part the hole takes the anchor expression directly: `hole(6, e.endFaces().center())`.
+When you pick a face or edge anchor in the dialog inside a part, Apply writes a connector at that anchor and places the hole on it. Outside a part the hole takes the anchor expression directly: `hole(6, e.endFaces().center())`.
 
 ## Direction, scope and selection
 

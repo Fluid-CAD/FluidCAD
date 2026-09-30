@@ -1,4 +1,4 @@
-// @screenshot view iso-ftr
+// @screenshot view iso-ftr hidePositional
 import { sketch, line, point, extrude, hole } from 'fluidcad/core';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 

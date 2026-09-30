@@ -1,4 +1,4 @@
-// @screenshot view iso-ftr hideDimensions
+// @screenshot view iso-ftr hideDimensions hidePositional
 import { part, sketch, circle, extrude, connector, hole, repeat } from 'fluidcad/core';
 import { fix, diameter } from 'fluidcad/constraints';
 

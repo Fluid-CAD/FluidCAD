@@ -180,7 +180,9 @@ export function holeIllustration(options: HoleIllustrationOptions): string {
   const axis = `<line x1="${AXIS}" y1="${PLATE.top - 14}" x2="${AXIS}" y2="${PLATE.bottom + 10}" stroke="currentColor" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="6 3 1 3"/>`;
   const dim = dimension(options, markers);
   const defs = `<defs>`
-    + `<marker id="${markers}-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10 1 L1 5 L10 9 Z" fill="var(--color-primary)"/></marker>`
+    // The start head is drawn pointing back along the line, so it orients
+    // plain `auto` — `auto-start-reverse` would flip it a second time.
+    + `<marker id="${markers}-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M10 1 L1 5 L10 9 Z" fill="var(--color-primary)"/></marker>`
     + `<marker id="${markers}-end" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 1 L9 5 L0 9 Z" fill="var(--color-primary)"/></marker>`
     + `</defs>`;
   return `<svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hole section" class="w-full h-auto">`

@@ -58,6 +58,19 @@ describe('hole illustration', () => {
     expect(dimensionMarkup({ ...BASE, style: 'countersink', highlight: 'countersinkAngle' })).toContain('angle');
   });
 
+  it('points both arrowheads outward, away from the dimension line', () => {
+    const svg = holeIllustration({ ...BASE, highlight: 'diameter' });
+    // Along a left-to-right line: +1 when the head points right, -1 left.
+    const heading = (end: 'start' | 'end') => {
+      const marker = new RegExp(`<marker id="hole-dim-\\d+-${end}"[^>]*orient="([^"]+)"><path d="M(\\S+) \\S+ L(\\S+) `).exec(svg)!;
+      const [, orient, baseX, tipX] = marker;
+      const drawn = Number(tipX) > Number(baseX) ? 1 : -1;
+      return orient === 'auto-start-reverse' && end === 'start' ? -drawn : drawn;
+    };
+    expect(heading('start')).toBe(-1);
+    expect(heading('end')).toBe(1);
+  });
+
   it('gives every drawing its own marker ids so several can share a document', () => {
     const a = holeIllustration({ ...BASE, highlight: 'diameter' });
     const b = holeIllustration({ ...BASE, highlight: 'diameter' });

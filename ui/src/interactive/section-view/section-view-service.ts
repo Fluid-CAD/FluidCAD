@@ -112,7 +112,10 @@ export class SectionViewService {
       this.refreshHighlight();
     };
     viewer.setSectionButtonHandler((anchor) => this.openMenu(anchor));
-    viewer.subscribeSceneMesh(() => this.scheduleRefresh());
+    // Synchronously, not on the next frame: a render swaps fresh, unclipped
+    // meshes into the root, and the render loop (still running after an
+    // arrow drag) would draw them whole once before a deferred re-apply.
+    viewer.subscribeSceneMesh(() => this.refresh());
     // Another feature dialog opening takes the corner: this one steps aside.
     viewportChrome.subscribeDialogs((openIds) => {
       if (this.armed && [...openIds].some(id => id !== SectionPanel.ID)) {

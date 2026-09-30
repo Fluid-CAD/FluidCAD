@@ -69,6 +69,40 @@ export class HolePlacements {
     };
   }
 
+  /**
+   * The line numbers a placement addresses in the buffer, in
+   * `withPlacementLines` order: a connector still to create names its
+   * producers and part; a sketch point names its geometry statement.
+   */
+  private static placementLines(placement: HolePlacementSpec): number[] {
+    if (placement.kind === 'newConnector') {
+      return [
+        ...placement.create.producers.map(producer => producer.line),
+        ...(placement.create.connector?.part ? [placement.create.connector.part.line] : []),
+      ];
+    }
+    if (placement.kind === 'sketch' && placement.target.line !== undefined) {
+      return [placement.target.line];
+    }
+    return [];
+  }
+
+  private static withPlacementLines(placement: HolePlacementSpec, lines: number[]): HolePlacementSpec {
+    if (placement.kind === 'newConnector') {
+      const create = placement.create;
+      let at = 0;
+      const producers = create.producers.map(producer => ({ ...producer, line: lines[at++] }));
+      const connector = create.connector?.part
+        ? { ...create.connector, part: { ...create.connector.part, line: lines[at++] } }
+        : create.connector;
+      return { ...placement, create: { ...create, producers, connector } };
+    }
+    if (placement.kind === 'sketch' && placement.target.line !== undefined) {
+      return { ...placement, target: { ...placement.target, line: lines[0] } };
+    }
+    return placement;
+  }
+
   private static async createConnectors(code: string, spec: ApplyFeatureEditSpec, apply: FeatureEditApply): Promise<Staged> {
     let working = code;
     let current = spec;
@@ -89,9 +123,22 @@ export class HolePlacements {
       if (!statement) {
         return { error: `the connector "${placement.name}" was not written where the hole could find it — re-render and try again` };
       }
-      const relocated = await HolePlacements.relocate(working, created.newCode, HolePlacements.trackedLines(current), statement.line);
+      // Every line the spec and its placements address follows the edit —
+      // a new import line shifts everything below it, including the
+      // connectors still to create and the sketch points still to export.
+      const tracked = HolePlacements.trackedLines(current);
+      const relocated = await HolePlacements.relocate(working, created.newCode, [
+        ...tracked,
+        ...placements.flatMap(other => HolePlacements.placementLines(other)),
+      ], statement.line);
       if (!relocated) {
         return { error: 'could not relocate the hole\'s inputs after creating its connector — re-render and try again' };
+      }
+      let at = tracked.length;
+      for (let k = 0; k < placements.length; k++) {
+        const count = HolePlacements.placementLines(placements[k]).length;
+        placements[k] = HolePlacements.withPlacementLines(placements[k], relocated.slice(at, at + count));
+        at += count;
       }
       // The new statement binds under the connector's own name, the way a
       // copy names its connector target.
@@ -100,7 +147,7 @@ export class HolePlacements {
         featureType: 'connector', nameHint: placement.name, bind: true,
       }];
       placements[i] = { kind: 'connector', producer: producers.length - 1 };
-      const relocatedSpec = HolePlacements.withLines(current, relocated, placements);
+      const relocatedSpec = HolePlacements.withLines(current, relocated.slice(0, tracked.length), placements);
       current = { ...relocatedSpec, producers: [...relocatedSpec.producers, producers[producers.length - 1]] };
       working = created.newCode;
     }

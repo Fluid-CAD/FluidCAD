@@ -116,6 +116,54 @@ describe('hole statement templates', () => {
     expect(result.newCode.indexOf(`const h1 =`)).toBeLessThan(result.newCode.indexOf(`hole('M6'`));
   });
 
+  it('creates every new connector when the first adds an import line above the rest', async () => {
+    // Filtered edge selectors need `edge` from fluidcad/filters, which the
+    // file lacks: the first create adds that import line, shifting every
+    // line the second create addresses (the extrude on line 5 moves to 6).
+    const create = (name: string, filter: string): ApplyFeatureEditSpec => ({
+      feature: 'connector',
+      connector: { name, part: { line: 3, column: 20 }, anchor: { kind: 'center' } },
+      filePath: FILE,
+      producers: [{ line: 5, column: 12, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: null, filterArgs: filter }],
+      imports: ['edge'],
+    });
+    const result = await applyFeatureEdit(plate, holeSpec({
+      placements: [
+        { kind: 'newConnector', name: 'h1', create: create('h1', `edge().above('xz')`) },
+        { kind: 'newConnector', name: 'h2', create: create('h2', `edge().below('xz')`) },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters'`);
+    expect(result.newCode).toContain(`  const h1 = connector('h1', e.endEdges(edge().above('xz')).center())`);
+    expect(result.newCode).toContain(`  const h2 = connector('h2', e.endEdges(edge().below('xz')).center())`);
+    expect(result.newCode).toContain(`  hole('M6', h1, h2).clearance('close')\n})`);
+  });
+
+  it('exports a sketch point after a new connector adds an import line above it', async () => {
+    // The connector's filtered selector adds the `edge` import, shifting the
+    // sketch (line 8 → 9) and its point (line 10 → 11) the export addresses.
+    const create: ApplyFeatureEditSpec = {
+      feature: 'connector',
+      connector: { name: 'h1', part: { line: 3, column: 20 }, anchor: { kind: 'center' } },
+      filePath: FILE,
+      producers: [{ line: 5, column: 12, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: null, filterArgs: `edge().above('xz')` }],
+      imports: ['edge'],
+    };
+    const result = await applyFeatureEdit(plate, holeSpec({
+      placements: [
+        { kind: 'newConnector', name: 'h1', create },
+        { kind: 'sketch', producer: 0, target: { line: 10, featureType: 'point' } },
+      ],
+    }, { producers: [SKETCH] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters'`);
+    expect(result.newCode).toContain(`    const p1 = point([-20, 0])`);
+    expect(result.newCode).toContain(`  hole('M6', h1, s.geometries.p1).clearance('close')\n})`);
+  });
+
   it('refuses a new connector whose name the part already declares', async () => {
     const create: ApplyFeatureEditSpec = {
       feature: 'connector',

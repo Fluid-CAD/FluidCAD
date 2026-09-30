@@ -11,6 +11,9 @@ import {
   Plane,
   Vector3,
 } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SectionCaps, SectionController, SectionPlaneMath, SectionPlanes } from '../src/scene/section-controller';
 
 /** A solid the way SolidMesh builds one: an `isSolid` group holding a face-mesh group holding the mesh. */
@@ -134,6 +137,28 @@ describe('SectionController.apply', () => {
     controller.apply(root, { plane: 'xy', offset: 100 });
     expect(caps(root)).toHaveLength(0);
     expect(markers(root)).toHaveLength(0);
+  });
+
+  it('counts only the face meshes of a solid: its fat-line edges contribute no stencil marker', () => {
+    const root = new Group();
+    const body = solid(10);
+    // The edges the way SolidMesh holds them: fat lines, which extend Mesh
+    // and carry the line shader's 2×3 template quad as their `position`.
+    const edges = new Group();
+    edges.position.set(1, 2, 3);
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions([-5, -5, 5, 5, -5, 5]);
+    const line = new LineSegments2(geometry, new LineMaterial({ color: 0x000000 }));
+    edges.add(line);
+    body.solid.add(edges);
+    root.add(body.solid);
+
+    new SectionController().apply(root, { plane: 'xy' });
+    expect(caps(root)).toHaveLength(1);
+    // One back-face and one front-face marker for the face mesh, nothing for the line.
+    expect(markers(root)).toHaveLength(2);
+    expect(markers(root).every((m) => m.matrixWorld.equals(body.mesh.matrixWorld))).toBe(true);
+    expect(markers(root).some((m) => m.matrixWorld.equals(line.matrixWorld))).toBe(false);
   });
 
   it('numbers several caps so each solid\'s markers precede its own quad', () => {

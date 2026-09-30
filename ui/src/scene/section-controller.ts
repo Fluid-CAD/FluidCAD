@@ -23,6 +23,7 @@ import {
   ReplaceStencilOp,
   Vector3,
 } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { SectionClipper } from './section-clipper';
 import { SectionPlaneMath, type ResolvedSection, type SectionSpec, type Vec3Tuple } from './section-spec';
 import { themeColors } from './theme-colors';
@@ -319,11 +320,22 @@ export class SectionCaps {
     return kept > 0 && removed > 0;
   }
 
+  /**
+   * The triangle meshes of a solid: its face meshes, never its edges. A
+   * solid's edge lines are fat lines (`LineSegments2`), which extend `Mesh`
+   * and carry a `position` attribute — the 2×3 template quad the line
+   * shader instances along every segment, sitting at the mesh's origin.
+   * Counted in the stencil pass, that open quad never balances, and it
+   * left a small stray cap at the model's origin.
+   */
   private static faceMeshes(solid: Object3D): Mesh[] {
     const meshes: Mesh[] = [];
     solid.traverse((obj) => {
       const mesh = obj as Mesh;
-      if (mesh.isMesh && obj.visible && !obj.userData.isSectionOverlay && mesh.geometry?.getAttribute('position')) {
+      if (!mesh.isMesh || (obj as unknown as LineSegments2).isLineSegments2) {
+        return;
+      }
+      if (obj.visible && !obj.userData.isSectionOverlay && mesh.geometry?.getAttribute('position')) {
         meshes.push(mesh);
       }
     });

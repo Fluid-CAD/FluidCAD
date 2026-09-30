@@ -1,5 +1,5 @@
 import { PanelShell } from './panel-controls';
-import type { EscapeScope } from './panel-controls';
+import type { DialogWidth, EscapeScope } from './panel-controls';
 import { ExpressionField } from '../../ui/expression-field';
 import { applyUnitDefaults } from '../../units/apply-unit-defaults';
 import { sceneUnit } from '../../units/scene-unit';
@@ -34,13 +34,13 @@ export abstract class FeaturePanel {
        * their tool, which closes them.
        */
       escape?: EscapeScope;
-      /** A wider float for a dialog whose tab rows or labels would crowd the default column. */
-      wide?: boolean;
+      /** A wider float for a dialog whose rows would crowd the default column. */
+      width?: DialogWidth;
     },
   ) {
     this.shell = new PanelShell(container, opts.id, opts.title, opts.icon, opts.escape ?? 'anywhere');
-    if (opts.wide) {
-      this.shell.widen();
+    if (opts.width) {
+      this.shell.widen(opts.width);
     }
     this.shell.onEscape = () => this.onExit?.();
     this.body = this.shell.body;

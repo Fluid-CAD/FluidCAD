@@ -81,7 +81,8 @@ export class HolePanel extends FeaturePanel {
       id: 'fluidcad-hole-panel',
       title: 'Hole',
       icon: iconUrl('hole'),
-      wide: true,
+      // The three style tabs' labels would crowd the default column.
+      width: 'wide',
       bodyHtml: `
         <p class="text-base-content/70 leading-snug">Cuts fastener holes into the model at the places you pick.</p>
         <div data-role="style-tabs" class="join w-full"></div>

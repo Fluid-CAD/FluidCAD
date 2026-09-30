@@ -414,6 +414,14 @@ export const DIALOG_BOX_CLASS =
   + 'sm:w-60 sm:border sm:rounded-lg sm:max-h-[calc(100vh-260px)]';
 
 /**
+ * The floats wider than the shared w-60 column a dialog can take (the sheet
+ * is full width anyway): `wide` for crowded tab rows and labels, `wider` for
+ * rows that hold a label and a slot side by side.
+ */
+const DIALOG_WIDTHS = { wide: 'sm:w-68', wider: 'sm:w-72' } as const;
+export type DialogWidth = keyof typeof DIALOG_WIDTHS;
+
+/**
  * The pinned title row. A hairline appears along its bottom edge once the
  * body has scrolled under it — drawn as a shadow so nothing shifts.
  */
@@ -611,9 +619,9 @@ export class PanelShell {
     this.iconImg.src = src;
   }
 
-  /** A wider float than the shared w-60 column, for a dialog whose rows run long; the sheet is full width anyway. */
-  widen(): void {
-    this.box.classList.replace('sm:w-60', 'sm:w-68');
+  /** Swap the shared w-60 float for a wider one. */
+  widen(width: DialogWidth): void {
+    this.box.classList.replace('sm:w-60', DIALOG_WIDTHS[width]);
   }
 
   show(): void {

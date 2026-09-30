@@ -61,6 +61,8 @@ export class ReplicatePanel extends FeaturePanel {
       title: 'Replicate',
       icon: iconUrl('replicate'),
       exitLabel: 'Cancel',
+      // Each copy holds a full label + slot per mate, and connector names run long.
+      width: 'wider',
       bodyHtml: `
         <p data-role="intro" class="text-base-content/60 leading-snug m-0"></p>
         <div data-role="seed-prompt" class="hidden rounded-md px-3 py-2.5 border bg-primary/10 border-primary text-primary leading-snug">
@@ -83,9 +85,6 @@ export class ReplicatePanel extends FeaturePanel {
         </div>
       `,
     });
-    // A little wider than the shared w-60 body: each copy holds a full
-    // label + slot per mate, and connector names run long.
-    this.shell.body.classList.replace('sm:w-60', 'sm:w-72');
     this.introEl = this.role('intro');
     this.seedPrompt = this.role('seed-prompt');
     this.hintEl = this.role('hint');

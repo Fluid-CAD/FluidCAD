@@ -512,7 +512,7 @@ export class SketchToolbar {
 
     const btn = document.createElement('button');
     btn.className = this.guideModeState ? TOOLBAR_BTN_ACTIVE_STRONG : TOOLBAR_BTN_BASE;
-    btn.innerHTML = `<img src=iconUrl('guide') ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
+    btn.innerHTML = `<img src="${iconUrl('guide')}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
       + `<span class="${TOOLBAR_BTN_LABEL}">Guide</span>`;
     btn.addEventListener('click', () => this.onGuidePress());
 

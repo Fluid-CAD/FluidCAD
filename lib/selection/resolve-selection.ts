@@ -640,12 +640,14 @@ export class SelectionResolver {
   private static vertexShapesOf(objects: SceneObject[], removalScope?: Set<SceneObject>): SolidEntry[] {
     // Meta shapes stay out, except a lone meta vertex: a circle's centre mark
     // is the one pickable stand-in for the centre point (see the render
-    // payload's `vertices`), so a hole or a loft can name it.
+    // payload's `vertices`), so a hole or a loft can name it. Guides are in:
+    // construction geometry stays drawn and its points are pickable — after
+    // the profile, so a corner both share is still found on the profile.
     return objects.filter(object => !object.isContainer() && !object.isLazy()).flatMap(object =>
-      object.getShapes({ excludeMeta: false }, undefined, removalScope)
+      object.getShapes({ excludeMeta: false, excludeGuide: false }, undefined, removalScope)
         .filter(shape => !shape.isMetaShape() || shape.getType() === 'vertex')
         .map(solid => ({ object, solid })),
-    );
+    ).sort((a, b) => Number(a.solid.isGuideShape()) - Number(b.solid.isGuideShape()));
   }
 
   private static toVertexMatch(

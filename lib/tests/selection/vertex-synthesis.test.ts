@@ -299,6 +299,29 @@ describe('sketch centre and point-entity picks', () => {
     expect(entity.source).toMatch(/^s\d*\.geometries\.p\d*$/);
   });
 
+  it('names a guide endpoint and a guide point of a consumed sketch', () => {
+    const s = located(sketch('xy', () => {
+      located(circle([0, 0], 40), 2);
+      return {
+        g: located(line([-10, 5], [10, 5]).guide(), 3),
+        p: located(point([0, -5]).guide(), 4),
+      };
+    }), 1);
+    located(extrude(10), 5);
+    const later = located(sketch('xz', () => { located(line([0, 30], [5, 30]), 7); }), 6);
+    const scene = render();
+    const edge = (s.geometries.g as unknown as SceneObject).getAddedShapes().find(shape => shape.isEdge())!;
+    for (const index of [0, 1]) {
+      expect(roundTrip(scene, edge, index).exports?.[0].target).toMatchObject({ line: 3, featureType: 'line' });
+    }
+    expect(points(scene, [pick(vertexShapeOf(s.geometries.p))]).exports?.[0].target)
+      .toMatchObject({ line: 4, featureType: 'point' });
+    // An edit session past the consumer reads the guides too.
+    const before = scene.getAllSceneObjects().indexOf(later as unknown as SceneObject);
+    expect(SelectionResolver.resolve(scene, { before, picks: [pick(edge)] }, {}))
+      .toMatchObject({ ok: true, synthesized: { ok: true, exports: [{ target: { line: 3, featureType: 'line' } }] } });
+  });
+
   it('still prefers an endpoint when a line ends at a circle centre', () => {
     const s = located(sketch('xy', () => ({
       c: located(circle([10, 5], 4), 2),

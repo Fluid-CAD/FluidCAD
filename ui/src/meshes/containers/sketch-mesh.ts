@@ -468,8 +468,20 @@ export class SketchMesh extends Group {
           if (shape.isMetaShape && shape.shapeType === 'vertex' && shape.shapeId && shape.vertices?.length === 3) {
             this.add(SketchMesh.pointPickCandidate(shape.shapeId, shape.vertices));
           }
+          // A guide's endpoints (a guided point's position) are sketch points
+          // like any profile corner — construction geometry is what holes get
+          // laid out on. Its dash-dot mesh is a meta shape the pick walk
+          // skips, so the points ride the same invisible candidate.
+          if (shape.isGuide && !shape.isMetaShape && shape.shapeId && shape.vertices?.length) {
+            this.add(SketchMesh.pointPickCandidate(shape.shapeId, shape.vertices));
+          }
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
-            const metaMesh = createMetaEdgeMesh(shape);
+            // Guides draw over the model like the sketch's own edges: a
+            // finished sketch's guides usually lie on a face (a hole layout
+            // on the part it was drawn on), where a coplanar line loses the
+            // depth test.
+            const guide = shape.isGuide && !shape.isMetaShape;
+            const metaMesh = createMetaEdgeMesh(shape, guide ? { depthTest: false } : undefined);
             metaMesh.traverse(child => { child.renderOrder = 1; });
             if (shape.shapeId) {
               metaMesh.userData.shapeId = shape.shapeId;
@@ -530,15 +542,17 @@ export class SketchMesh extends Group {
   }
 
   /**
-   * An invisible pick candidate for one sketch point (a centre mark): the
-   * vertex channel reads `shapeId` + `topologyVertices` off it exactly as it
-   * reads a wire's endpoints, so a hole or a loft can name the centre.
+   * An invisible pick candidate for a shape's sketch points (a centre mark, a
+   * guide's endpoints): the vertex channel reads `shapeId` +
+   * `topologyVertices` off it exactly as it reads a wire's endpoints, so a
+   * hole or a loft can name the point. `positions` is flat xyz triples in
+   * the shape's topology-vertex order — the pick's index.
    */
-  static pointPickCandidate(shapeId: string, position: number[]): Group {
+  static pointPickCandidate(shapeId: string, positions: number[]): Group {
     const candidate = new Group();
     candidate.name = 'sketch-point-pick';
     candidate.userData.shapeId = shapeId;
-    candidate.userData.topologyVertices = [...position];
+    candidate.userData.topologyVertices = [...positions];
     candidate.userData.isSketchPoint = true;
     return candidate;
   }

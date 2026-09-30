@@ -3,7 +3,7 @@ import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import remove from "../core/remove.js";
-import { circle, region } from "../core/2d/index.js";
+import { circle, line, region } from "../core/2d/index.js";
 import { testRect } from "./helpers/profiles.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Extrude } from "../features/extrude.js";
@@ -79,6 +79,39 @@ describe("sketch display consumption", () => {
       expect(row.hiddenShapes).toBeUndefined();
       expect(row.sceneShapes.length).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps a consumed sketch's guides on screen while the row still reads consumed", () => {
+    let guide!: SceneObject;
+    let profile!: SceneObject;
+    const s = sketch("xy", () => {
+      guide = line([-30, 0], [30, 0]).guide() as unknown as SceneObject;
+      profile = circle([0, 0], 20) as unknown as SceneObject;
+    }) as unknown as Sketch;
+    const e = extrude(10) as Extrude;
+    const scene = render();
+
+    expect(e.getError()).toBeNull();
+    const sketchRow = scene.getRenderedObject(s)!;
+    expect(sketchRow.visible).toBe(false);
+    expect(sketchRow.consumedBy).toBe(e.id);
+    const guideRow = scene.getRenderedObject(guide)!;
+    expect(guideRow.sceneShapes.map(shape => shape.isGuide)).toEqual([true]);
+    expect(guideRow.hiddenShapes).toBeUndefined();
+    expect(scene.getRenderedObject(profile)!.sceneShapes).toHaveLength(0);
+  });
+
+  it("remove() drops a sketch's guides too", () => {
+    let guide!: SceneObject;
+    const s = sketch("xy", () => {
+      guide = line([-30, 0], [30, 0]).guide() as unknown as SceneObject;
+      circle([0, 0], 20);
+    }) as unknown as Sketch;
+    extrude(10, s);
+    remove(s);
+    const scene = render();
+
+    expect(scene.getRenderedObject(guide)!.sceneShapes).toHaveLength(0);
   });
 
   it("lets a later feature take a consumed sketch again", () => {

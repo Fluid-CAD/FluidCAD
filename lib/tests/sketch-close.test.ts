@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import { circle } from "../core/2d/index.js";
 import { testRect } from "./helpers/profiles.js";
 
 // `.close()` is a UI-only flag: it marks a trailing sketch finished so the
@@ -17,6 +18,13 @@ describe("sketch().close()", () => {
     expect(row).toBeDefined();
     expect(row!.closed).toBe(true);
     expect(row!.visible).toBe(true);
+  });
+
+  it("reads a guide-only sketch as on screen, not consumed", () => {
+    sketch("xy", () => { circle([0, 0], 40).guide(); }).close();
+    const row = render().getRenderedObjects().find(o => o.type === "sketch")!;
+    expect(row.visible).toBe(true);
+    expect(row.consumedBy).toBeUndefined();
   });
 
   it("leaves an open sketch without the flag", () => {

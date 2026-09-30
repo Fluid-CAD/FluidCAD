@@ -48,6 +48,29 @@ function resolveOptions(
   return undefined;
 }
 
+/**
+ * Whether a row puts anything on screen. Invisible rows are skipped, except a
+ * consumed row the user showed again, every sketch in sketch-edit mode (kept
+ * up for reference), and a consumed sketch that still draws its guides: a
+ * feature takes the profile, never the construction geometry, which stays
+ * pickable for later features (a hole placed on a guide's endpoint).
+ */
+function isDrawn(
+  obj: SceneObjectRender,
+  allObjects: SceneObjectRender[],
+  activeSketchId: string | null,
+  shown: boolean,
+): boolean {
+  if (obj.visible || shown) {
+    return true;
+  }
+  if (obj.type !== 'sketch') {
+    return false;
+  }
+  return !!activeSketchId || SceneIndex.of(allObjects).children(obj.id)
+    .some(child => child.sceneShapes.some(shape => shape.isGuide));
+}
+
 // ---------------------------------------------------------------------------
 // Public factory functions
 // ---------------------------------------------------------------------------
@@ -75,11 +98,10 @@ export function buildObjectMesh(
   // Drop invisible objects (e.g. children of a part hidden by `remove(part)`).
   // The container types — connector/plane/axis/sketch — build their visuals
   // from `obj.object` rather than `obj.sceneShapes`, so they need this guard
-  // to honor the `visible` flag the renderer set. Active-sketch edit mode
-  // keeps sketches visible regardless, mirroring `buildSceneMesh` above, and
-  // so does a consumed sketch, plane or axis the user showed again.
+  // to honor the `visible` flag the renderer set (see `isDrawn` for the
+  // invisible rows that still draw, mirrored by `buildSceneMesh` below).
   const shown = shownIds.has(obj.id);
-  if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shown) {
+  if (!isDrawn(obj, allObjects, activeSketchId, shown)) {
     return new Group();
   }
 
@@ -153,7 +175,7 @@ export function buildSceneMesh(
 
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
-    if (!obj.visible && !(activeSketchId && obj.type === 'sketch') && !shownIds.has(obj.id)) continue;
+    if (!isDrawn(obj, sceneObjects, activeSketchId, shownIds.has(obj.id))) continue;
     container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking, undefined, isRollback, shownIds));
   }
 

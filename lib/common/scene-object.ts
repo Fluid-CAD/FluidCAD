@@ -578,6 +578,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * The datums (sketches, planes, axes — see `consumedForDisplayOnly`) route
    * every plain `removeShapes` here, so a feature's use of one never takes it
    * away from later features.
+   *
+   * Guide shapes are never hidden: a feature takes a sketch's profile, not
+   * its construction geometry, which stays on screen as the reference later
+   * picks are drawn against (a hole placed on a guide's endpoint).
    */
   removeShapesFromDisplay(removedBy: SceneObject) {
     if (this.isContainer()) {
@@ -588,6 +592,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
 
     for (const shape of this.addedShapes) {
+      if (shape.isGuideShape()) {
+        continue;
+      }
       this.removedShapes.push({ shape, removedBy, soft: true });
     }
   }

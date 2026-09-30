@@ -38,14 +38,18 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
     return { ok: false, reason: 'the sketch has no source location — name and return its geometry explicitly' };
   }
   const objects = new Set(scene.getAllSceneObjects());
-  const edges = [...sketch.getEdgesWithOwner({}, scene.editedStatement ? objects : undefined)]
+  // Guides included: construction geometry is drawn on screen and its
+  // endpoints are as nameable as any profile corner (a hole on a layout line).
+  const edges = [...sketch.getEdgesWithOwner({ excludeGuide: false }, scene.editedStatement ? objects : undefined)]
     .filter(([edge, owner]) => objects.has(owner) && incident(edge, point));
+  // A corner a guide shares with the profile stays on the profile entity.
   // Both edges at a corner of one derived statement (an offset) share owner
   // and source line: the lower edge index wins there.
   edges.sort(([edgeA, a], [edgeB, b]) => {
     const x = a.getSourceLocation();
     const y = b.getSourceLocation();
-    return (x?.line ?? Infinity) - (y?.line ?? Infinity)
+    return Number(edgeA.isGuideShape()) - Number(edgeB.isGuideShape())
+      || (x?.line ?? Infinity) - (y?.line ?? Infinity)
       || (x?.column ?? Infinity) - (y?.column ?? Infinity)
       || a.getOrder() - b.getOrder()
       || a.getAddedShapes().indexOf(edgeA) - b.getAddedShapes().indexOf(edgeB);

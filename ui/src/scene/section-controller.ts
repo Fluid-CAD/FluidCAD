@@ -223,6 +223,10 @@ export class SectionCaps {
     const group = new Group();
     group.name = SectionCaps.GROUP_NAME;
     group.userData.isSectionOverlay = true;
+    // Not model geometry: the quads span each solid's bounding sphere on the
+    // plane, and anything measuring the scene (fit-to-view, the arrow's
+    // placement, the hatch density) must not see them.
+    group.userData.isMetaShape = true;
     // Three sorts draws by the nearest ancestor Group's renderOrder before
     // the object's own: the model's face groups carry 1, so every cap
     // object lives under this one group, ordered below all of them, and the

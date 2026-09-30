@@ -15,6 +15,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SectionCaps, SectionController, SectionPlaneMath, SectionPlanes } from '../src/scene/section-controller';
+import { geometryBoundsOf } from '../src/scene/scene-geometry-bounds';
 
 /** A solid the way SolidMesh builds one: an `isSolid` group holding a face-mesh group holding the mesh. */
 function solid(size: number, color = '#ff8800'): { solid: Group; mesh: Mesh; material: MeshPhongMaterial } {
@@ -159,6 +160,17 @@ describe('SectionController.apply', () => {
     expect(markers(root)).toHaveLength(2);
     expect(markers(root).every((m) => m.matrixWorld.equals(body.mesh.matrixWorld))).toBe(true);
     expect(markers(root).some((m) => m.matrixWorld.equals(line.matrixWorld))).toBe(false);
+  });
+
+  it('keeps its caps out of the scene bounds: the quads span the solid\'s bounding sphere on the plane', () => {
+    const root = new Group();
+    const body = solid(10);
+    body.solid.position.set(0, 0, 30);
+    root.add(body.solid);
+    const before = geometryBoundsOf(root);
+    new SectionController().apply(root, { plane: 'xy', offset: 30 });
+    expect(caps(root)).toHaveLength(1);
+    expect(geometryBoundsOf(root).equals(before)).toBe(true);
   });
 
   it('numbers several caps so each solid\'s markers precede its own quad', () => {

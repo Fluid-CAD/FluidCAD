@@ -7,7 +7,7 @@ function row(overrides: Partial<SceneObjectRender>): SceneObjectRender {
 }
 
 describe('collectSectionRows', () => {
-  it('lists the section rows in statement order, keyed by file and line', () => {
+  it('lists the section rows in statement order, keyed by file and name', () => {
     const rows = collectSectionRows([
       row({ type: 'extrude', name: 'Extrude' }),
       row({
@@ -22,10 +22,21 @@ describe('collectSectionRows', () => {
       }),
     ]);
     expect(rows.map(r => [r.key, r.name, r.offset, r.flip, r.error])).toEqual([
-      ['/ws/m.fluid.js:9', 'A-A', 5, false, null],
-      ['/ws/m.fluid.js:12', 'Top', 0, true, null],
+      ['/ws/m.fluid.js:A-A#0', 'A-A', 5, false, null],
+      ['/ws/m.fluid.js:Top#0', 'Top', 0, true, null],
     ]);
     expect(rows[1].origin).toEqual([0, 0, 10]);
+  });
+
+  it('keeps a row\'s key when a statement added above it moves its line, and tells same-named views apart', () => {
+    const section = (name: string, line: number) => row({
+      type: 'section', object: { name, origin: [0, 0, 0], normal: [0, 0, 1], offset: 0, flip: false },
+      sourceLocation: { filePath: '/ws/m.fluid.js', line, column: 0 },
+    });
+    const before = collectSectionRows([section('A-A', 9), section('A-A', 10)]);
+    const after = collectSectionRows([row({ type: 'extrude' }), section('A-A', 12), section('A-A', 13)]);
+    expect(after.map(r => r.key)).toEqual(before.map(r => r.key));
+    expect(new Set(after.map(r => r.key)).size).toBe(2);
   });
 
   it('keeps a failed row with its error, and a row without a location keyed by name', () => {
@@ -36,7 +47,7 @@ describe('collectSectionRows', () => {
       }),
     ]);
     expect(rows).toHaveLength(1);
-    expect(rows[0].key).toBe('name:Section#0');
+    expect(rows[0].key).toBe(':Section#0');
     expect(rows[0].error).toContain('not a face');
   });
 

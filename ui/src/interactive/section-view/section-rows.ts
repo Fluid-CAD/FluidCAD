@@ -4,7 +4,7 @@ import { SectionPlaneMath } from '../../scene/section-spec';
 
 /** One `section()` statement of the rendered scene, as its row serializes it. */
 export type SectionRow = {
-  /** Stable across renders: the statement's file and line, else its name. */
+  /** Stable across renders and edits above the statement: its file and name (an ordinal tells same-named views apart). */
   key: string;
   name: string;
   origin: Vec3Tuple;
@@ -16,12 +16,15 @@ export type SectionRow = {
   error: string | null;
 };
 
-function keyOf(row: SceneObjectRender, name: string, index: number): string {
-  const loc = row.sourceLocation;
-  if (loc) {
-    return `${loc.filePath}:${loc.line}`;
-  }
-  return `name:${name}#${index}`;
+/**
+ * The row's identity across renders: its file and name, never its line —
+ * a feature added above the statement moves the line, and the active view
+ * would come back as "None". Same-named views in one file are told apart
+ * by their order.
+ */
+function keyOf(row: SceneObjectRender, name: string, ordinal: number): string {
+  const file = row.sourceLocation?.filePath ?? '';
+  return `${file}:${name}#${ordinal}`;
 }
 
 /**
@@ -31,16 +34,20 @@ function keyOf(row: SceneObjectRender, name: string, index: number): string {
  */
 export function collectSectionRows(result: SceneObjectRender[]): SectionRow[] {
   const rows: SectionRow[] = [];
-  result.forEach((row, index) => {
+  const seen = new Map<string, number>();
+  for (const row of result) {
     if (row.type !== 'section') {
-      return;
+      continue;
     }
     const data = row.object as { name?: unknown; origin?: unknown; normal?: unknown; offset?: unknown; flip?: unknown } | undefined;
     const name = typeof data?.name === 'string' ? data.name : (row.name ?? 'Section');
+    const ident = `${row.sourceLocation?.filePath ?? ''}:${name}`;
+    const ordinal = seen.get(ident) ?? 0;
+    seen.set(ident, ordinal + 1);
     const built = SectionPlaneMath.isVec3(data?.origin) && SectionPlaneMath.isVec3(data?.normal)
       && SectionPlaneMath.length(data!.normal as Vec3Tuple) > 0;
     rows.push({
-      key: keyOf(row, name, index),
+      key: keyOf(row, name, ordinal),
       name,
       origin: built ? [...(data!.origin as Vec3Tuple)] : [0, 0, 0],
       normal: built ? [...(data!.normal as Vec3Tuple)] : [0, 0, 1],
@@ -49,7 +56,7 @@ export function collectSectionRows(result: SceneObjectRender[]): SectionRow[] {
       sourceLocation: row.sourceLocation ?? null,
       error: row.hasError ? (row.errorMessage ?? 'This section view did not build.') : built ? null : 'This section view has no plane yet.',
     });
-  });
+  }
   return rows;
 }
 

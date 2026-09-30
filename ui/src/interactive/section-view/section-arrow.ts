@@ -95,8 +95,10 @@ export class SectionArrow {
     if (!this.shown) {
       return;
     }
-    this.gizmo.hide();
+    // Flag first: hiding mid-drag cancels the gesture, whose callback
+    // refreshes the service, which hides the arrow again.
     this.shown = false;
+    this.gizmo.hide();
   }
 
   dispose(): void {

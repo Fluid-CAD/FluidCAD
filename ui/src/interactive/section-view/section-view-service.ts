@@ -154,9 +154,22 @@ export class SectionViewService {
     if (!this.arrow.isDragging) {
       this.liveOffset = null;
     }
-    // The mesh listener re-applies the clip; the overlay is re-asked here,
-    // once per render, since the bodies may have changed.
+    // The mesh listener already re-applied the clip, from the rows of the
+    // previous render: settle it against these rows (the view may be gone,
+    // or its statement changed) without rebuilding an identical cut.
+    this.syncAppliedCut();
+    // The overlay is re-asked once per render, since the bodies may have changed.
     this.scheduleOverlayRefresh(0);
+  }
+
+  /** Re-apply only when the cut on screen differs from what the current rows say. */
+  private syncAppliedCut(): void {
+    const row = this.activeRow();
+    const wanted = row && !this.viewer.isSketchMode ? sectionSpecOf(row, this.currentOffset()) : null;
+    const applied = this.controller.current;
+    if (JSON.stringify(wanted) !== JSON.stringify(applied)) {
+      this.refresh();
+    }
   }
 
   /** An assembly instance moved (a drag, a mate drive): the cut follows now, the overlay soon after. */

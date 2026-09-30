@@ -1,7 +1,7 @@
 ---
 sidebar_position: 19
 title: "hole"
-description: "Cuts a drilled hole of the given diameter at each placement, through all the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole, `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the entry, `.flip()` to drill along the placement normal instead of into it, and `.scope(...)` to restrict which solids are cut."
+description: "Cuts a drilled hole of the given diameter at each placement, through all the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole, `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the entry, and `.scope(...)` to restrict which solids are cut."
 ---
 
 # hole()
@@ -9,8 +9,7 @@ description: "Cuts a drilled hole of the given diameter at each placement, throu
 Cuts a drilled hole of the given diameter at each placement, through all
 the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole,
 `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the
-entry, `.flip()` to drill along the placement normal instead of into it,
-and `.scope(...)` to restrict which solids are cut.
+entry, and `.scope(...)` to restrict which solids are cut.
 
 **Returns**: [**`Hole`**](/docs/api/types/hole)
 
@@ -27,8 +26,7 @@ hole(diameter: NumberParam, ...placements: HolePlacementLike[]): Hole
 Cuts a drilled hole of the given diameter at each placement, through all
 the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole,
 `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the
-entry, `.flip()` to drill along the placement normal instead of into it,
-and `.scope(...)` to restrict which solids are cut.
+entry, and `.scope(...)` to restrict which solids are cut.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

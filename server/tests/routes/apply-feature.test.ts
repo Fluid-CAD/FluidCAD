@@ -6492,7 +6492,7 @@ describe('apply-feature route validation', () => {
     const FILE = '/ws/plate.part.js';
     const BASE = {
       feature: 'hole', size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'clearance', fit: 'close' },
-      style: null, depth: null, tipAngle: null, flip: false, scope: [], preview: true,
+      style: null, depth: null, tipAngle: null, scope: [], preview: true,
     };
 
     beforeEach(() => {
@@ -6599,13 +6599,13 @@ describe('apply-feature route validation', () => {
       const { status, body } = await post({
         feature: 'hole', edit: { filePath: FILE, line: 10, column: 2 },
         size: { kind: 'fastener', label: 'M8' }, fastener: { type: 'tapped', pitch: null },
-        style: { kind: 'counterbore', diameter: null, depth: null }, depth: 9, tipAngle: null, flip: true,
+        style: { kind: 'counterbore', diameter: null, depth: null }, depth: 9, tipAngle: null,
         placements: [{ kind: 'verbatim', sourceIndex: 0 }],
         scope: [{ kind: 'feature', filePath: FILE, line: 5, column: 12 }],
         preview: true,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`hole('M8', bolt).tapped().counterbore().depth(9).flip().scope(e)`);
+      expect(body.preview).toBe(`hole('M8', bolt).tapped().counterbore().depth(9).scope(e)`);
     });
   });
   });

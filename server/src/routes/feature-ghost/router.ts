@@ -523,7 +523,6 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       request = {
         feature: 'hole',
         frames: holeFrames,
-        flip: body.flip === true,
         diameter: holeDiameter,
         depth: holeDepth,
         tipAngle: holeDepth === null ? null : holeTip,

@@ -15,7 +15,6 @@ interface Hole extends SceneObject {
   counterbore(diameter?: number, depth?: number): this;
   countersink(diameter?: number, angle?: number): this;
   depth(distance: number, tipAngle?: number): this;
-  flip(): this;
   scope(...objects: SceneObject[]): this;
   faces(...indices: number[]): ISelection;
   edges(...indices: number[]): ISelection;
@@ -79,10 +78,6 @@ A blind hole. Without this chain the hole runs through every solid in scope.
 | --- | --- | --- |
 | `distance` | `number` | Depth from the surface to the shoulder (the full-diameter depth) |
 | `tipAngle` | `number` | Drill point included angle below the shoulder (118 for a standard drill); omitted = flat bottom *(optional)* |
-
-### `flip()`
-
-Drill along the placement's normal (out of the surface) instead of into it.
 
 ### `scope()`
 

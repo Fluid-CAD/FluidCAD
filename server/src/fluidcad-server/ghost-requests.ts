@@ -69,8 +69,6 @@ export type HoleGhostRequest = {
   feature: 'hole';
   /** One frame per placement: the surface point and the outward normal, world space. */
   frames: { origin: [number, number, number]; normal: [number, number, number] }[];
-  /** Drill along the normal instead of into the material. */
-  flip: boolean;
   diameter: number;
   /** Blind depth to the shoulder; null is through all. */
   depth: number | null;

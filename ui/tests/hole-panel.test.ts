@@ -51,7 +51,6 @@ describe('Hole panel', () => {
       style: null,
       depth: null,
       tipAngle: null,
-      flip: false,
       newVariables: undefined,
     });
     expect(input('diameter').value).toBe('6.6');
@@ -76,9 +75,10 @@ describe('Hole panel', () => {
   });
 
   it('takes a typed diameter for a drilled hole and refuses a bad one', () => {
-    const { panel, select, type, input } = openPanel();
+    const { panel, select, type, input, hidden } = openPanel();
     select('type', 'drilled');
     expect(input('diameter').readOnly).toBe(false);
+    expect(hidden('standard-row')).toBe(true);
     type('diameter', '4.2');
     expect(panel.values()).toMatchObject({ size: { kind: 'diameter', value: 4.2 }, fastener: null });
     type('diameter', '0');
@@ -115,9 +115,9 @@ describe('Hole panel', () => {
     expect(panel.values()).toEqual({ error: 'Enter a positive depth.' });
   });
 
-  it('switches to the inch catalog with the standard tabs', () => {
-    const { panel, tab, input } = openPanel();
-    tab('standard-tabs', 'Inch');
+  it('switches to the inch catalog with the standard dropdown', () => {
+    const { panel, select, input } = openPanel();
+    select('standard', 'inch');
     expect(panel.sizeLabel).toBe('1/4');
     // 0.266 in in a millimetre document.
     expect(input('diameter').value).toBe('6.76');
@@ -132,7 +132,6 @@ describe('Hole panel', () => {
       style: { kind: 'countersink', diameter: null, angle: null },
       depth: 8,
       tipAngle: null,
-      flip: true,
       placementTexts: ['bolt'],
       placementRefs: [{ line: 4, column: 0 }],
       scopeTexts: [],
@@ -143,14 +142,13 @@ describe('Hole panel', () => {
     expect(panel.sizeLabel).toBe('#10');
     expect(panel.style).toBe('countersink');
     expect(hidden('csink-rows')).toBe(false);
-    expect(input('flip').checked).toBe(true);
+    expect(input('standard').value).toBe('inch');
     expect(panel.values()).toMatchObject({
       size: { kind: 'fastener', label: '#10' },
       fastener: { type: 'clearance', fit: 'loose' },
       style: { kind: 'countersink', diameter: null, angle: null },
       depth: 8,
       tipAngle: null,
-      flip: true,
     });
   });
 

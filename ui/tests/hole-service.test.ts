@@ -223,7 +223,6 @@ describe('Hole dialog service', () => {
     expect(ghost).toMatchObject({
       feature: 'hole',
       frames: [{ origin: [15, 5, 10], normal: [0, 0, 1] }],
-      flip: false,
       diameter: 6.6,
       depth: null,
       counterbore: null,
@@ -272,7 +271,6 @@ describe('Hole dialog service', () => {
       style: null,
       depth: null,
       tipAngle: null,
-      flip: false,
       placementTexts: ['bolt', 's.geometries.c.center()'],
       placementRefs: [{ line: 6, column: 15 }, null],
       scopeTexts: [],
@@ -333,7 +331,6 @@ describe('Hole dialog service', () => {
       style: null,
       depth: null,
       tipAngle: null,
-      flip: false,
       placementTexts: ['e.endFaces().center()'],
       placementRefs: [null],
       scopeTexts: [],

@@ -34,9 +34,14 @@ export abstract class FeaturePanel {
        * their tool, which closes them.
        */
       escape?: EscapeScope;
+      /** A wider float for a dialog whose tab rows or labels would crowd the default column. */
+      wide?: boolean;
     },
   ) {
     this.shell = new PanelShell(container, opts.id, opts.title, opts.icon, opts.escape ?? 'anywhere');
+    if (opts.wide) {
+      this.shell.widen();
+    }
     this.shell.onEscape = () => this.onExit?.();
     this.body = this.shell.body;
     this.body.insertAdjacentHTML('beforeend', opts.bodyHtml);

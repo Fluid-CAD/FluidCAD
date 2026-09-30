@@ -39,7 +39,7 @@ function holeSpec(
     filePath: FILE,
     hole: {
       size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'clearance', fit: 'close' }, style: null,
-      depth: null, tipAngle: null, flip: false, placements: [], scope: [], ...hole,
+      depth: null, tipAngle: null, placements: [], scope: [], ...hole,
     },
     producers: [],
     parts: [],
@@ -57,11 +57,11 @@ describe('hole statement templates', () => {
     const result = await applyFeatureEdit(plate, holeSpec({
       placements: [{ kind: 'connector', producer: 0 }],
       style: { kind: 'counterbore', diameter: null, depth: null },
-      depth: 12, tipAngle: 118, flip: true, scope: [1],
+      depth: 12, tipAngle: 118, scope: [1],
     }, { producers: [BOLT, PLATE] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const bolt = connector('bolt', e.endFaces().center())`);
-    expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').counterbore().depth(12, 118).flip().scope(e)\n})`);
+    expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').counterbore().depth(12, 118).scope(e)\n})`);
     expect(result.newCode).toContain(`import { hole, part, sketch`);
   });
 
@@ -166,7 +166,7 @@ describe('hole statement parsing', () => {
   const withHole = (statement: string) => plate.replace(`  })\n})`, `  })\n  ${statement}\n})`);
 
   it('reads every chain back, resolving connector identifiers to their statements', async () => {
-    const code = withHole(`hole('M6', bolt, s.geometries.c.center()).clearance('close').counterbore(11, 6.8).depth(12, 118).flip().scope(e)`)
+    const code = withHole(`hole('M6', bolt, s.geometries.c.center()).clearance('close').counterbore(11, 6.8).depth(12, 118).scope(e)`)
       .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
     const parsed = await parseFeatureStatement(code, 12);
     expect(parsed).toEqual({
@@ -176,12 +176,12 @@ describe('hole statement parsing', () => {
         size: { kind: 'fastener', label: 'M6' },
         fastener: { type: 'clearance', fit: 'close' },
         style: { kind: 'counterbore', diameter: 11, depth: 6.8 },
-        depth: 12, tipAngle: 118, flip: true,
+        depth: 12, tipAngle: 118,
         placementTexts: ['bolt', 's.geometries.c.center()'],
         placementRefs: [{ line: 7, column: 15 }, null],
         scopeTexts: ['e'], scopeRefs: [{ line: 5, column: 12 }],
       },
-      statement: `hole('M6', bolt, s.geometries.c.center()).clearance('close').counterbore(11, 6.8).depth(12, 118).flip().scope(e)`,
+      statement: `hole('M6', bolt, s.geometries.c.center()).clearance('close').counterbore(11, 6.8).depth(12, 118).scope(e)`,
     });
   });
 
@@ -189,7 +189,7 @@ describe('hole statement parsing', () => {
     const drilled = await parseFeatureStatement(withHole(`hole(5, bolt).countersink(9, 90).depth(4)`), 12);
     expect(drilled.ok && drilled.parsed).toMatchObject({
       feature: 'hole', size: { kind: 'diameter', value: 5 }, fastener: null,
-      style: { kind: 'countersink', diameter: 9, angle: 90 }, depth: 4, tipAngle: null, flip: false,
+      style: { kind: 'countersink', diameter: 9, angle: 90 }, depth: 4, tipAngle: null,
     });
     const tapped = await parseFeatureStatement(withHole(`hole('1/4', bolt).tapped().countersink()`), 12);
     expect(tapped.ok && tapped.parsed).toMatchObject({
@@ -227,7 +227,7 @@ describe('hole in-place edits', () => {
 
   it('rewrites the options and keeps the placements verbatim', async () => {
     const result = await applyFeatureEdit(edited, editSpec({
-      ...M6_CLOSE, style: { kind: 'countersink', diameter: null, angle: null }, depth: null, tipAngle: null, flip: false,
+      ...M6_CLOSE, style: { kind: 'countersink', diameter: null, angle: null }, depth: null, tipAngle: null,
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').countersink()\n})`);
@@ -239,7 +239,7 @@ describe('hole in-place edits', () => {
       { kind: 'verbatim', sourceIndex: 0 },
     ];
     const result = await applyFeatureEdit(edited, editSpec({
-      ...M6_CLOSE, style: null, depth: 12, tipAngle: null, flip: false, placements,
+      ...M6_CLOSE, style: null, depth: 12, tipAngle: null, placements,
     }, { producers: [SKETCH] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`    return { c };`);
@@ -247,21 +247,21 @@ describe('hole in-place edits', () => {
   });
 
   it('refuses dropping every placement and a stale keep index', async () => {
-    const none = await applyFeatureEdit(edited, editSpec({ ...M6_CLOSE, style: null, depth: null, tipAngle: null, flip: false, placements: [] }));
+    const none = await applyFeatureEdit(edited, editSpec({ ...M6_CLOSE, style: null, depth: null, tipAngle: null, placements: [] }));
     expect(none.error).toContain('at least one placement');
     const stale = await applyFeatureEdit(edited, editSpec({
-      ...M6_CLOSE, style: null, depth: null, tipAngle: null, flip: false, placements: [{ kind: 'verbatim', sourceIndex: 4 }],
+      ...M6_CLOSE, style: null, depth: null, tipAngle: null, placements: [{ kind: 'verbatim', sourceIndex: 4 }],
     }));
     expect(stale.error).toContain('no longer matches the statement');
   });
 
   it('re-picks the scope and drops it with an empty list', async () => {
     const scoped = await applyFeatureEdit(edited, editSpec({
-      ...M6_CLOSE, style: null, depth: 12, tipAngle: null, flip: false, scope: [{ kind: 'feature', producer: 0 }],
+      ...M6_CLOSE, style: null, depth: 12, tipAngle: null, scope: [{ kind: 'feature', producer: 0 }],
     }, { producers: [PLATE] }));
     expect(scoped.newCode).toContain(`  hole('M6', bolt).clearance('close').depth(12).scope(e)\n})`);
     const withScope = edited.replace(`.depth(12)`, `.depth(12).scope(e)`);
-    const dropped = await applyFeatureEdit(withScope, editSpec({ ...M6_CLOSE, style: null, depth: 12, tipAngle: null, flip: false, scope: [] }));
+    const dropped = await applyFeatureEdit(withScope, editSpec({ ...M6_CLOSE, style: null, depth: 12, tipAngle: null, scope: [] }));
     expect(dropped.newCode).toContain(`  hole('M6', bolt).clearance('close').depth(12)\n})`);
   });
 });

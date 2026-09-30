@@ -2149,7 +2149,6 @@ describe("feature ghost — hole", () => {
 
   const HOLE_BASE: Omit<HoleGhostRequest, 'frames' | 'scope'> = {
     feature: 'hole',
-    flip: false,
     diameter: 6,
     depth: null,
     tipAngle: null,
@@ -2186,7 +2185,7 @@ describe("feature ghost — hole", () => {
     }
   });
 
-  it("draws a blind counterbored hole per placement and flips along the normal", () => {
+  it("draws a blind counterbored hole per placement", () => {
     plate();
     const scene = render();
     const two = holeGhost(scene, {
@@ -2200,12 +2199,6 @@ describe("feature ghost — hole", () => {
       expect(box.maxX).toBeCloseTo(-15 + 5.5, 3);
       expect(box.maxZ).toBeCloseTo(10, 3);
       expect(box.minZ).toBeLessThan(5);
-    }
-    const flipped = holeGhost(scene, { flip: true, depth: 4 });
-    if (flipped.ok) {
-      const box = bounds(flipped);
-      expect(box.minZ).toBeCloseTo(10, 3);
-      expect(box.maxZ).toBeCloseTo(14, 3);
     }
   });
 

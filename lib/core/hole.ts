@@ -16,8 +16,7 @@ interface HoleFunction {
    * Cuts a drilled hole of the given diameter at each placement, through all
    * the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole,
    * `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the
-   * entry, `.flip()` to drill along the placement normal instead of into it,
-   * and `.scope(...)` to restrict which solids are cut.
+   * entry, and `.scope(...)` to restrict which solids are cut.
    * @param diameter - The hole diameter
    * @param placements - One or more connectors, sketch points or anchored vertices
    */

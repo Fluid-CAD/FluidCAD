@@ -554,7 +554,6 @@ export type HoleGhostRequest = {
   feature: 'hole';
   /** One frame per placement: the surface point and the outward normal, world space. */
   frames: { origin: [number, number, number]; normal: [number, number, number] }[];
-  flip: boolean;
   diameter: ValueExpr;
   depth: ValueExpr | null;
   tipAngle: ValueExpr | null;
@@ -2460,8 +2459,6 @@ export type HoleOptionValues = {
   depth: ValueExpr | null;
   /** Drill point included angle below the shoulder; null is a flat bottom. */
   tipAngle: ValueExpr | null;
-  /** `.flip()` — drill along the placement normal instead of into the material. */
-  flip: boolean;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
 };
@@ -2495,7 +2492,6 @@ export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeature
     style: options.style,
     depth: options.depth,
     tipAngle: options.tipAngle,
-    flip: options.flip,
     newVariables: options.newVariables,
     placements: options.placements,
     scope: options.scope,
@@ -2533,7 +2529,6 @@ export async function applyHoleEdit(
     style: options.style,
     depth: options.depth,
     tipAngle: options.tipAngle,
-    flip: options.flip,
     newVariables: options.newVariables,
     placements: options.placements,
     scope: options.scope,
@@ -3300,7 +3295,6 @@ export type ParsedFeatureStatement =
       style: HoleStyleSpec | null;
       depth: ValueExpr | null;
       tipAngle: ValueExpr | null;
-      flip: boolean;
       /** Placement argument texts, verbatim, in argument order. */
       placementTexts: string[];
       /**

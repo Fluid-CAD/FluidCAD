@@ -38,12 +38,12 @@ const FIELD_DIMENSIONS: Record<string, HoleDimension> = {
 
 /**
  * The hole dialog: the entry style (simple, counterbore, countersink), the
- * fastener standard, the placements slot, a section drawing of the hole with
- * the field being edited drawn in colour, the hole type with its size / fit
- * / pitch and the diameter they give, the counterbore or countersink values,
- * the termination with its depth and drill-point angle, the flip toggle,
- * and the scope slot last — the solids the hole is cut from. Pure DOM + form
- * state: the service owns scene data, picks, previews and the apply call.
+ * placements slot, a section drawing of the hole with the field being edited
+ * drawn in colour, the termination with its depth and drill-point angle, the
+ * fastener standard, the hole type with its size / fit / pitch and the
+ * diameter they give, the counterbore or countersink values, and the scope
+ * slot last — the solids the hole is cut from. Pure DOM + form state: the
+ * service owns scene data, picks, previews and the apply call.
  */
 export class HolePanel extends FeaturePanel {
   /** The placement chip at `index` was removed. */
@@ -54,16 +54,15 @@ export class HolePanel extends FeaturePanel {
   onArmedSlotChange?: () => void;
 
   private styleTabs: ChoiceTabs<HoleStyle>;
-  private standardTabs: ChoiceTabs<FastenerStandard>;
   private placementsSlot: PickSlot;
   private scopeSlot: ScopeSlotControl;
   private illustrationEl: HTMLElement;
+  private standardSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
   private sizeSelect: HTMLSelectElement;
   private fitSelect: HTMLSelectElement;
   private pitchSelect: HTMLSelectElement;
   private terminationSelect: HTMLSelectElement;
-  private flipCheckbox: HTMLInputElement;
   private diameterField: ExpressionField;
   private depthField: ExpressionField;
   private tipField: ExpressionField;
@@ -82,12 +81,38 @@ export class HolePanel extends FeaturePanel {
       id: 'fluidcad-hole-panel',
       title: 'Hole',
       icon: iconUrl('hole'),
+      wide: true,
       bodyHtml: `
         <p class="text-base-content/70 leading-snug">Cuts fastener holes into the model at the places you pick.</p>
         <div data-role="style-tabs" class="join w-full"></div>
-        <div data-role="standard-tabs" class="join w-full"></div>
         <div data-role="placements-slot"></div>
         <div data-role="illustration" class="text-base-content px-2"></div>
+        <label class="flex flex-col gap-1.5" title="Through all cuts every solid in scope; Blind stops at the depth">
+          <span class="text-base-content/70">Termination</span>
+          <select data-role="termination" class="select select-sm select-bordered w-full text-xs">
+            <option value="through">Through all</option>
+            <option value="blind">Blind</option>
+          </select>
+        </label>
+        <div data-role="blind-rows" class="hidden gap-2">
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Depth from the surface to the shoulder (the full-diameter depth)">
+            <span class="text-base-content/70">Depth</span>
+            <input data-role="depth" data-unit="length" type="number" step="0.5" value="10"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The drill point angle below the shoulder; 0 leaves a flat bottom">
+            <span class="text-base-content/70">Tip angle (°)</span>
+            <input data-role="tip-angle" type="number" step="1" value="${DEFAULT_TIP_ANGLE}"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+        </div>
+        <label data-role="standard-row" class="flex flex-col gap-1.5" title="Which fastener catalog the sizes come from">
+          <span class="text-base-content/70">Standard</span>
+          <select data-role="standard" class="select select-sm select-bordered w-full text-xs">
+            <option value="metric" title="ISO sizes: M3, M6, …">Metric</option>
+            <option value="inch" title="Unified sizes: #10, 1/4, …">Inch</option>
+          </select>
+        </label>
         <label class="flex flex-col gap-1.5" title="Drilled takes the diameter you type; Clearance and Tapped read it from the fastener tables">
           <span class="text-base-content/70">Hole type</span>
           <select data-role="type" class="select select-sm select-bordered w-full text-xs">
@@ -137,30 +162,6 @@ export class HolePanel extends FeaturePanel {
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>
-        <label class="flex flex-col gap-1.5" title="Through all cuts every solid in scope; Blind stops at the depth">
-          <span class="text-base-content/70">Termination</span>
-          <select data-role="termination" class="select select-sm select-bordered w-full text-xs">
-            <option value="through">Through all</option>
-            <option value="blind">Blind</option>
-          </select>
-        </label>
-        <div data-role="blind-rows" class="hidden gap-2">
-          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Depth from the surface to the shoulder (the full-diameter depth)">
-            <span class="text-base-content/70">Depth</span>
-            <input data-role="depth" data-unit="length" type="number" step="0.5" value="10"
-              class="input input-sm input-bordered w-full text-xs" />
-          </label>
-          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The drill point angle below the shoulder; 0 leaves a flat bottom">
-            <span class="text-base-content/70">Tip angle (°)</span>
-            <input data-role="tip-angle" type="number" step="1" value="${DEFAULT_TIP_ANGLE}"
-              class="input input-sm input-bordered w-full text-xs" />
-          </label>
-        </div>
-        <label class="flex items-center justify-between cursor-pointer"
-          title="Drill out of the surface along its normal instead of into the material">
-          <span class="text-base-content/70">Flip direction</span>
-          <input data-role="flip" type="checkbox" class="toggle toggle-sm toggle-primary" />
-        </label>
         <div data-role="scope-slot"></div>
       `,
     });
@@ -175,18 +176,6 @@ export class HolePanel extends FeaturePanel {
       this.syncControls();
       this.onChange?.();
     };
-    this.standardTabs = new ChoiceTabs<FastenerStandard>(this.role('standard-tabs'), [
-      { key: 'metric', label: 'Metric', title: 'ISO sizes: M3, M6, …' },
-      { key: 'inch', label: 'Inch', title: 'Unified sizes: #10, 1/4, …' },
-    ], 'metric');
-    this.standardTabs.onChange = () => {
-      this.fillSizes(defaultSizeLabel(this.standardTabs.value));
-      this.fillPitches();
-      this.reseedDerived();
-      this.syncControls();
-      this.onChange?.();
-    };
-
     this.placementsSlot = new PickSlot(this.role('placements-slot'), { label: 'Placements', multiple: true });
     this.placementsSlot.onRemove = (index) => this.onRemovePlacement?.(index);
     this.placementsSlot.onArm = () => this.armSlot('placements');
@@ -197,12 +186,12 @@ export class HolePanel extends FeaturePanel {
 
     this.illustrationEl = this.role('illustration');
 
+    this.standardSelect = this.role('standard');
     this.typeSelect = this.role('type');
     this.sizeSelect = this.role('size');
     this.fitSelect = this.role('fit');
     this.pitchSelect = this.role('pitch');
     this.terminationSelect = this.role('termination');
-    this.flipCheckbox = this.role('flip');
     for (const fit of FASTENER_FITS) {
       const option = document.createElement('option');
       option.value = fit.value;
@@ -212,6 +201,13 @@ export class HolePanel extends FeaturePanel {
     this.fillSizes(defaultSizeLabel('metric'));
     this.fillPitches();
 
+    this.standardSelect.addEventListener('change', () => {
+      this.fillSizes(defaultSizeLabel(this.standard));
+      this.fillPitches();
+      this.reseedDerived();
+      this.syncControls();
+      this.onChange?.();
+    });
     this.typeSelect.addEventListener('change', () => {
       this.reseedDerived();
       this.syncControls();
@@ -234,7 +230,6 @@ export class HolePanel extends FeaturePanel {
       this.syncControls();
       this.onChange?.();
     });
-    this.flipCheckbox.addEventListener('change', () => this.onChange?.());
 
     this.diameterField = this.enhance('diameter');
     this.depthField = this.enhance('depth');
@@ -273,6 +268,10 @@ export class HolePanel extends FeaturePanel {
     return this.styleTabs.value;
   }
 
+  get standard(): FastenerStandard {
+    return this.standardSelect.value as FastenerStandard;
+  }
+
   get holeType(): HoleType {
     return this.typeSelect.value as HoleType;
   }
@@ -290,7 +289,7 @@ export class HolePanel extends FeaturePanel {
     // values would otherwise carry over.
     this.shell.setTitle(null);
     this.styleTabs.reset();
-    this.standardTabs.reset();
+    this.standardSelect.value = 'metric';
     this.fillSizes(defaultSizeLabel('metric'));
     this.typeSelect.value = 'clearance';
     this.fitSelect.value = 'normal';
@@ -298,7 +297,6 @@ export class HolePanel extends FeaturePanel {
     this.terminationSelect.value = 'through';
     this.depthField.setValue(10);
     this.tipField.setValue(DEFAULT_TIP_ANGLE);
-    this.flipCheckbox.checked = false;
     this.reseedDerived();
     this.armSlot('placements', { silent: true });
     this.syncControls();
@@ -314,8 +312,8 @@ export class HolePanel extends FeaturePanel {
     this.shell.setTitle('Edit hole');
     this.styleTabs.setValue(parsed.style?.kind ?? 'simple');
     const fastenerLabel = parsed.size.kind === 'fastener' ? parsed.size.label : null;
-    this.standardTabs.setValue(standardOf(fastenerLabel));
-    this.fillSizes(fastenerLabel ?? defaultSizeLabel(this.standardTabs.value));
+    this.standardSelect.value = standardOf(fastenerLabel);
+    this.fillSizes(fastenerLabel ?? defaultSizeLabel(this.standard));
     if (parsed.size.kind === 'diameter') {
       this.typeSelect.value = 'drilled';
     } else {
@@ -348,7 +346,6 @@ export class HolePanel extends FeaturePanel {
     this.terminationSelect.value = parsed.depth === null ? 'through' : 'blind';
     this.depthField.setValue(parsed.depth ?? 10);
     this.tipField.setValue(parsed.tipAngle ?? 0);
-    this.flipCheckbox.checked = parsed.flip;
     this.armSlot('placements', { silent: true });
     this.syncControls();
     this.shell.show();
@@ -478,7 +475,6 @@ export class HolePanel extends FeaturePanel {
       style,
       depth,
       tipAngle,
-      flip: this.flipCheckbox.checked,
       newVariables: collectNewVariables(reads.map(r => r && !('error' in r) ? r : null)),
     };
   }
@@ -530,7 +526,7 @@ export class HolePanel extends FeaturePanel {
 
   private fillSizes(selected: string): void {
     this.sizeSelect.innerHTML = '';
-    for (const label of sizeLabels(this.standardTabs.value)) {
+    for (const label of sizeLabels(this.standard)) {
       const option = document.createElement('option');
       option.value = label;
       option.textContent = label;
@@ -538,7 +534,7 @@ export class HolePanel extends FeaturePanel {
     }
     this.sizeSelect.value = selected;
     if (this.sizeSelect.value !== selected) {
-      this.sizeSelect.value = defaultSizeLabel(this.standardTabs.value);
+      this.sizeSelect.value = defaultSizeLabel(this.standard);
     }
   }
 
@@ -597,7 +593,7 @@ export class HolePanel extends FeaturePanel {
   private syncControls(): void {
     const type = this.holeType;
     const fastener = type !== 'drilled';
-    this.toggleRow('standard-tabs', fastener, 'flex');
+    this.toggleRow('standard-row', fastener, 'flex');
     this.toggleRow('size-row', fastener, 'flex');
     this.toggleRow('fit-row', type === 'clearance', 'flex');
     this.toggleRow('pitch-row', type === 'tapped', 'flex');

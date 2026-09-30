@@ -38,7 +38,7 @@ const FRAMES_STATE_KEY = 'hole-frames';
 /**
  * The frame a placement stands on: origin on the surface, normal pointing
  * out of the material (a connector's Z, a face normal, a sketch plane's
- * normal). The hole runs opposite the normal unless flipped.
+ * normal). The hole runs opposite the normal.
  */
 export function placementFrame(placement: HolePlacement): Plane {
   if (placement instanceof Connector) {
@@ -69,7 +69,6 @@ export class Hole extends SceneObject implements IHole {
   private _style: HoleStyleSpec | null = null;
   private _depth: number | null = null;
   private _tipAngle: number | null = null;
-  private _flip = false;
 
   constructor(
     readonly size: number | string,
@@ -111,11 +110,6 @@ export class Hole extends SceneObject implements IHole {
     return this;
   }
 
-  flip(): this {
-    this._flip = true;
-    return this;
-  }
-
   get fastener(): HoleFastenerSpec | null {
     return this._fastener;
   }
@@ -130,10 +124,6 @@ export class Hole extends SceneObject implements IHole {
 
   get tipAngle(): number | null {
     return this._tipAngle;
-  }
-
-  get flipped(): boolean {
-    return this._flip;
   }
 
   /** The statement's options as the profile resolver reads them. */
@@ -181,7 +171,7 @@ export class Hole extends SceneObject implements IHole {
     const stock = scope.flatMap(obj => obj.getShapes({}, 'solid'));
 
     const tools: Shape[] = p.record('Build tools', () => frames.map(frame => {
-      const direction = this._flip ? frame.normal.normalize() : frame.normal.normalize().negate();
+      const direction = frame.normal.normalize().negate();
       const length = dims.depth ?? throughAllLength(stock, [], Plane.fromPointAndNormal(frame.origin, direction));
       return buildHoleTool(frame.origin, direction, dims, length);
     }));
@@ -197,8 +187,7 @@ export class Hole extends SceneObject implements IHole {
     // Classification reads one plane: the first placement's, facing the
     // way a cut's sketch plane does (the tool travels opposite the normal).
     const first = frames[0];
-    const firstDirection = this._flip ? first.normal : first.normal.negate();
-    const cutPlane = Plane.fromPointAndNormal(first.origin, firstDirection.negate());
+    const cutPlane = Plane.fromPointAndNormal(first.origin, first.normal);
     p.record('Cut', () => cutWithSceneObjects(scope, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this }));
 
     this.setState(DIMENSIONS_STATE_KEY, dims);
@@ -262,7 +251,6 @@ export class Hole extends SceneObject implements IHole {
     copy._style = this._style;
     copy._depth = this._depth;
     copy._tipAngle = this._tipAngle;
-    copy._flip = this._flip;
     copy._fusionScope = this._fusionScope;
     copy._operationMode = this._operationMode;
     return copy;
@@ -272,7 +260,7 @@ export class Hole extends SceneObject implements IHole {
     if (!(other instanceof Hole) || !super.compareTo(other)) {
       return false;
     }
-    if (this.size !== other.size || this._depth !== other._depth || this._tipAngle !== other._tipAngle || this._flip !== other._flip) {
+    if (this.size !== other.size || this._depth !== other._depth || this._tipAngle !== other._tipAngle) {
       return false;
     }
     if (JSON.stringify(this._fastener) !== JSON.stringify(other._fastener)
@@ -296,7 +284,6 @@ export class Hole extends SceneObject implements IHole {
       style: this._style,
       depth: this._depth,
       tipAngle: this._tipAngle,
-      flip: this._flip || undefined,
       dimensions: this.getDimensions(),
       frames: this.getFrames().map(frame => ({
         origin: frame.origin.toArray(),

@@ -256,9 +256,9 @@ describe("hole() placements", () => {
     expect(anchor.getShapes().length).toBe(0);
   });
 
-  it("flips the direction along the placement normal", () => {
+  it("drills out of the surface from a connector turned around", () => {
     plateWithTopConnector((_plate, top) => {
-      hole(6, top).flip();
+      hole(6, top.rotate("x", 180));
     });
 
     const scene = render();

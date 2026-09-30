@@ -33,12 +33,11 @@ export function validateHoleOptions(body: any): HoleValueOptions | { error: stri
     style: body?.style ?? null,
     depth: body?.depth ?? null,
     tipAngle: body?.tipAngle ?? null,
-    flip: body?.flip === true,
   };
   if (!validHoleOptions(options)) {
     return { error: "hole options must carry a size ({kind: 'diameter', value} or {kind: 'fastener', label}), "
       + 'a fastener (clearance fit or tapped pitch, fastener sizes only), a style (counterbore or countersink), '
-      + 'a positive depth or null, a tip angle only with a depth, and a boolean flip' };
+      + 'a positive depth or null, and a tip angle only with a depth' };
   }
   return options;
 }

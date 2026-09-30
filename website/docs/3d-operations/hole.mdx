@@ -21,21 +21,20 @@ Hole cuts fastener holes into a solid at the places you point at: a plain drille
 
 1. Click **Hole** on the toolbar. The dialog docks on the right with its **Placements** slot armed.
 2. Click where the holes go, as many places as you like: an existing connector, a vertex of a visible sketch (a circle centre, a line end, a sketch point), or the centre of a face or a round edge. Each pick becomes a chip. Inside a part, a face or edge pick becomes a new connector when you apply.
-3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Hole type** (**Drilled**, **Clearance** or **Tapped**), the **Size** and **Fastener fit** (or **Pitch**), and the **Termination** (**Through all** or **Blind**). The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
+3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Termination** (**Through all** or **Blind**), the **Standard** (**Metric** or **Inch**), the **Hole type** (**Drilled**, **Clearance** or **Tapped**), and the **Size** and **Fastener fit** (or **Pitch**). The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
 4. Click **Apply**. The timeline gains a Hole row and the `hole()` statement is written to the file.
 
 <UiFigure
   src="/img/docs/ui/hole-dialog.png"
-  alt="The Hole dialog with three placements, an M6 close-fit clearance hole and a counterbore"
+  alt="The Hole dialog with two placements, an M6 close-fit clearance hole and a counterbore"
   markers={[
-    {n: 1, x: 5, y: 11.5, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
-    {n: 2, x: 5, y: 16, label: 'Metric / Inch', description: 'Which standard the size list reads: ISO sizes (M3, M6 …) or inch sizes (#10, 1/4 …). Table values are converted into the document unit.'},
-    {n: 3, x: 5, y: 25, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices, or face and edge centres in 3D; click a chip\'s ✕ to drop it.'},
-    {n: 4, x: 5, y: 38, label: 'Section drawing', description: 'The hole in section. The dimension of the field you are editing is drawn in colour.'},
-    {n: 5, x: 5, y: 52, label: 'Hole type, Size, Fastener fit', description: 'Drilled takes a Diameter you type. Clearance and Tapped take a fastener size; Clearance adds the fit (Close, Normal, Loose), Tapped the Pitch.'},
-    {n: 6, x: 5, y: 81.5, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
-    {n: 7, x: 5, y: 85.5, label: 'Flip direction', description: 'Drills along the placement\'s normal instead of into the material, for a connector whose Z points into the part.'},
-    {n: 8, x: 5, y: 90, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
+    {n: 1, x: 5, y: 11, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
+    {n: 2, x: 5, y: 14.5, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices, or face and edge centres in 3D; click a chip\'s ✕ to drop it.'},
+    {n: 3, x: 5, y: 35, label: 'Section drawing', description: 'The hole in section. The dimension of the field you are editing is drawn in colour.'},
+    {n: 4, x: 5, y: 44.5, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
+    {n: 5, x: 5, y: 50.5, label: 'Standard', description: 'Which standard the size list reads: Metric (M3, M6 …) or Inch (#10, 1/4 …). Table values are converted into the document unit. Hidden for a Drilled hole, which has no table.'},
+    {n: 6, x: 5, y: 56.5, label: 'Hole type, Size, Fastener fit', description: 'Drilled takes a Diameter you type. Clearance and Tapped take a fastener size; Clearance adds the fit (Close, Normal, Loose), Tapped the Pitch.'},
+    {n: 7, x: 5, y: 87, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
   ]}
 />
 
@@ -90,7 +89,7 @@ When you click a face or a round edge in the dialog inside a part, Apply writes 
 
 ## Direction, scope and selection
 
-- A hole drills opposite the placement's normal: into the face a sketch sits on, or against a connector's Z. `.flip()` reverses it.
+- A hole drills opposite the placement's normal: into the face a sketch sits on, or against a connector's Z. To drill the other way from a connector, turn the connector around: `.rotate('x', 180)`.
 - By default a hole cuts every solid in the scene; `.scope(plate)` narrows it, as in the other dialogs.
 - The cut geometry is selectable: `h.faces()` are the walls, `h.edges()` every rim, `h.startEdges()` the rims on the entry face and `h.endEdges()` the floor rims of a blind hole or the exit rims of a through hole.
 

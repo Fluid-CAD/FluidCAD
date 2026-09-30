@@ -608,7 +608,6 @@ export class HoleFeatureService {
         origin: [frame.origin.x, frame.origin.y, frame.origin.z],
         normal: [frame.normal.x, frame.normal.y, frame.normal.z],
       })),
-      flip: values.flip,
       diameter: numbers.diameter,
       depth: values.depth,
       tipAngle: values.tipAngle,

@@ -32,7 +32,6 @@ exported from a sketch (`s.geometries.c.center()`, `s.geometries.p` for a
   (a numeric size needs explicit values).
 - `.depth(distance, tipAngle?)` — blind hole: depth to the shoulder, plus a
   drill point of that included angle (118 is a standard drill); omitted = through all.
-- `.flip()` — drill along the normal instead.
 - `.scope(...solids)` — which solids are cut (default: all).
 
 Accessors: `faces()` (walls), `edges()` (every rim), `startEdges()` (entry

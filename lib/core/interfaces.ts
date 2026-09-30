@@ -1357,9 +1357,6 @@ export interface IHole extends ISceneObject {
    */
   depth(distance: number, tipAngle?: number): this;
 
-  /** Drill along the placement's normal (out of the surface) instead of into it. */
-  flip(): this;
-
   /**
    * Narrows the cut to specific solids.
    * @param objects - The solids to cut

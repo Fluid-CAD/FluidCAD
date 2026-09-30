@@ -215,7 +215,7 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
     const scope = mergeScopeProducers(producers, request.scope);
     const options: HoleEditOptions = {
       size: request.size, fastener: request.fastener, style: request.style,
-      depth: request.depth, tipAngle: request.tipAngle, flip: request.flip,
+      depth: request.depth, tipAngle: request.tipAngle,
       placements: resolved.placements, scope,
     };
     const activePart = activePartFor(filePath);

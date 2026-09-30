@@ -8,8 +8,8 @@ import { NewVariable, ValueExpr } from '../../api';
 
 export type FeatureOp = 'add' | 'remove' | 'new';
 
-const TAB_BASE = 'btn btn-sm join-item flex-1 font-normal';
-const TAB_ACTIVE = 'btn btn-sm join-item flex-1 btn-soft btn-primary';
+const TAB_BASE = 'btn btn-sm join-item font-normal';
+const TAB_ACTIVE = 'btn btn-sm join-item btn-soft btn-primary';
 
 /**
  * A mutually-exclusive tab row shared by the create-feature dialogs.
@@ -22,7 +22,11 @@ export class ChoiceTabs<T extends string> {
   private current: T;
   private readonly initial: T;
 
-  /** Extra classes every tab wears — a three-way row needs a smaller face to fit the dialog. */
+  /**
+   * Sizing classes every tab wears: equal widths by default; a compact row
+   * takes a smaller face and sizes each tab to its label, so long labels
+   * get the room a short one leaves.
+   */
   private readonly extra: string;
 
   constructor(
@@ -33,7 +37,7 @@ export class ChoiceTabs<T extends string> {
   ) {
     this.initial = initial;
     this.current = initial;
-    this.extra = options.compact ? ' text-xs px-1' : '';
+    this.extra = options.compact ? ' flex-auto text-xs px-2' : ' flex-1';
     for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
       tab.className = (key === this.current ? TAB_ACTIVE : TAB_BASE) + this.extra;
@@ -605,6 +609,11 @@ export class PanelShell {
   /** Swap the header icon — a dialog serving two statements wears the active one's. */
   setIcon(src: string): void {
     this.iconImg.src = src;
+  }
+
+  /** A wider float than the shared w-60 column, for a dialog whose rows run long; the sheet is full width anyway. */
+  widen(): void {
+    this.box.classList.replace('sm:w-60', 'sm:w-68');
   }
 
   show(): void {

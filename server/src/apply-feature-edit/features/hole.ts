@@ -51,8 +51,6 @@ export type HoleValueOptions = {
   depth: ValueExpr | null;
   /** Drill point included angle, only with a depth; null is a flat bottom. */
   tipAngle: ValueExpr | null;
-  /** `.flip()` — drill along the placement normal instead of into it. */
-  flip: boolean;
 };
 
 /**
@@ -126,8 +124,7 @@ export function validHoleOptions(opts: unknown): opts is HoleValueOptions {
     && validHoleFastener(o.fastener) && fastenerFitsSize
     && validHoleStyle(o.style)
     && (o.depth === null || validValueExpr(o.depth, { positive: true }))
-    && (o.tipAngle === null || (o.depth !== null && validValueExpr(o.tipAngle, { positive: true })))
-    && typeof o.flip === 'boolean';
+    && (o.tipAngle === null || (o.depth !== null && validValueExpr(o.tipAngle, { positive: true })));
 }
 
 /** A fastener size label as the statement writes it: single-quoted. */
@@ -139,7 +136,7 @@ function renderSizeArg(size: HoleSizeSpec): string {
  * Render a hole statement from its options and the placement expressions,
  * chains in the canonical order the docs show:
  * `hole(size, …)[.clearance('fit') | .tapped([pitch])][.counterbore(…) |
- * .countersink(…)][.depth(d[, tip])][.flip()][.scope(…)]`. Shared with the
+ * .countersink(…)][.depth(d[, tip])][.scope(…)]`. Shared with the
  * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderHoleStatement(
@@ -172,9 +169,6 @@ export function renderHoleStatement(
     statement += opts.tipAngle === null
       ? `.depth(${formatValue(opts.depth)})`
       : `.depth(${formatValue(opts.depth)}, ${formatValue(opts.tipAngle)})`;
-  }
-  if (opts.flip) {
-    statement += '.flip()';
   }
   return statement + renderScopeChain(scopeExprs);
 }
@@ -343,15 +337,10 @@ export function parseHoleChain(
     }
   }
 
-  const flipSeg = recognized.get('flip');
-  if (flipSeg && flipSeg.args.length > 0) {
-    return { error: 'the .flip() chain takes no arguments — edit the statement in the source' };
-  }
-
   return {
     parsed: {
       feature: 'hole',
-      size, fastener, style, depth, tipAngle, flip: flipSeg !== undefined,
+      size, fastener, style, depth, tipAngle,
       placementTexts, placementRefs,
       ...scope,
     },

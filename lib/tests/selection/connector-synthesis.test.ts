@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import fillet from "../../core/fillet.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import connector from "../../core/connector.js";
 import { circle, line } from "../../core/2d/index.js";
 import { coincident } from "../../core/constraints/index.js";
-import { face } from "../../filters/index.js";
+import { edge, face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { scopedSceneBefore } from "../../selection/types.js";
@@ -287,6 +288,54 @@ describe("connector synthesis", () => {
       expect(edgeSuggestion.anchors.map(a => a.anchor.kind)).toEqual(['center', 'start', 'end']);
       for (const a of edgeSuggestion.anchors) {
         expect(a.frame.origin.z).toBeCloseTo(30, 5);
+      }
+    }
+  });
+
+  it("an arc's center anchor is hovered at the arc's midpoint, not the off-arc circle center", () => {
+    const p = part("housing", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      const e = extrude(30);
+      setLocation(e, 5);
+      select(edge().verticalTo("xy"));
+      fillet(5);
+    });
+    setLocation(p, 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    // The top quarter-arc at the origin corner: circle center (5, 5, 30).
+    const arcs = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6 && m.x < 5 && m.y < 5);
+    expect(arcs).toHaveLength(1);
+
+    const suggestion = suggestConnectorAnchors(scene, arcs[0]);
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.anchors.map(a => a.anchor.kind)).toEqual(['center', 'start', 'end']);
+      const center = suggestion.anchors[0];
+      // The frame still stands at the circle center…
+      expect(center.frame.origin.x).toBeCloseTo(5, 6);
+      expect(center.frame.origin.y).toBeCloseTo(5, 6);
+      expect(center.frame.origin.z).toBeCloseTo(30, 6);
+      // …but the cursor is measured against the arc's midpoint.
+      const onArc = 5 - 5 * Math.SQRT1_2;
+      expect(center.hoverPoint.x).toBeCloseTo(onArc, 6);
+      expect(center.hoverPoint.y).toBeCloseTo(onArc, 6);
+      expect(center.hoverPoint.z).toBeCloseTo(30, 6);
+      for (const end of suggestion.anchors.slice(1)) {
+        expect(end.hoverPoint).toEqual(end.frame.origin);
+      }
+    }
+
+    // A straight edge measures every anchor at its own frame origin.
+    const straight = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6 && Math.abs(m.y) < 1e-6);
+    expect(straight).toHaveLength(1);
+    const lineSuggestion = suggestConnectorAnchors(scene, straight[0]);
+    expect(lineSuggestion.ok).toBe(true);
+    if (lineSuggestion.ok) {
+      for (const a of lineSuggestion.anchors) {
+        expect(a.hoverPoint).toEqual(a.frame.origin);
       }
     }
   });

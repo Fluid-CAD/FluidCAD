@@ -306,6 +306,7 @@ export class Viewer {
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private hoverMoveHandler: ((shapeId: string, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null) => void) | null = null;
   private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -534,6 +535,11 @@ export class Viewer {
   /** Notified when the hovered sub-shape changes (null = nothing hovered). */
   setHoverHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
     this.hoverHandler = fn;
+  }
+
+  /** Notified when the cursor moves but stays on the hovered sub-shape. */
+  setHoverMoveHandler(fn: (shapeId: string, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.hoverMoveHandler = fn;
   }
 
   /** Notified on a non-drag right-click over the canvas (pick may be null). */
@@ -2253,6 +2259,7 @@ export class Viewer {
         this.hoverState.sub?.type === result.sub?.type &&
         this.hoverState.sub?.index === result.sub?.index &&
         this.hoverState.instanceId === (result.instanceId ?? null)) {
+      this.hoverMoveHandler?.(result.shapeId, result.sub, clientX, clientY);
       return;
     }
 

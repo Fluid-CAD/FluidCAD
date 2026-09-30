@@ -1,4 +1,4 @@
-import { Vector3 } from 'three';
+import { Camera, Vector3 } from 'three';
 import {
   AnchorPurpose, ApplyFeatureEntity, ConnectorAnchorCandidate, ConnectorAnchorsResult, fetchConnectorAnchors,
 } from '../../api';
@@ -216,7 +216,7 @@ export class AnchorSuggestions {
     if (result.anchors.length === 0) {
       return;
     }
-    const anchorIndex = this.lastCursor ? this.nearestAnchorIndex(result.anchors, this.lastCursor) : 0;
+    const anchorIndex = this.lastCursor ? this.nearestIndex(result.anchors, this.lastCursor) : 0;
     // The faint suggestion graduates to whatever the owner draws for a lock.
     this.clearSuggestionGhost();
     this.onLock?.({
@@ -236,7 +236,7 @@ export class AnchorSuggestions {
       this.clearSuggestionGhost();
       return;
     }
-    const nearest = this.lastCursor ? this.nearestAnchorIndex(anchors, this.lastCursor) : 0;
+    const nearest = this.lastCursor ? this.nearestIndex(anchors, this.lastCursor) : 0;
     // Hovering a taken anchor: the owner's strong preview already marks it —
     // a faint twin underneath would just be noise.
     if (this.opts.isTaken?.(key, nearest)) {
@@ -255,23 +255,35 @@ export class AnchorSuggestions {
     this.ghost.clearSuggestion();
   }
 
-  /** The anchor whose origin projects closest to the pointer. */
-  private nearestAnchorIndex(anchors: ConnectorAnchorCandidate[], cursor: { x: number; y: number }): number {
-    const camera = this.viewer.sceneContext.camera;
+  private nearestIndex(anchors: ConnectorAnchorCandidate[], cursor: { x: number; y: number }): number {
     const rect = this.viewer.sceneContext.renderer.domElement.getBoundingClientRect();
-    let best = 0;
-    let bestDist = Number.POSITIVE_INFINITY;
-    const projected = new Vector3();
-    anchors.forEach((anchor, index) => {
-      projected.set(anchor.frame.origin.x, anchor.frame.origin.y, anchor.frame.origin.z).project(camera);
-      const x = rect.left + ((projected.x + 1) / 2) * rect.width;
-      const y = rect.top + ((1 - projected.y) / 2) * rect.height;
-      const dist = (x - cursor.x) ** 2 + (y - cursor.y) ** 2;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = index;
-      }
-    });
-    return best;
+    return nearestAnchorIndex(anchors, cursor, this.viewer.sceneContext.camera, rect);
   }
+}
+
+/**
+ * The anchor whose hover point projects closest to the pointer — an arc's
+ * center() is measured at the arc's midpoint, not the off-arc circle center.
+ */
+export function nearestAnchorIndex(
+  anchors: ConnectorAnchorCandidate[],
+  cursor: { x: number; y: number },
+  camera: Camera,
+  rect: { left: number; top: number; width: number; height: number },
+): number {
+  let best = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  const projected = new Vector3();
+  anchors.forEach((anchor, index) => {
+    const point = anchor.hoverPoint ?? anchor.frame.origin;
+    projected.set(point.x, point.y, point.z).project(camera);
+    const x = rect.left + ((projected.x + 1) / 2) * rect.width;
+    const y = rect.top + ((1 - projected.y) / 2) * rect.height;
+    const dist = (x - cursor.x) ** 2 + (y - cursor.y) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = index;
+    }
+  });
+  return best;
 }

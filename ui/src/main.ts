@@ -2602,6 +2602,19 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
   }
 });
 
+// Moving along the hovered face/edge: the anchor rails re-pick the anchor
+// nearest the cursor (an edge's ends vs its center).
+viewer.setHoverMoveHandler((shapeId, sub, clientX, clientY) => {
+  if (modifyService.isActive) {
+    return;
+  }
+  if (connectorService.isActive) {
+    connectorService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (holeService.isPicking) {
+    holeService.handleHover(shapeId, sub, clientX, clientY);
+  }
+});
+
 // A dialog only owns the viewport while it consumes picks. Edit sessions
 // own picking like create mode (their slots re-pick against the rolled-back
 // scene) — except extrude, whose profile comes from dropdown/timeline/wire

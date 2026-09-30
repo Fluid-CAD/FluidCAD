@@ -3,9 +3,11 @@ import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Plane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 import { Part } from "../features/part.js";
 import { anchorFrameFromShape, VertexAnchorSpec } from "../features/shape-anchor.js";
 import { EdgeQuery } from "../oc/edge-query.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick } from "./attribution.js";
 import { synthesizeApplyFeature } from "./explain.js";
@@ -31,6 +33,12 @@ export type ConnectorAnchorCandidate = {
   /** `.center()` etc. — append to `args` to form the full source expression. */
   suffix: string;
   frame: { origin: Vec3; xDirection: Vec3; yDirection: Vec3; normal: Vec3 };
+  /**
+   * The point the hover rail measures the cursor against to pick this
+   * anchor — the frame origin, except an arc's center(): the circle center
+   * stands a radius off the arc, so the arc's midpoint stands in for it.
+   */
+  hoverPoint: Vec3;
 };
 
 export type ConnectorAnchorSuggestions =
@@ -122,6 +130,7 @@ export function suggestConnectorAnchors(
         yDirection: toVec3(frame.yDirection),
         normal: toVec3(frame.normal),
       },
+      hoverPoint: toVec3(hoverPointFor(picked, spec, frame.origin)),
     });
   }
   if (anchors.length === 0) {
@@ -151,6 +160,20 @@ function anchorSpecsForShape(shape: Face | Edge | { getType(): string }): Vertex
     return [{ kind: 'center' }, { kind: 'start' }, { kind: 'end' }];
   }
   return [];
+}
+
+/**
+ * Where the cursor is measured against an anchor. An arc's center() is the
+ * circle center, a radius off the arc the user hovers — measured there it
+ * would lose to start()/end() along the whole arc. The arc's midpoint stands
+ * in for it, splitting the arc between center, start and end the way a
+ * straight edge already splits.
+ */
+function hoverPointFor(shape: Shape, spec: VertexAnchorSpec, origin: Point): Point {
+  if (spec.kind === 'center' && shape instanceof Edge && EdgeQuery.isArcEdge(shape)) {
+    return EdgeOps.getEdgeMidPoint(shape);
+  }
+  return origin;
 }
 
 function allocateConnectorName(part: unknown): string {

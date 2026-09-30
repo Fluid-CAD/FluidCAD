@@ -1622,6 +1622,12 @@ export type ConnectorAnchorCandidate = {
   /** `.center()` etc. — appended to `args` for the full source expression. */
   suffix: string;
   frame: { origin: Vec3Data; xDirection: Vec3Data; yDirection: Vec3Data; normal: Vec3Data };
+  /**
+   * The point the cursor is measured against to pick this anchor — an arc's
+   * center() stands in at the arc's midpoint. Absent from older kernels,
+   * which mean the frame origin.
+   */
+  hoverPoint?: Vec3Data;
 };
 
 export type ConnectorAnchorsResult =

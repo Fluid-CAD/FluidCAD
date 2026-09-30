@@ -461,6 +461,13 @@ export class SketchMesh extends Group {
 
       for (const shape of obj.sceneShapes) {
         if (shape.isMetaShape || shape.isGuide) {
+          // A lone meta vertex — a circle/arc/ellipse centre mark — is the
+          // pickable stand-in for that centre point: the render payload gives
+          // it `vertices`, and an empty, non-meta group carrying them makes it
+          // a vertex-channel candidate (the visible dot stays a meta shape).
+          if (shape.isMetaShape && shape.shapeType === 'vertex' && shape.shapeId && shape.vertices?.length === 3) {
+            this.add(SketchMesh.pointPickCandidate(shape.shapeId, shape.vertices));
+          }
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
             const metaMesh = createMetaEdgeMesh(shape);
             metaMesh.traverse(child => { child.renderOrder = 1; });
@@ -520,6 +527,20 @@ export class SketchMesh extends Group {
         this.solvedBezierMeshes.push({ curve, meshes: [mesh] });
       }
     }
+  }
+
+  /**
+   * An invisible pick candidate for one sketch point (a centre mark): the
+   * vertex channel reads `shapeId` + `topologyVertices` off it exactly as it
+   * reads a wire's endpoints, so a hole or a loft can name the centre.
+   */
+  static pointPickCandidate(shapeId: string, position: number[]): Group {
+    const candidate = new Group();
+    candidate.name = 'sketch-point-pick';
+    candidate.userData.shapeId = shapeId;
+    candidate.userData.topologyVertices = [...position];
+    candidate.userData.isSketchPoint = true;
+    return candidate;
   }
 
   private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {

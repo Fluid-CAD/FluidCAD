@@ -32,6 +32,7 @@ import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { RibFeatureService } from './interactive/create-feature/rib-service';
+import { HoleFeatureService } from './interactive/create-feature/hole/hole-service';
 import { RevolveFeatureService } from './interactive/create-feature/revolve-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
@@ -1010,6 +1011,7 @@ const projectionService = new ProjectionPickService(container, viewer);
 const syncKeepToolbar = () => sketchService.setKeepToolbar(
   (extrudeService.isActive && extrudeService.sketchUISuspended)
   || (ribService.isActive && ribService.sketchUISuspended)
+  || (holeService.isActive && holeService.sketchUISuspended)
   || (revolveService.isActive && revolveService.sketchUISuspended)
   || (sweepService.isActive && sweepService.sketchUISuspended)
   || (loftService.isActive && loftService.sketchUISuspended)
@@ -1022,7 +1024,7 @@ const syncKeepToolbar = () => sketchService.setKeepToolbar(
 // the toolbar pin (this fires after a dialog disarms, clearing the pin on apply).
 const syncSketchButtonBlocked = () => {
   modifyService.setCreateDialogActive(
-    extrudeService.isActive || ribService.isActive || revolveService.isActive
+    extrudeService.isActive || ribService.isActive || holeService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
     || mirrorService.isActive || rotateService.isActive || connectorService.isActive
@@ -1052,6 +1054,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     modifyService.displaceSketchSession();
     modifyService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1082,6 +1085,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     helixService.exit();
     sweepService.exit();
     loftService.exit();
@@ -1109,6 +1113,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     loftService.exit();
@@ -1136,6 +1141,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1164,6 +1170,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1193,6 +1200,7 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
@@ -1242,6 +1250,36 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
+// Constructed after Rib so its Hole button lands at the end of the create
+// feature row.
+const holeService = new HoleFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
 // Constructed after the other create services: its button prepends ahead of
 // Extrude, and the Sketch button (modify service) prepends ahead of it —
 // the group reads Sketch, Plane, Extrude, Sweep, Loft.
@@ -1258,6 +1296,8 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1291,6 +1331,8 @@ const textEditService = new TextEditService(container, viewer, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1316,7 +1358,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // An armed create dialog takes sketch (or plane) rows clicked in the
   // timeline as its input instead of the default rollback-preview.
   panel.onFeatureIntercept = (obj) =>
-    extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj)
+    extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj) || holeService.handleTimelinePick(obj)
     || revolveService.handleTimelinePick(obj)
     || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
     || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
@@ -1439,7 +1481,7 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
  * surfaces its parse refusal as the toast).
  */
 const EDITABLE_ROW_TYPES = new Set([
-  'extrude', 'cut', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
+  'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
   // A copy row opens the Copy dialog — a connector copy row too, filed with
   // its part's connectors in the timeline; a copy that follows a repeat
@@ -1533,6 +1575,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     extrudeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'rib') {
     ribService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'hole') {
+    holeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'revolve') {
     revolveService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'sweep') {
@@ -1679,6 +1723,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   }
   extrudeService.exit();
   ribService.exit();
+  holeService.exit();
   revolveService.exit();
   helixService.exit();
   sweepService.exit();
@@ -1946,6 +1991,8 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     projectionService.exit({ resume: 'lazy' });
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1990,6 +2037,8 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2025,6 +2074,8 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2062,6 +2113,8 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2097,6 +2150,8 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2132,6 +2187,8 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2170,6 +2227,8 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2201,6 +2260,7 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
 const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, [
   extrudeService.toolbarButton,
   ribService.toolbarButton,
+  holeService.toolbarButton,
   revolveService.toolbarButton,
   sweepService.toolbarButton,
   loftService.toolbarButton,
@@ -2225,7 +2285,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
+  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -2336,6 +2396,8 @@ const sectionViewService = new SectionViewService(container, viewer, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2534,6 +2596,9 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
     // The armed connector tool floats its anchor suggestion at the hovered
     // face/edge — the gizmo nearest the cursor.
     connectorService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (holeService.isPicking) {
+    // The hole dialog floats the same anchor suggestion for a new placement.
+    holeService.handleHover(shapeId, sub, clientX, clientY);
   }
 });
 
@@ -2547,6 +2612,7 @@ const createDialogPicking = () =>
   || extrudeService.isFacePicking
   || extrudeService.isScopePicking
   || ribService.isPicking
+  || holeService.isPicking
   || revolveService.isAxisPicking
   || (sweepService.isActive && !sweepService.isEditing)
   || sweepService.isEdgePicking
@@ -2659,7 +2725,9 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // picking (viewer.setConnectorPicking) — the Copy dialog takes it as a
   // target or its axis; the Repeat dialog explains that Copy does.
   if (sub?.type === 'connector') {
-    if (copyService.isPicking) {
+    if (holeService.isPicking) {
+      holeService.handleConnectorPick(shapeId, modifiers);
+    } else if (copyService.isPicking) {
       copyService.handleConnectorPick(shapeId, modifiers);
     } else if (repeatService.isPicking) {
       repeatService.handleConnectorPick();
@@ -2813,6 +2881,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // solid into the armed target slot.
   if (booleanService.isPicking) {
     booleanService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed hole dialog owns clicks — a vertex dot or a face/edge anchor
+  // is a placement, a face or edge with the scope slot armed its whole solid.
+  if (holeService.isPicking) {
+    holeService.handleClick(shapeId, sub);
     return;
   }
   // The armed rib dialog owns clicks — a face or edge selects its whole
@@ -3037,7 +3111,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
       || rotateService.sketchUISuspended || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-      || ribService.sketchUISuspended || sectionViewService.sketchUISuspended
+      || ribService.sketchUISuspended || holeService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
       || projectionService.isEditing
       || textEditService.isActive;
@@ -3055,6 +3129,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   projectionService.handleSceneRendered(result, renderStop, isRollback);
   extrudeService.handleSceneRendered(result, renderStop, isRollback);
   ribService.handleSceneRendered(result, renderStop, isRollback);
+  holeService.handleSceneRendered(result, renderStop, isRollback);
   revolveService.handleSceneRendered(result, renderStop, isRollback);
   sweepService.handleSceneRendered(result, renderStop, isRollback);
   wrapService.handleSceneRendered(result, renderStop, isRollback);

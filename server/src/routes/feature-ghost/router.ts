@@ -5,6 +5,7 @@ import type { PlaneRotationAxes } from '../../apply-feature-edit/index.ts';
 import type {
   FeatureGhostRequest,
   FluidCadServer,
+  HoleGhostRequest,
   GhostEntityRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
@@ -78,7 +79,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const isFillet2D = body.feature === 'fillet2d';
     const isCopy2D = body.feature === 'copy2d';
     const isMirror2D = body.feature === 'mirror2d';
-    if (!isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isPlane && !isOffset
+    // A hole is always a removal — no op to declare.
+    const isHole = body.feature === 'hole';
+    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isPlane && !isOffset
       && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -94,7 +97,10 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       || !isValueExprOrNull(body.endOffset)
       || !isValueExprOrNull(body.offset) || !isValueExprOrNull(body.rotateX)
       || !isValueExprOrNull(body.rotateY) || !isValueExprOrNull(body.rotateZ)
-      || !isValueExprOrNull(body.position) || !isValueExprOrNull(body.thickness)) {
+      || !isValueExprOrNull(body.position) || !isValueExprOrNull(body.thickness)
+      || !isValueExprOrNull(body.diameter) || !isValueExprOrNull(body.depth) || !isValueExprOrNull(body.tipAngle)
+      || !isValueExprOrNull(body.counterbore?.diameter) || !isValueExprOrNull(body.counterbore?.depth)
+      || !isValueExprOrNull(body.countersink?.diameter) || !isValueExprOrNull(body.countersink?.angle)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
@@ -163,6 +169,30 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
           return;
         }
         ribExclude = { filePath: body.exclude.filePath, line: body.exclude.line };
+      }
+    }
+    let holeFrames: HoleGhostRequest['frames'] = [];
+    let holeScope: { filePath: string; line: number }[] = [];
+    let holeExclude: { filePath: string; line: number } | undefined;
+    if (isHole) {
+      const frames = parseHoleFrames(body.frames);
+      if (!frames) {
+        res.status(400).json({ success: false, reason: 'Invalid hole frames' });
+        return;
+      }
+      holeFrames = frames;
+      const scope = parseSourceRefs(body.scope ?? []);
+      if (!scope || scope.length > MAX_COPY_TARGETS) {
+        res.status(400).json({ success: false, reason: 'Invalid scope references' });
+        return;
+      }
+      holeScope = scope;
+      if (body.exclude !== undefined && body.exclude !== null) {
+        if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
+          res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
+          return;
+        }
+        holeExclude = { filePath: body.exclude.filePath, line: body.exclude.line };
       }
     }
     const helixSource = isHelix ? parseHelixSource(body.source) : null;
@@ -321,6 +351,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const rotateY = resolve(body.rotateY);
     const rotateZ = resolve(body.rotateZ);
     const position = resolve(body.position);
+    const holeDiameter = isHole ? resolve(body.diameter) : null;
+    const holeDepth = isHole ? resolve(body.depth) : null;
+    const holeTip = isHole ? resolve(body.tipAngle) : null;
+    const holeCounterbore = isHole && body.counterbore
+      ? { diameter: resolve(body.counterbore.diameter), depth: resolve(body.counterbore.depth) }
+      : null;
+    const holeCountersink = isHole && body.countersink
+      ? { diameter: resolve(body.countersink.diameter), angle: resolve(body.countersink.angle) }
+      : null;
     // The repeat and both copies state their instances identically — one pass
     // resolves whichever of the three asked.
     const rawSweep = repeat?.sweep ?? copy?.sweep ?? copy2d?.sweep ?? null;
@@ -466,6 +505,32 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         extendStart,
         extendEnd,
         regions,
+      };
+    } else if (isHole) {
+      // The transform refuses these too; the ghost says so instead of a blank viewport.
+      if (holeDiameter === null || holeDiameter <= 0) {
+        res.status(400).json({ success: false, reason: 'Invalid diameter' });
+        return;
+      }
+      if (holeCounterbore && (holeCounterbore.diameter === null || holeCounterbore.depth === null)) {
+        res.status(400).json({ success: false, reason: 'Invalid counterbore' });
+        return;
+      }
+      if (holeCountersink && (holeCountersink.diameter === null || holeCountersink.angle === null)) {
+        res.status(400).json({ success: false, reason: 'Invalid countersink' });
+        return;
+      }
+      request = {
+        feature: 'hole',
+        frames: holeFrames,
+        flip: body.flip === true,
+        diameter: holeDiameter,
+        depth: holeDepth,
+        tipAngle: holeDepth === null ? null : holeTip,
+        counterbore: holeCounterbore as { diameter: number; depth: number } | null,
+        countersink: holeCountersink as { diameter: number; angle: number } | null,
+        scope: holeScope,
+        exclude: holeExclude,
       };
     } else if (isRib) {
       if (thickness === null || thickness === 0) {
@@ -613,4 +678,25 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
   });
 
   return router;
+}
+
+/** The hole's placement frames: finite xyz origin + normal triples. */
+function parseHoleFrames(value: unknown): HoleGhostRequest['frames'] | null {
+  if (!Array.isArray(value) || value.length > 256) {
+    return null;
+  }
+  const triple = (raw: unknown): [number, number, number] | null =>
+    Array.isArray(raw) && raw.length === 3 && raw.every(v => typeof v === 'number' && Number.isFinite(v))
+      ? [raw[0], raw[1], raw[2]]
+      : null;
+  const frames: HoleGhostRequest['frames'] = [];
+  for (const raw of value) {
+    const origin = triple((raw as { origin?: unknown })?.origin);
+    const normal = triple((raw as { normal?: unknown })?.normal);
+    if (!origin || !normal || normal.every(v => v === 0)) {
+      return null;
+    }
+    frames.push({ origin, normal });
+  }
+  return frames;
 }

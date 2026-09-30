@@ -19,6 +19,7 @@ import { renderEditedPlane } from '../features/plane.ts';
 import { renderEditedRepeat, type RepeatEditTargetSource } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
+import { renderHolePlacementExprs, renderHoleStatement, validHoleOptions } from '../features/hole.ts';
 import { renderEditedRotate } from '../features/rotate.ts';
 import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
@@ -216,6 +217,28 @@ export function renderEditedStatement(
     return {
       statement: renderRibStatement(opts, spineText, scope.exprs),
     };
+  }
+  if (parsed.feature === 'hole') {
+    const opts = spec.edit?.hole;
+    if (!opts || !validHoleOptions(opts)) {
+      return { error: 'malformed hole edit spec' };
+    }
+    // Absent placements keep every argument as written; a sent list replaces
+    // them whole (keeps by position, re-picked kinds rendered anew).
+    const placements = opts.placements
+      ?? parsed.placementTexts.map((_, sourceIndex) => ({ kind: 'verbatim' as const, sourceIndex }));
+    if (!Array.isArray(placements) || placements.length === 0) {
+      return { error: 'the hole needs at least one placement — pick a connector, a sketch vertex or a face' };
+    }
+    const exprs = renderHolePlacementExprs(placements, spec.parts, varFor, parsed.placementTexts);
+    if ('error' in exprs) {
+      return exprs;
+    }
+    const scope = resolveEditedScopeExprs(spec, 'hole', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
+    }
+    return { statement: renderHoleStatement(opts, exprs.exprs, scope.exprs) };
   }
   if (parsed.feature === 'sweep') {
     const opts = spec.edit?.sweep;

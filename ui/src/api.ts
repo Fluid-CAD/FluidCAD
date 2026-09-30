@@ -474,6 +474,7 @@ export async function getTextPreview(
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RibGhostRequest
+  | HoleGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -546,6 +547,22 @@ export type RibGhostRequest = {
    * Edit mode: the edited rib's own call site — the scene already contains
    * that rib, so the kernel unwinds its fusion before conforming the ghost.
    */
+  exclude?: { filePath: string; line: number };
+};
+
+export type HoleGhostRequest = {
+  feature: 'hole';
+  /** One frame per placement: the surface point and the outward normal, world space. */
+  frames: { origin: [number, number, number]; normal: [number, number, number] }[];
+  flip: boolean;
+  diameter: ValueExpr;
+  depth: ValueExpr | null;
+  tipAngle: ValueExpr | null;
+  counterbore: { diameter: ValueExpr; depth: ValueExpr } | null;
+  countersink: { diameter: ValueExpr; angle: ValueExpr } | null;
+  /** The `.scope(…)` solids by producing statement; empty sizes a through hole to every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
 };
 
@@ -2415,6 +2432,115 @@ export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureRe
   }, options.signal);
 }
 
+// ---------------------------------------------------------------------------
+// Hole
+// ---------------------------------------------------------------------------
+
+/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10'). */
+export type HoleSizeSpec =
+  | { kind: 'diameter'; value: ValueExpr }
+  | { kind: 'fastener'; label: string };
+
+/** How a fastener size becomes a diameter: a clearance fit, or the tap drill for a pitch (null = coarse). */
+export type HoleFastenerSpec =
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' }
+  | { type: 'tapped'; pitch: number | null };
+
+/** The entry of the hole; null values read the fastener tables. */
+export type HoleStyleSpec =
+  | { kind: 'counterbore'; diameter: ValueExpr | null; depth: ValueExpr | null }
+  | { kind: 'countersink'; diameter: ValueExpr | null; angle: ValueExpr | null };
+
+/** The hole options the dialog edits, shared by create and edit applies. */
+export type HoleOptionValues = {
+  size: HoleSizeSpec;
+  fastener: HoleFastenerSpec | null;
+  style: HoleStyleSpec | null;
+  /** Blind depth to the shoulder, or null for through all. */
+  depth: ValueExpr | null;
+  /** Drill point included angle below the shoulder; null is a flat bottom. */
+  tipAngle: ValueExpr | null;
+  /** `.flip()` — drill along the placement normal instead of into the material. */
+  flip: boolean;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+};
+
+/**
+ * Where a hole starts: an existing connector statement, a picked vertex (a
+ * sketch point exported from its sketch, or a solid vertex named through an
+ * edge endpoint), or a face/edge anchor — a new connector inside a part, the
+ * bare anchor expression outside one.
+ */
+export type HolePlacementRef =
+  | ({ kind: 'connector' } & SketchSourceRef)
+  | { kind: 'vertex'; entity: ApplyFeatureEntity }
+  | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor; name: string };
+
+export type HoleApplyOptions = HoleOptionValues & {
+  placements: HolePlacementRef[];
+  /** The solid statements the hole's `.scope(…)` names; empty writes no chain. */
+  scope: SketchSourceRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Ask the server to write (or, with `preview`, just render) a hole statement. */
+export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'hole',
+    size: options.size,
+    fastener: options.fastener,
+    style: options.style,
+    depth: options.depth,
+    tipAngle: options.tipAngle,
+    flip: options.flip,
+    newVariables: options.newVariables,
+    placements: options.placements,
+    scope: options.scope,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** An edited placement: a kept argument by position, or a new pick. */
+export type HoleEditPlacementRef = { kind: 'verbatim'; sourceIndex: number } | HolePlacementRef;
+
+export type HoleEditOptions = HoleOptionValues & EditSessionFields & {
+  /** Full replacement placement list; omitted keeps the statement's own. */
+  placements?: HoleEditPlacementRef[];
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene cutting).
+   */
+  scope?: ScopeTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the hole statement at `edit` in place. */
+export async function applyHoleEdit(
+  edit: FeatureEditTarget,
+  options: HoleEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'hole',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    size: options.size,
+    fastener: options.fastener,
+    style: options.style,
+    depth: options.depth,
+    tipAngle: options.tipAngle,
+    flip: options.flip,
+    newVariables: options.newVariables,
+    placements: options.placements,
+    scope: options.scope,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The revolve options the dialog edits, shared by create and edit applies. */
 export type RevolveOptionValues = {
   op: 'add' | 'remove' | 'new';
@@ -3007,6 +3133,11 @@ export type FeatureSourcesResult =
    * — empty when the rib fuses with the whole scene.
    */
   | { ok: true; feature: 'rib'; spine: SourceSlotRef; scope: SourceSlotRef[] }
+  /**
+   * A hole: its placements in argument order — a connector by its statement,
+   * anything else opaque — plus the solid statements its `.scope(…)` names.
+   */
+  | { ok: true; feature: 'hole'; placements: SourceSlotRef[]; scope: SourceSlotRef[] }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[]; connections: [number, number, number][][] }
@@ -3161,6 +3292,22 @@ export type ParsedFeatureStatement =
       draft: ValueExpr | null;
       /** Trailing spine argument text (`s`), or null for implicit consumption. */
       spineText: string | null;
+    })
+  | (ParsedScopeChain & {
+      feature: 'hole';
+      size: HoleSizeSpec;
+      fastener: HoleFastenerSpec | null;
+      style: HoleStyleSpec | null;
+      depth: ValueExpr | null;
+      tipAngle: ValueExpr | null;
+      flip: boolean;
+      /** Placement argument texts, verbatim, in argument order. */
+      placementTexts: string[];
+      /**
+       * The `connector()` statement each placement argument names, or null
+       * when it is not a bare connector variable. Same length as `placementTexts`.
+       */
+      placementRefs: ({ line: number; column: number } | null)[];
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

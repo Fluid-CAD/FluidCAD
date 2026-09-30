@@ -11,6 +11,7 @@ import type { RegionItemRefSpec, RegionPickSpec } from '../apply-feature-edit/va
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RibGhostRequest
+  | HoleGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -61,6 +62,24 @@ export type RibGhostRequest = {
   /** The `.scope(…)` solids by producing statement; empty means every solid. */
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited rib's call site — its fusion is unwound. */
+  exclude?: { filePath: string; line: number };
+};
+
+export type HoleGhostRequest = {
+  feature: 'hole';
+  /** One frame per placement: the surface point and the outward normal, world space. */
+  frames: { origin: [number, number, number]; normal: [number, number, number] }[];
+  /** Drill along the normal instead of into the material. */
+  flip: boolean;
+  diameter: number;
+  /** Blind depth to the shoulder; null is through all. */
+  depth: number | null;
+  tipAngle: number | null;
+  counterbore: { diameter: number; depth: number } | null;
+  countersink: { diameter: number; angle: number } | null;
+  /** The `.scope(…)` solids by producing statement; empty sizes a through hole to every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
 };
 

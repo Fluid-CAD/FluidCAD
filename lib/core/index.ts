@@ -29,6 +29,7 @@ export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as sweep } from "./sweep.js";
 export { default as rib } from "./rib.js";
+export { default as hole, type HolePlacementLike } from "./hole.js";
 export { default as wrap } from "./wrap.js";
 export { default as helix } from "./helix.js";
 export { default as color } from "./color.js";

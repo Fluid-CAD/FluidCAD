@@ -7,6 +7,7 @@ import { validateNewVariables } from './validate/common.ts';
 import { handleStatementEdit } from './handlers/statement-edit.ts';
 import { handleExtrude } from './handlers/extrude.ts';
 import { handleRib } from './handlers/rib.ts';
+import { handleHole } from './handlers/hole.ts';
 import { handleSweep } from './handlers/sweep.ts';
 import { handleWrap } from './handlers/wrap.ts';
 import { handleRevolve } from './handlers/revolve.ts';
@@ -94,6 +95,15 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
 
     if (feature === 'rib') {
       await handleRib(ctx, req, res);
+      return;
+    }
+
+    // Hole places one cut per placement: existing connectors by statement,
+    // sketch vertices through the vertex synthesis (an export the transform
+    // authors), face/edge anchors as new connectors inside a part or bare
+    // anchor expressions elsewhere.
+    if (feature === 'hole') {
+      await handleHole(ctx, req, res);
       return;
     }
 

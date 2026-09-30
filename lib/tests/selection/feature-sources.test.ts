@@ -16,6 +16,7 @@ import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rotate from "../../core/rotate.js";
 import rib from "../../core/rib.js";
+import hole from "../../core/hole.js";
 import part from "../../core/part.js";
 import connector from "../../core/connector.js";
 import select from "../../core/select.js";
@@ -234,6 +235,36 @@ describe("feature sources (edit-dialog seeding)", () => {
       expect(result.spine).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
       expect(result.scope).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }]);
     }
+  });
+
+  it("resolves a hole's connector placements and scope by call site, other placements opaque", () => {
+    const made = {} as { hole: unknown };
+    part("plate", () => {
+      sketch("xy", () => {
+        testRect(60, 40, { at: [-30, -20] });
+      });
+      const plate = extrude(10);
+      setLocation(plate as never, 3);
+      const top = connector("top", select(face().planar().onPlane("xy", 10)));
+      setLocation(top as never, 4);
+      const s = sketch(plate.endFaces(), () => ({ c: circle([15, 5], 3) }));
+      setLocation(s as never, 5);
+      made.hole = hole(4, top as never, (s.geometries.c as any).center(), plate.endFaces().center()).scope(plate);
+      setLocation(made.hole as never, 9);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "hole", 9));
+    expect(result).toMatchObject({
+      ok: true,
+      feature: "hole",
+      placements: [
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 },
+        { kind: "opaque" },
+        { kind: "opaque" },
+      ],
+      scope: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }],
+    });
   });
 
   it("reports an empty scope for a whole-scene rib", () => {

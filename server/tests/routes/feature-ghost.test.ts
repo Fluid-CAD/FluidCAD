@@ -1257,3 +1257,34 @@ describe('feature-ghost route — value scope', () => {
     expect(received).toBeUndefined();
   });
 });
+
+describe('feature-ghost route — hole', () => {
+  useGhostRoute();
+
+  const frames = [{ origin: [0, 0, 10], normal: [0, 0, 1] }];
+
+  it('passes frames and resolved numbers through, with no op', async () => {
+    code = `const depth = 12;\n`;
+    const { status } = await postGhost({
+      feature: 'hole', frames, flip: false, diameter: 6.4, depth: 'depth', tipAngle: 118,
+      counterbore: { diameter: 11, depth: 6.8 }, countersink: null, scope: [{ filePath: FILE, line: 5 }],
+      exclude: { filePath: FILE, line: 9 },
+    });
+    expect(status).toBe(200);
+    expect(received).toEqual({
+      feature: 'hole', frames, flip: false, diameter: 6.4, depth: 12, tipAngle: 118,
+      counterbore: { diameter: 11, depth: 6.8 }, countersink: null,
+      scope: [{ filePath: FILE, line: 5 }], exclude: { filePath: FILE, line: 9 },
+    });
+  });
+
+  it('drops the tip angle of a through hole and refuses bad frames or a bad diameter', async () => {
+    const through = await postGhost({ feature: 'hole', frames, flip: true, diameter: 5, depth: null, tipAngle: 118, counterbore: null, countersink: null, scope: [] });
+    expect(through.status).toBe(200);
+    expect(received).toMatchObject({ flip: true, depth: null, tipAngle: null });
+    const badFrame = await postGhost({ feature: 'hole', frames: [{ origin: [0, 0], normal: [0, 0, 1] }], diameter: 5, depth: null, tipAngle: null, counterbore: null, countersink: null, scope: [] });
+    expect(badFrame.status).toBe(400);
+    const badDiameter = await postGhost({ feature: 'hole', frames, diameter: 0, depth: null, tipAngle: null, counterbore: null, countersink: null, scope: [] });
+    expect(badDiameter.status).toBe(400);
+  });
+});

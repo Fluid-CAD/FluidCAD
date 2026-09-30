@@ -226,7 +226,7 @@ const UNBINDABLE_CONNECTOR_NAMES = new Set([
   'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import',
   'in', 'instanceof', 'let', 'new', 'null', 'return', 'static', 'super', 'switch', 'this', 'throw',
   'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield',
-  'connector', 'copy', 'axis',
+  'connector', 'copy', 'axis', 'hole',
 ]);
 
 /**

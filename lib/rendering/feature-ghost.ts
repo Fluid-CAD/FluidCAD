@@ -15,6 +15,8 @@ import {
 } from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
+import { buildHoleTool, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
+import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
@@ -54,7 +56,7 @@ import { MeshBuilder } from "./mesh-builder.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
-import { withUnit } from "../units/registry.js";
+import { getActiveUnit, withUnit } from "../units/registry.js";
 
 /**
  * A dialog's live geometry request, every value already resolved to a number
@@ -64,6 +66,7 @@ import { withUnit } from "../units/registry.js";
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RibGhostRequest
+  | HoleGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -122,6 +125,24 @@ export type RibGhostRequest = {
    * the new prism against a body that already contains the applied rib
    * leaves only boundary slivers.
    */
+  exclude?: { filePath: string; line: number };
+};
+
+export type HoleGhostRequest = {
+  feature: 'hole';
+  /** One frame per placement: the surface point and the outward normal, world space. */
+  frames: { origin: [number, number, number]; normal: [number, number, number] }[];
+  /** Drill along the normal instead of into the material. */
+  flip: boolean;
+  diameter: number;
+  /** Blind depth to the shoulder; null is through all. */
+  depth: number | null;
+  tipAngle: number | null;
+  counterbore: { diameter: number; depth: number } | null;
+  countersink: { diameter: number; angle: number } | null;
+  /** The `.scope(…)` solids by producing statement; empty sizes a through hole to every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
 };
 
@@ -670,6 +691,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'rib') {
     return meshGhostBodies(buildRibGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'hole') {
+    return meshGhostBodies(buildHoleGhost(scene, request), meshConfig);
   }
   if (request.feature === 'sweep') {
     return meshGhostBodies(buildSweepGhost(scene, request), meshConfig);
@@ -2131,6 +2155,91 @@ function disposePicked(picked: PickedRegions | null): void {
  * being edited has already fused with (and consumed) the very solids its
  * scope names.
  */
+/**
+ * The hole tools — one revolved profile per placement — as a remove ghost.
+ * No boolean runs: the tools alone show where the holes go and how deep.
+ * A through hole is sized to the scope stock the way the feature sizes it.
+ */
+function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
+  if (request.frames.length === 0) {
+    return { reason: 'Pick where the holes go.' };
+  }
+  let dims: HoleDimensions;
+  try {
+    dims = resolveHoleDimensions({
+      size: request.diameter,
+      fastener: null,
+      style: request.counterbore
+        ? { kind: 'counterbore', diameter: request.counterbore.diameter, depth: request.counterbore.depth }
+        : request.countersink
+          ? { kind: 'countersink', diameter: request.countersink.diameter, angle: request.countersink.angle }
+          : null,
+      depth: request.depth,
+      tipAngle: request.tipAngle,
+    }, getActiveUnit());
+  } catch (error) {
+    return { reason: error instanceof Error ? error.message : String(error), surface: true };
+  }
+
+  const stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
+  if ('reason' in stock) {
+    return stock;
+  }
+
+  const solids: Shape[] = [];
+  try {
+    for (const frame of request.frames) {
+      const origin = Point.fromArray(frame.origin);
+      const normal = Vector3d.fromArray(frame.normal).normalize();
+      const direction = request.flip ? normal : normal.negate();
+      const length = dims.depth ?? throughAllLength(stock, [], Plane.fromPointAndNormal(origin, direction));
+      solids.push(buildHoleTool(origin, direction, dims, length));
+    }
+  } catch (error) {
+    for (const solid of solids) {
+      solid.dispose();
+    }
+    return { reason: error instanceof Error ? error.message : String(error) };
+  }
+  return { solids, scratch: [] };
+}
+
+/**
+ * The solids a through hole is sized against: the `.scope(…)` statements'
+ * solids, or every solid in the scene. In edit mode the edited statement's
+ * own cut is unwound (its removal scope drops it) so the stock reads as the
+ * feature will see it.
+ */
+function ghostStockSolids(
+  scene: Scene,
+  scope: { filePath: string; line: number }[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] | { reason: string } {
+  const excluded = exclude ? new Set(objectsAt(scene, exclude)) : null;
+  const removalScope = excluded && excluded.size > 0
+    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
+    : undefined;
+  if (scope.length > 0) {
+    const targets: SceneObject[] = [];
+    for (const ref of scope) {
+      const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
+      if (objects.length === 0) {
+        return { reason: 'That scope solid is not in the rendered scene.' };
+      }
+      targets.push(...objects);
+    }
+    return removalScope
+      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
+      : copyTargetSolids(targets);
+  }
+  if (removalScope) {
+    return scene.getSceneObjects()
+      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
+      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
+  }
+  return sceneSolids(scene);
+}
+
 function buildRibGhost(scene: Scene, request: RibGhostRequest): GhostBuild {
   const spine = findProfile(scene, request.spine);
   if (!spine) {

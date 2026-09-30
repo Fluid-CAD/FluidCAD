@@ -14,6 +14,7 @@ import { projectionCallee } from '../features/projection.ts';
 import { renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
+import { renderHolePlacementExprs, renderHoleStatement } from '../features/hole.ts';
 import { renderRotateStatement } from '../features/rotate.ts';
 import { renderSectionPlaneExpr, renderSectionStatement } from '../features/section.ts';
 import { renderShellJoinChain } from '../features/shell.ts';
@@ -71,6 +72,15 @@ export function buildStatement(
     const rb = spec.rib!;
     const spineVar = rb.spine === 'bound' ? bindings[0].varName : null;
     return renderRibStatement(rb, spineVar, scopeVarNames(rb.scope));
+  }
+  if (spec.feature === 'hole') {
+    const ho = spec.hole!;
+    const placements = renderHolePlacementExprs(ho.placements, spec.parts, i => bindings[i]?.varName ?? null);
+    if ('error' in placements) {
+      // The create arm validated the placements; an unstaged one here is a programming error.
+      throw new Error(placements.error);
+    }
+    return renderHoleStatement(ho, placements.exprs, scopeVarNames(ho.scope));
   }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;

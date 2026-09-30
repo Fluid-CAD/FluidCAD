@@ -7,7 +7,7 @@ import part from '../../core/part.js';
 import copy from '../../core/copy.js';
 import mirror from '../../core/mirror.js';
 import fillet from '../../core/fillet.js';
-import { line, arc, bezier, project, offset, xAxis, yAxis } from '../../core/2d/index.js';
+import { line, arc, bezier, circle, point, project, offset, xAxis, yAxis } from '../../core/2d/index.js';
 import { coincident } from '../../core/constraints/index.js';
 import { SceneObject } from '../../common/scene-object.js';
 import { Shape } from '../../common/shape.js';
@@ -27,7 +27,7 @@ function pick(shape: Shape, index = 0) {
 }
 function points(scene: Scene, picks: ReturnType<typeof pick>[]) {
   const result = SelectionResolver.resolve(scene, { picks }, {});
-  expect(result.ok).toBe(true);
+  expect(result.ok, result.ok === false ? result.reason : '').toBe(true);
   if (result.ok === false) {
     throw new Error(result.reason);
   }
@@ -264,5 +264,48 @@ describe('vertex source synthesis', () => {
       expect(result.exports?.[0].target.featureType).toMatch(/^(line|arc)$/);
       expect(result.source).toMatch(/^s\.geometries\.(l|a)\d\.(start|end)\(\)$/);
     }
+  });
+});
+
+describe('sketch centre and point-entity picks', () => {
+  setupOC();
+
+  /** The lone vertex shape an entity carries: a circle's centre mark, a point entity's vertex. */
+  function vertexShapeOf(entity: unknown): Shape {
+    const shape = (entity as SceneObject).getAddedShapes().find(shape => shape.getType() === 'vertex');
+    expect(shape).toBeDefined();
+    return shape!;
+  }
+
+  it('names a circle centre as the exported entity\'s .center()', () => {
+    const s = located(sketch('xy', () => ({ c: located(circle([10, 5], 4), 2) })), 1);
+    const scene = render();
+    const synthesis = points(scene, [pick(vertexShapeOf(s.geometries.c))]);
+    expect(synthesis.exports).toMatchObject([{ part: 0, target: { line: 2, featureType: 'circle', role: 'center' } }]);
+    expect(synthesis.source).toMatch(/^s\d*\.geometries\.c\d*\.center\(\)$/);
+  });
+
+  it('names an arc centre and a point entity', () => {
+    const s = located(sketch('xy', () => ({
+      a: located(arc([10, 0], [0, 10], [-10, 0]), 2),
+      p: located(point([3, 7]), 3),
+    })), 1);
+    const scene = render();
+    const centre = points(scene, [pick(vertexShapeOf(s.geometries.a))]);
+    expect(centre.exports).toMatchObject([{ part: 0, target: { line: 2, featureType: 'arc', role: 'center' } }]);
+    const entity = points(scene, [pick(vertexShapeOf(s.geometries.p))]);
+    expect(entity.exports).toMatchObject([{ part: 0, target: { line: 3, featureType: 'point' } }]);
+    expect(entity.exports?.[0].target.role).toBeUndefined();
+    expect(entity.source).toMatch(/^s\d*\.geometries\.p\d*$/);
+  });
+
+  it('still prefers an endpoint when a line ends at a circle centre', () => {
+    const s = located(sketch('xy', () => ({
+      c: located(circle([10, 5], 4), 2),
+      l: located(line([0, 0], [10, 5]), 3),
+    })), 1);
+    const scene = render();
+    const synthesis = points(scene, [pick(vertexShapeOf(s.geometries.c))]);
+    expect(synthesis.exports?.[0].target).toMatchObject({ line: 3, featureType: 'line', role: 'end' });
   });
 });

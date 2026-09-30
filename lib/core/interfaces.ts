@@ -1313,6 +1313,84 @@ export interface IRotate extends ISceneObject {
 
 export interface IDraft extends ISceneObject {}
 
+/**
+ * A fastener hole cut into the scope solids at one or more placements. Created
+ * with `hole(size, ...placements)`; the chains below refine it and must come
+ * before `.scope()`.
+ */
+export interface IHole extends ISceneObject {
+  /**
+   * A clearance hole for the fastener size, from the ISO 273 / ASME B18.2.8
+   * tables. Fastener sizes only (`hole('M6', …)`).
+   * @param fit - 'close', 'normal' (default) or 'loose'
+   */
+  clearance(fit?: 'close' | 'normal' | 'loose'): this;
+
+  /**
+   * A tapped hole for the fastener size, cut at its tap-drill diameter.
+   * Threads are not modelled yet; the size and pitch are kept for a later
+   * thread feature. Fastener sizes only.
+   * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted = coarse
+   */
+  tapped(pitch?: number): this;
+
+  /**
+   * A counterbore at the entry. Without values the socket-head cap screw
+   * table for the fastener size is used.
+   * @param diameter - Counterbore diameter
+   * @param depth - Counterbore depth from the surface
+   */
+  counterbore(diameter?: number, depth?: number): this;
+
+  /**
+   * A countersink at the entry. Without values the flat-head screw table for
+   * the fastener size is used (90° metric, 82° inch).
+   * @param diameter - Countersink diameter at the surface
+   * @param angle - Included angle in degrees
+   */
+  countersink(diameter?: number, angle?: number): this;
+
+  /**
+   * A blind hole. Without this chain the hole runs through every solid in scope.
+   * @param distance - Depth from the surface to the shoulder (the full-diameter depth)
+   * @param tipAngle - Drill point included angle below the shoulder (118 for a standard drill); omitted = flat bottom
+   */
+  depth(distance: number, tipAngle?: number): this;
+
+  /** Drill along the placement's normal (out of the surface) instead of into it. */
+  flip(): this;
+
+  /**
+   * Narrows the cut to specific solids.
+   * @param objects - The solids to cut
+   */
+  scope(...objects: ISceneObject[]): this;
+
+  /**
+   * Selects the walls the hole created — the bore, the counterbore step, the countersink cone and the drill point.
+   * @param indices - Optional indices into the wall faces
+   */
+  faces(...indices: number[]): ISelection;
+
+  /**
+   * Selects every edge the hole created: the rims on the surfaces and the creases inside.
+   * @param indices - Optional indices into the edges
+   */
+  edges(...indices: number[]): ISelection;
+
+  /**
+   * Selects the rims where the hole meets the surface it enters.
+   * @param indices - Optional indices into the rims
+   */
+  startEdges(...indices: number[]): ISelection;
+
+  /**
+   * Selects the rims at the bottom of a blind hole, or where a through hole leaves the solid.
+   * @param indices - Optional indices into the rims
+   */
+  endEdges(...indices: number[]): ISelection;
+}
+
 export interface IRib extends IBooleanOperation {
   /**
    * Selects faces at the start (base) of the rib — the profile face at the sketch plane.

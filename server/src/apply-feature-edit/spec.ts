@@ -53,6 +53,8 @@ import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
+import type { HolePlacementSpec, HoleValueOptions } from './features/hole.ts';
+import type { HoleEditOptions } from './features/hole.ts';
 import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
 
 /**
@@ -61,7 +63,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -79,6 +81,8 @@ export type ApplyFeatureEditSpec = {
   extrude?: ExtrudeEditOptions;
   /** Rib-only payload; the spine is a sketch, the scope bound solid statements. */
   rib?: RibEditOptions;
+  /** Hole-only payload: the placements (connector producers, staged sketch exports, anchored selector parts) and the scope. */
+  hole?: HoleEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
   sweep?: SweepEditOptions;
   /** Wrap-only payload; the single `parts` entry renders the target face. */
@@ -463,6 +467,16 @@ export type FeatureStatementEditTarget = {
      * producer. Absent keeps the statement's scope chain; an empty list drops
      * it (back to whole-scene fusion).
      */
+    scope?: RepeatEditTargetSource[];
+  };
+  /**
+   * The hole's dialog values plus, when the dialog re-sourced them, the full
+   * replacement placement list — `verbatim` keeps by position in the
+   * statement's own arguments, the create kinds add — and the `.scope(…)`
+   * list under the shared rule (absent keeps, empty drops).
+   */
+  hole?: HoleValueOptions & {
+    placements?: HolePlacementSpec[];
     scope?: RepeatEditTargetSource[];
   };
   sweep?: {

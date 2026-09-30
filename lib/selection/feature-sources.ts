@@ -30,6 +30,8 @@ import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
 import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
+import { Hole, type HolePlacement } from "../features/hole/hole.js";
+import { Connector } from "../features/connector.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
@@ -64,6 +66,12 @@ export type FeatureSources =
    * `'none'` scope that names no statements).
    */
   | { feature: 'rib'; spine: SourceSlot; scope: SourceSlot[] }
+  /**
+   * A hole: its placements in argument order — a connector by call site,
+   * anything else (a sketch point, an anchored vertex) opaque so the dialog
+   * keeps the argument text — plus the solid statements its `.scope(…)` names.
+   */
+  | { feature: 'hole'; placements: SourceSlot[]; scope: SourceSlot[] }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[]; connections: [number, number, number][][] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
@@ -182,6 +190,18 @@ export function resolveFeatureSources(
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
         guides: feature.guideObjects.map(g => resolver.wireSlot(g)),
         connections: feature.getConnectionPoints().map(connection => connection.map(point => [point.x, point.y, point.z])),
+      };
+    }
+    if (feature instanceof Hole) {
+      const fusionScope = feature.getFusionScope();
+      const scopeObjects = fusionScope instanceof SceneObject
+        ? [fusionScope]
+        : Array.isArray(fusionScope) ? fusionScope : [];
+      return {
+        ok: true,
+        feature: 'hole',
+        placements: feature.placements.map(placement => resolver.placementSlot(placement)),
+        scope: resolver.statementSlots(scopeObjects),
       };
     }
     // Rib extends ExtrudeBase — its case must come first.
@@ -464,6 +484,19 @@ class SourceResolver {
       return this.callSiteSlot(obj);
     }
     return this.entitiesSlot([obj]);
+  }
+
+  /**
+   * A hole placement: a declared connector by its statement (the dialog
+   * re-picks it as a connector chip); a connector copy, a sketch point or an
+   * anchored vertex has no statement of its own to re-target and stays
+   * opaque, its argument text kept verbatim.
+   */
+  placementSlot(placement: HolePlacement): SourceSlot {
+    if (placement instanceof Connector && placement.copySlot() === undefined) {
+      return this.callSiteSlot(placement);
+    }
+    return OPAQUE;
   }
 
   /** Statements by call site — a repeat's targets are features, not sketches. */

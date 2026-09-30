@@ -22,12 +22,21 @@ export class ChoiceTabs<T extends string> {
   private current: T;
   private readonly initial: T;
 
-  constructor(host: HTMLElement, choices: { key: T; label: string; title: string; disabled?: boolean }[], initial: T) {
+  /** Extra classes every tab wears — a three-way row needs a smaller face to fit the dialog. */
+  private readonly extra: string;
+
+  constructor(
+    host: HTMLElement,
+    choices: { key: T; label: string; title: string; disabled?: boolean }[],
+    initial: T,
+    options: { compact?: boolean } = {},
+  ) {
     this.initial = initial;
     this.current = initial;
+    this.extra = options.compact ? ' text-xs px-1' : '';
     for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
-      tab.className = key === this.current ? TAB_ACTIVE : TAB_BASE;
+      tab.className = (key === this.current ? TAB_ACTIVE : TAB_BASE) + this.extra;
       tab.textContent = label;
       tab.title = title;
       if (disabled) {
@@ -50,7 +59,7 @@ export class ChoiceTabs<T extends string> {
   setValue(key: T): void {
     this.current = key;
     for (const [kind, tab] of this.tabs) {
-      tab.className = kind === key ? TAB_ACTIVE : TAB_BASE;
+      tab.className = (kind === key ? TAB_ACTIVE : TAB_BASE) + this.extra;
     }
   }
 

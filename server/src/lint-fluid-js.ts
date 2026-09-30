@@ -36,7 +36,7 @@ const CORE_SYMBOLS = new Set<string>([
   'axis', 'plane', 'sketch', 'fuse', 'subtract', 'common',
   'cut', 'revolve', 'extrude', 'sphere', 'cylinder', 'select', 'shell',
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
-  'load', 'loft', 'sweep', 'rib', 'color', 'draft', 'remove',
+  'load', 'loft', 'sweep', 'rib', 'hole', 'color', 'draft', 'remove',
   'part', 'assembly', 'breakpoint', 'connector', 'expose', 'property', 'insert', 'mate', 'replicate', 'section',
   'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
   'bezier', 'point',

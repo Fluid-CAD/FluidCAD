@@ -181,6 +181,25 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'hole') {
+    // The pick is one hole placement: a single face or edge whose anchor
+    // point (`.center()` etc.) the hole starts from.
+    if (chains.length > 0 || refs.length !== 1) {
+      return {
+        ok: false,
+        reason: 'a hole placement is a single face or a round edge — pick exactly one',
+        pick: refs[0],
+      };
+    }
+    const anchor = options.connector?.anchor;
+    if (anchor && anchor.kind !== 'center' && refs[0].sub.type !== 'edge') {
+      return {
+        ok: false,
+        reason: `${anchor.kind === 'offset' ? 'an offset anchor' : `${anchor.kind}()`} needs an edge — a face only supports its center`,
+        pick: refs[0],
+      };
+    }
+  }
   if (feature === 'expose') {
     // The pick is the exposure's source geometry: a single face or edge.
     // The exposure's name rides the `value` channel.
@@ -348,14 +367,30 @@ export function synthesizeApplyFeature(
       };
     }
 
+    // A hole anchor reports the enclosing part() (when there is one) so the
+    // route can turn the pick into a named connector inside it; outside a
+    // part the bare anchor expression is the placement.
+    let holePayload: ApplyFeatureEditSpec['hole'];
+    if (feature === 'hole') {
+      const owner = attributions[0]?.solidOwner ?? null;
+      const enclosing = owner ? scene.findEnclosingPart(owner) : null;
+      const partLoc = enclosing?.getSourceLocation() ?? null;
+      const samePartFile = partLoc !== null && partLoc.filePath === filePaths.values().next().value;
+      holePayload = {
+        ...(options.connector?.anchor ? { anchor: options.connector.anchor } : {}),
+        ...(partLoc && samePartFile ? { part: { line: partLoc.line, column: partLoc.column } } : {}),
+      };
+    }
+
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
-        || feature === 'project' || feature === 'connector' || feature === 'expose'
+        || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
+      ...(holePayload ? { hole: holePayload } : {}),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -381,7 +416,7 @@ export function synthesizeApplyFeature(
 
     // The anchor suffix rides the args so the expression row shows (and can
     // edit) the full source expression, e.g. `e.endFaces().center()`.
-    const anchorSuffix = feature === 'connector'
+    const anchorSuffix = feature === 'connector' || feature === 'hole'
       ? renderConnectorAnchorSuffix(options.connector?.anchor)
       : '';
 
@@ -632,6 +667,10 @@ function renderPreview(
   if (feature === 'expose') {
     // The value channel carries the exposure's name.
     return `expose('${value}', ${args})`;
+  }
+  if (feature === 'hole') {
+    // The args are one placement's anchor expression; the route composes the statement.
+    return `hole(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

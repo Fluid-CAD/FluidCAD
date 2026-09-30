@@ -539,7 +539,10 @@ export class SceneRenderer {
   private toRenderedShape(shape: Shape, unit: LengthUnit, profiler?: Profiler): RenderedShape {
     return {
       shapeId: shape.id,
-      vertices: shape.isMetaShape() ? undefined : topologyVertices(shape),
+      // Meta shapes carry no topology vertices — except a lone vertex (a
+      // circle's centre mark, a point entity's guide), which IS its position:
+      // the vertex pick channel offers it as a sketch point.
+      vertices: shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape),
       faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
       meshes: this.getOrBuildMeshes(shape, unit, profiler),
       shapeType: shape.getType(),

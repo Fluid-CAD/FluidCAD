@@ -24,6 +24,7 @@ import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } f
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
+import { validHoleOptions } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
@@ -82,6 +83,23 @@ export async function applyCreateEdit(
       && rb.scope.every(p => isScopeTargetProducer(spec, p));
     if (!valid) {
       return { newCode: code, error: 'malformed rib edit spec' };
+    }
+  } else if (spec.feature === 'hole') {
+    // Placements render from the list: a connector producer, an anchored
+    // selector part (its producers ride the list) or an expression the
+    // staging pass authored; the scope targets are bound feature producers.
+    // A sketch export or a new connector still in the list was never staged.
+    const ho = spec.hole;
+    const valid = ho !== undefined && validHoleOptions(ho)
+      && Array.isArray(ho.placements) && ho.placements.length >= 1
+      && ho.placements.every(placement =>
+        (placement.kind === 'connector' && isConnectorProducer(spec, placement.producer))
+        || (placement.kind === 'part' && Number.isInteger(placement.part) && placement.part >= 0
+          && placement.part < spec.parts.length && typeof placement.suffix === 'string')
+        || (placement.kind === 'expression' && typeof placement.expression === 'string' && placement.expression.trim() !== ''))
+      && Array.isArray(ho.scope) && ho.scope.every(p => isScopeTargetProducer(spec, p));
+    if (!valid) {
+      return { newCode: code, error: 'malformed hole edit spec' };
     }
   } else if (spec.feature === 'sweep') {
     const sw = spec.sweep;

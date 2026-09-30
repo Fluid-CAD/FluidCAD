@@ -23,6 +23,7 @@ import { parseRotateChain } from '../features/rotate.ts';
 import { parseJoinSegment } from '../features/shell.ts';
 import { parseSweepExtendSegments } from '../features/sweep.ts';
 import { parseTextChain } from '../features/text.ts';
+import { parseHoleChain } from '../features/hole.ts';
 import {
   EDITABLE_CALLEES,
   OPTION_MEMBERS,
@@ -199,6 +200,10 @@ export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalB
 
   if (feature === 'text') {
     return parseTextChain(args, recognized, start, end);
+  }
+
+  if (feature === 'hole') {
+    return parseHoleChain(args, recognized, start, end, bindings, parseScopeSegment(recognized, start));
   }
 
   if (feature === 'sketch') {

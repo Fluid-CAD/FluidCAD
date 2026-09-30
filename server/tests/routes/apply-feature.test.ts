@@ -18,6 +18,10 @@ let relayed: any[];
 let anchorCalls: unknown[];
 /** Per-test result for the anchor-suggestion endpoint. */
 let currentAnchors: any;
+/** Vertex-pick resolutions forwarded to the fake server's resolveSelection. */
+let resolveCalls: unknown[];
+/** Per-test result for resolveSelection (the vertex point synthesis). */
+let currentResolution: any;
 
 const fakeSynthesis = {
   ok: true,
@@ -105,6 +109,10 @@ const fakeServer = {
     }
     return currentSynthesis;
   },
+  resolveSelection: (request: unknown, _options?: unknown) => {
+    resolveCalls.push(request);
+    return currentResolution;
+  },
   suggestConnectorAnchors: (pick: unknown, _options?: unknown) => {
     anchorCalls.push(pick);
     return currentAnchors;
@@ -180,6 +188,8 @@ describe('apply-feature route validation', () => {
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
     anchorCalls = [];
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
+    resolveCalls = [];
+    currentResolution = { ok: false, code: 'no-match', reason: 'no vertex resolution configured' };
     exposureCalls = [];
     currentExposureResolution = null;
     statementPartCalls = [];
@@ -6464,5 +6474,139 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(400);
       expect(anchorCalls).toEqual([]);
     });
+
+  describe('hole', () => {
+    const PART_CODE = [
+      `import { part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(10)`,
+      `  connector('bolt', e.endFaces().center())`,
+      `  const s = sketch(e.endFaces(), () => {`,
+      `    const c = circle([20, 0], 3)`,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const FILE = '/ws/plate.part.js';
+    const BASE = {
+      feature: 'hole', size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'clearance', fit: 'close' },
+      style: null, depth: null, tipAngle: null, flip: false, scope: [], preview: true,
+    };
+
+    beforeEach(() => {
+      currentCode = PART_CODE;
+      currentFileName = FILE;
+    });
+
+    it('previews a connector placement bound under the connector name, with the scope last', async () => {
+      const { status, body } = await post({
+        ...BASE, depth: 12, tipAngle: 118,
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+        scope: [{ filePath: FILE, line: 5, column: 12 }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', bolt).clearance('close').depth(12, 118).scope(e)`);
+    });
+
+    it('relays the spec on apply with connector and scope producers', async () => {
+      const { status, body } = await post({
+        ...BASE, preview: false,
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+        scope: [{ filePath: FILE, line: 5, column: 12 }],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'hole',
+        filePath: FILE,
+        hole: { placements: [{ kind: 'connector', producer: 0 }], scope: [1] },
+        producers: [
+          { line: 6, featureType: 'connector', bind: true },
+          { line: 5, featureType: 'feature', bind: true },
+        ],
+      });
+    });
+
+    it('turns an anchor inside a part into a new connector, and outside a part into the anchor expression', async () => {
+      const synthesis = (part: { line: number; column: number } | undefined) => ({
+        ok: true,
+        spec: {
+          feature: 'hole', filePath: FILE,
+          hole: { anchor: { kind: 'center' }, ...(part ? { part } : {}) },
+          producers: [{ line: 5, column: 12, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: 'hole(e.endFaces(0).center())', args: 'e.endFaces(0).center()', alternatives: [],
+      });
+      currentSynthesis = synthesis({ line: 3, column: 20 });
+      const inPart = await post({
+        ...BASE, placements: [{ kind: 'anchor', entity: PICK, anchor: { kind: 'center' }, name: 'h1' }],
+      });
+      expect(inPart.status).toBe(200);
+      expect(inPart.body.preview).toBe(`hole('M6', h1).clearance('close')`);
+      expect(synthesizeCalls).toEqual([{ feature: 'hole', value: undefined }, { feature: 'hole', value: undefined }]);
+      expect((synthesizeOptions[0] as any)?.connector).toEqual({ anchor: { kind: 'center' } });
+
+      currentSynthesis = synthesis(undefined);
+      const topLevel = await post({
+        ...BASE, size: { kind: 'diameter', value: 6.4 }, fastener: null,
+        placements: [{ kind: 'anchor', entity: PICK, anchor: { kind: 'center' }, name: 'h1' }],
+      });
+      expect(topLevel.status).toBe(200);
+      expect(topLevel.body.preview).toBe(`hole(6.4, e.endFaces(0).center())`);
+    });
+
+    it('names a sketch vertex through the vertex synthesis export', async () => {
+      currentResolution = {
+        ok: true,
+        matches: [],
+        synthesized: {
+          ok: true,
+          producers: [{ sceneObjectId: 'sk', sceneObjectName: 's', featureType: 'sketch', variable: 's', filePath: FILE, line: 7, column: 12 }],
+          parts: [{ producer: 'sk', accessor: 'geometries', tier: 0, source: 's.geometries.c.center()',
+            point: { kind: 'sketch', target: { line: 8, featureType: 'circle', role: 'center' } } }],
+          imports: [], alternatives: [],
+          exports: [{ part: 0, sketch: { filePath: FILE, line: 7, column: 12 }, target: { line: 8, featureType: 'circle', role: 'center' } }],
+        },
+      };
+      const { status, body } = await post({
+        ...BASE, placements: [{ kind: 'vertex', entity: { shapeId: 'v1', sub: { type: 'vertex', index: 0 } } }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', s.geometries.c.center()).clearance('close')`);
+      expect(resolveCalls).toEqual([{ picks: [{ shapeId: 'v1', sub: { type: 'vertex', index: 0 } }] }]);
+    });
+
+    it('rejects malformed options and an empty placement list', async () => {
+      const noPlacements = await post({ ...BASE, placements: [] });
+      expect(noPlacements.status).toBe(400);
+      expect(noPlacements.body.error).toContain('at least one placement');
+      const tappedDrilled = await post({
+        ...BASE, size: { kind: 'diameter', value: 5 }, fastener: { type: 'tapped', pitch: null },
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+      });
+      expect(tappedDrilled.status).toBe(400);
+      const badKind = await post({ ...BASE, placements: [{ kind: 'point' }] });
+      expect(badKind.status).toBe(400);
+    });
+
+    it('edits a hole in place, keeping placements by position and re-picking the scope', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close')\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const { status, body } = await post({
+        feature: 'hole', edit: { filePath: FILE, line: 10, column: 2 },
+        size: { kind: 'fastener', label: 'M8' }, fastener: { type: 'tapped', pitch: null },
+        style: { kind: 'counterbore', diameter: null, depth: null }, depth: 9, tipAngle: null, flip: true,
+        placements: [{ kind: 'verbatim', sourceIndex: 0 }],
+        scope: [{ kind: 'feature', filePath: FILE, line: 5, column: 12 }],
+        preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M8', bolt).tapped().counterbore().depth(9).flip().scope(e)`);
+    });
+  });
   });
 });

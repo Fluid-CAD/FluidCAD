@@ -2,8 +2,10 @@
 
 import type { Request, Response } from 'express';
 import {
+  applyFeatureEdit,
   enclosingSketchLine,
   extractNumericParams,
+  HolePlacements,
   LoftConnections,
   makeProducerNamer,
   parseFeatureStatement,
@@ -27,6 +29,7 @@ import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.t
 import { projectSketchRefusal } from '../validate/project.ts';
 import type { RepeatEditAxisInput } from '../validate/repeat.ts';
 import { validateStatementEdit } from '../validate/statement-edit.ts';
+import { resolveHolePlacements } from './hole.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // In-place statement edit (timeline double-click → edit dialog): the
@@ -215,10 +218,25 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
             featureType: 'feature', nameHint: 'f', bind: true,
           }),
         });
-      const scoped = edit.rib ?? edit.extrude ?? edit.sweep ?? edit.loft ?? edit.revolve;
+      const scoped = edit.rib ?? edit.extrude ?? edit.sweep ?? edit.loft ?? edit.revolve ?? edit.hole;
       if (scoped) {
         scoped.scope = scopeTargets;
       }
+    }
+    if (request.holePlacements) {
+      const resolved = await resolveHolePlacements(
+        fluidCadServer, request.holePlacements, { merge: mergeProducer, parts, imports: importSet },
+        ctx.synthesisOptionsForFile, before ?? undefined,
+      );
+      if ('error' in resolved) {
+        res.status(resolved.status).json({ success: false, reason: resolved.error });
+        return;
+      }
+      if (resolved.filePath && normalizePath(resolved.filePath) !== normalizePath(request.target.filePath)) {
+        res.status(422).json({ success: false, reason: 'the hole placements come from features in a different file than the statement' });
+        return;
+      }
+      edit.hole!.placements = resolved.placements;
     }
     if (request.sweepPath) {
       if (request.sweepPath.kind === 'sketch') {
@@ -991,7 +1009,11 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         });
         return;
       }
-      const staged = spec.feature === 'loft' ? await LoftConnections.prepare(code, spec) : { code, spec };
+      const staged = spec.feature === 'loft'
+        ? await LoftConnections.prepare(code, spec)
+        : spec.feature === 'hole'
+          ? await HolePlacements.prepare(code, spec, applyFeatureEdit)
+          : { code, spec };
       if ('error' in staged) {
         res.status(422).json({ success: false, reason: staged.error });
         return;

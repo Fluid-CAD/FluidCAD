@@ -7,10 +7,11 @@ import type { LoftConditionSpec } from '../features/loft.ts';
 import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinKind } from '../features/shell.ts';
+import type { ParsedHole } from '../features/hole.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -76,6 +77,7 @@ export type ParsedFeatureStatement =
     /** Trailing spine argument text (`s`), or null for implicit consumption. */
     spineText: string | null;
   })
+  | ParsedHole
   | (ParsedScopeChain & ParsedRegionChain & {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
@@ -387,6 +389,7 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   extrude: 'extrude',
   cut: 'extrude',
   rib: 'rib',
+  hole: 'hole',
   sweep: 'sweep',
   loft: 'loft',
   shell: 'shell',
@@ -427,6 +430,8 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
 export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['region', 'symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
+  // A hole is always a removal; its chains refine the cut and end with the scope.
+  hole: new Set(['clearance', 'tapped', 'counterbore', 'countersink', 'depth', 'flip', 'scope']),
   // `.extend()` may chain twice — once per end — so the parse collects it
   // like loft's `.connect()` instead of refusing the repeat.
   sweep: new Set(['region', 'extend', 'thin', 'remove', 'new', 'scope']),

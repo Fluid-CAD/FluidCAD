@@ -42,6 +42,7 @@ export type {
   RepeatGhostRequest,
   RevolveGhostRequest,
   RibGhostRequest,
+  HoleGhostRequest,
   RotateGhostRequest,
   SketchRegionPreview,
   SketchRegionsOutcome,

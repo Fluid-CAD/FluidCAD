@@ -24,6 +24,13 @@ export type GhostBody = {
   spine?: { filePath?: unknown; line?: unknown };
   scope?: unknown;
   exclude?: { filePath?: unknown; line?: unknown };
+  frames?: unknown;
+  flip?: unknown;
+  diameter?: unknown;
+  depth?: unknown;
+  tipAngle?: unknown;
+  counterbore?: { diameter?: unknown; depth?: unknown } | null;
+  countersink?: { diameter?: unknown; angle?: unknown } | null;
   path?: unknown;
   profiles?: unknown;
   connections?: unknown;
@@ -66,7 +73,7 @@ export type GhostBody = {
 
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'rotate', 'plane', 'rib', 'offset', 'fillet2d', 'copy2d', 'mirror2d',
+  'rotate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */

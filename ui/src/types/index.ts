@@ -161,7 +161,7 @@ export type ObjectType =
 // Shape types — the geometric representation of a scene object
 // ---------------------------------------------------------------------------
 
-export type ShapeType = 'solid' | 'face' | 'wire' | 'edge';
+export type ShapeType = 'solid' | 'face' | 'wire' | 'edge' | 'vertex';
 
 // ---------------------------------------------------------------------------
 // Mesh render options

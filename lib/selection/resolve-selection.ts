@@ -638,8 +638,13 @@ export class SelectionResolver {
    * wider — the entry's `solid` slot then holds whichever shape owns the vertex.
    */
   private static vertexShapesOf(objects: SceneObject[], removalScope?: Set<SceneObject>): SolidEntry[] {
+    // Meta shapes stay out, except a lone meta vertex: a circle's centre mark
+    // is the one pickable stand-in for the centre point (see the render
+    // payload's `vertices`), so a hole or a loft can name it.
     return objects.filter(object => !object.isContainer() && !object.isLazy()).flatMap(object =>
-      object.getShapes({}, undefined, removalScope).map(solid => ({ object, solid })),
+      object.getShapes({ excludeMeta: false }, undefined, removalScope)
+        .filter(shape => !shape.isMetaShape() || shape.getType() === 'vertex')
+        .map(solid => ({ object, solid })),
     );
   }
 

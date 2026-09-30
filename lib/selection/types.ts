@@ -157,7 +157,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section' | 'hole';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -222,6 +222,17 @@ export type ApplyFeatureEditSpec = {
   expose?: {
     name: string;
     /** The `part(...)` call site whose body receives the statement. */
+    part?: { line: number; column: number };
+  };
+  /**
+   * Hole-anchor payload (synthesis kind `'hole'`): one face/edge pick named
+   * as a hole placement with its anchor suffix (`e.endFaces().center()`).
+   * `part` is the enclosing `part(...)` call site when the pick lives inside
+   * one — the route then creates a named connector there instead of
+   * placing the hole on the bare anchor expression.
+   */
+  hole?: {
+    anchor?: ConnectorAnchor;
     part?: { line: number; column: number };
   };
   filePath: string;

@@ -62,25 +62,7 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
         if (PointResolver.toWorld(ref).distanceTo(point) > mmTol(1e-6)) {
           continue;
         }
-        for (const entity of address.entities.values()) {
-          const loc = entity.getSourceLocation()!;
-          if (loc.filePath !== location.filePath) {
-            throw new Error('the sketch entity lives in another file — export it explicitly in its defining file');
-          }
-          // Entities are addressed by source line: the line must hold this
-          // one statement, executed once.
-          const siblings = scene.getAllSceneObjects().filter(other => {
-            const otherLoc = other.getSourceLocation();
-            return otherLoc?.filePath === loc.filePath && otherLoc.line === loc.line;
-          });
-          const repeated = siblings.filter(other => other.getSourceLocation()!.column === loc.column);
-          if (repeated.length !== 1 || entity.getCloneSource()) {
-            throw new Error('the sketch entity runs more than once (loop/helper) — name and return the desired geometry explicitly');
-          }
-          if (siblings.length !== 1) {
-            throw new Error(`line ${loc.line} holds several statements — put the geometry on its own line so it can be named`);
-          }
-        }
+        assertAddressable(scene, location.filePath, address.entities);
         const target = owner instanceof BezierCurve
           ? { ...address.target, pointIndex: role === 'start' ? 0 : owner.controlPoints.length - 1 }
           : { ...address.target, role };
@@ -90,8 +72,79 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
       refusal ??= error instanceof Error ? error.message : String(error);
     }
   }
+
+  // Not an endpoint: a centre mark (circle, arc, ellipse) or a point()
+  // entity — the solver points that have no edge of their own.
+  for (const owner of sketch.getChildren()) {
+    if (!objects.has(owner) || !(owner instanceof SolvedGeometryBase)) {
+      continue;
+    }
+    const named = namedPoint(owner);
+    if (!named) {
+      continue;
+    }
+    try {
+      if (PointResolver.toWorld(named.ref).distanceTo(point) > mmTol(1e-6)) {
+        continue;
+      }
+      const loc = owner.getSourceLocation();
+      if (!loc) {
+        continue;
+      }
+      const entities = new Map([[loc.line, owner as SceneObject]]);
+      assertAddressable(scene, location.filePath, entities);
+      const target: SolvedEmissionTarget = { line: loc.line, featureType: named.featureType, ...(named.role ? { role: named.role } : {}) };
+      return { ok: true, sketch, request: { sketch: location, target }, entities };
+    } catch (error) {
+      refusal ??= error instanceof Error ? error.message : String(error);
+    }
+  }
+
   const operations = [...new Set(edges.map(([, owner]) => owner.getType()))].join('/') || 'sketch operation';
   return { ok: false, reason: refusal ?? `this vertex is produced by ${operations}() and has no supported named entity point — outside sketch edge references are not available for this operation yet` };
+}
+
+/**
+ * The one named point a solver entity owns besides its endpoints: the centre
+ * of a circle/arc/ellipse (`.center()`), or a point entity itself (rendered
+ * bare — `s.geometries.p1`).
+ */
+function namedPoint(owner: SolvedGeometryBase): { ref: LazyVertex; featureType: 'circle' | 'arc' | 'ellipse' | 'point'; role?: 'center' } | null {
+  const kind = owner.solverKind;
+  if (kind === 'point') {
+    return { ref: owner.start(), featureType: 'point' };
+  }
+  if (kind === 'circle' || kind === 'arc' || kind === 'ellipse') {
+    const withCenter = owner as SolvedGeometryBase & { center?: () => LazyVertex };
+    if (typeof withCenter.center === 'function') {
+      return { ref: withCenter.center(), featureType: kind, role: 'center' };
+    }
+  }
+  return null;
+}
+
+/**
+ * Entities are addressed by source line: each must live in the sketch's
+ * file, on a line that holds this one statement, executed once.
+ */
+function assertAddressable(scene: SelectionScene, filePath: string, entities: Map<number, SceneObject>): void {
+  for (const entity of entities.values()) {
+    const loc = entity.getSourceLocation()!;
+    if (loc.filePath !== filePath) {
+      throw new Error('the sketch entity lives in another file — export it explicitly in its defining file');
+    }
+    const siblings = scene.getAllSceneObjects().filter(other => {
+      const otherLoc = other.getSourceLocation();
+      return otherLoc?.filePath === loc.filePath && otherLoc.line === loc.line;
+    });
+    const repeated = siblings.filter(other => other.getSourceLocation()!.column === loc.column);
+    if (repeated.length !== 1 || entity.getCloneSource()) {
+      throw new Error('the sketch entity runs more than once (loop/helper) — name and return the desired geometry explicitly');
+    }
+    if (siblings.length !== 1) {
+      throw new Error(`line ${loc.line} holds several statements — put the geometry on its own line so it can be named`);
+    }
+  }
 }
 
 function incident(edge: Edge, point: Point): boolean {

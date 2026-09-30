@@ -30,7 +30,7 @@ import {
   buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
-  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, RotateGhostRequest,
+  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
   SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
@@ -2143,6 +2143,84 @@ function windingFollowsNormals(mesh: SceneObjectMesh): boolean {
   }
   return true;
 }
+
+describe("feature ghost — hole", () => {
+  setupOC();
+
+  const HOLE_BASE: Omit<HoleGhostRequest, 'frames' | 'scope'> = {
+    feature: 'hole',
+    flip: false,
+    diameter: 6,
+    depth: null,
+    tipAngle: null,
+    counterbore: null,
+    countersink: null,
+  };
+
+  function holeGhost(scene: Scene, overrides: Partial<HoleGhostRequest> = {}) {
+    return buildFeatureGhost(scene, {
+      ...HOLE_BASE,
+      frames: [{ origin: [0, 0, 10], normal: [0, 0, 1] }],
+      scope: [],
+      ...overrides,
+    }, DEFAULT_MESH_CONFIG);
+  }
+
+  /** A 60 × 40 × 10 plate at line 4. */
+  function plate(): void {
+    locatedSketch(3, () => { testRect(60, 40, { at: [-30, -20] }); }, 'xy');
+    const box = extrude(10) as unknown as SceneObject;
+    box.setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+  }
+
+  it("sizes a through hole tool to the stock, below the placement", () => {
+    plate();
+    const result = holeGhost(render());
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      const box = bounds(result);
+      expect(box.maxZ).toBeCloseTo(10, 3);
+      expect(box.minZ).toBeCloseTo(-1, 3);
+      expect(box.maxX).toBeCloseTo(3, 3);
+    }
+  });
+
+  it("draws a blind counterbored hole per placement and flips along the normal", () => {
+    plate();
+    const scene = render();
+    const two = holeGhost(scene, {
+      frames: [{ origin: [-15, 0, 10], normal: [0, 0, 1] }, { origin: [15, 0, 10], normal: [0, 0, 1] }],
+      depth: 5, tipAngle: 118, counterbore: { diameter: 11, depth: 2 },
+    });
+    expect(refusal(two)).toBe('');
+    if (two.ok) {
+      expect(two.solids).toHaveLength(2);
+      const box = bounds(two, 0);
+      expect(box.maxX).toBeCloseTo(-15 + 5.5, 3);
+      expect(box.maxZ).toBeCloseTo(10, 3);
+      expect(box.minZ).toBeLessThan(5);
+    }
+    const flipped = holeGhost(scene, { flip: true, depth: 4 });
+    if (flipped.ok) {
+      const box = bounds(flipped);
+      expect(box.minZ).toBeCloseTo(10, 3);
+      expect(box.maxZ).toBeCloseTo(14, 3);
+    }
+  });
+
+  it("refuses an empty placement list and surfaces a bad counterbore", () => {
+    plate();
+    const scene = render();
+    expect(refusal(holeGhost(scene, { frames: [] }))).toMatch(/Pick where/);
+    const bad = holeGhost(scene, { counterbore: { diameter: 5, depth: 2 } });
+    expect(bad.ok).toBe(false);
+    if (bad.ok === false) {
+      expect(bad.surface).toBe(true);
+      expect(bad.reason).toMatch(/counterbore diameter/);
+    }
+  });
+});
 
 describe("feature ghost — rib", () => {
   setupOC();

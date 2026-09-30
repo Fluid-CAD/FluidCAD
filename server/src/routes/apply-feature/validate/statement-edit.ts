@@ -45,11 +45,12 @@ import { MAX_PROJECT_SKETCHES, validateProjectSketches } from './project.ts';
 import { validateRepeatEdit, type RepeatEditAxisInput, type RepeatPlaneInput } from './repeat.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
 import { validateRibOptions } from './rib.ts';
+import { validateHoleOptions, validateHolePlacements, type HolePlacementInput } from './hole.ts';
 import { validateRotateEdit } from './rotate.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -178,6 +179,8 @@ export type StatementEditRequest = {
   connectorAnchor?: ConnectorAnchorSpec;
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
+  /** Hole: the full replacement placement list; absent keeps every placement as written. */
+  holePlacements?: HolePlacementInput[];
 };
 
 /**
@@ -190,7 +193,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "boolean", "offset" or "project" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "boolean", "offset", "project" or "hole" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -288,6 +291,29 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
       return { error: 'an edited spine must be {mode: "bound", filePath, line} of the sketch' };
     }
     return { ...result, ribSpine: loc };
+  }
+
+  if (feature === 'hole') {
+    const options = validateHoleOptions(body);
+    if ('error' in options) {
+      return options;
+    }
+    edit.hole = options;
+    const result: StatementEditRequest = base;
+    const scopeResult = validateScopeEdits(body);
+    if ('error' in scopeResult) {
+      return scopeResult;
+    }
+    result.scope = scopeResult.scope;
+    const placements = validateHolePlacements(body?.placements, true);
+    if ('error' in placements) {
+      return placements;
+    }
+    if (placements.placements !== undefined) {
+      result.holePlacements = placements.placements;
+      result.needsPicks = placements.placements.some(placement => placement.kind === 'vertex' || placement.kind === 'anchor');
+    }
+    return result;
   }
 
   if (feature === 'wrap') {

@@ -7,7 +7,7 @@
  * would produce broken code, so we refuse instead.
  */
 const PRODUCER_CALLEES = new Set([
-  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell',
+  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole',
 ]);
 
 /**

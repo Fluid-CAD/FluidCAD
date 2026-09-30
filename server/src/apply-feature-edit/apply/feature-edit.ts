@@ -27,6 +27,7 @@ import { applyProjectForeign, applySketchForeign } from './foreign.ts';
 import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
 import { LoftConnections } from '../loft-connections.ts';
+import { HolePlacements } from '../hole-placements.ts';
 import { RegionDeclarations } from '../region-declarations.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 
@@ -62,6 +63,18 @@ async function applyFeatureEditTransform(
 ): Promise<ApplyFeatureEditResult> {
   if (spec.feature === 'loft' && LoftConnections.hasExports(spec)) {
     const staged = await LoftConnections.prepare(code, spec);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
+  // Hole placements that name a sketch point or ask for a new connector are
+  // authored first (the export, the connector statement), then the hole
+  // renders their names — one atomic write, like the loft exports.
+  if (spec.feature === 'hole' && HolePlacements.needsStaging(spec)) {
+    const staged = await HolePlacements.prepare(code, spec, applyFeatureEdit);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }

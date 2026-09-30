@@ -222,7 +222,34 @@ export class Viewer {
       this.clearHover();
     }
     this._pickFilter = filter;
-    this.vertexPicking?.setActive(filter === 'vertex');
+    this.syncVertexChannel();
+  }
+
+  private _pickVertices = false;
+
+  /**
+   * Opt-in vertex picking that lives BESIDE the face/edge channels (the hole
+   * dialog): a vertex dot within the pick radius wins, otherwise the pick
+   * falls through to the normal path — unlike `pickFilter = 'vertex'` (the
+   * loft's connections), which picks vertices and nothing else.
+   */
+  get pickVertices(): boolean {
+    return this._pickVertices;
+  }
+
+  set pickVertices(armed: boolean) {
+    if (this._pickVertices === armed) {
+      return;
+    }
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this._pickVertices = armed;
+    this.syncVertexChannel();
+  }
+
+  private syncVertexChannel(): void {
+    this.vertexPicking?.setActive(this._pickFilter === 'vertex' || this._pickVertices);
   }
 
   /** null includes all visible shapes; [] arms the channel with no candidates. */
@@ -1017,12 +1044,9 @@ export class Viewer {
    * plane.
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
-    // The vertex channel is opt-in. Normal 'all' picking stays face + edge.
-    if (this.pickFilter === 'vertex') {
-      return this.vertexPicking?.pick(clientX, clientY) ?? null;
-    }
     // Connector gizmos render on top of everything (depth-test off), so while
-    // a dialog has them armed a nearby gizmo outranks all raycast hits.
+    // a dialog has them armed a nearby gizmo outranks all raycast hits — the
+    // vertex dots included, which a hole dialog arms alongside them.
     if (this.pickConnectors) {
       const candidates = this.connectorCandidatesAt(clientX, clientY);
       const connectorHit = candidates[0];
@@ -1035,6 +1059,18 @@ export class Viewer {
             ? { connectorCandidates: candidates.map(c => ({ instanceId: c.instanceId, connectorId: c.connectorId })) }
             : {}),
         };
+      }
+    }
+    // The vertex channel is opt-in. `pickFilter = 'vertex'` picks vertices
+    // and nothing else; `pickVertices` tries the dots first and falls through
+    // to the face/edge path when none is within reach.
+    if (this.pickFilter === 'vertex') {
+      return this.vertexPicking?.pick(clientX, clientY) ?? null;
+    }
+    if (this._pickVertices) {
+      const vertexHit = this.vertexPicking?.pick(clientX, clientY) ?? null;
+      if (vertexHit) {
+        return vertexHit;
       }
     }
     const camera = this.ctx.camera;

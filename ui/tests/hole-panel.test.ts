@@ -78,7 +78,7 @@ describe('Hole panel', () => {
     const { panel, select, type, input, hidden } = openPanel();
     select('type', 'drilled');
     expect(input('diameter').readOnly).toBe(false);
-    expect(hidden('standard-row')).toBe(true);
+    expect(hidden('size-rows')).toBe(true);
     type('diameter', '4.2');
     expect(panel.values()).toMatchObject({ size: { kind: 'diameter', value: 4.2 }, fastener: null });
     type('diameter', '0');
@@ -115,9 +115,13 @@ describe('Hole panel', () => {
     expect(panel.values()).toEqual({ error: 'Enter a positive depth.' });
   });
 
-  it('switches to the inch catalog with the standard dropdown', () => {
-    const { panel, select, input } = openPanel();
-    select('standard', 'inch');
+  it('lists metric and imperial sizes in one grouped dropdown', () => {
+    const { panel, container, select, input } = openPanel();
+    const groups = [...container.querySelectorAll<HTMLOptGroupElement>('[data-role="size"] optgroup')];
+    expect(groups.map(group => group.label)).toEqual(['Metric', 'Imperial']);
+    expect([...groups[0].children].map(option => option.textContent)).toContain('M6');
+    expect([...groups[1].children].map(option => option.textContent)).toContain('1/4');
+    select('size', '1/4');
     expect(panel.sizeLabel).toBe('1/4');
     // 0.266 in in a millimetre document.
     expect(input('diameter').value).toBe('6.76');
@@ -142,7 +146,6 @@ describe('Hole panel', () => {
     expect(panel.sizeLabel).toBe('#10');
     expect(panel.style).toBe('countersink');
     expect(hidden('csink-rows')).toBe(false);
-    expect(input('standard').value).toBe('inch');
     expect(panel.values()).toMatchObject({
       size: { kind: 'fastener', label: '#10' },
       fastener: { type: 'clearance', fit: 'loose' },

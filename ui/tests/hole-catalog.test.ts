@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  coarsePitch, defaultDrilledDiameter, pitchOptions, sizeLabels, standardOf, tableCounterbore, tableCountersink,
+  coarsePitch, defaultDrilledDiameter, pitchGroups, sizeLabels, tableCounterbore, tableCountersink,
   tableDiameter,
 } from '../src/interactive/create-feature/hole/hole-catalog';
 
@@ -38,21 +38,16 @@ describe('hole catalog', () => {
     expect(tableCounterbore('M99', 'mm')).toBeNull();
   });
 
-  it('labels pitches with their unit and marks the coarse one', () => {
-    expect(pitchOptions('M6')).toEqual([
-      { value: 1, label: '1 mm (coarse)' },
-      { value: 0.75, label: '0.75 mm (fine)' },
+  it('groups pitches into coarse and fine, labelled with their unit', () => {
+    expect(pitchGroups('M6')).toEqual([
+      { label: 'Coarse', pitches: [{ value: 1, label: '1 mm' }] },
+      { label: 'Fine', pitches: [{ value: 0.75, label: '0.75 mm' }] },
     ]);
-    expect(pitchOptions('1/4')[0]).toEqual({ value: 20, label: '20 tpi (coarse)' });
+    expect(pitchGroups('1/4')[0]).toEqual({ label: 'Coarse', pitches: [{ value: 20, label: '20 tpi' }] });
+    // Sizes with no fine pitch list only the coarse group.
+    expect(pitchGroups('M3')).toEqual([{ label: 'Coarse', pitches: [{ value: 0.5, label: '0.5 mm' }] }]);
     expect(coarsePitch('M8')).toBe(1.25);
-    expect(pitchOptions('M99')).toEqual([]);
-  });
-
-  it('tells a size label\'s standard and falls back for unknown labels', () => {
-    expect(standardOf('M6')).toBe('metric');
-    expect(standardOf('#10')).toBe('inch');
-    expect(standardOf(null)).toBe('metric');
-    expect(standardOf('bogus', 'inch')).toBe('inch');
+    expect(pitchGroups('M99')).toEqual([]);
   });
 
   it('starts a drilled hole at 6 mm in the document unit', () => {

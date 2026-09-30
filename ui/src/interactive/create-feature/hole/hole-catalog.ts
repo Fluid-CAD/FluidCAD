@@ -26,28 +26,32 @@ export const FASTENER_FITS: { value: FastenerFit; label: string }[] = [
   { value: 'loose', label: 'Loose' },
 ];
 
+/** The groups the size dropdown lists, metric first. */
+export const SIZE_GROUPS: { standard: FastenerStandard; label: string }[] = [
+  { standard: 'metric', label: 'Metric' },
+  { standard: 'inch', label: 'Imperial' },
+];
+
+/** The size the dialog opens on. */
+export const DEFAULT_SIZE_LABEL = 'M6';
+
 /** The size labels a standard lists, in table order. */
 export function sizeLabels(standard: FastenerStandard): string[] {
   return FASTENER_SIZES[standard].map(size => size.label);
 }
 
-/** The pitches a size offers, coarse first, labelled the way the dialog shows them. */
-export function pitchOptions(label: string): { value: number; label: string }[] {
+/** The pitches a size offers, grouped coarse then fine, each labelled with its unit; empty groups are left out. */
+export function pitchGroups(label: string): { label: string; pitches: { value: number; label: string }[] }[] {
   const found = findFastenerSize(label);
   if (!found) {
     return [];
   }
   const unit = found.standard === 'metric' ? 'mm' : 'tpi';
-  return found.size.pitches.map((pitch, index) => ({
-    value: pitch,
-    label: `${pitch} ${unit}${index === 0 ? ' (coarse)' : ' (fine)'}`,
-  }));
-}
-
-/** The standard a size label belongs to, or `fallback` when the tables don't list it. */
-export function standardOf(label: string | null, fallback: FastenerStandard = 'metric'): FastenerStandard {
-  const found = label === null ? null : findFastenerSize(label);
-  return found ? found.standard : fallback;
+  const options = found.size.pitches.map(pitch => ({ value: pitch, label: `${pitch} ${unit}` }));
+  return [
+    { label: 'Coarse', pitches: options.slice(0, 1) },
+    { label: 'Fine', pitches: options.slice(1) },
+  ].filter(group => group.pitches.length > 0);
 }
 
 /** A table value expressed in the document unit, rounded to what the unit displays. */
@@ -120,9 +124,4 @@ export function coarsePitch(label: string): number | null {
 /** A sensible drilled diameter to start from when the dialog opens: 6 mm in the document unit. */
 export function defaultDrilledDiameter(unit: LengthUnit = sceneUnit.current): number {
   return roundToUnitDecimals(convertLength(6, 'mm', unit), unit);
-}
-
-/** The catalog's first size of a standard (M6 / 1/4). */
-export function defaultSizeLabel(standard: FastenerStandard): string {
-  return standard === 'metric' ? 'M6' : '1/4';
 }

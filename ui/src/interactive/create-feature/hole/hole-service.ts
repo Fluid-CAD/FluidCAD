@@ -548,10 +548,10 @@ export class HoleFeatureService {
     if (!this.armed) {
       return;
     }
-    const count = this.placements.entries.length;
-    const prompt = count === 0
+    // The hint only guides the first pick; the chips speak for themselves after that.
+    const prompt = this.placements.entries.length === 0
       ? 'Click a connector, a sketch vertex, or a face or round edge in 3D'
-      : `Click more places, or Apply now to cut ${count} hole${count === 1 ? '' : 's'}`;
+      : null;
     this.panel.setPlacements(this.placements.chips(), prompt);
     this.refreshHighlight();
   }

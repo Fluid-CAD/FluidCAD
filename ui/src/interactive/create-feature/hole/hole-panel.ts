@@ -10,8 +10,8 @@ import { VariableInfo } from '../../../ui/expression-core';
 import { iconUrl } from '../../../ui/icon-url';
 import { holeIllustration, type HoleDimension, type HoleStyle } from './hole-illustration';
 import {
-  FASTENER_FITS, coarsePitch, defaultDrilledDiameter, defaultSizeLabel, pitchOptions, sizeLabels, standardOf,
-  tableCounterbore, tableCountersink, tableDiameter, type FastenerFit, type FastenerStandard, type HoleType,
+  DEFAULT_SIZE_LABEL, FASTENER_FITS, SIZE_GROUPS, coarsePitch, defaultDrilledDiameter, pitchGroups, sizeLabels,
+  tableCounterbore, tableCountersink, tableDiameter, type FastenerFit, type HoleType,
 } from './hole-catalog';
 
 /** Validated form values, or the message to show when a field is invalid. */
@@ -21,6 +21,19 @@ export type HoleTermination = 'through' | 'blind';
 
 /** The two pick slots; exactly one wears the armed border at a time. */
 export type HoleArmedSlot = 'placements' | 'scope';
+
+/** Append a labelled `<optgroup>` of `options` to `select`. */
+function appendOptionGroup(select: HTMLSelectElement, label: string, options: { value: string; label: string }[]): void {
+  const optgroup = document.createElement('optgroup');
+  optgroup.label = label;
+  for (const entry of options) {
+    const option = document.createElement('option');
+    option.value = entry.value;
+    option.textContent = entry.label;
+    optgroup.appendChild(option);
+  }
+  select.appendChild(optgroup);
+}
 
 /** The tip angle a blind hole starts with — a standard twist drill. */
 const DEFAULT_TIP_ANGLE = 118;
@@ -39,8 +52,8 @@ const FIELD_DIMENSIONS: Record<string, HoleDimension> = {
 /**
  * The hole dialog: the entry style (simple, counterbore, countersink), the
  * placements slot, the termination with its depth and drill-point angle, the
- * fastener standard, the hole type with its size / fit / pitch and the
- * diameter they give, the counterbore or countersink values, and the scope
+ * hole type with its size (metric and imperial in one list) beside the fit or
+ * pitch and the diameter they give, the counterbore or countersink values, and the scope
  * slot last — the solids the hole is cut from. A section drawing of the hole,
  * the field being edited drawn in colour, floats beside the dialog. Pure DOM +
  * form state: the service owns scene data, picks, previews and the apply call.
@@ -58,7 +71,6 @@ export class HolePanel extends FeaturePanel {
   private scopeSlot: ScopeSlotControl;
   /** The section drawing: the float's side card, and the sheet's copy in the body. */
   private illustrationEls: HTMLElement[];
-  private standardSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
   private sizeSelect: HTMLSelectElement;
   private fitSelect: HTMLSelectElement;
@@ -108,13 +120,6 @@ export class HolePanel extends FeaturePanel {
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>
-        <label data-role="standard-row" class="flex flex-col gap-1.5" title="Which fastener catalog the sizes come from">
-          <span class="text-base-content/70">Standard</span>
-          <select data-role="standard" class="select select-sm select-bordered w-full text-xs">
-            <option value="metric" title="ISO sizes: M3, M6, …">Metric</option>
-            <option value="inch" title="Unified sizes: #10, 1/4, …">Inch</option>
-          </select>
-        </label>
         <label class="flex flex-col gap-1.5" title="Drilled takes the diameter you type; Clearance and Tapped read it from the fastener tables">
           <span class="text-base-content/70">Hole type</span>
           <select data-role="type" class="select select-sm select-bordered w-full text-xs">
@@ -123,18 +128,20 @@ export class HolePanel extends FeaturePanel {
             <option value="tapped">Tapped</option>
           </select>
         </label>
-        <label data-role="size-row" class="flex flex-col gap-1.5" title="The fastener the hole is for">
-          <span class="text-base-content/70">Size</span>
-          <select data-role="size" class="select select-sm select-bordered w-full text-xs"></select>
-        </label>
-        <label data-role="fit-row" class="flex flex-col gap-1.5" title="How much room the fastener gets — ISO 273 / ASME B18.2.8 fine, medium and coarse series">
-          <span class="text-base-content/70">Fastener fit</span>
-          <select data-role="fit" class="select select-sm select-bordered w-full text-xs"></select>
-        </label>
-        <label data-role="pitch-row" class="hidden flex-col gap-1.5" title="The thread pitch; the hole is cut at its tap drill diameter (threads are not modelled yet)">
-          <span class="text-base-content/70">Pitch</span>
-          <select data-role="pitch" class="select select-sm select-bordered w-full text-xs"></select>
-        </label>
+        <div data-role="size-rows" class="flex gap-2">
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The fastener the hole is for: ISO metric (M3, M6, …) or unified imperial (#10, 1/4, …)">
+            <span class="text-base-content/70">Size</span>
+            <select data-role="size" class="select select-sm select-bordered w-full text-xs"></select>
+          </label>
+          <label data-role="fit-row" class="flex flex-col gap-1.5 flex-1 min-w-0" title="How much room the fastener gets — ISO 273 / ASME B18.2.8 fine, medium and coarse series">
+            <span class="text-base-content/70">Fastener fit</span>
+            <select data-role="fit" class="select select-sm select-bordered w-full text-xs"></select>
+          </label>
+          <label data-role="pitch-row" class="hidden flex-col gap-1.5 flex-1 min-w-0" title="The thread pitch; the hole is cut at its tap drill diameter (threads are not modelled yet)">
+            <span class="text-base-content/70">Pitch</span>
+            <select data-role="pitch" class="select select-sm select-bordered w-full text-xs"></select>
+          </label>
+        </div>
         <label class="flex flex-col gap-1.5" title="The hole diameter — typed for a drilled hole, from the tables otherwise">
           <span class="text-base-content/70">Diameter</span>
           <input data-role="diameter" data-unit="length" type="number" step="0.1" value="6"
@@ -188,7 +195,6 @@ export class HolePanel extends FeaturePanel {
 
     this.illustrationEls = [this.shell.addSideCard(), this.role('illustration')];
 
-    this.standardSelect = this.role('standard');
     this.typeSelect = this.role('type');
     this.sizeSelect = this.role('size');
     this.fitSelect = this.role('fit');
@@ -200,16 +206,10 @@ export class HolePanel extends FeaturePanel {
       option.textContent = fit.label;
       this.fitSelect.appendChild(option);
     }
-    this.fillSizes(defaultSizeLabel('metric'));
+    this.fillSizes();
+    this.selectSize(DEFAULT_SIZE_LABEL);
     this.fillPitches();
 
-    this.standardSelect.addEventListener('change', () => {
-      this.fillSizes(defaultSizeLabel(this.standard));
-      this.fillPitches();
-      this.reseedDerived();
-      this.syncControls();
-      this.onChange?.();
-    });
     this.typeSelect.addEventListener('change', () => {
       this.reseedDerived();
       this.syncControls();
@@ -270,10 +270,6 @@ export class HolePanel extends FeaturePanel {
     return this.styleTabs.value;
   }
 
-  get standard(): FastenerStandard {
-    return this.standardSelect.value as FastenerStandard;
-  }
-
   get holeType(): HoleType {
     return this.typeSelect.value as HoleType;
   }
@@ -291,8 +287,7 @@ export class HolePanel extends FeaturePanel {
     // values would otherwise carry over.
     this.shell.setTitle(null);
     this.styleTabs.reset();
-    this.standardSelect.value = 'metric';
-    this.fillSizes(defaultSizeLabel('metric'));
+    this.selectSize(DEFAULT_SIZE_LABEL);
     this.typeSelect.value = 'clearance';
     this.fitSelect.value = 'normal';
     this.fillPitches();
@@ -314,8 +309,7 @@ export class HolePanel extends FeaturePanel {
     this.shell.setTitle('Edit hole');
     this.styleTabs.setValue(parsed.style?.kind ?? 'simple');
     const fastenerLabel = parsed.size.kind === 'fastener' ? parsed.size.label : null;
-    this.standardSelect.value = standardOf(fastenerLabel);
-    this.fillSizes(fastenerLabel ?? defaultSizeLabel(this.standard));
+    this.selectSize(fastenerLabel ?? DEFAULT_SIZE_LABEL);
     if (parsed.size.kind === 'diameter') {
       this.typeSelect.value = 'drilled';
     } else {
@@ -354,7 +348,7 @@ export class HolePanel extends FeaturePanel {
   }
 
   /** The placement chips (the service owns the choices). */
-  setPlacements(chips: PickSlotChip[], prompt: string): void {
+  setPlacements(chips: PickSlotChip[], prompt: string | null): void {
     this.placementsSlot.setChips(chips);
     this.placementsSlot.setPrompt(prompt);
   }
@@ -526,27 +520,26 @@ export class HolePanel extends FeaturePanel {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
 
-  private fillSizes(selected: string): void {
-    this.sizeSelect.innerHTML = '';
-    for (const label of sizeLabels(this.standard)) {
-      const option = document.createElement('option');
-      option.value = label;
-      option.textContent = label;
-      this.sizeSelect.appendChild(option);
+  private fillSizes(): void {
+    for (const group of SIZE_GROUPS) {
+      const sizes = sizeLabels(group.standard).map(label => ({ value: label, label }));
+      appendOptionGroup(this.sizeSelect, group.label, sizes);
     }
-    this.sizeSelect.value = selected;
-    if (this.sizeSelect.value !== selected) {
-      this.sizeSelect.value = defaultSizeLabel(this.standard);
+  }
+
+  /** Select `label`, or the default size when the tables don't list it. */
+  private selectSize(label: string): void {
+    this.sizeSelect.value = label;
+    if (this.sizeSelect.value !== label) {
+      this.sizeSelect.value = DEFAULT_SIZE_LABEL;
     }
   }
 
   private fillPitches(): void {
     this.pitchSelect.innerHTML = '';
-    for (const pitch of pitchOptions(this.sizeLabel)) {
-      const option = document.createElement('option');
-      option.value = String(pitch.value);
-      option.textContent = pitch.label;
-      this.pitchSelect.appendChild(option);
+    for (const group of pitchGroups(this.sizeLabel)) {
+      const pitches = group.pitches.map(pitch => ({ value: String(pitch.value), label: pitch.label }));
+      appendOptionGroup(this.pitchSelect, group.label, pitches);
     }
   }
 
@@ -595,8 +588,7 @@ export class HolePanel extends FeaturePanel {
   private syncControls(): void {
     const type = this.holeType;
     const fastener = type !== 'drilled';
-    this.toggleRow('standard-row', fastener, 'flex');
-    this.toggleRow('size-row', fastener, 'flex');
+    this.toggleRow('size-rows', fastener, 'flex');
     this.toggleRow('fit-row', type === 'clearance', 'flex');
     this.toggleRow('pitch-row', type === 'tapped', 'flex');
     const diameter = this.role<HTMLInputElement>('diameter');

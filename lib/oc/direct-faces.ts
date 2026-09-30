@@ -1,6 +1,7 @@
 import type { BRepTools_Modifier, TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
+import { SurfaceFrame, SurfaceFrames } from "./surface-frames.js";
 
 /**
  * Rebuilds every face of a shape that lies on an indirect (left-handed)
@@ -56,19 +57,6 @@ export type DirectFacesResult = {
   modifiedOrNull(sub: TopoDS_Shape): TopoDS_Shape | null;
   /** Frees the modifier. `shape` and every `modified` result stay valid. */
   dispose(): void;
-};
-
-/** The elementary surfaces UnifySameDomain merges across a period. */
-type PeriodicFrame = {
-  type: 'cylinder' | 'cone' | 'sphere' | 'torus';
-  direct: boolean;
-  /** A point of the axis (the centre for a sphere). */
-  loc: [number, number, number];
-  /** The axis direction (undefined for a sphere). */
-  dir?: [number, number, number];
-  radius: number;
-  /** Cone semi-angle / torus minor radius; 0 otherwise. */
-  extra: number;
 };
 
 export class DirectFaces {
@@ -128,7 +116,7 @@ export class DirectFaces {
     const frames = DirectFaces.periodicFrames(shape);
     for (let i = 0; i < frames.length; i++) {
       for (let j = i + 1; j < frames.length; j++) {
-        if (frames[i].direct !== frames[j].direct && DirectFaces.sameSurface(frames[i], frames[j])) {
+        if (frames[i].direct !== frames[j].direct && SurfaceFrames.same(frames[i], frames[j])) {
           return true;
         }
       }
@@ -136,73 +124,18 @@ export class DirectFaces {
     return false;
   }
 
-  private static periodicFrames(shape: TopoDS_Shape): PeriodicFrame[] {
+  /** The frames of `shape`'s faces on the periodic elementary surfaces. */
+  private static periodicFrames(shape: TopoDS_Shape): SurfaceFrame[] {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-    const frames: PeriodicFrame[] = [];
+    const frames: SurfaceFrame[] = [];
     for (const raw of Explorer.findShapes(shape, FACE)) {
-      const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(raw), false);
-      const type = adaptor.GetType();
-      let frame: PeriodicFrame | null = null;
-      if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
-        const cyl = adaptor.Cylinder();
-        frame = DirectFaces.frameOf('cylinder', cyl.Position(), cyl.Radius(), 0);
-      } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
-        const cone = adaptor.Cone();
-        frame = DirectFaces.frameOf('cone', cone.Position(), cone.RefRadius(), cone.SemiAngle());
-      } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {
-        const sphere = adaptor.Sphere();
-        frame = DirectFaces.frameOf('sphere', sphere.Position(), sphere.Radius(), 0);
-      } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
-        const torus = adaptor.Torus();
-        frame = DirectFaces.frameOf('torus', torus.Position(), torus.MajorRadius(), torus.MinorRadius());
-      }
-      adaptor.delete();
-      if (frame) {
+      const frame = SurfaceFrames.of(raw);
+      if (frame && frame.type !== 'plane') {
         frames.push(frame);
       }
     }
     return frames;
-  }
-
-  private static frameOf(type: PeriodicFrame['type'], position: any, radius: number, extra: number): PeriodicFrame {
-    const loc = position.Location();
-    const dir = position.Direction();
-    return {
-      type,
-      direct: position.Direct(),
-      loc: [loc.X(), loc.Y(), loc.Z()],
-      dir: type === 'sphere' ? undefined : [dir.X(), dir.Y(), dir.Z()],
-      radius,
-      extra,
-    };
-  }
-
-  /** Same surface geometry within kernel precision, handedness aside. */
-  private static sameSurface(a: PeriodicFrame, b: PeriodicFrame): boolean {
-    const LIN = 1e-6;
-    const ANG = 1e-9;
-    if (a.type !== b.type) {
-      return false;
-    }
-    if (Math.abs(a.radius - b.radius) > LIN * (1 + Math.abs(a.radius))) {
-      return false;
-    }
-    if (Math.abs(Math.abs(a.extra) - Math.abs(b.extra)) > LIN * (1 + Math.abs(a.extra))) {
-      return false;
-    }
-    const d = [b.loc[0] - a.loc[0], b.loc[1] - a.loc[1], b.loc[2] - a.loc[2]];
-    if (!a.dir || !b.dir) {
-      return Math.hypot(d[0], d[1], d[2]) <= LIN;
-    }
-    const dot = a.dir[0] * b.dir[0] + a.dir[1] * b.dir[1] + a.dir[2] * b.dir[2];
-    if (Math.abs(dot) < 1 - ANG) {
-      return false;
-    }
-    // b's axis point must lie on a's axis: strip the along-axis component.
-    const along = d[0] * a.dir[0] + d[1] * a.dir[1] + d[2] * a.dir[2];
-    const off = Math.hypot(d[0] - along * a.dir[0], d[1] - along * a.dir[1], d[2] - along * a.dir[2]);
-    return off <= LIN;
   }
 
   /**

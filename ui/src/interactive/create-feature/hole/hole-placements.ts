@@ -33,9 +33,30 @@ export type HolePlacementItem =
     frame: PlacementFrame;
   }
   | { kind: 'anchor'; locked: LockedAnchor; name: string; frame: PlacementFrame }
-  | { kind: 'keep'; sourceIndex: number; label: string; loc?: SourceLocation };
+  | {
+    kind: 'keep';
+    sourceIndex: number;
+    label: string;
+    loc?: SourceLocation;
+    /** Where the statement's own build placed this argument; absent when that build placed nothing. */
+    frame?: PlacementFrame;
+  };
 
 const WORLD_Z: Vec3Data = { x: 0, y: 0, z: 1 };
+
+/**
+ * The frames an applied hole's build cut at, in argument order — its render
+ * row's serialized `frames` (a rollback render still carries them for the
+ * rows past its stop). Empty when the build failed before placing anything.
+ */
+export function builtHoleFrames(row: SceneObjectRender | undefined): PlacementFrame[] {
+  type Built = { origin: [number, number, number]; normal: [number, number, number] };
+  const frames = (row?.object as { frames?: Built[] } | undefined)?.frames ?? [];
+  return frames.map(({ origin: [ox, oy, oz], normal: [nx, ny, nz] }) => ({
+    origin: { x: ox, y: oy, z: oz },
+    normal: { x: nx, y: ny, z: nz },
+  }));
+}
 
 /** What a picked sketch dot stands for, read off the scene rows around its shape. */
 function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]): string {
@@ -94,19 +115,28 @@ export class HolePlacements {
    * the render), kept arguments survive as text, and picked vertices and
    * anchors — shape ids and cached frames of the old scene — are dropped.
    * With `resolveKeeps` (the edit session's rollback boundary) a kept
-   * argument naming a connector statement becomes that connector's entry.
+   * argument naming a connector statement becomes that connector's entry,
+   * and every other kept argument takes its frame from `builtFrames` (the
+   * edited statement's own, {@link builtHoleFrames}) for the ghost.
    */
-  setScene(sceneObjects: SceneObjectRender[], opts: { resolveKeeps?: boolean } = {}): { dropped: number } {
+  setScene(
+    sceneObjects: SceneObjectRender[],
+    opts: { resolveKeeps?: boolean; builtFrames?: readonly PlacementFrame[] } = {},
+  ): { dropped: number } {
     this.sceneObjects = sceneObjects;
     this.connectorOptions = ConnectorOptions.collect(sceneObjects);
     let dropped = 0;
     this.items = this.items.flatMap((item): HolePlacementItem[] => {
       if (item.kind === 'keep') {
-        const option = opts.resolveKeeps && item.loc
-          ? ConnectorOptions.forLocation(item.loc, this.connectorOptions)
-          : undefined;
+        if (!opts.resolveKeeps) {
+          return [item];
+        }
+        const option = item.loc ? ConnectorOptions.forLocation(item.loc, this.connectorOptions) : undefined;
         const frame = option ? this.frameOf(option) : null;
-        return option && frame ? [{ kind: 'connector', option, frame, sourceIndex: item.sourceIndex }] : [item];
+        if (option && frame) {
+          return [{ kind: 'connector', option, frame, sourceIndex: item.sourceIndex }];
+        }
+        return [{ ...item, frame: opts.builtFrames?.[item.sourceIndex] }];
       }
       if (item.kind === 'connector') {
         const option = ConnectorOptions.forSite(item.option, this.connectorOptions);
@@ -255,11 +285,15 @@ export class HolePlacements {
     });
   }
 
-  /** The world frames the ghost draws the tools at (kept arguments have none the dialog knows). */
+  /**
+   * The world frames the ghost draws the tools at — null while a kept
+   * argument has none (before the boundary render, or its build failed):
+   * a ghost missing a hole would misstate the edit.
+   */
   frames(): PlacementFrame[] | null {
     const frames: PlacementFrame[] = [];
     for (const item of this.items) {
-      if (item.kind === 'keep') {
+      if (!item.frame) {
         return null;
       }
       frames.push(item.frame);

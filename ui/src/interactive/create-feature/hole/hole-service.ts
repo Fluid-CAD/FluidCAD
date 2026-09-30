@@ -9,7 +9,7 @@ import { EditSession, EditSessionInfo } from '../../edit-session';
 import { SolidPickSelection } from '../../solid-pick';
 import { ConnectorPickMenu } from '../../assembly-mate/connector-pick-menu';
 import { HolePanel } from './hole-panel';
-import { HolePlacements } from './hole-placements';
+import { builtHoleFrames, HolePlacements } from './hole-placements';
 import { FeatureButton } from '../feature-button';
 import { ApplyRunner } from '../apply-runner';
 import { FeatureGhostOverlay } from '../feature-ghost';
@@ -210,7 +210,10 @@ export class HoleFeatureService {
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
-    this.placements.setScene(sceneObjects, { resolveKeeps: true });
+    // The edited hole's row sits past the stop, still carrying the frames its
+    // build cut at — the kept arguments' ghost frames.
+    const editedRow = sceneObjects[this.session.boundary?.index ?? -1];
+    this.placements.setScene(sceneObjects, { resolveKeeps: true, builtFrames: builtHoleFrames(editedRow) });
     this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     if (!this.sourceScope) {
       void this.loadEditSources();

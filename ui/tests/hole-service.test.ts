@@ -263,7 +263,7 @@ describe('Hole dialog service', () => {
     expect(service.isActive).toBe(false);
   });
 
-  it('seeds an edit session with the statement\'s own placements, resolving a connector argument to its chip', async () => {
+  it('seeds an edit session with the statement\'s own placements, resolving a connector argument to its chip, and ghosts them all', async () => {
     const { service, chips } = mount();
     const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
       feature: 'hole',
@@ -278,13 +278,24 @@ describe('Hole dialog service', () => {
       scopeTexts: [],
       scopeRefs: [],
     };
+    // The applied hole's row carries the frames its build cut at, one per argument.
     const scene = [...plateScene(), {
       id: 'hole', type: 'hole', name: 'Hole', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [],
+      object: {
+        frames: [
+          { origin: [20, 0, 10], normal: [0, 0, 1] },
+          { origin: [15, 5, 10], normal: [0, 0, 1] },
+        ],
+      },
       sourceLocation: at(12, 0),
-    } as SceneObjectRender];
+    } as unknown as SceneObjectRender];
     service.update(scene);
     service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
     expect(chips('placements-slot')).toEqual(['Current: bolt', 'Current: s.geometries.c.center()']);
+
+    // Before the boundary render the kept arguments have no frame yet: no ghost.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
 
     // The rollback render at the boundary: the connector argument becomes its chip.
     service.handleSceneRendered(scene, 5, true);
@@ -297,5 +308,48 @@ describe('Hole dialog service', () => {
     expect(call[1].placements).toBeUndefined();
     expect(call[1].fastener).toEqual({ type: 'clearance', fit: 'close' });
     expect(call[1].scope).toEqual([]);
+
+    // The connector ghosts at its own frame, the kept sketch point at the one its build cut at.
+    const ghost = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0];
+    expect(ghost).toMatchObject({
+      feature: 'hole',
+      frames: [
+        { origin: [20, 0, 10], normal: [0, 0, 1] },
+        { origin: [15, 5, 10], normal: [0, 0, 1] },
+      ],
+      diameter: 6.4,
+      depth: null,
+      scope: [],
+      exclude: { filePath: FILE, line: 12 },
+    });
+  });
+
+  it('draws no edit ghost while a kept argument has no built frame', async () => {
+    const { service } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
+      feature: 'hole',
+      size: { kind: 'fastener', label: 'M6' },
+      fastener: null,
+      style: null,
+      depth: null,
+      tipAngle: null,
+      flip: false,
+      placementTexts: ['e.endFaces().center()'],
+      placementRefs: [null],
+      scopeTexts: [],
+      scopeRefs: [],
+    };
+    // A hole whose build failed serializes no frames.
+    const scene = [...plateScene(), {
+      id: 'hole', type: 'hole', name: 'Hole', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [],
+      object: { frames: [] }, sourceLocation: at(12, 0),
+    } as unknown as SceneObjectRender];
+    service.update(scene);
+    service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
+    service.handleSceneRendered(scene, 5, true);
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.applyHoleEdit).toHaveBeenCalled();
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
   });
 });

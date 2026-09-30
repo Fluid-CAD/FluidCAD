@@ -28,6 +28,8 @@ export type SketchOpToggleKey = 'close';
 /** What a picked sketch shape shows as a chip: its entity's name and line. */
 export type SketchPickDescription = {
   label: string;
+  /** The owning statement's unique type (`solved-line`, `bezier-4`, …). */
+  uniqueType?: string;
   /** Source line of the pick's statement — the chip's jump badge. */
   line?: number;
   /** Navigate to the pick's statement (the line badge was clicked). */
@@ -536,7 +538,7 @@ export class SketchOpService {
     return this.config.feature === 'offset'
       && this.solved !== undefined
       && this.editTarget === null
-      && !offsetNeedsStatement(this.solved.picks());
+      && !offsetNeedsStatement(this.selection.ids().map(id => this.selection.describe(id).uniqueType));
   }
 
   /** The signed numeric distance behind the committed value (the OCCT plan

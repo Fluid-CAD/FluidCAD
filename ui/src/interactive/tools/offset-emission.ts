@@ -45,16 +45,12 @@ const p2 = (p: V2): V2 => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) 
  * pair can hold it exactly. The derived op offsets the whole selection
  * with the kernel's exact curves — one statement, one distance, no solver
  * identity — the way the tool wrote every offset before the constrained
- * path existed.
+ * path existed. Decided from the picked shapes' OWNER statements (their
+ * unique types), never from the solved picks: a bezier has no solver
+ * entity of its own, so its edge never appears among those.
  */
-export function offsetNeedsStatement(picks: SolvedPick[]): boolean {
-  // An edge pick carries a shapeId and no role. A bezier's edge resolves to
-  // one of its control-point anchors (its only solver entities), so the
-  // pick reads `kind: 'point'` with `anchor.owner === 'bezier'`; a control
-  // point picked as a vertex has `role: null` and is not an edge pick.
-  return picks.some(pick =>
-    pick.role === undefined && pick.datum === undefined && pick.shapeId !== undefined
-    && (pick.kind === 'ellipse' || pick.anchor?.owner === 'bezier'));
+export function offsetNeedsStatement(ownerTypes: (string | undefined)[]): boolean {
+  return ownerTypes.some(type => type === 'solved-ellipse' || type?.startsWith('bezier-') === true);
 }
 
 /**

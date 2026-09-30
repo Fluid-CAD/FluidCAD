@@ -62,20 +62,15 @@ describe('offsetSourcePicks', () => {
 });
 
 describe('offsetNeedsStatement', () => {
-  it('is true only for an edge pick of a bezier or an ellipse — not for their points, nor for other kinds', () => {
-    const a = lineView(1, 5, [0, 0], [40, 0]);
-    const at = { filePath: '/w/p.fluid.js', line: 9, column: 1 };
-    expect(offsetNeedsStatement([edgePick(a)])).toBe(false);
+  it('is true when a picked shape belongs to a bezier or an ellipse statement', () => {
+    expect(offsetNeedsStatement(['solved-line', 'solved-arc', 'solved-circle'])).toBe(false);
     expect(offsetNeedsStatement([])).toBe(false);
-    expect(offsetNeedsStatement([edgePick(a), { entityId: 3, kind: 'ellipse', shapeId: 'e', sourceLocation: at }])).toBe(true);
-    // A bezier edge resolves to a control-point anchor pick that carries the edge's shapeId.
-    const bezierEdge: SolvedPick = { entityId: 4, kind: 'point', anchor: { owner: 'bezier', pointIndex: 0 }, shapeId: 'b', sourceLocation: at };
-    expect(offsetNeedsStatement([bezierEdge])).toBe(true);
-    // An ellipse's center or a bezier control point is a vertex pick (role set), never an edge.
-    expect(offsetNeedsStatement([{ entityId: 3, kind: 'ellipse', role: 'center' }])).toBe(false);
-    expect(offsetNeedsStatement([{ entityId: 4, kind: 'point', role: null, anchor: { owner: 'bezier', pointIndex: 1 } }])).toBe(false);
-    // A text outline edge stays on the constrained rail, where it is refused.
-    expect(offsetNeedsStatement([{ entityId: 5, kind: 'point', anchor: { owner: 'text', pointIndex: 0 }, shapeId: 't' }])).toBe(false);
+    expect(offsetNeedsStatement([undefined, 'solved-line'])).toBe(false);
+    expect(offsetNeedsStatement(['solved-line', 'solved-ellipse'])).toBe(true);
+    expect(offsetNeedsStatement(['bezier-4'])).toBe(true);
+    expect(offsetNeedsStatement(['bezier-3', 'solved-line'])).toBe(true);
+    // Text outlines stay on the constrained rail, where they are refused.
+    expect(offsetNeedsStatement(['text'])).toBe(false);
   });
 });
 

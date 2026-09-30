@@ -656,6 +656,7 @@ export class SketchToolbarService {
     const location = owner?.sourceLocation;
     return {
       label: owner?.name || 'Edge',
+      uniqueType: owner?.uniqueType,
       line: location?.line,
       goTo: location ? () => gotoSource(location) : undefined,
     };

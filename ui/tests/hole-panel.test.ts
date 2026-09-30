@@ -152,9 +152,21 @@ describe('Hole panel', () => {
     });
   });
 
+  it('floats the section beside the dialog and keeps the sheet\'s copy in the body', () => {
+    const { container } = openPanel();
+    const card = container.querySelector<HTMLElement>('[data-role="side-card"]')!;
+    const box = container.querySelector<HTMLElement>('[data-role="box"]')!;
+    // Beside the box, not inside its scrolling body.
+    expect(card.parentElement).toBe(box.parentElement);
+    expect(box.contains(card)).toBe(false);
+    expect(card.classList.contains('right-full')).toBe(true);
+    expect(card.querySelector('svg')).not.toBeNull();
+    expect(container.querySelector('[data-role="illustration"]')!.classList.contains('sm:hidden')).toBe(true);
+  });
+
   it('draws the section with the focused field\'s dimension', () => {
     const { container, input, select } = openPanel();
-    const illustration = () => container.querySelector('[data-role="illustration"] svg')!.outerHTML;
+    const illustration = () => container.querySelector('[data-role="side-card"] svg')!.outerHTML;
     expect(illustration()).toContain('⌀');
     select('termination', 'blind');
     input('depth').dispatchEvent(new Event('focus'));

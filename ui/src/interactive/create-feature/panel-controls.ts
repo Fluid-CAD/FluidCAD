@@ -624,6 +624,26 @@ export class PanelShell {
     this.box.classList.replace('sm:w-60', DIALOG_WIDTHS[width]);
   }
 
+  /**
+   * A card floated to the left of the box, level with its top, that stays in
+   * view while the body scrolls. Float only: the sheet has no room beside it,
+   * so below `sm:` the card hides and the panel keeps its own copy in the body.
+   */
+  addSideCard(): HTMLDivElement {
+    // The box's own wrapper anchors the card — the column is as wide as its
+    // widest row, and the statement preview runs wider than the box.
+    const anchor = document.createElement('div');
+    anchor.className = 'relative';
+    this.box.replaceWith(anchor);
+    anchor.appendChild(this.box);
+    const card = document.createElement('div');
+    card.dataset.role = 'side-card';
+    card.className = 'max-sm:hidden absolute right-full top-0 mr-2 w-56 p-3 '
+      + 'bg-base-100 text-base-content border border-base-300 rounded-lg shadow-md';
+    anchor.appendChild(card);
+    return card;
+  }
+
   show(): void {
     this.setMessage(null);
     this.setPreview(null);

@@ -38,12 +38,12 @@ const FIELD_DIMENSIONS: Record<string, HoleDimension> = {
 
 /**
  * The hole dialog: the entry style (simple, counterbore, countersink), the
- * placements slot, a section drawing of the hole with the field being edited
- * drawn in colour, the termination with its depth and drill-point angle, the
+ * placements slot, the termination with its depth and drill-point angle, the
  * fastener standard, the hole type with its size / fit / pitch and the
  * diameter they give, the counterbore or countersink values, and the scope
- * slot last — the solids the hole is cut from. Pure DOM + form state: the
- * service owns scene data, picks, previews and the apply call.
+ * slot last — the solids the hole is cut from. A section drawing of the hole,
+ * the field being edited drawn in colour, floats beside the dialog. Pure DOM +
+ * form state: the service owns scene data, picks, previews and the apply call.
  */
 export class HolePanel extends FeaturePanel {
   /** The placement chip at `index` was removed. */
@@ -56,7 +56,8 @@ export class HolePanel extends FeaturePanel {
   private styleTabs: ChoiceTabs<HoleStyle>;
   private placementsSlot: PickSlot;
   private scopeSlot: ScopeSlotControl;
-  private illustrationEl: HTMLElement;
+  /** The section drawing: the float's side card, and the sheet's copy in the body. */
+  private illustrationEls: HTMLElement[];
   private standardSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
   private sizeSelect: HTMLSelectElement;
@@ -87,7 +88,7 @@ export class HolePanel extends FeaturePanel {
         <p class="text-base-content/70 leading-snug">Cuts fastener holes into the model at the places you pick.</p>
         <div data-role="style-tabs" class="join w-full"></div>
         <div data-role="placements-slot"></div>
-        <div data-role="illustration" class="text-base-content px-2"></div>
+        <div data-role="illustration" class="sm:hidden text-base-content px-2"></div>
         <label class="flex flex-col gap-1.5" title="Through all cuts every solid in scope; Blind stops at the depth">
           <span class="text-base-content/70">Termination</span>
           <select data-role="termination" class="select select-sm select-bordered w-full text-xs">
@@ -185,7 +186,7 @@ export class HolePanel extends FeaturePanel {
     this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
     this.scopeSlot.onArm = () => this.armSlot('scope');
 
-    this.illustrationEl = this.role('illustration');
+    this.illustrationEls = [this.shell.addSideCard(), this.role('illustration')];
 
     this.standardSelect = this.role('standard');
     this.typeSelect = this.role('type');
@@ -623,11 +624,14 @@ export class HolePanel extends FeaturePanel {
   private drawIllustration(): void {
     const tipRead = this.tipField.read();
     const tip = !('error' in tipRead) && !(typeof tipRead.value === 'number' && tipRead.value === 0);
-    this.illustrationEl.innerHTML = holeIllustration({
-      style: this.style,
-      through: this.termination === 'through',
-      tip,
-      highlight: this.focusedDimension ?? 'diameter',
-    });
+    for (const el of this.illustrationEls) {
+      // One SVG per host — each carries its own arrow marker ids.
+      el.innerHTML = holeIllustration({
+        style: this.style,
+        through: this.termination === 'through',
+        tip,
+        highlight: this.focusedDimension ?? 'diameter',
+      });
+    }
   }
 }

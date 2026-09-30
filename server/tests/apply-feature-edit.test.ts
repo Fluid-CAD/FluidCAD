@@ -9507,3 +9507,98 @@ describe('applyFeatureEdit — partMaterial rider', () => {
     expect(result.newCode).toBe(source);
   });
 });
+
+describe('section statements', () => {
+  const base = [
+    `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ellipse(100, 50) })`,
+    `extrude(30)`,
+    `plane('xy', 10)`,
+  ].join('\n');
+
+  function sectionSpec(
+    section: NonNullable<ApplyFeatureEditSpec['section']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'section',
+      section,
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('appends a standard-plane section at the end of the file and imports section', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: 'A-A', plane: { kind: 'standard', plane: 'xz' }, offset: 5, flip: false,
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane('xy', 10)\nsection('A-A', 'xz', { offset: 5 })\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bsection\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders no options when the offset is 0 and flip is off, and both when set', async () => {
+    const plain = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: 'Cut', plane: { kind: 'standard', plane: 'yz' }, offset: 0, flip: false,
+    }));
+    expect(plain.newCode).toContain(`section('Cut', 'yz')\n`);
+    const both = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: "Bob's", plane: { kind: 'standard', plane: 'yz' }, offset: -2.5, flip: true,
+    }));
+    expect(both.newCode).toContain(`section('Bob\\'s', 'yz', { offset: -2.5, flip: true })\n`);
+  });
+
+  it('stays at the top level even with an active part', async () => {
+    const code = [
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+    ].join('\n');
+    const result = await applyFeatureEdit(`${code}\n`, sectionSpec({
+      name: 'A-A', plane: { kind: 'standard', plane: 'xy' }, offset: 1, flip: false,
+    }, { activePart: { line: 3, column: 0 } }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`})\nsection('A-A', 'xy', { offset: 1 })\n`);
+  });
+
+  it('binds an existing plane feature and names it', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: 'Mid', plane: { kind: 'plane', producer: 0 }, offset: 0, flip: true,
+    }, {
+      producers: [{ line: 5, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const p = plane('xy', 10)\nsection('Mid', p, { flip: true })\n`);
+  });
+
+  it('lifts a picked face into plane(<selector>) after its producer', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: 'Top', plane: { kind: 'selector', part: 0 }, offset: -3, flip: false,
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+      imports: ['plane'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    expect(result.newCode).toContain(`section('Top', plane(e.endFaces(0)), { offset: -3 })`);
+  });
+
+  it('refuses a malformed section spec', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: '', plane: { kind: 'standard', plane: 'xy' }, offset: 0, flip: false,
+    }));
+    expect(result.error).toBe('malformed section edit spec');
+    const badPlane = await applyFeatureEdit(`${base}\n`, sectionSpec({
+      name: 'A', plane: { kind: 'selector', part: 0 }, offset: 0, flip: false,
+    }));
+    expect(badPlane.error).toBe('malformed section edit spec');
+  });
+});

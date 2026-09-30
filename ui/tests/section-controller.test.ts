@@ -79,7 +79,8 @@ describe('SectionController.apply', () => {
     const found = markers(root);
     expect(found).toHaveLength(2);
     for (const marker of found) {
-      expect(marker.parent).toBe(mesh);
+      expect(marker.parent).toBe(root.getObjectByName(SectionCaps.GROUP_NAME));
+      expect(marker.matrixWorld.equals(mesh.matrixWorld)).toBe(true);
       const m = marker.material as MeshBasicMaterial;
       expect(m.stencilWrite).toBe(true);
       expect(m.colorWrite).toBe(false);
@@ -127,7 +128,7 @@ describe('SectionController.apply', () => {
     // The low body (z -5..5) is wholly kept; the high one (z 25..35) is cut at its middle.
     expect(caps(root)).toHaveLength(1);
     expect(caps(root)[0].position.toArray()).toEqual([0, 0, 30]);
-    expect(markers(root).every((m) => m.parent === high.mesh)).toBe(true);
+    expect(markers(root).every((m) => m.matrixWorld.equals(high.mesh.matrixWorld))).toBe(true);
     expect(low.material.clippingPlanes).toHaveLength(1);
 
     controller.apply(root, { plane: 'xy', offset: 100 });
@@ -255,5 +256,112 @@ describe('SectionCaps.markerPartition', () => {
     expect(SectionCaps.straddles(box, SectionPlaneMath.resolve({ plane: 'xy', offset: 5 }))).toBe(false);
     expect(SectionCaps.straddles(box, SectionPlaneMath.resolve({ plane: 'xy', offset: 4.9 }))).toBe(true);
     expect(SectionCaps.straddles(box, SectionPlaneMath.resolve({ plane: 'xy', offset: -5, flip: true }))).toBe(false);
+  });
+});
+
+describe('SectionStyle', () => {
+  const spec = { plane: 'xy' as const };
+
+  it('paints caps in the palette by solid ordinal when distinctColors is on, and by face colour otherwise', () => {
+    const root = new Group();
+    const a = solid(10, '#ff8800');
+    const b = solid(10, '#ff8800');
+    b.solid.position.x = 30;
+    root.add(a.solid, b.solid);
+    const controller = new SectionController();
+    controller.apply(root, spec);
+    const plain = caps(root).map(c => (c.material as MeshPhongMaterial).color.getHex());
+    expect(plain[0]).toBe(plain[1]);
+
+    controller.apply(root, spec, { distinctColors: true });
+    const distinct = caps(root).map(c => (c.material as MeshPhongMaterial).color.getHex());
+    expect(distinct[0]).not.toBe(distinct[1]);
+    controller.clear();
+  });
+
+  it('keeps a palette colour on the same solid when an earlier one leaves the cut', () => {
+    const root = new Group();
+    const a = solid(10);
+    const b = solid(10);
+    b.solid.position.x = 30;
+    root.add(a.solid, b.solid);
+    const controller = new SectionController();
+    controller.apply(root, spec, { distinctColors: true });
+    const before = caps(root).map(c => (c.material as MeshPhongMaterial).color.getHex());
+    // Move the first solid clear of the plane: the second keeps its colour.
+    a.solid.position.z = 40;
+    controller.apply(root, spec, { distinctColors: true });
+    const after = caps(root).map(c => (c.material as MeshPhongMaterial).color.getHex());
+    expect(after).toEqual([before[1]]);
+    controller.clear();
+  });
+
+  it('honours a solid\'s own cap colour (the interference overlay) and pulls its quad forward', () => {
+    const root = new Group();
+    const body = solid(10);
+    const overlay = solid(4);
+    overlay.solid.userData.sectionCapColor = 0xd0191e;
+    root.add(body.solid, overlay.solid);
+    const controller = new SectionController();
+    controller.apply(root, spec, { distinctColors: true });
+    const quads = caps(root);
+    expect(quads).toHaveLength(2);
+    const red = quads.find(q => (q.material as MeshPhongMaterial).color.getHex() === 0xd0191e)!;
+    expect(red).toBeDefined();
+    expect((red.material as MeshPhongMaterial).polygonOffset).toBe(true);
+    expect(red.renderOrder).toBeGreaterThan(quads.find(q => q !== red)!.renderOrder);
+    controller.clear();
+  });
+
+  it('hatches the cap material when asked', () => {
+    const root = new Group();
+    root.add(solid(10).solid);
+    const controller = new SectionController();
+    controller.apply(root, spec, { hatch: true, hatchSpacing: 1 });
+    const [quad] = caps(root);
+    const material = quad.material as MeshPhongMaterial;
+    expect(material.customProgramCacheKey()).toBe('section-cap-hatch');
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <color_fragment>' };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.fragmentShader).toContain('uHatchSpacing');
+    expect(shader.vertexShader).toContain('vSectionCapLocal = position.xy');
+    controller.clear();
+  });
+
+  it('exposes the clip plane in force for later overlays', () => {
+    const root = new Group();
+    root.add(solid(10).solid);
+    const controller = new SectionController();
+    expect(controller.clipPlane).toBeNull();
+    controller.apply(root, { plane: 'xy', offset: 2 });
+    const [nx, ny, nz] = controller.clipPlane!.normal.toArray();
+    expect(nx).toBeCloseTo(0);
+    expect(ny).toBeCloseTo(0);
+    expect(nz).toBeCloseTo(-1);
+    expect(controller.clipPlane!.constant).toBeCloseTo(2);
+    controller.clear();
+    expect(controller.clipPlane).toBeNull();
+  });
+});
+
+describe('draw order under grouped models', () => {
+  it('draws every cap object from one group ordered below the model\'s face groups, at the mesh\'s world transform', () => {
+    const root = new Group();
+    const body = solid(10);
+    // The viewer's SolidMesh puts faces in a Group with renderOrder 1 — three
+    // sorts by that group order before any child's own renderOrder.
+    (body.mesh.parent as Group).renderOrder = 1;
+    body.solid.position.set(3, 4, 5);
+    root.add(body.solid);
+    new SectionController().apply(root, { plane: 'xy', offset: 5 });
+    const group = root.getObjectByName(SectionCaps.GROUP_NAME) as Group;
+    expect(group.renderOrder).toBe(SectionCaps.RENDER_ORDER_BASE);
+    const found = markers(root);
+    expect(found.length).toBeGreaterThan(0);
+    for (const marker of found) {
+      expect(marker.parent).toBe(group);
+      expect(marker.matrixWorld.equals(body.mesh.matrixWorld)).toBe(true);
+    }
+    expect(caps(root)[0].parent).toBe(group);
   });
 });

@@ -16,6 +16,7 @@ import { handlePlane } from './handlers/plane.ts';
 import { handleRepeat } from './handlers/repeat.ts';
 import { handleCopy } from './handlers/copy.ts';
 import { handleMirror } from './handlers/mirror.ts';
+import { handleSection } from './handlers/section.ts';
 import { handleRotate } from './handlers/rotate.ts';
 import { handleBoolean } from './handlers/boolean.ts';
 import { handlePlaneSketch } from './handlers/plane-sketch.ts';
@@ -170,6 +171,13 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
 
     if (feature === 'rotate') {
       await handleRotate(ctx, req, res);
+      return;
+    }
+
+    // A saved section view: one plane (the mirror's plane inputs), a name,
+    // an offset and a flip. No target — it consumes nothing.
+    if (feature === 'section') {
+      await handleSection(ctx, req, res);
       return;
     }
 

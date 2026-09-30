@@ -30,6 +30,7 @@ import { createPackRouter } from './routes/pack.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
+import { createSectionRouter } from './routes/section.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
 import { createAssemblyConnectorRouter } from './routes/assembly-connector.ts';
 import { createAssemblyReplicateRouter } from './routes/assembly-replicate.ts';
@@ -196,6 +197,7 @@ app.use('/api', createUnitRouter({
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
+app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));

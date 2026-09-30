@@ -50,8 +50,8 @@ function makeDriver(): AssemblyGizmoDriver {
       },
       requestRender: () => {},
     },
-    setClickInterceptor: () => {},
-    setHoverSuppressor: () => {},
+    addClickInterceptor: () => () => {},
+    addHoverSuppressor: () => () => {},
     getAssemblyController: () => controller,
   };
   const bindings = {

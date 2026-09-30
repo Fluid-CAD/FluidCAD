@@ -20,6 +20,7 @@ import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.t
 import { renderLoftConnections } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
+import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } from '../features/section.ts';
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
@@ -398,6 +399,31 @@ export async function applyCreateEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed mirror edit spec' };
+    }
+  } else if (spec.feature === 'section') {
+    // A section names one plane: a standard origin plane (no producer), an
+    // existing plane feature, or a picked face's own selector part. It
+    // consumes no target, so the plane is the only input.
+    const so = spec.section;
+    const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
+      plane !== undefined && (plane.kind === 'selector'
+        ? Number.isInteger(plane.part) && plane.part >= 0 && plane.part < spec.parts.length && spec.parts.length === 1
+        : plane.kind === 'standard'
+          ? (plane.plane === 'xy' || plane.plane === 'xz' || plane.plane === 'yz') && spec.parts.length === 0
+          : isPlaneProducer(spec, plane.producer) && spec.parts.length === 0);
+    if (!validSectionOptions(so) || !validPlane(so.plane)) {
+      return { newCode: code, error: 'malformed section edit spec' };
+    }
+    // A standard-plane section references no existing statement: it appends
+    // at the end of the file, after the last feature, whatever part is active
+    // — a section view is a view of the whole model.
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      return appendTopLevelStatement(
+        code,
+        () => renderSectionStatement(so, renderSectionPlaneExpr(so, spec.parts, () => null)),
+        'section',
+        spec.newVariables,
+      );
     }
   } else if (spec.feature === 'rotate') {
     // Every target is a bound feature producer (solids, like a copy's); a

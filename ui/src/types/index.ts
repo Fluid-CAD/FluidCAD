@@ -109,6 +109,8 @@ export type ObjectType =
   | 'sketch'
   | 'plane'
   | 'axis'
+  /** A saved section view — never a timeline row. */
+  | 'section'
   // Selection overlay
   | 'select'
   // Primitives

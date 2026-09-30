@@ -1,6 +1,7 @@
 import { Scene } from "../rendering/scene.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { ShapeInterference } from "../oc/shape-interference.js";
+import { ShapeValidator } from "../oc/shape-validator.js";
 import type { PosedShape } from "../oc/shape-interference.js";
 import type { MeasurePose } from "../oc/measure/measure-types.js";
 import { EntitySummaryBuilder } from "../oc/measure/entity-summary.js";
@@ -9,6 +10,8 @@ import { MM_PER_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { RenderedSolidPool } from "./rendered-pool.js";
 import type { RenderedCandidate, RenderedPoolRefusalCode } from "./rendered-pool.js";
+import type { SceneObjectMesh } from "../rendering/scene.js";
+import type { TopoDS_Shape } from "ocjs-fluidcad";
 
 /** A live world pose for one instance, overriding its statement pose. */
 export type InterferencePose = MeasurePose & { instanceId: string };
@@ -29,7 +32,19 @@ export type InterferenceRequest = {
   tolerance?: number;
   /** Assembly files: world poses to use instead of the statement poses, per instance. */
   poses?: InterferencePose[];
+  /**
+   * Carry the shared volume itself, meshed in world space, on every pair
+   * that counts (`InterferencePair.meshes`) — what a section view paints
+   * red. Off by default: a verdict needs no geometry.
+   */
+  includeGeometry?: boolean;
 };
+
+/**
+ * Meshes a shared-volume shape for `includeGeometry` — the caller's mesh
+ * builder at the scene's density; the shape is only alive during the call.
+ */
+export type InterferenceMesher = (shape: TopoDS_Shape) => SceneObjectMesh[];
 
 /** One body, addressed the way `validate` and `measure` address geometry. */
 export type InterferenceBody = {
@@ -47,6 +62,12 @@ export type InterferencePair = {
   b: InterferenceBody;
   /** The shared volume in the document unit cubed. */
   volume: number;
+  /**
+   * The shared volume's meshes in world space (`solid-faces` and
+   * `solid-edges`, as the scene renders a solid), present only when the
+   * request asked for geometry and the check could mesh it.
+   */
+  meshes?: SceneObjectMesh[];
 };
 
 export type InterferenceFailure = {
@@ -123,7 +144,7 @@ export class SceneInterference {
     return 1 / (perUnit * perUnit * perUnit);
   }
 
-  static check(scene: Scene, request: InterferenceRequest = {}): SceneInterferenceOutcome {
+  static check(scene: Scene, request: InterferenceRequest = {}, mesher?: InterferenceMesher): SceneInterferenceOutcome {
     const instances = RenderedSolidPool.instancesByPartId(scene);
 
     const candidates = SceneInterference.candidates(scene, request, instances);
@@ -190,8 +211,14 @@ export class SceneInterference {
           }
           report.checked++;
           let volume: number;
+          let meshes: SceneObjectMesh[] | undefined;
           try {
-            volume = ShapeInterference.commonVolume(posed[i].shape, posed[j].shape);
+            // The geometry is meshed while the boolean's result is alive —
+            // only a pair above the threshold pays for it.
+            ({ volume, meshes } = ShapeInterference.withCommon(posed[i].shape, posed[j].shape, shape => {
+              const v = ShapeValidator.signedVolume(shape);
+              return { volume: v, meshes: request.includeGeometry && mesher && v > tolerance ? mesher(shape) : undefined };
+            }));
           } catch (error) {
             report.failed.push({ a: bodies[i].address, b: bodies[j].address, message: describeError(error) });
             continue;
@@ -199,7 +226,12 @@ export class SceneInterference {
           if (volume <= tolerance) {
             continue;
           }
-          const pair = { a: bodies[i].address, b: bodies[j].address, volume: EntitySummaryBuilder.round(volume, decimals) };
+          const pair: InterferencePair = {
+            a: bodies[i].address,
+            b: bodies[j].address,
+            volume: EntitySummaryBuilder.round(volume, decimals),
+            ...(meshes ? { meshes } : {}),
+          };
           if (bodies[i].unitKey === bodies[j].unitKey) {
             report.intraPart.push(pair);
           } else {

@@ -5600,3 +5600,115 @@ export function savePreference<K extends keyof UserPreferences>(
 export async function resetPreferences(): Promise<UserPreferences | null> {
   return postJson<UserPreferences>('api/preferences/reset', {});
 }
+
+// ---------------------------------------------------------------------------
+// Section views
+// ---------------------------------------------------------------------------
+
+export type SectionApplyOptions = {
+  /** The view's name, as the section menu lists it. */
+  name: string;
+  /** The cut plane — the mirror dialog's plane shapes (standard, plane feature, picked face). */
+  plane: RepeatPlaneRef;
+  offset: number;
+  flip: boolean;
+  /** The file the statement lands in (the scene's own file). */
+  filePath: string;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a
+ * `section('<name>', <plane>, { offset, flip })` statement. Same endpoint
+ * and response shape as {@link applyFeature}.
+ */
+export async function applySection(options: SectionApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'section',
+    name: options.name,
+    plane: options.plane,
+    offset: options.offset,
+    flip: options.flip,
+    filePath: options.filePath,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * The section arrow's commit: rewrite the `offset` and `flip` of the
+ * `section()` statement at `sourceLocation` in place. Acked through the
+ * edit dispatcher like an instance pose — resolves once the edit landed.
+ */
+export async function setSectionOptions(
+  sourceLocation: { filePath: string; line: number },
+  offset: number,
+  flip: boolean,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/section-options', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, offset, flip }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch (err: any) {
+    return { success: false, reason: err?.message ?? String(err) };
+  }
+}
+
+/** One body of an interference pair, as `/api/interfere` addresses it. */
+export type InterferenceBodyRef = {
+  shapeId: string;
+  sceneObjectId: string;
+  sceneObjectName: string;
+  part: string | null;
+  instanceId?: string;
+};
+
+export type InterferencePairData = {
+  a: InterferenceBodyRef;
+  b: InterferenceBodyRef;
+  /** The shared volume in the document unit cubed. */
+  volume: number;
+  /** The shared volume's meshes in world space, when `includeGeometry` was asked. */
+  meshes?: SceneObjectMesh[];
+};
+
+export type InterferenceReport = {
+  ok: boolean;
+  inconclusive?: string;
+  bodies: number;
+  units: number;
+  checked: number;
+  rejectedByBounds: number;
+  clashes: InterferencePairData[];
+  intraPart: InterferencePairData[];
+  failed: { a: InterferenceBodyRef; b: InterferenceBodyRef; message: string }[];
+  tolerance: number;
+  unit: LengthUnit;
+};
+
+export type InterferenceRequestBody = {
+  instanceIds?: string[];
+  shapeIds?: string[];
+  tolerance?: number;
+  /** Assembly files: the live world poses to use instead of the statement poses. */
+  poses?: (MeasurePose & { instanceId: string })[];
+  /** Carry each shared volume's meshes on the pair (what the section view paints red). */
+  includeGeometry?: boolean;
+};
+
+/**
+ * `POST /api/interfere` — the shared volume between the scene's bodies (the
+ * engine's SceneInterference). A clash is a 200 with `ok: false`; a refusal
+ * (no scene, an engine without the checker) is null.
+ */
+export async function fetchInterference(body: InterferenceRequestBody, signal?: AbortSignal): Promise<InterferenceReport | null> {
+  return postJson<InterferenceReport>('api/interfere', body, signal);
+}

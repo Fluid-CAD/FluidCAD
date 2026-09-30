@@ -152,8 +152,8 @@ export class AssemblyGizmoDriver {
       { variables: () => this.cachedVariables },
     );
 
-    bindings.viewer.setClickInterceptor(() => this.gizmo.consumeRecentInteraction());
-    bindings.viewer.setHoverSuppressor(() => this.gizmo.isPointerOverHandle());
+    bindings.viewer.addClickInterceptor(() => this.gizmo.consumeRecentInteraction());
+    bindings.viewer.addHoverSuppressor(() => this.gizmo.isPointerOverHandle());
   }
 
   get isAttached(): boolean {

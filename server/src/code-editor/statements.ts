@@ -305,6 +305,100 @@ export function setPartMaterial(
   });
 }
 
+/**
+ * Rewrite the options of the `section(...)` statement at `sourceLine` (the
+ * viewport arrow's commit): `offset` and `flip` land in the third argument's
+ * object literal — an existing property is replaced in place, a missing one
+ * is added, and a default (`offset: 0`, `flip: false`) is dropped; the
+ * object itself is added or removed as the values need. Refuses (returns
+ * null) a line that is not a `section(...)` statement, a statement whose
+ * third argument is not an object literal (an expression the user wrote by
+ * hand is theirs to change), or an existing `offset` that is not a plain
+ * number.
+ */
+export function setSectionOptions(
+  code: string,
+  sourceLine: number,
+  values: { offset: number; flip: boolean },
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call || chainRootCallee(call) !== 'section') {
+      return null;
+    }
+    const base = chainBaseCall(call);
+    const args = getArgumentsNode(base);
+    if (!args || args.namedChildren.length < 2 || args.namedChildren.length > 3) {
+      return null;
+    }
+    const wanted: [string, string | null][] = [
+      ['offset', values.offset !== 0 ? formatSectionNumber(values.offset) : null],
+      ['flip', values.flip ? 'true' : null],
+    ];
+    const options = args.namedChildren[2] ?? null;
+    if (options && options.type !== 'object') {
+      return null;
+    }
+    // Keep every property the dialog does not own verbatim, in place.
+    const kept: string[] = [];
+    const seen = new Set<string>();
+    if (options) {
+      for (const prop of options.namedChildren) {
+        if (prop.type === 'comment') {
+          continue;
+        }
+        const key = prop.type === 'pair' ? prop.childForFieldName('key')?.text : prop.type === 'shorthand_property_identifier' ? prop.text : null;
+        const owned = wanted.find(([name]) => name === key);
+        if (!owned) {
+          kept.push(prop.text);
+          continue;
+        }
+        if (key === 'offset' && prop.type === 'pair') {
+          const value = prop.childForFieldName('value');
+          if (!value || !isPlainNumberLiteral(value)) {
+            return null;
+          }
+        }
+        seen.add(key!);
+        if (owned[1] !== null) {
+          kept.push(`${key}: ${owned[1]}`);
+        }
+      }
+    }
+    for (const [name, value] of wanted) {
+      if (!seen.has(name) && value !== null) {
+        kept.push(`${name}: ${value}`);
+      }
+    }
+    if (kept.length === 0) {
+      if (!options) {
+        return null;
+      }
+      // Drop `, { … }` — from the end of the second argument to the object's end.
+      return spliceCode(code, args.namedChildren[1].endIndex, options.endIndex, '');
+    }
+    const rendered = `{ ${kept.join(', ')} }`;
+    if (options) {
+      return spliceCode(code, options.startIndex, options.endIndex, rendered);
+    }
+    return spliceCode(code, args.namedChildren[1].endIndex, args.namedChildren[1].endIndex, `, ${rendered}`);
+  });
+}
+
+/** A number literal, optionally negated: `5`, `-2.5`. */
+function isPlainNumberLiteral(node: TSNode): boolean {
+  if (node.type === 'number') {
+    return true;
+  }
+  return node.type === 'unary_expression' && node.text.startsWith('-') && node.namedChildren.length === 1 && node.namedChildren[0].type === 'number';
+}
+
+/** Round-trip safe: up to 4 decimals, no trailing zeros, no negative zero. */
+function formatSectionNumber(value: number): string {
+  const rounded = Math.round(value * 1e4) / 1e4;
+  return String(rounded === 0 ? 0 : rounded);
+}
+
 // ---------------------------------------------------------------------------
 // Geometry insertion — insert a new call expression at the end of a sketch body
 // ---------------------------------------------------------------------------

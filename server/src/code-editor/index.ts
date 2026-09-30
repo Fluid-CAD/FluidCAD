@@ -65,6 +65,7 @@ export {
   setFeatureName,
   statementRemovalEdit,
   setPartMaterial,
+  setSectionOptions,
   setSketchClosed,
 } from './statements.ts';
 export {

@@ -156,6 +156,15 @@ export interface IPlane extends ISceneObject {
 }
 
 /**
+ * A saved section view — what `section()` returns. It builds nothing and
+ * has no timeline row; the viewer's section menu lists it by name.
+ */
+export interface ISection extends ISceneObject {
+  /** The cut plane before its offset, as built (origin, normal, x-direction). */
+  getPlane(): Plane;
+}
+
+/**
  * An axis datum in the scene — what `axis()` returns. `getAxis()`
  * plays the same structural role here as `getPlane()` does on `IPlane`.
  */

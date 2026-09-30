@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Plane, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
@@ -350,8 +350,20 @@ export class Viewer {
    * so hover overlays never paint under a pointer that sits on a tool
    * handle.
    */
-  private clickInterceptor: (() => boolean) | null = null;
-  private hoverSuppressor: (() => boolean) | null = null;
+  private readonly clickInterceptors = new Set<() => boolean>();
+  private readonly hoverSuppressors = new Set<() => boolean>();
+  /**
+   * Fired after every change to the scene's geometry tree — a render, a mesh
+   * rebuild, a visibility or opacity change: what a layer built over the
+   * meshes (the live section view) re-applies itself on.
+   */
+  private readonly sceneMeshListeners = new Set<() => void>();
+  /**
+   * The clipping planes an overlay built after the fact (a hover highlight)
+   * must share while a section view is on, so it never paints on the
+   * removed half. Null when nothing clips.
+   */
+  overlayClipPlanes: Plane[] | null = null;
   private pendingDragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
   private pendingDragValueHandler: DragValueHandler | null = null;
@@ -767,6 +779,15 @@ export class Viewer {
     this.settingsPanel.setParamsButtonActive(active);
   }
 
+  /** The viewport's section-views button: `fn` opens the menu off the button it receives. */
+  setSectionButtonHandler(fn: (anchor: HTMLElement) => void): void {
+    this.settingsPanel.setSectionHandler(fn);
+  }
+
+  setSectionButtonActive(active: boolean): void {
+    this.settingsPanel.setSectionButtonActive(active);
+  }
+
   lookAlongSketchNormal(plane: PlaneData): void {
     this.modeManager.enforceSketchNormal(plane);
   }
@@ -794,7 +815,7 @@ export class Viewer {
       }
       // A gizmo gesture (drag, handle click, typed commit) owns this click
       // completely — no selection, no highlight churn.
-      if (this.clickInterceptor?.()) {
+      if (this.clickIntercepted()) {
         return;
       }
       // A drag of a draggable part shouldn't double as a face-selection
@@ -1447,6 +1468,7 @@ export class Viewer {
       this.hasRendered = true;
     }
 
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -1464,6 +1486,7 @@ export class Viewer {
 
   setInstanceVisibility(instanceId: string, visible: boolean): void {
     this.assemblyController?.setInstanceVisible(instanceId, visible);
+    this.notifySceneMesh();
   }
 
   isInstanceVisible(instanceId: string): boolean {
@@ -1485,12 +1508,61 @@ export class Viewer {
     this.assemblyController?.setDragValueHandler(handler);
   }
 
-  setClickInterceptor(fn: (() => boolean) | null): void {
-    this.clickInterceptor = fn;
+  /** Register a click interceptor (see the field doc); returns its remover. */
+  addClickInterceptor(fn: () => boolean): () => void {
+    this.clickInterceptors.add(fn);
+    return () => {
+      this.clickInterceptors.delete(fn);
+    };
   }
 
-  setHoverSuppressor(fn: (() => boolean) | null): void {
-    this.hoverSuppressor = fn;
+  /** Register a hover suppressor (see the field doc); returns its remover. */
+  addHoverSuppressor(fn: () => boolean): () => void {
+    this.hoverSuppressors.add(fn);
+    return () => {
+      this.hoverSuppressors.delete(fn);
+    };
+  }
+
+  private clickIntercepted(): boolean {
+    let intercepted = false;
+    for (const fn of this.clickInterceptors) {
+      // Every interceptor sees the click: each consumes its own state.
+      intercepted = fn() || intercepted;
+    }
+    return intercepted;
+  }
+
+  private hoverSuppressed(): boolean {
+    for (const fn of this.hoverSuppressors) {
+      if (fn()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Subscribe to geometry-tree changes (see `sceneMeshListeners`); returns the unsubscribe. */
+  subscribeSceneMesh(fn: () => void): () => void {
+    this.sceneMeshListeners.add(fn);
+    return () => {
+      this.sceneMeshListeners.delete(fn);
+    };
+  }
+
+  private notifySceneMesh(): void {
+    for (const fn of this.sceneMeshListeners) {
+      fn();
+    }
+  }
+
+  /** The geometry root a section view clips: the assembly container when mounted, else the compiled mesh. */
+  get geometryRoot(): Object3D | null {
+    return findGeometryRoot(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
+  }
+
+  get isSketchMode(): boolean {
+    return this.modeManager.isSketchMode;
   }
 
   /**
@@ -1571,6 +1643,7 @@ export class Viewer {
       }
     }
 
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -1962,6 +2035,7 @@ export class Viewer {
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
+      overlayMat.clippingPlanes = this.overlayClipPlanes;
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
       overlayMesh.renderOrder = 1.5;
@@ -2074,7 +2148,7 @@ export class Viewer {
     }
     // The pointer sits on a tool handle (gizmo) — part hover must not paint
     // underneath it.
-    if (this.hoverSuppressor?.()) {
+    if (this.hoverSuppressed()) {
       if (this.hoverState) {
         this.clearHover();
       }
@@ -2291,6 +2365,7 @@ export class Viewer {
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
+      overlayMat.clippingPlanes = this.overlayClipPlanes;
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
       overlayMesh.renderOrder = 1.5;
@@ -2545,6 +2620,7 @@ export class Viewer {
     if (this.modeManager.isSketchMode && viewerSettings.current.sectionView) {
       this.applySectionView();
     }
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -2556,6 +2632,7 @@ export class Viewer {
     }
     this.applyVisibilityForId(shapeId, visible);
     this.applyConnectorVisibility();
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -2649,6 +2726,7 @@ export class Viewer {
       this.shapeOpacities.set(shapeId, opacity);
     }
     this.applyOpacityForId(shapeId, opacity);
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 

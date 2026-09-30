@@ -58,6 +58,7 @@ import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
+import { SectionViewService } from './interactive/section-view/section-view-service';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
 import { normalizeAssemblyPayload } from './scene/assembly-payload';
@@ -2325,6 +2326,47 @@ const assemblyGizmo = new AssemblyGizmoDriver({
   },
 });
 
+// The section views: the viewport's section button lists the scene's
+// section() statements; one clips the scene live, its arrow rewrites the
+// statement's offset, and "New section view…" writes a new statement.
+const sectionViewService = new SectionViewService(container, viewer, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+  filePath: () => currentSceneAbsPath,
+  canEdit: () => engineClient.editor !== null,
+  instanceIds: () => (lastAssemblyPayload?.instances ?? []).map(i => i.instanceId),
+  poseOf: (instanceId) => {
+    const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
+    return pose
+      ? { position: { x: pose.position.x, y: pose.position.y, z: pose.position.z }, quaternion: { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w } }
+      : null;
+  },
+});
+
 // The mate dialog: a toolbar mate button opens it armed for connector
 // picking; apply writes the mate() statement via /api/assembly-mate.
 const assemblyMateService = new AssemblyMateService(container, viewer, {
@@ -2444,6 +2486,8 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
 
 viewer.setSolverUpdateHandler((output) => {
   if (currentRail?.kind !== 'assembly') return;
+  // An active section view follows the moved instances (throttled inside).
+  sectionViewService.handleInstancesMoved();
   // Diff the failed set against the previous frame BEFORE replacing it.
   // The joints panel only re-renders when this set changes, and during a
   // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
@@ -2665,6 +2709,10 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // plane — the Sketch button consumes it). Never part of the measure set.
   if (sub?.type === 'plane') {
     if (shapeId) {
+      if (sectionViewService.isPlanePicking) {
+        sectionViewService.handlePlanePick(shapeId);
+        return;
+      }
       if (repeatService.isPlanePicking) {
         repeatService.handlePlanePick(shapeId);
         return;
@@ -2742,6 +2790,11 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // solid as a target, or (plane slot armed) a face is the mirror plane.
   if (mirrorService.isPicking) {
     mirrorService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed section dialog owns clicks — a face is the cut plane.
+  if (sectionViewService.isPicking) {
+    sectionViewService.handleClick(shapeId, sub);
     return;
   }
   // The armed rotate dialog owns clicks — a face or edge selects its whole
@@ -2984,7 +3037,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
       || rotateService.sketchUISuspended || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-      || ribService.sketchUISuspended
+      || ribService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
       || projectionService.isEditing
       || textEditService.isActive;
@@ -3160,6 +3213,7 @@ function applySceneRendered(msg: any): void {
     }
     const renderStop = msg.rollbackStop ?? msg.result.length - 1;
     runSceneServices(msg.result, renderStop, isRollback);
+    sectionViewService.handleSceneRendered(msg.result, sceneKind);
     // Swap the toolbar to the matching workbench alongside the left rail —
     // part-design groups hide and the assembly groups show (or back).
     navbar.setMode(sceneKind);

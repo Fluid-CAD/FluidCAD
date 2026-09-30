@@ -72,7 +72,9 @@ import type { ResolveSelectionRequest, ResolveSelectionResult } from "./selectio
 import { SceneValidator } from "./validation/scene-validator.js";
 import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
 import { SceneInterference } from "./validation/scene-interference.js";
-import type { InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import { MeshBuilder } from "./rendering/mesh-builder.js";
+import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
   SelectionBoundary, SelectionScene, SynthesizeOptions,
@@ -368,7 +370,24 @@ class SceneManager {
    * than two parts is inconclusive, not a pass.
    */
   interfere(scene: Scene, request: InterferenceRequest = {}): SceneInterferenceOutcome {
-    return SceneInterference.check(scene, request);
+    return SceneInterference.check(scene, request, request.includeGeometry ? this.interferenceMesher(scene) : undefined);
+  }
+
+  /**
+   * Meshes a shared volume at the scene's density, every solid of the
+   * boolean's result (two bodies may meet in more than one place) as the
+   * scene renders its own solids — faces and edges, world space.
+   */
+  interferenceMesher(scene: Scene): InterferenceMesher {
+    const builder = new MeshBuilder(this.meshQuality);
+    return (shape) => {
+      const meshes: SceneObjectMesh[] = [];
+      for (const raw of Explorer.findShapes(shape, Explorer.getOcShapeType('solid'))) {
+        const solid = Solid.fromTopoDSSolid(Explorer.toSolid(raw));
+        meshes.push(...(builder.build(solid, scene.unit) ?? []));
+      }
+      return meshes;
+    };
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {

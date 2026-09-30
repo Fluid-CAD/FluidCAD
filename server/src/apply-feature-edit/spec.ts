@@ -36,6 +36,7 @@ import type {
   LoftEditOptions,
 } from './features/loft.ts';
 import type { MirrorAxisSpec, MirrorEditOptions } from './features/mirror.ts';
+import type { SectionEditOptions } from './features/section.ts';
 import type { OffsetEditOptions } from './features/offset.ts';
 import type { PlaneEditBase, PlaneEditOptions, PlaneValueOptions } from './features/plane.ts';
 import type { ProjectEditOptions } from './features/projection.ts';
@@ -60,7 +61,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -124,6 +125,8 @@ export type ApplyFeatureEditSpec = {
   copy?: CopyEditOptions;
   /** Mirror-only payload; `parts` (if any) render the plane selector. */
   mirror?: MirrorEditOptions;
+  /** Section-only payload; `parts` (if any) render the plane selector. */
+  section?: SectionEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
@@ -254,6 +257,13 @@ export type ApplyFeatureEditSpec = {
    * is ignored.
    */
   instancePose?: InstancePoseEditSpec;
+  /**
+   * The section arrow's commit: rewrite the `offset` (and `flip`) of the
+   * `section()` statement at `sourceLine` in place, adding or dropping its
+   * options object as the values need. Rides the same round trip as
+   * `instancePose`; every other spec field is ignored.
+   */
+  sectionOptions?: SectionOptionsEditSpec;
   /**
    * Edit-parameters commit: merge changed parameter values into an
    * `insert()` statement's second argument (untouched entries survive
@@ -763,6 +773,14 @@ export type SketchClosedEditSpec = {
   /** The sketch statement's 1-based source line. */
   sourceLine: number;
   closed: boolean;
+};
+
+/** The section arrow's offset commit: see {@link setSectionOptions}. */
+export type SectionOptionsEditSpec = {
+  /** 1-based line of the `section(...)` statement. */
+  sourceLine: number;
+  offset: number;
+  flip: boolean;
 };
 
 /** The Set material… chain edit: see {@link setPartMaterial}. */

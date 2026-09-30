@@ -3,7 +3,7 @@ export type {
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
   IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide,
+  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection,
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
@@ -39,6 +39,7 @@ export { default as assembly } from "./assembly.js";
 export { default as connector } from "./connector.js";
 export { default as expose } from "./expose.js";
 export { default as property } from "./property.js";
+export { default as section, type SectionOptions } from "./section.js";
 export { default as insert } from "./insert.js";
 export { default as mate } from "./mate.js";
 export { default as replicate } from "./replicate.js";

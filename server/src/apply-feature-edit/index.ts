@@ -72,6 +72,13 @@ export {
   type MirrorEditOptions,
 } from './features/mirror.ts';
 export { renderRotateStatement, type RotateEditAxis, type RotateEditOptions } from './features/rotate.ts';
+export {
+  renderSectionOptionsArg,
+  renderSectionPlaneExpr,
+  renderSectionStatement,
+  validSectionOptions,
+  type SectionEditOptions,
+} from './features/section.ts';
 export { renderBooleanStatement, type BooleanEditOptions, type BooleanKind } from './features/boolean.ts';
 export { renderShellJoinChain, type ShellEditOptions, type ShellJoinKind } from './features/shell.ts';
 export { renderChamferValueArgs, type ChamferEditOptions } from './features/chamfer.ts';

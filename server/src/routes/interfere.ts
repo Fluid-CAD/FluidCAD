@@ -18,11 +18,14 @@ export class InterfereRequests {
       return null;
     }
     if (typeof body !== 'object' || Array.isArray(body)) {
-      return 'body must be an object: { instanceIds?: string[], shapeIds?: string[], tolerance?: number, poses?: { instanceId, position, quaternion }[] }';
+      return 'body must be an object: { instanceIds?: string[], shapeIds?: string[], tolerance?: number, poses?: { instanceId, position, quaternion }[], includeGeometry?: boolean }';
     }
-    const { instanceIds, shapeIds, tolerance, poses } = body as {
-      instanceIds?: unknown; shapeIds?: unknown; tolerance?: unknown; poses?: unknown;
+    const { instanceIds, shapeIds, tolerance, poses, includeGeometry } = body as {
+      instanceIds?: unknown; shapeIds?: unknown; tolerance?: unknown; poses?: unknown; includeGeometry?: unknown;
     };
+    if (includeGeometry !== undefined && typeof includeGeometry !== 'boolean') {
+      return 'includeGeometry must be a boolean when provided';
+    }
     const idsError = InterfereRequests.idListError('shapeIds', shapeIds, MAX_SHAPE_IDS)
       ?? InterfereRequests.idListError('instanceIds', instanceIds, MAX_INSTANCE_IDS);
     if (idsError) {
@@ -62,16 +65,18 @@ export class InterfereRequests {
   }
 
   static asRequest(body: unknown): InterferenceRequest {
-    const { instanceIds, shapeIds, tolerance, poses } = (body ?? {}) as {
+    const { instanceIds, shapeIds, tolerance, poses, includeGeometry } = (body ?? {}) as {
       instanceIds?: string[];
       shapeIds?: string[];
       tolerance?: number;
       poses?: InterferenceRequest['poses'];
+      includeGeometry?: boolean;
     };
     return {
       ...(instanceIds ? { instanceIds } : {}),
       ...(shapeIds ? { shapeIds } : {}),
       ...(tolerance !== undefined ? { tolerance } : {}),
+      ...(includeGeometry ? { includeGeometry } : {}),
       ...(poses
         ? { poses: poses.map(p => ({ instanceId: p.instanceId, position: p.position, quaternion: p.quaternion })) }
         : {}),

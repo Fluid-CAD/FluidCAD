@@ -15,6 +15,7 @@ import { renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement } fr
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
 import { renderRotateStatement } from '../features/rotate.ts';
+import { renderSectionPlaneExpr, renderSectionStatement } from '../features/section.ts';
 import { renderShellJoinChain } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
 import { renderTextStatement } from '../features/text.ts';
@@ -125,6 +126,10 @@ export function buildStatement(
       ? renderMirrorAxisExpr(mo.axis, spec.parts, varFor)
       : renderRepeatPlaneExpr(mo.plane!, spec.parts, varFor);
     return renderMirrorStatement(mo, inputExpr, mo.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'section') {
+    const so = spec.section!;
+    return renderSectionStatement(so, renderSectionPlaneExpr(so, spec.parts, i => bindings[i].varName));
   }
   if (spec.feature === 'rotate') {
     const ro = spec.rotate!;

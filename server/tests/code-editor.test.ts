@@ -12,6 +12,7 @@ import {
   setFeatureName,
   setSketchClosed,
   setPartMaterial,
+  setSectionOptions,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -976,6 +977,41 @@ describe('setPartMaterial', () => {
   it('escapes a quote in the id', async () => {
     const result = await setPartMaterial(`part('A', () => {});\n`, 1, "o'brien");
     expect(result.newCode).toBe(`part('A', () => {}).material('o\\'brien');\n`);
+  });
+});
+
+describe('setSectionOptions', () => {
+  it('adds the options object to a bare section statement', async () => {
+    const code = `extrude(10);\nsection('A-A', 'xz');\n`;
+    const result = await setSectionOptions(code, 2, { offset: 12.5, flip: false });
+    expect(result.newCode).toBe(`extrude(10);\nsection('A-A', 'xz', { offset: 12.5 });\n`);
+  });
+
+  it('replaces the offset in place and keeps the other properties verbatim', async () => {
+    const code = `section('A-A', plane(e.endFaces(0)), { flip: true, offset: 3 }).name('x');\n`;
+    const result = await setSectionOptions(code, 1, { offset: -7, flip: true });
+    expect(result.newCode).toBe(`section('A-A', plane(e.endFaces(0)), { flip: true, offset: -7 }).name('x');\n`);
+  });
+
+  it('drops a default and removes an emptied options object', async () => {
+    const code = `section('A-A', 'xy', { offset: 4, flip: true });\n`;
+    expect((await setSectionOptions(code, 1, { offset: 0, flip: true })).newCode).toBe(`section('A-A', 'xy', { flip: true });\n`);
+    expect((await setSectionOptions(code, 1, { offset: 0, flip: false })).newCode).toBe(`section('A-A', 'xy');\n`);
+  });
+
+  it('adds flip beside a kept offset and rounds the offset', async () => {
+    const code = `section('A-A', 'xy', { offset: 4 });\n`;
+    const result = await setSectionOptions(code, 1, { offset: 4.123456, flip: true });
+    expect(result.newCode).toBe(`section('A-A', 'xy', { offset: 4.1235, flip: true });\n`);
+  });
+
+  it('refuses a line that is not a section, a non-literal options argument and a non-numeric offset', async () => {
+    const other = `extrude(10);\n`;
+    expect((await setSectionOptions(other, 1, { offset: 1, flip: false })).newCode).toBe(other);
+    const expr = `const o = { offset: 2 };\nsection('A', 'xy', o);\n`;
+    expect((await setSectionOptions(expr, 2, { offset: 1, flip: false })).newCode).toBe(expr);
+    const variable = `const d = 2;\nsection('A', 'xy', { offset: d });\n`;
+    expect((await setSectionOptions(variable, 2, { offset: 1, flip: false })).newCode).toBe(variable);
   });
 });
 

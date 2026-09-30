@@ -1,0 +1,55 @@
+---
+sidebar_position: 7
+title: "section"
+description: "Saves a named section view: a cut plane the viewer clips the scene at when the view is activated from the section menu. Nothing is built and the timeline shows no row — the statement only records the plane."
+---
+
+# section()
+
+Saves a named section view: a cut plane the viewer clips the scene at
+when the view is activated from the section menu. Nothing is built and
+the timeline shows no row — the statement only records the plane.
+
+```js
+section('A-A', 'xz');                          // cut at the XZ plane
+section('Bore', 'xy', { offset: 12 });         // 12 above XY
+section('Flange', p, { flip: true });          // keep the other half
+section('Boss', select(face().onPlane('xy', 30)), { offset: -5 });
+
+```
+The plane normal points at the half that is removed; `offset` moves the
+cut along that normal and `flip` keeps the removed half instead. A face
+yields its own plane, exactly as `plane(face)` reads it.
+
+**Returns**: **`ISection`**
+
+:::tip
+See the [guide](/docs/3d-operations/section-views) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+section(name: string, plane: SceneObject | PlaneLike, options?: SectionOptions): ISection
+```
+
+Saves a named section view: a cut plane the viewer clips the scene at
+when the view is activated from the section menu. Nothing is built and
+the timeline shows no row — the statement only records the plane.
+
+```js
+section('A-A', 'xz');                          // cut at the XZ plane
+section('Bore', 'xy', { offset: 12 });         // 12 above XY
+section('Flange', p, { flip: true });          // keep the other half
+section('Boss', select(face().onPlane('xy', 30)), { offset: -5 });
+
+```
+The plane normal points at the half that is removed; `offset` moves the
+cut along that normal and `flip` keeps the removed half instead. A face
+yields its own plane, exactly as `plane(face)` reads it.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | The view's name, as the section menu lists it. |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection. |
+| `options` | SectionOptions | `offset` along the normal and `flip`. *(optional)* |

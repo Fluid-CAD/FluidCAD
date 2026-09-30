@@ -126,6 +126,7 @@ export const features: FeatureEntry[] = [
   { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/import-export/import', sidebarPosition: 4 },
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
+  { name: 'section', displayName: 'section', category: 'utilities', sourceFile: 'core/section.ts', interfaceName: 'SectionFunction', returnType: 'ISection', relatedGuide: '/docs/3d-operations/section-views', sidebarPosition: 7 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/sketching/tools/project', sidebarPosition: 25 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IReference', sidebarPosition: 26 },
 
@@ -176,6 +177,7 @@ export const types: TypeEntry[] = [
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IOffsetEdge', displayName: 'OffsetEdge', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 32.1 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
+  { name: 'ISection', displayName: 'Section', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18.5 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
   { name: 'IConnector', displayName: 'Connector', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 21 },

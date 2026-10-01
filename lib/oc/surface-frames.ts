@@ -13,6 +13,8 @@ export type SurfaceFrame = {
   loc: [number, number, number];
   /** The plane normal / axis direction (undefined for a sphere). */
   dir?: [number, number, number];
+  /** The frame's X direction — where the surface's u parameter starts. */
+  xdir: [number, number, number];
   /** 0 for a plane. */
   radius: number;
   /** Cone semi-angle / torus minor radius; 0 otherwise. */
@@ -24,14 +26,17 @@ export type SurfaceTolerance = { lin: number; ang: number };
 
 export class SurfaceFrames {
 
-  /** The frame of `face`'s surface, or null when it is not an elementary surface. */
-  static of(face: TopoDS_Shape): SurfaceFrame | null {
+  /**
+   * The frame of `face`'s surface, or null when it is not an elementary
+   * surface — or is a plane the caller asked to skip.
+   */
+  static of(face: TopoDS_Shape, skipPlanes = false): SurfaceFrame | null {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), false);
     try {
       const type = adaptor.GetType();
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-        return SurfaceFrames.frameOf('plane', adaptor.Plane().Position(), 0, 0);
+        return skipPlanes ? null : SurfaceFrames.frameOf('plane', adaptor.Plane().Position(), 0, 0);
       }
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
         const cyl = adaptor.Cylinder();
@@ -104,11 +109,13 @@ export class SurfaceFrames {
   private static frameOf(type: SurfaceFrame['type'], position: any, radius: number, extra: number): SurfaceFrame {
     const loc = position.Location();
     const dir = position.Direction();
+    const xdir = position.XDirection();
     return {
       type,
       direct: position.Direct(),
       loc: [loc.X(), loc.Y(), loc.Z()],
       dir: type === 'sphere' ? undefined : [dir.X(), dir.Y(), dir.Z()],
+      xdir: [xdir.X(), xdir.Y(), xdir.Z()],
       radius,
       extra,
     };

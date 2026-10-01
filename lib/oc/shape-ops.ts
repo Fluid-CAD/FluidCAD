@@ -19,6 +19,7 @@ import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
 import { DirectFaces } from "./direct-faces.js";
+import { SameDomainMerge } from "./same-domain-merge.js";
 import { transformHelixGeometry } from "../math/helix-geometry.js";
 import { RenderSeams } from "./render-seams.js";
 
@@ -244,17 +245,14 @@ export class ShapeOps {
     // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
     // It also disables edge unification — delicate tangent geometry opted out
     // of merging entirely.
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(
-      shape.getShape(),
-      opts?.skipSimplify ? false : (opts?.unifyEdges ?? false),
-      opts?.skipSimplify ? false : true,
-      false,
-    );
     // Strict callers may reuse validation only for an identical returned
     // shape (including orientation). Make copying of changed input explicit.
-    if (opts?.requireLineage) unify.SetSafeInputMode(true);
-    unify.Build();
-    const cleanedRaw = unify.Shape();
+    const merge = SameDomainMerge.run(shape.getShape(), {
+      unifyEdges: opts?.skipSimplify ? false : (opts?.unifyEdges ?? false),
+      unifyFaces: !opts?.skipSimplify,
+      safeInput: opts?.requireLineage ? true : undefined,
+    });
+    const cleanedRaw = merge.shape;
 
     // Pre-compute which faces/edges this cleanup saw so the remap can
     // distinguish "didn't know about this shape" (return null) from
@@ -268,19 +266,15 @@ export class ShapeOps {
       knownEdges.Add(raw);
     }
 
-    const checker = new oc.BRepCheck_Analyzer(cleanedRaw, true, true);
-    const valid = checker.IsValid();
-    checker.delete();
-
-    if (!valid) {
+    if (!merge.valid) {
       if (opts?.requireLineage) {
-        unify.delete(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
+        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
         throw new Error("Sweep cleanup validation failed: invalid topology would require ShapeFix without trustworthy history.");
       }
       // ShapeFix_Shape creates new TShapes without recording history.
       // Lineage is lost here — remap returns [face] best-effort for
       // faces the cleanup saw, null otherwise.
-      unify.delete();
+      merge.dispose();
       const fixer = new oc.ShapeFix_Shape(cleanedRaw);
       const progress = new oc.Message_ProgressRange();
       fixer.Perform(progress);
@@ -322,7 +316,7 @@ export class ShapeOps {
       };
     }
 
-    const history = unify.History();
+    const history = merge.history;
     // Unify's history images carry no in-result orientation — every face it
     // hands back is canonicalized to its instance in the cleaned shape.
     const cleanedFaces = new OrientedFaces(cleanedRaw);
@@ -334,8 +328,7 @@ export class ShapeOps {
       }
       disposed = true;
       cleanedFaces.delete();
-      history.delete();
-      unify.delete();
+      merge.dispose();
       knownFaces.delete();
       knownEdges.delete();
       direct?.dispose();
@@ -478,22 +471,20 @@ export class ShapeOps {
     // (e.g. boolean output from a profile with reversed face normal).
     // Fall back to the input shape on failure rather than aborting.
     let cleaned: TopoDS_Shape;
+    let valid: boolean;
     try {
-      const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
-      unify.Build();
-      cleaned = unify.Shape();
-      unify.delete();
+      const merge = SameDomainMerge.run(shape, { unifyEdges: false, unifyFaces: true });
+      cleaned = merge.shape;
+      valid = merge.valid;
+      merge.dispose();
     } catch {
       return shape;
     }
 
     // Validate — UnifySameDomain can corrupt periodic surfaces (e.g. cylinders)
-    const checker = new oc.BRepCheck_Analyzer(cleaned, true, true);
-    if (checker.IsValid()) {
-      checker.delete();
+    if (valid) {
       return cleaned;
     }
-    checker.delete();
 
     // Repair with ShapeFix_Shape (fixes seam edges, wire orientation, SameParameter)
     try {

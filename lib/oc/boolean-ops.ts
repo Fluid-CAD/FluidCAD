@@ -11,6 +11,7 @@ import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
 import { mmTol, mmTol3 } from "../units/tolerance.js";
 import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
+import { SameDomainMerge, SameDomainMergeResult } from "./same-domain-merge.js";
 import { requireValidSolid } from "./solid-validation.js";
 import { ShapeValidator } from "./shape-validator.js";
 
@@ -55,11 +56,12 @@ export class BooleanOps {
    * the caller holds: each query first follows the input through the
    * rebuild. An input the rebuild copied but the boolean left alone still
    * reports its rebuilt copy as its image, since that copy is what the result
-   * contains.
+   * contains. `result` stands in for the builder's shape when the result was
+   * simplified outside it — see `simplifyResult`.
    */
-  private static adaptMaker(builder: any, direct: DirectFacesResult): any {
+  private static adaptMaker(builder: any, direct: DirectFacesResult | null, result?: TopoDS_Shape): any {
     const oc = getOC();
-    const through = (s: TopoDS_Shape): TopoDS_Shape => direct.modifiedOrNull(s) ?? s;
+    const through = (s: TopoDS_Shape): TopoDS_Shape => direct?.modifiedOrNull(s) ?? s;
     const listOf = (items: TopoDS_Shape[]) => {
       const list = new oc.TopTools_ListOfShape();
       for (const item of items) {
@@ -68,7 +70,7 @@ export class BooleanOps {
       return list;
     };
     return {
-      Shape: () => builder.Shape(),
+      Shape: () => result ?? builder.Shape(),
       IsDone: () => builder.IsDone(),
       HasErrors: () => builder.HasErrors(),
       HasWarnings: () => builder.HasWarnings(),
@@ -368,11 +370,10 @@ export class BooleanOps {
 
     const progress = new oc.Message_ProgressRange();
     builder.Build(progress);
-    if (!opts?.skipSimplify) {
-      builder.SimplifyResult(false, true, oc.Precision.Angular());
-    }
-
-    const resultShape = builder.Shape();
+    const built = builder.Shape();
+    const resultShape = opts?.skipSimplify
+      ? built
+      : BooleanOps.simplifyResult(builder, built, BooleanOps.FEATURE_BOOLEAN_FUZZY);
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.fromShape(s));
 
@@ -403,8 +404,53 @@ export class BooleanOps {
       inputs.direct?.dispose();
     };
 
-    const maker = inputs.direct ? BooleanOps.adaptMaker(builder, inputs.direct) : builder;
+    const maker = inputs.direct || resultShape !== built
+      ? BooleanOps.adaptMaker(builder, inputs.direct, resultShape)
+      : builder;
     return { result, newShapes, modifiedShapes, maker, dispose };
+  }
+
+  /**
+   * The builder's own `SimplifyResult(false, true, angular)` — the same
+   * unifier with the same settings — run through `SameDomainMerge` instead.
+   * `SimplifyResult` overwrites the builder's result with whatever the
+   * unifier hands back, and a merge the kernel gives up on can hand back a
+   * BRepCheck-invalid body that no later cleanup recovers. Here such a merge
+   * is retried, and one that stays invalid is dropped: the unsimplified
+   * result is returned and the caller's cleanup merges what it can.
+   *
+   * The merge's history is folded into the builder's, as `SimplifyResult`
+   * does, so the lineage queries keep following the merged faces. The
+   * builder's own `Shape()` stays unsimplified — hand the returned shape on.
+   */
+  private static simplifyResult(builder: any, built: TopoDS_Shape, linearTolerance: number): TopoDS_Shape {
+    const oc = getOC();
+    let merge: SameDomainMergeResult;
+    try {
+      merge = SameDomainMerge.run(built, {
+        unifyEdges: false,
+        unifyFaces: true,
+        concatBSplines: true,
+        linearTolerance,
+        angularTolerance: oc.Precision.Angular(),
+        safeInput: true,
+        allowInternalEdges: false,
+        trustSafeMerge: true,
+      });
+    } catch {
+      return built;
+    }
+    try {
+      if (!merge.valid) {
+        return built;
+      }
+      const history = builder.History();
+      history.Merge(merge.history);
+      history.delete();
+      return merge.shape;
+    } finally {
+      merge.dispose();
+    }
   }
 
   static fuse(args: Shape[], opts?: { glue?: 'full' | 'shift' }): {

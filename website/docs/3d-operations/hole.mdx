@@ -101,6 +101,8 @@ Inside a part, a hole can start at a [connector](/docs/part/connector). A connec
 
 When you pick a face or edge anchor in the dialog inside a part, Apply writes a connector at that anchor and places the hole on it. Outside a part the hole takes the anchor expression directly: `hole(6, e.endFaces().center())`.
 
+Removing a hole from the History panel removes the connectors it was placed at with it. A connector something else still uses stays: another hole, a `copy()`, or a mate in an assembly that reads it as `instance.connectors.name`.
+
 ## Direction, scope and selection
 
 - A hole drills opposite the placement's normal: into the face a sketch sits on, or against a connector's Z. To drill the other way from a connector, turn the connector around: `.rotate('x', 180)`.

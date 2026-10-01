@@ -7,6 +7,8 @@ import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
 import type { ProjectMaterials } from '../project-config.ts';
 import { RemoveFeature } from '../remove-feature.ts';
+import { WorkspaceConnectorReads } from '../hole-connectors.ts';
+import { WorkspaceScripts } from '../workspace-scripts.ts';
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
@@ -16,9 +18,12 @@ export function createTimelineRouter(
     dispatcher?: FeatureEditDispatcher;
     /** The user's global materials (Settings → Materials); tests inject a map, the app reads the preferences file. */
     loadGlobalMaterials?: () => Promise<ProjectMaterials>;
+    /** Where the other model files live — the ones that may read a removed hole's connectors by name. */
+    workspacePath?: string;
   } = {},
 ): Router {
   const router = Router();
+  const connectorReads = new WorkspaceConnectorReads(new WorkspaceScripts(fluidCadServer, options.workspacePath ?? ''));
 
   router.post('/rollback', async (req, res) => {
     const { index, scope } = req.body;
@@ -71,10 +76,11 @@ export function createTimelineRouter(
 
   // Timeline "Remove". Three forms: `dryRun` analyzes the server's copy of
   // the file and answers the dependants the removal would take along (the
-  // UI's "Delete / Cancel" warning) without touching the buffer; `cascade`
-  // deletes the statement and that whole closure through the acked edit
-  // dispatcher; the plain form is the legacy host-side single-statement
-  // removal (sketch geometry and assembly sweeps happen there).
+  // UI's "Delete / Cancel" warning) and the connectors it would orphan,
+  // without touching the buffer; `cascade` deletes the statement, that whole
+  // closure and those connectors through the acked edit dispatcher; the
+  // plain form is the legacy host-side single-statement removal (sketch
+  // geometry and assembly sweeps happen there).
   router.post('/remove-feature', async (req, res) => {
     const { sourceLocation, dryRun, cascade } = req.body;
     if (
@@ -95,18 +101,23 @@ export function createTimelineRouter(
         res.status(422).json({ success: false, reason: 'no rendered code to analyze — is the file in sync with the last render?' });
         return;
       }
-      const captured = await RemoveFeature.capture(code, sourceLocation.line);
-      if ('error' in captured) {
-        res.status(422).json({ success: false, reason: captured.error });
+      // A removed hole's connectors go with it unless something reads them —
+      // and an assembly reads a part's connectors by name, from its own file.
+      const removeFeature = await RemoveFeature.capture(
+        code,
+        sourceLocation.line,
+        (connectors) => connectorReads.unread(sourceLocation.filePath, connectors),
+      );
+      if ('error' in removeFeature) {
+        res.status(422).json({ success: false, reason: removeFeature.error });
         return;
       }
-      const removeFeature = { statement: captured.statement };
       if (dryRun) {
         const analysis = await RemoveFeature.analyze(code, removeFeature);
         if (analysis.ok === false) {
           res.status(422).json({ success: false, reason: analysis.reason });
         } else {
-          res.json({ success: true, dependents: analysis.dependents });
+          res.json({ success: true, dependents: analysis.dependents, connectors: analysis.connectors });
         }
         return;
       }

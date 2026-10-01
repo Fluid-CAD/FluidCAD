@@ -4575,13 +4575,16 @@ export type RemoveFeaturePreview = {
   reason?: string;
   /** Statements the removal would also delete, in source order. */
   dependents?: RemoveFeatureDependent[];
+  /** Connectors of the removed holes that nothing else reads — they go along, without breaking anything. */
+  connectors?: RemoveFeatureDependent[];
 };
 
 export type RemoveFeatureResult = { success: boolean; reason?: string };
 
 /**
  * Analyze what removing the feature at `sourceLocation` would take along —
- * every later statement that references it, recursively. Nothing is edited.
+ * every later statement that references it, recursively, and the connectors
+ * a removed hole leaves without a reader. Nothing is edited.
  */
 export async function previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview> {
   try {
@@ -4594,13 +4597,17 @@ export async function previewRemoveFeature(sourceLocation: SourceLocationParam):
     if (!res.ok || body?.success !== true) {
       return { success: false, reason: body?.reason ?? `HTTP ${res.status}` };
     }
-    return { success: true, dependents: Array.isArray(body.dependents) ? body.dependents : [] };
+    return {
+      success: true,
+      dependents: Array.isArray(body.dependents) ? body.dependents : [],
+      connectors: Array.isArray(body.connectors) ? body.connectors : [],
+    };
   } catch (err: any) {
     return { success: false, reason: err?.message || String(err) };
   }
 }
 
-/** Remove the feature at `sourceLocation` together with everything that references it. */
+/** Remove the feature at `sourceLocation` together with everything that references it and the connectors it orphans. */
 export async function removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult> {
   try {
     const res = await fetch('api/remove-feature', {

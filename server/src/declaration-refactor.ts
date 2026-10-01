@@ -3,14 +3,10 @@
 // the edit does to each, and sending those edits through the editor host
 // before the declaring file's own.
 
-import { readFile } from 'fs/promises';
-import { join } from 'path';
 import type { Response } from 'express';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
-import { collectWorkspaceFiles } from './model-package/pack.ts';
-import { isScriptPath } from './file-unit.ts';
-import { normalizePath } from './normalize-path.ts';
+import { WorkspaceScripts, type ScriptServer } from './workspace-scripts.ts';
 import {
   appendFileReport,
   blockedReason,
@@ -23,11 +19,7 @@ import {
 } from './declaration-usages.ts';
 
 /** The slice of the server this reads: the rendered file, its text, and the host's other buffers. */
-export type RefactorServer = {
-  getCurrentFileName(): string;
-  getCurrentCode(): string | null;
-  getLiveBuffer?(filePath: string): string | null;
-};
+export type RefactorServer = ScriptServer;
 
 /** One file that reads the declaration, with its reads. */
 export type ConsumerFile = { filePath: string; usages: DeclarationUsages; sites: UsageSite[] };
@@ -38,31 +30,19 @@ function usageSpec(filePath: string, usageEdit: UsageEditSpec): ApplyFeatureEdit
 }
 
 export class DeclarationRefactor {
-  constructor(
-    private readonly server: RefactorServer,
-    private readonly workspacePath: string,
-    private readonly dispatcher: FeatureEditDispatcher,
-  ) {}
+  private readonly scripts: WorkspaceScripts;
 
-  /**
-   * A model file's text as the editor holds it: the rendered file's live
-   * text, another file's host buffer when there is one, else the disk.
-   * Null when the file cannot be read.
-   */
-  async readFile(filePath: string): Promise<string | null> {
-    const wanted = normalizePath(filePath);
-    if (wanted === normalizePath(this.server.getCurrentFileName())) {
-      return this.server.getCurrentCode();
-    }
-    const buffer = this.server.getLiveBuffer?.(wanted) ?? null;
-    if (buffer !== null) {
-      return buffer;
-    }
-    try {
-      return await readFile(wanted, 'utf8');
-    } catch {
-      return null;
-    }
+  constructor(
+    server: RefactorServer,
+    workspacePath: string,
+    private readonly dispatcher: FeatureEditDispatcher,
+  ) {
+    this.scripts = new WorkspaceScripts(server, workspacePath);
+  }
+
+  /** A model file's text as the editor holds it — see {@link WorkspaceScripts.read}. */
+  readFile(filePath: string): Promise<string | null> {
+    return this.scripts.read(filePath);
   }
 
   /**
@@ -72,18 +52,10 @@ export class DeclarationRefactor {
    * even parsed.
    */
   async consumers(declaration: DeclarationRef): Promise<ConsumerFile[]> {
-    if (this.workspacePath === '') {
-      return [];
-    }
     const stem = declaration.filePath.split('/').pop()!.replace(/\.js$/, '');
     const out: ConsumerFile[] = [];
-    for (const rel of await collectWorkspaceFiles(this.workspacePath)) {
-      const filePath = normalizePath(join(this.workspacePath, rel));
-      if (!isScriptPath(rel) || filePath === declaration.filePath) {
-        continue;
-      }
-      const code = await this.readFile(filePath);
-      if (code === null || !code.includes(stem)) {
+    for (const { filePath, code } of await this.scripts.others(declaration.filePath)) {
+      if (!code.includes(stem)) {
         continue;
       }
       const usages = await DeclarationUsages.of(code, filePath, declaration);

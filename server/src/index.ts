@@ -167,7 +167,7 @@ app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createResolveSelectionRouter(fluidCadServer));
 app.use('/api', createValidateRouter(fluidCadServer));
 app.use('/api', createInterfereRouter(fluidCadServer));
-app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher }));
+app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH }));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));

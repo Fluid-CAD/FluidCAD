@@ -1864,7 +1864,9 @@ async function handleMoveToPart(
  * references are removed at once, exactly as before; a feature that later
  * statements reference (an extrude's sketch, a fillet's extrude, …) first
  * shows what the removal takes along — the timeline's own names for those
- * rows where it has them — and deletes the whole closure on "Delete".
+ * rows where it has them — and deletes the whole closure on "Delete". A
+ * hole's connectors that nothing else reads go with it either way, unasked:
+ * nothing depends on them.
  */
 async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: number) => string | null): Promise<void> {
   const editor = engineClient.editor;
@@ -1873,24 +1875,28 @@ async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: num
     return;
   }
   const probe = await editor.previewRemoveFeature(loc);
-  if (!probe.success || !probe.dependents || probe.dependents.length === 0) {
+  const dependents = probe.dependents ?? [];
+  const connectors = probe.connectors ?? [];
+  if (!probe.success || (dependents.length === 0 && connectors.length === 0)) {
     // Nothing else goes — or nothing to analyze against (an imported file,
     // a stale render): the plain host-side removal, as before.
     editor.removeFeature(loc);
     return;
   }
-  const nameFor = (dep: { name: string; line: number }): string =>
-    rowNameAt(dep.line) ?? `${dep.name} (line ${dep.line})`;
-  const confirmed = await confirmDialog({
-    title: 'Delete feature',
-    icon: ICON_TRASH,
-    message: `${obj.name} is used by later features. Deleting it also deletes:`,
-    items: probe.dependents.map(nameFor),
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-  if (!confirmed) {
-    return;
+  if (dependents.length > 0) {
+    const nameFor = (dep: { name: string; line: number }): string =>
+      rowNameAt(dep.line) ?? `${dep.name} (line ${dep.line})`;
+    const confirmed = await confirmDialog({
+      title: 'Delete feature',
+      icon: ICON_TRASH,
+      message: `${obj.name} is used by later features. Deleting it also deletes:`,
+      items: dependents.map(nameFor),
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
   }
   const result = await editor.removeFeatureCascade(loc);
   if (!result.success) {

@@ -294,19 +294,33 @@ export function describeDeclaration(
     const binding = bindingOfDeclarator(bindings, declarator.childForFieldName('name')!);
     variableExport = binding && binding.scope.type === 'program' ? exportNameOf(tree, binding) : null;
   }
-  const definitionCall = enclosingDefinitionCall(declaration.call);
-  let definition: DeclarationRef['definition'] = null;
-  if (definitionCall) {
-    const localName = boundVariable(definitionCall);
-    const nameNode = localName === null ? null : outermostExpression(definitionCall).parent!.childForFieldName('name');
-    const binding = nameNode ? bindingOfDeclarator(bindings, nameNode) : null;
-    const moduleLevel = binding !== null && binding.scope.type === 'program';
-    definition = {
-      localName: moduleLevel ? localName : null,
-      exportName: moduleLevel ? exportNameOf(tree, binding!) : null,
-    };
-  }
+  const definition = enclosingDefinition(tree, bindings, declaration.call);
   return { kind, key: declaration.key, filePath: normalizePath(filePath), variable, variableExport, definition };
+}
+
+/**
+ * The `part()` or `assembly()` definition whose body holds `node`, as the
+ * rest of the model names it: its module-level const and the name that
+ * const is exported under. Null outside every definition; the names are
+ * null for a definition no module-level const binds.
+ */
+export function enclosingDefinition(
+  tree: TSTree,
+  bindings: LexicalBindings,
+  node: TSNode,
+): DeclarationRef['definition'] {
+  const definitionCall = enclosingDefinitionCall(node);
+  if (!definitionCall) {
+    return null;
+  }
+  const localName = boundVariable(definitionCall);
+  const nameNode = localName === null ? null : outermostExpression(definitionCall).parent!.childForFieldName('name');
+  const binding = nameNode ? bindingOfDeclarator(bindings, nameNode) : null;
+  const moduleLevel = binding !== null && binding.scope.type === 'program';
+  return {
+    localName: moduleLevel ? localName : null,
+    exportName: moduleLevel ? exportNameOf(tree, binding!) : null,
+  };
 }
 
 /** {@link DeclarationPlan} for the declaration `call` binds in the file `tree` was parsed from. */

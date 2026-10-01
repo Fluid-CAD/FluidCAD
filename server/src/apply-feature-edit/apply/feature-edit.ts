@@ -9,6 +9,7 @@ import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-
 import { ParamEditor } from '../../param-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
 import { DeclarationUsages } from '../../declaration-usages.ts';
+import { InstanceRename } from '../../instance-rename.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
@@ -154,6 +155,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.insertParams) {
     return applyInsertParamsWithDecls(code, spec);
+  }
+  if (spec.instanceRename) {
+    return InstanceRename.apply(code, spec.filePath, spec.instanceRename);
   }
   if (spec.assemblyMate) {
     return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate, applyFeatureEdit);

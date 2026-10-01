@@ -54,7 +54,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -434,10 +434,7 @@ function buildAssemblyRail(): LeftRail {
     (id, newName) => {
       const inst = findInstance(id);
       if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-      updateInsertChain(inst.sourceLocation, {
-        name: newName,
-        defaultName: defaultNameFor(inst),
-      });
+      void renameInsert(inst.sourceLocation, newName, inst.partName);
     },
     (id) => {
       const inst = findInstance(id);
@@ -465,10 +462,7 @@ function buildAssemblyRail(): LeftRail {
       onRename: (id, newName) => {
         const occ = findOccurrence(id);
         if (!occ?.sourceLocation || occ.replica) return;
-        updateInsertChain(occ.sourceLocation, {
-          name: newName,
-          defaultName: occ.assemblyName,
-        });
+        void renameInsert(occ.sourceLocation, newName, occ.assemblyName);
       },
       onDelete: (id) => {
         const occ = findOccurrence(id);
@@ -721,16 +715,26 @@ function instanceHasMate(instanceId: string): boolean {
   return false;
 }
 
-function defaultNameFor(inst: { partName: string; instanceId: string }): string {
-  return inst.partName;
+/**
+ * The parts panel's Rename on an instance or an occurrence header.
+ * `defaultName` is what the row shows without a `.name()` of its own — the
+ * part's or the assembly's name. A refusal is flashed on the rail.
+ */
+async function renameInsert(
+  sourceLocation: { filePath: string; line: number },
+  name: string,
+  defaultName: string,
+): Promise<void> {
+  const result = await renameInstance(sourceLocation, name, defaultName);
+  if (!result.success && currentRail?.kind === 'assembly') {
+    currentRail.dragReadout.flashError(result.reason ?? 'Could not rename');
+  }
 }
 
 async function updateInsertChain(
   sourceLocation: { filePath: string; line: number },
   edit: {
     ground?: boolean;
-    name?: string | null;
-    defaultName?: string;
     translate?: [number, number, number] | null;
   },
 ): Promise<void> {

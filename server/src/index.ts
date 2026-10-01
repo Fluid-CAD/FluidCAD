@@ -196,7 +196,7 @@ app.use('/api', createUnitRouter({
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
-app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
+app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));

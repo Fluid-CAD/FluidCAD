@@ -12,6 +12,7 @@ import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
+import type { InstanceRenameSpec } from '../instance-rename.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
 import type { AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import type { InsertParamsEditSpec } from '../insert-params-edit.ts';
@@ -261,6 +262,13 @@ export type ApplyFeatureEditSpec = {
    * is ignored.
    */
   instancePose?: InstancePoseEditSpec;
+  /**
+   * The parts panel's Rename: set the `.name('…')` chain of the `insert()`
+   * statement at `sourceLine` and rename the variable it binds after it.
+   * Rides the same round trip as `instancePose`; every other spec field is
+   * ignored.
+   */
+  instanceRename?: InstanceRenameSpec;
   /**
    * The section arrow's commit: rewrite the `offset` (and `flip`) of the
    * `section()` statement at `sourceLine` in place, adding or dropping its

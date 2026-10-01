@@ -6,6 +6,8 @@ import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { isExpressionText } from '../apply-feature-edit/index.ts';
 import { getInsertRotateExpressions, getInsertTranslateExpressions } from '../insert-chain-edit.ts';
 import { getInsertParamExpressions } from '../insert-params-edit.ts';
+import { InstanceRename } from '../instance-rename.ts';
+import { DeclarationRefactor } from '../declaration-refactor.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 
@@ -38,8 +40,13 @@ function isNewVariables(v: unknown): v is { name: string; initializer: string }[
 export function createInstancePoseRouter(
   fluidCadServer: FluidCadServer,
   dispatcher: FeatureEditDispatcher,
+  workspacePath = '',
 ): Router {
   const router = Router();
+  // A rename reaches every file that reads the instance, not just the one
+  // on screen: the refactor finds them across the workspace and sends their
+  // edits ahead of the declaring file's.
+  const refactor = new DeclarationRefactor(fluidCadServer, workspacePath, dispatcher);
 
   router.post('/instance-pose', async (req, res) => {
     const { filePath, sourceLine, position, rotateXYZ, translateExprs, rotateExprs, newVariables } = req.body ?? {};
@@ -89,6 +96,53 @@ export function createInstancePoseRouter(
         rotateExprs: rotateExprs ?? null,
       },
       newVariables: newVariables ?? undefined,
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The parts panel's Rename: set the insert() statement's `.name('…')` and
+  // rename the variable it binds after it. The files that read the instance
+  // through its assembly's returned parts (`occ.parts.<name>`) or import its
+  // binding follow first, so the model never builds against a name that is
+  // gone. Cross-file targets 422 like /instance-pose.
+  router.post('/rename-instance', async (req, res) => {
+    const { filePath, sourceLine, name, defaultName } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+      || typeof name !== 'string' || name.trim() === ''
+      || (defaultName !== undefined && typeof defaultName !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this insert() lives in ${basename(filePath)} — open that file to rename it.`,
+      });
+      return;
+    }
+    const code = await refactor.readFile(currentFile);
+    const plan = code === null ? null : await InstanceRename.plan(code, currentFile, sourceLine, name);
+    if (plan?.declaration) {
+      const specs = await refactor.renameSpecs(plan.declaration, plan.variable, null, plan.variableExport);
+      if (!await refactor.dispatchConsumers(res, specs)) {
+        return;
+      }
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      instanceRename: { sourceLine, name, ...(defaultName !== undefined ? { defaultName } : {}) },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

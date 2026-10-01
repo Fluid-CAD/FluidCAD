@@ -5209,6 +5209,34 @@ export async function insertCatalogParts(
 }
 
 /**
+ * Rename an inserted instance or occurrence: its `insert()` statement's
+ * `.name('…')` chain, the variable the statement binds — named after the
+ * new name — and every read of it, in the other files of the workspace too.
+ * `defaultName` is what the row shows without a `.name()`; renaming to it
+ * drops the chain.
+ */
+export async function renameInstance(
+  sourceLocation: { filePath: string; line: number },
+  name: string,
+  defaultName: string,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/rename-instance', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
  * Merge changed parameter values into an inserted instance's/occurrence's
  * `insert()` statement (second argument). `set` carries ONLY the labels the
  * user changed — untouched entries (expressions included) survive verbatim.

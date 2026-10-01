@@ -7,6 +7,7 @@ import {
   splitLines,
   type TSNode,
 } from './code-editor/index.ts';
+import { returnedParts } from './code-editor/assembly.ts';
 import {
   CONNECTOR_NAME,
   EXPORT_KEY,
@@ -531,11 +532,8 @@ export async function applyAssemblyExportEdit(
     lines.splice(insertRow, 0, `${indent}return { ${bound.name} };`);
     return { newCode: joinLines(lines) };
   }
-  let objectNode = returnStmt.namedChildren.find(c => c.type !== 'comment') ?? null;
-  if (objectNode?.type === 'parenthesized_expression') {
-    objectNode = objectNode.namedChildren[0] ?? null;
-  }
-  if (!objectNode || objectNode.type !== 'object') {
+  const objectNode = returnedParts(scope);
+  if (!objectNode) {
     return {
       newCode: code,
       error: `the assembly body's return is not an object literal — add ${bound.name} to its exports yourself`,

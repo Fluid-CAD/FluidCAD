@@ -1,4 +1,5 @@
-// The cross-file half of a parameters-panel rename or delete: which
+// The cross-file half of a rename or delete — of a parameter or property
+// from the parameters panel, of an instance from the parts panel: which
 // workspace files read a declaration besides the one that declares it, what
 // the edit does to each, and sending those edits through the editor host
 // before the declaring file's own.

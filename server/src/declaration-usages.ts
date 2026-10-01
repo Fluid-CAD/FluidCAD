@@ -13,6 +13,11 @@
 // declaring file's exported definition or variable — so the same routine
 // serves a file the server holds and the live buffer the editor host hands
 // back through the apply-feature round trip.
+//
+// An instance an assembly returns among its parts is read the same way, and
+// renamed through the same routine: by name off an occurrence of the
+// assembly (`occ.parts.name`), or through an import when its binding is
+// exported from the top level.
 
 import { dirname, resolve as resolvePath } from 'path';
 import {
@@ -57,16 +62,18 @@ export type DeclarationKind = 'param' | 'property';
 /**
  * What any file needs to find the reads of one declaration: which file
  * declares it, the key it is addressed by from outside (a param's label, a
- * property's name), the variable it binds and the name that variable is
- * exported under, and the `part()` or `assembly()` definition whose body
- * holds it — by its local binding and its export name, which is what an
- * `insert()` or a `.properties` read in another file resolves to.
+ * property's name, the name an assembly returns an instance under), the
+ * variable it binds and the name that variable is exported under, and the
+ * `part()` or `assembly()` definition whose body holds it — by its local
+ * binding and its export name, which is what an `insert()`, a `.properties`
+ * or a `.parts` read in another file resolves to.
  */
 export type DeclarationRef = {
-  kind: DeclarationKind;
+  kind: DeclarationKind | 'instance';
   key: string;
   /** Absolute path of the declaring file. */
   filePath: string;
+  /** Null as well for an instance: its own file follows the binding itself, from the declarator it holds. */
   variable: string | null;
   /** The name `variable` is exported under from the file's top level, or null when it is not. */
   variableExport: string | null;
@@ -233,8 +240,8 @@ export function describeFileSummaries(summaries: UsageFileSummary[]): string {
  * Why a delete is refused: the value reads names that mean nothing where
  * the declaration is read, so those reads have to be rewritten by hand.
  */
-export function blockedReason(kind: DeclarationKind, key: string, value: string | null, blocked: UsageFileSummary[]): string {
-  const noun = kind === 'param' ? 'parameter' : 'property';
+export function blockedReason(kind: DeclarationRef['kind'], key: string, value: string | null, blocked: UsageFileSummary[]): string {
+  const noun = kind === 'param' ? 'parameter' : kind;
   const where = describeFileSummaries(blocked);
   if (value === null) {
     return `"${key}" has no value to put in place of its reads at ${where} — rewrite them by hand, then delete the ${noun}`;
@@ -361,7 +368,7 @@ function enclosingDefinitionCall(node: TSNode): TSNode | null {
  * `export const x` and `export { x }`, the alias for `export { x as y }`,
  * null when the file keeps it to itself.
  */
-function exportNameOf(tree: TSTree, binding: Binding): string | null {
+export function exportNameOf(tree: TSTree, binding: Binding): string | null {
   const statement = binding.id.parent?.parent?.parent;
   if (statement?.type === 'export_statement') {
     return binding.name;
@@ -379,7 +386,7 @@ function exportNameOf(tree: TSTree, binding: Binding): string | null {
 }
 
 /** The label or name an object-literal entry is keyed by, or null for a computed key. */
-function entryKey(entry: TSNode): string | null {
+export function entryKey(entry: TSNode): string | null {
   if (entry.type === 'shorthand_property_identifier') {
     return entry.text;
   }
@@ -500,11 +507,13 @@ export class DeclarationUsages {
     return sites;
   }
 
-  /** `<def or instance>.properties.<key>` — a property's reads. */
+  /** `<def or instance>.properties.<key>` — a property's reads; `<occurrence>.parts.<key>` — an instance's. */
   private readSites(): UsageSite[] {
-    if (this.declaration.kind !== 'property') {
+    const { kind, key } = this.declaration;
+    if (kind === 'param') {
       return [];
     }
+    const accessor = kind === 'property' ? 'properties' : 'parts';
     const sites: UsageSite[] = [];
     for (const node of walkTree(this.tree.rootNode)) {
       if (node.type !== 'member_expression') {
@@ -512,17 +521,31 @@ export class DeclarationUsages {
       }
       const property = node.childForFieldName('property');
       const object = node.childForFieldName('object');
-      if (property?.type !== 'property_identifier' || property.text !== this.declaration.key
+      if (property?.type !== 'property_identifier' || property.text !== key
         || object?.type !== 'member_expression'
-        || object.childForFieldName('property')?.text !== 'properties') {
+        || object.childForFieldName('property')?.text !== accessor) {
         continue;
       }
       const holder = object.childForFieldName('object');
-      if (holder && (this.isDefinition(holder) || this.isInstanceOfDefinition(holder))) {
+      if (holder && this.holdsDeclaration(holder)) {
         sites.push({ kind: 'read', member: node, property });
       }
     }
     return sites;
+  }
+
+  /**
+   * Whether `holder` is what the declaration is read off by name. A
+   * property is read off its definition or anything chained off an instance
+   * of it. An instance is read off an occurrence of its assembly alone — a
+   * longer chain (`occ.parts.arm.parts.<key>`) names another assembly's
+   * part, and a definition has no parts until it is inserted.
+   */
+  private holdsDeclaration(holder: TSNode): boolean {
+    if (this.declaration.kind === 'instance') {
+      return holder.type === 'identifier' && this.isInstanceOfDefinition(holder);
+    }
+    return this.isDefinition(holder) || this.isInstanceOfDefinition(holder);
   }
 
   /** The binding of the declaration's own `const <name> = <kind>(…, '<key>', …)`. */

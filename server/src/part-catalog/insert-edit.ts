@@ -72,7 +72,7 @@ export type InsertPartEditSpec = {
  * number against the evolving code, so one batch never collides with itself.
  * The instance is named after its variable, so two inserts of one part read
  * apart in the parts panel from the start; renaming it there renames the
- * variable in turn (see `renameInsertBinding`).
+ * variable in turn (see `InstanceRename`).
  * Import bindings dodge collisions too: an export whose name is already
  * bound (by another file's import, a local declaration, or a fluidcad/core
  * symbol) is imported under an alias derived from its file

@@ -33,3 +33,17 @@ export function assemblyInsertAnchors(body: TSNode): { lastInsert: TSNode | null
 
   return { lastInsert, returnStmt, lastStmt };
 }
+
+/**
+ * The object literal an `assembly()` body returns — the parts it exposes to
+ * the file that inserts it — or null when the body returns nothing or
+ * something else.
+ */
+export function returnedParts(body: TSNode): TSNode | null {
+  const returnStmt = body.namedChildren.find(c => c.type === 'return_statement');
+  let value = returnStmt?.namedChildren.find(c => c.type !== 'comment') ?? null;
+  if (value?.type === 'parenthesized_expression') {
+    value = value.namedChildren[0] ?? null;
+  }
+  return value?.type === 'object' ? value : null;
+}

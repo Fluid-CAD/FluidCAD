@@ -77,7 +77,7 @@ describe('scaffoldProject', () => {
   it('creates a missing folder and sets the project up in it, pinned to the launcher engine', async () => {
     const target = path.join(dir('cad'), 'bracket');
     await scaffoldProject(target);
-    expect(fs.readdirSync(target).sort()).toEqual(['box.part.js', 'fluidcad.json', 'init.js']);
+    expect(fs.readdirSync(target).sort()).toEqual(['fluidcad.json', 'init.js', 'part1.part.js']);
     expect(JSON.parse(fs.readFileSync(path.join(target, 'fluidcad.json'), 'utf8'))).toEqual({ engine: '0.0.50' });
   });
 

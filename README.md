@@ -136,7 +136,7 @@ npx fluidcad init
 npx fluidcad serve
 ```
 
-This creates a project with a starter `box.part.js` and opens the workspace in your browser. Both the desktop app and browser workspace include a code editor and a live 3D viewport.
+This creates a project with an empty part, `part1.part.js`, and opens the workspace in your browser. Both the desktop app and browser workspace include a code editor and a live 3D viewport.
 
 Start with the [getting-started guide](https://fluidcad.io/docs/getting-started) to build a hinge, or [choose a tutorial](https://fluidcad.io/docs/tutorials/).
 

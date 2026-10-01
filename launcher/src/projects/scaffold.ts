@@ -8,7 +8,7 @@ import type { FolderState } from '../start/contract.ts';
 /**
  * New projects. A new project is `fluidcad init` run inside an empty folder —
  * the same scaffold `npx fluidcad init` produces on the command line
- * (`init.js`, `box.part.js`, `jsconfig.json`, and a `fluidcad.json` pin) —
+ * (`init.js`, an empty `part1.part.js`, `jsconfig.json`, and a `fluidcad.json` pin) —
  * and the folder may not exist yet: it is created first.
  *
  * `init` comes from the launcher's own engine: it is the engine an unpinned

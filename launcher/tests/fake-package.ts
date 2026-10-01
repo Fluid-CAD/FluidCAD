@@ -89,7 +89,7 @@ const path = require('path');
 if (process.argv[2] === 'init') {
   const version = require(path.join(__dirname, '..', 'package.json')).version;
   fs.writeFileSync('init.js', "import { init } from 'fluidcad'\\nexport default await init()\\n");
-  fs.writeFileSync('box.part.js', '');
+  fs.writeFileSync('part1.part.js', '');
   fs.writeFileSync('fluidcad.json', JSON.stringify({ engine: version }) + '\\n');
 }
 `;

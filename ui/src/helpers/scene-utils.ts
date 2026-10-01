@@ -28,6 +28,40 @@ export function isShowableConsumedRow(obj: SceneObjectRender): boolean {
 }
 
 /**
+ * The shown rows (the timeline eye's source-location keys) carried over a
+ * rebuild. An apply can move a shown row's statement along its line — a hole
+ * placed on a shown sketch binds it, `sketch(…)` becoming `const s =
+ * sketch(…)` — and the row keeps its eye under the new key: the row of the
+ * same type on the same line. Every other key is kept as it is.
+ */
+export function carryShownKeys(
+  keys: ReadonlySet<string>,
+  prev: SceneObjectRender[],
+  next: SceneObjectRender[],
+): Set<string> {
+  const carried = new Set<string>();
+  const nextKeys = new Set(next.flatMap(obj => obj.sourceLocation ? [sourceLocKey(obj.sourceLocation)] : []));
+  for (const key of keys) {
+    if (nextKeys.has(key)) {
+      carried.add(key);
+      continue;
+    }
+    const moved = prev
+      .filter(obj => obj.sourceLocation && sourceLocKey(obj.sourceLocation) === key && obj.internal !== true)
+      .flatMap(obj => next.filter(other => other.type === obj.type && other.internal !== true
+        && other.sourceLocation?.filePath === obj.sourceLocation!.filePath
+        && other.sourceLocation.line === obj.sourceLocation!.line));
+    if (moved.length === 0) {
+      carried.add(key);
+    }
+    for (const row of moved) {
+      carried.add(sourceLocKey(row.sourceLocation!));
+    }
+  }
+  return carried;
+}
+
+/**
  * A consumed row as its shown form: it reads visible and draws the shapes its
  * consumer hid (a plane's quad, an axis's line) along with any it still
  * draws. The same object when nothing changes.

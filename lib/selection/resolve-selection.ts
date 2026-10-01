@@ -301,8 +301,9 @@ export class SelectionResolver {
     const all = scene.getAllSceneObjects();
     if (before === undefined) {
       // The full render's world: every removal counts, display-only ones
-      // included, so a sketch its extrude hid is no more pickable here than
-      // it is on screen.
+      // included, so the wires of a sketch its extrude hid are no more
+      // selectable here than they are on screen. Its points are the
+      // exception (see `vertexShapesOf`).
       return { ok: true, scene, objects: all, removalScope: new Set(all), bounded: false };
     }
     if (!Number.isInteger(before) || before < 1 || before > all.length) {
@@ -641,10 +642,12 @@ export class SelectionResolver {
     // Meta shapes stay out, except a lone meta vertex: a circle's centre mark
     // is the one pickable stand-in for the centre point (see the render
     // payload's `vertices`), so a hole or a loft can name it. Guides are in:
-    // construction geometry stays drawn and its points are pickable — after
+    // construction geometry draws with its sketch and its points are pickable — after
     // the profile, so a corner both share is still found on the profile.
+    // So are the shapes of a sketch its consumer hid: the timeline eye draws
+    // it again, and a hole is then laid out on its points like any other.
     return objects.filter(object => !object.isContainer() && !object.isLazy()).flatMap(object =>
-      object.getShapes({ excludeMeta: false, excludeGuide: false }, undefined, removalScope)
+      object.getShapes({ excludeMeta: false, excludeGuide: false, includeDisplayHidden: true }, undefined, removalScope)
         .filter(shape => !shape.isMetaShape() || shape.getType() === 'vertex')
         .map(solid => ({ object, solid })),
     ).sort((a, b) => Number(a.solid.isGuideShape()) - Number(b.solid.isGuideShape()));

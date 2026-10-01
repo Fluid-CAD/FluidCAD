@@ -40,7 +40,9 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
   const objects = new Set(scene.getAllSceneObjects());
   // Guides included: construction geometry is drawn on screen and its
   // endpoints are as nameable as any profile corner (a hole on a layout line).
-  const edges = [...sketch.getEdgesWithOwner({ excludeGuide: false }, scene.editedStatement ? objects : undefined)]
+  // A consumer earlier in the edited world hides the sketch for display only
+  // — shown again, its points are picked like any other's.
+  const edges = [...sketch.getEdgesWithOwner({ excludeGuide: false, includeDisplayHidden: true }, scene.editedStatement ? objects : undefined)]
     .filter(([edge, owner]) => objects.has(owner) && incident(edge, point));
   // A corner a guide shares with the profile stays on the profile entity.
   // Both edges at a corner of one derived statement (an offset) share owner

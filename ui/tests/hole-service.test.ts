@@ -231,6 +231,36 @@ describe('Hole dialog service', () => {
     });
   });
 
+  it('takes a guide endpoint of a consumed sketch the user showed again, at the sketch frame', async () => {
+    const { service, chips, lastPreview } = mount();
+    // A sketch on a side plane that an extrude consumed: its shapes ride
+    // `hiddenShapes`, drawn again while the timeline eye shows the row.
+    service.update([
+      ...plateScene(),
+      {
+        id: 'side', type: 'sketch', name: 'Sketch', parentId: 'part', isContainer: true, visible: false,
+        consumedBy: 'boss', sceneShapes: [], ownShapes: [], sourceLocation: at(11, 12),
+        object: { plane: { origin: { x: 30, y: 0, z: 0 }, center: { x: 30, y: 0, z: 0 }, normal: { x: 1, y: 0, z: 0 } } },
+      },
+      {
+        id: 'guide', type: 'line', name: 'Line', parentId: 'side', visible: false, ownShapes: [], sceneShapes: [],
+        hiddenShapes: [{ shapeId: 'guide-edge', shapeType: 'edge', isGuide: true, meshes: [], vertices: [30, -5, 4, 30, 5, 4] }],
+        sourceLocation: at(12, 4),
+      },
+    ] as SceneObjectRender[]);
+    service.enter();
+
+    service.handleClick('guide-edge', { type: 'vertex', index: 1, position: { x: 30, y: 5, z: 4 } });
+    expect(chips('placements-slot')).toEqual(['Line vertex · sketch line 11']);
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.placements).toEqual([
+      { kind: 'vertex', entity: { shapeId: 'guide-edge', sub: { type: 'vertex', index: 1 } } },
+    ]);
+    const ghost = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0];
+    expect(ghost).toMatchObject({ feature: 'hole', frames: [{ origin: [30, 5, 4], normal: [1, 0, 0] }] });
+  });
+
   it('routes face clicks to the scope only while the scope slot is armed', () => {
     const { service, chips, armScope } = mount();
     service.enter();

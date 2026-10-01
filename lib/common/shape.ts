@@ -7,6 +7,12 @@ import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 export interface ShapeFilter {
   excludeMeta?: boolean;
   excludeGuide?: boolean;
+  /**
+   * Keep the shapes a display-only consumer hid (a sketch after its extrude)
+   * in a scoped read, which then honours hard removals only: what the viewer
+   * can draw again on request (the timeline eye) and so can be picked.
+   */
+  includeDisplayHidden?: boolean;
 }
 
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {

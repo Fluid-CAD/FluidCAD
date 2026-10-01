@@ -578,10 +578,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * The datums (sketches, planes, axes — see `consumedForDisplayOnly`) route
    * every plain `removeShapes` here, so a feature's use of one never takes it
    * away from later features.
-   *
-   * Guide shapes are never hidden: a feature takes a sketch's profile, not
-   * its construction geometry, which stays on screen as the reference later
-   * picks are drawn against (a hole placed on a guide's endpoint).
    */
   removeShapesFromDisplay(removedBy: SceneObject) {
     if (this.isContainer()) {
@@ -592,9 +588,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
 
     for (const shape of this.addedShapes) {
-      if (shape.isGuideShape()) {
-        continue;
-      }
       this.removedShapes.push({ shape, removedBy, soft: true });
     }
   }
@@ -691,6 +684,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
@@ -700,10 +694,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     // whose remover is in scope — hard and soft alike. Scope-less reads
     // (feature builds, pick matching, exposure classification) honor only
     // HARD removals: a soft (render-only) removal hides the shape from the
-    // screen, never from readers.
+    // screen, never from readers. `includeDisplayHidden` reads a scope the
+    // same way: its hard removals only.
+    const keepSoft = filter.includeDisplayHidden === true;
     const shapes = this.addedShapes.filter(s =>
       !this.removedShapes.find(r =>
-        r.shape === s && (scope ? scope.has(r.removedBy) : !r.soft)
+        r.shape === s && (scope ? scope.has(r.removedBy) && !(keepSoft && r.soft) : !r.soft)
       )
     );
 
@@ -724,6 +720,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     let shapes: Shape[] = [];
 
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
@@ -737,6 +734,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }

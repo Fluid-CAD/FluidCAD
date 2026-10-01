@@ -566,16 +566,10 @@ export class SceneRenderer {
       return true;
     }
     if (obj.isContainer()) {
-      const children = scene.getChildren(obj).filter(child => !scope || scope.has(child));
-      const draws = (excludeGuide: boolean) => children.some(child =>
-        child.getOwnShapes({ excludeMeta: true, excludeGuide }, scope).length > 0);
-      if (draws(true)) {
-        return true;
-      }
-      // Guides alone keep a sketch on screen (a layout of hole centres) —
-      // unless a feature consumed it: the guides stay drawn then (see
-      // `removeShapesFromDisplay`), but the row reads as consumed.
-      return SceneRenderer.softRemover(obj, scope) === undefined && draws(false);
+      // Guides count: they alone keep a sketch on screen (a layout of hole
+      // centres), and a consumer hides them with the rest of the sketch.
+      return scene.getChildren(obj).some(child => (!scope || scope.has(child))
+        && child.getOwnShapes({ excludeMeta: true, excludeGuide: false }, scope).length > 0);
     }
     return ownShapeCount > 0;
   }
@@ -639,16 +633,11 @@ export class SceneRenderer {
     if (!obj.consumedForDisplayOnly() || opts.visible) {
       return undefined;
     }
-    return SceneRenderer.softRemover(obj, opts.scope)?.id;
-  }
-
-  /** The first feature in `scope` that hid `obj`'s shapes from the display. */
-  private static softRemover(obj: SceneObject, scope?: Set<SceneObject>): SceneObject | undefined {
     const owners = obj.isContainer() ? obj.getChildren() : [obj];
     for (const owner of owners) {
       for (const record of owner.getRemovedShapes()) {
-        if (record.soft && (!scope || scope.has(record.removedBy))) {
-          return record.removedBy;
+        if (record.soft && (!opts.scope || opts.scope.has(record.removedBy))) {
+          return record.removedBy.id;
         }
       }
     }

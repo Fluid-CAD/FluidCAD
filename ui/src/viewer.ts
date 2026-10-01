@@ -31,7 +31,7 @@ import { VertexPicking, type VertexPickScope } from './interactive/vertex-pickin
 import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
-import { findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
+import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
@@ -1400,6 +1400,9 @@ export class Viewer {
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
+    if (this.shownKeys.size > 0 && sceneObjects !== this.sceneObjects) {
+      this.shownKeys = carryShownKeys(this.shownKeys, this.sceneObjects, sceneObjects);
+    }
     this.sceneObjects = sceneObjects;
     this.lastRenderIsRollback = isRollback;
     this.lastRenderStop = rollbackStop;

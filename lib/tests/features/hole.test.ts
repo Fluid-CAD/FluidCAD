@@ -7,7 +7,7 @@ import part from "../../core/part.js";
 import connector from "../../core/connector.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
-import { circle, point } from "../../core/2d/index.js";
+import { circle, line, point } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { Scene } from "../../rendering/scene.js";
@@ -240,6 +240,47 @@ describe("hole() placements", () => {
     // The sketch is referenced, not consumed: its circle still renders.
     const circleObj = s.geometries.c as unknown as ISceneObject & { getShapes(): unknown[] };
     expect(circleObj.getShapes().length).toBeGreaterThan(0);
+  });
+
+  it("leaves a guide layout on screen after placing holes on its corners", () => {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    const layout = sketch(plate.endFaces(), () => ({ g: line([-15, 5], [15, 5]).guide() }));
+    const g = layout.geometries.g as unknown as { start(): never; end(): never };
+    hole(3, g.start(), g.end());
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - 2 * cylinderVolume(3, PLATE.t), 3);
+    // The hole references the sketch: it stays visible, its guide still drawn.
+    const row = scene.getRenderedObject(layout as unknown as SceneObject)!;
+    expect(row.visible).toBe(true);
+    expect(row.consumedBy).toBeUndefined();
+    expect(scene.getRenderedObject(layout.geometries.g as unknown as SceneObject)!.sceneShapes.map(shape => shape.isGuide))
+      .toEqual([true]);
+  });
+
+  it("places holes on the guide of a sketch another feature consumed", () => {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    const s = sketch(plate.endFaces(), () => {
+      circle([0, 0], 4);
+      return { g: line([-20, 10], [20, 10]).guide() };
+    });
+    const boss = extrude(5).new() as unknown as SceneObject;
+    const g = s.geometries.g as unknown as { start(): never; end(): never };
+    const h = hole(3, g.start(), g.end()) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(scene.getRenderedObject(s as unknown as SceneObject)!.consumedBy).toBe(boss.id);
+    const origins = h.getFrames().map(f => [f.origin.x, f.origin.y, f.origin.z].map(v => Math.round(v * 1e6) / 1e6));
+    expect(origins).toEqual([[-20, 10, PLATE.t], [20, 10, PLATE.t]]);
+    expect(solidVolumes(scene).at(-1)).toBeCloseTo(PLATE_VOLUME - 2 * cylinderVolume(3, PLATE.t), 3);
   });
 
   it("places a hole at a face-centre anchor and consumes the anchor's selection", () => {

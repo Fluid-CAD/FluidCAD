@@ -81,7 +81,7 @@ describe("sketch display consumption", () => {
     }
   });
 
-  it("keeps a consumed sketch's guides on screen while the row still reads consumed", () => {
+  it("hides a consumed sketch's guides with its profile, as shapes the eye can draw again", () => {
     let guide!: SceneObject;
     let profile!: SceneObject;
     const s = sketch("xy", () => {
@@ -96,8 +96,8 @@ describe("sketch display consumption", () => {
     expect(sketchRow.visible).toBe(false);
     expect(sketchRow.consumedBy).toBe(e.id);
     const guideRow = scene.getRenderedObject(guide)!;
-    expect(guideRow.sceneShapes.map(shape => shape.isGuide)).toEqual([true]);
-    expect(guideRow.hiddenShapes).toBeUndefined();
+    expect(guideRow.sceneShapes).toHaveLength(0);
+    expect(guideRow.hiddenShapes?.map(shape => shape.isGuide)).toEqual([true]);
     expect(scene.getRenderedObject(profile)!.sceneShapes).toHaveLength(0);
   });
 

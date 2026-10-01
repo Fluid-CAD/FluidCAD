@@ -3,6 +3,7 @@ import { setupOC, render } from '../setup.js';
 import sketch from '../../core/sketch.js';
 import plane from '../../core/plane.js';
 import extrude from '../../core/extrude.js';
+import remove from '../../core/remove.js';
 import part from '../../core/part.js';
 import insert from '../../core/insert.js';
 import { getSceneManager } from '../../scene-manager.js';
@@ -79,14 +80,26 @@ describe('topological vertex picks', () => {
     expect(result.matches[0].summary.center[0]).toBe(40);
   });
 
-  it('honours statement boundaries for consumed sketch vertices', () => {
+  it('resolves the vertices of a sketch its consumer hid: the eye draws it again', () => {
     const s = sketch('xy', () => testRect(30, 20)) as unknown as SceneObject;
     const e = extrude(10, s) as unknown as SceneObject;
     const scene = render();
     const edge = s.getChildren().flatMap(object => object.getAddedShapes()).find(shape => shape.isEdge())!;
     const pick = { shapeId: edge.id, sub: { type: 'vertex' as const, index: 0 } };
-    expect(SelectionResolver.resolve(scene, { picks: [pick] })).toMatchObject({ ok: false, code: 'unresolved-pick' });
+    expect(SelectionResolver.resolve(scene, { picks: [pick] })).toMatchObject({ ok: true, count: 1 });
     expect(SelectionResolver.resolve(scene, { picks: [pick], before: scene.getAllSceneObjects().indexOf(e) }))
+      .toMatchObject({ ok: true, count: 1 });
+  });
+
+  it('honours statement boundaries for removed sketch vertices', () => {
+    const s = sketch('xy', () => testRect(30, 20)) as unknown as SceneObject;
+    extrude(10, s);
+    const r = remove(s) as unknown as SceneObject;
+    const scene = render();
+    const edge = s.getChildren().flatMap(object => object.getAddedShapes()).find(shape => shape.isEdge())!;
+    const pick = { shapeId: edge.id, sub: { type: 'vertex' as const, index: 0 } };
+    expect(SelectionResolver.resolve(scene, { picks: [pick] })).toMatchObject({ ok: false, code: 'unresolved-pick' });
+    expect(SelectionResolver.resolve(scene, { picks: [pick], before: scene.getAllSceneObjects().indexOf(r) }))
       .toMatchObject({ ok: true, count: 1 });
   });
 

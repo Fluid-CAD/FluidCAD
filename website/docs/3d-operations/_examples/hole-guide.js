@@ -24,7 +24,7 @@ const plate = extrude(10);
 
 // A 60 × 30 construction rectangle on the top face lays out the holes.
 // Guides never become a profile, and they stay drawn over the model
-// after the sketch is used, so their corners can still be clicked.
+// while the sketch is shown, so their corners can be clicked.
 const layout = sketch(plate.endFaces(), () => {
     const b = line([-30, -15], [30, -15]).guide();
     const r = line([30, -15], [30, 15]).guide();

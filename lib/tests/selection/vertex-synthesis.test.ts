@@ -299,7 +299,26 @@ describe('sketch centre and point-entity picks', () => {
     expect(entity.source).toMatch(/^s\d*\.geometries\.p\d*$/);
   });
 
+  it('names a guide endpoint and a guide point of a sketch on screen', () => {
+    const s = located(sketch('xy', () => {
+      located(circle([0, 0], 40), 2);
+      return {
+        g: located(line([-10, 5], [10, 5]).guide(), 3),
+        p: located(point([0, -5]).guide(), 4),
+      };
+    }), 1);
+    const scene = render();
+    const edge = (s.geometries.g as unknown as SceneObject).getAddedShapes().find(shape => shape.isEdge())!;
+    for (const index of [0, 1]) {
+      expect(roundTrip(scene, edge, index).exports?.[0].target).toMatchObject({ line: 3, featureType: 'line' });
+    }
+    expect(points(scene, [pick(vertexShapeOf(s.geometries.p))]).exports?.[0].target)
+      .toMatchObject({ line: 4, featureType: 'point' });
+  });
+
   it('names a guide endpoint and a guide point of a consumed sketch', () => {
+    // The consumer hides the sketch for display only: shown again (the
+    // timeline eye), its guides are picked like those of a sketch on screen.
     const s = located(sketch('xy', () => {
       located(circle([0, 0], 40), 2);
       return {
@@ -319,6 +338,22 @@ describe('sketch centre and point-entity picks', () => {
     // An edit session past the consumer reads the guides too.
     const before = scene.getAllSceneObjects().indexOf(later as unknown as SceneObject);
     expect(SelectionResolver.resolve(scene, { before, picks: [pick(edge)] }, {}))
+      .toMatchObject({ ok: true, synthesized: { ok: true, exports: [{ target: { line: 3, featureType: 'line' } }] } });
+  });
+
+  it('names a profile corner of a consumed sketch, in the full world and in an edit session past the consumer', () => {
+    const s = located(sketch('xy', () => ({
+      a: located(line([0, 0], [20, 0]), 2),
+      b: located(line([20, 0], [20, 20]), 3),
+      c: located(line([20, 20], [0, 0]), 4),
+    })), 1);
+    located(extrude(10), 5);
+    const later = located(sketch('xz', () => { located(line([0, 30], [5, 30]), 7); }), 6);
+    const scene = render();
+    const edge = (s.geometries.b as unknown as SceneObject).getAddedShapes().find(shape => shape.isEdge())!;
+    expect(roundTrip(scene, edge, 1).exports?.[0].target).toMatchObject({ line: 3, featureType: 'line' });
+    const before = scene.getAllSceneObjects().indexOf(later as unknown as SceneObject);
+    expect(SelectionResolver.resolve(scene, { before, picks: [pick(edge, 1)] }, {}))
       .toMatchObject({ ok: true, synthesized: { ok: true, exports: [{ target: { line: 3, featureType: 'line' } }] } });
   });
 

@@ -50,25 +50,11 @@ function resolveOptions(
 
 /**
  * Whether a row puts anything on screen. Invisible rows are skipped, except a
- * consumed row the user showed again, every sketch in sketch-edit mode (kept
- * up for reference), and a consumed sketch that still draws its guides: a
- * feature takes the profile, never the construction geometry, which stays
- * pickable for later features (a hole placed on a guide's endpoint).
+ * consumed row the user showed again and every sketch in sketch-edit mode
+ * (kept up for reference). A hidden sketch hides its guides with it.
  */
-function isDrawn(
-  obj: SceneObjectRender,
-  allObjects: SceneObjectRender[],
-  activeSketchId: string | null,
-  shown: boolean,
-): boolean {
-  if (obj.visible || shown) {
-    return true;
-  }
-  if (obj.type !== 'sketch') {
-    return false;
-  }
-  return !!activeSketchId || SceneIndex.of(allObjects).children(obj.id)
-    .some(child => child.sceneShapes.some(shape => shape.isGuide));
+function isDrawn(obj: SceneObjectRender, activeSketchId: string | null, shown: boolean): boolean {
+  return obj.visible || shown || (!!activeSketchId && obj.type === 'sketch');
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +87,7 @@ export function buildObjectMesh(
   // to honor the `visible` flag the renderer set (see `isDrawn` for the
   // invisible rows that still draw, mirrored by `buildSceneMesh` below).
   const shown = shownIds.has(obj.id);
-  if (!isDrawn(obj, allObjects, activeSketchId, shown)) {
+  if (!isDrawn(obj, activeSketchId, shown)) {
     return new Group();
   }
 
@@ -175,7 +161,7 @@ export function buildSceneMesh(
 
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
-    if (!isDrawn(obj, sceneObjects, activeSketchId, shownIds.has(obj.id))) continue;
+    if (!isDrawn(obj, activeSketchId, shownIds.has(obj.id))) continue;
     container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking, undefined, isRollback, shownIds));
   }
 

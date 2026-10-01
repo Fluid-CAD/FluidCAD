@@ -2,7 +2,7 @@
 // drawn again: the timeline eye and the dialogs' reveal both go through the
 // same "showable" rule and the same shown form of the row.
 import { describe, it, expect } from 'vitest';
-import { isShowableConsumedRow, rowWithHiddenShapes, withHiddenShapes } from '../src/helpers/scene-utils';
+import { carryShownKeys, isShowableConsumedRow, rowWithHiddenShapes, sourceLocKey, withHiddenShapes } from '../src/helpers/scene-utils';
 import type { SceneObjectRender } from '../src/types';
 
 const loc = (line: number) => ({ filePath: '/ws/model.fluid.js', line, column: 1 });
@@ -54,5 +54,28 @@ describe('withHiddenShapes', () => {
     expect(shown[0].visible).toBe(true);
     expect(shown[1].sceneShapes.map(s => s.shapeId)).toEqual(['c-w']);
     expect(shown[2]).toBe(other);
+  });
+});
+
+describe('carryShownKeys', () => {
+  const at = (line: number, column: number) => ({ filePath: '/ws/model.fluid.js', line, column });
+  const sketchAt = (id: string, line: number, column: number) =>
+    row(id, 'sketch', { isContainer: true, visible: false, consumedBy: 'e', sourceLocation: at(line, column) });
+
+  it('keeps the eye on a sketch an apply bound to a variable on its line', () => {
+    // `sketch(…)` → `const s = sketch(…)`: same line, new column. The sketch's
+    // own plane shares its call site and stays out of it.
+    const prev = [row('p', 'plane', { internal: true, sourceLocation: at(23, 1) }), sketchAt('s', 23, 1)];
+    const next = [row('p2', 'plane', { internal: true, sourceLocation: at(23, 11) }), sketchAt('s2', 23, 11)];
+    expect([...carryShownKeys(new Set([sourceLocKey(at(23, 1))]), prev, next)]).toEqual([sourceLocKey(at(23, 11))]);
+  });
+
+  it('leaves a key alone when its row did not move or cannot be found', () => {
+    const scene = [sketchAt('s', 23, 1)];
+    const keys = new Set([sourceLocKey(at(23, 1)), '/ws/other.fluid.js:4:1']);
+    expect(carryShownKeys(keys, scene, [sketchAt('s2', 23, 1)])).toEqual(keys);
+    // A sketch on another line is not this row.
+    const gone = new Set([sourceLocKey(at(23, 1))]);
+    expect(carryShownKeys(gone, scene, [sketchAt('s2', 30, 11)])).toEqual(gone);
   });
 });

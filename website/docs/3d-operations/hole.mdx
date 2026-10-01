@@ -23,7 +23,7 @@ Hole cuts fastener holes into a solid at the places you point at: a plain drille
 1. Click **Hole** on the toolbar. The dialog docks on the right with its **Placements** slot armed, and a section drawing of the hole floats in a card to its left.
 2. Click where the holes go, as many places as you like. Each pick becomes a chip:
    - an existing connector;
-   - a vertex of a sketch: a circle centre, a line end, a sketch point, or the corner of a [guide](/docs/sketching/tools/guides). Guides stay drawn over the model after a feature has used their sketch, so a construction layout keeps its corners clickable;
+   - a vertex of a sketch: a circle centre, a line end, a sketch point, or the corner of a [guide](/docs/sketching/tools/guides). Guides are drawn over the model for as long as their sketch is shown, so a construction layout keeps its corners clickable;
    - an anchor on a face or an edge. Hovering floats the anchor nearest the cursor as a translucent frame: the centre of a face, or the start, end or centre of an edge. On an arc, hover its middle for the arc's centre. Inside a part, the anchor becomes a new connector when you apply.
 3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Termination** (**Through all** or **Blind**) and the **Hole type** (**Drilled**, **Clearance** or **Tapped**). **Clearance** puts **Size** and **Fastener fit** on one row, and **Tapped** puts **Size** and **Pitch** there. The **Size** list groups **Metric** and **Imperial** sizes, and the **Pitch** list groups **Coarse** and **Fine**. **Drilled** hides the row and takes the **Diameter** you type. The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
 4. Click **Apply**. The timeline gains a Hole row and the `hole()` statement is written to the file.
@@ -85,7 +85,7 @@ hole('M8', p2).tapped(1).depth(10, 118)    // Ø7.0, for M8 × 1, blind with a d
 
 ## Holes on construction lines
 
-A [guide](/docs/sketching/tools/guides) never becomes part of a profile, and it stays drawn over the model once its sketch is finished, even after a feature has used the sketch. The ends of its lines stay clickable in the dialog, so a construction layout can position a whole pattern: dimension a guide rectangle once, then click its corners. Each corner is written as the end of one of the lines (`layout.geometries.b.start()`). A corner two lines share names the line that comes first in the sketch.
+A [guide](/docs/sketching/tools/guides) never becomes part of a profile, and it stays drawn over the model once its sketch is finished, for as long as the sketch is shown. A hole does not hide the sketch it is placed on. A sketch another feature has used is hidden with its guides: click the eye on its row in the History panel to show it again, and its points are clickable like those of any sketch on screen. The ends of a guide's lines are clickable in the dialog, so a construction layout can position a whole pattern: dimension a guide rectangle once, then click its corners. Each corner is written as the end of one of the lines (`layout.geometries.b.start()`). A corner two lines share names the line that comes first in the sketch.
 
 ![Four M5 holes on the corners of a construction rectangle](/img/docs/3d-operations/hole-guide.png)
 

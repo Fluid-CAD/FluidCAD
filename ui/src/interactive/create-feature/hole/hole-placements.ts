@@ -7,7 +7,7 @@
 import type {
   ApplyFeatureEntity, HoleEditPlacementRef, HolePlacementRef, ParsedFeatureStatement, SourceSlotRef,
 } from '../../../api';
-import type { SceneObjectRender, SourceLocation, Vec3Data } from '../../../types';
+import type { SceneObjectPart, SceneObjectRender, SourceLocation, Vec3Data } from '../../../types';
 import type { SelectedEntity } from '../../../viewer';
 import { SceneIndex } from '../../../helpers/scene-index';
 import type { PickSlotChip } from '../../pick-slot';
@@ -58,19 +58,37 @@ export function builtHoleFrames(row: SceneObjectRender | undefined): PlacementFr
   }));
 }
 
+/**
+ * The row a picked dot's shape sits on, and the shape: among the shapes the
+ * rows draw, or those a consumer hid — a consumed sketch the user showed
+ * again (the timeline eye) offers its points like one still on screen.
+ */
+function vertexOwner(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): { row: SceneObjectRender; shape: SceneObjectPart } | undefined {
+  for (const row of sceneObjects) {
+    const shape = row.sceneShapes?.find(part => part.shapeId === shapeId)
+      ?? row.hiddenShapes?.find(part => part.shapeId === shapeId);
+    if (shape) {
+      return { row, shape };
+    }
+  }
+  return undefined;
+}
+
 /** What a picked sketch dot stands for, read off the scene rows around its shape. */
 function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]): string {
-  const owner = sceneObjects.find(row => row.sceneShapes?.some(shape => shape.shapeId === shapeId));
+  const owner = vertexOwner(shapeId, sceneObjects);
   if (!owner) {
     return 'Vertex';
   }
-  const index = SceneIndex.of(sceneObjects);
-  const sketch = index.enclosing(owner, 'sketch');
-  const shape = owner.sceneShapes.find(part => part.shapeId === shapeId);
-  const entity = owner.type ? owner.type.charAt(0).toUpperCase() + owner.type.slice(1) : 'Entity';
-  const role = (owner.type as string) === 'point'
+  const { row, shape } = owner;
+  const sketch = SceneIndex.of(sceneObjects).enclosing(row, 'sketch');
+  const entity = row.type ? row.type.charAt(0).toUpperCase() + row.type.slice(1) : 'Entity';
+  const role = (row.type as string) === 'point'
     ? 'point'
-    : shape?.isMetaShape && shape.shapeType === 'vertex' ? 'centre' : 'vertex';
+    : shape.isMetaShape && shape.shapeType === 'vertex' ? 'centre' : 'vertex';
   const where = sketch?.sourceLocation ? ` · sketch line ${sketch.sourceLocation.line}` : '';
   return `${entity} ${role}${where}`;
 }
@@ -80,11 +98,11 @@ function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]): string
  * (the hole enters the sketched face), or world Z for a vertex on a solid.
  */
 function vertexNormal(shapeId: string, sceneObjects: SceneObjectRender[]): Vec3Data {
-  const owner = sceneObjects.find(row => row.sceneShapes?.some(shape => shape.shapeId === shapeId));
+  const owner = vertexOwner(shapeId, sceneObjects);
   if (!owner) {
     return WORLD_Z;
   }
-  const sketch = SceneIndex.of(sceneObjects).enclosing(owner, 'sketch');
+  const sketch = SceneIndex.of(sceneObjects).enclosing(owner.row, 'sketch');
   const normal = sketch?.object?.plane?.normal as Vec3Data | undefined;
   return normal ?? WORLD_Z;
 }

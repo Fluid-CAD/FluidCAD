@@ -97,6 +97,26 @@ function rowOf(id: string): SceneObjectRender {
   return plateScene().find(row => row.id === id)!;
 }
 
+/**
+ * The plate with `bolt` copied once along X: the copy's row sits under the
+ * copy statement and is addressed by bolt's statement plus its slot.
+ */
+function copiedBoltScene(): SceneObjectRender[] {
+  return [
+    ...plateScene(),
+    {
+      id: 'copy', type: 'copy-linear', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: at(10, 2),
+      object: { connectorCopies: { seeds: [{ id: 'bolt', name: 'bolt' }], originalSlot: 0, slotCount: 2, slots: [1], connectorsOnly: true } },
+    },
+    {
+      id: 'bolt-1', type: 'connector', name: 'bolt.instance(1)', parentId: 'copy', visible: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: at(10, 2),
+      object: { name: 'bolt', ...FRAME, origin: { x: 40, y: 0, z: 10 }, copy: { slot: 1, seedId: 'bolt' } },
+    },
+  ] as SceneObjectRender[];
+}
+
 /** A viewer recording what the dialog asks of it. */
 function stubViewer() {
   const scene = new Scene();
@@ -206,6 +226,37 @@ describe('Hole dialog service', () => {
     const request = lastPreview()!;
     expect(request.placements).toEqual([{ kind: 'connector', filePath: FILE, line: 7, column: 16 }]);
     expect(request.scope).toEqual([{ filePath: FILE, line: 5, column: 12 }]);
+  });
+
+  it('sends a connector copy by its seed statement and slot, apart from the seed itself', async () => {
+    const { service, chips, state, lastPreview } = mount();
+    service.update(copiedBoltScene());
+    service.enter();
+
+    service.handleConnectorPick('bolt');
+    service.handleConnectorPick('bolt-1');
+    expect(chips('placements-slot')).toEqual(['Connector bolt', 'Connector bolt.instance(1)']);
+    expect(state.picked).toEqual(['bolt', 'bolt-1']);
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.placements).toEqual([
+      { kind: 'connector', filePath: FILE, line: 6, column: 15 },
+      { kind: 'connector', filePath: FILE, line: 6, column: 15, slot: 1 },
+    ]);
+    const ghost = vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0];
+    expect(ghost).toMatchObject({
+      feature: 'hole',
+      frames: [
+        { origin: [20, 0, 10], normal: [0, 0, 1] },
+        { origin: [40, 0, 10], normal: [0, 0, 1] },
+      ],
+    });
+
+    // A fresh render keeps the copy by its site, not its scene id.
+    service.update(copiedBoltScene().map(row => row.id === 'bolt-1' ? { ...row, id: 'bolt-1-next' } : row));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chips('placements-slot')).toEqual(['Connector bolt', 'Connector bolt.instance(1)']);
+    expect(lastPreview()!.placements[1]).toEqual({ kind: 'connector', filePath: FILE, line: 6, column: 15, slot: 1 });
   });
 
   it('takes a sketch centre dot as a vertex placement and ghosts the tool at its frame', async () => {
@@ -408,5 +459,47 @@ describe('Hole dialog service', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(api.applyHoleEdit).toHaveBeenCalled();
     expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+  });
+
+  it('resolves a kept connector copy argument to its chip, and sends it by slot once re-picked', async () => {
+    const { service, chips } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
+      feature: 'hole',
+      size: { kind: 'fastener', label: 'M6' },
+      fastener: { type: 'clearance', fit: 'close' },
+      style: null,
+      depth: null,
+      tipAngle: null,
+      placementTexts: ['bolt', 'bolt.instance(1)'],
+      placementRefs: [{ line: 6, column: 15 }, { line: 6, column: 15, slot: 1 }],
+      scopeTexts: [],
+      scopeRefs: [],
+    };
+    const scene = [...copiedBoltScene(), {
+      id: 'hole', type: 'hole', name: 'Hole', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [],
+      object: {
+        frames: [
+          { origin: [20, 0, 10], normal: [0, 0, 1] },
+          { origin: [40, 0, 10], normal: [0, 0, 1] },
+        ],
+      },
+      sourceLocation: at(12, 0),
+    } as unknown as SceneObjectRender];
+    service.update(scene);
+    service.enterEdit(at(12, 0), parsed, { index: 8, type: 'hole', expectedStatement: 'hole(…)' });
+    service.handleSceneRendered(scene, 7, true);
+    expect(chips('placements-slot')).toEqual(['Connector bolt', 'Connector bolt.instance(1)']);
+
+    // Untouched, the statement keeps its own arguments.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].placements).toBeUndefined();
+
+    // Dropping the seed sends the copy that stays by its seed statement and slot.
+    service.handleConnectorPick('bolt');
+    expect(chips('placements-slot')).toEqual(['Connector bolt.instance(1)']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].placements).toEqual([
+      { kind: 'connector', filePath: FILE, line: 6, column: 15, slot: 1 },
+    ]);
   });
 });

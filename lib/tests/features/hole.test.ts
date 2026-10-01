@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import hole from "../../core/hole.js";
 import part from "../../core/part.js";
 import connector from "../../core/connector.js";
+import copy from "../../core/copy.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
 import { circle, line, point } from "../../core/2d/index.js";
@@ -295,6 +296,22 @@ describe("hole() placements", () => {
     expect(errorsOf(scene)).toEqual([]);
     expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - cylinderVolume(8, PLATE.t), 3);
     expect(anchor.getShapes().length).toBe(0);
+  });
+
+  it("drills at a connector and at its copy, named by its slot", () => {
+    let h!: Hole;
+    plateWithTopConnector((_plate, top) => {
+      copy("linear", "x", { count: 2, offset: 20 }, top);
+      h = hole(6, top, top.instance(1)) as unknown as Hole;
+    });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - 2 * cylinderVolume(6, PLATE.t), 3);
+    expect(h.getFrames().map(frame => frame.origin.x)).toEqual([
+      expect.closeTo(0, 6),
+      expect.closeTo(20, 6),
+    ]);
   });
 
   it("drills out of the surface from a connector turned around", () => {

@@ -4,6 +4,7 @@ import type { TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   booleanArgValue,
+  connectorInstanceRead,
   numericArgValue,
   numericArrayValues,
   objectLiteralEntries,
@@ -219,22 +220,12 @@ export function resolveCopyAxisRef(
   if (node.type === 'identifier') {
     return resolveRepeatTargetRef(node, statementStart);
   }
-  if (node.type !== 'call_expression') {
+  const copy = connectorInstanceRead(node);
+  if (!copy) {
     return null;
   }
-  const fn = node.childForFieldName('function');
-  const object = fn?.type === 'member_expression' ? fn.childForFieldName('object') : null;
-  const property = fn?.type === 'member_expression' ? fn.childForFieldName('property') : null;
-  const args = node.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment') ?? [];
-  if (object?.type !== 'identifier' || property?.text !== 'instance' || args.length !== 1) {
-    return null;
-  }
-  const slot = numericArgValue(args[0]);
-  if (slot === null || !Number.isSafeInteger(slot) || slot < 0) {
-    return null;
-  }
-  const ref = resolveRepeatTargetRef(object, statementStart);
-  return ref ? { ...ref, slot } : null;
+  const ref = resolveRepeatTargetRef(copy.variable, statementStart);
+  return ref ? { ...ref, slot: copy.slot } : null;
 }
 
 /**

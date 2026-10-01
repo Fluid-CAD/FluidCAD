@@ -34,6 +34,7 @@ export {
   renderHolePlacementExprs,
   renderHoleStatement,
   validHoleOptions,
+  validHolePlacementSlot,
   type HoleEditOptions,
   type HoleFastenerSpec,
   type HoleFit,

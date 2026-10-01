@@ -229,3 +229,26 @@ export function resolveRepeatTargetRef(node: TSNode, statementStart: number): { 
   const call = resolveIdentifierCall(node, statementStart);
   return call ? { line: call.startPosition.row + 1, column: call.startPosition.column } : null;
 }
+
+/**
+ * One of a connector's copies read off its variable — `bay.instance(2)`,
+ * the slot a plain whole number: the variable and the slot. Null for any
+ * other expression.
+ */
+export function connectorInstanceRead(node: TSNode): { variable: TSNode; slot: number } | null {
+  if (node.type !== 'call_expression') {
+    return null;
+  }
+  const fn = node.childForFieldName('function');
+  const object = fn?.type === 'member_expression' ? fn.childForFieldName('object') : null;
+  const property = fn?.type === 'member_expression' ? fn.childForFieldName('property') : null;
+  const args = node.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment') ?? [];
+  if (object?.type !== 'identifier' || property?.text !== 'instance' || args.length !== 1) {
+    return null;
+  }
+  const slot = numericArgValue(args[0]);
+  if (slot === null || !Number.isSafeInteger(slot) || slot < 0) {
+    return null;
+  }
+  return { variable: object, slot };
+}

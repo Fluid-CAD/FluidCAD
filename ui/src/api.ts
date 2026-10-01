@@ -2480,13 +2480,14 @@ export type HoleOptionValues = {
 };
 
 /**
- * Where a hole starts: an existing connector statement, a picked vertex (a
- * sketch point exported from its sketch, or a solid vertex named through an
- * edge endpoint), or a face/edge anchor — a new connector inside a part, the
+ * Where a hole starts: an existing connector statement (plus `slot` for one
+ * of its copies, `bolt.instance(2)`), a picked vertex (a sketch point
+ * exported from its sketch, or a solid vertex named through an edge
+ * endpoint), or a face/edge anchor — a new connector inside a part, the
  * bare anchor expression outside one.
  */
 export type HolePlacementRef =
-  | ({ kind: 'connector' } & SketchSourceRef)
+  | ({ kind: 'connector'; slot?: number } & SketchSourceRef)
   | { kind: 'vertex'; entity: ApplyFeatureEntity }
   | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor; name: string };
 
@@ -3314,10 +3315,12 @@ export type ParsedFeatureStatement =
       /** Placement argument texts, verbatim, in argument order. */
       placementTexts: string[];
       /**
-       * The `connector()` statement each placement argument names, or null
-       * when it is not a bare connector variable. Same length as `placementTexts`.
+       * The `connector()` statement each placement argument names — plus
+       * `slot` for one of its copies (`bolt.instance(2)`) — or null when it
+       * is neither a bare connector variable nor a copy read off one. Same
+       * length as `placementTexts`.
        */
-      placementRefs: ({ line: number; column: number } | null)[];
+      placementRefs: ({ line: number; column: number; slot?: number } | null)[];
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

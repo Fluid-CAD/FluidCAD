@@ -6546,6 +6546,24 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    it('names a connector copy by its seed statement and slot, sharing the seed producer', async () => {
+      const placements = [
+        { kind: 'connector', filePath: FILE, line: 6, column: 2 },
+        { kind: 'connector', filePath: FILE, line: 6, column: 2, slot: 1 },
+      ];
+      const preview = await post({ ...BASE, placements });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
+
+      const applied = await post({ ...BASE, preview: false, placements });
+      expect(applied.status).toBe(200);
+      expect(relayed[0].spec.hole.placements).toEqual([
+        { kind: 'connector', producer: 0 },
+        { kind: 'connector', producer: 0, slot: 1 },
+      ]);
+      expect(relayed[0].spec.producers).toEqual([expect.objectContaining({ line: 6, featureType: 'connector', bind: true })]);
+    });
+
     it('turns an anchor inside a part into a new connector, and outside a part into the anchor expression', async () => {
       const synthesis = (part: { line: number; column: number } | undefined) => ({
         ok: true,
@@ -6608,6 +6626,11 @@ describe('apply-feature route validation', () => {
       expect(tappedDrilled.status).toBe(400);
       const badKind = await post({ ...BASE, placements: [{ kind: 'point' }] });
       expect(badKind.status).toBe(400);
+      for (const slot of [-1, 1.5, '1']) {
+        const badSlot = await post({ ...BASE, placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2, slot }] });
+        expect(badSlot.status).toBe(400);
+        expect(badSlot.body.error).toContain('whole number counting from 0');
+      }
     });
 
     it('edits a hole in place, keeping placements by position and re-picking the scope', async () => {
@@ -6623,6 +6646,20 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(200);
       expect(body.preview).toBe(`hole('M8', bolt).tapped().counterbore().depth(9).scope(e)`);
+    });
+
+    it('edits a hole in place, adding a connector copy by its slot beside the kept placement', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close')\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const { status, body } = await post({
+        ...BASE, edit: { filePath: FILE, line: 10, column: 2 },
+        placements: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: FILE, line: 6, column: 15, slot: 1 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
     });
   });
   });

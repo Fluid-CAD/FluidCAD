@@ -3,15 +3,19 @@
 import {
   validConnectorAnchor,
   validHoleOptions,
+  validHolePlacementSlot,
   type ConnectorAnchorSpec,
   type HoleValueOptions,
 } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick, type VertexPick } from '../picks.ts';
 
-/** One placement as the dialog sends it. */
+/**
+ * One placement as the dialog sends it. A connector is its `connector()`
+ * statement — plus the slot of one of its copies (`bolt.instance(2)`).
+ */
 export type HolePlacementInput =
-  | ({ kind: 'connector' } & SketchLoc)
+  | ({ kind: 'connector'; slot?: number } & SketchLoc)
   | { kind: 'vertex'; pick: VertexPick }
   | { kind: 'anchor'; pick: Pick; anchor: ConnectorAnchorSpec; name: string }
   | { kind: 'verbatim'; sourceIndex: number };
@@ -66,7 +70,11 @@ export function validateHolePlacements(raw: unknown, edit: boolean):
       if (!loc) {
         return { error: 'a connector placement must be the {filePath, line, column} of the connector statement' };
       }
-      placements.push({ kind: 'connector', ...loc });
+      const slot = entry.slot ?? undefined;
+      if (!validHolePlacementSlot(slot)) {
+        return { error: 'a connector placement slot must be a whole number counting from 0' };
+      }
+      placements.push(slot === undefined ? { kind: 'connector', ...loc } : { kind: 'connector', ...loc, slot });
     } else if (entry?.kind === 'vertex') {
       const pick = validatePick(entry.entity, 'vertex');
       if (!pick) {

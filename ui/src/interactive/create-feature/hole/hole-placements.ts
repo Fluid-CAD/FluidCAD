@@ -37,7 +37,10 @@ export type HolePlacementItem =
     kind: 'keep';
     sourceIndex: number;
     label: string;
+    /** The `connector()` statement the argument names — the seed's, for a copy. */
     loc?: SourceLocation;
+    /** With `loc`: the copy's slot, when the argument names one (`bolt.instance(2)`). */
+    slot?: number;
     /** Where the statement's own build placed this argument; absent when that build placed nothing. */
     frame?: PlacementFrame;
   };
@@ -133,9 +136,10 @@ export class HolePlacements {
    * the render), kept arguments survive as text, and picked vertices and
    * anchors — shape ids and cached frames of the old scene — are dropped.
    * With `resolveKeeps` (the edit session's rollback boundary) a kept
-   * argument naming a connector statement becomes that connector's entry,
-   * and every other kept argument takes its frame from `builtFrames` (the
-   * edited statement's own, {@link builtHoleFrames}) for the ghost.
+   * argument naming a connector statement — or one of its copies — becomes
+   * that connector's entry, and every other kept argument takes its frame
+   * from `builtFrames` (the edited statement's own, {@link builtHoleFrames})
+   * for the ghost.
    */
   setScene(
     sceneObjects: SceneObjectRender[],
@@ -149,7 +153,9 @@ export class HolePlacements {
         if (!opts.resolveKeeps) {
           return [item];
         }
-        const option = item.loc ? ConnectorOptions.forLocation(item.loc, this.connectorOptions) : undefined;
+        const option = item.loc
+          ? ConnectorOptions.forSite({ filePath: item.loc.filePath, line: item.loc.line, slot: item.slot }, this.connectorOptions)
+          : undefined;
         const frame = option ? this.frameOf(option) : null;
         if (option && frame) {
           return [{ kind: 'connector', option, frame, sourceIndex: item.sourceIndex }];
@@ -253,6 +259,7 @@ export class HolePlacements {
         sourceIndex,
         label,
         loc: ref ? { filePath: targetFilePath, line: ref.line, column: ref.column } : undefined,
+        ...(ref?.slot !== undefined ? { slot: ref.slot } : {}),
       };
     });
   }
@@ -368,7 +375,10 @@ export class HolePlacements {
 
   private pickRef(item: HolePlacementItem): HolePlacementRef | null {
     if (item.kind === 'connector') {
-      return { kind: 'connector', filePath: item.option.filePath, line: item.option.line, column: item.option.column };
+      // A copy is addressed by its seed's statement and its slot — the
+      // statement alone names the seed, and two copies would collapse into it.
+      const { filePath, line, column, slot } = item.option;
+      return { kind: 'connector', filePath, line, column, ...(slot !== undefined ? { slot } : {}) };
     }
     if (item.kind === 'vertex') {
       const entity: ApplyFeatureEntity = {

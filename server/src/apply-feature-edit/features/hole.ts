@@ -2,7 +2,14 @@
 
 import { chainRootCallee, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
 import type { SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
-import { anyValueArg, numericArgValue, numericValueArg, resolveIdentifierCall, stringArgValue } from '../ast/args.ts';
+import {
+  anyValueArg,
+  connectorInstanceRead,
+  numericArgValue,
+  numericValueArg,
+  resolveIdentifierCall,
+  stringArgValue,
+} from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse, ParsedScopeChain } from '../parse/parsed-statement.ts';
 import { renderScopeChain } from '../render/chains.ts';
@@ -29,13 +36,15 @@ export type HoleStyleSpec =
 
 /**
  * One placement argument of the statement. `connector` and `part` render
- * from the spec's producers/parts; `sketch` and `newConnector` are staged
+ * from the spec's producers/parts — a connector as its `connector()`
+ * statement bound under its own name, plus `.instance(<slot>)` for one of
+ * its copies (`bolt.instance(2)`); `sketch` and `newConnector` are staged
  * by {@link HolePlacements} before the statement renders (an exported sketch
  * point becomes an `expression`, a new connector statement a `connector`);
  * `verbatim` keeps an edited statement's own argument text by position.
  */
 export type HolePlacementSpec =
-  | { kind: 'connector'; producer: number }
+  | { kind: 'connector'; producer: number; slot?: number }
   | { kind: 'sketch'; producer: number; target: SolvedEmissionTarget }
   | { kind: 'expression'; expression: string }
   | { kind: 'part'; part: number; suffix: string }
@@ -113,6 +122,14 @@ export function validHoleStyle(style: unknown): style is HoleStyleSpec | null {
   return false;
 }
 
+/**
+ * A connector placement's slot: a copy's pattern slot is a non-negative
+ * whole number; absent names the connector itself.
+ */
+export function validHolePlacementSlot(slot: unknown): boolean {
+  return slot === undefined || (Number.isSafeInteger(slot) && (slot as number) >= 0);
+}
+
 /** Structural validity of the shared option values (the placements and scope are checked by their consumers). */
 export function validHoleOptions(opts: unknown): opts is HoleValueOptions {
   const o = opts as Partial<HoleValueOptions> | undefined;
@@ -188,7 +205,11 @@ export function renderHolePlacementExprs(
   const usedVerbatim = new Set<number>();
   for (const placement of placements) {
     if (placement.kind === 'connector') {
-      exprs.push(varFor(placement.producer) ?? 'c');
+      if (!validHolePlacementSlot(placement.slot)) {
+        return { error: 'malformed hole edit spec: a connector placement slot must be a whole number counting from 0' };
+      }
+      const binding = varFor(placement.producer) ?? 'c';
+      exprs.push(placement.slot === undefined ? binding : `${binding}.instance(${placement.slot})`);
     } else if (placement.kind === 'expression') {
       exprs.push(placement.expression);
     } else if (placement.kind === 'part') {
@@ -216,16 +237,36 @@ export type ParsedHole = ParsedScopeChain & HoleValueOptions & {
   feature: 'hole';
   /** The placement argument texts, verbatim, in argument order. */
   placementTexts: string[];
-  /** Per placement: the `connector()` statement a plain identifier is bound to, or null. */
-  placementRefs: ({ line: number; column: number } | null)[];
+  /**
+   * Per placement: the `connector()` statement a plain identifier is bound
+   * to — plus `slot` for one of its copies (`bolt.instance(2)`) — or null.
+   */
+  placementRefs: ({ line: number; column: number; slot?: number } | null)[];
 };
+
+/**
+ * The `connector()` statement a placement argument names: a variable bound
+ * to one (`bolt`), or one of its copies read off that variable
+ * (`bolt.instance(2)`) — the statement plus the slot. Null for any other
+ * expression.
+ */
+function holePlacementRef(node: TSNode, statementStart: number): { line: number; column: number; slot?: number } | null {
+  const copy = connectorInstanceRead(node);
+  const call = resolveIdentifierCall(copy ? copy.variable : node, statementStart);
+  if (!call || chainRootCallee(call) !== 'connector') {
+    return null;
+  }
+  const loc = { line: call.startPosition.row + 1, column: call.startPosition.column };
+  return copy ? { ...loc, slot: copy.slot } : loc;
+}
 
 /**
  * Read a hole statement back into the dialog's options: the size (a
  * fastener label, or a numeric value the way extrude reads distances), the
- * placement arguments kept verbatim (identifiers bound to a `connector()`
- * resolve to that statement, so the dialog seeds a connector chip), and the
- * option chains. Anything the dialog cannot show refuses.
+ * placement arguments kept verbatim (a connector variable or one of its
+ * copies resolves to the `connector()` statement, so the dialog seeds a
+ * connector chip), and the option chains. Anything the dialog cannot show
+ * refuses.
  */
 export function parseHoleChain(
   args: TSNode[],
@@ -252,13 +293,7 @@ export function parseHoleChain(
 
   const placements = args.slice(1);
   const placementTexts = placements.map(node => node.text);
-  const placementRefs = placements.map(node => {
-    const call = resolveIdentifierCall(node, start);
-    if (!call || chainRootCallee(call) !== 'connector') {
-      return null;
-    }
-    return { line: call.startPosition.row + 1, column: call.startPosition.column };
-  });
+  const placementRefs = placements.map(node => holePlacementRef(node, start));
 
   const clearanceSeg = recognized.get('clearance');
   const tappedSeg = recognized.get('tapped');

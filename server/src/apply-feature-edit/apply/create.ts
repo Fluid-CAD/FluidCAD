@@ -24,7 +24,7 @@ import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } f
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
-import { validHoleOptions } from '../features/hole.ts';
+import { validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
@@ -85,15 +85,17 @@ export async function applyCreateEdit(
       return { newCode: code, error: 'malformed rib edit spec' };
     }
   } else if (spec.feature === 'hole') {
-    // Placements render from the list: a connector producer, an anchored
-    // selector part (its producers ride the list) or an expression the
-    // staging pass authored; the scope targets are bound feature producers.
-    // A sketch export or a new connector still in the list was never staged.
+    // Placements render from the list: a connector producer (with the slot
+    // of one of its copies), an anchored selector part (its producers ride
+    // the list) or an expression the staging pass authored; the scope
+    // targets are bound feature producers. A sketch export or a new
+    // connector still in the list was never staged.
     const ho = spec.hole;
     const valid = ho !== undefined && validHoleOptions(ho)
       && Array.isArray(ho.placements) && ho.placements.length >= 1
       && ho.placements.every(placement =>
-        (placement.kind === 'connector' && isConnectorProducer(spec, placement.producer))
+        (placement.kind === 'connector' && isConnectorProducer(spec, placement.producer)
+          && validHolePlacementSlot(placement.slot))
         || (placement.kind === 'part' && Number.isInteger(placement.part) && placement.part >= 0
           && placement.part < spec.parts.length && typeof placement.suffix === 'string')
         || (placement.kind === 'expression' && typeof placement.expression === 'string' && placement.expression.trim() !== ''))

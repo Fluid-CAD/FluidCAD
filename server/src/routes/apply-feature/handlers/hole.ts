@@ -35,10 +35,11 @@ type Resolved = { placements: HolePlacementSpec[]; filePath: string | null } | {
 
 /**
  * Turn the dialog's placements into the spec's: a connector by its
- * statement; a sketch vertex through the vertex synthesis (an export request
- * the pre-pass authors, or an edge endpoint on a solid); a face/edge anchor
- * through the `hole` synthesis kind — inside a part it becomes a named
- * connector the pre-pass creates, elsewhere the bare anchor expression.
+ * statement (plus a copy's slot); a sketch vertex through the vertex
+ * synthesis (an export request the pre-pass authors, or an edge endpoint on
+ * a solid); a face/edge anchor through the `hole` synthesis kind — inside a
+ * part it becomes a named connector the pre-pass creates, elsewhere the bare
+ * anchor expression.
  */
 export async function resolveHolePlacements(
   server: FluidCadServer,
@@ -121,9 +122,11 @@ export async function resolveHolePlacements(
       if (problem) {
         return { error: problem, status: 422 };
       }
+      // A copy shares its seed's statement: the producer merges, the slot tells them apart.
       placements.push({
         kind: 'connector',
         producer: sink.merge({ line: input.line, column: input.column, featureType: 'connector', nameHint: 'c', bind: true }),
+        ...(input.slot !== undefined ? { slot: input.slot } : {}),
       });
     } else if (input.kind === 'vertex') {
       placements.push(vertexSpecs[vertexAt++]);

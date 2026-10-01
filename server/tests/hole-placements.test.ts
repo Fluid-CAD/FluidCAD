@@ -65,6 +65,25 @@ describe('hole statement templates', () => {
     expect(result.newCode).toContain(`import { hole, part, sketch`);
   });
 
+  it('names a connector copy by its seed statement and slot, binding the seed once', async () => {
+    const result = await applyFeatureEdit(plate, holeSpec({
+      placements: [{ kind: 'connector', producer: 0 }, { kind: 'connector', producer: 0, slot: 1 }],
+    }, { producers: [BOLT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const bolt = connector('bolt', e.endFaces().center())`);
+    expect(result.newCode).toContain(`  hole('M6', bolt, bolt.instance(1)).clearance('close')\n})`);
+  });
+
+  it('refuses a connector slot that is not a whole number counting from 0', async () => {
+    for (const slot of [-1, 1.5]) {
+      const result = await applyFeatureEdit(plate, holeSpec({
+        placements: [{ kind: 'connector', producer: 0, slot }],
+      }, { producers: [BOLT] }));
+      expect(result.error).toBe('malformed hole edit spec');
+      expect(result.newCode).toBe(plate);
+    }
+  });
+
   it('renders a drilled hole with explicit counterbore values and a tapped hole with a pitch', async () => {
     const drilled = await applyFeatureEdit(plate, holeSpec({
       size: { kind: 'diameter', value: 5 }, fastener: null,
@@ -233,6 +252,18 @@ describe('hole statement parsing', () => {
     });
   });
 
+  it('resolves a connector copy to its seed statement and slot, and nothing else read off a variable', async () => {
+    const code = withHole(`hole('M6', bolt, bolt.instance(2), bolt.instance(1.5), e.instance(1))`)
+      .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+    const parsed = await parseFeatureStatement(code, 12);
+    expect(parsed.ok && parsed.parsed.feature === 'hole' && parsed.parsed.placementRefs).toEqual([
+      { line: 7, column: 15 },
+      { line: 7, column: 15, slot: 2 },
+      null,
+      null,
+    ]);
+  });
+
   it('reads a drilled hole, a bare tapped chain and a table countersink', async () => {
     const drilled = await parseFeatureStatement(withHole(`hole(5, bolt).countersink(9, 90).depth(4)`), 12);
     expect(drilled.ok && drilled.parsed).toMatchObject({
@@ -292,6 +323,21 @@ describe('hole in-place edits', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`    return { c };`);
     expect(result.newCode).toContain(`  hole('M6', s.geometries.c.center(), bolt).clearance('close').depth(12)\n})`);
+  });
+
+  it('adds a connector copy by its slot beside a kept placement, and refuses a bad slot', async () => {
+    const result = await applyFeatureEdit(edited, editSpec({
+      ...M6_CLOSE, style: null, depth: 12, tipAngle: null,
+      placements: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'connector', producer: 0, slot: 1 }],
+    }, { producers: [BOLT] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  hole('M6', bolt, bolt.instance(1)).clearance('close').depth(12)\n})`);
+
+    const bad = await applyFeatureEdit(edited, editSpec({
+      ...M6_CLOSE, style: null, depth: 12, tipAngle: null,
+      placements: [{ kind: 'connector', producer: 0, slot: -1 }],
+    }, { producers: [BOLT] }));
+    expect(bad.error).toContain('whole number counting from 0');
   });
 
   it('refuses dropping every placement and a stale keep index', async () => {

@@ -4,10 +4,11 @@
  * instead of getting a second one (two pages editing one project's files is
  * what the desktop app's "focus the window that has it" avoids too).
  *
- * The tab starts on this same start page, at `/?project=<path>`, which shows
- * the project's progress and then goes to its engine's page. The name is how
- * the browser finds the tab again: `window.open(url, name)` reuses a tab of
- * that name, even once it shows the engine's page from another origin.
+ * The tab starts on this same start page, at `/?project=<path>`, which there
+ * draws the project's progress only (`project-tab-screen.ts`) and then goes
+ * to its engine's page. The name is how the browser finds the tab again:
+ * `window.open(url, name)` reuses a tab of that name, even once it shows the
+ * engine's page from another origin.
  *
  * A browser only lets a page open a tab while it handles the user's gesture,
  * so every call here happens synchronously in the click that asked for it.
@@ -27,6 +28,11 @@ export function projectOfTab(search: string): { path: string; create: boolean } 
   const params = new URLSearchParams(search);
   const path = params.get('project');
   return path ? { path, create: params.get('create') === '1' } : null;
+}
+
+/** A project's name as the launcher has it: the last part of its path, whichever way its slashes lean. */
+export function projectNameOf(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 /** A stable tab name for a project: FNV-1a of its path, so any length of path makes a short name. */

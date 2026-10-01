@@ -21,7 +21,8 @@ import type {
   UpgradeProgress,
   WindowState,
 } from './host';
-import { ProjectTabs, projectOfTab } from './project-tabs';
+import type { TabOpening } from './project-tab-screen';
+import { ProjectTabs, projectNameOf, projectOfTab } from './project-tabs';
 
 /**
  * The start screen's host under `npx fluidcad`: the launcher's start server,
@@ -30,10 +31,11 @@ import { ProjectTabs, projectOfTab } from './project-tabs';
  * a browser needs on top: the page's own folder picker, and a tab per project.
  *
  * A page is one of two things. At `/` it is the start screen. At
- * `/?project=<path>` it is the tab that project opens in: it asks the start
- * server to open the project, shows its progress on the opening overlay, and
- * goes to the engine's page once the project runs — the browser's version of
- * the desktop window that swaps the start page for the project's.
+ * `/?project=<path>` it is the tab that project opens in: it shows the opening
+ * overlay and nothing else (`tabOpening`, `project-tab-screen.ts`), asks the
+ * start server to open the project, follows its progress, and goes to the
+ * engine's page once the project runs — the browser's version of the desktop
+ * window that swaps the start page for the project's.
  *
  * Every reply goes through the same runtime guards as the desktop bridge's.
  * Pushes (the recents changed, a comparison's progress, a session moved on)
@@ -131,6 +133,22 @@ export class HttpStartHost implements StartScreenHost {
     }
   }
 
+  /**
+   * What a project's tab draws from its first frame, before the start server
+   * has said anything: the step every open begins with. Null on the start
+   * screen.
+   */
+  get tabOpening(): TabOpening | null {
+    const tab = this.tabProject;
+    return tab
+      ? {
+          phase: 'opening',
+          project: { path: tab.path, name: projectNameOf(tab.path) },
+          status: { step: tab.create ? 'creating' : 'resolving' },
+        }
+      : null;
+  }
+
   async hello(protocol: number) {
     return checkHello(await this.request('POST', 'api/start/hello', { protocol }));
   }
@@ -155,8 +173,12 @@ export class HttpStartHost implements StartScreenHost {
     if (!this.tabProject) {
       return;
     }
-    await this.request('POST', 'api/sessions/cancel', { path: this.tabProject.path });
-    this.leave();
+    try {
+      await this.request('POST', 'api/sessions/cancel', { path: this.tabProject.path });
+    } finally {
+      // Whatever the start server said, this tab has nothing left to open.
+      this.leave();
+    }
   }
 
   async retryOpen(): Promise<void> {

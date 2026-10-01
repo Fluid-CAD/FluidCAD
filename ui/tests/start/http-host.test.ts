@@ -175,6 +175,18 @@ describe('HttpStartHost on the start screen', () => {
 describe("HttpStartHost in a project's tab", () => {
   const search = `?project=${encodeURIComponent(BRACKET)}&create=1`;
 
+  it('knows what it is opening before the start server has said anything, and the start screen has nothing to open', () => {
+    const { env, calls } = fakeEnvironment(search);
+    expect(new HttpStartHost(env).tabOpening).toEqual({ phase: 'opening', project, status: { step: 'creating' } });
+    expect(new HttpStartHost(fakeEnvironment('?project=C%3A%5Ccad%5Cgear+box').env).tabOpening).toEqual({
+      phase: 'opening',
+      project: { path: 'C:\\cad\\gear box', name: 'gear box' },
+      status: { step: 'resolving' },
+    });
+    expect(new HttpStartHost(fakeEnvironment().env).tabOpening).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
   it('listens first, then opens the project, and draws its progress', async () => {
     const opening = { phase: 'opening', project, status: { step: 'creating' } };
     const { env, calls, emit } = fakeEnvironment(search, { 'POST api/sessions': { body: opening } });
@@ -226,6 +238,13 @@ describe("HttpStartHost in a project's tab", () => {
     expect(env.closeTab).toHaveBeenCalled();
     runTimers();
     expect(env.navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('leaves on cancel even when the start server refuses or is gone', async () => {
+    const { env } = fakeEnvironment(search, { 'POST api/sessions/cancel': new TypeError('fetch failed') });
+    const host = new HttpStartHost(env);
+    await expect(host.cancelOpen()).rejects.toThrow('FluidCAD is not running any more');
+    expect(env.closeTab).toHaveBeenCalled();
   });
 
   it('leaves when its project is closed from elsewhere', async () => {

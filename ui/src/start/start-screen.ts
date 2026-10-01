@@ -6,6 +6,7 @@ import { START_SCREEN_PROTOCOL, type StartProject, type StartScreenHost } from '
 import { LearnPanel } from './learn-panel';
 import { Notices } from './notices';
 import { OpeningOverlay } from './opening-overlay';
+import { PROTOCOL_MISMATCH, problemText } from './problem';
 import { ProjectGrid } from './project-grid';
 import { StartTopBar } from './start-top-bar';
 
@@ -15,10 +16,11 @@ const THEME_NAME = /^[\w-]+$/;
 /**
  * The start screen: where the desktop app's windows and `npx fluidcad`'s
  * browser tabs begin. A top bar with Open Project and New Project, the feed's
- * notifications, the recent projects, and "Learn FluidCAD". Opening a project
- * shows this page under the opening overlay until the project's own page
- * takes its place: in the same window in the desktop app, and in a tab of the
- * project's own in a browser.
+ * notifications, the recent projects, and "Learn FluidCAD". In the desktop
+ * app, opening a project shows this page under the opening overlay until the
+ * project's own page takes its place in the same window. In a browser the
+ * project opens in a tab of its own, which shows the overlay alone
+ * (`project-tab-screen.ts`) while this page stays as it is.
  *
  * Everything it shows comes from the host and every action goes back to it;
  * the page keeps no state of its own beyond what is on screen. It re-reads the
@@ -119,7 +121,7 @@ export class StartScreen {
     try {
       const hello = await this.host.hello(START_SCREEN_PROTOCOL);
       if (!hello.ok) {
-        this.showProblem('This start screen does not match the app. Reinstalling FluidCAD fixes this.');
+        this.showProblem(PROTOCOL_MISMATCH);
         return;
       }
       this.home = hello.home;
@@ -212,14 +214,10 @@ export class StartScreen {
   }
 
   private report(err: unknown): void {
-    if (err instanceof ContractError) {
-      this.showProblem(
-        `The app and its start screen disagree (${err.message}). Reinstalling FluidCAD fixes this.`,
-      );
-      return;
+    if (!(err instanceof ContractError)) {
+      console.error('[start screen]', err);
     }
-    console.error('[start screen]', err);
-    this.showProblem(`Something went wrong: ${err instanceof Error ? err.message : String(err)}`);
+    this.showProblem(problemText(err));
   }
 
   private showProblem(message: string): void {

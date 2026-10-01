@@ -9,7 +9,8 @@ export type OpeningOverlayHandlers = {
 };
 
 /**
- * Drawn over the start screen while its window or tab opens a project:
+ * Drawn while a project opens — over the start screen in the desktop app's
+ * window, on its own in the tab a browser opens the project in:
  * setting a new one up, resolving its engine, downloading it if the pin is not
  * installed, starting it. When the engine is ready the project's own page
  * replaces this whole one, so the overlay never has a "done" state. If the

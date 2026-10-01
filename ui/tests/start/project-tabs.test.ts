@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectTabs, projectOfTab, projectTabName, projectTabUrl } from '../../src/start/project-tabs';
+import { ProjectTabs, projectNameOf, projectOfTab, projectTabName, projectTabUrl } from '../../src/start/project-tabs';
 
 /**
  * `npx fluidcad` opens each project in a tab named after it, so opening it
@@ -35,6 +35,12 @@ describe('tab URLs and names', () => {
     expect(projectOfTab('?project=%2Fhome%2Fyou%2Fcad%2Fbracket')).toEqual({ path: '/home/you/cad/bracket', create: false });
     expect(projectOfTab('?project=C%3A%5Ccad%5Cgear+box&create=1')).toEqual({ path: 'C:\\cad\\gear box', create: true });
     expect(projectOfTab('')).toBeNull();
+  });
+
+  it("reads a project's name off its path, whichever way the slashes lean", () => {
+    expect(projectNameOf('/home/you/cad/bracket')).toBe('bracket');
+    expect(projectNameOf('/home/you/cad/bracket/')).toBe('bracket');
+    expect(projectNameOf('C:\\cad\\gear box')).toBe('gear box');
   });
 
   it('names a tab the same way every time, and every project differently', () => {

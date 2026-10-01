@@ -15,7 +15,7 @@ import { mayActOnPageLoad, type LauncherAuth } from './auth.ts';
  * session cookie.
  *
  * `/` is the start screen. `/?project=<path>` is the tab a project opens in:
- * the same page, showing that project's progress until it runs.
+ * the same page, drawing nothing but that project's progress until it runs.
  */
 
 export const START_PAGE_CSP = startPageCsp();

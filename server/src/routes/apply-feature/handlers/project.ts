@@ -75,7 +75,7 @@ export async function handleProject(ctx: ApplyFeatureRequestContext, req: Reques
     const consumer = fluidCadServer.resolveStatementPart?.(sketchLoc) ?? null;
     const resolution = picks.length > 0
       ? await foreignPicks.resolve(picks, chains, { filePath: sketchLoc.filePath, part: consumer })
-      : { ok: true as const, local: picks, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
+      : { ok: true as const, local: picks, chains, refs: [], expressions: [], picks: [], pickRefs: [], crossFileCreates: [] };
     if (resolution.ok === false) {
       res.status(resolution.status).json({
         success: false, reason: resolution.reason, ...(resolution.pick ? { pick: resolution.pick } : {}),

@@ -25,7 +25,7 @@ import {
   applyInstancePoseWithDecls,
 } from './assembly.ts';
 import { applyCreateEdit, applyPlaneSketch, landNewVariableDecls } from './create.ts';
-import { applyProjectForeign, applySketchForeign } from './foreign.ts';
+import { applyPlaneForeign, applyProjectForeign, applySketchForeign } from './foreign.ts';
 import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
 import { LoftConnections } from '../loft-connections.ts';
@@ -189,6 +189,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.feature === 'project' && spec.project?.foreign?.length) {
     return applyProjectForeign(code, spec, applyFeatureEdit);
+  }
+  if (spec.feature === 'plane' && spec.plane?.foreign?.length) {
+    return applyPlaneForeign(code, spec, applyFeatureEdit);
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);

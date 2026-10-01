@@ -1191,6 +1191,108 @@ describe('cross-part sketch on a face whose producer variable is reassigned', ()
   });
 });
 
+describe('cross-part plane on another part\'s face', () => {
+  setupOC();
+
+  // The Plane tool with the Bracket active and the Base's top face picked:
+  // the face is published from the Base through a fresh expose() and the
+  // plane lands in the Bracket's body reading it — not in the Base.
+  it('exposes the picked face from its part and offsets a plane from it in the active part', async () => {
+    const code = [
+      `import { extrude, line, part, sketch } from "fluidcad/core";`,
+      ``,
+      `export const base = part("Base", () => {`,
+      `    sketch("xy", () => {`,
+      `        ${rectBodySrc(100, 60, -50, -30)}`,
+      `    });`,
+      `    const e = extrude(30);`,
+      `});`,
+      ``,
+      `export const bracket = part("Bracket", () => {`,
+      `    sketch("xy", () => {`,
+      `        ${rectBodySrc(10, 10)}`,
+      `    });`,
+      `    extrude(5);`,
+      `});`,
+      ``,
+    ].join('\n');
+
+    getSceneManager()!.startScene();
+    const basePart = core.part('Base', () => {
+      sketch('xy', () => { drawRect(100, 60, -50, -30); });
+      const e = extrude(30);
+      (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 7, column: 14 });
+    });
+    (basePart as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 3, column: 20 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The top: the only face whose edges all sit at z = 30.
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.length > 0 && mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    // The donor-side create the resolver synthesizes for an unexposed pick.
+    const namer = await makeProducerNamer(code);
+    const bindable = await makeProducerBindable(code);
+    const synthesis = synthesizeApplyFeature(scene, picks, 'expose', 'g1', [], { namer, bindable });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.spec.expose?.part).toEqual({ line: 3, column: 20 });
+
+    // The foreign-plane spec the route composes for a same-file donor.
+    const edited = await applyFeatureEdit(code, {
+      feature: 'plane',
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      activePart: { line: 10, column: 23 },
+      plane: {
+        type: 'offset', offset: 10, rotateX: null, rotateY: null, rotateZ: null,
+        bases: [{ kind: 'foreign', ref: 0 }],
+        foreign: [{ exposeName: 'g1', donor: { line: 3, column: 20 }, create: synthesis.spec }],
+      },
+    });
+    expect(edited.error).toBeUndefined();
+    const lines = edited.newCode.split('\n');
+    const exposeRow = lines.findIndex(l => l.includes("expose('g1', "));
+    const bracketRow = lines.findIndex(l => l.includes('part("Bracket"'));
+    const planeRow = lines.findIndex(l => l.includes('plane(base.features.g1, 10)'));
+    expect(exposeRow).toBeGreaterThan(-1);
+    expect(exposeRow).toBeLessThan(bracketRow);
+    expect(planeRow).toBeGreaterThan(bracketRow);
+
+    // Execute the edited program: the plane builds in the Bracket, 10 above
+    // the Base's top face.
+    getSceneManager()!.startScene();
+    const globals: Record<string, unknown> = { ...core, ...filters, ...math };
+    const names = Object.keys(globals);
+    const src = edited.newCode.replace(IMPORT_LINE_RE, '').replace(/^export /gm, '');
+    const fn = new Function(...names, `"use strict";\n${src}\nreturn { base, bracket };`);
+    const handles = fn(...names.map(n => globals[n])) as { base: any; bracket: any };
+    handles.bracket.materialize();
+    const rerun = render();
+    for (const obj of rerun.getAllSceneObjects()) {
+      expect(obj.getError?.() ?? null).toBeNull();
+    }
+    const bracket = rerun.getAllSceneObjects()
+      .find(o => o.getType() === 'part' && (o as any).partName === 'Bracket')!;
+    // The Bracket's own sketch carries an internal plane — the statement's is the only named one.
+    const planes = bracket.getChildren()
+      .filter((o): o is PlaneObjectBase => o instanceof PlaneObjectBase && !o.isInternal());
+    expect(planes).toHaveLength(1);
+    expect(planes[0].getPlane().origin.z).toBeCloseTo(40);
+  });
+});
+
 describe('create into the active part from a sketch drawn before it', () => {
   setupOC();
 

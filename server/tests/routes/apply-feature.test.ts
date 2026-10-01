@@ -2013,6 +2013,196 @@ describe('apply-feature route validation', () => {
     expect(body.reason).toContain('different files');
   });
 
+  describe('foreign plane bases (cross-part reference)', () => {
+    const FILE = '/ws/m.fluid.js';
+    const TWO_PART_CODE = [
+      `import { sketch, circle, extrude, part, expose } from 'fluidcad/core'`,
+      ``,
+      `export const p1 = part('Donor', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(30)`,
+      `  expose('endFace', e.endFaces(0))`,
+      `})`,
+      ``,
+      `export const p2 = part('Consumer', () => {`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const ACTIVE = { filePath: FILE, line: 9, column: 18 };
+    const DONOR_PICK = { shapeId: 'donor-shape', sub: { type: 'face', index: 0 } };
+    const donorResolution = (matched: string | null, existingNames: string[]) => ({
+      ok: true,
+      donor: { partName: 'Donor', filePath: FILE, line: 3, column: 18, matched, existingNames },
+    });
+
+    it('relays a matched exposure as a foreign base into the active part', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      // The reference is composed route-side — the donor's own selector is
+      // never synthesized.
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec).toMatchObject({
+        feature: 'plane',
+        filePath: FILE,
+        activePart: { line: 9, column: 18 },
+        producers: [],
+        parts: [],
+        plane: {
+          type: 'offset', offset: 10,
+          bases: [{ kind: 'foreign', ref: 0 }],
+          foreign: [{ exposeName: 'endFace', donor: { line: 3, column: 18 } }],
+        },
+      });
+    });
+
+    it('previews the reference with the foreign notice payload', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE, preview: true,
+      });
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      expect(body.foreign).toEqual({
+        picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }],
+      });
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('allocates a fresh name and embeds the expose create spec when unmatched', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution(null, ['g1']);
+      const exposeSpec = {
+        feature: 'expose', filePath: FILE,
+        expose: { name: 'g2', part: { line: 3, column: 18 } },
+        producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      };
+      currentSynthesis = {
+        ok: true, spec: exposeSpec, preview: `expose('g2', e.endFaces(0))`,
+        args: 'e.endFaces(0)', alternatives: [],
+      };
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.g2, 10)');
+      // Only the donor-side expose rail ran — never the plane's own synthesis.
+      expect(synthesizeCalls.length).toBeGreaterThan(0);
+      expect(synthesizeCalls.every(c => c.feature === 'expose')).toBe(true);
+      const plane = relayed[0].spec.plane;
+      expect(plane.bases).toEqual([{ kind: 'foreign', ref: 0 }]);
+      expect(plane.foreign[0].exposeName).toBe('g2');
+      expect(plane.foreign[0].donor).toEqual({ line: 3, column: 18 });
+      expect(plane.foreign[0].create).toEqual(exposeSpec);
+    });
+
+    it('keeps the normal flow when the picked part IS the active part', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = {
+        ok: true,
+        donor: { partName: 'Consumer', filePath: FILE, line: 9, column: 18, matched: null, existingNames: [] },
+      };
+      currentSynthesis = planeSynthesis('endFaces');
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 5, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toBe('plane(e.endFaces(), 5)');
+      expect(relayed[0].spec.plane.bases).toEqual([{ kind: 'selector', part: 0 }]);
+      expect(relayed[0].spec.plane.foreign).toBeUndefined();
+    });
+
+    it('lands a foreign base at the file\'s top level when no part is active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      const spec = relayed[0].spec;
+      expect(spec.filePath).toBe(FILE);
+      expect(spec.activePart).toBeUndefined();
+      expect(spec.plane.bases).toEqual([{ kind: 'foreign', ref: 0 }]);
+    });
+
+    it('mixes an own pick and a foreign pick in a mid plane, synthesizing only the own one', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = (pick: any) => (pick.shapeId === DONOR_PICK.shapeId
+        ? donorResolution('endFace', ['endFace'])
+        : { ok: true, donor: { partName: 'Consumer', filePath: FILE, line: 9, column: 18, matched: null, existingNames: [] } });
+      currentSynthesis = planeSynthesis('endFaces', 10);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'mid',
+        bases: [planePick(0), { kind: 'pick', entity: DONOR_PICK }],
+        activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeInputs).toEqual([{ picks: [PICK], chains: [] }]);
+      // `e` is the donor's binding already — the consumer's own extrude gets the next name.
+      expect(body.preview).toBe('plane(plane(e2.endFaces()), plane(p1.features.endFace))');
+      expect(relayed[0].spec).toMatchObject({
+        activePart: { line: 9, column: 18 },
+        producers: [{ line: 10, featureType: 'extrude', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces' }],
+        plane: {
+          type: 'mid',
+          bases: [{ kind: 'selector', part: 0 }, { kind: 'foreign', ref: 0 }],
+          foreign: [{ exposeName: 'endFace', donor: { line: 3, column: 18 } }],
+        },
+      });
+    });
+
+    it('renders a foreign edge as the edge plane\'s base', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('rim', ['rim']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'edge', position: 0.5, bases: [planePick(2, 'edge')], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.rim, 0.5)');
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec.plane).toMatchObject({
+        type: 'edge', position: 0.5, bases: [{ kind: 'foreign', ref: 0 }],
+      });
+    });
+
+    it('surfaces the resolver refusal (assembly scenes)', async () => {
+      currentExposureResolution = { ok: false, reason: 'cross-part geometry references are authored in the part file' };
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('part file');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   it('resolves bound plane names with the plane callee', async () => {
     currentCode = [
       `import { plane, sketch, circle } from 'fluidcad/core'`,

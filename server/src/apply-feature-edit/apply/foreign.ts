@@ -1,4 +1,4 @@
-// Cross-part references: applying nested exposure creates and rendering the consumer-side sketch/projection.
+// Cross-part references: applying nested exposure creates and rendering the consumer-side sketch/projection/plane.
 
 import { ensureSymbolImport, importLocalName } from '../../code-editor/index.ts';
 import { applyCreateEdit } from './create.ts';
@@ -10,8 +10,8 @@ import { resolvePartBindingIdent } from '../part-binding.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec, FeatureEditApply } from '../spec.ts';
 
 /**
- * The consumer-side cross-part reference rail the sketch-on-face and the
- * projection creates share. A reference renders as
+ * The consumer-side cross-part reference rail the sketch-on-face, the
+ * projection and the plane creates share. A reference renders as
  * `<ident>.features.<exposeName>`; a same-file `create` (the donor's
  * `expose()` statement) is applied FIRST in the same transform, and every
  * call site the consumer statement still needs — its own anchors, the
@@ -221,6 +221,59 @@ export async function applyProjectForeign(
     ...spec,
     producers: spec.producers.map((p, i) => ({ ...p, line: staged.anchors[i + 1] })),
     project: { ...pj, sketch: { ...pj.sketch, line: staged.anchors[0] }, foreign: staged.refs },
+  };
+  const result = await applyCreateEdit(staged.code, relocated, {
+    foreignArgs: staged.refs.map((ref, i) => ForeignExposures.reference(idents[i], ref)),
+  });
+  if (result.error) {
+    return { newCode: code, error: result.error };
+  }
+  return { newCode: await ForeignExposures.ensureImports(result.newCode, staged.refs, idents) };
+}
+
+/**
+ * The cross-part plane: `plane(<ident>.features.<name>, …)` — each `foreign`
+ * base renders its reference, the other bases render as usual. The donors'
+ * same-file `expose()` creates are applied first, with the active part's
+ * call site and the local producers relocated across them — one atomic
+ * transform. A reference pins no scope, so a plane over foreign bases alone
+ * lands in the active part's body (the file's top level with none), like a
+ * standard-base plane; a local pick still lands it beside its own geometry.
+ */
+export async function applyPlaneForeign(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+  apply: FeatureEditApply,
+): Promise<ApplyFeatureEditResult> {
+  const pl = spec.plane!;
+  const refs = pl.foreign!;
+  const part = spec.activePart;
+  const valid = Array.isArray(refs) && refs.every(ref => ForeignExposures.valid(ref))
+    && (part === undefined || (Number.isInteger(part.line) && Number.isInteger(part.column)));
+  if (!valid) {
+    return { newCode: code, error: 'malformed foreign plane spec' };
+  }
+
+  const anchors = [...(part ? [part.line] : []), ...spec.producers.map(p => p.line)];
+  const staged = await ForeignExposures.applyCreates(apply, code, refs, anchors);
+  if ('error' in staged) {
+    return { newCode: code, error: staged.error };
+  }
+  const idents: string[] = [];
+  for (const ref of staged.refs) {
+    const ident = await ForeignExposures.resolveIdent(staged.code, ref);
+    if ('error' in ident) {
+      return { newCode: code, error: ident.error };
+    }
+    idents.push(ident.ident);
+  }
+
+  const offset = part ? 1 : 0;
+  const relocated: ApplyFeatureEditSpec = {
+    ...spec,
+    ...(part ? { activePart: { ...part, line: staged.anchors[0] } } : {}),
+    producers: spec.producers.map((p, i) => ({ ...p, line: staged.anchors[i + offset] })),
+    plane: { ...pl, foreign: staged.refs },
   };
   const result = await applyCreateEdit(staged.code, relocated, {
     foreignArgs: staged.refs.map((ref, i) => ForeignExposures.reference(idents[i], ref)),

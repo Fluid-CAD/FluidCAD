@@ -169,7 +169,7 @@ export function buildStatement(
   if (spec.feature === 'plane') {
     const pl = spec.plane!;
     return renderPlaneStatement(
-      pl, renderPlaneBaseExprs(pl, spec.parts, i => bindings[i].varName),
+      pl, renderPlaneBaseExprs(pl, spec.parts, i => bindings[i].varName, foreignArgs),
     );
   }
   if (spec.feature === 'sketch' && spec.sketchOnPlane) {

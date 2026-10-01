@@ -9,6 +9,7 @@ import {
   stringArgValue,
 } from '../ast/args.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
+import type { ForeignExposureRef } from './expose.ts';
 import { isPlaneProducer, isWireProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
@@ -17,14 +18,17 @@ import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 /**
  * One base of a plane statement: a standard origin plane (renders as its
  * string literal, no producer involved), a picked face/edge rendered from a
- * `parts` entry, or an existing plane feature bound to a variable.
+ * `parts` entry, an existing plane feature bound to a variable, or a picked
+ * face/edge another part owns, rendered as its exposure reference.
  */
 export type PlaneBaseSpec =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'selector'; part: number }
   | { kind: 'plane'; producer: number }
   /** A helix statement as the edge form's base (its wire is the edge). */
-  | { kind: 'wire'; producer: number };
+  | { kind: 'wire'; producer: number }
+  /** Another part's face/edge: `<donor>.features.<name>`, by index into {@link PlaneEditOptions.foreign}. */
+  | { kind: 'foreign'; ref: number };
 
 /**
  * How a plane statement is rendered: `plane(<base>)` for an offset plane —
@@ -67,11 +71,15 @@ export function validPlaneRotationAxes(value: unknown): value is PlaneRotationAx
  * selector is wrapped in its own `plane(…)` there. With only standard bases
  * the spec carries no producers at all and the statement appends at top
  * level; otherwise it inserts at end of scope, where picked geometry is
- * known to resolve.
+ * known to resolve. A base another part owns pins no scope: it reads that
+ * part's exposure, so a plane over foreign bases alone lands like a
+ * standard one — in the active part, or at the top level.
  */
 export type PlaneEditOptions = PlaneValueOptions & {
   /** One base for an offset/edge plane, two for a mid plane. */
   bases: PlaneBaseSpec[];
+  /** The cross-part references the `foreign` bases render, each used by exactly one base. */
+  foreign?: ForeignExposureRef[];
 };
 
 /**
@@ -124,16 +132,19 @@ export function renderPlaneStatement(pl: PlaneValueOptions, baseExprs: string[])
 
 /**
  * Render one plane base as an expression: `'xy'` for a standard plane, the
- * bound variable for an existing plane/helix feature, or the selector part
- * for a picked face/edge. A mid plane needs plane-like arguments, so a raw
- * selector is wrapped in its own `plane(…)` there — the same lift an edited
- * statement's kept selector base gets.
+ * bound variable for an existing plane/helix feature, the selector part for
+ * a picked face/edge, or the resolved reference expression for another
+ * part's face/edge (`foreignExprs`, by the base's `ref`). A mid plane needs
+ * plane-like arguments, so a raw selector or reference is wrapped in its own
+ * `plane(…)` there — the same lift an edited statement's kept selector base
+ * gets.
  */
 export function renderPlaneBaseExpr(
   base: PlaneBaseSpec,
   type: PlaneValueOptions['type'],
   parts: ApplyFeatureEditSpec['parts'],
   varFor: (producer: number) => string | null,
+  foreignExprs: string[] = [],
 ): string {
   if (base.kind === 'standard') {
     return `'${base.plane}'`;
@@ -144,22 +155,29 @@ export function renderPlaneBaseExpr(
   if (base.kind === 'wire') {
     return varFor(base.producer) ?? 'h';
   }
-  const part = parts[base.part];
-  const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+  let expr: string;
+  if (base.kind === 'foreign') {
+    expr = foreignExprs[base.ref];
+  } else {
+    const part = parts[base.part];
+    expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+  }
   return type === 'mid' ? `plane(${expr})` : expr;
 }
 
 /**
  * Render a created plane's base expressions, in argument order. Shared with
- * the route, which passes its namer's variables; the transform passes its
- * bindings'.
+ * the route, which passes its namer's variables and the resolver's reference
+ * expressions; the transform passes its bindings' and the references it
+ * resolved against the staged code.
  */
 export function renderPlaneBaseExprs(
   pl: PlaneEditOptions,
   parts: ApplyFeatureEditSpec['parts'],
   varFor: (producer: number) => string | null,
+  foreignExprs: string[] = [],
 ): string[] {
-  return pl.bases.map(base => renderPlaneBaseExpr(base, pl.type, parts, varFor));
+  return pl.bases.map(base => renderPlaneBaseExpr(base, pl.type, parts, varFor, foreignExprs));
 }
 
 /**

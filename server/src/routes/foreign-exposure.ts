@@ -43,6 +43,8 @@ export type ForeignPickResolution =
     expressions: string[];
     /** Every foreign pick, for the response's notice. */
     picks: ForeignPickSummary[];
+    /** Parallel to `picks`: the index in `refs` of the reference serving each one. */
+    pickRefs: number[];
     /** Cross-file expose creates — the caller dispatches these to the donor files first. */
     crossFileCreates: ApplyFeatureEditSpec[];
   }
@@ -134,7 +136,7 @@ export class ForeignPickResolver {
     const foreignKeys = new Set(classified.foreign.map(f => pickKey(f.pick)));
     const local = picks.filter(p => !foreignKeys.has(pickKey(p)));
     if (classified.foreign.length === 0) {
-      return { ok: true, local, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
+      return { ok: true, local, chains, refs: [], expressions: [], picks: [], pickRefs: [], crossFileCreates: [] };
     }
     // A chain synthesizes to one `.withTangents()` selector on its owner; an
     // exposure publishes a single face or edge. A chain touching another
@@ -146,8 +148,9 @@ export class ForeignPickResolver {
     const refs: ForeignExposureRef[] = [];
     const expressions: string[] = [];
     const summaries: ForeignPickSummary[] = [];
+    const pickRefs: number[] = [];
     const crossFileCreates: ApplyFeatureEditSpec[] = [];
-    const seen = new Set<string>();
+    const refIndex = new Map<string, number>();
     for (const { pick, donor } of classified.foreign) {
       const key = `${normalizePath(donor.filePath)}:${donor.line}:${donor.column}`;
       let resolved = donors.get(key);
@@ -162,11 +165,14 @@ export class ForeignPickResolver {
       const existing = donor.matched !== null;
       const name = donor.matched ?? allocateExposeName(resolved.taken);
       summaries.push({ shapeId: pick.shapeId, sub: pick.sub, partName: donor.partName, exposeName: name, existing });
-      if (seen.has(`${key}/${name}`)) {
+      const served = refIndex.get(`${key}/${name}`);
+      if (served !== undefined) {
         // Two picks served by the same exposure reference it once.
+        pickRefs.push(served);
         continue;
       }
-      seen.add(`${key}/${name}`);
+      refIndex.set(`${key}/${name}`, refs.length);
+      pickRefs.push(refs.length);
       let create: ApplyFeatureEditSpec | null = null;
       if (!existing) {
         resolved.taken.push(name);
@@ -190,7 +196,7 @@ export class ForeignPickResolver {
       }
       expressions.push(`${resolved.ident}.features.${name}`);
     }
-    return { ok: true, local, chains: keptChains, refs, expressions, picks: summaries, crossFileCreates };
+    return { ok: true, local, chains: keptChains, refs, expressions, picks: summaries, pickRefs, crossFileCreates };
   }
 
   /**
@@ -267,6 +273,7 @@ export class ForeignPickResolver {
   }
 }
 
-function pickKey(pick: Pick): string {
+/** A pick's identity — the key a resolution's `picks` are matched back to their inputs by. */
+export function pickKey(pick: Pick): string {
   return `${pick.shapeId}/${pick.sub.type}/${pick.sub.index}`;
 }

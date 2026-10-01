@@ -7,9 +7,11 @@ import part from "../core/part.js";
 import expose from "../core/expose.js";
 import insert from "../core/insert.js";
 import param from "../core/param.js";
+import plane from "../core/plane.js";
 import { testRect } from "./helpers/profiles.js";
 import { Part } from "../features/part.js";
 import { Exposed } from "../features/exposed.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 
 describe("expose scope", () => {
   setupOC();
@@ -144,6 +146,44 @@ describe("expose scope", () => {
     ) as Part;
     const solids = consumer.getChildren().flatMap(c => c.getShapes(undefined, "solid"));
     expect(solids.length).toBeGreaterThan(0);
+  });
+
+  it("a consumer part's plane offsets from another part's exposed face", () => {
+    const donor = part("Donor", () => {
+      sketch("xy", () => { testRect(20, 20); });
+      const e = extrude(30);
+      expose("top", e.endFaces());
+    });
+    let offset!: PlaneObjectBase;
+    part("Consumer", () => {
+      offset = plane(donor.features.top, 10) as PlaneObjectBase;
+    });
+
+    const scene = render();
+
+    expect(offset.getPlane().origin.z).toBeCloseTo(40);
+    expect(Math.abs(offset.getPlane().normal.z)).toBeCloseTo(1);
+    // The plane is the consumer's own statement, not the donor's.
+    const consumer = scene.getAllSceneObjects().find(
+      o => o instanceof Part && (o as Part).partName === "Consumer",
+    ) as Part;
+    expect(consumer.getChildren()).toContain(offset);
+  });
+
+  it("a consumer part's mid plane lifts another part's exposed face", () => {
+    const donor = part("Donor", () => {
+      sketch("xy", () => { testRect(20, 20); });
+      const e = extrude(30);
+      expose("top", e.endFaces());
+    });
+    let mid!: PlaneObjectBase;
+    part("Consumer", () => {
+      mid = plane(plane(donor.features.top), "xy") as PlaneObjectBase;
+    });
+
+    render();
+
+    expect(mid.getPlane().origin.z).toBeCloseTo(15);
   });
 
   it("build() never consumes the source — the exposed sketch keeps its shapes", () => {

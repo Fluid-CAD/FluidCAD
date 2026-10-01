@@ -46,9 +46,10 @@ import { validCountValue, validEditExtend, validValueExpr } from '../value-expr.
 /**
  * The generic create path: validate the spec's shape for its feature, bind
  * the producers, render the statement and land it at its insertion point.
- * `extras.foreignArgs` are pre-rendered argument expressions appended after
- * the selector parts (the cross-part projection's `<ident>.features.<name>`
- * references, resolved by {@link applyProjectForeign} before it gets here).
+ * `extras.foreignArgs` are the pre-rendered `<ident>.features.<name>`
+ * cross-part references, resolved before it gets here: a projection appends
+ * them after its selector parts ({@link applyProjectForeign}), a plane's
+ * `foreign` bases render them by index ({@link applyPlaneForeign}).
  */
 export async function applyCreateEdit(
   code: string,
@@ -218,6 +219,12 @@ export async function applyCreateEdit(
     const selectorParts = pl?.bases
       ?.filter((b): b is { kind: 'selector'; part: number } => b?.kind === 'selector')
       .map(b => b.part) ?? [];
+    // The references a cross-part base renders were resolved by the foreign
+    // rail, one expression per reference.
+    const foreignRefs = pl?.foreign ?? [];
+    const foreignBases = pl?.bases
+      ?.filter((b): b is { kind: 'foreign'; ref: number } => b?.kind === 'foreign')
+      .map(b => b.ref) ?? [];
     const valid = pl !== undefined
       && Array.isArray(pl.bases)
       && (pl.type === 'mid' ? pl.bases.length === 2
@@ -227,18 +234,24 @@ export async function applyCreateEdit(
           : b?.kind === 'plane' ? isPlaneProducer(spec, b.producer)
             // A wire base (a helix's edge) belongs to the edge form only.
             : b?.kind === 'wire' ? (pl.type === 'edge' && isWireProducer(spec, b.producer))
-              : b?.kind === 'selector' && Number.isInteger(b.part) && b.part >= 0 && b.part < spec.parts.length)
+              : b?.kind === 'foreign' ? Number.isInteger(b.ref) && b.ref >= 0 && b.ref < foreignRefs.length
+                : b?.kind === 'selector' && Number.isInteger(b.part) && b.part >= 0 && b.part < spec.parts.length)
       // Every selector part belongs to exactly one base.
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length
+      // Every reference belongs to exactly one base, and was resolved.
+      && Array.isArray(foreignRefs)
+      && foreignBases.length === foreignRefs.length
+      && new Set(foreignBases).size === foreignBases.length
+      && (extras.foreignArgs?.length ?? 0) === foreignRefs.length
       && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ]
         .every(v => v === null || validValueExpr(v))
       && validPlaneRotationAxes(pl.rotationAxes)
-      // The edge form is an edge source (a picked edge or a helix) plus a
-      // normalized position — the second argument slot is taken, so no
-      // offset/rotation can ride.
+      // The edge form is an edge source (a picked edge — own or another
+      // part's — or a helix) plus a normalized position — the second
+      // argument slot is taken, so no offset/rotation can ride.
       && (pl.type !== 'edge' || (
-        (pl.bases[0]?.kind === 'selector' || pl.bases[0]?.kind === 'wire')
+        (pl.bases[0]?.kind === 'selector' || pl.bases[0]?.kind === 'wire' || pl.bases[0]?.kind === 'foreign')
         && pl.position !== null && pl.position !== undefined
         && validValueExpr(pl.position)
         && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
@@ -248,11 +261,12 @@ export async function applyCreateEdit(
       return { newCode: code, error: 'malformed plane edit spec' };
     }
     // Standard-only bases involve no existing statement — the plane appends
-    // at top level like the pick-less sketch.
+    // at top level like the pick-less sketch. So do another part's bases:
+    // the reference reads that part's exposure from wherever the plane is.
     if (spec.producers.length === 0 && spec.parts.length === 0) {
       return appendTopLevelStatement(
         code,
-        () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
+        () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null, extras.foreignArgs)),
         'plane',
         spec.newVariables,
         spec.activePart,

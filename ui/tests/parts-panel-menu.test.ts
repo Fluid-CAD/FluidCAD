@@ -187,3 +187,33 @@ describe('parts panel occurrence groups', () => {
     expect(occDelete).toHaveBeenCalledWith('asm-0');
   });
 });
+
+describe('parts panel name cells', () => {
+  const sourceName = (row: Element | null) => row?.querySelector('[data-ref="source-name"]')?.textContent ?? null;
+
+  it('shows the part under an instance that carries a name of its own', () => {
+    const { container } = mount([{ ...instance('a', false), name: 'bracket1', partName: 'Bracket' }]);
+    const row = container.querySelector('[data-instance-id="a"]');
+    expect(row?.textContent).toContain('bracket1');
+    expect(sourceName(row)).toBe('Bracket');
+  });
+
+  it('shows the assembly under a named occurrence', () => {
+    const { container } = mount([instance('m', false, 'asm-0')], [{ ...occurrence('asm-0'), name: 'Left rig' }]);
+    expect(sourceName(container.querySelector('[data-occurrence-id="asm-0"]'))).toBe('sub-asm-0');
+  });
+
+  it('shows the part even when the instance has no name of its own', () => {
+    const { container } = mount([{ ...instance('a', false), name: 'Bracket', partName: 'Bracket' }]);
+    expect(sourceName(container.querySelector('[data-instance-id="a"]'))).toBe('Bracket');
+  });
+
+  it('keeps the part in view while the name is being edited', () => {
+    const { container } = mount([{ ...instance('a', false), name: 'bracket1', partName: 'Bracket' }]);
+    rightClickRow(container, 'a');
+    container.querySelector<HTMLElement>('[data-action="rename"]')!.click();
+    const row = container.querySelector('[data-instance-id="a"]');
+    expect(row?.querySelector<HTMLInputElement>('[data-rename-input="instance"]')?.value).toBe('bracket1');
+    expect(sourceName(row)).toBe('Bracket');
+  });
+});

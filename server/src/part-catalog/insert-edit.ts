@@ -64,12 +64,15 @@ export type InsertPartEditSpec = {
  * assembly file, importing each export (and `insert`) as needed:
  *
  *     import { extrusion } from './extrusion.fluid.js';
- *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 });
- *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 });
+ *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion1');
+ *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion2');
  *
  * Every entry is bound to a fresh `const` so the follow-up flows (translate
  * chains, mates, sub-assembly part paths) have a name to reference; names
  * number against the evolving code, so one batch never collides with itself.
+ * The instance is named after its variable, so two inserts of one part read
+ * apart in the parts panel from the start; renaming it there renames the
+ * variable in turn (see `renameInsertBinding`).
  * Import bindings dodge collisions too: an export whose name is already
  * bound (by another file's import, a local declaration, or a fluidcad/core
  * symbol) is imported under an alias derived from its file
@@ -125,7 +128,7 @@ export async function applyInsertPartEdit(
     const callSuffix = entry.kind === 'value' ? '' : '()';
     const paramsLiteral = renderParamsLiteral(entry.params);
     const statement =
-      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''});`;
+      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''}).name('${varName}');`;
 
     const parser = await getJavaScriptParser();
     const tree = parser.parse(out);

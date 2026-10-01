@@ -1,4 +1,5 @@
 import { getJavaScriptParser, type TSNode, type TSTree } from './code-editor/index.ts';
+import { renameInsertBinding } from './insert-binding-rename.ts';
 
 export type { TSNode, TSTree };
 
@@ -121,7 +122,11 @@ function jsString(value: string): string {
 
 export type InsertChainEdit = {
   ground?: boolean;
-  /** `string` to set, `null` to drop, `undefined` to leave alone. */
+  /**
+   * `string` to set, `null` to drop, `undefined` to leave alone. A set name
+   * renames the `const` the insert is bound to after it, every read of that
+   * const included — see {@link renameInsertBinding}.
+   */
   name?: string | null;
   /** Drop `.name(...)` if its value matches this default (revert-to-default). */
   defaultName?: string;
@@ -164,6 +169,16 @@ export async function updateInsertChain(
   // Enforce single-ground invariant if we just set this insert as grounded.
   if (edit.ground === true) {
     working = removeGroundedFromOtherInserts(working, sourceLine, p);
+  }
+
+  // A renamed instance takes its variable along. None of the edits above
+  // adds or removes a line, so the chain is still where `sourceLine` says.
+  if (typeof edit.name === 'string') {
+    const tree = p.parse(working);
+    const tail = findChainAt(tree, sourceLine);
+    if (tail) {
+      working = renameInsertBinding(working, tree, tail, edit.name);
+    }
   }
 
   return { newCode: working };

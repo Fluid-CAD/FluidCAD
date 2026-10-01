@@ -373,7 +373,7 @@ export function createParamsRouter(
       const { plan, tree } = planned;
       const current = plan.declaration.variable;
       if (current !== null) {
-        variable = ParamEditor.variableNameFor(spec.label, tree, current);
+        variable = DeclarationRewrite.variableNameFor(spec.label, tree, current);
       }
       const renamed = variable !== undefined && variable !== current;
       const newVariable = renamed ? variable! : null;

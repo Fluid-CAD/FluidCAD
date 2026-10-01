@@ -47,6 +47,29 @@ export function identifierFromLabel(label: string): string {
 }
 
 export class DeclarationRewrite {
+  /**
+   * The variable a label binds: the label camel-cased, stepped past
+   * anything the file already declares. `Wall thickness` binds `wallThickness`;
+   * a second label that reduces to the same name binds `wallThickness2`,
+   * so a new binding can never shadow a name the model is already reading.
+   *
+   * `current` is the name a binding being renamed already has: when the new
+   * label reduces to it the name stays, and it is never counted as taken by
+   * itself.
+   */
+  static variableNameFor(label: string, tree: TSTree, current: string | null = null): string {
+    const seed = identifierFromLabel(label);
+    const taken = (name: string) => name !== current && declaresName(tree, name);
+    if (!taken(seed)) {
+      return seed;
+    }
+    let n = 2;
+    while (taken(`${seed}${n}`)) {
+      n++;
+    }
+    return `${seed}${n}`;
+  }
+
   /** Reads of the bound variable in the declaring file, as the panel's `references` / `referenceLines`. */
   static variableReads(plan: DeclarationPlan): { references: number; referenceLines: number[] } {
     const reads = plan.sites.filter((site) => site.kind === 'variable');

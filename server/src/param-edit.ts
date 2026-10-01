@@ -13,7 +13,6 @@ import {
   type TSTree,
 } from './code-editor/index.ts';
 import {
-  declaresName,
   findDeclarationCalls,
   isStandaloneDeclaration,
   locateDeclarationCall,
@@ -28,7 +27,7 @@ import {
   type DeclarationPlan,
   type DeclarationReport,
 } from './declaration-usages.ts';
-import { DeclarationRewrite, identifierFromLabel } from './declaration-rewrite.ts';
+import { DeclarationRewrite } from './declaration-rewrite.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -234,7 +233,7 @@ export class ParamEditor {
     if (ParamEditor.findAll(tree).some((d) => d.key === param.label)) {
       return { newCode: code, error: `this model already has a parameter labelled "${param.label}"` };
     }
-    const variable = ParamEditor.variableNameFor(param.label, tree);
+    const variable = DeclarationRewrite.variableNameFor(param.label, tree);
     const statement = `const ${variable} = ${ParamEditor.renderCall(param)};`;
     let declared: { newCode: string } | { error: string };
     if (assembly) {
@@ -264,29 +263,6 @@ export class ParamEditor {
       declared = exposed;
     }
     return { newCode: await ensureSymbolImport(declared.newCode, 'param') };
-  }
-
-  /**
-   * The variable a new declaration binds: the label camel-cased, stepped past
-   * anything the file already declares. `Wall thickness` binds `wallThickness`;
-   * a second parameter that reduces to the same name binds `wallThickness2`,
-   * so adding one can never shadow a name the model is already reading.
-   *
-   * `current` is the name a declaration being renamed already binds: when
-   * the new label reduces to it the name stays, and it is never counted as
-   * taken by itself.
-   */
-  static variableNameFor(label: string, tree: TSTree, current: string | null = null): string {
-    const seed = identifierFromLabel(label);
-    const taken = (name: string) => name !== current && declaresName(tree, name);
-    if (!taken(seed)) {
-      return seed;
-    }
-    let n = 2;
-    while (taken(`${seed}${n}`)) {
-      n++;
-    }
-    return `${seed}${n}`;
   }
 
   /**

@@ -95,7 +95,7 @@ describe('assembly parameters', () => {
       newVariables: [{ name: 'length', initializer: 'width / 2' }],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain('  const length = width / 2;\n  const beam1 = insert(beam, { Length: length });');
+    expect(result.newCode).toContain('  const length = width / 2;\n  const beam1 = insert(beam, { Length: length }).name(\'beam1\');');
     expect(result.newCode.indexOf('const beam1')).toBeLessThan(result.newCode.lastIndexOf('});'));
   });
 });

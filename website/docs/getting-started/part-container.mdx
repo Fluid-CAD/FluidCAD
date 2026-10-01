@@ -28,8 +28,8 @@ It is required as soon as the part is going to be **inserted into an assembly**.
 
 1. Click **+** at the end of the tab strip. A box opens with every file in the workspace; type a name that does not exist yet, `hinge-leaf-fixed.part.js`, and press <kbd>Enter</kbd>. The file is created and opens as a tab. (Any editor works too: the server watches the folder.)
 2. Click **Part** on the toolbar. It appends an empty part to the file and the History panel shows a **Part 1** row.
-3. Right-click the row and choose **Rename**. Type `Fixed leaf`. The name is written into the `part('…')` statement and becomes the part's display name everywhere: the History panel, the assembly's Parts list, the STEP export.
-4. Open the code editor (the `</>` button on the left rail, or <kbd>Ctrl</kbd>+<kbd>B</kbd>) and add `export const fixedLeaf =` in front of the statement. The export is the one thing the toolbar does not write for you, and it is what the assembly will import later.
+3. Right-click the row and choose **Rename**. Type `Fixed leaf`. The name is written into the `part('…')` statement and becomes the part's display name everywhere: the History panel, the assembly's Parts list, the STEP export. The variable the part is exported by is renamed after it, to `fixedLeaf`.
+4. Open the code editor (the `</>` button on the left rail, or <kbd>Ctrl</kbd>+<kbd>B</kbd>) to see the statement: `export const fixedLeaf = part('Fixed leaf', () => {})`. The export is what the assembly will import later.
 
 Nothing renders yet: the part is empty. The History panel shows the part row, and every feature you add from now on lands inside it.
 

@@ -1064,6 +1064,37 @@ describe('setFeatureName', () => {
     expect(result.newCode).toBe(code);
   });
 
+  it('renames a part through its first argument', async () => {
+    const code = `export const part1 = part('Part 1', () => {\n  extrude(10);\n});\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`export const part1 = part('Fixed leaf', () => {\n  extrude(10);\n});\n`);
+  });
+
+  it('keeps the other chains of a renamed part', async () => {
+    const code = `part("Part 1", () => {}).material('fluidcad-steel-1020');\n`;
+    const result = await setFeatureName(code, 1, "Bob's leaf");
+    expect(result.newCode).toBe(`part('Bob\\'s leaf', () => {}).material('fluidcad-steel-1020');\n`);
+  });
+
+  it('takes the .name() chain off a renamed part, so the argument is what shows', async () => {
+    const code = `part('Part 1', () => {}).name('Leaf').material('fluidcad-steel-1020');\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`part('Fixed leaf', () => {}).material('fluidcad-steel-1020');\n`);
+  });
+
+  it('names a part whose first argument is not a literal through the chain', async () => {
+    const code = `part(label, () => {});\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`part(label, () => {}).name('Fixed leaf');\n`);
+  });
+
+  it('leaves a part\'s argument alone when the name is cleared', async () => {
+    const chained = `part('Part 1', () => {}).name('Leaf');\n`;
+    expect((await setFeatureName(chained, 1, null)).newCode).toBe(`part('Part 1', () => {});\n`);
+    const bare = `part('Part 1', () => {});\n`;
+    expect((await setFeatureName(bare, 1, '')).newCode).toBe(bare);
+  });
+
   it('no-ops when no call starts on the line', async () => {
     const code = `const a = 1;\nextrude(10);\n`;
     const result = await setFeatureName(code, 1, 'Boss');

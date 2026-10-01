@@ -5,6 +5,8 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
+import { PartRename } from '../part-rename.ts';
+import { DeclarationRefactor } from '../declaration-refactor.ts';
 import type { ProjectMaterials } from '../project-config.ts';
 import { RemoveFeature } from '../remove-feature.ts';
 import { WorkspaceConnectorReads } from '../hole-connectors.ts';
@@ -24,6 +26,12 @@ export function createTimelineRouter(
 ): Router {
   const router = Router();
   const connectorReads = new WorkspaceConnectorReads(new WorkspaceScripts(fluidCadServer, options.workspacePath ?? ''));
+  // A part's rename reaches every file that imports it, not just its own:
+  // the refactor finds them across the workspace and sends their edits
+  // ahead of the declaring file's.
+  const refactor = options.dispatcher
+    ? new DeclarationRefactor(fluidCadServer, options.workspacePath ?? '', options.dispatcher)
+    : null;
 
   router.post('/rollback', async (req, res) => {
     const { index, scope } = req.body;
@@ -162,6 +170,44 @@ export function createTimelineRouter(
       name,
     });
     res.json({ success: true });
+  });
+
+  // The part row's Rename: rewrite the name `part('…', …)` takes and rename
+  // the variable the part is bound to after it. The files that import the
+  // part follow first, so the model never builds against a name that is gone.
+  router.post('/rename-part', async (req, res) => {
+    const { sourceLocation, name } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      !Number.isInteger(sourceLocation.line) || sourceLocation.line < 1 ||
+      typeof name !== 'string' || name.trim() === ''
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher || !refactor) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const { filePath, line } = sourceLocation;
+    const code = await refactor.readFile(filePath);
+    const plan = code === null ? null : await PartRename.plan(code, filePath, line, name);
+    if (plan?.declaration) {
+      const specs = await refactor.renameSpecs(plan.declaration, plan.variable, null, plan.variableExport);
+      if (!await refactor.dispatchConsumers(res, specs)) {
+        return;
+      }
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'part',
+      filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      partRename: { sourceLine: line, name },
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
   });
 
   // The Finish Sketch button (closed: true) and the reopen-for-edit gesture

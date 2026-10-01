@@ -7,32 +7,13 @@
 // workspace reads the binding, so `DeclarationRefactor` can follow the rename
 // through the other files.
 
-import {
-  applySpliceEdits,
-  getJavaScriptParser,
-  LexicalBindings,
-  type SpliceEdit,
-  type TSNode,
-  type TSTree,
-} from './code-editor/index.ts';
+import { applySpliceEdits, getJavaScriptParser, type TSNode, type TSTree } from './code-editor/index.ts';
 import { assemblyBodies, returnedParts } from './code-editor/assembly.ts';
-import {
-  bindingOfDeclarator,
-  findBindingReferences,
-  renameReferenceEdits,
-  type BindingReference,
-} from './code-editor/binding-references.ts';
+import type { BindingReference } from './code-editor/binding-references.ts';
 import { isSameNode } from './code-editor/declaration-calls.ts';
-import { DeclarationRewrite } from './declaration-rewrite.ts';
-import {
-  DeclarationUsages,
-  enclosingDefinition,
-  entryKey,
-  exportNameOf,
-  type DeclarationRef,
-} from './declaration-usages.ts';
+import { BindingRename, type BindingRenamePlan } from './binding-rename.ts';
+import { enclosingDefinition, entryKey } from './declaration-usages.ts';
 import { findChainAt, getBaseCallName, getChainCalls, updateInsertChain } from './insert-chain-edit.ts';
-import { normalizePath } from './normalize-path.ts';
 
 /** The parts panel's Rename, riding `ApplyFeatureEditSpec` as a side-channel. */
 export type InstanceRenameSpec = {
@@ -41,18 +22,6 @@ export type InstanceRenameSpec = {
   name: string;
   /** What the row shows without a `.name()` of its own — renaming to it drops the chain. */
   defaultName?: string;
-};
-
-/** What renaming an instance does to the variable its insert() is bound to. */
-export type InstanceRenamePlan = {
-  /** The name the binding takes. */
-  variable: string;
-  /** The declaring file's edits: the binding, its reads, and the names it leaves the file under. */
-  edits: SpliceEdit[];
-  /** How the other files of the workspace read the binding, or null when none can. */
-  declaration: DeclarationRef | null;
-  /** The name the binding is exported under once renamed, or null when the file keeps it to itself. */
-  variableExport: string | null;
 };
 
 export class InstanceRename {
@@ -79,10 +48,9 @@ export class InstanceRename {
   }
 
   /**
-   * How the `const` the insert() on `sourceLine` initializes follows `name`:
-   * `Left bracket` binds `leftBracket`, stepped past any name the file
-   * already declares, and every read of the const — the mates, replicates
-   * and poses spelled through it — takes the new name.
+   * How the `const` the insert() on `sourceLine` initializes follows `name`
+   * (see {@link BindingRename}): every read of the const — the mates,
+   * replicates and poses spelled through it — takes the new name.
    *
    * So do the names the binding leaves the file under. A shorthand among
    * the parts its assembly returns (`return { bracket1 }`) is the name other
@@ -93,76 +61,32 @@ export class InstanceRename {
    * returned object, one the new name would collide in, or one of an
    * assembly no module-level const names.
    *
-   * Null when no variable can follow the name: the chain is not a
-   * declarator's whole value, the name has no letter or digit to build an
-   * identifier from, or it reduces to the variable already bound.
+   * Null when no variable can follow the name.
    */
   static async plan(
     code: string,
     filePath: string,
     sourceLine: number,
     name: string,
-  ): Promise<InstanceRenamePlan | null> {
+  ): Promise<BindingRenamePlan | null> {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
     const chain = InstanceRename.insertChainAt(tree, sourceLine);
-    const id = chain ? InstanceRename.boundName(chain) : null;
-    if (!chain || !id || !/[a-zA-Z0-9]/.test(name)) {
+    const rename = chain ? BindingRename.of(tree, chain, name) : null;
+    if (!chain || !rename) {
       return null;
     }
-    const variable = DeclarationRewrite.variableNameFor(name, tree, id.text);
-    const bindings = new LexicalBindings(tree);
-    const binding = bindingOfDeclarator(bindings, id);
-    if (!binding || variable === id.text) {
-      return null;
-    }
-    const references = findBindingReferences(bindings, binding);
-    const definition = enclosingDefinition(tree, bindings, chain);
-    const member = definition?.localName ? InstanceRename.returnedMember(tree, chain, references, variable) : null;
-    const exported = binding.scope.type === 'program' ? exportNameOf(tree, binding) : null;
-    const declaration: DeclarationRef | null = member || exported !== null
-      ? {
-        kind: 'instance',
-        key: id.text,
-        filePath: normalizePath(filePath),
-        variable: null,
-        variableExport: exported,
-        definition: member ? definition : null,
-      }
+    const definition = enclosingDefinition(tree, rename.bindings, chain);
+    const member = definition?.localName
+      ? InstanceRename.returnedMember(tree, chain, rename.references, rename.variable)
       : null;
-    // `export const a` and `export { a }` export the name itself, so the
-    // export follows; `export { a as b }` keeps its alias.
-    const variableExport = exported === id.text ? variable : exported;
-
-    const edits: SpliceEdit[] = [{ start: id.startIndex, end: id.endIndex, text: variable }];
-    for (const reference of references) {
-      if (member && isSameNode(reference.node, member)) {
-        edits.push({ start: member.startIndex, end: member.endIndex, text: variable });
-      } else {
-        edits.push(...renameReferenceEdits([reference], variable));
-      }
-    }
-    if (declaration) {
-      const usages = new DeclarationUsages(tree, filePath, declaration);
-      edits.push(...usages.renameEdits(usages.sites(), variable, null, variableExport));
-    }
-    return { variable, edits, declaration, variableExport };
+    return rename.plan(tree, filePath, 'instance', member ? definition : null, member);
   }
 
   /** The outermost call of the `insert()` chain starting on `sourceLine`, or null when the line holds none. */
   private static insertChainAt(tree: TSTree, sourceLine: number): TSNode | null {
     const chain = findChainAt(tree, sourceLine);
     return chain && getBaseCallName(getChainCalls(chain)) === 'insert' ? chain : null;
-  }
-
-  /** The identifier of the `const <name> = ` the chain is the whole value of, or null when it is not one's. */
-  private static boundName(chain: TSNode): TSNode | null {
-    const declarator = chain.parent;
-    if (declarator?.type !== 'variable_declarator' || !isSameNode(declarator.childForFieldName('value'), chain)) {
-      return null;
-    }
-    const id = declarator.childForFieldName('name');
-    return id?.type === 'identifier' ? id : null;
   }
 
   /**

@@ -23,7 +23,7 @@ export const disc = part('Disc', () => {
 
 ## In the viewport
 
-Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu. There is no Apply: the statement is written the moment you click.
+Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu: the name in `part('…')` is rewritten and the exported variable is renamed after it (`Fixed leaf` binds `fixedLeaf`), in the files that import the part too. There is no Apply: the statement is written the moment you click.
 
 ## The definition is lazy
 

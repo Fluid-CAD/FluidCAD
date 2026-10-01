@@ -38,6 +38,12 @@ export interface EngineEditorClient {
   /** Remove the feature and that whole dependant closure in one acked edit. */
   removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult>;
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void;
+  /**
+   * Rename the `part(...)` statement at `sourceLocation`: its name, the
+   * variable it is bound to and that variable's reads, in every file that
+   * imports the part. Acked: resolves once the edits landed.
+   */
+  renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult>;
   /** Step the editor's native undo history for the file at `filePath`. */
   undo(filePath: string): Promise<EditorHistoryResult>;
   /** Step the editor's native redo history for the file at `filePath`. */

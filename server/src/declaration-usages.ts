@@ -14,10 +14,11 @@
 // serves a file the server holds and the live buffer the editor host hands
 // back through the apply-feature round trip.
 //
-// An instance an assembly returns among its parts is read the same way, and
-// renamed through the same routine: by name off an occurrence of the
-// assembly (`occ.parts.name`), or through an import when its binding is
-// exported from the top level.
+// The bindings a rename of their own follows are read the same way, and
+// renamed through the same routine. A part's `const` is read through the
+// imports of its export. An instance an assembly returns among its parts is
+// read by name off an occurrence of the assembly (`occ.parts.name`), or
+// through an import when its binding is exported from the top level.
 
 import { dirname, resolve as resolvePath } from 'path';
 import {
@@ -69,11 +70,11 @@ export type DeclarationKind = 'param' | 'property';
  * or a `.parts` read in another file resolves to.
  */
 export type DeclarationRef = {
-  kind: DeclarationKind | 'instance';
+  kind: DeclarationKind | 'part' | 'instance';
   key: string;
   /** Absolute path of the declaring file. */
   filePath: string;
-  /** Null as well for an instance: its own file follows the binding itself, from the declarator it holds. */
+  /** Null as well for a part or an instance: its own file follows the binding itself, from the declarator it holds. */
   variable: string | null;
   /** The name `variable` is exported under from the file's top level, or null when it is not. */
   variableExport: string | null;
@@ -424,6 +425,9 @@ function chainRootIdentifier(node: TSNode): TSNode | null {
   return null;
 }
 
+/** The member a declaration is read by name off, for the kinds that are read that way. */
+const READ_ACCESSORS: Partial<Record<DeclarationRef['kind'], string>> = { property: 'properties', instance: 'parts' };
+
 /**
  * The reads one file makes of a declaration. `filePath` is the file the
  * code belongs to: the declaring file reads the variable directly and the
@@ -510,10 +514,10 @@ export class DeclarationUsages {
   /** `<def or instance>.properties.<key>` — a property's reads; `<occurrence>.parts.<key>` — an instance's. */
   private readSites(): UsageSite[] {
     const { kind, key } = this.declaration;
-    if (kind === 'param') {
+    const accessor = READ_ACCESSORS[kind];
+    if (accessor === undefined) {
       return [];
     }
-    const accessor = kind === 'property' ? 'properties' : 'parts';
     const sites: UsageSite[] = [];
     for (const node of walkTree(this.tree.rootNode)) {
       if (node.type !== 'member_expression') {

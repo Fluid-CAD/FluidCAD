@@ -17,6 +17,7 @@ import {
   removeFeature,
   removeFeatureCascade,
   renameFeature,
+  renamePart,
   rollback,
   savePreference,
   setDocumentUnit,
@@ -50,6 +51,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
     renameFeature(sourceLocation, name);
+  }
+
+  renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult> {
+    return renamePart(sourceLocation, name);
   }
 
   undo(filePath: string): Promise<EditorHistoryResult> {

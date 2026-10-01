@@ -5,6 +5,7 @@ import { allocateSolvedName, collectIdentifiers } from '../sketch-names.ts';
 import { isBreakpointStatement } from './breakpoints.ts';
 import { ensureSymbolImport } from './imports.ts';
 import {
+  applySpliceEdits,
   indentOf,
   isBlankRow,
   joinLines,
@@ -158,12 +159,17 @@ export function statementRemovalEdit(code: string, lines: string[], statement: T
 // ---------------------------------------------------------------------------
 
 /**
- * Set, update, or clear the `.name('…')` chain of the feature statement at
- * `sourceLine` (the timeline "Rename" action). A non-empty `name` rewrites
- * an existing `.name()` argument in place or appends `.name('…')` at the end
- * of the chain — dialog edits leave trailing chains they don't recognize
- * untouched, so the name survives them there. An empty or null `name`
- * removes the chain, reverting the feature to its default display name.
+ * Set, update, or clear the name of the feature statement at `sourceLine`
+ * (the timeline "Rename" action). A non-empty `name` rewrites an existing
+ * `.name()` argument in place or appends `.name('…')` at the end of the
+ * chain — dialog edits leave trailing chains they don't recognize untouched,
+ * so the name survives them there. An empty or null `name` removes the
+ * chain, reverting the feature to its default display name.
+ *
+ * A part is named by its own first argument, so renaming one rewrites
+ * `part('<name>', …)` instead and takes any `.name()` chain off — the chain
+ * would go on overriding the argument. Only a string literal is rewritten:
+ * a name computed by the file keeps its expression and takes the chain.
  */
 export function setFeatureName(
   code: string,
@@ -176,21 +182,21 @@ export function setFeatureName(
       return null;
     }
     const nameCall = findMemberCallInChain(call, 'name');
+    const nameChain = nameCall ? chainCallRemoval(nameCall) : null;
     // A display name is a single line: collapse any pasted whitespace runs
     // (newlines would break the generated string literal).
     const value = (name ?? '').replace(/\s+/g, ' ').trim();
     if (value === '') {
-      if (!nameCall) {
-        return null;
-      }
-      const member = nameCall.childForFieldName('function');
-      const object = member ? member.childForFieldName('object') : null;
-      if (!object) {
-        return null;
-      }
-      return spliceCode(code, object.endIndex, nameCall.endIndex, '');
+      return nameChain ? applySpliceEdits(code, [nameChain]) : null;
     }
     const quoted = `'${quoteForSingleQuotes(value)}'`;
+    const partName = partNameLiteral(call);
+    if (partName) {
+      return applySpliceEdits(code, [
+        { start: partName.startIndex, end: partName.endIndex, text: quoted },
+        ...(nameChain ? [nameChain] : []),
+      ]);
+    }
     if (nameCall) {
       const args = getArgumentsNode(nameCall);
       if (!args) {
@@ -200,6 +206,21 @@ export function setFeatureName(
     }
     return spliceCode(code, call.endIndex, call.endIndex, `.name(${quoted})`);
   });
+}
+
+/** The string literal naming the `part('<name>', …)` at the root of `call`'s chain, or null when there is none. */
+function partNameLiteral(call: TSNode): TSNode | null {
+  if (chainRootCallee(call) !== 'part') {
+    return null;
+  }
+  const first = getArgumentsNode(chainBaseCall(call))?.namedChildren.find(arg => arg.type !== 'comment');
+  return first?.type === 'string' ? first : null;
+}
+
+/** The edit that takes one chained `.method(…)` call off its chain. */
+function chainCallRemoval(call: TSNode): SpliceEdit | null {
+  const object = call.childForFieldName('function')?.childForFieldName('object');
+  return object ? { start: object.endIndex, end: call.endIndex, text: '' } : null;
 }
 
 // ---------------------------------------------------------------------------

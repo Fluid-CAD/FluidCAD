@@ -1823,7 +1823,8 @@ export class TimelinePanel {
    * Swap the row context menu's content for an inline rename input. The
    * input edits the feature's chained `.name('…')`: Enter commits (an empty
    * value clears the chain, reverting to the default name), Escape or the
-   * menu's click-outside handler dismisses without committing.
+   * menu's click-outside handler dismisses without committing. A part is
+   * renamed in its `part('…', …)` statement instead, and its variable with it.
    */
   private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
     const type = obj.type ?? '';
@@ -1848,7 +1849,11 @@ export class TimelinePanel {
       if (e.key === 'Enter') {
         const next = input.value.trim();
         if (next !== currentName) {
-          this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
+          if (obj.type === 'part' && next) {
+            void this.client.editor?.renamePart(obj.sourceLocation!, next);
+          } else {
+            this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
+          }
         }
         this.closeDropdown();
       } else if (e.key === 'Escape') {

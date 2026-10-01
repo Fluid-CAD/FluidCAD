@@ -4651,6 +4651,16 @@ export function setPartMaterial(sourceLocation: SourceLocationParam, material: s
   return postAcked('api/set-part-material', { sourceLocation, material });
 }
 
+/**
+ * Rename the `part(...)` statement at `sourceLocation` — the timeline row
+ * menu's Rename on a part: the name `part('…', …)` takes, the variable the
+ * part is bound to (named after the new name), and every read of it, in the
+ * files that import the part too. Acked like {@link setSketchClosed}.
+ */
+export function renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult> {
+  return postAcked('api/rename-part', { sourceLocation, name });
+}
+
 export function clearBreakpoints(): void {
   postFireAndForget('api/clear-breakpoints');
 }

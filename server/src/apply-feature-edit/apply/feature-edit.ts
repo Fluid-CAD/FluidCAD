@@ -10,6 +10,7 @@ import { ParamEditor } from '../../param-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
 import { DeclarationUsages } from '../../declaration-usages.ts';
 import { InstanceRename } from '../../instance-rename.ts';
+import { PartRename } from '../../part-rename.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
@@ -158,6 +159,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.instanceRename) {
     return InstanceRename.apply(code, spec.filePath, spec.instanceRename);
+  }
+  if (spec.partRename) {
+    return PartRename.apply(code, spec.filePath, spec.partRename);
   }
   if (spec.assemblyMate) {
     return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate, applyFeatureEdit);

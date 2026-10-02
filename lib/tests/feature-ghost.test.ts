@@ -2999,6 +2999,25 @@ describe("mirror2d ghost", () => {
     expect(box.maxX).toBeCloseTo(280, 3);
   });
 
+  it("reflects a picked .guide() primitive", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); line([150, -20], [150, 80]).guide(); });
+    const scene = render();
+    const guide = [...s.getEdgesWithOwner({ excludeGuide: false }).keys()].find(e => e.isGuideShape())!;
+
+    // Across the sketch's Y axis: the guide line at x = 150 lands at x = -150.
+    const result = mirror2dGhost(scene, [{ shapeId: guide.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const box = instanceBounds(result, 0);
+    expect(box.minX).toBeCloseTo(-150, 3);
+    expect(box.maxX).toBeCloseTo(-150, 3);
+    expect(box.maxY).toBeCloseTo(80, 3);
+  });
+
   it("an empty pick list mirrors the whole active (last) sketch", () => {
     locatedSketch(5, () => { testRect(10, 10); });
     const active = locatedSketch(8, () => { testRect(100, 50, { at: [20, 0] }); line([250, 50], [250, 80]); });

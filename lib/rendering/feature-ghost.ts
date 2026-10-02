@@ -1154,7 +1154,10 @@ function buildMirror2DGhost(
   request: Mirror2DGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
-  const resolved = resolveSketchOpTargets(scene, request.entities);
+  // Picked targets are named ones, and a mirror reflects a named target's
+  // `.guide()` shapes.
+  const includeGuides = request.entities.length > 0;
+  const resolved = resolveSketchOpTargets(scene, request.entities, { includeGuides });
   if ('reason' in resolved) {
     return { ok: false, reason: resolved.reason };
   }
@@ -1162,7 +1165,7 @@ function buildMirror2DGhost(
   if ('reason' in axis) {
     return { ok: false, reason: axis.reason };
   }
-  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges, { includeGuides });
   const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
   if (meshes.length === 0) {
     return { ok: false, reason: 'That selection has no curves to mirror.' };
@@ -1179,7 +1182,7 @@ function buildMirror2DGhost(
  * (copy-linear2d.ts:25-31) — so one picked rect edge stamps the whole rect.
  * The whole-sketch form arrives holding every edge already and expands to
  * itself. `includeGuides` reads the owners' construction edges too (the 2D
- * copy's named targets).
+ * copy's and mirror's named targets).
  */
 function expandToOwnerEdges(
   sketch: Sketch,
@@ -1279,8 +1282,8 @@ function resolveSketchAxis(
  * by every 2D ghost. Resolution mirrors the apply's own (`resolvePicks`,
  * sketch-apply.ts): each shapeId names one edge in one sketch's
  * `getEdgesWithOwner` index — guides excluded unless `includeGuides` (the 2D
- * copy's picks), as on the apply path — and picks straddling two sketches
- * refuse, because the apply refuses them too.
+ * copy's and mirror's picks), as on the apply path — and picks straddling two
+ * sketches refuse, because the apply refuses them too.
  *
  * An empty pick list is the target-less statement form (`offset(d)`,
  * `fillet(r)`): the whole active (last) sketch, the same edge set the builds

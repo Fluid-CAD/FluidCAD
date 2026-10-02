@@ -73,8 +73,9 @@ sketch("xy", () => {
   distance(b.start(), b.end(), 200);
   distance(r.start(), r.end(), 100);
 });
-extrude(20);
-sketch("xy", () => {
+const plate = extrude(20);
+// On the plate's top face: a cut runs into the solid from the face it is sketched on
+sketch(plate.endFaces(), () => {
   const c = circle([0, 0], 5);
   coincident(c.center(), origin());
   diameter(c, 5);

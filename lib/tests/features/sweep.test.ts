@@ -626,6 +626,36 @@ describe("sweep", () => {
       expect(vol).toBeLessThan(CYL_VOL - 100);
     });
 
+    it("removes the groove from a cylinder that stands on another body", () => {
+      // A plate under the cylinder: a body of its own, in scope of the cut.
+      // Each body is cut on its own. Handed to one boolean together, the two
+      // are first intersected with each other where they touch, and the
+      // grooved result failed validation with an open shell.
+      sketch("xy", () => {
+          testRect(60, 60, { at: [-30, -30] });
+        });
+      extrude(-10).new();
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => {
+          circle([15, 0], 3);
+        });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const volumes = s.getShapes()
+        .map(shape => ShapeProps.getProperties(shape.getShape()).volumeMm3)
+        .sort((a, b) => a - b);
+      // The cylinder lost its groove, and the plate the stretch of it that
+      // runs on below the cylinder's foot.
+      expect(volumes).toHaveLength(2);
+      expect(volumes[0]).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(volumes[0]).toBeLessThan(CYL_VOL - 100);
+      expect(volumes[1]).toBeGreaterThan(60 * 60 * 10 * 0.95);
+      expect(volumes[1]).toBeLessThan(60 * 60 * 10);
+    });
+
     it("fuses a helical thread onto the cylinder surface", () => {
       cylinder(15, 50);
       const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);

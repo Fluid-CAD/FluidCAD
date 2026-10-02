@@ -4,6 +4,8 @@ import { ShapeHistoryTracker } from "../../common/shape-history-tracker.js";
 import { Primitives } from "../../oc/primitives.js";
 import { Explorer } from "../../oc/explorer.js";
 import { Convert } from "../../oc/convert.js";
+import { FilletOps } from "../../oc/fillet-ops.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
 function countFaces(shape: { getShape(): any }): number {
@@ -107,6 +109,25 @@ describe("ShapeHistoryTracker", () => {
 
       transformer.delete();
       disposeTrsf();
+    });
+  });
+
+  describe("BRepFilletAPI_MakeFillet (inputs handed back as they were)", () => {
+    it("leaves a face and an edge the maker never touched out of the additions", () => {
+      const cyl = Primitives.makeCylinder(10, 20);
+      const topRim = cyl.getEdges().find(e => e.isClosed() && Math.abs(EdgeOps.getEdgeMidPoint(e).z - 20) < 1e-6);
+      expect(topRim).toBeDefined();
+
+      const { history } = FilletOps.makeFillet(cyl, [topRim!], 2);
+
+      // The wall and the top cap are trimmed by the blend, the bottom cap and
+      // its rim come through as they were: the cylinder's, all of them. Only
+      // the blend and the edges that bound it are new.
+      expect(history.modifiedFaces).toHaveLength(2);
+      expect(history.addedFaces).toHaveLength(1);
+      expect(history.addedEdges).toHaveLength(3);
+      const inputFaces = cyl.getFaces();
+      expect(history.addedFaces.some(f => inputFaces.some(i => i.isSame(f)))).toBe(false);
     });
   });
 

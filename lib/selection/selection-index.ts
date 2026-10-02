@@ -76,9 +76,10 @@ export class SelectionIndex {
    * Sub-shape key → the feature whose added-face/edge history record claims
    * it. Deliberately OUTSIDE the bucket index: creator records have no public
    * accessor, so they must never feed selector synthesis — only attribution's
-   * "which feature created this?" fallback. Populated earliest-first because
-   * a fusion re-records untouched pass-through sub-shapes as its own
-   * additions; the first recorder is the true creator.
+   * "which feature created this?" fallback. A sub-shape has one such record:
+   * a cut, a fusion or a fillet records what it made, and whatever passes
+   * through it unchanged stays with the feature that added it. Were two
+   * features ever to claim one sub-shape, the earlier one made it.
    */
   private creators = new Map<number, SceneObject>();
 

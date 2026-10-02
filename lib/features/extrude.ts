@@ -377,7 +377,7 @@ export class Extrude extends ExtrudeBase {
     });
   }
 
-  /** The solids a cut over `scope` will consume — what `cutWithSceneObjects` reads. */
+  /** The solids a cut over `scope` runs against — what `cutWithSceneObjects` reads. */
   private cutStockShapes(scope: SceneObject[]): Shape[] {
     return scope.flatMap(obj => obj.getShapes({}, 'solid'));
   }

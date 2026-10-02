@@ -183,52 +183,50 @@ export class BooleanOps {
     }
   }
 
+  /**
+   * `tools` cut out of every stock — one boolean per stock, because a cut
+   * subtracts from each body on its own and no single builder call says
+   * that. Stocks handed to one builder as separate arguments are intersected
+   * with each other before the tools reach them: bodies resting against one
+   * another come back with each other's outline imprinted and every face
+   * around the contact rebuilt, bodies that overlap come back split along
+   * each other. Stocks bundled into one compound are an argument that
+   * interferes with itself, which the builder does not resolve — a tool
+   * crossing the overlap of two of them leaves both uncut.
+   *
+   * `modified` gives the solids a stock became, and none for a stock the cut
+   * left as it was (see `cutStock`); `makerOf` gives the boolean that ran
+   * against a stock, for its lineage. `sectionEdges` and `internalFaces` are
+   * the geometry the cut created, across the stocks it changed.
+   */
   static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0, options: { validate?: boolean; stage?: string } = {}) {
     const oc = getOC();
-    const cut = BooleanOps.cutWithHistory(stocks.map(s => s.getShape()), tools.map(s => s.getShape()), options);
-    const { result, maker: cutMaker, stockRaws } = cut;
-    const modified = (shape: Shape) =>
-      ShapeOps.shapeListToArray(cutMaker.Modified(shape.getShape())).map(raw => {
-        try { return ShapeFactory.fromShape(raw); }
-        finally { raw.delete(); }
-      });
-    const owned: TopoDS_Shape[] = [];
-    const own = (raw: TopoDS_Shape) => { owned.push(raw); return raw; };
-    const stockEdgeMap = new oc.TopTools_MapOfShape();
-    const stockFaceMap = new oc.TopTools_MapOfShape();
+    const toolRaws = tools.map(s => s.getShape());
+    const cuts = new Map<Shape, ReturnType<typeof BooleanOps.cutStock>>();
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      for (const cut of cuts.values()) cut.dispose();
+    };
     try {
-
-      // Build maps of all edges and faces that came from the original stocks (unchanged or modified).
-      // Any result edge/face not in these maps is new, created by the cut.
-      for (const stockRaw of stockRaws) {
-        const rawEdges = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("edge")).map(own);
-        for (const rawEdge of rawEdges) {
-          stockEdgeMap.Add(rawEdge);
-          // Also track modified versions of this edge so we don't misidentify them as new.
-          const modifiedList = cutMaker.Modified(rawEdge);
-          while (modifiedList.Size() > 0) {
-            stockEdgeMap.Add(own(modifiedList.First()));
-            modifiedList.RemoveFirst();
-          }
-          modifiedList.delete();
-        }
-
-        const rawFaces = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("face")).map(own);
-        for (const rawFace of rawFaces) {
-          stockFaceMap.Add(rawFace);
-          const modifiedList = cutMaker.Modified(rawFace);
-          while (modifiedList.Size() > 0) {
-            stockFaceMap.Add(own(modifiedList.First()));
-            modifiedList.RemoveFirst();
-          }
-          modifiedList.delete();
-        }
+      for (const stock of stocks) {
+        cuts.set(stock, BooleanOps.cutStock(stock, toolRaws, options));
       }
+      const changed = [...cuts.values()].filter(cut => cut.changed);
+      const modified = (shape: Shape) => {
+        const cut = cuts.get(shape);
+        if (!cut || !cut.changed) {
+          return [];
+        }
+        return ShapeOps.shapeListToArray(cut.maker.Modified(shape.getShape())).map(raw => {
+          try { return ShapeFactory.fromShape(raw); }
+          finally { raw.delete(); }
+        });
+      };
+      const makerOf = (shape: Shape) => cuts.get(shape)!.maker;
 
-      const resultRawEdges = Explorer.findShapes(result, Explorer.getOcShapeType("edge")).map(own);
-      const sectionEdges = resultRawEdges
-        .filter(re => !stockEdgeMap.Contains(re))
-        .map(re => Edge.fromTopoDSEdge(Explorer.toEdge(re)));
+      const sectionEdges = changed.flatMap(cut => cut.sectionEdges);
 
       // Classify section edges into start, end, and internal groups using signed
       // distance from the cut plane. Through-all cuts use min/max projection.
@@ -259,26 +257,110 @@ export class BooleanOps {
         }
       }
 
-      const resultRawFaces = Explorer.findShapes(result, Explorer.getOcShapeType("face")).map(own);
-      const internalFaces = resultRawFaces
-        .filter(rf => !stockFaceMap.Contains(rf))
-        .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
+      const internalFaces = changed.flatMap(cut => cut.internalFaces);
 
-      let disposed = false;
       return {
-        empty: cut.empty,
+        empty: [...cuts.values()].every(cut => cut.empty),
         modified,
+        makerOf,
         sectionEdges,
         startEdges,
         endEdges,
         internalEdges,
         internalFaces,
+        dispose,
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  }
+
+  /**
+   * One stock against the tools, with the geometry the boolean created in
+   * it: every result face and edge that is neither a sub-shape of the stock
+   * nor the `Modified()` image of one.
+   *
+   * `changed` tells a cut from a touch. The kernel reports a stock Modified
+   * as soon as a tool lands on it — a hole whose floor stops on one of its
+   * faces, a wall running flush along its side — and hands back a copy with
+   * that face split along the contact: the body it was. A stock the cut
+   * changed holds a face that descends from none of its own (the tool's
+   * wall, laid bare inside it), or has lost one of its own.
+   */
+  private static cutStock(stock: Shape, tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string }) {
+    const oc = getOC();
+    const cut = BooleanOps.cutWithHistory([stock.getShape()], tools, options);
+    const { result, maker: cutMaker, stockRaws } = cut;
+    const owned: TopoDS_Shape[] = [];
+    const own = (raw: TopoDS_Shape) => { owned.push(raw); return raw; };
+    const stockEdgeMap = new oc.TopTools_MapOfShape();
+    const stockFaceMap = new oc.TopTools_MapOfShape();
+    try {
+      let disposed = false;
+      const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        result.delete(); cut.dispose();
+      };
+
+      // A stock with no image is in the result as it was, or gone from it;
+      // either way the boolean created nothing in it.
+      const images = cutMaker.Modified(stock.getShape());
+      const imageCount = images.Size();
+      images.delete();
+      if (imageCount === 0) {
+        return { maker: cutMaker, empty: cut.empty, changed: cut.empty, sectionEdges: [] as Edge[], internalFaces: [] as Face[], dispose };
+      }
+
+      // Build maps of all edges and faces that came from the original stock (unchanged or modified).
+      // Any result edge/face not in these maps is new, created by the cut.
+      let lostFace = false;
+      for (const stockRaw of stockRaws) {
+        const rawEdges = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("edge")).map(own);
+        for (const rawEdge of rawEdges) {
+          stockEdgeMap.Add(rawEdge);
+          // Also track modified versions of this edge so we don't misidentify them as new.
+          const modifiedList = cutMaker.Modified(rawEdge);
+          while (modifiedList.Size() > 0) {
+            stockEdgeMap.Add(own(modifiedList.First()));
+            modifiedList.RemoveFirst();
+          }
+          modifiedList.delete();
+        }
+
+        const rawFaces = Explorer.findShapes(stockRaw, Explorer.getOcShapeType("face")).map(own);
+        for (const rawFace of rawFaces) {
+          stockFaceMap.Add(rawFace);
+          const modifiedList = cutMaker.Modified(rawFace);
+          if (modifiedList.Size() === 0 && cutMaker.IsDeleted(rawFace)) {
+            lostFace = true;
+          }
+          while (modifiedList.Size() > 0) {
+            stockFaceMap.Add(own(modifiedList.First()));
+            modifiedList.RemoveFirst();
+          }
+          modifiedList.delete();
+        }
+      }
+
+      const resultRawEdges = Explorer.findShapes(result, Explorer.getOcShapeType("edge")).map(own);
+      const sectionEdges = resultRawEdges
+        .filter(re => !stockEdgeMap.Contains(re))
+        .map(re => Edge.fromTopoDSEdge(Explorer.toEdge(re)));
+
+      const resultRawFaces = Explorer.findShapes(result, Explorer.getOcShapeType("face")).map(own);
+      const internalFaces = resultRawFaces
+        .filter(rf => !stockFaceMap.Contains(rf))
+        .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
+
+      return {
         maker: cutMaker,
-        dispose: () => {
-          if (disposed) return;
-          disposed = true;
-          result.delete(); cut.dispose();
-        },
+        empty: cut.empty,
+        changed: internalFaces.length > 0 || lostFace,
+        sectionEdges,
+        internalFaces,
+        dispose,
       };
     } catch (error) {
       result.delete(); cut.dispose();

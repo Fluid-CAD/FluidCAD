@@ -127,6 +127,53 @@ describe("selection attribution", () => {
     }
   });
 
+  it("keeps the faces a cut never reached on their own buckets in a part of several bodies", () => {
+    sketch("xy", () => {
+        testRect(60, 40, { at: [-30, -20] });
+      });
+    const plate = extrude(10).new() as Extrude;
+    sketch(plate.endFaces(), () => {
+        testRect(20, 20, { at: [-10, -10] });
+      });
+    const post = extrude(30).new() as Extrude;
+    sketch(post.endFaces(), () => {
+        circle([0, 0], 4);
+      });
+    const pocket = cut(5);
+
+    const scene = render();
+    const plateId = (plate as unknown as SceneObject).id;
+    const postId = (post as unknown as SceneObject).id;
+    const cutId = (pocket as unknown as SceneObject).id;
+
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(2);
+    const byOwner = new Map(solids.map(solid => {
+      const picks = explainSelection(scene, allFaceRefs(solid)).picks;
+      return [picks[0].solidOwnerId, picks] as const;
+    }));
+
+    // The plate the post stands on was never cut: it is still its extrude's
+    // solid, and every face sits in the bucket the extrude filed it under.
+    const platePicks = byOwner.get(plateId)!;
+    expect(platePicks).toHaveLength(6);
+    for (const pick of platePicks) {
+      expect(pick.attributed).toBe(true);
+      expect(pick.producer!.featureId).toBe(plateId);
+    }
+
+    // The post is the cut's solid now. Its four sides and its bottom came
+    // through as the post built them, the pocket's wall and floor are the
+    // cut's, and the top face the pocket opened walks back to the post.
+    const postPicks = byOwner.get(cutId)!;
+    expect(postPicks).toHaveLength(8);
+    expect(postPicks.filter(p => p.attributed && p.producer!.featureId === postId)).toHaveLength(5);
+    expect(postPicks.filter(p => p.attributed && p.producer!.featureId === cutId)).toHaveLength(2);
+    const reshaped = postPicks.filter(p => !p.attributed);
+    expect(reshaped).toHaveLength(1);
+    expect(reshaped[0].creatorId).toBe(postId);
+  });
+
   it("attributes a fused boss's end edges to the boss extrude", () => {
     sketch("xy", () => {
         testRect(100, 100);

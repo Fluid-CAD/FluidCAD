@@ -13,6 +13,7 @@ import fillet from "../core/fillet.js";
 import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
 import hole from "../core/hole.js";
+import color from "../core/color.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
 import part from "../core/part.js";
@@ -1356,11 +1357,9 @@ describe("feature ghost — repeat", () => {
   });
 
   /**
-   * A part of several bodies. The hole is drilled into the post alone, but its
-   * boolean takes in every solid in scope and hands back the ones it touched —
-   * the plate the post stands on among them, unchanged. Each instance is still
-   * the hole: neither body it was not drilled into, nor the rest of the one it
-   * was.
+   * A part of several bodies, the hole drilled into the post alone. Each
+   * instance is the hole: not the plate the post stands on, nor the rest of
+   * the post around it.
    */
   it("stamps a hole's pocket alone in a part of several bodies", () => {
     const { post } = plateAndPost();
@@ -1374,9 +1373,8 @@ describe("feature ghost — repeat", () => {
       result = repeatGhost(scene, [13], {
         directions: [{ count: 2, offset: 60, length: null }],
       });
-      // The post against its drilled self, each way round. A body handed back
-      // untouched is told apart by measuring it, never by cutting it against
-      // its own twin.
+      // The post against its drilled self, each way round — nothing is cut
+      // against the plate, which the hole never changed.
       expect(cuts).toHaveBeenCalledTimes(2);
     } finally {
       cuts.mockRestore();
@@ -1425,12 +1423,12 @@ describe("feature ghost — repeat", () => {
   });
 
   /**
-   * Two targets on two bodies: a boss fused onto the plate, then a hole in the
-   * post — whose boolean hands the plate back untouched, boss and all. That
-   * re-issue is not the hole's work: the boss still reads against the plate it
-   * was fused onto, the hole against the post it was drilled into.
+   * Two targets on two bodies: a boss fused onto the plate, and a hole drilled
+   * into the post. Each reads against its own body — the boss against the
+   * plate it was fused onto, the hole against the post — and neither against
+   * the other's.
    */
-  it("keeps each target on its own body when a later one hands the other on", () => {
+  it("keeps each target on its own body", () => {
     const { plate, post } = plateAndPost();
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const boss = extrude(10) as unknown as SceneObject;
@@ -1457,6 +1455,41 @@ describe("feature ghost — repeat", () => {
     expect(removed.maxX).toBeCloseTo(63, 1);
     expect(removed.minZ).toBeCloseTo(60, 3);
     expect(removed.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * A colour takes the plate in and hands it back the same shape. Repeated
+   * alongside the hole it adds no material and takes none away, and it is told
+   * apart by measuring the two solids — never by cutting one against its twin.
+   */
+  it("draws nothing for a body a target handed back unchanged", () => {
+    const { plate, post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const painted = color("red", plate as never) as unknown as SceneObject;
+    painted.setSourceLocation({ filePath: FILE, line: 17, column: 0 });
+    const scene = render();
+
+    const cuts = vi.spyOn(BooleanOps, 'cutShapesRaw');
+    let result: FeatureGhostResult;
+    try {
+      result = repeatGhost(scene, [13, 17], {
+        directions: [{ count: 2, offset: 60, length: null }],
+      });
+      // The hole's two, and none for the painted plate.
+      expect(cuts).toHaveBeenCalledTimes(2);
+    } finally {
+      cuts.mockRestore();
+    }
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minZ).toBeCloseTo(60, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
   });
 
   it("stamps every target the request names", () => {

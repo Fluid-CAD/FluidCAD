@@ -1607,12 +1607,11 @@ type RepeatChainFlow = { outputs: Map<Shape, Shape[]>; inputs: Map<Shape, Shape[
  * input from an earlier stretch's output and attribute the features in between
  * — which the repeat does not replay — to the pattern.
  *
- * Nor is a stretch one body. A hole in a part made of several solids takes in
- * every one its boolean touched and hands each back, so the pairing runs both
- * ways: a body handed on is set against all that was taken in to make it, a
- * body taken in against all that was handed on in its place. Setting a single
- * output against the feature's inputs instead would report every *other* body
- * it took in as removed whole.
+ * Nor is a stretch one body. A hole drilled through two solids takes both in
+ * and hands both back, so the pairing runs both ways: a body handed on is set
+ * against all that was taken in to make it, a body taken in against all that
+ * was handed on in its place. Setting a single output against the feature's
+ * inputs instead would report every *other* body it took in as removed whole.
  */
 function repeatChainFlow(scene: Scene, targets: SceneObject[]): RepeatChainFlow {
   const chain = repeatCloneSet(targets);
@@ -1696,12 +1695,10 @@ function chainInputs(
  * The bodies that came out of the chain exactly as they went in — the input
  * and its output both.
  *
- * A boolean reports every solid it *touched* as modified, not every solid it
- * changed. In a part of several bodies resting against one another, a hole
- * drilled into one re-issues them all — the others as new solids with the old
- * ones' exact geometry. Such a body is no part of what the chain did, and
- * setting it against itself would spend two booleans between identical solids
- * to learn that.
+ * A feature can take a body in and hand it back the same shape: a colour laid
+ * on its faces re-issues the solid with its geometry untouched. Such a body is
+ * no part of the material the chain adds or takes away, and setting it against
+ * itself would spend two booleans between identical solids to learn that.
  */
 function untouchedBodies(flow: RepeatChainFlow): Set<Shape> {
   const untouched = new Set<Shape>();

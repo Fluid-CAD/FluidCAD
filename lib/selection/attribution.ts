@@ -11,8 +11,8 @@ export type LineageInfo = {
    * Set instead of `classified` when the walk ended on an ancestor claimed by
    * a creator (added-sub-shape) record rather than a bucket — e.g. a fillet
    * arc face that a later fillet trimmed. A classified ancestor anywhere in
-   * the walk wins over a creator hit: pass-through fusions re-record surviving
-   * sub-shapes as their own additions, so creator claims are the weaker signal.
+   * the walk wins over a creator hit: a bucket says what the ancestor was (an
+   * end face, a side edge), a creator record only who made it.
    */
   creator: SceneObject | null;
   /** Features that modified the sub-shape between classification and now. */
@@ -99,9 +99,9 @@ export function attributePick(scene: SelectionScene, index: SelectionIndex, ref:
   const hits = scopedHits(scene, index, pickedKey, ref.sub.type, scope);
   const producer = hits.length > 0 ? hits[0] : null;
   const lineage = producer ? null : findLineage(scene, index, pickedKey, ref.sub.type, scope);
-  // Direct creator claims rank below lineage: a pass-through fusion re-records
-  // a surviving (possibly earlier-modified) sub-shape as its own addition, and
-  // only the modification walk sees past that.
+  // Direct creator claims rank below lineage: a sub-shape that descends from
+  // an earlier one names its origin through the modification walk, and the
+  // creator record answers for what a feature made outright.
   const creator = producer || lineage ? null : index.creatorOf(pickedKey);
 
   return {
@@ -176,8 +176,8 @@ function findLineage(
   const visited = new Set<number>([pickedKey]);
   let frontier: { key: number; chain: SceneObject[] }[] = [{ key: pickedKey, chain: [] }];
   // A classified ancestor anywhere in the walk beats a creator claim at any
-  // depth (creator claims are polluted by pass-through fusion re-additions),
-  // so a creator hit is only remembered while the walk keeps going.
+  // depth (the bucket says what the ancestor was, the creator record only who
+  // made it), so a creator hit is only remembered while the walk keeps going.
   let creatorCandidate: { creator: SceneObject; modifiedBy: SceneObject[] } | null = null;
 
   for (let depth = 0; depth < LINEAGE_MAX_DEPTH && frontier.length > 0; depth++) {

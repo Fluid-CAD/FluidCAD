@@ -13,6 +13,7 @@ import { face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { Scene } from "../../rendering/scene.js";
 import { SceneObject } from "../../common/scene-object.js";
+import { Shape } from "../../common/shape.js";
 import { ShapeProps } from "../../oc/props.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Hole } from "../../features/hole/hole.js";
@@ -354,6 +355,163 @@ describe("hole() placements", () => {
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([expect.stringMatching(/hole: hole\(\): unknown fastener size 'M99'/)]);
+  });
+});
+
+describe("hole() ownership", () => {
+  setupOC();
+
+  const POST = { w: 20, h: 30 };
+  const POST_VOLUME = POST.w * POST.w * POST.h;
+
+  /** A 60 × 40 × 10 plate with a 20 × 20 × 30 post standing on its top face: two bodies resting against each other. */
+  function plateAndPost(): { plate: ExtrudeBase; post: ExtrudeBase } {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    sketch(plate.endFaces(), () => {
+      testRect(POST.w, POST.w, { at: [-POST.w / 2, -POST.w / 2] });
+    });
+    const post = extrude(POST.h).new() as unknown as ExtrudeBase;
+    return { plate, post };
+  }
+
+  /** Whether `shape` is one of `shapes` — the same kernel sub-shape, whatever wrapper holds it. */
+  function among(shape: Shape, shapes: Shape[]): boolean {
+    return shapes.some(s => s.isSame(shape));
+  }
+
+  it("records the wall, the floor and their edges as its own, and none of the plate's", () => {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    const s = sketch(plate.endFaces(), () => ({ p: point([0, 0]) }));
+    const h = hole(4, s.geometries.p as unknown as SolvedPoint).depth(5) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const drilled = h.getShapes({}, 'solid')[0];
+    expect(drilled.getSubShapes('face')).toHaveLength(8);
+
+    // The cylinder wall and the flat floor; the rim, the floor's circle and
+    // the wall's seam — the geometry the accessors hand out.
+    expect(h.getAddedFaces()).toHaveLength(2);
+    expect(h.getAddedEdges()).toHaveLength(3);
+    expect(h.getAddedFaces().every(f => among(f, resolved(h.faces()) as Shape[]))).toBe(true);
+    expect(h.getAddedEdges().every(e => among(e, resolved(h.edges()) as Shape[]))).toBe(true);
+
+    // The plate's faces and edges stay the plate's. The five faces the hole
+    // never reached are on the drilled solid as they were built, the twelve
+    // edges too, and the top face it opened is the plate's own, modified.
+    const built = plate.getAddedFaces();
+    expect(built).toHaveLength(6);
+    expect(built.filter(f => among(f, drilled.getSubShapes('face')))).toHaveLength(5);
+    expect(plate.getAddedEdges().filter(e => among(e, drilled.getSubShapes('edge')))).toHaveLength(12);
+    expect(h.getAddedFaces().some(f => among(f, built))).toBe(false);
+    expect(h.getAddedEdges().some(e => among(e, plate.getAddedEdges()))).toBe(false);
+    const modified = plate.getModifiedFaces();
+    expect(modified).toHaveLength(1);
+    expect(modified[0].modifiedBy).toBe(h);
+    expect(among(modified[0].sources[0], built)).toBe(true);
+    expect(among(modified[0].results[0], drilled.getSubShapes('face'))).toBe(true);
+  });
+
+  it("leaves the body it does not reach with the feature that built it", () => {
+    const { plate, post } = plateAndPost();
+    const h = hole(4, post.endFaces().center()).depth(5) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(POST_VOLUME - cylinderVolume(4, 5), 3);
+    expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
+
+    // The plate is the solid its extrude built, not a copy the hole handed
+    // back — and nothing on it is recorded as the hole's doing.
+    expect(plate.getShapes({}, 'solid')).toHaveLength(1);
+    expect(plate.getShapes({}, 'solid')[0]).toBe(plate.getAddedShapes()[0]);
+    expect(plate.getRemovedShapes()).toEqual([]);
+    expect(plate.getModifiedFaces()).toEqual([]);
+    expect(plate.getModifiedEdges()).toEqual([]);
+
+    // The hole took the post alone, and changed only the face it entered:
+    // resting on the plate rebuilt none of the post's other faces or edges.
+    expect(h.getAddedShapes()).toHaveLength(1);
+    expect(post.getShapes({}, 'solid')).toEqual([]);
+    expect(post.getModifiedFaces()).toHaveLength(1);
+    expect(post.getModifiedEdges()).toEqual([]);
+    expect(post.getRemovedEdges()).toEqual([]);
+  });
+
+  it("cuts every body it runs through, each with a rim where it enters and where it leaves", () => {
+    const { plate, post } = plateAndPost();
+    const h = hole(4, post.endFaces().center()) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(POST_VOLUME - cylinderVolume(4, POST.h), 3);
+    expect(volumes[1]).toBeCloseTo(PLATE_VOLUME - cylinderVolume(4, PLATE.t), 3);
+
+    expect(h.getAddedShapes()).toHaveLength(2);
+    expect(plate.getShapes({}, 'solid')).toEqual([]);
+    expect(post.getShapes({}, 'solid')).toEqual([]);
+    // One wall per body; where the post stands on the plate the hole leaves
+    // one and enters the other, a rim of each.
+    expect(resolved(h.faces()).length).toBe(2);
+    expect(resolved(h.startEdges()).length).toBe(2);
+    expect(resolved(h.endEdges()).length).toBe(2);
+  });
+
+  it("leaves a body its tool only lands on", () => {
+    // As deep as the post is tall: the tool's floor stops on the plate's top
+    // face and takes nothing from the plate.
+    const { plate, post } = plateAndPost();
+    const h = hole(4, post.endFaces().center()).depth(POST.h) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(POST_VOLUME - cylinderVolume(4, POST.h), 3);
+    expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
+
+    expect(plate.getShapes({}, 'solid')[0]).toBe(plate.getAddedShapes()[0]);
+    expect(plate.getModifiedFaces()).toEqual([]);
+    expect(h.getAddedShapes()).toHaveLength(1);
+    // The hole leaves the post through its bottom face: a rim of the post's.
+    expect(resolved(h.startEdges()).length).toBe(1);
+    expect(resolved(h.endEdges()).length).toBe(1);
+  });
+
+  it("repeats without taking the bodies its copies never reach", () => {
+    const { plate, post } = plateAndPost();
+    const s = sketch(post.endFaces(), () => {
+      const c = circle([-5, 0], 2);
+      return { c };
+    });
+    hole(3, (s.geometries.c as unknown as SolvedCircle).center()).depth(5);
+    repeat("linear", "x", { count: 2, offset: 10 });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(POST_VOLUME - 2 * cylinderVolume(3, 5), 3);
+    expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
+
+    // Every copy drills the post; the plate stays its extrude's throughout.
+    expect(plate.getShapes({}, 'solid')[0]).toBe(plate.getAddedShapes()[0]);
+    expect(plate.getRemovedShapes()).toEqual([]);
+    expect(post.getShapes({}, 'solid')).toEqual([]);
+    const owners = scene.getAllSceneObjects()
+      .filter(o => !o.isContainer() && o.getShapes({}, 'solid').length > 0)
+      .map(o => o.getType());
+    expect(owners.sort()).toEqual(['extrude', 'hole']);
   });
 });
 

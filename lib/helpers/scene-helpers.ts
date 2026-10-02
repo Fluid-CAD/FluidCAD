@@ -304,9 +304,11 @@ function recordShapesAsAdditions(caller: SceneObject, shapes: Shape<any>[]) {
  * the caller. Modifications are per-scene-shape so we can correctly attribute
  * each source face/edge back to its owning SceneObject.
  *
- * Additions: any face/edge in a new result shape that isn't already the target
- * of a scene-shape modification. This captures both extrusion-derived faces
- * (which appear in the result via tool-side Modified()) and truly new faces.
+ * Additions: any face/edge in a new result shape that descends from no scene
+ * shape — neither a face/edge of one that came through as it was, nor the
+ * target of a scene-shape modification. This captures both extrusion-derived
+ * faces (which appear in the result via tool-side Modified()) and truly new
+ * faces.
  */
 function recordFusionHistory(
   caller: SceneObject,
@@ -370,6 +372,15 @@ function recordFusionHistory(
       const owner = owners.get(sceneShape);
       if (!owner) {
         continue;
+      }
+      // A stock face or edge the fuse hands back as it was is the stock's
+      // still, and stays with whoever added it: each claims itself, so the
+      // additions below are left with what descends from no stock sub-shape.
+      for (const raw of Explorer.findShapes(sceneShape.getShape(), FACE)) {
+        claimedFaces.Add(raw);
+      }
+      for (const raw of Explorer.findShapes(sceneShape.getShape(), EDGE)) {
+        claimedEdges.Add(raw);
       }
       // recordFusionHistory aggregates additions across the full result via
       // `claimedFaces`/`claimedEdges` below — each per-shape collect doesn't
@@ -601,7 +612,7 @@ export function cutWithSceneObjects(
         // caller asked to or when the stock is flagged, and re-flag the result.
         const skipSimplify = options?.skipSimplify || shape.noSimplify();
         for (const newShape of list) {
-          RenderSeams.throughHistory(newShape, [...stock, ...toolShapes], cutResult.maker);
+          RenderSeams.throughHistory(newShape, [shape, ...toolShapes], cutResult.makerOf(shape));
           const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify, unifyEdges: true,
             requireLineage: options?.validateResult });
           cleanups.push(cleanup);
@@ -615,27 +626,30 @@ export function cutWithSceneObjects(
         }
 
         replacedStock.push(shape);
-      } else if (cutResult.maker.IsDeleted(shape.getShape())) {
+      } else if (cutResult.makerOf(shape).IsDeleted(shape.getShape())) {
         replacedStock.push(shape);
       }
     }
 
     // Validate every replacement before adopting any. Complete removal has no
-    // replacement solid; a disjoint cut has neither modifications nor deletion.
+    // replacement solid; a stock the cut left as it was — out of the tool's
+    // reach, or only touched by it — has neither, and stays the solid it is
+    // on the object that owns it.
     for (const shape of cleanedShapes) caller.addShape(shape as Solid);
     for (const shape of replacedStock) shapeObjectMap.get(shape)!.removeShape(shape, caller);
 
-    if (options?.recordHistoryFor) {
-      recordCutHistory(options.recordHistoryFor, stock, shapeObjectMap, cleanedShapes, cutResult.maker, cleanups);
-    }
-
     // The geometry the cut created — every result face/edge that is neither a
     // stock sub-shape nor the boolean's Modified() image of one — carried
-    // across the cleanup so the classification points at sub-shapes the caller
-    // now owns. See `classifyCutResult` for why this is kernel history rather
-    // than a geometric comparison against the stock.
+    // across the cleanup so the history and the classification point at
+    // sub-shapes the caller now owns. See `classifyCutResult` for why this is
+    // kernel history rather than a geometric comparison against the stock.
     const internalFaces = remapCreated(cutResult.internalFaces, cleanups, (c, f) => c.remapFace(f));
     const sectionEdges = remapCreated(cutResult.sectionEdges, cleanups, (c, e) => c.remapEdge(e));
+
+    if (options?.recordHistoryFor) {
+      recordCutHistory(options.recordHistoryFor, replacedStock, shapeObjectMap, cleanedShapes, cutResult.makerOf,
+        cleanups, internalFaces, sectionEdges);
+    }
 
     classifyCutResult(caller, cleanedShapes, sectionEdges, internalFaces, plane, distance, options?.bidirectional === true);
 
@@ -685,18 +699,26 @@ function remapThroughCleanups<T>(
 /**
  * Record per-owner modifications/removals and caller-side additions for a cut.
  * Mirrors the fusion variant but works with `BRepAlgoAPI_Cut`'s `Modified()` /
- * `IsDeleted()` semantics on stock faces and edges. Additions are the faces
- * and edges on the cleaned result shapes that aren't targets of any stock
- * modification — that covers the section faces/edges created by the cut plus
- * any tool-derived geometry that ended up in the result.
+ * `IsDeleted()` semantics on stock faces and edges. `stock` holds the stocks
+ * the cut replaced, each read through the boolean that ran against it.
+ *
+ * Additions are `createdFaces` / `createdEdges` — the geometry the cut made
+ * (see `BooleanOps.cutMultiShape`), already on the cleaned result. A stock
+ * face or edge that came through as it was stays with whoever added it, and
+ * one that only a cleanup rebuilt keeps its lineage as a modification on its
+ * owner; neither is the caller's. A created face a cleanup merged into a
+ * stock face descends from that face, so it is recorded once, as the
+ * modification.
  */
 function recordCutHistory(
   caller: SceneObject,
   stock: Shape<any>[],
   owners: Map<Shape<any>, SceneObject>,
   cleanedShapes: Shape<any>[],
-  maker: any,
+  makerOf: (stockShape: Shape<any>) => any,
   cleanups: CleanShapeLineage[],
+  createdFaces: Face[],
+  createdEdges: Edge[],
 ) {
   const oc = getOC();
   const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
@@ -717,10 +739,9 @@ function recordCutHistory(
     if (!owner) {
       continue;
     }
-    // Same as the fuse path: additions are aggregated below across the full
-    // cleaned result via `claimedFaces`/`claimedEdges`, so each per-shape
-    // collect can skip its own added* output traversal.
-    const history = ShapeHistoryTracker.collect(maker, [stockShape], { skipAdded: true });
+    // The caller's additions are handed in, so each per-shape collect can
+    // skip its own added* output traversal.
+    const history = ShapeHistoryTracker.collect(makerOf(stockShape), [stockShape], { skipAdded: true });
 
     for (const record of history.modifiedFaces) {
       const postCleanResults = remapPreCleanFaces(record.results);
@@ -755,22 +776,50 @@ function recordCutHistory(
     for (const edge of history.removedEdges) {
       owner.recordRemovedEdge(edge, caller);
     }
-  }
-
-  for (const cleaned of cleanedShapes) {
-    for (const raw of Explorer.findShapes(cleaned.getShape(), FACE)) {
-      if (!claimedFaces.Contains(raw)) {
-        caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+    // Stock faces/edges the boolean left alone but a cleanup rebuilt keep
+    // their lineage too — see cleanupOnlyRecords.
+    const stockFaces = cleanupOnlyRecords(
+      [stockShape], FACE, history.modifiedFaces, history.removedFaces,
+      raw => Face.fromTopoDSFace(Explorer.toFace(raw)), face => remapPreCleanFaces([face]),
+    );
+    for (const record of stockFaces) {
+      if (record.results.length === 0) {
+        owner.recordRemovedFace(record.sources[0], caller);
+        continue;
+      }
+      owner.recordModifiedFaces(record.sources, record.results, caller);
+      for (const r of record.results) {
+        claimedFaces.Add(r.getShape());
       }
     }
-    for (const raw of Explorer.findShapes(cleaned.getShape(), EDGE)) {
-      if (!claimedEdges.Contains(raw)) {
-        caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+    const stockEdges = cleanupOnlyRecords(
+      [stockShape], EDGE, history.modifiedEdges, history.removedEdges,
+      raw => Edge.fromTopoDSEdge(Explorer.toEdge(raw)), edge => remapPreCleanEdges([edge]),
+    );
+    for (const record of stockEdges) {
+      if (record.results.length === 0) {
+        owner.recordRemovedEdge(record.sources[0], caller);
+        continue;
+      }
+      owner.recordModifiedEdges(record.sources, record.results, caller);
+      for (const r of record.results) {
+        claimedEdges.Add(r.getShape());
       }
     }
   }
 
-  propagateFaceColorsViaCut(stock, cleanedShapes, maker, cleanups);
+  for (const face of createdFaces) {
+    if (!claimedFaces.Contains(face.getShape())) {
+      caller.recordAddedFace(face, caller);
+    }
+  }
+  for (const edge of createdEdges) {
+    if (!claimedEdges.Contains(edge.getShape())) {
+      caller.recordAddedEdge(edge, caller);
+    }
+  }
+
+  propagateFaceColorsViaCut(stock, cleanedShapes, makerOf, cleanups);
 
   claimedFaces.delete();
   claimedEdges.delete();
@@ -784,7 +833,7 @@ function recordCutHistory(
 function propagateFaceColorsViaCut(
   stock: Shape<any>[],
   cleanedShapes: Shape<any>[],
-  maker: any,
+  makerOf: (stockShape: Shape<any>) => any,
   cleanups: CleanShapeLineage[],
 ) {
   const oc = getOC();
@@ -795,6 +844,7 @@ function propagateFaceColorsViaCut(
       continue;
     }
 
+    const maker = makerOf(stockShape);
     for (const entry of stockShape.colorMap) {
       const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(entry.shape))
         .filter(s => s.ShapeType() === FACE);

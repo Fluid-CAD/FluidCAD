@@ -46,9 +46,11 @@ describe("extrude — history tracking (Phase 2b: finalShapes)", () => {
     sketch("xy", () => {
         testRect(100, 100);
       });
-    extrude(40);
+    const stock = extrude(40) as Extrude;
 
-    sketch("xy", () => {
+    // Sketched on the top face, the cut runs into the box; from "xy" it would
+    // run away from it and take nothing.
+    sketch(stock.endFaces(), () => {
         testRect(20, 20);
       });
     const cut = extrude(10).remove() as Extrude;
@@ -127,6 +129,36 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
     // Some faces in the fused result didn't come from the cylinder — they come
     // from the extrusion. Those should show up as additions on the extrude.
     expect(e.getAddedFaces().length).toBeGreaterThan(0);
+  });
+
+  it("records a fused boss's own faces and edges as additions, and none of the plate's", () => {
+    sketch("xy", () => {
+        testRect(60, 40);
+      });
+    const plate = extrude(10) as Extrude;
+
+    sketch(plate.endFaces(), () => {
+      circle([30, 20], 8);
+    });
+    const boss = extrude(5) as Extrude;
+    render();
+
+    // The boss's wall and its top; the top's rim, the wall's seam and the
+    // circle where the boss meets the plate.
+    expect(boss.getAddedFaces()).toHaveLength(2);
+    expect(boss.getAddedEdges()).toHaveLength(3);
+
+    // The five plate faces the boss never touched are on the fused solid as
+    // the plate built them — still the plate's, not re-recorded by the boss —
+    // and the top face it stands on is the plate's, modified.
+    const fused = boss.getShapes()[0];
+    const built = plate.getAddedFaces();
+    expect(built).toHaveLength(6);
+    expect(built.filter(f => fused.getSubShapes("face").some(s => s.isSame(f)))).toHaveLength(5);
+    expect(boss.getAddedFaces().some(f => built.some(b => b.isSame(f)))).toBe(false);
+    expect(boss.getAddedEdges().some(e => plate.getAddedEdges().some(b => b.isSame(e)))).toBe(false);
+    expect(plate.getModifiedFaces()).toHaveLength(1);
+    expect(plate.getModifiedFaces()[0].modifiedBy).toBe(boss);
   });
 
   it("records added faces/edges on a symmetric extrude in an empty scene", () => {
@@ -212,7 +244,7 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
       });
     const stock = extrude(40) as Extrude;
 
-    sketch("xy", () => {
+    sketch(stock.endFaces(), () => {
         testRect(20, 20);
       });
     const cut = extrude(15).remove() as Extrude;
@@ -278,7 +310,7 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
       });
     const stock = extrude(40) as Extrude;
 
-    sketch("xy", () => {
+    sketch(stock.endFaces(), () => {
         testRect(20, 20);
       });
     const cut = extrude(0).remove() as Extrude;

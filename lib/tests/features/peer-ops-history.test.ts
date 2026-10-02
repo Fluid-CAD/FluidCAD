@@ -48,8 +48,10 @@ describe("Revolve — history tracking", () => {
   it("attributes modifications to the scene object when revolve fuses with it", () => {
     const c = cylinder(30, 40) as Cylinder;
 
+    // A ring standing 4 proud of the cylinder's wall: one sunk inside the
+    // cylinder would fuse without a face of its own.
     sketch("xz", () => {
-        testRect(8, 20, { at: [20, 0] });
+        testRect(8, 20, { at: [26, 0] });
       });
     const r = revolve("z") as Revolve;
     render();

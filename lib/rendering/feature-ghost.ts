@@ -34,7 +34,7 @@ import {
 } from "../features/repeat-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
-import { Extrudable } from "../helpers/types.js";
+import { BoundingBox, Extrudable } from "../helpers/types.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import type { RegionPick } from "../features/2d/regions/region-wire.js";
 import { resolveRegionPicks, sourceRegionContext } from "../features/2d/regions/source-regions.js";
@@ -50,6 +50,7 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import type { LoftEndCondition } from "../oc/loft-ops.js";
 import type { MeshSettings } from "../oc/mesh.js";
+import { ShapeProps } from "../oc/props.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
@@ -57,6 +58,7 @@ import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 import { getActiveUnit, withUnit } from "../units/registry.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * A dialog's live geometry request, every value already resolved to a number
@@ -1391,11 +1393,11 @@ function buildRepeatGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That feature is not in the rendered scene.' };
     }
-    const runs = repeatChainRuns(scene, targets);
-    if (runs.length === 0) {
+    const flow = repeatChainFlow(scene, targets);
+    if (flow.outputs.size === 0) {
       return { ok: false, reason: 'That feature has no solid to preview.' };
     }
-    const stamps = repeatStamps(runs, meshConfig, scratch);
+    const stamps = repeatStamps(flow, meshConfig, scratch);
     return {
       ok: true,
       solids: placed.matrices.flatMap(matrix => stamps.map(stamp => ({
@@ -1537,30 +1539,37 @@ type RepeatStamp = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
  * one already there). Stamping the fused body would draw a plate per instance —
  * geometry the apply never produces.
  *
- * So each {@link RepeatChainRun} is stamped as the *difference* between what
- * came out of it and what went in: material the chain adds (green) and material
- * it takes away (red — a repeated cut previews as the pockets it will open). A
- * run that consumed nothing is a standalone body and needs no boolean at all,
+ * So the chain is stamped as the *difference* between what came out of it and
+ * what went in ({@link RepeatChainFlow}): material the chain adds (green) and
+ * material it takes away (red — a repeated cut previews as the pockets it will
+ * open). A body made from nothing stands alone and needs no boolean at all,
  * which keeps the common case on the scene's cached meshes.
  *
  * A difference OCC refuses to compute draws nothing rather than falling back to
  * the whole body — being silent beats being wrong about what an apply does.
  */
 function repeatStamps(
-  runs: RepeatChainRun[],
+  flow: RepeatChainFlow,
   meshConfig: MeshSettings,
   scratch: Shape[],
 ): RepeatStamp[] {
+  const untouched = untouchedBodies(flow);
+  const changed = (bodies: Shape[]) => bodies.filter(body => !untouched.has(body));
   const added: Shape[] = [];
   const removed: Shape[] = [];
   try {
-    for (const run of runs) {
-      if (run.inputs.length === 0) {
-        added.push(...run.outputs);
+    for (const [output, inputs] of flow.outputs) {
+      if (untouched.has(output)) {
         continue;
       }
-      added.push(...solidDifference(run.outputs, run.inputs, scratch));
-      removed.push(...solidDifference(run.inputs, run.outputs, scratch));
+      const from = changed(inputs);
+      added.push(...(from.length === 0 ? [output] : solidDifference([output], from, scratch)));
+    }
+    for (const [input, outputs] of flow.inputs) {
+      if (untouched.has(input)) {
+        continue;
+      }
+      removed.push(...solidDifference([input], changed(outputs), scratch));
     }
   } catch {
     return [];
@@ -1577,26 +1586,35 @@ function repeatStamps(
 }
 
 /**
- * One unbroken stretch of the cloned chain: the bodies it hands on, and the
- * bodies it took in from outside itself.
+ * The solids passing through the chain a repeat clones, read both ways: each
+ * body the chain hands on with the bodies it took in to make it, and each body
+ * it took in with the bodies handed on in its place.
  */
-type RepeatChainRun = { outputs: Shape[]; inputs: Shape[] };
+type RepeatChainFlow = { outputs: Map<Shape, Shape[]>; inputs: Map<Shape, Shape[]> };
 
 /**
- * How the solids flow through the chain a repeat clones, split into runs.
+ * How the solids flow through the chain a repeat clones.
  *
  * A chain is rarely one feature. `repeat('mirror', 'front', e, f, c1, f2)`
  * replays four of them, and the model may well have built something else in
- * between — so the chain reaches the scene as separate stretches, each taking a
- * body in and handing one on. A run's boundary is exactly that: an input owned
- * by an object the chain doesn't hold, an output no chain member consumed.
+ * between — so the chain reaches the scene as separate stretches, each taking
+ * bodies in and handing bodies on. A stretch's boundary is exactly that: an
+ * input owned by an object the chain doesn't hold, an output no chain member
+ * consumed.
  *
- * Pairing every output with *its own* run's input is what keeps the difference
- * honest. Lumping them together would subtract a later stretch's input from an
- * earlier stretch's output and attribute the features in between — which the
- * repeat does not replay — to the pattern.
+ * Pairing every output with the inputs of *its own* stretch is what keeps the
+ * difference honest. Lumping them together would subtract a later stretch's
+ * input from an earlier stretch's output and attribute the features in between
+ * — which the repeat does not replay — to the pattern.
+ *
+ * Nor is a stretch one body. A hole in a part made of several solids takes in
+ * every one its boolean touched and hands each back, so the pairing runs both
+ * ways: a body handed on is set against all that was taken in to make it, a
+ * body taken in against all that was handed on in its place. Setting a single
+ * output against the feature's inputs instead would report every *other* body
+ * it took in as removed whole.
  */
-function repeatChainRuns(scene: Scene, targets: SceneObject[]): RepeatChainRun[] {
+function repeatChainFlow(scene: Scene, targets: SceneObject[]): RepeatChainFlow {
   const chain = repeatCloneSet(targets);
   const objects = allObjects(scene);
   // Both directions of every solid consumption in the scene: who ate a body,
@@ -1615,32 +1633,41 @@ function repeatChainRuns(scene: Scene, targets: SceneObject[]): RepeatChainRun[]
     }
   }
 
-  const runs: RepeatChainRun[] = [];
-  // A container reports its children's solids as its own, so the same body
-  // reaches this loop through both — it may only be stamped once.
-  const stamped = new Set<Shape>();
+  const flow: RepeatChainFlow = { outputs: new Map(), inputs: new Map() };
   for (const member of chain) {
-    for (const solid of memberSolids(member)) {
-      // A body another chain member went on to consume is internal — the run
-      // it belongs to hands on whatever that member produced instead.
+    // A container reports its children's solids as its own. The children are
+    // chain members too, and each answers for the bodies it built — only the
+    // builder's own consumption says what was taken in to make them.
+    if (member.isContainer()) {
+      continue;
+    }
+    // A body another chain member went on to consume is internal — the
+    // stretch it belongs to hands on whatever that member produced instead.
+    const outputs = memberSolids(member).filter(solid => {
       const consumer = consumers.get(solid);
-      if (stamped.has(solid) || (consumer && chain.has(consumer))) {
-        continue;
-      }
-      stamped.add(solid);
-      runs.push({ outputs: [solid], inputs: runInputs(member, chain, eaten) });
+      return !consumer || !chain.has(consumer);
+    });
+    if (outputs.length === 0) {
+      continue;
+    }
+    const inputs = chainInputs(member, chain, eaten);
+    for (const output of outputs) {
+      flow.outputs.set(output, inputs);
+    }
+    for (const input of inputs) {
+      flow.inputs.set(input, [...(flow.inputs.get(input) ?? []), ...outputs]);
     }
   }
-  return runs;
+  return flow;
 }
 
 /**
- * The bodies a run took in: walk back from its last member through everything
- * the chain consumed, and stop at the first body built outside it. A chain that
- * consumed nothing at all — a `.new()` extrude, a primitive — takes nothing in,
- * and its output stands alone.
+ * The bodies a chain member's outputs were made from: walk back from the member
+ * through everything the chain consumed, and stop at the first body built
+ * outside it. A chain that consumed nothing at all — a `.new()` extrude, a
+ * primitive — takes nothing in, and its output stands alone.
  */
-function runInputs(
+function chainInputs(
   member: SceneObject,
   chain: Set<SceneObject>,
   eaten: Map<SceneObject, { shape: Shape; owner: SceneObject }[]>,
@@ -1663,6 +1690,78 @@ function runInputs(
     }
   }
   return [...inputs];
+}
+
+/**
+ * The bodies that came out of the chain exactly as they went in — the input
+ * and its output both.
+ *
+ * A boolean reports every solid it *touched* as modified, not every solid it
+ * changed. In a part of several bodies resting against one another, a hole
+ * drilled into one re-issues them all — the others as new solids with the old
+ * ones' exact geometry. Such a body is no part of what the chain did, and
+ * setting it against itself would spend two booleans between identical solids
+ * to learn that.
+ */
+function untouchedBodies(flow: RepeatChainFlow): Set<Shape> {
+  const untouched = new Set<Shape>();
+  const measured = new Map<Shape, BodyMeasure | null>();
+  for (const [output, inputs] of flow.outputs) {
+    const twin = inputs.find(input => !untouched.has(input) && sameBody(input, output, measured));
+    if (twin) {
+      untouched.add(output);
+      untouched.add(twin);
+    }
+  }
+  return untouched;
+}
+
+/** Where a solid sits and how much of it there is. */
+type BodyMeasure = { box: BoundingBox; volume: number; centroid: { x: number; y: number; z: number } };
+
+/**
+ * Whether two solids are one body: the same extents, the same volume, the same
+ * centre of mass. A boolean that changes a body changes its volume, so a cut
+ * or a fuse is never mistaken for nothing; the extents and the centre tell a
+ * body that was moved from one left where it stood.
+ *
+ * The volume is compared relative to itself, a part in ten billion — far above
+ * what integrating the same geometry twice can differ by, far below any cut
+ * worth drawing. A solid the kernel can't measure is nobody's twin, which only
+ * costs the booleans the answer would have saved.
+ */
+function sameBody(a: Shape, b: Shape, measured: Map<Shape, BodyMeasure | null>): boolean {
+  const first = bodyMeasure(a, measured);
+  const second = bodyMeasure(b, measured);
+  if (!first || !second) {
+    return false;
+  }
+  const length = mmTol(1e-6);
+  const near = (p: number, q: number) => Math.abs(p - q) <= length;
+  return near(first.box.minX, second.box.minX) && near(first.box.maxX, second.box.maxX)
+    && near(first.box.minY, second.box.minY) && near(first.box.maxY, second.box.maxY)
+    && near(first.box.minZ, second.box.minZ) && near(first.box.maxZ, second.box.maxZ)
+    && near(first.centroid.x, second.centroid.x)
+    && near(first.centroid.y, second.centroid.y)
+    && near(first.centroid.z, second.centroid.z)
+    // unit: dimensionless
+    && Math.abs(first.volume - second.volume) <= 1e-10 * Math.max(Math.abs(first.volume), Math.abs(second.volume));
+}
+
+function bodyMeasure(solid: Shape, measured: Map<Shape, BodyMeasure | null>): BodyMeasure | null {
+  if (!measured.has(solid)) {
+    let measure: BodyMeasure | null = null;
+    try {
+      measure = {
+        box: ShapeOps.getExactBoundingBox(solid),
+        ...ShapeProps.getVolumeAndCentroid(solid.getShape()),
+      };
+    } catch {
+      // Nothing to bound, or nothing to integrate.
+    }
+    measured.set(solid, measure);
+  }
+  return measured.get(solid)!;
 }
 
 /**
@@ -1748,8 +1847,8 @@ function solidDifference(stocks: Shape[], tools: Shape[], scratch: Shape[]): Sha
       break;
     }
   }
-  // `current` is still `stocks` only when there was nothing to cut with, and
-  // callers never reach that: a run with no inputs is stamped whole instead.
+  // `current` is still `stocks` only when there was nothing to cut with: a
+  // body taken in with nothing handed on in its place is gone whole.
   return current;
 }
 

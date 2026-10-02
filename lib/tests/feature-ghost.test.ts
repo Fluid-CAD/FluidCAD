@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
@@ -12,6 +12,7 @@ import chamfer from "../core/chamfer.js";
 import fillet from "../core/fillet.js";
 import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
+import hole from "../core/hole.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
 import part from "../core/part.js";
@@ -22,6 +23,7 @@ import { Connector } from "../features/connector.js";
 import { bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
@@ -958,6 +960,31 @@ describe("feature ghost — repeat", () => {
     return result.solids;
   }
 
+  /** The extent of one ghost body across every mesh it carries. */
+  function extent(solid: { meshes: SceneObjectMesh[] }) {
+    const along = (offset: number) => solid.meshes.flatMap(m => [...m.vertices].filter((_, i) => i % 3 === offset));
+    const [xs, ys, zs] = [along(0), along(1), along(2)];
+    return {
+      minX: Math.min(...xs), maxX: Math.max(...xs),
+      minY: Math.min(...ys), maxY: Math.max(...ys),
+      minZ: Math.min(...zs), maxZ: Math.max(...zs),
+    };
+  }
+
+  /**
+   * A part of two bodies resting on one another: a 200 × 100 × 20 plate, and a
+   * 40 × 40 post standing 50 tall in the middle of its top face.
+   */
+  function plateAndPost() {
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { testRect(40, 40, { at: [-20, -20] }); });
+    const post = extrude(50).new() as unknown as { endFaces: () => { center: () => never } };
+    return { plate, post };
+  }
+
   it("stamps a body at every instance but the original", () => {
     locatedBox(5);
     const scene = render();
@@ -1328,6 +1355,110 @@ describe("feature ghost — repeat", () => {
     expect(box.maxZ).toBeCloseTo(20, 3);
   });
 
+  /**
+   * A part of several bodies. The hole is drilled into the post alone, but its
+   * boolean takes in every solid in scope and hands back the ones it touched —
+   * the plate the post stands on among them, unchanged. Each instance is still
+   * the hole: neither body it was not drilled into, nor the rest of the one it
+   * was.
+   */
+  it("stamps a hole's pocket alone in a part of several bodies", () => {
+    const { post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const cuts = vi.spyOn(BooleanOps, 'cutShapesRaw');
+    let result: FeatureGhostResult;
+    try {
+      result = repeatGhost(scene, [13], {
+        directions: [{ count: 2, offset: 60, length: null }],
+      });
+      // The post against its drilled self, each way round. A body handed back
+      // untouched is told apart by measuring it, never by cutting it against
+      // its own twin.
+      expect(cuts).toHaveBeenCalledTimes(2);
+    } finally {
+      cuts.mockRestore();
+    }
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    // Ø6, 10 deep from the post's top at z 70, moved 60 — not the 40 × 40 post
+    // around it, and not the 200 × 100 plate underneath.
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minY).toBeCloseTo(-3, 1);
+    expect(box.maxY).toBeCloseTo(3, 1);
+    expect(box.minZ).toBeCloseTo(60, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * The same hole drilled on through the post and into the plate: two bodies
+   * taken in, two handed on, both changed. Each is set against its own
+   * outcome — the pocket it lost — and never against the other's, which would
+   * read as the whole body gone.
+   */
+  it("stamps the pockets of a hole that runs through two bodies", () => {
+    const { post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(60) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [13], {
+      directions: [{ count: 2, offset: 60, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    // One pocket per body: the post's full 50, and 10 into the plate below.
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minZ).toBeCloseTo(10, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * Two targets on two bodies: a boss fused onto the plate, then a hole in the
+   * post — whose boolean hands the plate back untouched, boss and all. That
+   * re-issue is not the hole's work: the boss still reads against the plate it
+   * was fused onto, the hole against the post it was drilled into.
+   */
+  it("keeps each target on its own body when a later one hands the other on", () => {
+    const { plate, post } = plateAndPost();
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9, 13], {
+      directions: [{ count: 2, offset: 60, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids.map(s => s.kind).sort()).toEqual(['add', 'remove']);
+    // The boss alone (Ø30 at x -80, standing on the plate), moved 60.
+    const added = extent(solids.find(s => s.kind === 'add')!);
+    expect(added.minX).toBeCloseTo(-35, 1);
+    expect(added.maxX).toBeCloseTo(-5, 1);
+    expect(added.minZ).toBeCloseTo(20, 3);
+    expect(added.maxZ).toBeCloseTo(30, 3);
+    // The hole alone, in the post's top.
+    const removed = extent(solids.find(s => s.kind === 'remove')!);
+    expect(removed.minX).toBeCloseTo(57, 1);
+    expect(removed.maxX).toBeCloseTo(63, 1);
+    expect(removed.minZ).toBeCloseTo(60, 3);
+    expect(removed.maxZ).toBeCloseTo(70, 3);
+  });
+
   it("stamps every target the request names", () => {
     locatedBox(5);
     locatedBox(9, () => { testRect(20, 20, { at: [100, -10] }); });
@@ -1384,6 +1515,44 @@ describe("feature ghost — repeat", () => {
     // belongs to line 5, not to the container.
     expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(1);
     expect(bounds(result, 0).minX).toBeCloseTo(700, 3);
+  });
+
+  /**
+   * A container's children answer for what they built. The pattern's one clone
+   * drilled the plate, so repeating the pattern previews that hole — read
+   * through the container instead, the clone's plate would have no input to be
+   * set against and every instance would draw a whole plate.
+   */
+  it("stamps what a container target's children did, not the bodies they hand on", () => {
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    const seat = sketch(plate.endFaces() as never, () => ({ c: circle([0, 0], 3) }));
+    const drilled = hole(6, (seat.geometries.c as unknown as { center: () => never }).center())
+      .depth(5) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const pattern = repeat("linear", "x", { count: 2, offset: 30 }, drilled as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, drilled, 9);
+
+    const result = repeatGhost(scene, [9], {
+      axes: [{ kind: 'standard', axis: 'y' }],
+      directions: [{ count: 2, offset: 20, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    // The clone's hole (Ø6 at x 30, 5 deep in the plate's top), moved 20 in y.
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(27, 1);
+    expect(box.maxX).toBeCloseTo(33, 1);
+    expect(box.minY).toBeCloseTo(17, 1);
+    expect(box.maxY).toBeCloseTo(23, 1);
+    expect(box.minZ).toBeCloseTo(15, 3);
+    expect(box.maxZ).toBeCloseTo(20, 3);
   });
 
   it("refuses more instances than it draws", () => {

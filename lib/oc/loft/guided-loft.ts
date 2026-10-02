@@ -94,7 +94,7 @@ export class GuidedLoft {
       guides.map((_, g) => wrap(anchors[g][k].u)),
     );
     const alignment = SectionCompatibility.alignParameters(compatible, contactParams);
-    compatible = alignment.compatible;
+    compatible = Skinning.refineForConditions(alignment.compatible, startCondition, endCondition);
     alignment.targets.forEach((target, g) => {
       if (target !== null) {
         for (const anchor of anchors[g]) {
@@ -159,7 +159,7 @@ export class GuidedLoft {
 
     const endIndex = isEnd ? compatible.sections.length - 1 : 0;
     const conditionField = Skinning.derivativeField(
-      compatible.sections[endIndex], condition, averageLength, isEnd,
+      compatible, compatible.sections[endIndex], condition, averageLength, isEnd,
     );
 
     const contacts = anchors.map(anchor => {

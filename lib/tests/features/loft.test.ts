@@ -9,6 +9,7 @@ import { Solid } from "../../common/solid.js";
 import { Face } from "../../common/face.js";
 import { getOC } from "../../oc/init.js";
 import { renderSolid } from "../../rendering/render-solid.js";
+import { EdgeQuery } from "../../oc/edge-query.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
@@ -80,7 +81,7 @@ describe("loft", () => {
       expect(bbox.maxX - bbox.minX).toBeCloseTo(bottomWidth, -1);
     });
 
-    it("splits a round wall at its C0 knots without drawing the splits", () => {
+    it("keeps a round wall as one smooth face between two circular rims", () => {
       const s1 = sketch("xy", () => {
           circle([0, 0], 80);
         });
@@ -95,29 +96,37 @@ describe("loft", () => {
 
       render();
 
-      // A circle is three rational arcs; left in one face, their C0 joins
-      // make the wall unusable for OCC's offset (shell).
+      // A circle is one span of the section curve, so nothing splits the
+      // wall — and its surface carries no C0 knot, which OCC's offset
+      // (shell) would refuse the face for.
       const walls = sides.getShapes() as Face[];
-      expect(walls).toHaveLength(3);
+      expect(walls).toHaveLength(1);
       const oc = getOC();
-      for (const wall of walls) {
-        const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(wall.getShape()), true);
-        const surface = adaptor.BSpline();
-        expect(surface.IsCNu(1)).toBe(true);
-        expect(surface.IsCNv(1)).toBe(true);
-        surface.delete();
-        adaptor.delete();
-      }
+      const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(walls[0].getShape()), true);
+      const surface = adaptor.BSpline();
+      expect(surface.IsCNu(1)).toBe(true);
+      expect(surface.IsCNv(1)).toBe(true);
+      expect(surface.NbUKnots()).toBe(2);
+      surface.delete();
 
-      // Only the two rims are drawn: the three wall joins are render seams.
-      const solid = l.getShapes()[0] as Solid;
-      expect(solid.getRenderSeams()).toHaveLength(3);
-      const drawn = renderSolid(solid).filter(mesh => mesh.label === "solid-edges");
-      expect(drawn).toHaveLength(6);
-      for (const mesh of drawn) {
-        const zs = mesh.vertices.filter((_, i) => i % 3 === 2);
-        expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(1e-6);
+      // The wall is an exact cone: every point sits on r = 40 − z·20/50.
+      for (let i = 0; i <= 16; i++) {
+        for (let j = 0; j <= 4; j++) {
+          const point = adaptor.Value(i / 16, j / 4);
+          expect(Math.hypot(point.X(), point.Y())).toBeCloseTo(40 - point.Z() * 0.4, 9);
+          point.delete();
+        }
       }
+      adaptor.delete();
+
+      // Two rims, each one closed circle; the wall's seam is not drawn.
+      const solid = l.getShapes()[0] as Solid;
+      const drawn = renderSolid(solid).filter(m => m.label === "solid-edges");
+      expect(drawn).toHaveLength(2);
+      const rims = solid.getEdges().filter(edge => EdgeQuery.isCircleEdge(edge));
+      expect(rims).toHaveLength(2);
+      expect(rims.some(edge => EdgeQuery.isCircleEdge(edge, 80))).toBe(true);
+      expect(rims.some(edge => EdgeQuery.isCircleEdge(edge, 40))).toBe(true);
     });
 
     it("should produce a solid with positive volume", () => {

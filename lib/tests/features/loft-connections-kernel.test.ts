@@ -90,10 +90,11 @@ describe("loft section compatibility", () => {
     }
   });
 
-  it("leaves a seam within the snap band where it is instead of splitting off a sliver", () => {
+  it("turns a whole circle onto the previous seam instead of cutting it", () => {
     const oc = getOC();
     // The second circle's seam sits 5e-7 of a turn before the first one's, so
-    // the nearest-seam search lands 5e-7 past the existing seam.
+    // the nearest-seam search lands 5e-7 past the existing seam: cutting
+    // there would split off a sliver span.
     const circle = (z: number, turn: number) => {
       const angle = 2 * Math.PI * turn;
       const origin = new oc.gp_Pnt(0, 0, z);
@@ -118,11 +119,52 @@ describe("loft section compatibility", () => {
 
     const compatible = SectionCompatibility.build([circle(0, 0), circle(50, -5e-7)]);
 
-    // Untouched rational circles: no split, no polynomial fallback.
+    // Exact rational circles of one span each: no cut, no polynomial fallback.
     expect(compatible.weights).not.toBeNull();
-    expect(compatible.knots).toHaveLength(4);
+    expect(compatible.knots).toEqual([0, 1]);
     expect(compatible.sections[0].poles).toHaveLength(7);
     expect(compatible.creases).toEqual([]);
+    const seams = compatible.sections.map(section => section.poles[0]);
+    expect(Math.hypot(seams[1][0] - seams[0][0], seams[1][1] - seams[0][1])).toBeLessThan(1e-6);
+  });
+
+  it.each([0.1, 0.25, 0.4, 0.75])("keeps circles twisted by %f of a turn exact and uncut", turn => {
+    const oc = getOC();
+    const circle = (z: number, angle: number) => {
+      const origin = new oc.gp_Pnt(0, 0, z);
+      const normal = new oc.gp_Dir(0, 0, 1);
+      const xDirection = new oc.gp_Dir(Math.cos(angle), Math.sin(angle), 0);
+      const axes = new oc.gp_Ax2(origin, normal, xDirection);
+      const circ = new oc.gp_Circ(axes, 40);
+      const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(circ);
+      const wireMaker = new oc.BRepBuilderAPI_MakeWire(edgeMaker.Edge());
+      try {
+        return wireMaker.Wire();
+      } finally {
+        wireMaker.delete();
+        edgeMaker.delete();
+        circ.delete();
+        axes.delete();
+        xDirection.delete();
+        normal.delete();
+        origin.delete();
+      }
+    };
+
+    const compatible = SectionCompatibility.build([circle(0, 0), circle(50, 2 * Math.PI * turn)]);
+
+    // The second circle starts a fraction of a turn away from the first.
+    // Its seam is turned onto the first one's: same knots, same weights, and
+    // every point still on the circle.
+    expect(compatible.weights).not.toBeNull();
+    expect(compatible.knots).toEqual([0, 1]);
+    const seam = compatible.sections[1].poles[0];
+    expect(Math.hypot(seam[0] - 40, seam[1])).toBeLessThan(1e-6);
+    for (let i = 0; i <= 64; i++) {
+      const point = evaluateBSplinePoint({ ...compatible, poles: compatible.sections[1].poles }, i / 64);
+      expect(Math.abs(Math.hypot(point[0], point[1]) - 40)).toBeLessThan(1e-10);
+      expect(point[2]).toBeCloseTo(50, 10);
+    }
   });
 
   it("records exact topology junction knots independently of internal curve knots", () => {
@@ -131,7 +173,14 @@ describe("loft section compatibility", () => {
       const section = SectionCurve.fromWireWithVertices(wire.getShape(), polynomial);
       try {
         expect(section.vertices).toHaveLength(2);
-        expect(section.curve.NbKnots()).toBeGreaterThan(3);
+        // Exact: the two arcs are one span of their circle, cut at the
+        // vertex between them. Approximated: that plus the fit's own knots.
+        if (polynomial) {
+          expect(section.curve.NbKnots()).toBeGreaterThan(3);
+        } else {
+          expect(section.curve.NbKnots()).toBe(3);
+          expect(section.curve.Degree()).toBe(6);
+        }
         for (const [i, vertex] of section.vertices.entries()) {
           expect(vertex.point.distanceTo(points[i])).toBeLessThan(1e-10);
           const knots = Array.from({ length: section.curve.NbKnots() }, (_, k) => section.curve.Knot(k + 1));
@@ -200,8 +249,10 @@ describe("loft kernel connections", () => {
     const connections = [[a.points[0], b.points[0]], [a.points[1], b.points[2]]];
     const compatible = SectionCompatibility.build(rawWires, ConnectionResolver.resolve(wires, connections));
     expect(compatible.weights).toBeNull();
+    // The pin sits midway between the quarter turn on A and the half turn
+    // on B; a circle's parameter follows its angle to within 1e-4 of a turn.
     expect(compatible.creases).toHaveLength(1);
-    expect(compatible.creases[0]).toBeCloseTo(0.375, 8);
+    expect(compatible.creases[0]).toBeCloseTo(0.375, 3);
     const [solid] = LoftOps.makeLoft(wires, { connections });
     expectConnections(solid, connections, 4);
   });
@@ -254,9 +305,7 @@ describe("loft kernel connections", () => {
     const b = splitCircle(60, [Math.PI / 2, 3 * Math.PI / 2]);
     const connections = [[a.points[0], b.points[0]], [a.points[1], b.points[1]]];
     const solid = LoftOps.makeLoft([a.wire, b.wire], { connections })[0];
-    // A rational half circle carries a C0 knot at its middle, and the wall
-    // splits there too: four wall faces and two caps.
-    expectConnections(solid, connections, 6);
+    expectConnections(solid, connections, 4);
   });
 
   it("reads vertices off face boundary wires whose edges are stored reversed", () => {

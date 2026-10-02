@@ -54,7 +54,9 @@ export class SkinnedLoft {
     endCondition?: LoftEndCondition,
     connections?: Point[][],
   ): Solid[] {
-    const compatible = SkinnedLoft.skinWires(wires, connections);
+    const compatible = Skinning.refineForConditions(
+      SkinnedLoft.skinWires(wires, connections), startCondition, endCondition,
+    );
     const skinned = Skinning.skinSections(compatible, startCondition, endCondition);
     return [Skinning.buildLoftSolid(compatible, skinned.grid, skinned.vBasis)];
   }
@@ -95,18 +97,13 @@ export class SkinnedLoft {
       const outerWall = SkinnedLoft.skinWall(outer, startCondition, endCondition);
       const innerWall = SkinnedLoft.skinWall(inner, startCondition, endCondition);
 
-      const outerFaces = Skinning.sideFaces(outerWall.uBasis, outerWall.grid, outerWall.vBasis);
-      const innerFaces = Skinning.sideFaces(innerWall.uBasis, innerWall.grid, innerWall.vBasis);
       const faces = [
-        ...outerFaces,
-        ...innerFaces,
+        ...Skinning.sideFaces(outerWall.uBasis, outerWall.grid, outerWall.vBasis),
+        ...Skinning.sideFaces(innerWall.uBasis, innerWall.grid, innerWall.vBasis),
         SkinnedLoft.ringCap(outerWall, innerWall, false),
         SkinnedLoft.ringCap(outerWall, innerWall, true),
       ];
-      return [Skinning.sewSolid(faces, [
-        ...Skinning.smoothWalls(outerWall.uBasis, outerFaces),
-        ...Skinning.smoothWalls(innerWall.uBasis, innerFaces),
-      ])];
+      return [Skinning.sewSolid(faces)];
     } finally {
       for (const wire of rebuilt) {
         wire.dispose();
@@ -127,14 +124,15 @@ export class SkinnedLoft {
     return SectionCompatibility.build(wires.map(w => w.getShape()));
   }
 
-  /** One thin wall's skin, its smooth C0 knots relaxed — the form both its faces and its cap boundaries are cut from. */
+  /** One thin wall's skin with its smooth knots relaxed — the form both its faces and its cap boundaries are cut from. */
   private static skinWall(
     compatible: CompatibleSections,
     startCondition?: LoftEndCondition,
     endCondition?: LoftEndCondition,
   ): SkinnedWall {
-    const { grid, vBasis } = Skinning.skinSections(compatible, startCondition, endCondition);
-    return { ...Skinning.relaxSmoothKnots(compatible, grid, vBasis), vBasis };
+    const refined = Skinning.refineForConditions(compatible, startCondition, endCondition);
+    const { grid, vBasis } = Skinning.skinSections(refined, startCondition, endCondition);
+    return { ...Skinning.relaxSmoothKnots(refined, grid, vBasis), vBasis };
   }
 
   /** Planar ring between the outer and inner wall boundaries at one end. */

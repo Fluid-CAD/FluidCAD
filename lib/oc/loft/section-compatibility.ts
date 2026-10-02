@@ -6,6 +6,7 @@ import { SectionCurve, WireSection } from "./section-curve.js";
 import { SectionPin, SectionPins } from "./section-pins.js";
 import { SectionCorrespondence } from "./section-correspondence.js";
 import { CurveData } from "./curve-data.js";
+import { ConicArcs, ConicFrame } from "./conic-arc.js";
 import { closestCurveParameter } from "./curve-eval.js";
 
 /** One profile as a compatible section: poles only — knots/degree/weights are shared. */
@@ -275,6 +276,42 @@ export class SectionCompatibility {
     return sorted;
   }
 
+  /**
+   * The same sections on a finer basis: `knots` inserted once each into
+   * every section. The curves do not change.
+   */
+  static insertKnots(compatible: CompatibleSections, knots: number[]): CompatibleSections {
+    if (knots.length === 0) {
+      return compatible;
+    }
+    const datas = compatible.sections.map(section => {
+      const curve = CurveData.build({
+        poles: section.poles,
+        weights: compatible.weights,
+        knots: compatible.knots,
+        multiplicities: compatible.multiplicities,
+        degree: compatible.degree,
+      });
+      const [values, disposeValues] = NCollections.toArray1Double(knots);
+      const [mults, disposeMults] = NCollections.toArray1Int(knots.map(() => 1));
+      try {
+        curve.InsertKnots(values, mults, SectionCompatibility.KNOT_TOLERANCE, false);
+        return CurveData.read(curve);
+      } finally {
+        disposeValues();
+        disposeMults();
+        curve.delete();
+      }
+    });
+    return {
+      ...compatible,
+      knots: datas[0].knots,
+      multiplicities: datas[0].multiplicities,
+      weights: datas[0].weights,
+      sections: compatible.sections.map((section, i) => ({ ...section, poles: datas[i].poles })),
+    };
+  }
+
   /** Re-unifies re-proportioned section curves, keeping the original frames. */
   private static rebuildAligned(
     curves: Geom_BSplineCurve[],
@@ -324,7 +361,9 @@ export class SectionCompatibility {
     try {
       let parameters: number[][] | undefined = pins?.parameters(sections)
         ?? sections.map(section => section.vertices.map(vertex => vertex.parameter));
-      const frames = SectionCompatibility.orientConsistently(curves, parameters);
+      const frames = SectionCompatibility.orientConsistently(
+        curves, parameters, sections.map(section => section.conic),
+      );
       if (!pins) {
         parameters = SectionCorrespondence.parameters(sections, curves, parameters);
       }
@@ -340,7 +379,7 @@ export class SectionCompatibility {
         }
         aligned = SectionPins.align(curves, parameters, pins !== undefined);
       } else {
-        SectionCompatibility.alignSeams(curves);
+        SectionCompatibility.alignSeams(curves, sections, frames);
       }
       SectionCompatibility.unifyDegree(curves);
       SectionCompatibility.unifyKnots(curves);
@@ -425,8 +464,9 @@ export class SectionCompatibility {
   private static orientConsistently(
     curves: Geom_BSplineCurve[],
     parameters?: number[][],
+    conics?: (ConicFrame | undefined)[],
   ): { centroid: Vector3d; normal: Vector3d }[] {
-    const frames = curves.map(curve => SectionCompatibility.sectionFrame(curve));
+    const frames = curves.map((curve, i) => SectionCompatibility.sectionFrame(curve, conics?.[i]));
     const reverse = (i: number) => {
       curves[i].Reverse();
       frames[i] = { ...frames[i], normal: frames[i].normal.multiply(-1) };
@@ -451,19 +491,34 @@ export class SectionCompatibility {
     return frames;
   }
 
-  /** Centroid and winding normal (Newell's method) from uniform parameter samples. */
-  private static sectionFrame(curve: Geom_BSplineCurve): { centroid: Vector3d; normal: Vector3d } {
+  /**
+   * Centre and winding normal (Newell's method) of a section. The centre is
+   * that of the outline itself — a conic's own, otherwise the samples'
+   * chords weighted by length — so it does not lean towards wherever the
+   * curve's parameter runs slowest.
+   */
+  private static sectionFrame(curve: Geom_BSplineCurve, conic?: ConicFrame): { centroid: Vector3d; normal: Vector3d } {
     const points = SectionCompatibility.samplePoints(curve, SectionCompatibility.SAMPLES);
 
     let cx = 0;
     let cy = 0;
     let cz = 0;
-    for (const p of points) {
-      cx += p[0];
-      cy += p[1];
-      cz += p[2];
+    let total = 0;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const chord = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      cx += (a[0] + b[0]) / 2 * chord;
+      cy += (a[1] + b[1]) / 2 * chord;
+      cz += (a[2] + b[2]) / 2 * chord;
+      total += chord;
     }
-    const centroid = new Vector3d(cx / points.length, cy / points.length, cz / points.length);
+    if (total < 1e-12) {
+      throw new Error("Loft profile is degenerate (no measurable winding).");
+    }
+    const centroid = conic
+      ? new Vector3d(conic.center[0], conic.center[1], conic.center[2])
+      : new Vector3d(cx / total, cy / total, cz / total);
 
     let nx = 0;
     let ny = 0;
@@ -490,25 +545,85 @@ export class SectionCompatibility {
   }
 
   /**
-   * Chains each section's seam (curve origin) to the point nearest the
-   * previous section's seam, so the skinned surface doesn't twist. Closed
-   * clamped curves can't shift their origin in place; the curve is split at
-   * the new seam and re-concatenated.
+   * Chains the seams (curve origins) of neighbouring sections, so the
+   * skinned surface doesn't twist. Each seam goes where the neighbour's
+   * points to, the offset between the two sections taken out first:
+   *
+   * - a section with vertices takes the nearest one. A seam is a wall edge;
+   *   put anywhere else it cuts an edge of the profile in two.
+   * - a whole circle or ellipse has no vertex and is turned along itself;
+   * - any other closed curve is split at the nearest point and
+   *   re-concatenated (closed clamped curves can't shift their origin in
+   *   place).
+   *
+   * The chain starts from the first section that has vertices and keeps that
+   * section's own seam — the vertex its wire starts at — so the sections
+   * free to turn follow the ones that are not.
    */
-  private static alignSeams(curves: Geom_BSplineCurve[]) {
+  private static alignSeams(
+    curves: Geom_BSplineCurve[],
+    sections: WireSection[],
+    frames: { centroid: Vector3d }[],
+  ) {
     const oc = getOC();
-    const seam = new oc.gp_Pnt();
-    curves[0].D0(0, seam);
-    let reference: number[] = [seam.X(), seam.Y(), seam.Z()];
-    seam.delete();
+    const point = new oc.gp_Pnt();
+    const pointAt = (curve: Geom_BSplineCurve, t: number) => {
+      curve.D0(t, point);
+      return [point.X(), point.Y(), point.Z()];
+    };
+    const vertices = (curve: Geom_BSplineCurve) => {
+      const parameters: number[] = [];
+      for (let i = 2; i < curve.NbKnots(); i++) {
+        if (curve.Multiplicity(i) >= curve.Degree()) {
+          parameters.push(curve.Knot(i));
+        }
+      }
+      return parameters;
+    };
 
-    for (let i = 1; i < curves.length; i++) {
-      const t = SectionCompatibility.closestParameter(curves[i], reference);
-      curves[i] = SectionCompatibility.moveSeam(curves[i], t);
+    const align = (i: number, neighbour: number) => {
+      const shift = frames[i].centroid.subtract(frames[neighbour].centroid);
+      const seam = pointAt(curves[neighbour], 0);
+      const target = [seam[0] + shift.x, seam[1] + shift.y, seam[2] + shift.z];
 
-      const point = new oc.gp_Pnt();
-      curves[i].D0(0, point);
-      reference = [point.X(), point.Y(), point.Z()];
+      const conic = sections[i].conic;
+      if (conic) {
+        const t = SectionCompatibility.closestParameter(curves[i], target);
+        const data = CurveData.read(curves[i]);
+        data.poles = ConicArcs.turn(data.poles, conic, pointAt(curves[i], 0), pointAt(curves[i], t));
+        curves[i].delete();
+        curves[i] = CurveData.build(data);
+        return;
+      }
+
+      const candidates = vertices(curves[i]);
+      if (candidates.length === 0) {
+        curves[i] = SectionCompatibility.moveSeam(curves[i], SectionCompatibility.closestParameter(curves[i], target));
+        return;
+      }
+      let nearest = 0;
+      let gap = Infinity;
+      for (const t of [0, ...candidates]) {
+        const candidate = pointAt(curves[i], t);
+        const distance = Math.hypot(candidate[0] - target[0], candidate[1] - target[1], candidate[2] - target[2]);
+        // The current seam wins a tie: symmetric profiles keep their start.
+        if (distance < gap - 1e-9 * Math.max(1, gap)) {
+          gap = distance;
+          nearest = t;
+        }
+      }
+      curves[i] = SectionCompatibility.moveSeam(curves[i], nearest);
+    };
+
+    try {
+      const origin = Math.max(0, curves.findIndex((curve, i) => !sections[i].conic && vertices(curve).length > 0));
+      for (let i = origin + 1; i < curves.length; i++) {
+        align(i, i - 1);
+      }
+      for (let i = origin - 1; i >= 0; i--) {
+        align(i, i + 1);
+      }
+    } finally {
       point.delete();
     }
   }

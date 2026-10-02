@@ -74,7 +74,7 @@ describe("line/arc/circle filters on B-spline edges", () => {
     expect(circles.getShapes()).toHaveLength(0);
   });
 
-  it("a lofted circular section is three arcs that answer to arc(r)", () => {
+  it("circle(d) matches a lofted circular section that stayed one edge", () => {
     const base = sketch(plane("xy", z0), () => {
       circle([0, 0], 20);
     });
@@ -82,20 +82,16 @@ describe("line/arc/circle filters on B-spline edges", () => {
       circle([0, 0], 10);
     });
     loft(base, top);
-    // A round wall is split where the circle's arcs meet (its C0 knots), so
-    // each rim comes in three edges rather than one closed circle.
-    const bottom = select(edge().onPlane("xy", z0).arc(10)) as SelectSceneObject;
-    const upper = select(edge().onPlane("xy", z1).arc(5)) as SelectSceneObject;
-    const wrong = select(edge().onPlane("xy", z0).arc(5)) as SelectSceneObject;
-    const circles = select(edge().circle()) as SelectSceneObject;
+    const bottom = select(edge().onPlane("xy", z0).circle(20)) as SelectSceneObject;
+    const upper = select(edge().onPlane("xy", z1).circle(10)) as SelectSceneObject;
+    const wrong = select(edge().onPlane("xy", z0).circle(10)) as SelectSceneObject;
     render();
-    expect(bottom.getShapes()).toHaveLength(3);
-    expect(upper.getShapes()).toHaveLength(3);
+    expect(bottom.getShapes()).toHaveLength(1);
+    expect(upper.getShapes()).toHaveLength(1);
     expect(wrong.getShapes()).toHaveLength(0);
-    expect(circles.getShapes()).toHaveLength(0);
   });
 
-  it("a circular section lofted to a rectangle is split at the corners too", () => {
+  it("a circular section the loft split into arcs answers to arc(r)", () => {
     const base = sketch(plane("xy", z0), () => {
       circle([0, 0], 20);
     });

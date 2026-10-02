@@ -4,10 +4,13 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { ColorTransfer } from "./color-transfer.js";
-import { RenderSeams } from "./render-seams.js";
+import { ShapeValidator } from "./shape-validator.js";
 import { ShellJoinType } from "../core/interfaces.js";
 
 export class ShellOps {
+  /** Relative volume change below which a "shelled" solid is the input handed back. */
+  private static readonly UNCHANGED_VOLUME = 1e-9;
+
   static makeThickSolid(solid: Shape, faces: Face[], thickness: number, joinType: ShellJoinType = 'arc'): Shape {
     const oc = getOC();
     const listOfFaces = new oc.TopTools_ListOfShape();
@@ -26,7 +29,15 @@ export class ShellOps {
 
     progress.delete();
 
-    if (!maker.IsDone()) {
+    // OCC also reports success when the offset wall collapsed and it glued
+    // the input back together: the same solid, opening closed again. A wall
+    // of any thickness changes the volume, so an unchanged one is that case.
+    const collapsed = () => {
+      const before = ShapeValidator.signedVolume(solid.getShape());
+      const after = ShapeValidator.signedVolume(maker.Shape());
+      return Math.abs(after - before) <= Math.abs(before) * ShellOps.UNCHANGED_VOLUME;
+    };
+    if (!maker.IsDone() || collapsed()) {
       maker.delete();
       listOfFaces.delete();
       throw new Error("Failed to create thick solid.");
@@ -39,9 +50,6 @@ export class ShellOps {
     // inside.
     const preClean = ShapeFactory.fromShape(maker.Shape());
     ColorTransfer.applyThroughMaker([solid], [preClean], maker);
-    // A wall split only for the kernel's sake (a round loft's C0 joins)
-    // stays one undivided wall on screen, outside and inside.
-    RenderSeams.throughOffset(preClean, solid, maker);
     maker.delete();
     listOfFaces.delete();
 

@@ -254,7 +254,9 @@ describe("loft kernel connections", () => {
     const b = splitCircle(60, [Math.PI / 2, 3 * Math.PI / 2]);
     const connections = [[a.points[0], b.points[0]], [a.points[1], b.points[1]]];
     const solid = LoftOps.makeLoft([a.wire, b.wire], { connections })[0];
-    expectConnections(solid, connections, 4);
+    // A rational half circle carries a C0 knot at its middle, and the wall
+    // splits there too: four wall faces and two caps.
+    expectConnections(solid, connections, 6);
   });
 
   it("reads vertices off face boundary wires whose edges are stored reversed", () => {

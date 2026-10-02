@@ -3,7 +3,8 @@ import { Wire } from "../../common/wire.js";
 import { Solid } from "../../common/solid.js";
 import { FaceOps } from "../face-ops.js";
 import { SectionCompatibility, CompatibleSections } from "./section-compatibility.js";
-import { Skinning, LoftEndCondition, SkinnedGrid } from "./skinning.js";
+import { Skinning, LoftEndCondition, LoftSurfaceBasis } from "./skinning.js";
+import type { BSplineCurveData } from "../../math/bspline-interpolation.js";
 import { Point } from "../../math/point.js";
 import { ConnectionResolver } from "./connection-resolver.js";
 import { ThinConnections } from "./thin-connections.js";
@@ -18,6 +19,13 @@ export interface ThinLoftWalls {
   /** Unsigned offsets of each wall from `source`. */
   outerDistance: number;
   innerDistance: number;
+}
+
+/** A skinned wall ready to be cut into faces and cap boundaries. */
+interface SkinnedWall {
+  uBasis: LoftSurfaceBasis;
+  grid: number[][][];
+  vBasis: BSplineCurveData;
 }
 
 /**
@@ -80,20 +88,25 @@ export class SkinnedLoft {
         rebuilt.push(...mapped.rebuilt);
         return mapped;
       };
-      const outerWall = wall('outer');
-      const innerWall = wall('inner');
-      const outer = SkinnedLoft.skinWires(outerWall.wires, outerWall.connections);
-      const inner = SkinnedLoft.skinWires(innerWall.wires, innerWall.connections);
-      const outerSkin = Skinning.skinSections(outer, startCondition, endCondition);
-      const innerSkin = Skinning.skinSections(inner, startCondition, endCondition);
+      const outerSide = wall('outer');
+      const innerSide = wall('inner');
+      const outer = SkinnedLoft.skinWires(outerSide.wires, outerSide.connections);
+      const inner = SkinnedLoft.skinWires(innerSide.wires, innerSide.connections);
+      const outerWall = SkinnedLoft.skinWall(outer, startCondition, endCondition);
+      const innerWall = SkinnedLoft.skinWall(inner, startCondition, endCondition);
 
+      const outerFaces = Skinning.sideFaces(outerWall.uBasis, outerWall.grid, outerWall.vBasis);
+      const innerFaces = Skinning.sideFaces(innerWall.uBasis, innerWall.grid, innerWall.vBasis);
       const faces = [
-        ...Skinning.sideFaces(outer, outerSkin.grid, outerSkin.vBasis),
-        ...Skinning.sideFaces(inner, innerSkin.grid, innerSkin.vBasis),
-        SkinnedLoft.ringCap(outer, outerSkin, inner, innerSkin, false),
-        SkinnedLoft.ringCap(outer, outerSkin, inner, innerSkin, true),
+        ...outerFaces,
+        ...innerFaces,
+        SkinnedLoft.ringCap(outerWall, innerWall, false),
+        SkinnedLoft.ringCap(outerWall, innerWall, true),
       ];
-      return [Skinning.sewSolid(faces)];
+      return [Skinning.sewSolid(faces, [
+        ...Skinning.smoothWalls(outerWall.uBasis, outerFaces),
+        ...Skinning.smoothWalls(innerWall.uBasis, innerFaces),
+      ])];
     } finally {
       for (const wire of rebuilt) {
         wire.dispose();
@@ -114,19 +127,23 @@ export class SkinnedLoft {
     return SectionCompatibility.build(wires.map(w => w.getShape()));
   }
 
+  /** One thin wall's skin, its smooth C0 knots relaxed — the form both its faces and its cap boundaries are cut from. */
+  private static skinWall(
+    compatible: CompatibleSections,
+    startCondition?: LoftEndCondition,
+    endCondition?: LoftEndCondition,
+  ): SkinnedWall {
+    const { grid, vBasis } = Skinning.skinSections(compatible, startCondition, endCondition);
+    return { ...Skinning.relaxSmoothKnots(compatible, grid, vBasis), vBasis };
+  }
+
   /** Planar ring between the outer and inner wall boundaries at one end. */
-  private static ringCap(
-    outer: CompatibleSections,
-    outerSkin: SkinnedGrid,
-    inner: CompatibleSections,
-    innerSkin: SkinnedGrid,
-    isEnd: boolean,
-  ): TopoDS_Shape {
+  private static ringCap(outer: SkinnedWall, inner: SkinnedWall, isEnd: boolean): TopoDS_Shape {
     const column = (grid: number[][][]) =>
       grid.map(row => row[isEnd ? row.length - 1 : 0]);
 
-    const outerWire = new Wire(Skinning.capWire(outer, column(outerSkin.grid)));
-    const innerWire = new Wire(Skinning.capWire(inner, column(innerSkin.grid)));
+    const outerWire = new Wire(Skinning.capWire(outer.uBasis, column(outer.grid)));
+    const innerWire = new Wire(Skinning.capWire(inner.uBasis, column(inner.grid)));
     const ring = FaceOps.makeFaceWithHoles(outerWire, [innerWire]);
     return FaceOps.fixFaceOrientation(ring).getShape();
   }

@@ -8,6 +8,7 @@ import { interpolateWithDerivatives, BSplineCurveData } from "../../math/bspline
 import { Solid } from "../../common/solid.js";
 import { CompatibleSections, CompatibleSection } from "./section-compatibility.js";
 import { CurveData } from "./curve-data.js";
+import { RenderSeams } from "../render-seams.js";
 import { mmTol } from "../../units/tolerance.js";
 
 /** How a loft leaves (or arrives at) an end profile. */
@@ -26,7 +27,10 @@ export interface LoftSurfaceBasis {
   multiplicities: number[];
   /** Shared weight vector, or null when polynomial. */
   weights: number[] | null;
-  /** Interior u-knots with a real profile corner — face-split points. */
+  /**
+   * Interior u-knots with a real profile corner. The wall is split into
+   * faces there and at every other C0 knot; only these splits are drawn.
+   */
   creases?: number[];
 }
 
@@ -53,6 +57,8 @@ export class Skinning {
   private static get SEWING_TOLERANCE(): number {
     return mmTol(1e-6);
   }
+  /** Knots closer than this (sections live on [0, 1]) are treated as one. */
+  private static readonly KNOT_TOLERANCE = 1e-9;
 
   /**
    * Interpolates each pole column along the loft. Every column shares the
@@ -242,33 +248,29 @@ export class Skinning {
     grid: number[][][],
     vBasis: BSplineCurveData,
   ): Solid {
-    const faces = Skinning.sideFaces(uBasis, grid, vBasis);
-    faces.push(Skinning.capFace(uBasis, grid.map(row => row[0])));
-    faces.push(Skinning.capFace(uBasis, grid.map(row => row[row.length - 1])));
-    return Skinning.sewSolid(faces);
+    ({ uBasis, grid } = Skinning.relaxSmoothKnots(uBasis, grid, vBasis));
+    const walls = Skinning.sideFaces(uBasis, grid, vBasis);
+    const faces = [
+      ...walls,
+      Skinning.capFace(uBasis, grid.map(row => row[0])),
+      Skinning.capFace(uBasis, grid.map(row => row[row.length - 1])),
+    ];
+    return Skinning.sewSolid(faces, Skinning.smoothWalls(uBasis, walls));
   }
 
-  /**
-   * The wall faces of a skinned grid, split at profile corners: a corner
-   * buried inside one face has no edge to render, select or fillet, and its
-   * mesh normals smear. Each u-range between creases (the seam is always a
-   * boundary) becomes its own face; smooth profiles keep the single closed
-   * face.
-   */
-  static sideFaces(
+  /** The wall surface of a skinned grid: the section basis in u, the column basis in v. */
+  private static wallSurface(
     uBasis: LoftSurfaceBasis,
     grid: number[][][],
     vBasis: BSplineCurveData,
-  ): TopoDS_Shape[] {
+  ): Geom_BSplineSurface {
     const oc = getOC();
-
     const [poles, disposePoles] = NCollections.toArray2Pnt(grid);
     const [uKnots, disposeUKnots] = NCollections.toArray1Double(uBasis.knots);
     const [uMults, disposeUMults] = NCollections.toArray1Int(uBasis.multiplicities);
     const [vKnots, disposeVKnots] = NCollections.toArray1Double(vBasis.knots);
     const [vMults, disposeVMults] = NCollections.toArray1Int(vBasis.multiplicities);
 
-    let surface: Geom_BSplineSurface;
     try {
       if (uBasis.weights) {
         const weightGrid = grid.map((row, uIndex) =>
@@ -276,19 +278,18 @@ export class Skinning {
         );
         const [weights, disposeWeights] = NCollections.toArray2Double(weightGrid);
         try {
-          surface = new oc.Geom_BSplineSurface(
+          return new oc.Geom_BSplineSurface(
             poles, weights, uKnots, vKnots, uMults, vMults,
             uBasis.degree, vBasis.degree, false, false,
           );
         } finally {
           disposeWeights();
         }
-      } else {
-        surface = new oc.Geom_BSplineSurface(
-          poles, uKnots, vKnots, uMults, vMults,
-          uBasis.degree, vBasis.degree, false, false,
-        );
       }
+      return new oc.Geom_BSplineSurface(
+        poles, uKnots, vKnots, uMults, vMults,
+        uBasis.degree, vBasis.degree, false, false,
+      );
     } finally {
       disposePoles();
       disposeUKnots();
@@ -296,6 +297,90 @@ export class Skinning {
       disposeVKnots();
       disposeVMults();
     }
+  }
+
+  /**
+   * Lowers each smooth C0 u-knot to multiplicity `degree - 1` wherever the
+   * wall is in fact C1 across it — re-proportioned pieces of one smooth
+   * profile curve, a knot another section contributed mid-span — so the wall
+   * is not split there. Poles move by less than the sewing tolerance, and
+   * the caps are cut from the same relaxed grid. Creases are kept, and so is
+   * a knot the wall is only G1 across (a rational circle's arc junctions).
+   */
+  static relaxSmoothKnots(
+    uBasis: LoftSurfaceBasis,
+    grid: number[][][],
+    vBasis: BSplineCurveData,
+  ): { uBasis: LoftSurfaceBasis; grid: number[][][] } {
+    const creases = uBasis.creases ?? [];
+    const candidates: number[] = [];
+    for (let i = 1; i < uBasis.knots.length - 1; i++) {
+      if (uBasis.multiplicities[i] >= uBasis.degree
+        && !creases.some(crease => Math.abs(crease - uBasis.knots[i]) <= Skinning.KNOT_TOLERANCE)) {
+        candidates.push(i);
+      }
+    }
+    if (candidates.length === 0) {
+      return { uBasis, grid };
+    }
+
+    const surface = Skinning.wallSurface(uBasis, grid, vBasis);
+    try {
+      let relaxed = false;
+      // Highest index first: a knot removed outright (degree 1) shifts the ones after it.
+      for (const i of candidates.reverse()) {
+        if (surface.RemoveUKnot(i + 1, uBasis.degree - 1, Skinning.SEWING_TOLERANCE / 10)) {
+          relaxed = true;
+        }
+      }
+      if (!relaxed) {
+        return { uBasis, grid };
+      }
+
+      const knots: number[] = [];
+      const multiplicities: number[] = [];
+      for (let i = 1; i <= surface.NbUKnots(); i++) {
+        knots.push(surface.UKnot(i));
+        multiplicities.push(surface.UMultiplicity(i));
+      }
+      const relaxedGrid: number[][][] = [];
+      const weights: number[] | null = uBasis.weights ? [] : null;
+      for (let i = 1; i <= surface.NbUPoles(); i++) {
+        const row: number[][] = [];
+        for (let j = 1; j <= surface.NbVPoles(); j++) {
+          const pole = surface.Pole(i, j);
+          row.push([pole.X(), pole.Y(), pole.Z()]);
+          pole.delete();
+        }
+        relaxedGrid.push(row);
+        weights?.push(surface.Weight(i, 1));
+      }
+      return {
+        uBasis: { degree: uBasis.degree, knots, multiplicities, weights, creases },
+        grid: relaxedGrid,
+      };
+    } finally {
+      surface.delete();
+    }
+  }
+
+  /**
+   * The wall faces of a skinned grid, split at profile corners and at every
+   * other C0 knot. A corner buried inside one face has no edge to render,
+   * select or fillet, and its mesh normals smear. A smooth C0 knot (a
+   * circle's arc junctions) leaves the face G1 but not C1, and OCC's offset
+   * refuses such a face outright — a shell of a round loft failed at any
+   * thickness. Each u-range between splits (the seam is always a boundary)
+   * becomes its own face; `smoothWalls` names the splits that are not drawn.
+   * Run `relaxSmoothKnots` first so only the knots that need it split.
+   */
+  static sideFaces(
+    uBasis: LoftSurfaceBasis,
+    grid: number[][][],
+    vBasis: BSplineCurveData,
+  ): TopoDS_Shape[] {
+    const oc = getOC();
+    const surface = Skinning.wallSurface(uBasis, grid, vBasis);
 
     const ranges = Skinning.uRanges(uBasis);
     const faces: TopoDS_Shape[] = [];
@@ -322,8 +407,32 @@ export class Skinning {
     return faces;
   }
 
-  /** Sews faces into a watertight shell and wraps it into a solid. */
-  static sewSolid(faces: TopoDS_Shape[]): Solid {
+  /**
+   * The runs of wall faces (as `sideFaces` returns them) joined only by
+   * smooth C0 splits — one logical wall each, whose inner joins are not
+   * drawn. Creases end a run. A profile without creases is one run all the
+   * way around, its seam included.
+   */
+  static smoothWalls(uBasis: LoftSurfaceBasis, walls: TopoDS_Shape[]): TopoDS_Shape[][] {
+    const creases = uBasis.creases ?? [];
+    const splits = Skinning.splitKnots(uBasis);
+    const runs: TopoDS_Shape[][] = [[]];
+    walls.forEach((wall, i) => {
+      runs[runs.length - 1].push(wall);
+      const isCrease = i < splits.length
+        && creases.some(crease => Math.abs(crease - splits[i]) <= Skinning.KNOT_TOLERANCE);
+      if (isCrease) {
+        runs.push([]);
+      }
+    });
+    return runs;
+  }
+
+  /**
+   * Sews faces into a watertight shell and wraps it into a solid. Joins
+   * inside each `smoothWalls` run are recorded as render seams.
+   */
+  static sewSolid(faces: TopoDS_Shape[], smoothWalls: TopoDS_Shape[][] = []): Solid {
     const oc = getOC();
     const sewing = new oc.BRepBuilderAPI_Sewing(Skinning.SEWING_TOLERANCE, true, true, true, false);
     for (const face of faces) {
@@ -338,9 +447,22 @@ export class Skinning {
       throw new Error("Loft surface and caps did not close into a watertight shell.");
     }
     const sewn = sewing.SewedShape();
+    // Sewing rebuilds the faces whose edges it merged.
+    const rebuilt: TopoDS_Shape[] = [];
+    const sewnWalls = smoothWalls.map(run => run.map(face => {
+      if (!sewing.IsModifiedSubShape(face)) {
+        return face;
+      }
+      const modified = sewing.ModifiedSubShape(face);
+      rebuilt.push(modified);
+      return modified;
+    }));
     sewing.delete();
 
-    return Skinning.solidFromShell(sewn);
+    const solid = Skinning.solidFromShell(sewn);
+    RenderSeams.fromFaceGroups(solid, sewnWalls);
+    rebuilt.forEach(face => face.delete());
+    return solid;
   }
 
   /**
@@ -391,11 +513,24 @@ export class Skinning {
     return face;
   }
 
-  /** Consecutive u-ranges between profile corners; one full range when the profile is smooth. */
+  /** Interior u-values the wall is split at: the creases and every C0 knot, ascending. */
+  private static splitKnots(uBasis: LoftSurfaceBasis): number[] {
+    const splits = [...(uBasis.creases ?? [])];
+    for (let i = 1; i < uBasis.knots.length - 1; i++) {
+      const knot = uBasis.knots[i];
+      if (uBasis.multiplicities[i] >= uBasis.degree
+        && !splits.some(split => Math.abs(split - knot) <= Skinning.KNOT_TOLERANCE)) {
+        splits.push(knot);
+      }
+    }
+    return splits.sort((a, b) => a - b);
+  }
+
+  /** Consecutive u-ranges between splits; one full range when the section basis is C1 throughout. */
   private static uRanges(uBasis: LoftSurfaceBasis): [number, number][] {
     const bounds = [
       uBasis.knots[0],
-      ...(uBasis.creases ?? []),
+      ...Skinning.splitKnots(uBasis),
       uBasis.knots[uBasis.knots.length - 1],
     ];
     const ranges: [number, number][] = [];

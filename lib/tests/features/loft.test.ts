@@ -6,6 +6,9 @@ import loft from "../../core/loft.js";
 import { circle, line } from "../../core/2d/index.js";
 import { diameter, fix } from "../../core/constraints/index.js";
 import { Solid } from "../../common/solid.js";
+import { Face } from "../../common/face.js";
+import { getOC } from "../../oc/init.js";
+import { renderSolid } from "../../rendering/render-solid.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
@@ -75,6 +78,46 @@ describe("loft", () => {
       const bottomWidth = 80; // 2 * 40
       const topWidth = 40;    // 2 * 20
       expect(bbox.maxX - bbox.minX).toBeCloseTo(bottomWidth, -1);
+    });
+
+    it("splits a round wall at its C0 knots without drawing the splits", () => {
+      const s1 = sketch("xy", () => {
+          circle([0, 0], 80);
+        });
+
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          circle([0, 0], 40);
+        });
+
+      const l = loft(s1, s2) as Loft;
+      const sides = l.sideFaces();
+      addToScene(sides);
+
+      render();
+
+      // A circle is three rational arcs; left in one face, their C0 joins
+      // make the wall unusable for OCC's offset (shell).
+      const walls = sides.getShapes() as Face[];
+      expect(walls).toHaveLength(3);
+      const oc = getOC();
+      for (const wall of walls) {
+        const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(wall.getShape()), true);
+        const surface = adaptor.BSpline();
+        expect(surface.IsCNu(1)).toBe(true);
+        expect(surface.IsCNv(1)).toBe(true);
+        surface.delete();
+        adaptor.delete();
+      }
+
+      // Only the two rims are drawn: the three wall joins are render seams.
+      const solid = l.getShapes()[0] as Solid;
+      expect(solid.getRenderSeams()).toHaveLength(3);
+      const drawn = renderSolid(solid).filter(mesh => mesh.label === "solid-edges");
+      expect(drawn).toHaveLength(6);
+      for (const mesh of drawn) {
+        const zs = mesh.vertices.filter((_, i) => i % 3 === 2);
+        expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(1e-6);
+      }
     });
 
     it("should produce a solid with positive volume", () => {

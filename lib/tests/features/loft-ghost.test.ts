@@ -102,9 +102,10 @@ function withGhost<T>(
 describe("loft ghost", () => {
   setupOC();
 
-  it('classifies automatic match lines, including a smooth side-face seam', () => {
+  it('classifies automatic match lines, including the smooth joins of a round wall', () => {
     const profiles = sectionsOf([...rectStack(), ...circleStack()]);
-    for (const [pair, expected] of [[profiles.slice(0, 2), 4], [profiles.slice(2), 1]] as const) {
+    // A circle's wall is split at its seam and its two arc junctions.
+    for (const [pair, expected] of [[profiles.slice(0, 2), 4], [profiles.slice(2), 3]] as const) {
       withGhost(pair, {}, solids => {
         const lines = loftMatchLines(solids[0] as Solid, pair[0], pair[1]);
         expect(lines).toHaveLength(expected);

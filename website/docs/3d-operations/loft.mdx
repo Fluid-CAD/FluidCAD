@@ -209,6 +209,8 @@ l.internalFaces()  // inner wall face(s) of a thin loft (closed profiles)
 l.capFaces()       // cap face(s) of a thin loft (open profiles)
 ```
 
+A round wall comes in several faces: a circle's wall is three, joined where the circle's arcs meet. The joins are not drawn, and `sideFaces()` returns every one of them. The rim of a round end is split the same way, so it is three arc edges rather than one circle — select it with `l.endEdges()` or `l.startEdges()` instead of `edge().circle()`.
+
 ## Fusion scope
 
 ```js

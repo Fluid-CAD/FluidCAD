@@ -75,6 +75,43 @@ export class RenderSeams {
     } finally { owned.forEach(shape => shape.delete()); }
   }
 
+  /**
+   * A thick-solid offset keeps the source's own faces and edges and gives
+   * every wall face one parallel image. The seams carry over as they are,
+   * and the images of the two faces a seam joined meet along its parallel.
+   * An outward arc join also rounds each rim into one band per rim edge;
+   * the bands of the rim edges meeting at a seam's end are one band too.
+   */
+  static throughOffset(target: Shape, source: Shape, offset: { Generated(shape: TopoDS_Shape): TopTools_ListOfShape }): void {
+    const seams = source.getRenderSeams();
+    if (!seams.length) return;
+    RenderSeams.map(target, [source]);
+    const oc = getOC();
+    const owned: TopoDS_Shape[] = [];
+    const images = (shapes: TopoDS_Shape[]) => shapes.flatMap(shape => {
+      const list = offset.Generated(shape);
+      const generated: TopoDS_Shape[] = [];
+      try {
+        while (!list.IsEmpty()) { generated.push(list.First()); list.RemoveFirst(); }
+      } finally { list.delete(); }
+      owned.push(shape, ...generated);
+      return generated;
+    });
+    const faces = TopologyIndex.buildEdgeToFaces(source.getShape());
+    const edges = new oc.TopTools_IndexedDataMapOfShapeListOfShape();
+    oc.TopExp.MapShapesAndAncestors(source.getShape(), oc.TopAbs_ShapeEnum.TopAbs_VERTEX, oc.TopAbs_ShapeEnum.TopAbs_EDGE, edges);
+    try {
+      const groups: TopoDS_Shape[][] = [];
+      for (const seam of seams) {
+        groups.push(images(TopologyIndex.seekShapes(faces, seam)));
+        const ends = Explorer.findShapes(seam, oc.TopAbs_ShapeEnum.TopAbs_VERTEX);
+        owned.push(...ends);
+        for (const end of ends) groups.push(images(TopologyIndex.seekShapes(edges, end)));
+      }
+      RenderSeams.fromFaceGroups(target, groups);
+    } finally { owned.forEach(shape => shape.delete()); faces.delete(); edges.delete(); }
+  }
+
   /** Mapper returns owned handles. Unchanged geometry is copied by default. */
   static map(target: Shape, sources: readonly Shape[], mapper = (edge: TopoDS_Shape): TopoDS_Shape[] => [edge.Oriented(edge.Orientation())]): void {
     const seams = sources.flatMap(source => [...source.getRenderSeams()]);

@@ -4,6 +4,7 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { ColorTransfer } from "./color-transfer.js";
+import { RenderSeams } from "./render-seams.js";
 import { ShellJoinType } from "../core/interfaces.js";
 
 export class ShellOps {
@@ -38,6 +39,9 @@ export class ShellOps {
     // inside.
     const preClean = ShapeFactory.fromShape(maker.Shape());
     ColorTransfer.applyThroughMaker([solid], [preClean], maker);
+    // A wall split only for the kernel's sake (a round loft's C0 joins)
+    // stays one undivided wall on screen, outside and inside.
+    RenderSeams.throughOffset(preClean, solid, maker);
     maker.delete();
     listOfFaces.delete();
 

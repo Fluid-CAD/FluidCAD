@@ -208,7 +208,7 @@ export class SectionCurve {
   /**
    * Approximates any B-spline with a polynomial (non-rational) one within
    * `tolerance`, as a chain of cubic Hermite segments (position + tangent
-   * matched at the ends of every segment, so the result stays G1). Segments
+   * matched at the ends of every segment, so the result is C1). Segments
    * split at the curve's own knots — rational conversions are typically only
    * C1 there, and keeping the reduced-continuity points on segment
    * boundaries preserves O(h⁴) convergence — then subdivide until every
@@ -299,18 +299,27 @@ export class SectionCurve {
     return maxDeviation;
   }
 
-  /** Joins cubic Bézier segments into one B-spline over the original parameter range. */
+  /**
+   * Joins cubic Hermite segments into one B-spline over the original
+   * parameter range. Neighbours share position and parametric tangent at
+   * every breakpoint, so the join is C1 and its knot needs multiplicity 2
+   * only: the junction point is implied by the inner poles on either side.
+   * A triple knot would describe the same curve as formally C0, and the loft
+   * wall would have to be split into a face per segment (see
+   * `Skinning.sideFaces`).
+   */
   private static assembleCubicSegments(breakpoints: number[], segments: number[][][]): Geom_BSplineCurve {
     const degree = 3;
     const knots = [...breakpoints];
     const multiplicities = breakpoints.map((_, i) =>
-      i === 0 || i === breakpoints.length - 1 ? degree + 1 : degree,
+      i === 0 || i === breakpoints.length - 1 ? degree + 1 : degree - 1,
     );
 
     const poles: number[][] = [segments[0][0]];
     for (const segment of segments) {
-      poles.push(segment[1], segment[2], segment[3]);
+      poles.push(segment[1], segment[2]);
     }
+    poles.push(segments[segments.length - 1][3]);
 
     return CurveData.build({ poles, weights: null, knots, multiplicities, degree });
   }

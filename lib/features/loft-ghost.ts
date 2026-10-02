@@ -136,7 +136,8 @@ function resolveLoftOptions(options: LoftGhostOptions): LoftOptions | undefined 
 
 /**
  * The actual matching of a loft: edges on neither end plane, including the
- * seam of a smooth closed side face (normally hidden by the solid renderer).
+ * smooth joins of a round wall (its seam and C0 splits, which the solid
+ * renderer does not draw).
  * Each returned polyline is packed xyz coordinates, ready for an overlay.
  */
 export function loftMatchLines(

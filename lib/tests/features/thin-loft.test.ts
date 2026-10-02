@@ -11,6 +11,7 @@ import { Edge } from "../../common/edge.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
+import { renderSolid } from "../../rendering/render-solid.js";
 import { testRect } from "../helpers/profiles.js";
 
 describe("thin loft", () => {
@@ -118,9 +119,15 @@ describe("thin loft", () => {
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe("solid");
 
+      // Four circular rims, each in three arcs: a round wall is split at
+      // its seam and its two arc junctions.
       const edges = shapes[0].getSubShapes('edge') as Edge[];
-      const circleEdges = edges.filter(e => EdgeQuery.isCircleEdge(e));
-      expect(circleEdges).toHaveLength(4);
+      const rimEdges = edges.filter(e => EdgeQuery.isArcEdge(e));
+      expect(rimEdges).toHaveLength(12);
+
+      // Both walls still read as one face each: only the rims are drawn.
+      const drawn = renderSolid(shapes[0]).filter(mesh => mesh.label === "solid-edges");
+      expect(drawn).toHaveLength(12);
     });
   });
 

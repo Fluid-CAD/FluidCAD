@@ -27,8 +27,11 @@ Chain: `.connect(...)`, `.guides(...)`, `.startCondition(...)`,
 A loft rebuilds its section edges as B-splines, so a lofted rounded
 rectangle's straight segments and corner arcs are no longer stored as lines
 and circles. Edge filters classify by geometry, so `edge().line()` and
-`edge().arc(r)` still find them; a section the loft had to split (a circle
-lofted to a rectangle) answers to `arc(r)` rather than `circle(d)`.
+`edge().arc(r)` still find them. A round section is always split: a circle's
+wall is three faces joined where its arcs meet (the joins are not drawn, and
+`sideFaces()` returns all three), so its rim is three edges that answer to
+`arc(r)` rather than `circle(d)`. Name a rim with `endEdges()` /
+`startEdges()` instead.
 
 When the first profile lies on an existing solid's face, the fusion merges
 the loft's start face into that face. `startEdges()` then names the junction

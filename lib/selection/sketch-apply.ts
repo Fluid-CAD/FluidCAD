@@ -402,14 +402,15 @@ function synthesizeSketchTransformOperands(
     return { ok: false, reason: 'a mirror reflects across exactly one line' };
   }
 
-  // Targets resolve through the profile index (the build's own view of the
-  // sketch) — a guide pick is refused as construction geometry; an axis line
-  // may be a `.guide()` — construction geometry is the classic mirror line —
-  // so its picks widen to guides. Both must land in ONE sketch.
+  // A copy stamps its named targets' `.guide()` shapes (Copy2DBase
+  // .sourceShapes), so its target picks take construction geometry; a
+  // mirror's targets resolve through the profile index and refuse it. An
+  // axis line may be a `.guide()` — construction geometry is the classic
+  // mirror line — so its picks widen to guides. Both must land in ONE sketch.
   let targetPicks: ResolvedSketchPick[] = [];
   let pickedSketch: Sketch | null = null;
   if (refs.length > 0) {
-    const resolution = resolvePicks(scene, refs);
+    const resolution = resolvePicks(scene, refs, { includeGuides: feature === 'copy' });
     if ('reason' in resolution) {
       return { ok: false, reason: resolution.reason };
     }

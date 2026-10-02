@@ -2699,6 +2699,33 @@ describe("copy2d ghost", () => {
     expect(instanceBounds(result, 1).minX - instanceBounds(result, 0).minX).toBeCloseTo(80, 3);
   });
 
+  it("copies a picked .guide() primitive, and leaves guides out of the whole-sketch form", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50); line([250, 0], [250, 80]).guide(); });
+    const scene = render();
+    const guide = [...s.getEdgesWithOwner({ excludeGuide: false }).keys()].find(e => e.isGuideShape())!;
+
+    const picked = copy2dGhost(scene, [{ shapeId: guide.id }]);
+
+    expect(refusal(picked)).toBe('');
+    if (!picked.ok) {
+      return;
+    }
+    // Two clones of the guide line alone, a step apart along x.
+    expect(picked.solids).toHaveLength(2);
+    expect(instanceBounds(picked, 0).minX).toBeCloseTo(290, 3);
+    expect(instanceBounds(picked, 0).maxX).toBeCloseTo(290, 3);
+    expect(instanceBounds(picked, 0).maxY).toBeCloseTo(80, 3);
+
+    // The target-less statement copies real geometry only — the rect.
+    const whole = copy2dGhost(scene, []);
+    expect(refusal(whole)).toBe('');
+    if (!whole.ok) {
+      return;
+    }
+    const box = instanceBounds(whole, 0);
+    expect(box.maxX - box.minX).toBeCloseTo(100, 3);
+  });
+
   it("leaves out the instances the skip list names", () => {
     const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();

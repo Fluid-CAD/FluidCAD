@@ -4,7 +4,7 @@ import { getSceneManager } from "../../scene-manager.js";
 import { SceneCompare } from "../../rendering/scene-compare.js";
 import sketch from "../../core/sketch.js";
 import copy from "../../core/copy.js";
-import { circle, offset } from "../../core/2d/index.js";
+import { circle, line, offset } from "../../core/2d/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Offset } from "../../features/2d/offset.js";
@@ -105,6 +105,57 @@ describe("copy 2D instance() accessor", () => {
     expect(cpRef!.getInstanceEdges(0)).toHaveLength(4);
     expect(cpRef!.getInstanceEdges(1)).toHaveLength(4);
     expect(cpRef!.getInstanceEdges(2)).toHaveLength(4);
+  });
+
+  it("copies a named .guide() target, its duplicates staying guides", () => {
+    let cpRef: Copy2DBase;
+    sketch("xy", () => {
+      const g = circle([0, 0], 20).guide();
+      cpRef = copy("linear", "x", { count: 3, offset: 40 }, g) as unknown as Copy2DBase;
+      cpRef.instance(2);
+    });
+
+    render();
+
+    // Two stamped duplicates, both construction geometry — never profile.
+    expect(cpRef!.getShapes()).toHaveLength(0);
+    const stamped = cpRef!.getShapes({ excludeGuide: false });
+    expect(stamped).toHaveLength(2);
+    expect(stamped.every(s => s.isGuideShape())).toBe(true);
+    // Every slot resolves, the original's through its guide source.
+    expect(centerX(cpRef!.getInstanceEdges(0))).toBeCloseTo(0, 3);
+    expect(centerX(cpRef!.getInstanceEdges(1))).toBeCloseTo(40, 3);
+    expect(centerX(cpRef!.getInstanceEdges(2))).toBeCloseTo(80, 3);
+  });
+
+  it("copies a named guide alongside real geometry in a circular copy", () => {
+    let cpRef: Copy2DBase;
+    sketch("xy", () => {
+      const g = line([10, 0], [30, 0]).guide();
+      const c = circle([40, 0], 10);
+      cpRef = copy("circular", [0, 0], { count: 4, angle: 360 }, g, c) as unknown as Copy2DBase;
+    });
+
+    render();
+
+    // Three duplicate slots × (one guide line + one real circle).
+    expect(cpRef!.getShapes()).toHaveLength(3);
+    expect(cpRef!.getShapes({ excludeGuide: false })).toHaveLength(6);
+    expect(cpRef!.getInstanceEdges(1)).toHaveLength(2);
+  });
+
+  it("the target-less form still copies real geometry only", () => {
+    let cpRef: Copy2DBase;
+    sketch("xy", () => {
+      line([0, -30], [0, 30]).guide();
+      circle([0, 0], 20);
+      cpRef = copy("linear", "x", { count: 2, offset: 40 }) as unknown as Copy2DBase;
+    });
+
+    render();
+
+    expect(cpRef!.getShapes({ excludeGuide: false })).toHaveLength(1);
+    expect(cpRef!.getInstanceEdges(1)).toHaveLength(1);
   });
 
   it("resolves instances of a CACHED copy statement (apply-time incremental render)", () => {

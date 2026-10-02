@@ -324,7 +324,30 @@ describe("sketch apply-feature synthesis", () => {
       expect(result.alternatives).toContain('l.edge(0)');
     });
 
-    it("refuses a guide target for the 2D transforms by name, not as a stale scene", () => {
+    it("copies a picked .guide() primitive through its bare variable", () => {
+      let c: SceneObject;
+      sketch("xy", () => {
+        c = circle([20, 0], 10).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+
+      // A copy stamps its named targets' guide shapes, so the pick resolves
+      // to the guide's own statement like any other target.
+      const result = synthesizeSketchApplyFeature(scene, [refFor(guideEdgesOf(c!)[0])], 'copy');
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('c');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [] });
+    });
+
+    it("refuses a guide target for the mirror by name, not as a stale scene", () => {
       let c: SceneObject;
       let axis: SceneObject;
       sketch("xy", () => {
@@ -335,18 +358,16 @@ describe("sketch apply-feature synthesis", () => {
       setLocation(c!, 3);
       setLocation(axis!, 4);
 
-      // Copies stamp real geometry only and mirror targets stay profile
-      // geometry (see the mirror operands) — the refusal says so.
-      for (const feature of ['copy', 'mirror'] as const) {
-        const result = synthesizeSketchApplyFeature(
-          scene, [refFor(guideEdgesOf(c!)[0])], feature, undefined,
-          feature === 'mirror' ? { axisRefs: [refFor(edgesOf(axis!)[0])] } : {},
-        );
-        expect(result, feature).toMatchObject({
-          ok: false,
-          reason: expect.stringMatching(/construction geometry/),
-        });
-      }
+      // Mirror targets stay profile geometry (see the mirror operands) — the
+      // refusal says so.
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(c!)[0])], 'mirror', undefined,
+        { axisRefs: [refFor(edgesOf(axis!)[0])] },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/construction geometry/),
+      });
     });
 
     it("offsets a picked projected .guide() edge on a face sketch (user regression)", () => {

@@ -194,12 +194,12 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     }
 
     // Classify candidate sources by what they will stamp at build time.
-    // Guides and lazies stamp nothing (the build's default getShapes()
-    // filter drops them); constraint statements have no geometry at all.
+    // Lazies stamp nothing, and neither does a guide the copy does not name
+    // (see sourceShapes); constraint statements have no geometry at all.
     const solverSources: SolvedGeometryBase[] = [];
     let nonSolverSources = 0;
     for (const obj of this.candidateSources(sk)) {
-      if (obj.isLazy() || obj.isSelection() || obj.isGuide()) {
+      if (obj.isLazy() || obj.isSelection() || (obj.isGuide() && !this.hasTargets)) {
         continue;
       }
       if (!(obj instanceof GeometrySceneObject)) {
@@ -246,6 +246,33 @@ export abstract class Copy2DBase extends GeometrySceneObject {
 
   // -- build-time stamping --------------------------------------------------
 
+  /** The named-target form, as opposed to "copy everything before me". */
+  private get hasTargets(): boolean {
+    return this.targetObjects !== null && this.targetObjects.length > 0;
+  }
+
+  /** The siblings this copy stamps: its named targets, or every previous
+   * sibling that owns real geometry. */
+  protected resolveSources(): SceneObject[] {
+    const siblings = this.sketch.getPreviousSiblings(this);
+    if (this.hasTargets) {
+      return siblings.filter(obj => this.targetObjects!.includes(obj));
+    }
+    // Skip shape-less siblings (constraint statements in a solved sketch).
+    return siblings.filter(obj => obj.getShapes().length > 0);
+  }
+
+  /**
+   * The shapes a source contributes. A NAMED target stamps its `.guide()`
+   * shapes too — naming construction geometry is intentional (the rule
+   * offset's direct targets follow), and the duplicates stay guides
+   * (ShapeOps.transform carries the flag). The target-less form copies
+   * real geometry only.
+   */
+  protected sourceShapes(obj: SceneObject): Shape[] {
+    return obj.getShapes({ excludeGuide: !this.hasTargets });
+  }
+
   /**
    * Stamp every duplicate slot: one transformed copy of each source shape
    * per slot, recorded into the slot map AND — for solver-backed sources —
@@ -260,7 +287,7 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     let shapeIndex = 0;
     for (const { slot, matrix } of duplicates) {
       for (const obj of objects) {
-        const shapes = obj.getShapes();
+        const shapes = this.sourceShapes(obj);
         // Solver-backed statements stamp exactly one shape; anything else
         // (or a multi-shape oddity) gets no entity join.
         const sourceEntityId = obj instanceof SolvedGeometryBase && obj.entityId >= 0 && shapes.length === 1
@@ -418,16 +445,17 @@ export abstract class Copy2DBase extends GeometrySceneObject {
    * The still-live real edges of grid slot `index`, in build order. Duplicate
    * slots resolve through the copy's own getShapes(); the original's slot
    * through its source statements' (scope-less reads, so edges hard-consumed
-   * by downstream ops drop out of both).
+   * by downstream ops drop out of both). Guides count as live: a slot of a
+   * copied `.guide()` target is its construction edges.
    */
   getInstanceEdges(index: number): Edge[] {
     const instances = this.instanceByShape;
     if (!instances) {
       return [];
     }
-    const live = new Set<Shape>(this.getShapes());
+    const live = new Set<Shape>(this.getShapes({ excludeGuide: false }));
     for (const sibling of this.sketch.getPreviousSiblings(this)) {
-      for (const shape of sibling.getShapes()) {
+      for (const shape of sibling.getShapes({ excludeGuide: false })) {
         live.add(shape);
       }
     }

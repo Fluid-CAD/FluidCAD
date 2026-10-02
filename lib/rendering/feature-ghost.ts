@@ -1110,7 +1110,10 @@ function buildCopy2DGhost(
   if (total > MAX_GHOST_INSTANCES) {
     return { ok: false, reason: `${total} instances is more than the preview draws.`, surface: true };
   }
-  const resolved = resolveSketchOpTargets(scene, request.entities);
+  // Picked targets are named ones, and a copy stamps a named target's
+  // `.guide()` shapes; the whole-sketch form copies real geometry only.
+  const includeGuides = request.entities.length > 0;
+  const resolved = resolveSketchOpTargets(scene, request.entities, { includeGuides });
   if ('reason' in resolved) {
     return { ok: false, reason: resolved.reason };
   }
@@ -1123,7 +1126,7 @@ function buildCopy2DGhost(
     // passes through while the user types. Nothing to draw, nothing wrong.
     return { ok: true, solids: [] };
   }
-  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges, { includeGuides });
   const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
   if (meshes.length === 0) {
     return { ok: false, reason: 'That selection has no curves to copy.' };
@@ -1175,10 +1178,15 @@ function buildMirror2DGhost(
  * bare variable, and the copy's build clones all of that object's shapes
  * (copy-linear2d.ts:25-31) — so one picked rect edge stamps the whole rect.
  * The whole-sketch form arrives holding every edge already and expands to
- * itself.
+ * itself. `includeGuides` reads the owners' construction edges too (the 2D
+ * copy's named targets).
  */
-function expandToOwnerEdges(sketch: Sketch, picked: Edge[]): Edge[] {
-  const withOwner = sketch.getEdgesWithOwner();
+function expandToOwnerEdges(
+  sketch: Sketch,
+  picked: Edge[],
+  options: { includeGuides?: boolean } = {},
+): Edge[] {
+  const withOwner = sketch.getEdgesWithOwner({ excludeGuide: !options.includeGuides });
   const pickedIds = new Set(picked.map(edge => edge.id));
   const owners = new Set<SceneObject>();
   for (const [edge, owner] of withOwner) {
@@ -1270,8 +1278,9 @@ function resolveSketchAxis(
  * Resolve a sketch-op dialog's picks to their edges and sketch plane, shared
  * by every 2D ghost. Resolution mirrors the apply's own (`resolvePicks`,
  * sketch-apply.ts): each shapeId names one edge in one sketch's
- * `getEdgesWithOwner` index — guides excluded, as on the apply path — and
- * picks straddling two sketches refuse, because the apply refuses them too.
+ * `getEdgesWithOwner` index — guides excluded unless `includeGuides` (the 2D
+ * copy's picks), as on the apply path — and picks straddling two sketches
+ * refuse, because the apply refuses them too.
  *
  * An empty pick list is the target-less statement form (`offset(d)`,
  * `fillet(r)`): the whole active (last) sketch, the same edge set the builds
@@ -1283,6 +1292,7 @@ function resolveSketchAxis(
 export function resolveSketchOpTargets(
   scene: Scene,
   entities: { shapeId: string }[],
+  options: { includeGuides?: boolean } = {},
 ): { sketch: Sketch; edges: Edge[]; plane: Plane } | { reason: string } {
   // The registration list, NOT `allObjects` — its stack walk reorders, and
   // the whole-sketch form needs "last" to mean last in the document, the way
@@ -1306,7 +1316,7 @@ export function resolveSketchOpTargets(
         continue;
       }
       seen.add(entity.shapeId);
-      const hit = findSketchEdge(sketches, entity.shapeId);
+      const hit = findSketchEdge(sketches, entity.shapeId, options.includeGuides === true);
       if (!hit) {
         return { reason: 'That edge is not in the rendered scene.' };
       }
@@ -1334,9 +1344,10 @@ export function resolveSketchOpTargets(
 function findSketchEdge(
   sketches: Sketch[],
   shapeId: string,
+  includeGuides: boolean,
 ): { sketch: Sketch; edge: Edge } | null {
   for (const sketch of sketches) {
-    for (const edge of sketch.getEdgesWithOwner().keys()) {
+    for (const edge of sketch.getEdgesWithOwner({ excludeGuide: !includeGuides }).keys()) {
       if (edge.id === shapeId) {
         return { sketch, edge };
       }

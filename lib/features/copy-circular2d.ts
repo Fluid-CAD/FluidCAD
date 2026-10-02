@@ -19,15 +19,7 @@ export class CopyCircular2D extends Copy2DBase {
 
   build(context: BuildSceneObjectContext) {
     this.resetInstances();
-    let objects: SceneObject[];
-    const allSiblings = this.sketch.getPreviousSiblings(this);
-
-    if (this.targetObjects && this.targetObjects.length > 0) {
-      objects = allSiblings.filter(obj => this.targetObjects.includes(obj));
-    } else {
-      // Skip shape-less siblings (constraint statements in a solved sketch).
-      objects = allSiblings.filter(obj => obj.getShapes().length > 0);
-    }
+    const objects = this.resolveSources();
 
     // The sources keep their shapes — the copy owns only the duplicates it
     // stamps below, so the originals stay independent statements.
@@ -37,7 +29,7 @@ export class CopyCircular2D extends Copy2DBase {
 
     const layout = this.slotTransforms();
     for (const obj of objects) {
-      for (const shape of obj.getShapes()) {
+      for (const shape of this.sourceShapes(obj)) {
         this.recordInstanceShape(shape, layout.originalSlot);
       }
     }

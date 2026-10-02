@@ -37,8 +37,8 @@ Read before a fillet, chamfer, shell, cut, repeat, `plane()` offset, a sketch on
 
 - **Signature, order.** A boss added before the shell comes out as a thin-walled hollow bump; a boss added after the shell stays solid and does not open into the cavity. Neither reports an error.
 - **Signature, failure.** `shell: could not hollow the solid — wall offset failed.` in `objectErrors`; the original solid is kept, so the part renders un-shelled.
-- **Evidence.** `lib/features/shell.ts` sets that error and its hint (wall thicker than a nearby feature or radius, a groove opening onto a removed face); the order effect is observed in sessions.
-- **Fix.** Decide per boss which you want, and order the shell accordingly. Shell before small cuts and grooves, with a wall thinner than the smallest adjacent radius, and as few open faces as the design allows. Negative thickness shells inward (`shell(-2, e.endFaces())`).
+- **Evidence.** `lib/features/shell.ts` sets that error and its hint (wall thicker than a nearby feature or radius, a groove opening onto a removed face, walls that meet at a corner at one end and blend smoothly at the other, as on a square-to-round loft); the order effect is observed in sessions.
+- **Fix.** Decide per boss which you want, and order the shell accordingly. Shell before small cuts and grooves, with a wall thinner than the smallest adjacent radius, and as few open faces as the design allows. Open a square-to-round loft at its cornered end (`shell(-2, l.startFaces())` for `l = loft(square, round)`), not its round one. Negative thickness shells inward (`shell(-2, e.endFaces())`).
 
 ## Sketching on, or selecting, geometry a later feature consumes
 

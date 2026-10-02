@@ -26,6 +26,18 @@ Returns `Shell` with:
 (preserving the outer shape and hollowing out the interior). Positive
 shells outward (preserving the inner shape and adding wall material).
 
+**When the shell fails.** If the walls cannot be offset, the feature reports
+`shell: could not hollow the solid — wall offset failed.` and the solid
+stays in the scene un-hollowed. The wall may be thicker than a nearby
+feature or radius of curvature, or a cut or groove may open onto a removed
+face: use a thinner wall, fewer or simpler open faces, or shell before
+cutting small features. Walls that meet at a corner at one end and blend
+smoothly at the other (a square-to-round loft) may hollow only when opened
+at the cornered end: for `l = loft(square, round)`,
+`shell(-2, l.startFaces())` hollows it and `shell(-2, l.endFaces())`
+fails. A loft between round profiles (circles, ellipses) has no such corner
+and hollows from either end.
+
 ## Example
 
 ```fluid.js

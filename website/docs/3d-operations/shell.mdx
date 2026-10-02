@@ -75,3 +75,14 @@ const s = shell(-3, e.endFaces())
 s.internalFaces()      // the inner wall faces
 s.internalEdges()      // edges on the inner walls
 ```
+
+## When a shell fails
+
+When a solid cannot be hollowed, the shell reports `shell: could not hollow the solid — wall offset failed.` and leaves the solid as it was. The wall may be thicker than a nearby feature or radius of curvature, or a cut or groove may open onto a removed face: try a thinner wall, fewer or simpler open faces, or shelling before cutting small features.
+
+Walls that meet at a corner at one end and blend smoothly at the other may hollow only when opened at the cornered end. A [loft](/docs/3d-operations/loft) from a square to a circle is the usual case — remove the face at its square end, not the round one:
+
+```js
+const l = loft(square, round)
+shell(-2, l.startFaces())      // the square end is the first profile
+```

@@ -24,6 +24,48 @@ Chain: `.connect(...)`, `.guides(...)`, `.startCondition(...)`,
 `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`,
 `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges`.
 
+`.startCondition(type, magnitude?)` and `.endCondition(type, magnitude?)`
+set how the surface leaves the first profile and arrives at the last:
+`'none'` (default), `'normal'` (perpendicular to the profile plane) or
+`'tangent'` (inside the profile plane, bulging outward). With `'tangent'`
+every point of the profile leaves along the outline's own outward direction
+at the same rate, and a corner leaves along its mitre so both sides meeting
+there advance at that rate: the bulge keeps the profile's shape. With
+`'tangent'` at both ends of a loft 60 long, two Ø80 circles give a round
+barrel (radius 55 halfway up, all the way round), two 80 × 80 squares a
+square barrel with sharp corners (110 across halfway up), and a rounded
+rectangle bulges evenly along flats and corners. `magnitude` (default 1)
+scales the takeoff; a negative value flips it, so a `'tangent'` end pinches
+inward.
+
+The side has one face per stretch of profile between the vertices that
+change the outline: corners, and tangent junctions where the curvature
+jumps (a line running into an arc). A circle or ellipse is one stretch, so
+a loft between round profiles has one side face (`sideFaces()` returns
+it), no side edge (`sideEdges()` is empty: the seam is not selectable) and
+one closed rim per end (`startEdges()` / `endEdges()` are one edge each).
+The rim is exact when every profile is a circle or ellipse, and
+`edge().circle(d)` matches a circular one. A circle drawn as several arcs
+still lofts as one face: its arc vertices leave no mark on the side unless
+a `.connect(...)` is pinned to them.
+
+Profiles are paired automatically. Profiles whose corners and junctions
+come in the same number and order are joined vertex to vertex — corners
+face corners, junctions face junctions — in the pairing that twists least:
+a 60 × 30 rounded rectangle (r 5) lofted to a 30 × 40 one (r 8) has 8 side
+faces, flat to flat and corner to corner, and two slots loft straight to
+straight and end to end (4 side faces). If only the corners agree in
+number (two or more), the corners are joined. Otherwise (a square and a
+circle, a hexagon and a square) the profiles are matched by distance along
+the outline, each from its seam, and a vertex of one profile splits the
+side where it lands on the other. The seam sits on a vertex of every
+profile that has one, so it never cuts a flat side in two; a circle or
+ellipse has no vertex and is turned to face its neighbour's seam. A square
+lofted to a circle, in either order, has 4 side faces, and the circle is
+approximated (within 1e-4 mm) and cut into 4 arcs; `startEdges()` /
+`endEdges()` return a rim whole, however it is split. `.connect(...)`
+replaces the automatic pairing — see Vertex connections below.
+
 A loft rebuilds its section edges as B-splines, so a lofted rounded
 rectangle's straight segments and corner arcs are no longer stored as lines
 and circles. Edge filters classify by geometry, so `edge().line()` and

@@ -15,7 +15,7 @@ interface Hole extends SceneObject {
   counterbore(diameter?: number, depth?: number): this;
   countersink(diameter?: number, angle?: number): this;
   depth(distance: number, tipAngle?: number): this;
-  fasten(target: SceneObject, pitch?: number, depth?: number, tipAngle?: number): this;
+  fasten(pitch?: number | "coarse", depth?: number, tipAngle?: number): this;
   scope(...objects: SceneObject[]): this;
   faces(...indices: number[]): ISelection;
   edges(...indices: number[]): ISelection;
@@ -82,17 +82,17 @@ A blind hole. Without this chain the hole runs through every solid in scope.
 
 ### `fasten()`
 
-Names the solid this clearance hole fastens to: that solid
-gets the matching tapped hole on the same axis, cut at the tap-drill
-diameter for the hole's fastener size. It opens on whichever face the
-axis meets first and runs through the whole solid, or to a blind depth
-measured from that face. The solid is left out of the clearance cut.
-Clearance holes of a fastener size only.
+Fastens through to the solid below: the clearance hole cuts the solid
+the hole sits on (or the `.scope()` solids), and the next solid the hole
+axis enters past them gets the matching tapped hole, cut at the
+tap-drill diameter for the hole's fastener size. It opens where the axis
+enters that solid and runs through it, or to a blind depth measured from
+there. Each placement taps the solid under its own axis. Clearance holes
+of a fastener size only.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `target` | [[api/types/scene-object]] | The solid the fastener threads into |
-| `pitch` | `number` | The thread pitch in mm (metric) or threads per inch (inch); omitted or null = coarse *(optional)* |
+| `pitch` | `number` \| `"coarse"` | The thread pitch in mm (metric) or threads per inch (inch); omitted or 'coarse' = the size's coarse pitch *(optional)* |
 | `depth` | `number` | Blind depth of the tapped hole from the face it enters, to the shoulder; omitted = through all *(optional)* |
 | `tipAngle` | `number` | Drill point included angle below a blind depth (118 for a standard drill); omitted = flat bottom *(optional)* |
 

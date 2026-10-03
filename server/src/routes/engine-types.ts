@@ -90,10 +90,13 @@ function buildSubpathShims(): EngineTypeFile[] {
     if (typeof target !== 'string' || !target.endsWith('.js')) {
       continue;
     }
-    const declaration = `./${target.replace(/^\.\//, '').replace(/\.js$/, '')}`;
-    // `index.d.ts` for the root, `core.d.ts` for `fluidcad/core` — the file
-    // names node resolution looks for when it walks up to `node_modules`.
+    // `index.d.ts` for the root, `core.d.ts` for `fluidcad/core`,
+    // `sdk/kernel.d.ts` for `fluidcad/sdk/kernel` — the file names node
+    // resolution looks for when it walks up to `node_modules`. A nested shim
+    // climbs back to the package root before naming the declaration.
     const name = subpath === '.' ? 'index' : subpath.slice(2);
+    const root = '../'.repeat(name.split('/').length - 1) || './';
+    const declaration = `${root}${target.replace(/^\.\//, '').replace(/\.js$/, '')}`;
     shims.push({
       uri: `${EXTRA_LIB_ROOT}/${name}.d.ts`,
       content: `export * from '${declaration}';\n`,

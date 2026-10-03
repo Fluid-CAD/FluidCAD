@@ -111,8 +111,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     }
 
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(allSceneObjects);
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      cutWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, plane, 0, this, { recordHistoryFor: this });
       this.setFinalShapes(this.getShapes());
       return;
     }
@@ -125,13 +124,13 @@ export class ExtrudeToFace extends ExtrudeBase {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, solids, {
+    const fusionResult = fuseWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, {
       recordHistoryFor: this,
     });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
+        modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
       }
     }
 

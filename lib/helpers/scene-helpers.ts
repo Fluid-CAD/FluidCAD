@@ -55,20 +55,22 @@ export function wiresFromSceneObjectEdges(obj: SceneObject, label: string): Wire
 }
 
 
+/**
+ * Fuses `extrusions` into the scope's solids. Each consumed solid comes back
+ * in `modifiedShapes` with the object holding it and, as `successors`, the
+ * result it was fused into — for the caller's `removeShape`.
+ */
 export function fuseWithSceneObjects(
-  sceneObjects: SceneObject[],
+  scope: SceneObject[] | HeldSolid[],
   extrusions: Shape<any>[],
   opts?: { glue?: 'full' | 'shift'; recordHistoryFor?: SceneObject; profiler?: Profiler; skipSimplify?: boolean; validateResult?: boolean },
 ) {
   const p = opts?.profiler;
-  const modified: { shape: Shape<any>, object: SceneObject }[] = [];
+  const modified: { shape: Shape<any>, object: SceneObject, successors?: Shape<any>[] }[] = [];
 
   const objShapeMap = new Map<Shape<any>, SceneObject>();
-  for (const obj of sceneObjects) {
-    const shapes = obj.getShapes({}, 'solid');
-    for (const shape of shapes) {
-      objShapeMap.set(shape, obj);
-    }
+  for (const { holder, solid } of stockOf(scope)) {
+    objShapeMap.set(solid, holder);
   }
 
   let sceneShapes = Array.from(objShapeMap.keys());
@@ -143,6 +145,12 @@ export function fuseWithSceneObjects(
     };
     p ? p.record('Clean fuse result', runCleanups) : runCleanups();
 
+    const consumed = modified.filter(m => m.object).map(m => m.shape);
+    const successors = fusedInto(consumed, shapesToAdd, cleanedShapesToAdd, maker);
+    for (const entry of modified) {
+      entry.successors = successors.get(entry.shape);
+    }
+
     let toolHistory: ShapeHistory | undefined;
     if (opts?.recordHistoryFor) {
       const recordHistory = () => {
@@ -172,6 +180,57 @@ export function fuseWithSceneObjects(
     for (const cleanup of cleanups) cleanup.dispose();
     dispose();
   }
+}
+
+/**
+ * The result each consumed stock solid was fused into, as the caller adds it
+ * (`cleaned` runs parallel to `results`). A fuse only adds material, so a
+ * consumed solid lives on in exactly one result: the one holding a face of
+ * it, as the fuse left it or as the fuse changed it. A solid whose every face
+ * the fuse swallowed gets no entry — its removal then stands for it with
+ * every solid the feature built.
+ */
+function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[], maker: any): Map<Shape, Shape[]> {
+  const fused = new Map<Shape, Shape[]>();
+  if (cleaned.length === 1) {
+    for (const solid of consumed) {
+      fused.set(solid, [cleaned[0]]);
+    }
+    return fused;
+  }
+  const oc = getOC();
+  const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+  const faceMaps = results.map(result => {
+    const map = new oc.TopTools_IndexedMapOfShape();
+    oc.TopExp.MapShapes(result.getShape(), FACE, map);
+    return map;
+  });
+  try {
+    for (const solid of consumed) {
+      const index = faceIndexIn(solid, faceMaps, maker, FACE);
+      if (index >= 0) {
+        fused.set(solid, [cleaned[index]]);
+      }
+    }
+  } finally {
+    for (const map of faceMaps) map.delete();
+  }
+  return fused;
+}
+
+/** The index of the face map holding a face of `solid` as the fuse left or changed it, or -1. */
+function faceIndexIn(solid: Shape, faceMaps: any[], maker: any, FACE: TopAbs_ShapeEnum): number {
+  for (const face of Explorer.findShapes(solid.getShape(), FACE)) {
+    const modified = ShapeOps.shapeListToArray(maker.Modified(face));
+    const images = modified.length > 0 ? modified : maker.IsDeleted(face) ? [] : [face];
+    for (const image of images) {
+      const index = faceMaps.findIndex(map => map.FindIndex(image) !== 0);
+      if (index >= 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
 }
 
 // Remap a pre-clean history through a set of cleanup lineages. Modified

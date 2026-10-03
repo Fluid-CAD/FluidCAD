@@ -96,7 +96,7 @@ export class Shell extends SceneObject implements IShell {
         newShapes.push(newShape);
 
         const originalObj = shapeObjMap.get(shape);
-        originalObj.removeShape(shape, this);
+        originalObj.removeShape(shape, this, [newShape]);
       } catch {
         // OCCT's MakeThickSolid could not offset the inner wall — it said
         // so, or handed the solid back unchanged. Keep the original

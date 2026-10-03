@@ -259,7 +259,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     this.axis.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
+      const stock = this.resolveFusionStock(context.getSceneObjects());
       // Note: stash classification state up front — cutWithSceneObjects /
       // classifyCutResult writes its own state keys, but the pre-classified
       // faces are useful for the remove path's selection accessors when no
@@ -269,7 +269,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      cutWithSceneObjects(stock, solids, plane, 0, this, { recordHistoryFor: this });
       return;
     }
 

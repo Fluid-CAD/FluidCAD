@@ -44,8 +44,8 @@ export class Wrap extends ExtrudeBase implements IWrap {
     this.face.removeShapes(this);
 
     if (isRemove) {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, result.solids, plane, this.thickness, this, {
+      const stock = this.resolveFusionStock(context.getSceneObjects());
+      cutWithSceneObjects(stock, result.solids, plane, this.thickness, this, {
         recordHistoryFor: this,
       });
     } else {

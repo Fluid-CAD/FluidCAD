@@ -111,18 +111,20 @@ export class Chamfer extends SceneObject {
         }
 
         const obj = shapeObjectMap.get(shape);
-        obj.removeShape(shape, this);
 
         // Clean each chamfer result and chain colors through the cleanup's
         // UnifySameDomain history so any merged faces keep their colors.
         const cleanups: CleanShapeLineage[] = [];
+        const chamfered: Solid[] = [];
         for (const preClean of preCleanSolids) {
           const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
           ColorTransfer.applyThroughCleanup(preClean, cleanup);
           const cleaned = cleanup.shape as Solid;
           cleanups.push(cleanup);
+          chamfered.push(cleaned);
           newShapes.push(cleaned);
         }
+        obj.removeShape(shape, this, chamfered);
         // The maker history references pre-clean faces/edges — chain it
         // through the same cleanups before they are disposed.
         recordModifierHistory(history, obj, this, cleanups);

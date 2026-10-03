@@ -233,13 +233,13 @@ export class Sweep extends ExtrudeBase implements ISweep {
     this._path.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
+      const stock = this.resolveFusionStock(context.getSceneObjects());
       this.setState('start-faces', classified.startFaces);
       this.setState('end-faces', classified.endFaces);
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this, skipSimplify: true, validateResult: true });
+      cutWithSceneObjects(stock, solids, plane, 0, this, { recordHistoryFor: this, skipSimplify: true, validateResult: true });
       return;
     }
 

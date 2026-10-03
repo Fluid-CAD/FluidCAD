@@ -214,10 +214,10 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     // Handle boolean operation based on operation mode
     if (this._operationMode === 'remove') {
-      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
+      const stock = p.record('Resolve fusion scope', () => this.resolveFusionStock(context.getSceneObjects()));
       const plane = firstPlane || lastPlane;
       p.record('Cut with scene objects', () => {
-        cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+        cutWithSceneObjects(stock, newShapes, plane, 0, this, { recordHistoryFor: this });
       });
       this.setFinalShapes(this.getShapes());
       return;
@@ -233,13 +233,14 @@ export class Loft extends ExtrudeBase implements ILoft {
       return;
     }
 
-    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, newShapes, {
+    const stock = this.resolveFusionStock(context.getSceneObjects());
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(stock, newShapes, {
       recordHistoryFor: this,
     }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
+        modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
       }
     }
 

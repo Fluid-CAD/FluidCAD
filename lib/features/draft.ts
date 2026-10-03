@@ -56,7 +56,7 @@ export class Draft extends SceneObject implements IDraft {
 
         newShapes.push(result.shape);
         const originalObj = shapeObjMap.get(shape);
-        originalObj.removeShape(shape, this);
+        originalObj.removeShape(shape, this, [result.shape]);
         recordModifierHistory(result.history, originalObj, this);
       } catch (e) {
         newShapes.push(shape);

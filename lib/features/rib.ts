@@ -61,8 +61,7 @@ export class Rib extends ExtrudeBase implements IRib {
     const originalSpineWire = p.record('Get spine wire', () => this.getSpineWire(this._spine));
     let spineWire = originalSpineWire;
 
-    const scopeObjects = this.resolveFusionScope(context.getSceneObjects());
-    const scopeShapes = scopeObjects.flatMap(o => o.getShapes({}, 'solid'));
+    const scopeShapes = this.resolveFusionStock(context.getSceneObjects()).map(held => held.solid);
 
     if (scopeShapes.length === 0) {
       throw new Error("Rib requires target solids in the scene or via .scope()");

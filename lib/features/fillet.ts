@@ -42,7 +42,7 @@ export class Fillet extends SceneObject {
     const { addedShapes, removedShapes } = this.doBuild(sceneObjects, selections);
 
     for (const item of removedShapes) {
-      item.owner.removeShape(item.shape, this);
+      item.owner.removeShape(item.shape, this, item.successors);
     }
 
     this.addShapes(addedShapes);
@@ -51,7 +51,8 @@ export class Fillet extends SceneObject {
   doBuild(sceneObjectsMap: Map<SceneObject, Shape[]>,
     selections: SceneObject[]) {
     const addedShapes: Shape[] = [];
-    const removedShapes: { shape: Shape, owner: SceneObject }[] = [];
+    // `successors`: what a solid became — see ShapeRemovalRecord.
+    const removedShapes: { shape: Shape, owner: SceneObject, successors?: Shape[] }[] = [];
 
     let edges: Edge[] = [];
     for (const selection of selections) {
@@ -107,7 +108,7 @@ export class Fillet extends SceneObject {
         const { solids: newSolids, history } = FilletOps.makeFillet(solid, targetEdges, this.radius);
 
         const obj = sceneShapeObjectMap.get(shape);
-        removedShapes.push({ shape: solid, owner: obj });
+        removedShapes.push({ shape: solid, owner: obj, successors: newSolids });
         if (obj) {
           recordModifierHistory(history, obj, this);
         }

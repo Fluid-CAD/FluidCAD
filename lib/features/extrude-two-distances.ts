@@ -152,9 +152,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.getSource()?.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
+      const stock = p.record('Resolve fusion scope', () => this.resolveFusionStock(context.getSceneObjects()));
       p.record('Cut with scene objects', () => {
-        cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this, {
+        cutWithSceneObjects(stock, extrusions, plane, this.distance1 + this.distance2, this, {
           recordHistoryFor: this,
           bidirectional: true,
         });
@@ -173,7 +173,8 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, extrusions, {
+    const stock = this.resolveFusionStock(context.getSceneObjects());
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(stock, extrusions, {
       recordHistoryFor: this,
     }));
 
@@ -182,7 +183,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
         continue;
       }
 
-      modifiedShape.object.removeShape(modifiedShape.shape, this);
+      modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
     }
 
     this.addShapes(fusionResult.newShapes);

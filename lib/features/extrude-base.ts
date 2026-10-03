@@ -395,7 +395,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, shapes, {
+    const fusionResult = fuseWithSceneObjects(this.resolveFusionStock(context.getSceneObjects()), shapes, {
       ...fuseOpts,
       recordHistoryFor: this,
       profiler: p,
@@ -405,7 +405,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       if (!modifiedShape.object) {
         continue;
       }
-      modifiedShape.object.removeShape(modifiedShape.shape, this);
+      modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
     }
 
     this.addShapes(fusionResult.newShapes);

@@ -353,6 +353,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return [];
   }
 
+  /**
+   * The dependencies a repeat copies along with this object, to rebuild them
+   * moved per instance. A feature built FROM its inputs copies them all (the
+   * default). One that reads its inputs where they stand and moves its own
+   * result by the clone transform instead copies none of them — copying a
+   * face it stands on would drag the body that face belongs to into every
+   * instance.
+   */
+  getCloneDependencies(): SceneObject[] {
+    return this.getDependencies();
+  }
+
   createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     throw new Error("createCopy() not implemented for " + this.getType());
   }
@@ -367,7 +379,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       }
       visited.add(obj);
 
-      for (const dep of obj.getDependencies()) {
+      for (const dep of obj.getCloneDependencies()) {
         collect(dep);
       }
 

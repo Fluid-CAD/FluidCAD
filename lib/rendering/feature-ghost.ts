@@ -1804,7 +1804,7 @@ function memberSolids(member: SceneObject): Shape[] {
 
 /**
  * The objects a repeat would clone, gathered exactly as `cloneWithTransform`
- * gathers them (clone-transform.ts:14-40): each target's dependency closure,
+ * gathers them (clone-transform.ts:14-40): each target's clone-dependency closure,
  * plus every descendant. Nothing is cloned here and no transform is resolved —
  * the ghost only needs to know *which* objects an instance rebuilds.
  */
@@ -1823,7 +1823,7 @@ function repeatCloneSet(targets: SceneObject[]): Set<SceneObject> {
       return;
     }
     chain.add(obj);
-    for (const dep of obj.getDependencies()) {
+    for (const dep of obj.getCloneDependencies()) {
       walk(dep);
     }
     // Boundary references join the set without their own dependencies —

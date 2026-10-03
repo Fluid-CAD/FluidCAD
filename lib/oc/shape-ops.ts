@@ -1,5 +1,6 @@
 import type {
   Bnd_Box,
+  BRepBuilderAPI_Transform,
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
@@ -43,6 +44,37 @@ export type CleanShapeLineage = {
 
 export class ShapeOps {
   static transform(shape: Shape, matrix: Matrix4): Shape {
+    return ShapeOps.transformWith(shape, matrix, () => {});
+  }
+
+  /**
+   * {@link transform}, also answering where each of `subShapes` (faces and
+   * edges of `shape`) went: its image in the moved shape, parallel to
+   * `subShapes`, or null for one `shape` does not hold.
+   */
+  static transformTracking(shape: Shape, matrix: Matrix4, subShapes: Shape[]): { shape: Shape; images: (Shape | null)[] } {
+    let images: (Shape | null)[] = [];
+    const moved = ShapeOps.transformWith(shape, matrix, transformer => {
+      if (subShapes.length === 0) {
+        return;
+      }
+      const oc = getOC();
+      const held = new oc.TopTools_IndexedMapOfShape();
+      try {
+        oc.TopExp.MapShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum, held);
+        oc.TopExp.MapShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, held);
+        images = subShapes.map(sub => held.FindIndex(sub.getShape()) === 0
+          ? null
+          : ShapeFactory.fromShape(transformer.ModifiedShape(sub.getShape())));
+      } finally {
+        held.delete();
+      }
+    });
+    return { shape: moved, images };
+  }
+
+  /** The move itself; `visit` reads the transformer before it is released. */
+  private static transformWith(shape: Shape, matrix: Matrix4, visit: (transformer: BRepBuilderAPI_Transform) => void): Shape {
     const oc = getOC();
     const [trsf, disposeTrsf] = Convert.toGpTrsf(matrix);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
@@ -83,6 +115,8 @@ export class ShapeOps {
     }
 
     transformed.copyRoleFrom(shape);
+
+    visit(transformer);
 
     transformer.delete();
     disposeTrsf();

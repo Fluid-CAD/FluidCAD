@@ -2,6 +2,7 @@ import type { TopAbs_ShapeEnum, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Shape } from "../common/shape.js";
+import type { SceneObject } from "../common/scene-object.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
@@ -152,5 +153,158 @@ export class ClassifiedBucketRemapper {
       map.Add(shape.getShape());
     }
     return map;
+  }
+}
+
+/** What a fusion leaves of the start/end edge buckets; see {@link ClassifiedBuckets.classifyEdges}. */
+export type FusedEdgeBuckets = {
+  startEdges: Edge[];
+  endEdges: Edge[];
+  /** Edges of the feature's own (not re-homed) start/end faces — the side-edge exclusion set. */
+  ownStartEndEdges: Edge[];
+};
+
+/**
+ * A 3D op's classified buckets as they live in its state: the face buckets
+ * it wrote (`start-faces`, `end-faces`, `side-faces`, `internal-faces`,
+ * `cap-faces`) and the edge buckets derived from them. Shared by every op
+ * that grows a body and fuses it into the scene — `ExtrudeBase` and its
+ * peers, and the SDK's `Feature` — so they classify and carry buckets
+ * across a fusion by one rule.
+ */
+export class ClassifiedBuckets {
+
+  /** The face-bucket state keys, in the order the edge buckets derive from them. */
+  static readonly FACE_KEYS = ['start-faces', 'end-faces', 'side-faces', 'internal-faces', 'cap-faces'] as const;
+
+  /** The edge-bucket state keys {@link classifyEdges} writes. */
+  static readonly EDGE_KEYS = ['start-edges', 'end-edges', 'side-edges', 'internal-edges', 'cap-edges'] as const;
+
+  /** The distinct edges of the given faces, in face order. */
+  static edgesOfFaces(faces: Face[]): Edge[] {
+    return ClassifiedBucketRemapper.distinct(faces.flatMap(f => f.getEdges()));
+  }
+
+  /**
+   * `edges` without duplicates (by TShape) and without any edge sharing a
+   * TShape with one in `excluded`: a single map pre-seeded with the excluded
+   * set, whose Add refuses both.
+   */
+  static distinctExcluding(edges: Edge[], excluded: Edge[]): Edge[] {
+    if (edges.length === 0) {
+      return [];
+    }
+    const oc = getOC();
+    const map = new oc.TopTools_MapOfShape();
+    for (const e of excluded) {
+      map.Add(e.getShape());
+    }
+    const result: Edge[] = [];
+    for (const edge of edges) {
+      if (map.Add(edge.getShape())) {
+        result.push(edge);
+      }
+    }
+    map.delete();
+    return result;
+  }
+
+  /**
+   * Record every face and edge of `shapes` as an addition by `target`. Used
+   * in the "no scene fusion" path — when the op's bodies land in the scene
+   * unchanged, every face and edge is brand new from its point of view.
+   */
+  static recordAdditions(target: SceneObject, shapes: Shape[]) {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    for (const shape of shapes) {
+      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
+        target.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), target);
+      }
+      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
+        target.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), target);
+      }
+    }
+  }
+
+  /**
+   * One-shot edge classification: derive start/end/side/internal/cap edges
+   * from the classified face buckets in `target`'s state and store them as
+   * `start-edges`, `end-edges`, `side-edges`, `internal-edges`, `cap-edges`,
+   * so the selection accessors read pre-computed arrays instead of
+   * re-deriving on every access.
+   *
+   * Call it once after face classification. After a fusion, pass what the
+   * {@link ClassifiedBucketRemapper} carried across it: a start face merged
+   * into the stock has no image to derive its edges from, while those edges
+   * live on as the junction with the stock.
+   *
+   * Side edges are the edges of side faces minus those on the feature's own
+   * start/end faces. A junction edge lies on the stock's face, not on one of
+   * the feature's own, so it stays a side edge as well as a start edge —
+   * the membership index-based picks on fused features have always seen.
+   */
+  static classifyEdges(target: SceneObject, remapped?: FusedEdgeBuckets) {
+    const startFaces = target.getState('start-faces') as Face[] || [];
+    const endFaces = target.getState('end-faces') as Face[] || [];
+    const sideFaces = target.getState('side-faces') as Face[] || [];
+    const internalFaces = target.getState('internal-faces') as Face[] || [];
+    const capFaces = target.getState('cap-faces') as Face[] || [];
+
+    const startEdges = remapped ? remapped.startEdges : ClassifiedBuckets.edgesOfFaces(startFaces);
+    const endEdges = remapped ? remapped.endEdges : ClassifiedBuckets.edgesOfFaces(endFaces);
+    const sideExclusion = remapped ? remapped.ownStartEndEdges : [...startEdges, ...endEdges];
+
+    const sideEdges = ClassifiedBuckets.distinctExcluding(sideFaces.flatMap(f => f.getEdges()), sideExclusion);
+    const internalEdges = ClassifiedBuckets.edgesOfFaces(internalFaces);
+    const capEdges = ClassifiedBuckets.edgesOfFaces(capFaces);
+
+    target.setState('start-edges', startEdges);
+    target.setState('end-edges', endEdges);
+    target.setState('side-edges', sideEdges);
+    target.setState('internal-edges', internalEdges);
+    target.setState('cap-edges', capEdges);
+  }
+
+  /**
+   * Carry `target`'s classified buckets across the fusion that merged its
+   * body into the scene (see {@link ClassifiedBucketRemapper}), then classify
+   * the edges. Call after `fuseWithSceneObjects` returns a `toolHistory` and
+   * the result has been added to the op.
+   *
+   * Start and end buckets are re-homed onto `finalShapes`: their faces
+   * merge into the stock whenever the feature starts or ends on an existing
+   * face, and their edges become the junction with it. Side, internal and
+   * cap buckets only follow the history, as they always have: their members
+   * are what index picks on fused features (`e.sideEdges(9)`, as the editor
+   * emits them) were recorded against, and re-homing or pruning them would
+   * renumber those picks.
+   */
+  static remapAcrossFusion(target: SceneObject, history: ShapeHistory, finalShapes: Shape[]) {
+    const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+    try {
+      const rehome = (key: string) => {
+        const asBuilt = target.getState(key) as Face[] || [];
+        const edges = remapper.remapEdges(ClassifiedBuckets.edgesOfFaces(asBuilt));
+        const faces = remapper.remapFaces(asBuilt, edges);
+        target.setState(key, faces.faces);
+        return { edges, own: faces.own };
+      };
+      const start = rehome('start-faces');
+      const end = rehome('end-faces');
+      for (const key of ['side-faces', 'internal-faces', 'cap-faces']) {
+        const faces = target.getState(key) as Face[] || [];
+        target.setState(key, ShapeHistoryTracker.remapFaces(faces, history));
+      }
+
+      ClassifiedBuckets.classifyEdges(target, {
+        startEdges: start.edges,
+        endEdges: end.edges,
+        ownStartEndEdges: ClassifiedBuckets.edgesOfFaces([...start.own, ...end.own]),
+      });
+    } finally {
+      remapper.dispose();
+    }
   }
 }

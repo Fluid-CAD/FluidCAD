@@ -107,6 +107,28 @@ A blind hole. Without this chain the hole runs through every solid in scope.
 
 ---
 
+### fasten()
+
+```ts
+fasten(target: SceneObject, pitch?: number, depth?: number, tipAngle?: number): this
+```
+
+Names the solid this clearance hole fastens to: that solid
+gets the matching tapped hole on the same axis, cut at the tap-drill
+diameter for the hole's fastener size. It opens on whichever face the
+axis meets first and runs through the whole solid, or to a blind depth
+measured from that face. The solid is left out of the clearance cut.
+Clearance holes of a fastener size only.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The solid the fastener threads into |
+| `pitch` | number | The thread pitch in mm (metric) or threads per inch (inch); omitted or null = coarse *(optional)* |
+| `depth` | number | Blind depth of the tapped hole from the face it enters, to the shoulder; omitted = through all *(optional)* |
+| `tipAngle` | number | Drill point included angle below a blind depth (118 for a standard drill); omitted = flat bottom *(optional)* |
+
+---
+
 ### scope()
 
 ```ts

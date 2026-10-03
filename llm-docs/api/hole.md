@@ -1,7 +1,7 @@
 ---
 id: api/hole
 title: hole(size, ...placements)
-summary: Cuts drilled, clearance or tapped fastener holes at connectors, sketch points or face/edge anchors, with optional counterbore or countersink and blind or through-all termination.
+summary: Cuts drilled, clearance or tapped fastener holes at connectors, sketch points or face/edge anchors, with optional counterbore or countersink, blind or through-all termination, and .fasten() to tap the mating solid of a clearance hole.
 tags: [api, 3d, solid]
 symbols: [hole]
 seeAlso: [api/connector, api/point, api/repeat, api/cut]
@@ -32,10 +32,21 @@ exported from a sketch (`s.geometries.c.center()`, `s.geometries.p` for a
   (a numeric size needs explicit values).
 - `.depth(distance, tipAngle?)` — blind hole: depth to the shoulder, plus a
   drill point of that included angle (118 is a standard drill); omitted = through all.
+- `.fasten(target, pitch?, depth?, tipAngle?)` — clearance holes
+  of a string size only (not a numeric size, not `.tapped()`). `target` is the
+  other solid the fastener threads into: it gets the matching tapped hole on
+  the same axis, at the tap-drill diameter for the size, and is left out of the
+  clearance cut whatever `.scope()` says. `pitch` in mm / threads per inch,
+  omitted or `null` = coarse (write `null` when a depth follows). `depth` =
+  blind depth to the shoulder, measured from the face where the axis enters
+  `target` (not from the placement); omitted = through the whole solid.
+  `tipAngle` = drill point below a blind depth (118), only with a depth. Errors
+  if the axis never reaches `target`.
 - `.scope(...solids)` — which solids are cut (default: all).
 
 Accessors: `faces()` (walls), `edges()` (every rim), `startEdges()` (entry
-rims), `endEdges()` (floor or exit rims). Repeatable with `repeat()`.
+rims), `endEdges()` (floor or exit rims); with `.fasten()` each lists the
+clearance cut's geometry first, then the tapped holes'. Repeatable with `repeat()`.
 
 ## Example
 
@@ -70,6 +81,59 @@ const holes = sketch(plate.endFaces(), () => {
 });
 hole('M6', holes.geometries.p1, holes.geometries.p2).clearance('close').counterbore();
 hole(5, plate.endFaces().center()).depth(6, 118);
+```
+
+## Example: fasten a cover to a base
+
+One clearance hole in the cover; the base gets the M6 tapped hole (Ø5), 12
+deep from its top face with a 118° drill point.
+
+```fluid.js
+import { sketch, line, point, extrude, hole } from "fluidcad/core";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
+
+sketch("xy", () => {
+  const b = line([-20, -15], [20, -15]);
+  const r = line([20, -15], [20, 15]);
+  const t = line([20, 15], [-20, 15]);
+  const l = line([-20, 15], [-20, -15]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
+  horizontal(t);
+  vertical(l);
+  fix(b.start(), [-20, -15]);
+  distance(b.start(), b.end(), 40);
+  distance(r.start(), r.end(), 30);
+});
+const base = extrude(20);
+sketch(base.endFaces(), () => {
+  const b = line([-20, -15], [20, -15]);
+  const r = line([20, -15], [20, 15]);
+  const t = line([20, 15], [-20, 15]);
+  const l = line([-20, 15], [-20, -15]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
+  horizontal(t);
+  vertical(l);
+  fix(b.start(), [-20, -15]);
+  distance(b.start(), b.end(), 40);
+  distance(r.start(), r.end(), 30);
+});
+const cover = extrude(8).new();
+const seat = sketch(cover.endFaces(), () => {
+  const p = point([0, 0]);
+  fix(p, [0, 0]);
+  return { p };
+});
+hole('M6', seat.geometries.p).fasten(base, null, 12, 118);
 ```
 
 See [[api/connector]] for holes at a part's mating frames and [[api/repeat]] for bolt circles.

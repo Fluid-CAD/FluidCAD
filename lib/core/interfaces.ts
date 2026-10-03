@@ -1361,7 +1361,7 @@ export interface IHole extends ISceneObject {
   depth(distance: number, tipAngle?: number): this;
 
   /**
-   * Experimental. Names the solid this clearance hole fastens to: that solid
+   * Names the solid this clearance hole fastens to: that solid
    * gets the matching tapped hole on the same axis, cut at the tap-drill
    * diameter for the hole's fastener size. It opens on whichever face the
    * axis meets first and runs through the whole solid, or to a blind depth

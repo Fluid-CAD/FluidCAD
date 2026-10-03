@@ -35,7 +35,14 @@ type Harness = {
   container: HTMLElement;
   track: HTMLElement;
   tabEls(): HTMLElement[];
-  handlers: FileTabsHandlers & { onActivate: ReturnType<typeof vi.fn>; onReorder: ReturnType<typeof vi.fn>; onRename: ReturnType<typeof vi.fn>; onClose: ReturnType<typeof vi.fn> };
+  handlers: FileTabsHandlers & {
+    onActivate: ReturnType<typeof vi.fn>;
+    onReorder: ReturnType<typeof vi.fn>;
+    onRename: ReturnType<typeof vi.fn>;
+    onClose: ReturnType<typeof vi.fn>;
+    onCloseOthers: ReturnType<typeof vi.fn>;
+    onRemove: ReturnType<typeof vi.fn>;
+  };
 };
 
 const mounted: HTMLElement[] = [];
@@ -232,6 +239,99 @@ describe('FileTabs rename', () => {
     bare.tabEls()[0].dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
     expect(bare.container.querySelector('[role="menu"]')).toBeNull();
+  });
+});
+
+describe('FileTabs close other tabs', () => {
+  function hover(el: HTMLElement): void {
+    el.dispatchEvent(new MouseEvent('pointerenter'));
+  }
+
+  function submenuOf(menu: HTMLElement): HTMLElement | null {
+    return menu.querySelector<HTMLElement>('[role="menu"]');
+  }
+
+  it('hovering the row opens a submenu; each of its rows closes tabs around the clicked one', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    for (const [label, which] of [['All other tabs', 'all'], ['Tabs to the left', 'left'], ['Tabs to the right', 'right']]) {
+      const menu = openMenu(h, h.tabEls()[1]);
+      const parent = menuRow(menu, 'Close other tabs');
+      expect(parent.getAttribute('aria-expanded')).toBe('false');
+      expect(submenuOf(menu)).toBeNull();
+      hover(parent);
+      expect(parent.getAttribute('aria-expanded')).toBe('true');
+      menuRow(submenuOf(menu)!, label).click();
+      expect(h.handlers.onCloseOthers).toHaveBeenLastCalledWith('/ws/rig.assembly.js', which);
+      expect(h.container.querySelector('[role="menu"]')).toBeNull();
+    }
+  });
+
+  it('disables the side with no tabs, and the whole row for a lone tab', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const first = openMenu(h, h.tabEls()[0]);
+    hover(menuRow(first, 'Close other tabs'));
+    expect(menuRow(submenuOf(first)!, 'Tabs to the left').disabled).toBe(true);
+    expect(menuRow(submenuOf(first)!, 'Tabs to the right').disabled).toBe(false);
+
+    const last = openMenu(h, h.tabEls()[2]);
+    hover(menuRow(last, 'Close other tabs'));
+    expect(menuRow(submenuOf(last)!, 'Tabs to the left').disabled).toBe(false);
+    expect(menuRow(submenuOf(last)!, 'Tabs to the right').disabled).toBe(true);
+
+    const lone = mount({ onCloseOthers: vi.fn() });
+    const tabs = new FileTabs(lone.container, lone.handlers, true);
+    tabs.setTabs([TABS[0]], TABS[0].absPath, TABS[0].absPath);
+    const track = lone.container.querySelectorAll<HTMLElement>('.w-max')[1];
+    const menu = openMenu(lone, track.children[0] as HTMLElement);
+    expect(menuRow(menu, 'Close other tabs').disabled).toBe(true);
+  });
+
+  it("another row's hover closes the submenu, and a click opens it too", () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[1]);
+    const parent = menuRow(menu, 'Close other tabs');
+    parent.click();
+    expect(submenuOf(menu)).not.toBeNull();
+    // A click on the row opens; it doesn't pick anything or close the menu.
+    expect(h.handlers.onCloseOthers).not.toHaveBeenCalled();
+    expect(menu.isConnected).toBe(true);
+    hover(menuRow(menu, 'Rename'));
+    expect(submenuOf(menu)).toBeNull();
+    expect(parent.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('ArrowRight opens the submenu onto its first row, ArrowLeft goes back', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[1]);
+    const parent = menuRow(menu, 'Close other tabs');
+    parent.focus();
+    parent.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    const submenu = submenuOf(menu)!;
+    expect(document.activeElement).toBe(menuRow(submenu, 'All other tabs'));
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(submenuOf(menu)).toBeNull();
+    expect(document.activeElement).toBe(parent);
+  });
+});
+
+describe('FileTabs remove file', () => {
+  it('asks the owner to remove the file, from a row set apart from the rest', () => {
+    const h = mount({ onRemove: vi.fn(), onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[2]);
+    const labels = Array.from(menu.querySelectorAll(':scope > button')).map((row) => row.textContent?.trim());
+    expect(labels).toEqual(['Rename', 'Close', 'Close other tabs', 'Remove file']);
+    const row = menuRow(menu, 'Remove file');
+    expect(row.previousElementSibling?.getAttribute('role')).toBe('separator');
+    row.click();
+    expect(h.handlers.onRemove).toHaveBeenCalledWith('/ws/init.js');
+    expect(h.container.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('is the only row, with no rule above it, on a host that offers nothing else', () => {
+    const h = mount({ onRemove: vi.fn(), onRename: undefined, onClose: undefined });
+    const menu = openMenu(h, h.tabEls()[0]);
+    expect(menu.querySelector('[role="separator"]')).toBeNull();
+    expect(menuRow(menu, 'Remove file')).toBeDefined();
   });
 });
 

@@ -46,6 +46,9 @@ import iconFolderPlus from '@tabler/icons/outline/folder-plus.svg?raw';
 import iconFolder from '@tabler/icons/outline/folder.svg?raw';
 import iconHome from '@tabler/icons/outline/home.svg?raw';
 import iconCornerLeftUp from '@tabler/icons/outline/corner-left-up.svg?raw';
+import iconCopyX from '@tabler/icons/outline/copy-x.svg?raw';
+import iconArrowBarToLeft from '@tabler/icons/outline/arrow-bar-to-left.svg?raw';
+import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -115,6 +118,12 @@ export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24
  *  disclosure caret {@link ICON_CHEVRON_RIGHT} the tree panels use. */
 export const ICON_SCROLL_LEFT = iconChevronLeft;
 export const ICON_SCROLL_RIGHT = iconChevronRight;
+/** A popup menu row that opens a submenu. */
+export const ICON_SUBMENU = iconChevronRight;
+/** The tab menu's Close other tabs, and its to-the-left / to-the-right variants. */
+export const ICON_CLOSE_OTHERS = iconCopyX;
+export const ICON_CLOSE_LEFT = iconArrowBarToLeft;
+export const ICON_CLOSE_RIGHT = iconArrowBarToRight;
 export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 export const ICON_CUBE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 export const ICON_LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="16" r="1"/><path d="M8 11v-4a4 4 0 0 1 8 0v4"/></svg>';

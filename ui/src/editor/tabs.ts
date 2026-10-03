@@ -1,4 +1,7 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS, ICON_PENCIL } from '../ui/icons';
+import {
+  ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS, ICON_PENCIL, ICON_TRASH,
+  ICON_CLOSE_OTHERS, ICON_CLOSE_LEFT, ICON_CLOSE_RIGHT,
+} from '../ui/icons';
 import { ToolbarScroller } from '../ui/navbar/toolbar-scroller';
 import type { FileKind } from './editor-api';
 import { TabReorder } from './tab-reorder';
@@ -21,9 +24,10 @@ import { closePopupMenu, showPopupMenu, type PopupMenuItem } from '../ui/popup-m
  * - `source` — a plain `.js` helper, `init.js`. Editor-only; activating it
  *   leaves the viewport showing whatever model is current.
  *
- * Tabs can be dragged into a new order ({@link TabReorder}) and renamed in
- * place from their right-click menu — a rename is a rename of the file, and
- * the strip only asks; the owner does it.
+ * Tabs can be dragged into a new order ({@link TabReorder}). Their
+ * right-click menu renames the file in place, closes the tab or the tabs
+ * around it, and removes the file from disk — in every case the strip only
+ * asks; the owner does it (and, for a removal, confirms it first).
  *
  * No monaco import here, deliberately: the top bar is loaded on every page,
  * including the viewport-only hosts that never fetch the editor chunk.
@@ -36,6 +40,9 @@ export type FileTab = {
   kind: FileKind;
   dirty: boolean;
 };
+
+/** Which tabs Close other tabs closes: every one but the tab, or those on one side of it. */
+export type OtherTabs = 'all' | 'left' | 'right';
 
 export interface FileTabsHandlers {
   onActivate(absPath: string): void;
@@ -50,6 +57,13 @@ export interface FileTabsHandlers {
    * folder). Absent: no Rename in the tab menu.
    */
   onRename?(absPath: string, newBasename: string): void;
+  /** Close the tabs around `absPath` — see {@link OtherTabs}. Absent: no Close other tabs in the tab menu. */
+  onCloseOthers?(absPath: string, which: OtherTabs): void;
+  /**
+   * Delete the file behind a tab from disk; the owner confirms first. Absent:
+   * no Remove file in the tab menu.
+   */
+  onRemove?(absPath: string): void;
 }
 
 /**
@@ -279,7 +293,7 @@ export class FileTabs {
     return el;
   }
 
-  /** The right-click menu's rows for `tab`; empty when the host offers neither action. */
+  /** The right-click menu's rows for `tab`; empty when the host offers none of its actions. */
   private menuItemsFor(tab: FileTab): PopupMenuItem[] {
     const items: PopupMenuItem[] = [];
     if (this.handlers.onRename) {
@@ -287,6 +301,34 @@ export class FileTabs {
     }
     if (this.handlers.onClose) {
       items.push({ icon: ICON_CLOSE, label: 'Close', onSelect: () => this.handlers.onClose?.(tab.absPath) });
+    }
+    if (this.handlers.onCloseOthers) {
+      const index = this.tabs.indexOf(tab);
+      const closeOthers = (which: OtherTabs) => () => this.handlers.onCloseOthers?.(tab.absPath, which);
+      items.push({
+        icon: ICON_CLOSE_OTHERS,
+        label: 'Close other tabs',
+        disabled: this.tabs.length < 2,
+        submenu: [
+          { icon: ICON_CLOSE, label: 'All other tabs', onSelect: closeOthers('all') },
+          { icon: ICON_CLOSE_LEFT, label: 'Tabs to the left', disabled: index === 0, onSelect: closeOthers('left') },
+          {
+            icon: ICON_CLOSE_RIGHT,
+            label: 'Tabs to the right',
+            disabled: index === this.tabs.length - 1,
+            onSelect: closeOthers('right'),
+          },
+        ],
+      });
+    }
+    if (this.handlers.onRemove) {
+      items.push({
+        icon: ICON_TRASH,
+        label: 'Remove file',
+        className: 'text-error',
+        separated: items.length > 0,
+        onSelect: () => this.handlers.onRemove?.(tab.absPath),
+      });
     }
     return items;
   }

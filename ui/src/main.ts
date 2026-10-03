@@ -815,6 +815,8 @@ const topBar = new TopBar(container, {
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
     onReorder: (absPaths) => editorSurface?.reorderTabs(absPaths),
     onRename: (absPath, newBasename) => void editorSurface?.renameTab(absPath, newBasename),
+    onCloseOthers: (absPath, which) => editorSurface?.closeOtherTabs(absPath, which),
+    onRemove: (absPath) => void confirmRemoveFile(absPath),
   } : undefined,
   saveTheme: (theme) => savePreference('theme', theme),
   onSettings: editorSurfaceEnabled ? () => settingsModal.show() : undefined,
@@ -1905,6 +1907,30 @@ async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: num
   const result = await editor.removeFeatureCascade(loc);
   if (!result.success) {
     showToast(`Can't delete: ${result.reason ?? 'unknown error'}`);
+  }
+}
+
+/**
+ * The tab menu's Remove file: deleting from disk can't be undone, so the
+ * user confirms first — and hears that unsaved edits go too.
+ */
+async function confirmRemoveFile(absPath: string): Promise<void> {
+  const surface = editorSurface;
+  const entry = surface?.models.get(absPath);
+  if (!surface || !entry) {
+    return;
+  }
+  const unsaved = surface.models.isDirty(absPath) ? ' Its unsaved changes will be lost.' : '';
+  const confirmed = await confirmDialog({
+    title: 'Remove file',
+    icon: ICON_TRASH,
+    message: `This deletes the file from disk and can't be undone.${unsaved}`,
+    items: [entry.relPath],
+    confirmLabel: 'Remove',
+    danger: true,
+  });
+  if (confirmed) {
+    await surface.removeFile(absPath);
   }
 }
 

@@ -12,8 +12,8 @@ const PACKAGE_JSON = path.resolve(import.meta.dirname, "../../../package.json");
 const HOST_ONLY_EXPORTS = ["./server", "./server/api", "./browser", "./viewer-ui", "./viewer-ui/style.css"];
 
 describe("the fluidcad/sdk entry points", () => {
-  it("export Feature and registerBuilder, never SceneObject", () => {
-    expect(Object.keys(sdk).sort()).toEqual(["Feature", "registerBuilder"]);
+  it("export Feature, registerBuilder and parseCall, never SceneObject", () => {
+    expect(Object.keys(sdk).sort()).toEqual(["Feature", "parseCall", "registerBuilder"]);
     expect(sdk.registerBuilder).toBe(registerBuilder);
     expect(Object.keys(kernel)).not.toContain("SceneObject");
   });

@@ -9,6 +9,8 @@ import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
 import { parse as parseStackTrace } from "stacktrace-parser";
 import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
+// After the kernel's own modules: the feature base extends SceneObject.
+import { FeatureMetas, type FeatureMeta } from "./sdk/meta.js";
 
 const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
 
@@ -114,12 +116,24 @@ export type RegisterBuilderOptions = {
    * rules there.
    */
   allowAssemblyTopLevel?: boolean;
+  /**
+   * The feature the builder makes, described for the editor: its toolbar
+   * button, its dialog's values and the call the dialog writes. Checked
+   * here, so a mistake fails where the module loads; the builder carries
+   * it from then on (`getFeatureMeta`), and the editor finds it by
+   * scanning the module's exports.
+   */
+  feature?: FeatureMeta;
+  /** @internal The engine's own builders: their features keep plain ids (`draft`). */
+  builtIn?: boolean;
 };
 
 export function registerBuilder<T extends Function>(
   builder: (context: SceneParserContext) => T,
   options: RegisterBuilderOptions = {},
 ): T {
+
+  const meta = options.feature === undefined ? null : FeatureMetas.forBuilder(options);
 
   const fn: Function = function() {
 
@@ -182,14 +196,29 @@ export function registerBuilder<T extends Function>(
     const originalFn = builder(context) as ReturnType<typeof builder>;
 
     // A selection handed to this call as an operand is spoken for: it must
-    // not double as the implicit last selection of a later bare call.
-    SelectSceneObject.claimOperands(arguments);
+    // not double as the implicit last selection of a later bare call. A
+    // feature's call may hand them over in a list or its object of options.
+    SelectSceneObject.claimOperands(meta ? FeatureMetas.operands(arguments) : arguments);
 
     return originalFn(...arguments);
   };
 
+  if (meta) {
+    FeatureMetas.attach(fn, meta);
+  }
+
   return fn as ReturnType<typeof builder>;;
 }
+
+export { getFeatureMeta, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
+export type {
+  FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureChange, FeatureGroup, FeatureKind, FeatureContext,
+  ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
+} from './sdk/meta.js';
+export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
+export type {
+  CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallOperation, CallReader, ChainReading, FeatureOperation,
+} from './sdk/call-shape.js';
 
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
 export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';

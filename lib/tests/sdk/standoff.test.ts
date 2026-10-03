@@ -20,7 +20,7 @@ import type { ResolveSelectionRequest, ResolveSelectionResult, ResolvedSelection
 import type { PickRef } from "../../selection/types.js";
 import type { ISelection } from "../../core/interfaces.js";
 import { setLocation } from "../selection/pick-helpers.js";
-import { defineStandoff, standoff, STANDOFF_DEFAULTS, type StandoffFunction, type StandoffOptions } from "../fixtures/custom-features/standoff.js";
+import { defineStandoff, Standoff, standoff, STANDOFF_DEFAULTS, type StandoffFunction, type StandoffOptions } from "../fixtures/custom-features/standoff.js";
 
 const PLATE = { w: 60, d: 40, t: 10 };
 const PLATE_VOLUME = PLATE.w * PLATE.d * PLATE.t;
@@ -117,10 +117,24 @@ describe("a custom feature: the standoff", () => {
 
   it("refuses a value that is neither a scalar nor a scene object", () => {
     const p = plate();
-    expect(() => standoff(p.endFaces(), { height: (() => 4) as unknown as number }))
+    const values = { face: p.endFaces(), ...STANDOFF_DEFAULTS };
+    expect(() => new Standoff({ ...values, height: (() => 4) as unknown as number }))
       .toThrow(/value 'height' is a function/);
-    expect(() => standoff(p.endFaces(), { height: { mm: 4 } as unknown as number }))
+    expect(() => new Standoff({ ...values, height: { mm: 4 } as unknown as number }))
       .toThrow(/value 'height' is a plain object/);
+  });
+
+  it("reads its call by its metadata: defaults filled, each value checked", () => {
+    const p = plate();
+    const s = standoff(p.endFaces(), { height: 8 });
+    expect(s.values).toEqual({ face: expect.anything(), ...STANDOFF_DEFAULTS, height: 8 });
+    expect(() => standoff(p.endFaces(), { height: (() => 4) as unknown as number }))
+      .toThrow("standoff(): 'height' must be a number, got a function");
+    expect(() => standoff(p.endFaces(), { height: -1 })).toThrow("standoff(): 'height' must be at least 0, got -1");
+    expect(() => standoff(p.endFaces(), { heigth: 4 } as StandoffOptions))
+      .toThrow("standoff(): unknown option 'heigth' — the options are 'height', 'outer' and 'hole'");
+    expect(() => (standoff as unknown as () => void)()).toThrow("standoff(): 'face' is required");
+    expect(() => standoff(5 as never)).toThrow(/standoff\(\): 'face' must be a scene object .*, got 5/);
   });
 
   it("reports a build failure on its own row", () => {

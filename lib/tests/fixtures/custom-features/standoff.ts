@@ -2,7 +2,7 @@
 // with a bore through it — standing on a picked planar face. Written the way
 // a project's standoff.feature.js is, against the SDK entry points only.
 
-import { Feature, registerBuilder, type ISceneObject, type SceneParserContext } from "../../../sdk/index.js";
+import { Feature, parseCall, registerBuilder, type FeatureMeta, type ISceneObject, type SceneParserContext } from "../../../sdk/index.js";
 import { BooleanOps, Primitives, ShapeOps, type Face, type Shape } from "../../../sdk/kernel.js";
 import { Matrix4, Plane } from "../../../math/index.js";
 
@@ -27,11 +27,11 @@ export type StandoffClass = new (values: StandoffValues) => StandoffFeature;
 export const STANDOFF_DEFAULTS = { height: 10, outer: 6, hole: 3 };
 
 /**
- * The standoff class and its builder, made anew on every call. A workspace
- * module is evaluated again on every render, so its feature class is a new
- * class each time; a test calls this twice to do the same.
+ * The standoff class, its metadata and its builder, made anew on every call.
+ * A workspace module is evaluated again on every render, so its feature
+ * class is a new class each time; a test calls this twice to do the same.
  */
-export function defineStandoff(): { Standoff: StandoffClass; standoff: StandoffFunction } {
+export function defineStandoff(): { Standoff: StandoffClass; standoff: StandoffFunction; meta: FeatureMeta } {
   class Standoff extends Feature<StandoffValues> {
     static id = 'acme.standoff';
 
@@ -79,11 +79,28 @@ export function defineStandoff(): { Standoff: StandoffClass; standoff: StandoffF
     }
   }
 
-  const standoff = registerBuilder((context: SceneParserContext) =>
-    (face: ISceneObject, options: StandoffOptions = {}) =>
-      new Standoff({ face, ...STANDOFF_DEFAULTS, ...options }).addTo(context));
+  const meta: FeatureMeta = {
+    class: Standoff,
+    label: 'Standoff',
+    description: 'A boss with a bore through it, standing on a planar face',
+    icon: './standoff.svg',
+    group: 'create',
+    kind: 'tool',
+    operations: ['add', 'new'],
+    params: {
+      face: { picker: 'face', label: 'On face', surface: 'planar' },
+      height: { type: 'length', default: STANDOFF_DEFAULTS.height, min: 0 },
+      outer: { type: 'length', default: STANDOFF_DEFAULTS.outer, min: 0, label: 'Boss diameter' },
+      hole: { type: 'length', default: STANDOFF_DEFAULTS.hole, min: 0, label: 'Hole diameter' },
+    },
+    call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
+  };
 
-  return { Standoff, standoff };
+  const standoff = registerBuilder((context: SceneParserContext) =>
+    (...args: unknown[]) => new Standoff(parseCall<StandoffValues>(meta, args)).addTo(context),
+  { feature: meta }) as StandoffFunction;
+
+  return { Standoff, standoff, meta };
 }
 
 export const { Standoff, standoff } = defineStandoff();

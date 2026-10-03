@@ -228,7 +228,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       if (fasten === null) {
         edit.hole.fasten = null;
       } else if (fasten.target.kind === 'verbatim') {
-        edit.hole.fasten = { target: { kind: 'verbatim' }, pitch: fasten.pitch, depth: fasten.depth };
+        edit.hole.fasten = { target: { kind: 'verbatim' }, pitch: fasten.pitch, depth: fasten.depth, tipAngle: fasten.tipAngle };
       } else {
         if (normalizePath(fasten.target.filePath) !== normalizePath(request.target.filePath)) {
           res.status(422).json({ success: false, reason: 'the solid to fasten to comes from a different file than the statement' });
@@ -244,6 +244,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           },
           pitch: fasten.pitch,
           depth: fasten.depth,
+          tipAngle: fasten.tipAngle,
         };
       }
     }

@@ -79,8 +79,10 @@ export type HoleGhostRequest = {
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
-  /** The `.fasten(…)` solid by producing statement, the tap-drill diameter its bore is drawn at and its blind depth (null is through). */
-  fasten?: { target: { filePath: string; line: number }; diameter: number; depth?: number | null } | null;
+  /** The `.fasten(…)` solid by producing statement, the tap-drill diameter its bore is drawn at, its blind depth (null is through) and tip angle. */
+  fasten?: {
+    target: { filePath: string; line: number }; diameter: number; depth?: number | null; tipAngle?: number | null;
+  } | null;
 };
 
 export type RevolveGhostRequest = {

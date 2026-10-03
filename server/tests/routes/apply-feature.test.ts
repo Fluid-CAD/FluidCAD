@@ -6865,6 +6865,9 @@ describe('apply-feature route validation', () => {
       const blindFine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75, depth: 'reach + 2' } });
       expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, reach + 2)`);
       expect((await post({ ...BASE, placements, fasten: { target, pitch: null, depth: -1 } })).status).toBe(400);
+      const pointed = await post({ ...BASE, placements, fasten: { target, pitch: null, depth: 12, tipAngle: 118 } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, null, 12, 118)`);
+      expect((await post({ ...BASE, placements, fasten: { target, pitch: null, depth: null, tipAngle: 118 } })).status).toBe(400);
       const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { target, pitch: null } });
       expect(tapped.status).toBe(400);
       const scoped = await post({ ...BASE, placements, scope: [target], fasten: { target, pitch: null } });
@@ -6885,6 +6888,8 @@ describe('apply-feature route validation', () => {
       expect(repicked.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 1)`);
       const blind = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: 0.75, depth: 9 } });
       expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, 9)`);
+      const pointed = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: 0.75, depth: 9, tipAngle: 'tip' } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, 9, tip)`);
       const dropped = await post({ ...edit, fasten: null });
       expect(dropped.body.preview).toBe(`hole('M6', bolt).clearance('close')`);
     });

@@ -25,7 +25,7 @@ export type GhostBody = {
   scope?: unknown;
   exclude?: { filePath?: unknown; line?: unknown };
   /** Hole: the `.fasten(…)` solid and the tap-drill diameter of its bore. */
-  fasten?: { target?: unknown; diameter?: unknown; depth?: unknown } | null;
+  fasten?: { target?: unknown; diameter?: unknown; depth?: unknown; tipAngle?: unknown } | null;
   frames?: unknown;
   flip?: unknown;
   diameter?: unknown;

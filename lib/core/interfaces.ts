@@ -1369,9 +1369,10 @@ export interface IHole extends ISceneObject {
    * Clearance holes of a fastener size only.
    * @param target - The solid the fastener threads into
    * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted or null = coarse
-   * @param depth - Blind depth of the tapped hole from the face it enters; omitted = through all
+   * @param depth - Blind depth of the tapped hole from the face it enters, to the shoulder; omitted = through all
+   * @param tipAngle - Drill point included angle below a blind depth (118 for a standard drill); omitted = flat bottom
    */
-  fasten(target: ISceneObject, pitch?: number | null, depth?: number): this;
+  fasten(target: ISceneObject, pitch?: number | null, depth?: number, tipAngle?: number): this;
 
   /**
    * Narrows the cut to specific solids.

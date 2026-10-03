@@ -365,6 +365,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const holeTip = isHole ? resolve(body.tipAngle) : null;
     const holeFastenDiameter = holeFastenTarget ? resolve(body.fasten!.diameter) : null;
     const holeFastenDepth = holeFastenTarget ? resolve(body.fasten!.depth) : null;
+    const holeFastenTip = holeFastenTarget ? resolve(body.fasten!.tipAngle) : null;
     const holeCounterbore = isHole && body.counterbore
       ? { diameter: resolve(body.counterbore.diameter), depth: resolve(body.counterbore.depth) }
       : null;
@@ -550,7 +551,10 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         scope: holeScope,
         exclude: holeExclude,
         fasten: holeFastenTarget
-          ? { target: holeFastenTarget, diameter: holeFastenDiameter as number, depth: holeFastenDepth }
+          ? {
+            target: holeFastenTarget, diameter: holeFastenDiameter as number, depth: holeFastenDepth,
+            tipAngle: holeFastenDepth === null ? null : holeFastenTip,
+          }
           : null,
       };
     } else if (isRib) {

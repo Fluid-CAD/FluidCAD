@@ -40,13 +40,15 @@ const FASTEN_DIMENSIONS_STATE_KEY = 'hole-fasten-dimensions';
 /** The classification buckets a cut leaves on its caller — a fastened hole joins its two cuts' buckets. */
 const CUT_STATE_KEYS = ['section-edges', 'start-edges', 'end-edges', 'internal-edges', 'internal-faces'];
 
-/** `.fasten(target[, pitch[, depth]])`: the mating solid and the tapped hole it takes. */
+/** `.fasten(target[, pitch[, depth[, tipAngle]]])`: the mating solid and the tapped hole it takes. */
 export interface HoleFastenSpec {
   target: SceneObject;
   /** The thread pitch (mm) or threads per inch; null is the coarse pitch. */
   pitch: number | null;
   /** Blind depth from the face the hole enters the solid through; null is through all. */
   depth: number | null;
+  /** Drill point included angle below a blind depth; null is a flat bottom. */
+  tipAngle: number | null;
 }
 
 /**
@@ -125,7 +127,9 @@ export class Hole extends SceneObject implements IHole {
     return this;
   }
 
-  fasten(target: ISceneObject, pitch: number | null = null, depth: number | null = null): this {
+  fasten(
+    target: ISceneObject, pitch: number | null = null, depth: number | null = null, tipAngle: number | null = null,
+  ): this {
     if (!(target instanceof SceneObject)) {
       throw new Error("hole(): .fasten() takes the solid the fastener threads into — an extrude, a boolean result, …");
     }
@@ -135,7 +139,10 @@ export class Hole extends SceneObject implements IHole {
     if (depth !== null && (typeof depth !== 'number' || !Number.isFinite(depth) || depth <= 0)) {
       throw new Error(`hole(): .fasten() takes a positive blind depth after the pitch (got ${String(depth)})`);
     }
-    this._fasten = { target, pitch, depth };
+    if (tipAngle !== null && depth === null) {
+      throw new Error("hole(): .fasten() takes a tip angle only with a blind depth — a through tapped hole has no drill point");
+    }
+    this._fasten = { target, pitch, depth, tipAngle };
     return this;
   }
 
@@ -179,7 +186,7 @@ export class Hole extends SceneObject implements IHole {
       fastener: { type: 'tapped', pitch: this._fasten.pitch },
       style: null,
       depth: this._fasten.depth,
-      tipAngle: null,
+      tipAngle: this._fasten.tipAngle,
     }, this.getUnit());
   }
 
@@ -399,6 +406,7 @@ export class Hole extends SceneObject implements IHole {
     }
     if (this._fasten && other._fasten
       && (this._fasten.pitch !== other._fasten.pitch || this._fasten.depth !== other._fasten.depth
+        || this._fasten.tipAngle !== other._fasten.tipAngle
         || !this._fasten.target.compareTo(other._fasten.target))) {
       return false;
     }
@@ -420,7 +428,10 @@ export class Hole extends SceneObject implements IHole {
       depth: this._depth,
       tipAngle: this._tipAngle,
       fasten: this._fasten
-        ? { pitch: this._fasten.pitch, depth: this._fasten.depth, dimensions: this.getFastenDimensions() }
+        ? {
+          pitch: this._fasten.pitch, depth: this._fasten.depth, tipAngle: this._fasten.tipAngle,
+          dimensions: this.getFastenDimensions(),
+        }
         : null,
       dimensions: this.getDimensions(),
       frames: this.getFrames().map(frame => ({

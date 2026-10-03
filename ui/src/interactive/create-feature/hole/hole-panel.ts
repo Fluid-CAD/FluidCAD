@@ -75,8 +75,9 @@ export class HolePanel extends FeaturePanel {
   private scopeSlot: ScopeSlotControl;
   private fastenSlot: PickSlot;
   private fastenPitchSelect: HTMLSelectElement;
-  private fastenTerminationSelect: HTMLSelectElement;
+  private fastenThroughToggle: HTMLInputElement;
   private fastenDepthField: ExpressionField;
+  private fastenTipField: ExpressionField;
   /** A solid sits in the fasten slot — its tapped-hole rows show. */
   private fastenPicked = false;
   /** The section drawing: the float's side card, and the sheet's copy in the body. */
@@ -200,17 +201,19 @@ export class HolePanel extends FeaturePanel {
                 class="input input-sm input-bordered w-full text-xs opacity-70" />
             </label>
           </div>
+          <label data-role="fasten-through-wrap" class="hidden items-center justify-between cursor-pointer" title="On taps the whole solid; off stops the tapped hole at a depth">
+            <span class="text-base-content/70">Through all</span>
+            <input data-role="fasten-through" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+          </label>
           <div data-role="fasten-depth-rows" class="hidden gap-2">
-            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Through all taps the whole solid; Blind stops at the depth">
-              <span class="text-base-content/70">Tapped termination</span>
-              <select data-role="fasten-termination" class="select select-sm select-bordered w-full text-xs">
-                <option value="through">Through all</option>
-                <option value="blind">Blind</option>
-              </select>
-            </label>
-            <label data-role="fasten-depth-row" class="hidden flex-col gap-1.5 flex-1 min-w-0" title="Depth of the tapped hole, from the face it enters the solid through">
+            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Depth of the tapped hole, from the face it enters the solid through">
               <span class="text-base-content/70">Tapped depth</span>
               <input data-role="fasten-depth" data-unit="length" type="number" step="0.5" value="10"
+                class="input input-sm input-bordered w-full text-xs" />
+            </label>
+            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The drill point angle below the tapped depth; 0 leaves a flat bottom">
+              <span class="text-base-content/70">Tip angle (°)</span>
+              <input data-role="fasten-tip-angle" type="number" step="1" value="${DEFAULT_TIP_ANGLE}"
                 class="input input-sm input-bordered w-full text-xs" />
             </label>
           </div>
@@ -238,7 +241,7 @@ export class HolePanel extends FeaturePanel {
     this.fastenSlot.onRemove = () => this.onRemoveFasten?.();
     this.fastenSlot.onArm = () => this.armSlot('fasten');
     this.fastenPitchSelect = this.role('fasten-pitch');
-    this.fastenTerminationSelect = this.role('fasten-termination');
+    this.fastenThroughToggle = this.role('fasten-through');
 
     this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
     this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
@@ -270,8 +273,8 @@ export class HolePanel extends FeaturePanel {
       this.syncControls();
       this.onChange?.();
     });
-    for (const select of [this.fastenPitchSelect, this.fastenTerminationSelect]) {
-      select.addEventListener('change', () => {
+    for (const control of [this.fastenPitchSelect, this.fastenThroughToggle]) {
+      control.addEventListener('change', () => {
         this.syncFastenRows();
         this.onChange?.();
       });
@@ -303,6 +306,7 @@ export class HolePanel extends FeaturePanel {
     this.csinkDiameterField = this.enhance('csink-diameter');
     this.csinkAngleField = this.enhance('csink-angle');
     this.fastenDepthField = this.enhance('fasten-depth');
+    this.fastenTipField = this.enhance('fasten-tip-angle');
     for (const role of Object.keys(FIELD_DIMENSIONS)) {
       const input = this.role<HTMLInputElement>(role);
       input.addEventListener('focus', () => this.highlight(FIELD_DIMENSIONS[role]));
@@ -364,7 +368,7 @@ export class HolePanel extends FeaturePanel {
 
   /** The fastened solid's tapped hole stops at a depth instead of running through it. */
   private get fastenBlind(): boolean {
-    return this.fastenAvailable && this.fastenPicked && this.fastenTerminationSelect.value === 'blind';
+    return this.fastenAvailable && this.fastenPicked && !this.fastenThroughToggle.checked;
   }
 
   /** The tapped hole's blind depth as the statement writes it; null for through all (or an unreadable field). */
@@ -374,6 +378,15 @@ export class HolePanel extends FeaturePanel {
     }
     const read = this.fastenDepthField.read();
     return 'error' in read ? null : read.value;
+  }
+
+  /** The drill point angle below the tapped hole's blind depth; null for a flat bottom (0), through all or an unreadable field. */
+  fastenTipAngle(): ValueExpr | null {
+    if (!this.fastenBlind) {
+      return null;
+    }
+    const read = this.fastenTipField.read();
+    return 'error' in read || read.value === 0 ? null : read.value;
   }
 
   /** The fasten chip (the service owns the choice); null empties the slot. */
@@ -392,8 +405,9 @@ export class HolePanel extends FeaturePanel {
     this.typeSelect.value = 'clearance';
     this.fitSelect.value = 'normal';
     this.fillPitches();
-    this.fastenTerminationSelect.value = 'through';
+    this.fastenThroughToggle.checked = true;
     this.fastenDepthField.setValue(10);
+    this.fastenTipField.setValue(DEFAULT_TIP_ANGLE);
     this.setFasten(null);
     this.terminationSelect.value = 'through';
     this.depthField.setValue(10);
@@ -428,8 +442,10 @@ export class HolePanel extends FeaturePanel {
       this.fastenPitchSelect.value = String(parsed.fasten.pitch);
     }
     const fastenDepth = parsed.fasten?.depth ?? null;
-    this.fastenTerminationSelect.value = fastenDepth === null ? 'through' : 'blind';
+    this.fastenThroughToggle.checked = fastenDepth === null;
     this.fastenDepthField.setValue(fastenDepth ?? 10);
+    // A blind statement without a tip angle has a flat bottom; a through one opens Blind on the standard drill.
+    this.fastenTipField.setValue(fastenDepth === null ? DEFAULT_TIP_ANGLE : parsed.fasten?.tipAngle ?? 0);
     this.setFasten(null);
     this.reseedDerived();
     if (parsed.size.kind === 'diameter') {
@@ -583,6 +599,18 @@ export class HolePanel extends FeaturePanel {
         return { error: `Enter a positive tapped depth.${this.detail(fastenDepth)}` };
       }
       reads.push(fastenDepth);
+      const fastenTip = this.fastenTipField.read();
+      if ('error' in fastenTip && fastenTip.error !== 'empty') {
+        return { error: `Tapped tip angle: ${fastenTip.error}.` };
+      }
+      if (!('error' in fastenTip)) {
+        if (typeof fastenTip.value === 'number' && (fastenTip.value < 0 || fastenTip.value >= 180)) {
+          return { error: 'Enter a tapped tip angle between 0 (flat) and 180 degrees.' };
+        }
+        if (fastenTip.value !== 0) {
+          reads.push(fastenTip);
+        }
+      }
     }
 
     return {
@@ -632,7 +660,7 @@ export class HolePanel extends FeaturePanel {
     return [
       this.diameterField, this.depthField, this.tipField,
       this.cboreDiameterField, this.cboreDepthField, this.csinkDiameterField, this.csinkAngleField,
-      this.fastenDepthField,
+      this.fastenDepthField, this.fastenTipField,
     ];
   }
 
@@ -671,8 +699,8 @@ export class HolePanel extends FeaturePanel {
   private syncFastenRows(): void {
     this.toggleRow('fasten-section', this.fastenAvailable, 'flex');
     this.toggleRow('fasten-rows', this.fastenAvailable && this.fastenPicked, 'flex');
-    this.toggleRow('fasten-depth-rows', this.fastenAvailable && this.fastenPicked, 'flex');
-    this.toggleRow('fasten-depth-row', this.fastenBlind, 'flex');
+    this.toggleRow('fasten-through-wrap', this.fastenAvailable && this.fastenPicked, 'flex');
+    this.toggleRow('fasten-depth-rows', this.fastenBlind, 'flex');
     this.role<HTMLInputElement>('fasten-size').value = this.sizeLabel;
     const diameter = this.fastenDiameter();
     this.role<HTMLInputElement>('fasten-diameter').value = diameter === null ? '' : String(diameter);

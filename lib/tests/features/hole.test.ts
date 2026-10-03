@@ -411,6 +411,27 @@ describe("hole() placements", () => {
     expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4), 3);
   });
 
+  it("drills the fastened solid's blind tapped hole with a drill point, and refuses one on a through hole", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    const top = sketch(lower.endFaces(), () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const upper = extrude(5, top).new() as unknown as ExtrudeBase;
+    const h = hole('M6', upper.endFaces().center()).fasten(lower, null, 4, 118) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(h.getFastenDimensions()).toMatchObject({ diameter: 5, depth: 4, tipAngle: 118 });
+    const volumes = solidVolumes(scene);
+    // The depth runs to the shoulder; the 118° point reaches below it.
+    const tip = 2.5 / Math.tan((118 / 2) * Math.PI / 180);
+    expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4) - coneVolume(5, tip), 3);
+    expect(() => hole('M6', upper.endFaces().center()).fasten(lower, null, null, 118)).toThrow(/only with a blind depth/);
+  });
+
   it("keeps a through clearance hole out of the fastened solid inside a part", () => {
     let h!: Hole;
     part("bracket", () => {

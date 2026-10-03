@@ -2514,6 +2514,11 @@ describe("feature ghost — hole", () => {
       expect(bounds(blind, 1).maxZ).toBeCloseTo(10, 3);
       expect(bounds(blind, 1).minZ).toBeCloseTo(6, 3);
     }
+    // The drill point reaches below the blind depth.
+    const pointed = holeGhost(scene, { fasten: { target: { filePath: FILE, line: 6 }, diameter: 5, depth: 4, tipAngle: 118 } });
+    if (pointed.ok) {
+      expect(bounds(pointed, 1).minZ).toBeCloseTo(6 - 2.5 / Math.tan(59 * Math.PI / 180), 3);
+    }
     expect(refusal(holeGhost(scene, { fasten: { target: { filePath: FILE, line: 99 }, diameter: 5 } })))
       .toMatch(/fasten to is not in the rendered scene/);
   });

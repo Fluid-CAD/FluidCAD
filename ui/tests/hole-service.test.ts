@@ -352,7 +352,7 @@ describe('Hole dialog service', () => {
     expect(text('message')).toContain('fastens to');
 
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: null, depth: null });
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: null, depth: null, tipAngle: null });
     const ghosts = vi.mocked(api.fetchFeatureGhostResult).mock.calls;
     expect(ghosts[ghosts.length - 1][0]).toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5 } });
 
@@ -364,17 +364,27 @@ describe('Hole dialog service', () => {
     };
     select('fasten-pitch', '0.75');
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: null });
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: null, tipAngle: null });
     // A blind tapped hole sends its depth, to the statement and to the ghost.
-    expect(hidden('fasten-depth-row')).toBe(true);
-    select('fasten-termination', 'blind');
-    expect(hidden('fasten-depth-row')).toBe(false);
+    expect(hidden('fasten-through-wrap')).toBe(false);
+    expect(hidden('fasten-depth-rows')).toBe(true);
+    const through = container.querySelector<HTMLInputElement>('[data-role="fasten-through"]')!;
+    expect(through.checked).toBe(true);
+    through.checked = false;
+    through.dispatchEvent(new Event('change'));
+    expect(hidden('fasten-depth-rows')).toBe(false);
     const depth = container.querySelector<HTMLInputElement>('[data-role="fasten-depth"]')!;
     depth.value = '12';
     depth.dispatchEvent(new Event('input'));
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 12 });
-    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ fasten: { depth: 12 } });
+    // Blind opens on a standard 118° drill point; 0 is a flat bottom, written without the angle.
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 12, tipAngle: 118 });
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ fasten: { depth: 12, tipAngle: 118 } });
+    const tip = container.querySelector<HTMLInputElement>('[data-role="fasten-tip-angle"]')!;
+    tip.value = '0';
+    tip.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.fasten).toMatchObject({ depth: 12, tipAngle: null });
     depth.value = '-3';
     depth.dispatchEvent(new Event('input'));
     container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
@@ -520,14 +530,14 @@ describe('Hole dialog service', () => {
     expect(container.querySelector<HTMLSelectElement>('[data-role="fasten-pitch"]')!.value).toBe('0.75');
 
     await vi.advanceTimersByTimeAsync(300);
-    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ target: { kind: 'verbatim' }, pitch: 0.75, depth: 9 });
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ target: { kind: 'verbatim' }, pitch: 0.75, depth: 9, tipAngle: null });
 
     // At the boundary the kept argument becomes its solid's chip, sent by statement.
     service.handleSceneRendered(scene, 5, true);
     expect(chips('fasten-slot')).toEqual(['Extrude']);
     await vi.advanceTimersByTimeAsync(300);
     expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten)
-      .toEqual({ target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 9 });
+      .toEqual({ target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 9, tipAngle: null });
     expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0])
       .toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5.25 } });
 

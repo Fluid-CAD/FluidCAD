@@ -25,13 +25,15 @@ export type HolePlacementInput =
 /**
  * The `.fasten(…)` chain as the dialog sends it: the mating solid by its
  * statement — or, on an edit, the statement's own argument kept (`verbatim`)
- * — the tapped hole's pitch (null is coarse) and its blind depth (null is
- * through all).
+ * — the tapped hole's pitch (null is coarse), its blind depth (null is
+ * through all) and the drill point angle below that depth (null is a flat
+ * bottom).
  */
 export type HoleFastenInput = {
   target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchLoc);
   pitch: number | null;
   depth: ValueExpr | null;
+  tipAngle: ValueExpr | null;
 };
 
 export type HoleRequest = HoleValueOptions & {
@@ -86,14 +88,18 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
   if (depth !== null && !validValueExpr(depth, { positive: true })) {
     return { error: 'the fasten depth must be a positive number or expression, or null for through all' };
   }
+  const tipAngle = raw.tipAngle ?? null;
+  if (tipAngle !== null && (depth === null || !validValueExpr(tipAngle, { positive: true }))) {
+    return { error: 'the fasten tip angle must be a positive number or expression, and only with a blind depth' };
+  }
   if (edit && raw.target?.kind === 'verbatim') {
-    return { fasten: { target: { kind: 'verbatim' }, pitch, depth } };
+    return { fasten: { target: { kind: 'verbatim' }, pitch, depth, tipAngle } };
   }
   const loc = validateSketchLoc(raw.target);
   if (!loc) {
     return { error: 'the fasten target must be the {filePath, line} of a solid statement' };
   }
-  return { fasten: { target: { kind: 'feature', ...loc }, pitch, depth } };
+  return { fasten: { target: { kind: 'feature', ...loc }, pitch, depth, tipAngle } };
 }
 
 /**

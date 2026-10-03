@@ -150,7 +150,9 @@ export type HoleGhostRequest = {
    * `depth` from the face the axis enters it through — which the clearance
    * tools are no longer sized against.
    */
-  fasten?: { target: { filePath: string; line: number }; diameter: number; depth?: number | null } | null;
+  fasten?: {
+    target: { filePath: string; line: number }; diameter: number; depth?: number | null; tipAngle?: number | null;
+  } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2338,7 +2340,9 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
     stock = stock.filter(solid => !fastenStock.includes(solid));
     try {
       fastenDims = resolveHoleDimensions({
-        size: request.fasten.diameter, fastener: null, style: null, depth: request.fasten.depth ?? null, tipAngle: null,
+        size: request.fasten.diameter, fastener: null, style: null,
+        depth: request.fasten.depth ?? null,
+        tipAngle: (request.fasten.depth ?? null) === null ? null : request.fasten.tipAngle ?? null,
       }, getActiveUnit());
     } catch (error) {
       return { reason: error instanceof Error ? error.message : String(error), surface: true };

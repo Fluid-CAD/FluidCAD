@@ -738,7 +738,10 @@ export class HoleFeatureService {
     if (!loc || diameter === null) {
       return null;
     }
-    return { target: { filePath: loc.filePath, line: loc.line }, diameter, depth: this.panel.fastenDepth() };
+    return {
+      target: { filePath: loc.filePath, line: loc.line }, diameter,
+      depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle(),
+    };
   }
 
   /** The edit payload's `.fasten(…)`: the kept argument, a re-picked solid, or null to drop the chain. */
@@ -749,11 +752,12 @@ export class HoleFeatureService {
     }
     const pitch = this.panel.fastenPitch();
     const depth = this.panel.fastenDepth();
+    const tipAngle = this.panel.fastenTipAngle();
     if (target.kind === 'keep') {
-      return { target: { kind: 'verbatim' }, pitch, depth };
+      return { target: { kind: 'verbatim' }, pitch, depth, tipAngle };
     }
     const { filePath, line, column } = target.option;
-    return { target: { kind: 'feature', filePath, line, column }, pitch, depth };
+    return { target: { kind: 'feature', filePath, line, column }, pitch, depth, tipAngle };
   }
 
   /** The create request for the current form state, or the blocking message. */
@@ -772,7 +776,10 @@ export class HoleFeatureService {
       placements,
       scope: this.scope.createRefs(),
       fasten: fastenTarget
-        ? { target: fastenTarget, pitch: this.panel.fastenPitch(), depth: this.panel.fastenDepth() }
+        ? {
+          target: fastenTarget, pitch: this.panel.fastenPitch(),
+          depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle(),
+        }
         : null,
     };
   }

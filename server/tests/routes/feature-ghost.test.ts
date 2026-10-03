@@ -1285,7 +1285,12 @@ describe('feature-ghost route — hole', () => {
     expect(status).toBe(200);
     expect(received).toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5, depth: null } });
     await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 5, depth: 12 } });
-    expect(received).toMatchObject({ fasten: { diameter: 5, depth: 12 } });
+    expect(received).toMatchObject({ fasten: { diameter: 5, depth: 12, tipAngle: null } });
+    await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 5, depth: 12, tipAngle: 118 } });
+    expect(received).toMatchObject({ fasten: { depth: 12, tipAngle: 118 } });
+    // A through tapped hole has no drill point.
+    await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 5, depth: null, tipAngle: 118 } });
+    expect(received).toMatchObject({ fasten: { depth: null, tipAngle: null } });
     expect((await postGhost({ ...base, fasten: { target: { filePath: FILE }, diameter: 5 } })).status).toBe(400);
     expect((await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 0 } })).status).toBe(400);
   });

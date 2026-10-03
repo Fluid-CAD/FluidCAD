@@ -54,11 +54,11 @@ export class RepeatInstance extends LazySelectionSceneObject {
     return this.getRoots().flatMap(root => root.getShapes(filter, type, scope));
   }
 
-  override removeShape(shape: Shape, removedBy: SceneObject): void {
+  override removeShape(shape: Shape, removedBy: SceneObject, successors?: Shape[]): void {
     for (const root of this.getRoots()) {
       const held = root.getShapes({ excludeMeta: false, excludeGuide: false });
       if (held.some(s => s === shape)) {
-        root.removeShape(shape, removedBy);
+        root.removeShape(shape, removedBy, successors);
       }
     }
   }

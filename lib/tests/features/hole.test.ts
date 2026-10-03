@@ -71,6 +71,29 @@ function plateWithTopConnector(then: (plate: ExtrudeBase, top: Connector) => voi
   });
 }
 
+const BASE = { w: 60, d: 20, t: 20 };
+const BASE_VOLUME = BASE.w * BASE.d * BASE.t;
+const COVER = { t: 8 };
+const COVER_VOLUME = BASE.w * BASE.d * COVER.t;
+
+/**
+ * A 60 × 20 × 20 base with an 8 thick cover of the same footprint on top — a
+ * solid of its own — and two circles on the cover's top face, at x = ∓20,
+ * whose centres seat the holes.
+ */
+function coverOnBase(): { base: ExtrudeBase; cover: ExtrudeBase; seat: { geometries: { l: SolvedCircle; r: SolvedCircle } } } {
+  sketch("xy", () => {
+    testRect(BASE.w, BASE.d, { at: [-BASE.w / 2, -BASE.d / 2] });
+  });
+  const base = extrude(BASE.t) as unknown as ExtrudeBase;
+  sketch(base.endFaces(), () => {
+    testRect(BASE.w, BASE.d, { at: [-BASE.w / 2, -BASE.d / 2] });
+  });
+  const cover = extrude(COVER.t).new() as unknown as ExtrudeBase;
+  const seat = sketch(cover.endFaces(), () => ({ l: circle([-20, 0], 3), r: circle([20, 0], 3) }));
+  return { base, cover, seat: seat as unknown as { geometries: { l: SolvedCircle; r: SolvedCircle } } };
+}
+
 describe("hole() geometry", () => {
   setupOC();
 
@@ -461,6 +484,35 @@ describe("hole() placements", () => {
     expect(h.getFastenDimensions()).toMatchObject({ diameter: 5, depth: 4 });
   });
 
+  it("taps a solid an earlier fastened hole already holds", () => {
+    const { base, cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten(base);
+    // The first hole holds the drilled cover and the tapped base now; this
+    // statement still names them by the extrudes that built them.
+    hole('M6', seat.geometries.r.center()).fasten(base).scope(cover);
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(COVER_VOLUME - 2 * cylinderVolume(6.6, COVER.t), 3);
+    expect(volumes[1]).toBeCloseTo(BASE_VOLUME - 2 * cylinderVolume(5, BASE.t), 3);
+  });
+
+  it("cuts only the scoped solid of the two an earlier hole holds", () => {
+    const { base, cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten(base);
+    hole(4, seat.geometries.r.center()).scope(cover);
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    // Through all, yet the base below takes only the first hole's tapped bore.
+    expect(volumes[0]).toBeCloseTo(COVER_VOLUME - cylinderVolume(6.6, COVER.t) - cylinderVolume(4, COVER.t), 3);
+    expect(volumes[1]).toBeCloseTo(BASE_VOLUME - cylinderVolume(5, BASE.t), 3);
+  });
+
   it("refuses .fasten() on a drilled or tapped hole, and a solid the axis misses", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
@@ -692,5 +744,31 @@ describe("hole() under repeat", () => {
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
     expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - 3 * cylinderVolume(4, PLATE.t), 3);
+  });
+
+  it("repeats a fastened hole, every copy tapping the solid the one before tapped", () => {
+    const { base, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten(base);
+    repeat("linear", "x", { count: 3, offset: 20 });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(COVER_VOLUME - 3 * cylinderVolume(6.6, COVER.t), 3);
+    expect(volumes[1]).toBeCloseTo(BASE_VOLUME - 3 * cylinderVolume(5, BASE.t), 3);
+  });
+
+  it("repeats a fastened hole with an explicit scope", () => {
+    const { base, cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten(base, null, 6).scope(cover);
+    repeat("linear", "x", { count: 3, offset: 20 });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(COVER_VOLUME - 3 * cylinderVolume(6.6, COVER.t), 3);
+    expect(volumes[1]).toBeCloseTo(BASE_VOLUME - 3 * cylinderVolume(5, 6), 3);
   });
 });

@@ -17,6 +17,7 @@ import { Wire } from "../common/wire.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { requireValidSolid } from "../oc/solid-validation.js";
 import { RenderSeams } from "../oc/render-seams.js";
+import { heldSolidsOf, type HeldSolid } from "./live-solids.js";
 
 /**
  * The edges of the object's geometry, for the inputs that build a curve from
@@ -556,8 +557,19 @@ export function recordModifierHistory(
   }
 }
 
+/**
+ * The stock a boolean helper is handed: scope objects (every solid they hold
+ * now), or solids already resolved to their holders
+ * (`SceneObject.resolveFusionStock`).
+ */
+function stockOf(scope: SceneObject[] | HeldSolid[]): HeldSolid[] {
+  return scope.every(entry => entry instanceof SceneObject)
+    ? heldSolidsOf(scope as SceneObject[])
+    : scope as HeldSolid[];
+}
+
 export function cutWithSceneObjects(
-  sceneObjects: SceneObject[],
+  scope: SceneObject[] | HeldSolid[],
   toolShapes: Shape[],
   plane: Plane,
   distance: number,
@@ -572,26 +584,16 @@ export function cutWithSceneObjects(
     /**
      * Solids the cut leaves alone whichever scope object carries them — a
      * part container hands out its children's solids too, so leaving an
-     * object out of `sceneObjects` does not keep its solids out of the stock.
+     * object out of `scope` does not keep its solids out of the stock.
      */
     excludeStock?: Shape[];
   },
 ): { cleanedShapes: Shape[], stockShapes: Shape[] } {
   const excluded = options?.excludeStock ?? [];
-  const sceneObjectMap = new Map<SceneObject, Shape[]>();
-  for (const obj of sceneObjects) {
-    const shapes = obj.getShapes({}, 'solid')
-      .filter(shape => !excluded.some(other => other === shape || other.getShape().IsSame(shape.getShape())));
-    if (shapes.length === 0) {
-      continue;
-    }
-    sceneObjectMap.set(obj, shapes);
-  }
-
   const shapeObjectMap = new Map<Shape, SceneObject>();
-  for (const [obj, shapes] of sceneObjectMap) {
-    for (const shape of shapes) {
-      shapeObjectMap.set(shape, obj);
+  for (const { holder, solid } of stockOf(scope)) {
+    if (!excluded.some(other => other === solid || other.getShape().IsSame(solid.getShape()))) {
+      shapeObjectMap.set(solid, holder);
     }
   }
 
@@ -611,6 +613,8 @@ export function cutWithSceneObjects(
   const cleanedShapes: Shape[] = [];
   const cleanups: CleanShapeLineage[] = [];
   const replacedStock: Shape[] = [];
+  // What each replaced stock solid became — none when cut away entirely.
+  const successors = new Map<Shape, Shape[]>();
   try {
     for (const shape of stock) {
       const list = cutResult.modified(shape);
@@ -619,6 +623,7 @@ export function cutWithSceneObjects(
         // (e.g. thread flanks) the stock already carries, so skip it when the
         // caller asked to or when the stock is flagged, and re-flag the result.
         const skipSimplify = options?.skipSimplify || shape.noSimplify();
+        const made: Shape[] = [];
         for (const newShape of list) {
           RenderSeams.throughHistory(newShape, [shape, ...toolShapes], cutResult.makerOf(shape));
           const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify, unifyEdges: true,
@@ -631,11 +636,14 @@ export function cutWithSceneObjects(
             cleanup.shape.markNoSimplify();
           }
           cleanedShapes.push(cleanup.shape);
+          made.push(cleanup.shape);
         }
 
         replacedStock.push(shape);
+        successors.set(shape, made);
       } else if (cutResult.makerOf(shape).IsDeleted(shape.getShape())) {
         replacedStock.push(shape);
+        successors.set(shape, []);
       }
     }
 
@@ -644,7 +652,7 @@ export function cutWithSceneObjects(
     // reach, or only touched by it — has neither, and stays the solid it is
     // on the object that owns it.
     for (const shape of cleanedShapes) caller.addShape(shape as Solid);
-    for (const shape of replacedStock) shapeObjectMap.get(shape)!.removeShape(shape, caller);
+    for (const shape of replacedStock) shapeObjectMap.get(shape)!.removeShape(shape, caller, successors.get(shape));
 
     // The geometry the cut created — every result face/edge that is neither a
     // stock sub-shape nor the boolean's Modified() image of one — carried

@@ -9,6 +9,7 @@ import { ShapeType } from "./shape-type.js";
 import { Profiler } from "./profiler.js";
 import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
+import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -24,6 +25,20 @@ export type AdditionRecord<T> = {
 export type RemovalRecord<T> = {
   shape: T;
   removedBy: SceneObject;
+};
+
+/**
+ * A shape taken off the object holding it. A soft removal only hides it from
+ * the display. `successors`, when the remover knows them, are the shapes it
+ * made of this one — the drilled solid a cut keeps, none for a solid cut
+ * away entirely — so a reference to a solid can follow it through the
+ * features after (see `liveSolidsOf`).
+ */
+export type ShapeRemovalRecord = {
+  shape: Shape;
+  removedBy: SceneObject;
+  soft?: boolean;
+  successors?: Shape[];
 };
 
 export type ModificationRecord<T> = {
@@ -431,10 +446,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   private get removedShapes() {
-    return this.state.get('removedShapes') as { shape: Shape, removedBy: SceneObject, soft?: boolean }[];
+    return this.state.get('removedShapes') as ShapeRemovalRecord[];
   }
 
-  private set removedShapes(shapes: { shape: Shape, removedBy: SceneObject, soft?: boolean }[]) {
+  private set removedShapes(shapes: ShapeRemovalRecord[]) {
     this.state.set('removedShapes', shapes);
   }
 
@@ -512,23 +527,21 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
   }
 
-  removeShape(shape: Shape, removedBy: SceneObject) {
+  /** `successors`: what `removedBy` made of the shape, when it knows — see ShapeRemovalRecord. */
+  removeShape(shape: Shape, removedBy: SceneObject, successors?: Shape[]) {
     if (this.isContainer()) {
       for (const child of this.children) {
         // Meta/guide shapes must be findable too — the default getShapes()
         // filter hides them, which would make their removal a silent no-op.
         const childShapes = child.getShapes({ excludeMeta: false, excludeGuide: false });
         if (childShapes.some(s => s === shape)) {
-          child.removeShape(shape, removedBy);
+          child.removeShape(shape, removedBy, successors);
         }
       }
       return;
     }
 
-    this.removedShapes.push({
-      shape,
-      removedBy
-    })
+    this.removedShapes.push(successors ? { shape, removedBy, successors } : { shape, removedBy });
   }
 
   /**
@@ -912,6 +925,27 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       return scope;
     }
     return sceneObjects;
+  }
+
+  /**
+   * The solids this feature's boolean runs against, each with the object
+   * holding it now. An explicit `.scope()` names the features that built
+   * them, and a solid moves on to whichever feature changes it next — a cut
+   * keeps the solid it cut — so the scope follows its solids there (see
+   * `liveSolidsOf`): a repeat's copies, and any later statement naming the
+   * same solid, find it where the features before them left it. The default
+   * scope takes every solid the scene's objects hold.
+   */
+  resolveFusionStock(sceneObjects: SceneObject[]): HeldSolid[] {
+    const scope = this.getFusionScope();
+    if (scope === 'none') {
+      return [];
+    } else if (scope instanceof SceneObject) {
+      return liveSolidsIn([scope]);
+    } else if (Array.isArray(scope)) {
+      return liveSolidsIn(scope);
+    }
+    return heldSolidsOf(sceneObjects);
   }
 
   add(): this {

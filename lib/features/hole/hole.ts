@@ -7,6 +7,7 @@ import { Vector3d } from "../../math/vector3d.js";
 import { IHole, ISceneObject, ISelection } from "../../core/interfaces.js";
 import { cutWithSceneObjects } from "../../helpers/scene-helpers.js";
 import { throughAllLength } from "../../helpers/through-all.js";
+import { liveSolidsOf, type HeldSolid } from "../../helpers/live-solids.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { AnchoredLazyVertex } from "../anchored-vertex.js";
@@ -247,19 +248,24 @@ export class Hole extends SceneObject implements IHole {
     }));
 
     // The mating solid takes the tapped hole, never the clearance one — it
-    // leaves the clearance cut's scope however that scope was given.
-    // Left out by its solids, not only as an object: inside a part() the
-    // part container hands the same solids out again.
-    const scope = this.resolveFusionScope(context.getSceneObjects()).filter(obj => obj !== fastenTarget && obj !== this);
-    const fastenSolids = fastenTarget ? fastenTarget.getShapes({}, 'solid') : [];
-    const stock = scope.flatMap(obj => obj.getShapes({}, 'solid')).filter(solid => !fastenSolids.includes(solid));
+    // leaves the clearance cut's stock however the scope was given. Both are
+    // read as solids, wherever the features before left them: a repeated
+    // hole's copies, or a second hole naming the same solids, find them on
+    // the hole that cut them last (see liveSolidsOf). Left out by its solids,
+    // not only as an object: inside a part() the part container hands the
+    // same solids out again.
+    const fastenStock = fastenTarget ? liveSolidsOf(fastenTarget) : [];
+    const fastenSolids = fastenStock.map(held => held.solid);
+    const stock = this.resolveFusionStock(context.getSceneObjects())
+      .filter(held => held.holder !== this && !fastenSolids.includes(held.solid));
     if (fastenTarget && stock.length === 0) {
       throw new Error("hole(): .fasten() names the only solid in scope — the clearance hole needs another solid to cut");
     }
+    const stockSolids = stock.map(held => held.solid);
 
     const tools: Shape[] = p.record('Build tools', () => frames.map(frame => {
       const direction = frame.normal.normalize().negate();
-      const length = dims.depth ?? throughAllLength(stock, [], Plane.fromPointAndNormal(frame.origin, direction));
+      const length = dims.depth ?? throughAllLength(stockSolids, [], Plane.fromPointAndNormal(frame.origin, direction));
       return buildHoleTool(frame.origin, direction, dims, length);
     }));
 
@@ -280,16 +286,17 @@ export class Hole extends SceneObject implements IHole {
     const first = frames[0];
     const cutPlane = Plane.fromPointAndNormal(first.origin, first.normal);
     // The mating solid is cut first: an axis that misses it refuses the
-    // statement before the clearance hole has touched anything.
+    // statement before the clearance hole has touched anything. The
+    // clearance stock was read before and never holds the mating solid, so
+    // the tapped result stays out of the second cut.
     const fastened = fastenTarget && fastenDims
-      ? p.record('Cut fasten target', () => this.cutFastenTarget(fastenTarget, fastenDims, frames, cutPlane))
+      ? p.record('Cut fasten target', () => this.cutFastenTarget(fastenStock, fastenDims, frames, cutPlane))
       : null;
-    p.record('Cut', () => cutWithSceneObjects(scope, tools, cutPlane, dims.depth ?? 0, this,
-      { recordHistoryFor: this, excludeStock: fastened?.tapped }));
+    p.record('Cut', () => cutWithSceneObjects(stock, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this }));
     if (fastened) {
       // The clearance cut's walls and rims first, the tapped holes' after.
       CUT_STATE_KEYS.forEach((key, i) => {
-        this.setState(key, [...((this.getState(key) as Shape[] | undefined) ?? []), ...fastened.buckets[i]]);
+        this.setState(key, [...((this.getState(key) as Shape[] | undefined) ?? []), ...fastened[i]]);
       });
     }
 
@@ -303,14 +310,14 @@ export class Hole extends SceneObject implements IHole {
    * on the clearance hole's axis, opening on whichever face of the solid the
    * axis meets first. A through bore starts at its placement and only the
    * mating solid is cut; a blind one starts on that face, its depth measured
-   * from there. Returns the tapped solids — the clearance cut must leave
-   * them alone — and the cut's classification buckets, in
-   * {@link CUT_STATE_KEYS} order.
+   * from there. `target` is the mating solid wherever it is now held.
+   * Returns the cut's classification buckets, in {@link CUT_STATE_KEYS}
+   * order.
    */
   private cutFastenTarget(
-    target: SceneObject, dims: HoleDimensions, frames: Plane[], cutPlane: Plane,
-  ): { tapped: Shape[]; buckets: Shape[][] } {
-    const stock = target.getShapes({}, 'solid');
+    target: HeldSolid[], dims: HoleDimensions, frames: Plane[], cutPlane: Plane,
+  ): Shape[][] {
+    const stock = target.map(held => held.solid);
     if (stock.length === 0) {
       throw new Error("hole(): the .fasten() target has no solid to tap");
     }
@@ -327,15 +334,11 @@ export class Hole extends SceneObject implements IHole {
       }
       return buildHoleTool(frame.origin.add(direction.multiply(entry)), direction, dims, dims.depth);
     });
-    const { cleanedShapes } = cutWithSceneObjects([target], tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this });
+    const { cleanedShapes } = cutWithSceneObjects(target, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this });
     if (cleanedShapes.length === 0) {
       throw new Error(missed);
     }
-    return {
-      // What the solid became, plus whatever of it the bores never reached.
-      tapped: [...cleanedShapes, ...target.getShapes({}, 'solid')],
-      buckets: CUT_STATE_KEYS.map(key => (this.getState(key) as Shape[] | undefined) ?? []),
-    };
+    return CUT_STATE_KEYS.map(key => (this.getState(key) as Shape[] | undefined) ?? []);
   }
 
   private stateShapes<T extends Shape>(key: string, indices: number[]): (parent: SceneObject) => T[] {

@@ -56,7 +56,7 @@ import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
-import type { HolePlacementSpec, HoleValueOptions } from './features/hole.ts';
+import type { HoleFastenSpec, HolePlacementSpec, HoleValueOptions } from './features/hole.ts';
 import type { HoleEditOptions } from './features/hole.ts';
 import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
 
@@ -496,6 +496,8 @@ export type FeatureStatementEditTarget = {
   hole?: HoleValueOptions & {
     placements?: HolePlacementSpec[];
     scope?: RepeatEditTargetSource[];
+    /** The `.fasten(…)` chain: absent keeps the statement's own, null drops it. */
+    fasten?: HoleFastenSpec | null;
   };
   sweep?: {
     op: 'add' | 'remove' | 'new';

@@ -346,6 +346,70 @@ describe("hole() placements", () => {
     expect(lower.getShapes().length).toBe(1);
   });
 
+  it("taps the fastened solid and keeps it out of the clearance cut", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const upper = extrude(30).new() as unknown as ExtrudeBase;
+    const h = hole('M6', upper.endFaces().center()).clearance('normal').fasten(lower) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(h.getDimensions()?.diameter).toBe(6.6);
+    expect(h.getFastenDimensions()?.diameter).toBe(5);
+    expect(h.getFastenDimensions()?.fastener).toMatchObject({ type: 'tapped', pitch: 1, label: 'M6' });
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 10), 3);
+    expect(volumes[1]).toBeCloseTo(20 * 20 * 30 - cylinderVolume(6.6, 30), 3);
+    // Both bores are the hole's own: the clearance wall first, the tapped one after.
+    expect(resolved(h.faces())).toHaveLength(2);
+    expect(resolved(h.startEdges())).toHaveLength(2);
+  });
+
+  it("taps the fastened solid at a fine pitch and leaves it out of an explicit scope", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const upper = extrude(30).new() as unknown as ExtrudeBase;
+    const h = hole('M8', upper.endFaces().center()).fasten(lower, 1).scope(upper, lower) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(h.getFastenDimensions()?.diameter).toBe(7);
+    const volumes = solidVolumes(scene);
+    expect(volumes[0]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(7, 10), 3);
+    expect(volumes[1]).toBeCloseTo(20 * 20 * 30 - cylinderVolume(9, 30), 3);
+  });
+
+  it("refuses .fasten() on a drilled or tapped hole, and a solid the axis misses", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    sketch("xy", () => {
+      testRect(20, 20, { at: [40, 40] });
+    });
+    const aside = extrude(10).new() as unknown as ExtrudeBase;
+    hole(6, lower.endFaces().center()).fasten(aside);
+    hole('M6', lower.endFaces().center()).tapped().fasten(aside);
+    hole('M6', lower.endFaces().center()).fasten(aside);
+
+    const errors = errorsOf(render());
+    expect(errors).toHaveLength(3);
+    expect(errors[0]).toMatch(/needs a fastener size/);
+    expect(errors[1]).toMatch(/goes with a clearance hole/);
+    expect(errors[2]).toMatch(/never reaches/);
+  });
+
   it("reports a missing placement and a bad size on the row", () => {
     expect(() => hole(6)).toThrow(/at least one placement/);
     expect(() => hole(6, {} as any)).toThrow(/placements must be connectors/);

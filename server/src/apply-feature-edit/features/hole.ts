@@ -8,6 +8,7 @@ import {
   numericArgValue,
   numericValueArg,
   resolveIdentifierCall,
+  resolveRepeatTargetRef,
   stringArgValue,
 } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
@@ -33,6 +34,17 @@ export type HoleFastenerSpec =
 export type HoleStyleSpec =
   | { kind: 'counterbore'; diameter: ValueExpr | null; depth: ValueExpr | null }
   | { kind: 'countersink'; diameter: ValueExpr | null; angle: ValueExpr | null };
+
+/**
+ * `.fasten(target[, pitch])` — the solid a clearance hole fastens to, which
+ * takes the matching tapped hole. On a create the target is a bound
+ * solid-bearing producer; an edit may also keep the statement's own argument
+ * (`verbatim`). A null pitch is the coarse one, written without a value.
+ */
+export type HoleFastenSpec = {
+  target: number | { kind: 'verbatim' } | { kind: 'feature'; producer: number };
+  pitch: number | null;
+};
 
 /**
  * One placement argument of the statement. `connector` and `part` render
@@ -73,6 +85,8 @@ export type HoleEditOptions = HoleValueOptions & {
   placements: HolePlacementSpec[];
   /** Producer indices of the `.scope(…)` targets, in pick order. */
   scope: number[];
+  /** The `.fasten(…)` chain; null or absent writes none. */
+  fasten?: HoleFastenSpec | null;
 };
 
 export const HOLE_FITS: readonly HoleFit[] = ['close', 'normal', 'loose'];
@@ -123,6 +137,28 @@ export function validHoleStyle(style: unknown): style is HoleStyleSpec | null {
 }
 
 /**
+ * Structural validity of a `.fasten(…)` spec against the options it rides
+ * with: clearance holes of a fastener size only (a bare fastener size is a
+ * normal-fit clearance hole).
+ */
+export function validHoleFasten(fasten: unknown, opts: HoleValueOptions): fasten is HoleFastenSpec | null | undefined {
+  if (fasten === null || fasten === undefined) {
+    return true;
+  }
+  const f = fasten as { target?: unknown; pitch?: unknown };
+  if (typeof f !== 'object' || opts.size.kind !== 'fastener' || opts.fastener?.type === 'tapped') {
+    return false;
+  }
+  const target = f.target as { kind?: unknown; producer?: unknown } | number | null | undefined;
+  const validTarget = typeof target === 'number'
+    ? Number.isInteger(target) && target >= 0
+    : !!target && (target.kind === 'verbatim'
+      || (target.kind === 'feature' && Number.isInteger(target.producer) && (target.producer as number) >= 0));
+  return validTarget
+    && (f.pitch === null || (typeof f.pitch === 'number' && Number.isFinite(f.pitch) && f.pitch > 0));
+}
+
+/**
  * A connector placement's slot: a copy's pattern slot is a non-negative
  * whole number; absent names the connector itself.
  */
@@ -153,13 +189,14 @@ function renderSizeArg(size: HoleSizeSpec): string {
  * Render a hole statement from its options and the placement expressions,
  * chains in the canonical order the docs show:
  * `hole(size, …)[.clearance('fit') | .tapped([pitch])][.counterbore(…) |
- * .countersink(…)][.depth(d[, tip])][.scope(…)]`. Shared with the
+ * .countersink(…)][.depth(d[, tip])][.fasten(solid[, pitch])][.scope(…)]`. Shared with the
  * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderHoleStatement(
   opts: HoleValueOptions,
   placementExprs: string[],
   scopeExprs: string[],
+  fasten: { expr: string; pitch: number | null } | null = null,
 ): string {
   let statement = `hole(${[renderSizeArg(opts.size), ...placementExprs].join(', ')})`;
   if (opts.fastener?.type === 'clearance') {
@@ -186,6 +223,9 @@ export function renderHoleStatement(
     statement += opts.tipAngle === null
       ? `.depth(${formatValue(opts.depth)})`
       : `.depth(${formatValue(opts.depth)}, ${formatValue(opts.tipAngle)})`;
+  }
+  if (fasten) {
+    statement += fasten.pitch === null ? `.fasten(${fasten.expr})` : `.fasten(${fasten.expr}, ${formatValue(fasten.pitch)})`;
   }
   return statement + renderScopeChain(scopeExprs);
 }
@@ -242,6 +282,12 @@ export type ParsedHole = ParsedScopeChain & HoleValueOptions & {
    * to — plus `slot` for one of its copies (`bolt.instance(2)`) — or null.
    */
   placementRefs: ({ line: number; column: number; slot?: number } | null)[];
+  /**
+   * The `.fasten(…)` chain: the solid argument verbatim, the statement it
+   * is bound to (or null) and the pitch (null is coarse); null without the
+   * chain.
+   */
+  fasten: { text: string; ref: { line: number; column: number } | null; pitch: number | null } | null;
 };
 
 /**
@@ -372,11 +418,27 @@ export function parseHoleChain(
     }
   }
 
+  let fasten: ParsedHole['fasten'] = null;
+  const fastenSeg = recognized.get('fasten');
+  if (fastenSeg) {
+    if (fastenSeg.args.length < 1 || fastenSeg.args.length > 2) {
+      return { error: 'the .fasten() chain takes a solid and an optional pitch — edit it in the source' };
+    }
+    if (size.kind !== 'fastener' || fastener?.type === 'tapped') {
+      return { error: ".fasten() goes with a clearance hole of a fastener size such as 'M6' — edit the statement in the source" };
+    }
+    const pitch = fastenSeg.args.length === 2 ? numericArgValue(fastenSeg.args[1]) : null;
+    if (fastenSeg.args.length === 2 && (pitch === null || pitch <= 0)) {
+      return { error: 'the .fasten() pitch is not a plain positive number — edit it in the source' };
+    }
+    fasten = { text: fastenSeg.args[0].text, ref: resolveRepeatTargetRef(fastenSeg.args[0], start), pitch };
+  }
+
   return {
     parsed: {
       feature: 'hole',
       size, fastener, style, depth, tipAngle,
-      placementTexts, placementRefs,
+      placementTexts, placementRefs, fasten,
       ...scope,
     },
     start,

@@ -174,7 +174,16 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     let holeFrames: HoleGhostRequest['frames'] = [];
     let holeScope: { filePath: string; line: number }[] = [];
     let holeExclude: { filePath: string; line: number } | undefined;
+    let holeFastenTarget: { filePath: string; line: number } | null = null;
     if (isHole) {
+      if (body.fasten !== undefined && body.fasten !== null) {
+        const target = parseSourceRefs([body.fasten.target]);
+        if (!target || target.length !== 1) {
+          res.status(400).json({ success: false, reason: 'Invalid fasten reference' });
+          return;
+        }
+        holeFastenTarget = target[0];
+      }
       const frames = parseHoleFrames(body.frames);
       if (!frames) {
         res.status(400).json({ success: false, reason: 'Invalid hole frames' });
@@ -354,6 +363,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const holeDiameter = isHole ? resolve(body.diameter) : null;
     const holeDepth = isHole ? resolve(body.depth) : null;
     const holeTip = isHole ? resolve(body.tipAngle) : null;
+    const holeFastenDiameter = holeFastenTarget ? resolve(body.fasten.diameter) : null;
     const holeCounterbore = isHole && body.counterbore
       ? { diameter: resolve(body.counterbore.diameter), depth: resolve(body.counterbore.depth) }
       : null;
@@ -520,6 +530,10 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         res.status(400).json({ success: false, reason: 'Invalid countersink' });
         return;
       }
+      if (holeFastenTarget && (holeFastenDiameter === null || holeFastenDiameter <= 0)) {
+        res.status(400).json({ success: false, reason: 'Invalid fasten diameter' });
+        return;
+      }
       request = {
         feature: 'hole',
         frames: holeFrames,
@@ -530,6 +544,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         countersink: holeCountersink as { diameter: number; angle: number } | null,
         scope: holeScope,
         exclude: holeExclude,
+        fasten: holeFastenTarget ? { target: holeFastenTarget, diameter: holeFastenDiameter as number } : null,
       };
     } else if (isRib) {
       if (thickness === null || thickness === 0) {

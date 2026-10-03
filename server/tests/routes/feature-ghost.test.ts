@@ -1275,7 +1275,17 @@ describe('feature-ghost route — hole', () => {
       feature: 'hole', frames, diameter: 6.4, depth: 12, tipAngle: 118,
       counterbore: { diameter: 11, depth: 6.8 }, countersink: null,
       scope: [{ filePath: FILE, line: 5 }], exclude: { filePath: FILE, line: 9 },
+      fasten: null,
     });
+  });
+
+  it('passes the fasten solid and its tap-drill diameter through, and refuses a bad one', async () => {
+    const base = { feature: 'hole', frames, diameter: 6.6, depth: null, tipAngle: null, counterbore: null, countersink: null, scope: [] };
+    const { status } = await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 5 } });
+    expect(status).toBe(200);
+    expect(received).toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5 } });
+    expect((await postGhost({ ...base, fasten: { target: { filePath: FILE }, diameter: 5 } })).status).toBe(400);
+    expect((await postGhost({ ...base, fasten: { target: { filePath: FILE, line: 5 }, diameter: 0 } })).status).toBe(400);
   });
 
   it('drops the tip angle of a through hole and refuses bad frames or a bad diameter', async () => {

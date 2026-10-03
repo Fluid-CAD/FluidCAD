@@ -45,7 +45,7 @@ import { MAX_PROJECT_SKETCHES, validateProjectSketches } from './project.ts';
 import { validateRepeatEdit, type RepeatEditAxisInput, type RepeatPlaneInput } from './repeat.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
 import { validateRibOptions } from './rib.ts';
-import { validateHoleOptions, validateHolePlacements, type HolePlacementInput } from './hole.ts';
+import { validateHoleFasten, validateHoleOptions, validateHolePlacements, type HoleFastenInput, type HolePlacementInput } from './hole.ts';
 import { validateRotateEdit } from './rotate.ts';
 import { validateSweepExtend } from './sweep.ts';
 
@@ -181,6 +181,8 @@ export type StatementEditRequest = {
   needsPicks: boolean;
   /** Hole: the full replacement placement list; absent keeps every placement as written. */
   holePlacements?: HolePlacementInput[];
+  /** Hole: the `.fasten(…)` chain — absent keeps the statement's own, null drops it. */
+  holeFasten?: HoleFastenInput | null;
 };
 
 /**
@@ -305,6 +307,13 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
       return scopeResult;
     }
     result.scope = scopeResult.scope;
+    const fasten = validateHoleFasten(body, options, true);
+    if ('error' in fasten) {
+      return fasten;
+    }
+    if (fasten.fasten !== undefined) {
+      result.holeFasten = fasten.fasten;
+    }
     const placements = validateHolePlacements(body?.placements, true);
     if ('error' in placements) {
       return placements;

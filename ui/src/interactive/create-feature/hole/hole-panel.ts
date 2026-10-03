@@ -19,8 +19,8 @@ export type HoleValues = HoleOptionValues | { error: string };
 
 export type HoleTermination = 'through' | 'blind';
 
-/** The two pick slots; exactly one wears the armed border at a time. */
-export type HoleArmedSlot = 'placements' | 'scope';
+/** The pick slots; exactly one wears the armed border at a time. */
+export type HoleArmedSlot = 'placements' | 'fasten' | 'scope';
 
 /** Append a labelled `<optgroup>` of `options` to `select`. */
 function appendOptionGroup(select: HTMLSelectElement, label: string, options: { value: string; label: string }[]): void {
@@ -53,8 +53,10 @@ const FIELD_DIMENSIONS: Record<string, HoleDimension> = {
  * The hole dialog: the entry style (simple, counterbore, countersink), the
  * placements slot, the termination with its depth and drill-point angle, the
  * hole type with its size (metric and imperial in one list) beside the fit or
- * pitch and the diameter they give, the counterbore or countersink values, and the scope
- * slot last — the solids the hole is cut from. A section drawing of the hole,
+ * pitch and the diameter they give, the counterbore or countersink values, the
+ * fasten slot of a clearance hole — the solid the fastener threads into, with
+ * the tapped hole it takes — and the scope slot last — the solids the hole is
+ * cut from. A section drawing of the hole,
  * the field being edited drawn in colour, floats beside the dialog. Pure DOM +
  * form state: the service owns scene data, picks, previews and the apply call.
  */
@@ -63,12 +65,18 @@ export class HolePanel extends FeaturePanel {
   onRemovePlacement?: (index: number) => void;
   /** The scope chip at `index` was removed. */
   onRemoveScope?: (index: number) => void;
+  /** The fasten chip was removed. */
+  onRemoveFasten?: () => void;
   /** The armed slot changed — the service re-aims the viewport channels. */
   onArmedSlotChange?: () => void;
 
   private styleTabs: ChoiceTabs<HoleStyle>;
   private placementsSlot: PickSlot;
   private scopeSlot: ScopeSlotControl;
+  private fastenSlot: PickSlot;
+  private fastenPitchSelect: HTMLSelectElement;
+  /** A solid sits in the fasten slot — its tapped-hole rows show. */
+  private fastenPicked = false;
   /** The section drawing: the float's side card, and the sheet's copy in the body. */
   private illustrationEls: HTMLElement[];
   private typeSelect: HTMLSelectElement;
@@ -171,6 +179,26 @@ export class HolePanel extends FeaturePanel {
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>
+        <div data-role="fasten-section" class="flex flex-col gap-3.5">
+          <div class="border-t border-base-content/10"></div>
+          <div data-role="fasten-slot"></div>
+          <div data-role="fasten-rows" class="hidden gap-2">
+            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The tapped hole takes the clearance hole's size — change it above">
+              <span class="text-base-content/70">Tapped size</span>
+              <input data-role="fasten-size" type="text" readonly tabindex="-1"
+                class="input input-sm input-bordered w-full text-xs opacity-70" />
+            </label>
+            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The thread pitch of the tapped hole in the solid it fastens to">
+              <span class="text-base-content/70">Pitch</span>
+              <select data-role="fasten-pitch" class="select select-sm select-bordered w-full text-xs"></select>
+            </label>
+            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The tap drill diameter the tapped hole is cut at, from the fastener tables">
+              <span class="text-base-content/70">Tap drill Ø</span>
+              <input data-role="fasten-diameter" type="text" readonly tabindex="-1"
+                class="input input-sm input-bordered w-full text-xs opacity-70" />
+            </label>
+          </div>
+        </div>
         <div data-role="scope-slot"></div>
       `,
     });
@@ -188,6 +216,12 @@ export class HolePanel extends FeaturePanel {
     this.placementsSlot = new PickSlot(this.role('placements-slot'), { label: 'Placements', multiple: true });
     this.placementsSlot.onRemove = (index) => this.onRemovePlacement?.(index);
     this.placementsSlot.onArm = () => this.armSlot('placements');
+
+    this.fastenSlot = new PickSlot(this.role('fasten-slot'), { label: 'Fasten to', multiple: false });
+    this.fastenSlot.setPrompt('Optional: pick the solid the fastener threads into');
+    this.fastenSlot.onRemove = () => this.onRemoveFasten?.();
+    this.fastenSlot.onArm = () => this.armSlot('fasten');
+    this.fastenPitchSelect = this.role('fasten-pitch');
 
     this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
     this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
@@ -212,12 +246,21 @@ export class HolePanel extends FeaturePanel {
 
     this.typeSelect.addEventListener('change', () => {
       this.reseedDerived();
+      // The fasten slot leaves with the clearance type — picks go back to the placements.
+      if (this.armed === 'fasten' && !this.fastenAvailable) {
+        this.armSlot('placements');
+      }
       this.syncControls();
+      this.onChange?.();
+    });
+    this.fastenPitchSelect.addEventListener('change', () => {
+      this.syncFastenRows();
       this.onChange?.();
     });
     this.sizeSelect.addEventListener('change', () => {
       this.fillPitches();
       this.reseedDerived();
+      this.syncFastenRows();
       this.onChange?.();
     });
     this.fitSelect.addEventListener('change', () => {
@@ -282,6 +325,30 @@ export class HolePanel extends FeaturePanel {
     return this.terminationSelect.value as HoleTermination;
   }
 
+  /** Only a clearance hole fastens to another solid — the slot hides otherwise. */
+  get fastenAvailable(): boolean {
+    return this.holeType === 'clearance';
+  }
+
+  /** The fastened solid's thread pitch as the statement writes it: null for the coarse pitch. */
+  fastenPitch(): number | null {
+    const value = Number(this.fastenPitchSelect.value);
+    const pitch = Number.isFinite(value) && value > 0 ? value : null;
+    return pitch !== null && pitch === coarsePitch(this.sizeLabel) ? null : pitch;
+  }
+
+  /** The tap drill diameter the fastened solid is cut at, in the document unit. */
+  fastenDiameter(): number | null {
+    return tableDiameter(this.sizeLabel, 'tapped', { pitch: this.fastenPitch() });
+  }
+
+  /** The fasten chip (the service owns the choice); null empties the slot. */
+  setFasten(chip: PickSlotChip | null): void {
+    this.fastenPicked = chip !== null;
+    this.fastenSlot.setChips(chip ? [chip] : []);
+    this.syncFastenRows();
+  }
+
   show(): void {
     // A fresh arming starts from defaults — the previous session's form
     // values would otherwise carry over.
@@ -291,6 +358,7 @@ export class HolePanel extends FeaturePanel {
     this.typeSelect.value = 'clearance';
     this.fitSelect.value = 'normal';
     this.fillPitches();
+    this.setFasten(null);
     this.terminationSelect.value = 'through';
     this.depthField.setValue(10);
     this.tipField.setValue(DEFAULT_TIP_ANGLE);
@@ -320,6 +388,10 @@ export class HolePanel extends FeaturePanel {
     if (parsed.fastener?.type === 'tapped' && parsed.fastener.pitch !== null) {
       this.pitchSelect.value = String(parsed.fastener.pitch);
     }
+    if (parsed.fasten && parsed.fasten.pitch !== null) {
+      this.fastenPitchSelect.value = String(parsed.fasten.pitch);
+    }
+    this.setFasten(null);
     this.reseedDerived();
     if (parsed.size.kind === 'diameter') {
       this.diameterField.setValue(parsed.size.value);
@@ -363,6 +435,7 @@ export class HolePanel extends FeaturePanel {
     const changed = this.armed !== slot;
     this.armed = slot;
     this.placementsSlot.setArmed(slot === 'placements');
+    this.fastenSlot.setArmed(slot === 'fasten');
     this.scopeSlot.setArmed(slot === 'scope');
     if (changed && !opts.silent) {
       this.onArmedSlotChange?.();
@@ -535,12 +608,24 @@ export class HolePanel extends FeaturePanel {
     }
   }
 
+  /** Both pitch lists follow the size: the tapped hole's own, and the fastened solid's. */
   private fillPitches(): void {
-    this.pitchSelect.innerHTML = '';
-    for (const group of pitchGroups(this.sizeLabel)) {
-      const pitches = group.pitches.map(pitch => ({ value: String(pitch.value), label: pitch.label }));
-      appendOptionGroup(this.pitchSelect, group.label, pitches);
+    for (const select of [this.pitchSelect, this.fastenPitchSelect]) {
+      select.innerHTML = '';
+      for (const group of pitchGroups(this.sizeLabel)) {
+        const pitches = group.pitches.map(pitch => ({ value: String(pitch.value), label: pitch.label }));
+        appendOptionGroup(select, group.label, pitches);
+      }
     }
+  }
+
+  /** The fasten section shows for a clearance hole; its tapped-hole rows once a solid is picked. */
+  private syncFastenRows(): void {
+    this.toggleRow('fasten-section', this.fastenAvailable, 'flex');
+    this.toggleRow('fasten-rows', this.fastenAvailable && this.fastenPicked, 'flex');
+    this.role<HTMLInputElement>('fasten-size').value = this.sizeLabel;
+    const diameter = this.fastenDiameter();
+    this.role<HTMLInputElement>('fasten-diameter').value = diameter === null ? '' : String(diameter);
   }
 
   /** The diameter and the entry values follow the size, fit and pitch choice. */
@@ -598,6 +683,7 @@ export class HolePanel extends FeaturePanel {
     this.toggleRow('cbore-rows', this.style === 'counterbore', 'flex');
     this.toggleRow('csink-rows', this.style === 'countersink', 'flex');
     this.toggleRow('blind-rows', this.termination === 'blind', 'flex');
+    this.syncFastenRows();
     this.drawIllustration();
   }
 

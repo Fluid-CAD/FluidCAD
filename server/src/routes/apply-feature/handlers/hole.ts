@@ -210,7 +210,8 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
       res.status(422).json({ success: false, reason: 'no file to write the hole into — open and render a file first' });
       return;
     }
-    const crossFile = scopeCrossFileError(request.scope, filePath);
+    const fastenTarget = request.fasten?.target.kind === 'feature' ? request.fasten.target : null;
+    const crossFile = scopeCrossFileError(fastenTarget ? [...request.scope, fastenTarget] : request.scope, filePath);
     if (crossFile) {
       res.status(422).json({ success: false, reason: crossFile });
       return;
@@ -220,6 +221,9 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
       size: request.size, fastener: request.fastener, style: request.style,
       depth: request.depth, tipAngle: request.tipAngle,
       placements: resolved.placements, scope,
+      fasten: fastenTarget
+        ? { target: mergeScopeProducers(producers, [fastenTarget])[0], pitch: request.fasten!.pitch }
+        : null,
     };
     const activePart = activePartFor(filePath);
     const spec: ApplyFeatureEditSpec = {
@@ -240,7 +244,10 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
       res.status(422).json({ success: false, reason: exprs.error });
       return;
     }
-    const statement = renderHoleStatement(options, exprs.exprs, scope.map(index => vars[index] ?? 'f'));
+    const fasten = options.fasten && typeof options.fasten.target === 'number'
+      ? { expr: vars[options.fasten.target] ?? 'f', pitch: options.fasten.pitch }
+      : null;
+    const statement = renderHoleStatement(options, exprs.exprs, scope.map(index => vars[index] ?? 'f'), fasten);
     if (preview === true) {
       res.json({ success: true, preview: statement });
       return;

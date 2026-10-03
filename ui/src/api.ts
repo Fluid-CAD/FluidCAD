@@ -563,6 +563,8 @@ export type HoleGhostRequest = {
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
+  /** The `.fasten(…)` solid by producing statement, and the tap-drill diameter its bore is drawn at. */
+  fasten?: { target: { filePath: string; line: number }; diameter: number } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2491,10 +2493,19 @@ export type HolePlacementRef =
   | { kind: 'vertex'; entity: ApplyFeatureEntity }
   | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor; name: string };
 
+/**
+ * The `.fasten(…)` chain of a clearance hole: the solid statement the
+ * fastener threads into — it takes the matching tapped hole — and that
+ * hole's pitch (null is the coarse pitch, written without a value).
+ */
+export type HoleFastenRef = { target: SketchSourceRef; pitch: number | null };
+
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
   /** The solid statements the hole's `.scope(…)` names; empty writes no chain. */
   scope: SketchSourceRef[];
+  /** The `.fasten(…)` chain; null writes none. */
+  fasten?: HoleFastenRef | null;
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2512,9 +2523,16 @@ export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeature
     newVariables: options.newVariables,
     placements: options.placements,
     scope: options.scope,
+    fasten: options.fasten ?? null,
     preview: options.preview,
   }, options.signal);
 }
+
+/** An edited `.fasten(…)` chain: the statement's own solid argument kept, or a re-picked solid. */
+export type HoleEditFastenRef = {
+  target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchSourceRef);
+  pitch: number | null;
+};
 
 /** An edited placement: a kept argument by position, or a new pick. */
 export type HoleEditPlacementRef = { kind: 'verbatim'; sourceIndex: number } | HolePlacementRef;
@@ -2527,6 +2545,8 @@ export type HoleEditOptions = HoleOptionValues & EditSessionFields & {
    * an empty list drops it (back to whole-scene cutting).
    */
   scope?: ScopeTargetRef[];
+  /** The `.fasten(…)` chain; omitted keeps the statement's own, null drops it. */
+  fasten?: HoleEditFastenRef | null;
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2549,6 +2569,7 @@ export async function applyHoleEdit(
     newVariables: options.newVariables,
     placements: options.placements,
     scope: options.scope,
+    fasten: options.fasten,
     preview: options.preview,
   }, options.signal);
 }
@@ -3321,6 +3342,12 @@ export type ParsedFeatureStatement =
        * length as `placementTexts`.
        */
       placementRefs: ({ line: number; column: number; slot?: number } | null)[];
+      /**
+       * The `.fasten(…)` chain: the solid argument verbatim, the statement it
+       * is bound to (or null) and the pitch (null is coarse); null without
+       * the chain. Absent on older servers.
+       */
+      fasten?: { text: string; ref: { line: number; column: number } | null; pitch: number | null } | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

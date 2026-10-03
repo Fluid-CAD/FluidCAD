@@ -2487,6 +2487,29 @@ describe("feature ghost — hole", () => {
     }
   });
 
+  it("draws the fastened solid's tap-drill bore and sizes the clearance tool without that solid", () => {
+    plate();
+    locatedSketch(5, () => { testRect(20, 20, { at: [-10, -10] }); }, 'xy');
+    const tall = extrude(25).new() as unknown as SceneObject;
+    tall.setSourceLocation({ filePath: FILE, line: 6, column: 0 });
+    const scene = render();
+    const result = holeGhost(scene, { fasten: { target: { filePath: FILE, line: 6 }, diameter: 5 } });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(2);
+      // The clearance tool clears the plate only; the tall solid it fastens to no longer sizes it.
+      const clearance = bounds(result, 0);
+      expect(clearance.maxX).toBeCloseTo(3, 3);
+      expect(clearance.minZ).toBeCloseTo(-1, 3);
+      // The tap-drill bore runs through the fastened solid's whole reach from the placement.
+      const tapped = bounds(result, 1);
+      expect(tapped.maxX).toBeCloseTo(2.5, 3);
+      expect(tapped.minZ).toBeCloseTo(10 - 15 * 1.1, 3);
+    }
+    expect(refusal(holeGhost(scene, { fasten: { target: { filePath: FILE, line: 99 }, diameter: 5 } })))
+      .toMatch(/fasten to is not in the rendered scene/);
+  });
+
   it("refuses an empty placement list and surfaces a bad counterbore", () => {
     plate();
     const scene = render();

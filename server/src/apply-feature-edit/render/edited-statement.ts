@@ -19,7 +19,7 @@ import { renderEditedPlane } from '../features/plane.ts';
 import { renderEditedRepeat, type RepeatEditTargetSource } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
-import { renderHolePlacementExprs, renderHoleStatement, validHoleOptions } from '../features/hole.ts';
+import { renderHolePlacementExprs, renderHoleStatement, validHoleFasten, validHoleOptions } from '../features/hole.ts';
 import { renderEditedRotate } from '../features/rotate.ts';
 import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
@@ -238,7 +238,30 @@ export function renderEditedStatement(
     if ('error' in scope) {
       return scope;
     }
-    return { statement: renderHoleStatement(opts, exprs.exprs, scope.exprs) };
+    // An absent fasten keeps the statement's own chain; null drops it. A
+    // clearance hole no more (the type moved to Tapped or Drilled) drops it too.
+    let fasten: { expr: string; pitch: number | null } | null = null;
+    const clearance = opts.size.kind === 'fastener' && opts.fastener?.type !== 'tapped';
+    if (opts.fasten === undefined) {
+      fasten = parsed.fasten && clearance ? { expr: parsed.fasten.text, pitch: parsed.fasten.pitch } : null;
+    } else if (opts.fasten !== null) {
+      if (!validHoleFasten(opts.fasten, opts) || typeof opts.fasten.target === 'number') {
+        return { error: 'malformed hole edit spec: .fasten() takes a kept or re-picked solid on a clearance hole' };
+      }
+      const target = opts.fasten.target;
+      if (target.kind === 'verbatim') {
+        if (!parsed.fasten) {
+          return { error: 'malformed hole edit spec: the kept fasten solid no longer matches the statement' };
+        }
+        fasten = { expr: parsed.fasten.text, pitch: opts.fasten.pitch };
+      } else {
+        if (!isScopeTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'malformed hole edit spec: the fasten solid references a non-feature producer' };
+        }
+        fasten = { expr: varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f', pitch: opts.fasten.pitch };
+      }
+    }
+    return { statement: renderHoleStatement(opts, exprs.exprs, scope.exprs, fasten) };
   }
   if (parsed.feature === 'sweep') {
     const opts = spec.edit?.sweep;

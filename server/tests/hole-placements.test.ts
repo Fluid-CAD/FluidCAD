@@ -246,10 +246,25 @@ describe('hole statement parsing', () => {
         depth: 12, tipAngle: 118,
         placementTexts: ['bolt', 's.geometries.c.center()'],
         placementRefs: [{ line: 7, column: 15 }, null],
+        fasten: null,
         scopeTexts: ['e'], scopeRefs: [{ line: 5, column: 12 }],
       },
       statement: `hole('M6', bolt, s.geometries.c.center()).clearance('close').counterbore(11, 6.8).depth(12, 118).scope(e)`,
     });
+  });
+
+  it('reads the fasten chain: the solid, its statement and the pitch, on a clearance hole only', async () => {
+    const bound = (statement: string) => withHole(statement).replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+    const fine = await parseFeatureStatement(bound(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`), 12);
+    expect(fine.ok && fine.parsed.feature === 'hole' && fine.parsed.fasten)
+      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75 });
+    const coarse = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e)`), 12);
+    expect(coarse.ok && coarse.parsed.feature === 'hole' && coarse.parsed.fasten)
+      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null });
+    const tapped = await parseFeatureStatement(bound(`hole('M6', bolt).tapped().fasten(e)`), 12);
+    expect(tapped.ok).toBe(false);
+    const drilled = await parseFeatureStatement(bound(`hole(6, bolt).fasten(e)`), 12);
+    expect(drilled.ok).toBe(false);
   });
 
   it('resolves a connector copy to its seed statement and slot, and nothing else read off a variable', async () => {

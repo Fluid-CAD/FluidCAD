@@ -144,6 +144,12 @@ export type HoleGhostRequest = {
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
+  /**
+   * The `.fasten(…)` solid by producing statement and the tap-drill diameter
+   * it is cut at: one more bore per placement, through that solid, which the
+   * clearance tools are no longer sized against.
+   */
+  fasten?: { target: { filePath: string; line: number }; diameter: number } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2314,9 +2320,28 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
     return { reason: error instanceof Error ? error.message : String(error), surface: true };
   }
 
-  const stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
+  let stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
   if ('reason' in stock) {
     return stock;
+  }
+
+  // The fastened solid takes its own tap-drill bore and leaves the clearance stock.
+  let fastenDims: HoleDimensions | null = null;
+  let fastenStock: Shape[] = [];
+  if (request.fasten) {
+    const target = ghostStockSolids(scene, [request.fasten.target], request.exclude);
+    if ('reason' in target) {
+      return { reason: 'The solid to fasten to is not in the rendered scene.' };
+    }
+    fastenStock = target;
+    stock = stock.filter(solid => !fastenStock.includes(solid));
+    try {
+      fastenDims = resolveHoleDimensions({
+        size: request.fasten.diameter, fastener: null, style: null, depth: null, tipAngle: null,
+      }, getActiveUnit());
+    } catch (error) {
+      return { reason: error instanceof Error ? error.message : String(error), surface: true };
+    }
   }
 
   const solids: Shape[] = [];
@@ -2324,8 +2349,12 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
     for (const frame of request.frames) {
       const origin = Point.fromArray(frame.origin);
       const direction = Vector3d.fromArray(frame.normal).normalize().negate();
-      const length = dims.depth ?? throughAllLength(stock, [], Plane.fromPointAndNormal(origin, direction));
+      const plane = Plane.fromPointAndNormal(origin, direction);
+      const length = dims.depth ?? throughAllLength(stock, [], plane);
       solids.push(buildHoleTool(origin, direction, dims, length));
+      if (fastenDims) {
+        solids.push(buildHoleTool(origin, direction, fastenDims, throughAllLength(fastenStock, [], plane)));
+      }
     }
   } catch (error) {
     for (const solid of solids) {

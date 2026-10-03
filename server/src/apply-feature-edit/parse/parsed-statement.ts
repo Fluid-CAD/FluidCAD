@@ -431,7 +431,7 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['region', 'symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
   // A hole is always a removal; its chains refine the cut and end with the scope.
-  hole: new Set(['clearance', 'tapped', 'counterbore', 'countersink', 'depth', 'scope']),
+  hole: new Set(['clearance', 'tapped', 'counterbore', 'countersink', 'depth', 'fasten', 'scope']),
   // `.extend()` may chain twice — once per end — so the parse collects it
   // like loft's `.connect()` instead of refusing the repeat.
   sweep: new Set(['region', 'extend', 'thin', 'remove', 'new', 'scope']),

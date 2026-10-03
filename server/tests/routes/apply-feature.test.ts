@@ -6851,6 +6851,36 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(200);
       expect(body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
     });
+
+    it('writes the fasten chain before the scope, and refuses it off a clearance hole or inside the scope', async () => {
+      const placements = [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }];
+      const target = { filePath: FILE, line: 5, column: 12 };
+      const coarse = await post({ ...BASE, placements, fasten: { target, pitch: null } });
+      expect(coarse.status).toBe(200);
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
+      const fine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75 } });
+      expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`);
+      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { target, pitch: null } });
+      expect(tapped.status).toBe(400);
+      const scoped = await post({ ...BASE, placements, scope: [target], fasten: { target, pitch: null } });
+      expect(scoped.status).toBe(400);
+      expect(scoped.body.error).toContain('cannot also be in the scope');
+    });
+
+    it('edits the fasten chain in place: kept, re-pitched, re-picked and dropped', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close').fasten(e, 0.75)\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const edit = { ...BASE, edit: { filePath: FILE, line: 10, column: 2 } };
+      const kept = await post(edit);
+      expect(kept.status).toBe(200);
+      expect(kept.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`);
+      const coarse = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: null } });
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
+      const repicked = await post({ ...edit, fasten: { target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 1 } });
+      expect(repicked.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 1)`);
+      const dropped = await post({ ...edit, fasten: null });
+      expect(dropped.body.preview).toBe(`hole('M6', bolt).clearance('close')`);
+    });
   });
   });
 });

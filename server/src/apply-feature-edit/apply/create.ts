@@ -24,7 +24,7 @@ import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } f
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
-import { validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
+import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
@@ -100,7 +100,9 @@ export async function applyCreateEdit(
         || (placement.kind === 'part' && Number.isInteger(placement.part) && placement.part >= 0
           && placement.part < spec.parts.length && typeof placement.suffix === 'string')
         || (placement.kind === 'expression' && typeof placement.expression === 'string' && placement.expression.trim() !== ''))
-      && Array.isArray(ho.scope) && ho.scope.every(p => isScopeTargetProducer(spec, p));
+      && Array.isArray(ho.scope) && ho.scope.every(p => isScopeTargetProducer(spec, p))
+      && validHoleFasten(ho.fasten, ho)
+      && (!ho.fasten || (typeof ho.fasten.target === 'number' && isScopeTargetProducer(spec, ho.fasten.target)));
     if (!valid) {
       return { newCode: code, error: 'malformed hole edit spec' };
     }

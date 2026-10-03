@@ -80,7 +80,10 @@ export function buildStatement(
       // The create arm validated the placements; an unstaged one here is a programming error.
       throw new Error(placements.error);
     }
-    return renderHoleStatement(ho, placements.exprs, scopeVarNames(ho.scope));
+    const fasten = ho.fasten && typeof ho.fasten.target === 'number'
+      ? { expr: scopeVarNames([ho.fasten.target])[0], pitch: ho.fasten.pitch }
+      : null;
+    return renderHoleStatement(ho, placements.exprs, scopeVarNames(ho.scope), fasten);
   }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;

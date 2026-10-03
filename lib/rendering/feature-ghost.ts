@@ -1393,7 +1393,14 @@ function buildRepeatGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That feature is not in the rendered scene.' };
     }
-    const flow = repeatChainFlow(scene, targets);
+    // A repeat among the targets is its whole pattern, the original included
+    // — the features the statement clones (RepeatBase.patternFeatures).
+    const features = RepeatBase.patternFeatures(targets);
+    const total = requestedInstanceCount(request) * patternInstanceCount(features);
+    if (total > MAX_GHOST_INSTANCES) {
+      return { ok: false, reason: `${total} instances is more than the preview draws.`, surface: true };
+    }
+    const flow = repeatChainFlow(scene, features);
     if (flow.outputs.size === 0) {
       return { ok: false, reason: 'That feature has no solid to preview.' };
     }
@@ -1470,6 +1477,23 @@ function repeatGhostMatrices(
 }
 
 /**
+ * How many instances of one feature the targets already hold: 1, unless a
+ * target is itself a repeat — then every instance the statement places is
+ * that many features, and the cap counts them all.
+ */
+function patternInstanceCount(features: SceneObject[]): number {
+  const counts = new Map<SceneObject, number>();
+  let most = 1;
+  for (const feature of features) {
+    const original = feature.getCloneSource() ?? feature;
+    const count = (counts.get(original) ?? 0) + 1;
+    counts.set(original, count);
+    most = Math.max(most, count);
+  }
+  return most;
+}
+
+/**
  * A direction's step between neighbours. The dialog's Total spacing mode
  * states the whole span instead, which `repeat()` divides across the gaps
  * (repeat.ts:153) — one fewer than the instances, the original holding the
@@ -1503,14 +1527,15 @@ function requestedInstanceCount(
  * The objects a target ref names — a repeat's timeline row, a copy's picked
  * solid. Two wrinkles no other ghost has:
  *
- * - **A clone stamps its original's call site** (repeat-targets.ts:20-24), so
- *   a line an earlier repeat already replayed holds the original *and* every
- *   clone of it. The original alone is the target: a new repeat replays the
- *   statement, and a new copy clones the body that statement bound to its
- *   variable — neither takes the pattern that came out of it.
+ * - **A clone carries the call site of the repeat that made it** (the
+ *   builder stamps what it registers, index.ts), so a repeat's line holds the
+ *   repeat *and* every clone under it — and the original too, when the
+ *   target was written inline (`repeat(…, extrude(10))`). The objects that
+ *   are no clone are the target: the statement the line binds to a variable.
  * - **A target can be a container** — repeating or copying a `repeat()` or a
- *   `part()` row is legal, and `getShapes` gathers a container's children for
- *   us.
+ *   `part()` row is legal. A copy reads its bodies through `getShapes`, which
+ *   gathers a container's children; a repeat of a repeat takes the whole
+ *   pattern, its original included (`RepeatBase.patternFeatures`).
  */
 function targetObjectsAt(
   scene: Scene,

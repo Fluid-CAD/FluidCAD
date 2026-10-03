@@ -24,16 +24,23 @@ export class RepeatInstance extends LazySelectionSceneObject {
     private readonly instanceName: string,
     readonly owner: RepeatBase,
     readonly slot: number,
+    /** The clones of the slot's features this copy addresses — see createCopy. */
+    private readonly movedRoots: SceneObject[] | null = null,
   ) {
     // The resolver is never run — build() is a no-op and getShapes() reads
     // the slot's features live (see below).
     super(instanceName, () => [], owner);
   }
 
+  /** The repeated features the instance stands for: its slot's, or their clones on a copy. */
+  getRoots(): SceneObject[] {
+    return this.movedRoots ?? this.owner.getInstanceRoots(this.slot);
+  }
+
   /** The slot's repeated features, not the repeat container: what the
    * selection is built from, and what a clone of a consumer must follow. */
   override getDependencies(): SceneObject[] {
-    return this.owner.getInstanceRoots(this.slot);
+    return this.getRoots();
   }
 
   // The instance never owns geometry: it reads the slot's features live and
@@ -44,11 +51,11 @@ export class RepeatInstance extends LazySelectionSceneObject {
   override build(): void {}
 
   override getShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
-    return this.owner.getInstanceRoots(this.slot).flatMap(root => root.getShapes(filter, type, scope));
+    return this.getRoots().flatMap(root => root.getShapes(filter, type, scope));
   }
 
   override removeShape(shape: Shape, removedBy: SceneObject): void {
-    for (const root of this.owner.getInstanceRoots(this.slot)) {
+    for (const root of this.getRoots()) {
       const held = root.getShapes({ excludeMeta: false, excludeGuide: false });
       if (held.some(s => s === shape)) {
         root.removeShape(shape, removedBy);
@@ -57,7 +64,7 @@ export class RepeatInstance extends LazySelectionSceneObject {
   }
 
   override removeShapes(removedBy: SceneObject, force?: boolean): void {
-    for (const root of this.owner.getInstanceRoots(this.slot)) {
+    for (const root of this.getRoots()) {
       root.removeShapes(removedBy, force);
     }
   }
@@ -113,7 +120,7 @@ export class RepeatInstance extends LazySelectionSceneObject {
    * identically on every instance.
    */
   private forward(accessor: string, args: unknown[]): LazySelectionSceneObject {
-    const roots = this.owner.getInstanceRoots(this.slot);
+    const roots = this.getRoots();
     const call = `repeat().instance(${this.slot}).${accessor}()`;
     if (roots.length !== 1) {
       throw new Error(
@@ -129,8 +136,12 @@ export class RepeatInstance extends LazySelectionSceneObject {
     return (fn as (...a: unknown[]) => LazySelectionSceneObject).apply(root, args);
   }
 
+  // A repeat is never copied — repeating one re-applies its features — so a
+  // copy of the instance addresses the copies of its features: a consumer
+  // cloned alongside it (`select(edge().from(r.instance(1)))` under a later
+  // repeat) selects from its own instance, not from the one it was copied off.
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const owner = (remap.get(this.owner as unknown as SceneObject) as RepeatBase | undefined) ?? this.owner;
-    return new RepeatInstance(this.instanceName, owner, this.slot);
+    const roots = this.getRoots().map(root => remap.get(root) ?? root);
+    return new RepeatInstance(this.instanceName, this.owner, this.slot, roots);
   }
 }

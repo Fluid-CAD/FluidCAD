@@ -40,9 +40,9 @@ export function connectorRepeatRefusal(obj: SceneObjectRender): string | null {
 
 /**
  * The feature statements a repeat could replay right now, one option per
- * source line. Clones stamped by an existing repeat carry their original's
- * call site, so the FIRST object at a line — the original, built before its
- * clones — names the option.
+ * source line. The clones of an existing repeat carry that repeat's call
+ * site, so the FIRST object at a line — the repeat itself, registered before
+ * its clones — names the option: picking it repeats the whole pattern.
  */
 export function collectRepeatTargets(sceneObjects: SceneObjectRender[]): RepeatTargetOption[] {
   const byLine = new Map<string, RepeatTargetOption>();

@@ -36,8 +36,13 @@ export type RepeatSlotMatrix = LazyMatrix | null;
  * also keeps the move that placed it, for whatever has to land where a slot's
  * instance landed without being one of its clones.
  *
+ * A repeat can be repeated: as a target it stands for its whole pattern —
+ * the originals and every instance it placed (see `patternFeatures`). The
+ * repeat of it keeps its own numbering, each slot holding the whole inner
+ * pattern at that position.
+ *
  * A repeat refuses connector targets: it re-applies features, and a connector
- * is a frame to copy, not a feature to re-apply (see `refuseConnectorTargets`).
+ * is a frame to copy, not a feature to re-apply (see `refuseTargets`).
  *
  * It also holds structural equality helpers used by `compareTo`, which runs
  * during cache-compare — before any render — when an `AxisObjectBase` source
@@ -77,6 +82,35 @@ export abstract class RepeatBase extends SceneObject {
 
   getOriginalSlot(): number {
     return this._originalSlot;
+  }
+
+  /**
+   * Every feature the repeat placed — its originals and their clones — in
+   * slot order, the slots `skip` left out passed over.
+   */
+  getPatternRoots(): SceneObject[] {
+    return this._slots.flatMap(roots => roots ?? []);
+  }
+
+  /**
+   * The features `targets` stand for when a repeat re-applies them: a repeat
+   * among them is its whole pattern ({@link getPatternRoots}), `r.instance(k)`
+   * the features at that slot, anything else itself. Each feature is listed
+   * once, however often the targets name it — `repeat(…, hole, row)` names
+   * the hole twice.
+   */
+  static patternFeatures(targets: SceneObject[]): SceneObject[] {
+    const features = new Set<SceneObject>();
+    for (const target of targets) {
+      if (target instanceof RepeatBase) {
+        target.getPatternRoots().forEach(root => features.add(root));
+      } else if (target instanceof RepeatInstance) {
+        target.getRoots().forEach(root => features.add(root));
+      } else {
+        features.add(target);
+      }
+    }
+    return [...features];
   }
 
   /** The slot `feature` was repeated into (originals included), or null. */
@@ -132,20 +166,27 @@ export abstract class RepeatBase extends SceneObject {
 
   /**
    * Refuse `targets` — the explicit ones or the implicit last object — when
-   * one is a connector. A clone of a connector would rebuild its frame from
-   * the seed's already-consumed source, never move, and never register on the
-   * part. Returns whether it refused: the builder then clones nothing, and the
-   * repeat's own build reports the refusal on its row (SceneObject.refuse,
-   * which also keeps a refused repeat from matching a working one in the
-   * cache — a mirror or matrix repeat compares little else).
+   * one is a connector, or a repeat that was itself refused. A clone of a
+   * connector would rebuild its frame from the seed's already-consumed
+   * source, never move, and never register on the part; a refused repeat
+   * placed no instances to repeat. Returns whether it refused: the builder
+   * then clones nothing, and the repeat's own build reports the refusal on
+   * its row (SceneObject.refuse, which also keeps a refused repeat from
+   * matching a working one in the cache — a mirror or matrix repeat compares
+   * little else).
    */
-  refuseConnectorTargets(targets: SceneObject[]): boolean {
+  refuseTargets(targets: SceneObject[]): boolean {
     const connector = targets.find((target): target is Connector => target instanceof Connector);
-    if (!connector) {
-      return false;
+    if (connector) {
+      this.refuse(`repeat() re-applies features — copy a connector with ${this.connectorCopyAdvice(connector.connectorName)}`);
+      return true;
     }
-    this.refuse(`repeat() re-applies features — copy a connector with ${this.connectorCopyAdvice(connector.connectorName)}`);
-    return true;
+    const refused = targets.some(target => target instanceof RepeatBase && target.getRefusal() !== null);
+    if (refused) {
+      this.refuse("repeat(): the repeat this one repeats is refused, so it has no instances to repeat — fix that repeat first");
+      return true;
+    }
+    return false;
   }
 
   /**

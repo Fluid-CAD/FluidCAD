@@ -27,7 +27,7 @@ repeat("linear", "x", { count: 4, offset: 40 }, c)
 
 1. Click **Repeat** on the toolbar. The Repeat dialog docks on the right.
 2. Pick the kind: **Linear**, **Circular**, **Mirror** or **Rotate**.
-3. Click the features to repeat — their rows in the timeline, or their geometry in the viewport. They fill the **Features** slot as chips; several features repeat together. A connector is not a feature: the slot refuses one and points to Copy, which lays a connector on every instance of the repeat ([Copying connectors](/docs/patterns/copy#copying-connectors)).
+3. Click the features to repeat — their rows in the timeline, or their geometry in the viewport. They fill the **Features** slot as chips; several features repeat together. A Repeat row is a feature too: picking it repeats the whole pattern ([Repeating a repeat](#repeating-a-repeat)). A connector is not a feature: the slot refuses one and points to Copy, which lays a connector on every instance of the repeat ([Copying connectors](/docs/patterns/copy#copying-connectors)).
 4. **Linear**: fill the **Direction 1** axis (click a world axis shown in the viewport, an `axis()` feature, or an edge), the **Total Count** and the spacing (**Offset** between neighbours, or **Total** span). **Add second direction** makes a grid. **Circular** and **Rotate** take one **Axis** (empty defaults to world Z) and an **Angle**; **Mirror** swaps the axis for a **Plane** slot (an origin-plane quad, a plane feature, or a face).
 5. **Centered** and **Skip** as in the Copy dialog.
 6. Click **Apply**. The timeline gains a Repeat row after the repeated features.
@@ -101,6 +101,28 @@ const m = Matrix4.fromTranslation(10, 0, 5).multiply(
 repeat(m, e)                   // translation + rotation in one step
 ```
 
+## Repeating a repeat
+
+A repeat can itself be repeated. Passed as a feature it stands for its whole pattern — the original and every instance — so a row of holes is carried to the other side of the part in one statement:
+
+```js
+const c = cut(15)
+const row = repeat("linear", "x", { count: 3, offset: 25 }, c)
+repeat("mirror", "front", row)        // six pockets: the row and its mirror image
+```
+
+Any kind repeats any other, to any depth: mirror a bolt circle, array a mirrored pair, mirror a row twice to reach all four corners. Edit the inner repeat and the outer one follows — `count: 4` on the row gives eight pockets.
+
+`row.instance(2)` in place of `row` repeats that one instance alone, and naming the original beside its repeat (`repeat("mirror", "front", c, row)`) repeats it once, not twice.
+
+With no feature given, a repeat written right after another takes that repeat, not its last instance:
+
+```js
+cut(15)
+repeat("linear", "x", { count: 3, offset: 25 })
+repeat("mirror", "front")             // mirrors the whole row
+```
+
 ## Example: ice cube tray
 
 Cut one pocket, then repeat it across the tray:
@@ -125,6 +147,8 @@ fillet(2, r.instance(2).sideEdges(0))   // one side edge of the last instance
 ```
 
 The instance is also a whole geometry: `fillet(2, r.instance(1))` rounds every edge of that instance, and `select(edge().from(r.instance(1)).circle())` scopes a filter to it — the form to use when the repeat clones several features at once, where a forwarded accessor would be ambiguous.
+
+A repeat of a repeat keeps its own numbering, and each of its instances is the whole inner pattern: with `m = repeat("mirror", "front", row)`, `m.instance(1)` is the mirrored row — a whole geometry and a `from()` scope, with no forwarded accessors since it holds several features.
 
 Slots are numbered like the [copy](/docs/patterns/copy) tool's: circular, mirror, rotate and matrix repeats keep the original at slot 0; a linear repeat linearizes its grid in axis order (the first axis varies slowest) with the original at its own cell — slot 0, or the centre cell when `centered`. The numbering is the one `skip` uses, and a skipped slot is an error to address.
 

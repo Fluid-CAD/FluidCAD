@@ -1531,8 +1531,8 @@ describe("feature ghost — repeat", () => {
     expect(bounds(result, 0).maxX).toBeCloseTo(60, 3);
   });
 
-  /** Repeating a repeat is legal — the container hands over its children. */
-  it("gathers a container target's children", () => {
+  /** Repeating a repeat is legal — it stands for its whole pattern. */
+  it("stamps a repeat target's whole pattern, the original included", () => {
     const box = locatedBox(5);
     const pattern = repeat("linear", "x", { count: 2, offset: 200 }, box as never) as unknown as SceneObject;
     pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
@@ -1543,20 +1543,22 @@ describe("feature ghost — repeat", () => {
       directions: [{ count: 2, offset: 500, length: null }],
     });
 
+    // The original (x 0…20) and the pattern's one clone (x 200…220), both
+    // moved 500 — the statement repeats the pattern, not its clones alone.
     const solids = solidsOf(result);
-    // The pattern holds one clone (at x 200…220); the original at the origin
-    // belongs to line 5, not to the container.
-    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(1);
-    expect(bounds(result, 0).minX).toBeCloseTo(700, 3);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    expect(extent(solids[0]).minX).toBeCloseTo(500, 3);
+    expect(extent(solids[0]).maxX).toBeCloseTo(720, 3);
   });
 
   /**
-   * A container's children answer for what they built. The pattern's one clone
-   * drilled the plate, so repeating the pattern previews that hole — read
-   * through the container instead, the clone's plate would have no input to be
-   * set against and every instance would draw a whole plate.
+   * The pattern answers for what its features did. The original and its one
+   * clone each drilled the plate, so repeating the pattern previews both
+   * holes — read through the container instead, the clone's plate would have
+   * no input to be set against and every instance would draw a whole plate.
    */
-  it("stamps what a container target's children did, not the bodies they hand on", () => {
+  it("stamps what a repeat target's features did, not the bodies they hand on", () => {
     sketch("xy", () => {
         testRect(200, 100, { at: [-100, -50] });
       });
@@ -1576,16 +1578,97 @@ describe("feature ghost — repeat", () => {
     });
 
     const solids = solidsOf(result);
-    expect(solids).toHaveLength(1);
-    expect(solids[0].kind).toBe('remove');
-    // The clone's hole (Ø6 at x 30, 5 deep in the plate's top), moved 20 in y.
-    const box = extent(solids[0]);
-    expect(box.minX).toBeCloseTo(27, 1);
+    expect(solids.every(solid => solid.kind === 'remove')).toBe(true);
+    // Both holes (Ø6 at x 0 and x 30, 5 deep in the plate's top), moved 20 in y.
+    const box = {
+      minX: Math.min(...solids.map(solid => extent(solid).minX)),
+      maxX: Math.max(...solids.map(solid => extent(solid).maxX)),
+      minY: Math.min(...solids.map(solid => extent(solid).minY)),
+      maxY: Math.max(...solids.map(solid => extent(solid).maxY)),
+      minZ: Math.min(...solids.map(solid => extent(solid).minZ)),
+      maxZ: Math.max(...solids.map(solid => extent(solid).maxZ)),
+    };
+    expect(box.minX).toBeCloseTo(-3, 1);
     expect(box.maxX).toBeCloseTo(33, 1);
     expect(box.minY).toBeCloseTo(17, 1);
     expect(box.maxY).toBeCloseTo(23, 1);
     expect(box.minZ).toBeCloseTo(15, 3);
     expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  it("mirrors a repeat target's whole pattern", () => {
+    const box = locatedBox(5, () => { testRect(20, 20, { at: [0, 30] }); });
+    const pattern = repeat("linear", "x", { count: 3, offset: 40 }, box as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, box, 9);
+
+    const result = repeatGhost(scene, [9], {
+      kind: 'mirror',
+      axes: [],
+      plane: { kind: 'standard', plane: 'xz' },
+      directions: [],
+    });
+
+    // Three boxes at x 0, 40 and 80, y 30…50, reflected to y -50…-30.
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(3);
+    const span = extent(solids[0]);
+    expect(span.minX).toBeCloseTo(0, 3);
+    expect(span.maxX).toBeCloseTo(100, 3);
+    expect(span.minY).toBeCloseTo(-50, 3);
+    expect(span.maxY).toBeCloseTo(-30, 3);
+  });
+
+  it("resolves a repeat's own line to its whole pattern in a script", () => {
+    // The production stamping: every clone carries the repeat statement's
+    // line, and that line names the repeat — the pattern, original included.
+    const { row } = runFluid(`
+      sketch("xy", () => { testRect(20, 20, { at: [0, 30] }); });
+      const box = extrude(10).new();
+      const row = repeat("linear", "x", { count: 3, offset: 40 }, box);
+      return { row };
+    `, { testRect });
+    const scene = render();
+    const line = row.getSourceLocation()!.line;
+    expect(row.getChildren().every(clone => clone.getSourceLocation()!.line === line)).toBe(true);
+
+    const result = buildFeatureGhost(
+      scene,
+      {
+        ...REPEAT_BASE,
+        kind: 'mirror',
+        axes: [],
+        plane: { kind: 'standard', plane: 'xz' },
+        directions: [],
+        targets: [{ filePath: FLUID_FILE, line }],
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(3);
+    expect(extent(solids[0]).minY).toBeCloseTo(-50, 3);
+    expect(extent(solids[0]).maxX).toBeCloseTo(100, 3);
+  });
+
+  it("counts a repeat target's instances against the cap", () => {
+    const box = locatedBox(5);
+    const pattern = repeat("linear", "x", { count: 3, offset: 40 }, box as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, box, 9);
+
+    // 99 new instances of a three-instance pattern: 297 bodies.
+    const result = repeatGhost(scene, [9], {
+      axes: [{ kind: 'standard', axis: 'y' }],
+      directions: [{ count: 100, offset: 40, length: null }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toBe('297 instances is more than the preview draws.');
   });
 
   it("refuses more instances than it draws", () => {

@@ -4460,6 +4460,52 @@ describe('repeat statement templates', () => {
     expect(result.newCode).toContain(`repeat('mirror', 'yz', e, s)`);
   });
 
+  it('accepts a repeat statement as a repeat target, binding a bare one', async () => {
+    const code = `${base}\nrepeat('linear', 'x', { count: 3, offset: 40 }, cut(5))\n`;
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'xz' },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 7, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = repeat('linear', 'x', { count: 3, offset: 40 }, cut(5))`);
+    expect(result.newCode).toContain(`\nrepeat('mirror', 'xz', f)\n`);
+  });
+
+  it('reuses the variable a repeat target is already bound to', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude, cut, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
+      `const c = cut(5)`,
+      `const row = repeat('linear', 'x', { count: 3, offset: 40 }, c)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'xz' },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 7, column: 12, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, ellipse, extrude, cut, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
+      `const c = cut(5)`,
+      `const row = repeat('linear', 'x', { count: 3, offset: 40 }, c)`,
+      `repeat('mirror', 'xz', row)`,
+      ``,
+    ].join('\n'));
+  });
+
   it('omits the 90-degree rotate default and renders other angles', async () => {
     const ninety = await applyFeatureEdit(`${base}\n`, repeatSpec({
       kind: 'rotate',
@@ -4527,6 +4573,19 @@ describe('parseFeatureStatement — repeat', () => {
         targetRefs: [{ line: 4, column: 10 }],
       },
       statement: `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
+    });
+  });
+
+  it('reads a repeat target as the repeat statement it names', async () => {
+    const code = `${repeatEditBase}\nconst row = repeat('linear', 'x', { count: 3, offset: 40 }, e)\nrepeat('mirror', 'xz', row)\n`;
+    const result = await parseFeatureStatement(code, 8);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'mirror', planeText: `'xz'`, targetTexts: ['row'],
+        // The inner repeat's own call — its timeline row.
+        targetRefs: [{ line: 7, column: 12 }],
+      },
     });
   });
 

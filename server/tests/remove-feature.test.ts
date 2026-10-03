@@ -236,6 +236,35 @@ shell(1, sel2);
   });
 });
 
+// A repeat of a repeat (`repeat('mirror', 'xz', row)`) names the inner
+// repeat by its binding, so removing the inner repeat takes it along.
+describe('RemoveFeature — a repeat of a repeat', () => {
+  const PLATE = `import { sketch, circle, rect, extrude, cut, repeat } from "fluidcad/core";
+
+sketch('xy', () => { rect(200, 100); });
+const e = extrude(10);
+sketch(e.endFaces(), () => { circle([20, 30], 6); });
+const hole = cut();
+const row = repeat('linear', 'x', { count: 3, offset: 25 }, hole);
+repeat('mirror', 'xz', row);
+`;
+
+  it('lists the outer repeat as the inner repeat\'s dependant and removes it with it', async () => {
+    const { analysis } = await analyze(PLATE, 'const row = repeat');
+    expect(analysis).toEqual({ ok: true, dependents: [{ name: 'repeat', line: lineOf(PLATE, `repeat('mirror'`) }], connectors: [] });
+
+    const removed = await remove(PLATE, 'const row = repeat');
+    expect(removed).not.toContain('repeat(');
+    expect(removed).toContain('const hole = cut();');
+  });
+
+  it('removes the outer repeat alone, keeping the inner one', async () => {
+    const removed = await remove(PLATE, `repeat('mirror'`);
+    expect(removed).toContain(`const row = repeat('linear', 'x', { count: 3, offset: 25 }, hole);`);
+    expect(removed).not.toContain(`repeat('mirror'`);
+  });
+});
+
 // A connector copy that follows a repeat (`copy(holes, bolt)`) names the
 // repeat by its binding, so removing the repeat — or the connector — takes
 // the copy statement along, listed first.

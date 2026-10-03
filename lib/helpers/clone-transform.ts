@@ -5,11 +5,30 @@ import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { FrozenGeometry } from "../features/frozen-geometry.js";
 
+/** What one `cloneWithTransform` call made. */
+export type CloneResult = {
+  /** Every copy, dependency and child copies included, in build order. */
+  clones: SceneObject[];
+  /** Each copied object's copy — the copy `objects[i]` itself got, among them. */
+  copies: Map<SceneObject, SceneObject>;
+};
+
+/**
+ * Copy `objects` — with the features they are built from and their children —
+ * under `container`, to be rebuilt moved by `transform`.
+ *
+ * Every copy is its ROOT original plus the whole move from it, whatever was
+ * copied: an object that is itself a clone (an instance of an earlier repeat)
+ * is copied with `transform · its own transform` and its own clone source, so
+ * a repeat of a repeat lands where the outer repeat moves the inner instance.
+ * Features build as "the original's inputs, moved once", and a copy of a copy
+ * carrying the outer move alone would lose the inner one.
+ */
 export function cloneWithTransform(
   objects: SceneObject[],
   transform: Matrix4 | LazyMatrix,
   container: SceneObject
-): SceneObject[] {
+): CloneResult {
   const visited = new Set<SceneObject>();
   const ordered: SceneObject[] = [];
 
@@ -107,10 +126,31 @@ export function cloneWithTransform(
   const remap = new Map<SceneObject, SceneObject>();
   const allCloned: SceneObject[] = [];
 
+  const outer = transform instanceof LazyMatrix ? transform : LazyMatrix.of(transform);
+  // One composed move per inner instance: its objects share a single
+  // transform reference, which is how a cloned select() tells its own
+  // instance's siblings from the next one's (getTransformRef).
+  const composed = new Map<LazyMatrix, LazyMatrix>();
+  const moveFrom = (inner: LazyMatrix): LazyMatrix => {
+    let total = composed.get(inner);
+    if (!total) {
+      total = LazyMatrix.product([outer, inner]);
+      composed.set(inner, total);
+    }
+    return total;
+  };
+
   const registerClone = (source: SceneObject, copy: SceneObject) => {
     remap.set(source, copy);
-    copy.setTransform(transform);
-    copy.setCloneSource(source);
+    const root = source.getCloneSource();
+    const inner = source.getTransformRef();
+    if (root && inner) {
+      copy.setTransform(moveFrom(inner));
+      copy.setCloneSource(root);
+    } else {
+      copy.setTransform(outer);
+      copy.setCloneSource(source);
+    }
     allCloned.push(copy);
   };
 
@@ -140,5 +180,5 @@ export function cloneWithTransform(
     }
   }
 
-  return allCloned;
+  return { clones: allCloned, copies: remap };
 }

@@ -56,7 +56,9 @@ import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
-import { AnchorPurpose, ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
+import {
+  AnchorPurpose, ConnectorAnchorFrames, ConnectorAnchorSuggestions, suggestConnectorAnchors, suggestConnectorFrames,
+} from "./selection/connector-anchors.js";
 import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
@@ -448,7 +450,19 @@ class SceneManager {
     );
   }
 
-  /** Hover-time connector anchor suggestions for a picked face/edge. */
+  /**
+   * Hover-time connector anchors for a picked face/edge: frames, default name
+   * and the target file, without selector synthesis.
+   */
+  suggestConnectorFrames(
+    scene: Scene,
+    ref: PickRef,
+    purpose: AnchorPurpose = 'connector',
+  ): ConnectorAnchorFrames {
+    return suggestConnectorFrames(scene, ref, purpose);
+  }
+
+  /** Connector anchor suggestions plus the synthesized source expression for a picked face/edge. */
   suggestConnectorAnchors(
     scene: Scene,
     ref: PickRef,

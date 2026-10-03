@@ -1642,8 +1642,11 @@ export type ConnectorAnchorsResult =
     inPart: boolean;
     /** A connector name unique within the enclosing part (`c1`, `c2`, …); null outside a part. */
     defaultName: string | null;
-    /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
-    args: string;
+    /**
+     * Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`;
+     * null on a frames-only answer.
+     */
+    args: string | null;
     anchors: ConnectorAnchorCandidate[];
   }
   | { ok: false; reason: string | null };
@@ -1653,26 +1656,29 @@ export type AnchorPurpose = 'connector' | 'hole';
 
 /**
  * The connector anchors a hovered face/edge supports — the suggestion the
- * tool draws before the user clicks. Refusals (geometry outside a part() for
- * a connector, an unresolvable pick) come back as `ok: false` with the
- * reason to show.
+ * tool draws before the user clicks. `framesOnly` skips the source
+ * expression (`args` comes back null): the anchors answer in milliseconds,
+ * where the expression is a selector search over the whole part. Refusals
+ * (geometry outside a part() for a connector, an unresolvable pick) come
+ * back as `ok: false` with the reason to show.
  */
 export async function fetchConnectorAnchors(
   entity: ApplyFeatureEntity,
   signal?: AbortSignal,
   purpose: AnchorPurpose = 'connector',
+  framesOnly = false,
 ): Promise<ConnectorAnchorsResult> {
   const res = await fetch('api/selection/connector-anchors', {
     method: 'POST',
     headers: JSON_HEADERS,
     signal,
-    body: JSON.stringify({ entity, purpose }),
+    body: JSON.stringify({ entity, purpose, ...(framesOnly ? { frames: true } : {}) }),
   });
   const body = await res.json().catch(() => null);
   if (res.ok && body?.success === true) {
     return {
       ok: true, inPart: body.inPart ?? true, defaultName: body.defaultName ?? null,
-      args: body.args, anchors: body.anchors ?? [],
+      args: body.args ?? null, anchors: body.anchors ?? [],
     };
   }
   return { ok: false, reason: body?.reason ?? body?.error ?? null };

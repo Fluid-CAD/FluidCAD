@@ -65,18 +65,46 @@ export type ConnectorAnchorSuggestions =
   | { ok: false; reason: string };
 
 /**
- * Hover-time connector suggestions for a picked face or edge: the anchors the
- * tool can snap to (face center; edge center/start/end) with their exact
- * frames, plus the synthesized source expression and a free default name.
- * A connector needs an enclosing part; a hole placement does not. Read-only
- * over a built scene — the apply route re-synthesizes on commit.
+ * The anchors a pick offers, without the selector synthesis: what the hover
+ * rail draws. Milliseconds, where {@link suggestConnectorAnchors} runs a
+ * filter search over the whole part. Refuses what synthesis would refuse
+ * up front — an unresolvable pick, a connector outside a part.
  */
-export function suggestConnectorAnchors(
-  scene: SelectionScene,
-  ref: PickRef,
-  options: SynthesizeOptions = {},
-  purpose: AnchorPurpose = 'connector',
-): ConnectorAnchorSuggestions {
+export type ConnectorAnchorFrames =
+  | {
+    ok: true;
+    /**
+     * Whether committing the anchor creates a connector in its part. Always
+     * true for a connector; for a hole, provisional — the enclosing part()
+     * lives in the picked solid's own file — until synthesis confirms it.
+     */
+    inPart: boolean;
+    /** A connector name unique within the enclosing part (`c1`, `c2`, …); null outside a part. */
+    defaultName: string | null;
+    /**
+     * The file a committed statement lands in — the enclosing part()'s own
+     * file (synthesis refuses a pick whose producers live elsewhere), or the
+     * picked solid's file outside a part. Callers build file-coupled
+     * synthesis options (namer/params) over it before the one synthesis pass.
+     */
+    filePath: string | null;
+    anchors: ConnectorAnchorCandidate[];
+  }
+  | { ok: false; reason: string };
+
+/** The pick's anchors and naming, shared by both suggestion forms. */
+type AnchorBasics =
+  | {
+    ok: true;
+    /** A free connector name in the enclosing part, null outside one. */
+    allocatedName: string | null;
+    partFile: string | null;
+    ownerFile: string | null;
+    anchors: ConnectorAnchorCandidate[];
+  }
+  | { ok: false; reason: string };
+
+function anchorBasics(scene: SelectionScene, ref: PickRef, purpose: AnchorPurpose): AnchorBasics {
   const index = new SelectionIndex(scene);
   let picked: Shape | null;
   let solidOwner: SceneObject | null;
@@ -98,22 +126,9 @@ export function suggestConnectorAnchors(
       reason: 'connectors attach to geometry inside a part() block — wrap the feature statements in part(...)',
     };
   }
-  const defaultName = enclosing ? allocateConnectorName(enclosing) : null;
 
-  // Reuse the full synthesis pipeline (part scoping, file checks, selector
-  // ranking) with the kind the commit synthesizes — the default name is
-  // unique, so the connector name guards always pass.
-  const synthesis = synthesizeApplyFeature(scene, [ref], purpose, purpose === 'connector' ? defaultName : undefined, [], options);
-  if (synthesis.ok === false) {
-    return { ok: false, reason: synthesis.reason };
-  }
-  // A hole makes a connector only in a part of the pick's own file — the
-  // part the synthesis reports, exactly as the apply route decides.
-  const inPart = purpose === 'connector' || synthesis.spec.hole?.part !== undefined;
-
-  const specs = anchorSpecsForShape(picked);
   const anchors: ConnectorAnchorCandidate[] = [];
-  for (const spec of specs) {
+  for (const spec of anchorSpecsForShape(picked)) {
     let frame: Plane;
     try {
       frame = anchorFrameFromShape(picked, spec);
@@ -139,11 +154,77 @@ export function suggestConnectorAnchors(
 
   return {
     ok: true,
+    allocatedName: enclosing ? allocateConnectorName(enclosing) : null,
+    partFile: enclosing?.getSourceLocation()?.filePath ?? null,
+    ownerFile: solidOwner?.getSourceLocation()?.filePath ?? null,
+    anchors,
+  };
+}
+
+/**
+ * Hover-time anchors for a picked face or edge (face center; edge
+ * center/start/end) with their exact frames and a free default name — no
+ * selector synthesis, so the hover answers in milliseconds on any model.
+ * The source expression is synthesized once, when the pick is committed.
+ */
+export function suggestConnectorFrames(
+  scene: SelectionScene,
+  ref: PickRef,
+  purpose: AnchorPurpose = 'connector',
+): ConnectorAnchorFrames {
+  const basics = anchorBasics(scene, ref, purpose);
+  if (basics.ok === false) {
+    return basics;
+  }
+  const inPart = purpose === 'connector'
+    || (basics.partFile !== null && basics.partFile === basics.ownerFile);
+  return {
+    ok: true,
     inPart,
-    defaultName: inPart ? defaultName : null,
+    defaultName: inPart ? basics.allocatedName : null,
+    filePath: inPart ? basics.partFile : basics.ownerFile,
+    anchors: basics.anchors,
+  };
+}
+
+/**
+ * Connector suggestions for a picked face or edge: the anchors the tool can
+ * snap to (face center; edge center/start/end) with their exact frames,
+ * plus the synthesized source expression and a free default name. A
+ * connector needs an enclosing part; a hole placement does not. Read-only
+ * over a built scene — the apply route re-synthesizes on commit.
+ */
+export function suggestConnectorAnchors(
+  scene: SelectionScene,
+  ref: PickRef,
+  options: SynthesizeOptions = {},
+  purpose: AnchorPurpose = 'connector',
+): ConnectorAnchorSuggestions {
+  const basics = anchorBasics(scene, ref, purpose);
+  if (basics.ok === false) {
+    return basics;
+  }
+
+  // Reuse the full synthesis pipeline (part scoping, file checks, selector
+  // ranking) with the kind the commit synthesizes — the default name is
+  // unique, so the connector name guards always pass.
+  const synthesis = synthesizeApplyFeature(
+    scene, [ref], purpose, purpose === 'connector' ? basics.allocatedName : undefined, [], options,
+  );
+  if (synthesis.ok === false) {
+    return { ok: false, reason: synthesis.reason };
+  }
+  // A hole makes a connector only in a part of the pick's own file — the
+  // part the synthesis reports, exactly as the apply route decides.
+  const inPart = purpose === 'connector' || synthesis.spec.hole?.part !== undefined;
+
+  return {
+    ok: true,
+    inPart,
+    defaultName: inPart ? basics.allocatedName : null,
     args: synthesis.args,
     filePath: synthesis.spec.filePath ?? null,
-    anchors,
+    anchors: basics.anchors,
   };
 }
 

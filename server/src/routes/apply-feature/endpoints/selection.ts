@@ -1,6 +1,6 @@
 // Read-only selection and statement endpoints: attribution, sketch names, feature sources, connector anchors and statement parsing.
 
-import type { Router } from 'express';
+import type { Response, Router } from 'express';
 import type { SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import {
   parseFeatureStatement,
@@ -235,12 +235,14 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
     (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));
 
-  // Hover-time connector anchor suggestions: the anchors a picked face/edge
-  // supports (face center; edge center/start/end) with exact frames, the
-  // synthesized source expression, and a name unique within the part. The
-  // connector tool renders the suggestion triad from these frames and the
-  // apply branch above re-synthesizes on commit. `purpose: 'hole'` (the
-  // Hole dialog) also suggests anchors outside a part and reports `inPart`.
+  // Connector anchor suggestions: the anchors a picked face/edge supports
+  // (face center; edge center/start/end) with exact frames, a name unique
+  // within the part and — unless `frames: true` — the synthesized source
+  // expression. The hover rail asks for frames only: those take
+  // milliseconds, where synthesis searches the whole part for a selector;
+  // the expression is synthesized once, when a pick is committed (the Hole
+  // dialog's lock, the connector's preview). `purpose: 'hole'` also
+  // suggests anchors outside a part and reports `inPart`.
   router.post('/selection/connector-anchors', async (req, res) => {
     const pick = validatePick(req.body?.entity);
     if (!pick) {
@@ -252,39 +254,74 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       res.status(400).json({ error: "purpose must be 'connector' or 'hole'" });
       return;
     }
+    const framesOnly = req.body?.frames === true;
     try {
-      // Two-pass, mirroring the connector create branch: the bare pass
-      // learns the statement's target file; the real pass builds
-      // namer/params over that file so the suggested args match what the
-      // commit writes.
-      const probe = fluidCadServer.suggestConnectorAnchors(pick, undefined, purpose);
-      if (!probe) {
+      if (!fluidCadServer.hasConnectorFrames()) {
+        // A workspace kernel predating synthesis-free anchors: the full
+        // answer, two-pass — the bare pass learns the statement's target
+        // file, the real pass builds namer/params over it.
+        const probe = fluidCadServer.suggestConnectorAnchors(pick, undefined, purpose);
+        if (!probe) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (probe.ok === false) {
+          res.json({ success: false, reason: probe.reason });
+          return;
+        }
+        const fileOptions = await synthesisOptionsForFile(probe.filePath);
+        const result = fileOptions
+          ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions, purpose) ?? probe
+          : probe;
+        sendAnchors(res, result);
+        return;
+      }
+
+      const frames = fluidCadServer.suggestConnectorFrames(pick, purpose);
+      if (!frames) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
       }
-      if (probe.ok === false) {
-        res.json({ success: false, reason: probe.reason });
+      if (frames.ok === false) {
+        res.json({ success: false, reason: frames.reason });
         return;
       }
-      const fileOptions = await synthesisOptionsForFile(probe.filePath);
-      const result = fileOptions
-        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions, purpose) ?? probe
-        : probe;
-      if (result.ok === false) {
-        res.json({ success: false, reason: result.reason });
+      if (framesOnly) {
+        sendAnchors(res, { ...frames, args: null });
         return;
       }
-      res.json({
-        success: true,
-        // A kernel that predates `inPart` only ever answers inside a part.
-        inPart: result.inPart ?? true,
-        defaultName: result.defaultName,
-        args: result.args,
-        filePath: result.filePath,
-        anchors: result.anchors,
-      });
+      // The frames name the file the statement lands in, so one synthesis
+      // pass runs with namer/params built over that file. Should synthesis
+      // place it elsewhere, the options follow it there.
+      let result = fluidCadServer.suggestConnectorAnchors(pick, await synthesisOptionsForFile(frames.filePath), purpose);
+      if (result?.ok && result.filePath && result.filePath !== frames.filePath) {
+        result = fluidCadServer.suggestConnectorAnchors(pick, await synthesisOptionsForFile(result.filePath), purpose)
+          ?? result;
+      }
+      if (!result) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      sendAnchors(res, result);
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
     }
+  });
+}
+
+/** Answer a connector-anchors request with a kernel suggestion (`args` null for frames only). */
+function sendAnchors(res: Response, result: any): void {
+  if (result.ok === false) {
+    res.json({ success: false, reason: result.reason });
+    return;
+  }
+  res.json({
+    success: true,
+    // A kernel that predates `inPart` only ever answers inside a part.
+    inPart: result.inPart ?? true,
+    defaultName: result.defaultName,
+    args: result.args,
+    filePath: result.filePath,
+    anchors: result.anchors,
   });
 }

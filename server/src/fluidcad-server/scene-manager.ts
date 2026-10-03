@@ -81,6 +81,13 @@ export type SceneManager = {
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
+  // Optional: may predate the synthesis-free hover anchors (older kernels
+  // only answer through suggestConnectorAnchors).
+  suggestConnectorFrames?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    purpose?: 'connector' | 'hole',
+  ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate connector anchor suggestions.
   suggestConnectorAnchors?(

@@ -12,7 +12,7 @@ import { edge, face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { scopedSceneBefore } from "../../selection/types.js";
-import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
+import { suggestConnectorAnchors, suggestConnectorFrames } from "../../selection/connector-anchors.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
 import { Connector } from "../../features/connector.js";
 import { Edge } from "../../common/edge.js";
@@ -511,6 +511,65 @@ describe("connector synthesis", () => {
     if (suggestion.ok) {
       expect(suggestion.inPart).toBe(true);
       expect(suggestion.defaultName).toBe('c1');
+    }
+  });
+
+  it("suggests the same anchors, name and target file without synthesizing a selector", () => {
+    const { scene, topFace } = makePartScene();
+    const solid = findSolid(scene);
+    const topEdge = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6)[0];
+
+    for (const ref of [topFace, topEdge]) {
+      const frames = suggestConnectorFrames(scene, ref);
+      const full = suggestConnectorAnchors(scene, ref);
+      expect(frames.ok).toBe(true);
+      expect(full.ok).toBe(true);
+      if (frames.ok && full.ok) {
+        expect(frames).not.toHaveProperty('args');
+        expect(frames.anchors).toEqual(full.anchors);
+        expect(frames.defaultName).toBe(full.defaultName);
+        expect(frames.inPart).toBe(full.inPart);
+        // The file a committed statement lands in, known before synthesis.
+        expect(frames.filePath).toBe(full.filePath);
+        expect(frames.filePath).toBe('/ws/model.fluid.js');
+      }
+    }
+  });
+
+  it("refuses connector frames outside a part() and offers hole frames there", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30);
+    setLocation(e, 3);
+    const scene = render();
+    const solid = findSolid(scene);
+    const top = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6)[0];
+
+    const connectorFrames = suggestConnectorFrames(scene, top);
+    expect(connectorFrames.ok).toBe(false);
+    if (connectorFrames.ok === false) {
+      expect(connectorFrames.reason).toContain('part()');
+    }
+
+    const holeFrames = suggestConnectorFrames(scene, top, 'hole');
+    expect(holeFrames.ok).toBe(true);
+    if (holeFrames.ok) {
+      expect(holeFrames.inPart).toBe(false);
+      expect(holeFrames.defaultName).toBeNull();
+      expect(holeFrames.filePath).toBe('/ws/model.fluid.js');
+      expect(holeFrames.anchors.map(a => a.anchor.kind)).toEqual(['center']);
+    }
+  });
+
+  it("reports hole frames inside a part() as ones that create a connector", () => {
+    const { scene, topFace } = makePartScene();
+
+    const frames = suggestConnectorFrames(scene, topFace, 'hole');
+    expect(frames.ok).toBe(true);
+    if (frames.ok) {
+      expect(frames.inPart).toBe(true);
+      expect(frames.defaultName).toBe('c1');
     }
   });
 });

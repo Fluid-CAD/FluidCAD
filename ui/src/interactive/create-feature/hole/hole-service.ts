@@ -105,6 +105,8 @@ export class HoleFeatureService {
     this.suggestions = new AnchorSuggestions(viewer, this.connectorGhost, {
       isTaken: (key, index) => this.placements.hasAnchor(key, index),
       purpose: 'hole',
+      // A placement writes the synthesized anchor expression.
+      needsArgs: true,
     });
     this.suggestions.onLock = (locked) => {
       this.placements.toggleAnchor(locked);

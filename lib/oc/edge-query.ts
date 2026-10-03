@@ -15,43 +15,106 @@ export type EdgeGeometry =
   | { kind: 'circle'; radius: number; closed: boolean; center: Point; axisDirection: Vector3d }
   | { kind: 'other' };
 
+/**
+ * What the edge filters ask of one edge, kept per wrapper. A wrapper's OC
+ * shape never changes while it lives, so each answer holds for its
+ * lifetime — and selector synthesis asks the same ones (`line()`,
+ * `parallelTo('xy')`, `verticalTo('yz')`…) of every edge in scope, once per
+ * candidate atom, per pick. Plane questions are keyed by the exact plane.
+ */
+type EdgeFacts = {
+  /** The recovered geometry, with the tolerance it was recovered at (unit-dependent). */
+  geometry?: { tolerance: number; value: EdgeGeometry };
+  onPlane?: Map<string, boolean>;
+  parallelTo?: Map<string, boolean>;
+  alignedWith?: Map<string, boolean>;
+};
+
+const edgeFacts = new WeakMap<Shape, EdgeFacts>();
+
+function edgeFactsOf(edge: Shape): EdgeFacts {
+  let facts = edgeFacts.get(edge);
+  if (!facts) {
+    facts = {};
+    edgeFacts.set(edge, facts);
+  }
+  return facts;
+}
+
+function vectorKey(v: { x: number; y: number; z: number }): string {
+  return `${v.x},${v.y},${v.z}`;
+}
+
+/** The answer `compute` gives for `key`, asked once. */
+function remembered(answers: Map<string, boolean>, key: string, compute: () => boolean): boolean {
+  let answer = answers.get(key);
+  if (answer === undefined) {
+    answer = compute();
+    answers.set(key, answer);
+  }
+  return answer;
+}
+
 export class EdgeQuery {
 
   /** See {@link EdgeQuery.geometryTolerance}. */
   private static readonly GEOMETRY_TOLERANCE_MM = 1e-3;
 
-  // Wrapper methods (public API for external callers)
+  // Wrapper methods (public API for external callers). The predicates below
+  // answer from the wrapper's cached facts; the Raw forms always ask OCCT.
   static isCircleEdge(edge: Shape, diameter?: number): boolean {
-    return EdgeQuery.isCircleEdgeRaw(edge.getShape(), diameter);
+    return EdgeQuery.isCircleGeometry(EdgeQuery.cachedGeometry(edge), diameter);
   }
 
   static isArcEdge(edge: Shape, radius?: number): boolean {
-    return EdgeQuery.isArcEdgeRaw(edge.getShape(), radius);
+    return EdgeQuery.isArcGeometry(EdgeQuery.cachedGeometry(edge), radius);
   }
 
   static isLineEdge(edge: Shape, length?: number): boolean {
-    return EdgeQuery.isLineEdgeRaw(edge.getShape(), length);
+    return EdgeQuery.isLineGeometry(EdgeQuery.cachedGeometry(edge), length);
   }
 
   static isEdgeOnPlane(edge: Shape, plane: Plane): boolean {
-    const [gpPln, dispose] = Convert.toGpPln(plane);
-    const result = EdgeQuery.isEdgeOnPlaneRaw(edge.getShape(), gpPln);
-    dispose();
-    return result;
+    const facts = edgeFactsOf(edge);
+    facts.onPlane ??= new Map();
+    return remembered(facts.onPlane, `${vectorKey(plane.origin)}|${vectorKey(plane.normal)}`, () => {
+      const [gpPln, dispose] = Convert.toGpPln(plane);
+      const result = EdgeQuery.isEdgeOnPlaneRaw(edge.getShape(), gpPln);
+      dispose();
+      return result;
+    });
   }
 
   static isEdgeParallelToPlane(edge: Shape, planeNormal: Vector3d): boolean {
-    const [gpVec, dispose] = Convert.toGpVec(planeNormal);
-    const result = EdgeQuery.isEdgeParallelToPlaneRaw(edge.getShape(), gpVec);
-    dispose();
-    return result;
+    const facts = edgeFactsOf(edge);
+    facts.parallelTo ??= new Map();
+    return remembered(facts.parallelTo, vectorKey(planeNormal), () => {
+      const [gpVec, dispose] = Convert.toGpVec(planeNormal);
+      const result = EdgeQuery.isEdgeParallelToPlaneRaw(edge.getShape(), gpVec);
+      dispose();
+      return result;
+    });
   }
 
   static isEdgeAlignedWithNormal(edge: Shape, planeNormal: Vector3d): boolean {
-    const [gpVec, dispose] = Convert.toGpVec(planeNormal);
-    const result = EdgeQuery.isEdgeAlignedWithNormalRaw(edge.getShape(), gpVec);
-    dispose();
-    return result;
+    const facts = edgeFactsOf(edge);
+    facts.alignedWith ??= new Map();
+    return remembered(facts.alignedWith, vectorKey(planeNormal), () => {
+      const [gpVec, dispose] = Convert.toGpVec(planeNormal);
+      const result = EdgeQuery.isEdgeAlignedWithNormalRaw(edge.getShape(), gpVec);
+      dispose();
+      return result;
+    });
+  }
+
+  /** {@link getEdgeGeometryRaw}, kept per wrapper for the tolerance it was recovered at. */
+  private static cachedGeometry(edge: Shape): EdgeGeometry {
+    const facts = edgeFactsOf(edge);
+    const tolerance = EdgeQuery.geometryTolerance();
+    if (facts.geometry?.tolerance !== tolerance) {
+      facts.geometry = { tolerance, value: EdgeQuery.getEdgeGeometryRaw(edge.getShape()) };
+    }
+    return facts.geometry.value;
   }
 
   static isEdgeClosedCurve(edge: Edge): boolean {
@@ -89,23 +152,32 @@ export class EdgeQuery {
 
   // Raw methods (for oc-internal and common/ use)
   static isCircleEdgeRaw(edge: TopoDS_Shape, diameter?: number): boolean {
-    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    return EdgeQuery.isCircleGeometry(EdgeQuery.getEdgeGeometryRaw(edge), diameter);
+  }
+
+  static isArcEdgeRaw(edge: TopoDS_Shape, radius?: number): boolean {
+    return EdgeQuery.isArcGeometry(EdgeQuery.getEdgeGeometryRaw(edge), radius);
+  }
+
+  static isLineEdgeRaw(edge: TopoDS_Shape, length?: number): boolean {
+    return EdgeQuery.isLineGeometry(EdgeQuery.getEdgeGeometryRaw(edge), length);
+  }
+
+  private static isCircleGeometry(geometry: EdgeGeometry, diameter?: number): boolean {
     if (geometry.kind !== 'circle' || !geometry.closed) {
       return false;
     }
     return diameter === undefined || EdgeQuery.sameLength(geometry.radius, diameter / 2);
   }
 
-  static isArcEdgeRaw(edge: TopoDS_Shape, radius?: number): boolean {
-    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+  private static isArcGeometry(geometry: EdgeGeometry, radius?: number): boolean {
     if (geometry.kind !== 'circle' || geometry.closed) {
       return false;
     }
     return radius === undefined || EdgeQuery.sameLength(geometry.radius, radius);
   }
 
-  static isLineEdgeRaw(edge: TopoDS_Shape, length?: number): boolean {
-    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+  private static isLineGeometry(geometry: EdgeGeometry, length?: number): boolean {
     if (geometry.kind !== 'line') {
       return false;
     }

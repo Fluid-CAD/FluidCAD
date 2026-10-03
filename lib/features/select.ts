@@ -11,7 +11,6 @@ import { ShapeType } from "../common/shape-type.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
-import { ShapeHasher } from "../oc/shape-hash.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Sketch } from "./2d/sketch.js";
@@ -163,9 +162,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     }
 
     const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope, fromObjects);
-    let scopeHasher: ShapeHasher | null = null;
     if (type === "edge") {
-      scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
+      SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
     }
     const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
     try {
@@ -175,7 +173,6 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
         filter.setMembershipSet(null);
         set.delete();
       }
-      scopeHasher?.delete();
     }
   }
 
@@ -332,8 +329,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     filters: FilterBuilderBase<Shape>[],
     sceneObjects: SceneObject[],
     removalScope?: Set<SceneObject>,
-  ): ShapeHasher | null {
-    return injectFilterScope(filters, () => ({
+  ): void {
+    injectFilterScope(filters, () => ({
       solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid', removalScope)) as Solid[],
       extraFaces: [],
     }));

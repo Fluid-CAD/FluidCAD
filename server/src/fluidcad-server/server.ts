@@ -63,6 +63,9 @@ import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
+/** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
+const SYNTHESIS_MEMO_LIMIT = 32;
+
 /**
  * `sessionId` is the per-renderer state key. In desktop mode it equals the
  * file path being edited (so per-file state survives switching files). In
@@ -82,6 +85,12 @@ export class FluidCadServer {
   // connection UUID. Maps must be cleared via `destroySession` on hub-side
   // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
+  /**
+   * Selector synthesis answers per rendered scene (see
+   * {@link synthesizeApplyFeatureCached}). Keyed weakly by the scene object,
+   * so a re-render — a new scene — starts empty and nothing outlives it.
+   */
+  private synthesisMemo = new WeakMap<object, Map<string, any>>();
   private readonly timelineHistory = new TimelineHistory();
   // A session's last complete render, served again on `process-file` — but
   // only while `fingerprint` (every file it was built from + the overrides it
@@ -1295,6 +1304,50 @@ export class FluidCadServer {
   }
 
   /**
+   * {@link synthesizeApplyFeature}, remembered for the rendered scene it ran
+   * against. A dialog's preview and its Apply synthesize the same picks with
+   * the same options over the same scene — on a large part that is a second
+   * filter search of the whole model for the answer the preview already
+   * holds. `optionsKey` stands for the function-valued options
+   * (namer/bindable/params), which cannot be compared: callers pass the
+   * `key` `makeSynthesisOptionsForFile` returns with them, or null to skip
+   * the memo. Callers must treat the result as read-only.
+   */
+  synthesizeApplyFeatureCached(
+    optionsKey: string | null,
+    refs: Parameters<FluidCadServer['synthesizeApplyFeature']>[0],
+    feature: Parameters<FluidCadServer['synthesizeApplyFeature']>[1],
+    value: number | string | undefined,
+    chains: Parameters<FluidCadServer['synthesizeApplyFeature']>[3] = [],
+    options?: Parameters<FluidCadServer['synthesizeApplyFeature']>[4],
+    before?: SelectionBoundary,
+  ): any {
+    const scene = this.sceneManager ? this.previousScenes.get(this.currentFileName) : undefined;
+    if (!scene || optionsKey === null) {
+      return this.synthesizeApplyFeature(refs, feature, value, chains, options, before);
+    }
+    const key = JSON.stringify([
+      optionsKey, refs, feature, value ?? null, chains, options?.connector ?? null, before ?? null,
+    ]);
+    let entries = this.synthesisMemo.get(scene);
+    if (!entries) {
+      entries = new Map();
+      this.synthesisMemo.set(scene, entries);
+    }
+    if (entries.has(key)) {
+      return entries.get(key);
+    }
+    const result = this.synthesizeApplyFeature(refs, feature, value, chains, options, before);
+    // A scene lives until the next render, while a session can preview many
+    // picks against it — keep the most recent answers only.
+    if (entries.size >= SYNTHESIS_MEMO_LIMIT) {
+      entries.delete(entries.keys().next().value!);
+    }
+    entries.set(key, result);
+    return result;
+  }
+
+  /**
    * Consumer-side pick resolution: the picked geometry's enclosing part and
    * that part's matching exposure, for the cross-part reference flow.
    * Read-only over the rendered scene. Null when there is no scene or the
@@ -1353,11 +1406,36 @@ export class FluidCadServer {
     return this.sceneManager.resolveContactPick(scene, ref);
   }
 
+  /** Whether the workspace kernel answers synthesis-free hover anchors ({@link suggestConnectorFrames}). */
+  hasConnectorFrames(): boolean {
+    return typeof this.sceneManager?.suggestConnectorFrames === 'function';
+  }
+
   /**
-   * Hover-time connector anchor suggestions for a picked face/edge: exact
-   * anchor frames plus the synthesized source expression and a free default
-   * name. A `'hole'` purpose also suggests anchors outside a part. Read-only
-   * over the rendered scene.
+   * Hover-time connector anchors for a picked face/edge: exact anchor frames,
+   * a free default name and the file a committed statement lands in — no
+   * selector synthesis. Null when there is no rendered scene; callers check
+   * {@link hasConnectorFrames} first.
+   */
+  suggestConnectorFrames(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    purpose: 'connector' | 'hole' = 'connector',
+  ): any {
+    if (!this.sceneManager?.suggestConnectorFrames) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.suggestConnectorFrames(scene, ref, purpose);
+  }
+
+  /**
+   * Connector anchor suggestions for a picked face/edge: exact anchor frames
+   * plus the synthesized source expression and a free default name. A
+   * `'hole'` purpose also suggests anchors outside a part. Read-only over the
+   * rendered scene.
    */
   suggestConnectorAnchors(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },

@@ -10,6 +10,33 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { mmTol } from "../units/tolerance.js";
 
+/**
+ * What the surface-class filters (`planar()`, `cylinder()`,
+ * `cylinderCurve()`) read off one face, kept per wrapper. A wrapper's OC
+ * shape never changes while it lives, so the answers hold for its lifetime
+ * — and selector synthesis asks them of the same scene faces once per
+ * candidate atom, per request (every edge's adjacent faces, for each
+ * `belongsToFace(face()…)` atom). Fields fill lazily: the rim walk only
+ * runs for cylinders.
+ */
+type SurfaceFacts = {
+  planar?: boolean;
+  /** The cylinder's radius, null when the face is not a cylinder. */
+  cylinderRadius?: number | null;
+  closedRim?: boolean;
+};
+
+const surfaceFacts = new WeakMap<Shape, SurfaceFacts>();
+
+function surfaceFactsOf(face: Shape): SurfaceFacts {
+  let facts = surfaceFacts.get(face);
+  if (!facts) {
+    facts = {};
+    surfaceFacts.set(face, facts);
+  }
+  return facts;
+}
+
 export class FaceQuery {
   // Wrapper methods (public API for external callers)
   static isCircleFace(face: Shape, diameter?: number): boolean {
@@ -20,12 +47,38 @@ export class FaceQuery {
     return FaceQuery.isConeFaceRaw(face.getShape());
   }
 
+  /** {@link isCylinderFaceRaw}, answered from the wrapper's cached surface facts. */
   static isCylinderFace(face: Shape, diameter?: number): boolean {
-    return FaceQuery.isCylinderFaceRaw(face.getShape(), diameter);
+    const radius = FaceQuery.cachedCylinderRadius(face);
+    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+      return false;
+    }
+    return FaceQuery.cachedClosedRim(face);
   }
 
+  /** {@link isCylinderCurveFaceRaw}, answered from the wrapper's cached surface facts. */
   static isCylinderCurveFace(face: Shape, diameter?: number): boolean {
-    return FaceQuery.isCylinderCurveFaceRaw(face.getShape(), diameter);
+    const radius = FaceQuery.cachedCylinderRadius(face);
+    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+      return false;
+    }
+    return !FaceQuery.cachedClosedRim(face);
+  }
+
+  private static cachedCylinderRadius(face: Shape): number | null {
+    const facts = surfaceFactsOf(face);
+    if (facts.cylinderRadius === undefined) {
+      facts.cylinderRadius = FaceQuery.cylinderRadiusRaw(face.getShape());
+    }
+    return facts.cylinderRadius;
+  }
+
+  private static cachedClosedRim(face: Shape): boolean {
+    const facts = surfaceFactsOf(face);
+    if (facts.closedRim === undefined) {
+      facts.closedRim = FaceQuery.hasClosedCircularRimRaw(face.getShape());
+    }
+    return facts.closedRim;
   }
 
   static isTorusFace(face: Shape, majorRadius?: number, minorRadius?: number): boolean {
@@ -65,8 +118,13 @@ export class FaceQuery {
     return result;
   }
 
+  /** {@link isPlanarFaceRaw}, answered from the wrapper's cached surface facts. */
   static isPlanarFace(face: Shape): boolean {
-    return FaceQuery.isPlanarFaceRaw(face.getShape());
+    const facts = surfaceFactsOf(face);
+    if (facts.planar === undefined) {
+      facts.planar = FaceQuery.isPlanarFaceRaw(face.getShape());
+    }
+    return facts.planar;
   }
 
   static getSurfaceType(face: Shape): string {

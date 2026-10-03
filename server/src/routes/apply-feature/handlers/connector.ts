@@ -54,32 +54,48 @@ export async function handleConnector(ctx: ApplyFeatureRequestContext, req: Requ
       rotate,
       offset: frameOffset,
     };
-    // Two-pass: a bare synthesis learns which file the statement lands
-    // in (the picked producers' file — the PART file under an assembly
-    // render), then the real pass runs with namer/params built over
-    // that file's code so binding names and linked constants are the
-    // target file's, not the open buffer's.
-    const probe = fluidCadServer.synthesizeApplyFeature(
-      picks, 'connector', name, [], { connector: connectorOptions },
-    );
-    if (!probe) {
-      res.status(404).json({ success: false, reason: 'No rendered scene' });
-      return;
+    // Namer/params must be built over the file the statement lands in —
+    // the PART file under an assembly render — so binding names and
+    // linked constants are the target file's, not the open buffer's. The
+    // pick's anchor frames name that file (the enclosing part's; synthesis
+    // refuses any other) without a synthesis pass, so one pass runs, and
+    // through the per-scene memo: the dialog's preview already ran the
+    // very synthesis its Apply asks for.
+    const target = picks.length === 1 && fluidCadServer.hasConnectorFrames()
+      ? fluidCadServer.suggestConnectorFrames(picks[0], 'connector')
+      : null;
+    let synthesis: any;
+    if (target?.ok) {
+      const fileOptions = await synthesisOptionsForFile(target.filePath);
+      synthesis = fluidCadServer.synthesizeApplyFeatureCached(
+        fileOptions?.key ?? null, picks, 'connector', name, [], { ...fileOptions, connector: connectorOptions },
+      );
+    } else {
+      // Two-pass: a bare synthesis learns which file the statement lands
+      // in, then the real pass runs with namer/params built over it.
+      const probe = fluidCadServer.synthesizeApplyFeature(
+        picks, 'connector', name, [], { connector: connectorOptions },
+      );
+      if (!probe) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (!probe.ok) {
+        res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+        return;
+      }
+      const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+      synthesis = fileOptions
+        ? fluidCadServer.synthesizeApplyFeature(
+          picks, 'connector', name, [], { ...fileOptions, connector: connectorOptions },
+        )
+        : probe;
     }
-    if (!probe.ok) {
-      res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
-      return;
-    }
-    const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
-    const synthesis = fileOptions
-      ? fluidCadServer.synthesizeApplyFeature(
-        picks, 'connector', name, [], { ...fileOptions, connector: connectorOptions },
-      )
-      : probe;
     if (!synthesis || !synthesis.ok) {
       res.status(422).json({
         success: false,
         reason: synthesis && !synthesis.ok ? synthesis.reason : 'No rendered scene',
+        ...(synthesis?.pick ? { pick: synthesis.pick } : {}),
       });
       return;
     }

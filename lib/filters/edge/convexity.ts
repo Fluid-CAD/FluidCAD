@@ -1,7 +1,6 @@
 import { Matrix4 } from "../../math/matrix4.js";
 import { Edge, Face } from "../../common/shapes.js";
 import { Solid } from "../../common/solid.js";
-import { ShapeHasher } from "../../oc/shape-hash.js";
 import { EdgeConvexity, EdgeConvexityOps } from "../../oc/edge-convexity.js";
 import { FilterBase } from "../filter-base.js";
 import { ScopeAwareFilter } from "../scope-injection.js";
@@ -21,13 +20,18 @@ export class ConvexityFilter extends FilterBase<Edge> implements ScopeAwareFilte
     super();
   }
 
-  setScopeIndex(solids: Solid[], _extraFaces: Face[], _faceByHash: Map<number, Face[]>, _hasher: ShapeHasher): void {
+  setScopeIndex(solids: Solid[], _extraFaces: Face[]): void {
     this.scopeSolids = solids;
   }
 
   match(shape: Edge): boolean {
     let convexity: EdgeConvexity | null = null;
     for (const solid of this.scopeSolids) {
+      // A solid that does not bound the edge cannot classify it — the
+      // solid's cached edge→faces table says so without a native lookup.
+      if (solid.getFacesOfEdge(shape).length === 0) {
+        continue;
+      }
       convexity = EdgeConvexityOps.classify(shape, solid);
       if (convexity !== null) {
         break;

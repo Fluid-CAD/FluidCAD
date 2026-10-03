@@ -149,14 +149,8 @@ export function globalContext(
     universe,
     kindFn: kind,
     evaluate: (builders, shapes = universe) => {
-      const hasher = injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
-      try {
-        return new ShapeFilter(shapes, ...builders).apply();
-      } finally {
-        if (hasher) {
-          hasher.delete();
-        }
-      }
+      injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
+      return new ShapeFilter(shapes, ...builders).apply();
     },
     instantiate: attrs => kind === 'edge'
       ? instantiateEdgeAtoms(

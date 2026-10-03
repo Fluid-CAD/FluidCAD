@@ -19,6 +19,17 @@ let anchorCalls: unknown[];
 let anchorPurposes: unknown[];
 /** Per-test result for the anchor-suggestion endpoint. */
 let currentAnchors: any;
+/** Options each anchor suggestion carried, parallel to `anchorCalls`. */
+let anchorOptions: unknown[];
+/**
+ * Per-test result for the synthesis-free anchors; null stands for a kernel
+ * predating them (the routes fall back to their two-pass synthesis).
+ */
+let currentFrames: any;
+/** Picks and purposes forwarded to the synthesis-free anchors. */
+let framesCalls: { pick: unknown; purpose: unknown }[];
+/** The options key each memoized synthesis call carried. */
+let cachedSynthesisKeys: unknown[];
 /** Vertex-pick resolutions forwarded to the fake server's resolveSelection. */
 let resolveCalls: unknown[];
 /** Per-test result for resolveSelection (the vertex point synthesis). */
@@ -114,10 +125,23 @@ const fakeServer = {
     resolveCalls.push(request);
     return currentResolution;
   },
-  suggestConnectorAnchors: (pick: unknown, _options?: unknown, purpose?: unknown) => {
+  suggestConnectorAnchors: (pick: unknown, options?: unknown, purpose?: unknown) => {
     anchorCalls.push(pick);
+    anchorOptions.push(options);
     anchorPurposes.push(purpose);
     return currentAnchors;
+  },
+  hasConnectorFrames: () => currentFrames !== null,
+  suggestConnectorFrames: (pick: unknown, purpose?: unknown) => {
+    framesCalls.push({ pick, purpose });
+    return currentFrames;
+  },
+  synthesizeApplyFeatureCached: (
+    optionsKey: string | null, picks: unknown, feature: string, value: number | undefined,
+    chains?: unknown, options?: unknown, before?: unknown,
+  ) => {
+    cachedSynthesisKeys.push(optionsKey);
+    return fakeServer.synthesizeApplyFeature(picks, feature, value, chains, options, before);
   },
   explainSelection: (_picks: unknown, before?: unknown) => {
     queryCalls.push({ method: 'explainSelection', before });
@@ -189,8 +213,12 @@ describe('apply-feature route validation', () => {
     queryCalls = [];
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
     anchorCalls = [];
+    anchorOptions = [];
     anchorPurposes = [];
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
+    currentFrames = null;
+    framesCalls = [];
+    cachedSynthesisKeys = [];
     resolveCalls = [];
     currentResolution = { ok: false, code: 'no-match', reason: 'no vertex resolution configured' };
     exposureCalls = [];
@@ -6680,6 +6708,108 @@ describe('apply-feature route validation', () => {
       const { status } = await postAnchors({ entity: { shapeId: 's' } });
       expect(status).toBe(400);
       expect(anchorCalls).toEqual([]);
+    });
+
+    describe('with synthesis-free anchors', () => {
+      const PART_CODE = [
+        `import { part, sketch, circle, extrude } from 'fluidcad/core'`,
+        ``,
+        `export const plate = part('Plate', () => {`,
+        `  sketch('xy', () => { circle([0, 0], 100) })`,
+        `  const e = extrude(10)`,
+        `})`,
+        ``,
+      ].join('\n');
+      const FRAMES = {
+        ok: true, inPart: true, defaultName: 'c3', filePath: '/ws/m.fluid.js',
+        anchors: [{
+          anchor: { kind: 'center' }, suffix: '.center()',
+          frame: {
+            origin: { x: 1, y: 2, z: 3 },
+            xDirection: { x: 1, y: 0, z: 0 },
+            yDirection: { x: 0, y: 1, z: 0 },
+            normal: { x: 0, y: 0, z: 1 },
+          },
+          hoverPoint: { x: 1, y: 2, z: 3 },
+        }],
+      };
+
+      beforeEach(() => {
+        currentFrames = FRAMES;
+        currentCode = PART_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('answers a frames-only request without synthesizing', async () => {
+        const { status, body } = await postAnchors({ entity: PICK, frames: true });
+        expect(status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.args).toBeNull();
+        expect(body.defaultName).toBe('c3');
+        expect(body.anchors).toEqual(FRAMES.anchors);
+        expect(framesCalls).toEqual([{ pick: PICK, purpose: 'connector' }]);
+        expect(anchorCalls).toEqual([]);
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('surfaces a frames refusal without synthesizing', async () => {
+        currentFrames = { ok: false, reason: 'connectors attach to geometry inside a part() block' };
+        const { body } = await postAnchors({ entity: PICK });
+        expect(body.success).toBe(false);
+        expect(body.reason).toContain('part()');
+        expect(anchorCalls).toEqual([]);
+      });
+
+      it('synthesizes the full answer in one pass, with options built over the target file', async () => {
+        currentAnchors = { ...FRAMES, args: 'e.endFaces(0)' };
+        const { body } = await postAnchors({ entity: PICK, purpose: 'hole' });
+        expect(body.success).toBe(true);
+        expect(body.args).toBe('e.endFaces(0)');
+        expect(framesCalls).toEqual([{ pick: PICK, purpose: 'hole' }]);
+        expect(anchorCalls).toEqual([PICK]);
+        expect(anchorPurposes).toEqual(['hole']);
+        expect(anchorOptions[0]).toMatchObject({ params: [] });
+        expect(typeof (anchorOptions[0] as any).namer).toBe('function');
+      });
+
+      it('rebuilds the options when synthesis lands the statement in another file', async () => {
+        currentAnchors = { ...FRAMES, args: 'e.endFaces(0)', filePath: '/ws/other.part.js' };
+        const { body } = await postAnchors({ entity: PICK });
+        expect(body.success).toBe(true);
+        expect(anchorCalls).toHaveLength(2);
+      });
+
+      it('creates the connector in one memoized synthesis pass keyed by the file it lands in', async () => {
+        currentSynthesis = connectorSynthesis;
+        const request = { feature: 'connector', name: 'mountTop', entities: [PICK], anchor: { kind: 'center' } };
+        const preview = await post({ ...request, preview: true });
+        expect(preview.status).toBe(200);
+        const apply = await post(request);
+        expect(apply.status).toBe(200);
+        expect(relayed).toHaveLength(1);
+        // One pass per request (no bare probe), each through the memo with
+        // the same key — the server answers the Apply from the preview's.
+        expect(synthesizeCalls).toHaveLength(2);
+        expect(cachedSynthesisKeys).toHaveLength(2);
+        expect(typeof cachedSynthesisKeys[0]).toBe('string');
+        expect(cachedSynthesisKeys[1]).toBe(cachedSynthesisKeys[0]);
+        expect(framesCalls).toEqual([
+          { pick: PICK, purpose: 'connector' },
+          { pick: PICK, purpose: 'connector' },
+        ]);
+        expect((synthesizeOptions[0] as any)?.connector).toEqual({ anchor: { kind: 'center' } });
+      });
+
+      it('falls back to the two-pass synthesis when the pick has no frames', async () => {
+        currentFrames = { ok: false, reason: 'no connector anchor available on this shape' };
+        currentSynthesis = connectorSynthesis;
+        const { status } = await post({
+          feature: 'connector', name: 'mountTop', entities: [PICK], anchor: { kind: 'center' }, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(cachedSynthesisKeys).toEqual([]);
+        expect(synthesizeCalls).toHaveLength(2);
+      });
     });
 
   describe('hole', () => {

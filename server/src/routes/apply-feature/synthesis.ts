@@ -9,6 +9,7 @@ import {
   resolveParamValues,
   type ApplyFeatureEditSpec,
 } from '../../apply-feature-edit/index.ts';
+import { createHash } from 'crypto';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../../normalize-path.ts';
 import type { SketchLoc } from './locations.ts';
@@ -204,6 +205,10 @@ export async function allocateProducerVars(
  * unsaved part buffer can be stale here — the editor round-trip is what
  * verifies the final transform). Shared with the assembly-mate route's
  * tangent find-or-create.
+ *
+ * `key` identifies what the options were built from (the file, its code and
+ * the resolved params) — the stand-in for the function-valued options that
+ * `synthesizeApplyFeatureCached` keys its per-scene memo by.
  */
 export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
   return async (
@@ -212,6 +217,7 @@ export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
     namer: Awaited<ReturnType<typeof makeProducerNamer>>;
     bindable: Awaited<ReturnType<typeof makeProducerBindable>>;
     params: ReturnType<typeof resolveParamValues>;
+    key: string;
   } | undefined> => {
     const currentFile = fluidCadServer.getCurrentFileName();
     let code: string | null = null;
@@ -227,13 +233,17 @@ export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
     if (!code) {
       return undefined;
     }
+    const params = resolveParamValues(
+      await extractNumericParams(code),
+      fluidCadServer.getParamDefinitions(),
+    );
     return {
       namer: await makeProducerNamer(code),
       bindable: await makeProducerBindable(code),
-      params: resolveParamValues(
-        await extractNumericParams(code),
-        fluidCadServer.getParamDefinitions(),
-      ),
+      params,
+      key: createHash('sha1')
+        .update(filePath ?? '').update('\0').update(code).update('\0').update(JSON.stringify(params))
+        .digest('hex'),
     };
   };
 }

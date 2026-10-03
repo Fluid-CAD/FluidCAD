@@ -21,6 +21,10 @@ export class Solid extends Shape<TopoDS_Solid> {
   private allEdges: Edge[] = null;
   private edgeToFacesIndex: TopTools_IndexedDataMapOfShapeListOfShape | null = null;
   private hiddenEdgeSet: TopTools_MapOfShape | null = null;
+  /** {@link getFacesOfEdge}'s table: edge→faces index slot → this solid's face wrappers. */
+  private facesByEdgeSlot: Map<number, Face[]> | null = null;
+  /** {@link getFacesOfEdge}'s answers, per edge wrapper. */
+  private facesOfEdge = new WeakMap<Edge, Face[]>();
 
   constructor(solid: TopoDS_Solid) {
     super(solid);
@@ -133,9 +137,33 @@ export class Solid extends Shape<TopoDS_Solid> {
     return this.edgeToFacesIndex;
   }
 
+  /**
+   * This solid's faces that `edge` bounds, as the solid's own face wrappers
+   * in explorer order (the order its edge→faces index records them) — empty
+   * when the solid does not own the edge. The edge-scope filters
+   * (`belongsToFace`, `convex()`…) ask this of every edge in scope against
+   * every scope solid, once per candidate atom during selector synthesis,
+   * so the table is built once per solid and each edge's answer is kept.
+   */
+  getFacesOfEdge(edge: Edge): Face[] {
+    const known = this.facesOfEdge.get(edge);
+    if (known) {
+      return known;
+    }
+    const index = this.getEdgeToFacesIndex();
+    if (!this.facesByEdgeSlot) {
+      this.facesByEdgeSlot = TopologyIndex.groupFacesByEdgeSlot(index, this.getFaces());
+    }
+    const faces = this.facesByEdgeSlot.get(index.FindIndex(edge.getShape())) ?? [];
+    this.facesOfEdge.set(edge, faces);
+    return faces;
+  }
+
   override dispose() {
     this.edgeToFacesIndex?.delete();
     this.edgeToFacesIndex = null;
+    this.facesByEdgeSlot = null;
+    this.facesOfEdge = new WeakMap();
     this.hiddenEdgeSet?.delete();
     this.hiddenEdgeSet = null;
     super.dispose();
@@ -158,6 +186,8 @@ export class Solid extends Shape<TopoDS_Solid> {
     }
     this.edgeToFacesIndex?.delete();
     this.edgeToFacesIndex = null;
+    this.facesByEdgeSlot = null;
+    this.facesOfEdge = new WeakMap();
     this.hiddenEdgeSet?.delete();
     this.hiddenEdgeSet = null;
     this.faces = null;

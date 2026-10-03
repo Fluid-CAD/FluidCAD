@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import hole from "../../core/hole.js";
@@ -239,29 +239,30 @@ describe("hole() placements", () => {
     expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - 2 * cylinderVolume(3, PLATE.t), 3);
     const origins = h.getFrames().map(f => [f.origin.x, f.origin.y, f.origin.z].map(v => Math.round(v * 1e6) / 1e6));
     expect(origins).toEqual([[15, 5, PLATE.t], [-15, -5, PLATE.t]]);
-    // The sketch is referenced, not consumed: its circle still renders.
+    // The sketch is hidden for display only: later features still read its circle.
+    expectDisplayConsumed(scene, s as unknown as SceneObject);
     const circleObj = s.geometries.c as unknown as ISceneObject & { getShapes(): unknown[] };
     expect(circleObj.getShapes().length).toBeGreaterThan(0);
   });
 
-  it("leaves a guide layout on screen after placing holes on its corners", () => {
+  it("hides a guide layout after placing holes on its corners, with an eye to show it again", () => {
     sketch("xy", () => {
       testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
     });
     const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
     const layout = sketch(plate.endFaces(), () => ({ g: line([-15, 5], [15, 5]).guide() }));
     const g = layout.geometries.g as unknown as { start(): never; end(): never };
-    hole(3, g.start(), g.end());
+    const h = hole(3, g.start(), g.end()) as unknown as SceneObject;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
     expect(solidVolumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - 2 * cylinderVolume(3, PLATE.t), 3);
-    // The hole references the sketch: it stays visible, its guide still drawn.
+    // The hole hides the sketch like an extrude does: the row names its
+    // consumer (the timeline eye) and the guide leaves the screen.
     const row = scene.getRenderedObject(layout as unknown as SceneObject)!;
-    expect(row.visible).toBe(true);
-    expect(row.consumedBy).toBeUndefined();
-    expect(scene.getRenderedObject(layout.geometries.g as unknown as SceneObject)!.sceneShapes.map(shape => shape.isGuide))
-      .toEqual([true]);
+    expect(row.visible).toBe(false);
+    expect(row.consumedBy).toBe(h.id);
+    expect(scene.getRenderedObject(layout.geometries.g as unknown as SceneObject)!.sceneShapes).toEqual([]);
   });
 
   it("places holes on the guide of a sketch another feature consumed", () => {

@@ -12,6 +12,7 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { AnchoredLazyVertex } from "../anchored-vertex.js";
 import { SketchPointVertex } from "../sketch-point-ref.js";
 import { SolvedPoint } from "../2d/solved/point.js";
+import type { Sketch } from "../2d/sketch.js";
 import { Connector } from "../connector.js";
 import { PointResolver } from "../point-resolver.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
@@ -72,6 +73,12 @@ export function placementFrame(placement: HolePlacement): Plane {
     return new Plane(PointResolver.toWorld(ref), plane.xDirection, plane.normal);
   }
   return buildOrthonormalFrame(PointResolver.toWorld(ref), Vector3d.unitZ(), {});
+}
+
+/** The sketch a placement's point is drawn in; null for a connector, an anchor or a free point. */
+function placementSketch(placement: HolePlacement): Sketch | null {
+  const ref = placement instanceof SolvedPoint ? placement.start() : placement;
+  return ref instanceof SketchPointVertex ? ref.getSketch() : null;
 }
 
 /**
@@ -259,9 +266,13 @@ export class Hole extends SceneObject implements IHole {
     for (const placement of this.placements) {
       if (placement instanceof AnchoredLazyVertex) {
         // The anchor existed only to locate the point; its selection's
-        // highlight must not linger. Connectors and sketch points stay.
+        // highlight must not linger. Connectors stay.
         placement.consumeFor(this);
+        continue;
       }
+      // A sketch the hole is placed on leaves the screen like an extruded
+      // one: for display only, so later features can still read it.
+      placementSketch(placement)?.removeShapes(this);
     }
 
     // Classification reads one plane: the first placement's, facing the

@@ -148,7 +148,7 @@ hole('M6', p).clearance('close').counterbore().fasten(base, null, 12, 118).scope
 
 ## Holes on construction lines
 
-A [guide](/docs/sketching/tools/guides) never becomes part of a profile, and it stays drawn over the model once its sketch is finished, for as long as the sketch is shown. A hole does not hide the sketch it is placed on. A sketch another feature has used is hidden with its guides: click the eye on its row in the History panel to show it again, and its points are clickable like those of any sketch on screen. The ends of a guide's lines are clickable in the dialog, so a construction layout can position a whole pattern: dimension a guide rectangle once, then click its corners. Each corner is written as the end of one of the lines (`layout.geometries.b.start()`). A corner two lines share names the line that comes first in the sketch.
+A [guide](/docs/sketching/tools/guides) never becomes part of a profile, and it stays drawn over the model once its sketch is finished, for as long as the sketch is shown. A hole hides the sketch it is placed on, like any other feature that uses a sketch, and the guides go with it: click the eye on the sketch's row in the History panel to show it again, and its points are clickable like those of any sketch on screen. The ends of a guide's lines are clickable in the dialog, so a construction layout can position a whole pattern: dimension a guide rectangle once, then click its corners. Each corner is written as the end of one of the lines (`layout.geometries.b.start()`). A corner two lines share names the line that comes first in the sketch.
 
 ![Four M5 holes on the corners of a construction rectangle](/img/docs/3d-operations/hole-guide.png)
 

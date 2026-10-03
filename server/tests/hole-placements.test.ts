@@ -257,10 +257,13 @@ describe('hole statement parsing', () => {
     const bound = (statement: string) => withHole(statement).replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
     const fine = await parseFeatureStatement(bound(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`), 12);
     expect(fine.ok && fine.parsed.feature === 'hole' && fine.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75 });
+      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75, depth: null });
     const coarse = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e)`), 12);
     expect(coarse.ok && coarse.parsed.feature === 'hole' && coarse.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null });
+      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null, depth: null });
+    const blind = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e, null, 12)`), 12);
+    expect(blind.ok && blind.parsed.feature === 'hole' && blind.parsed.fasten)
+      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null, depth: 12 });
     const tapped = await parseFeatureStatement(bound(`hole('M6', bolt).tapped().fasten(e)`), 12);
     expect(tapped.ok).toBe(false);
     const drilled = await parseFeatureStatement(bound(`hole(6, bolt).fasten(e)`), 12);

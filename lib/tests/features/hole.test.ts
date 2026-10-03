@@ -390,6 +390,55 @@ describe("hole() placements", () => {
     expect(volumes[1]).toBeCloseTo(20 * 20 * 30 - cylinderVolume(9, 30), 3);
   });
 
+  it("taps the fastened solid to a blind depth from the face the axis enters it through", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    const top = sketch(lower.endFaces(), () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const upper = extrude(5, top).new() as unknown as ExtrudeBase;
+    const h = hole('M6', upper.endFaces().center()).fasten(lower, null, 4) as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(h.getFastenDimensions()).toMatchObject({ diameter: 5, depth: 4 });
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    // The cover is cleared right through; the base is tapped 4 deep from its top face, 5 below the placement.
+    expect(volumes[0]).toBeCloseTo(20 * 20 * 5 - cylinderVolume(6.6, 5), 3);
+    expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4), 3);
+  });
+
+  it("keeps a through clearance hole out of the fastened solid inside a part", () => {
+    let h!: Hole;
+    part("bracket", () => {
+      const s = sketch("xy", () => {
+        testRect(140, 96, { at: [0, 0] });
+      });
+      const base = extrude(10, s) as unknown as ExtrudeBase;
+      const s2 = sketch("xy", () => {
+        testRect(13, 110, { at: [140, 0] });
+      });
+      extrude(10, s2).new();
+      // On the wall's outer face, drilling back through the wall into the base beside it.
+      const seat = connector("seat", select(face().planar().onPlane("yz", 153))) as unknown as Connector;
+      h = hole('M6', seat).clearance('normal').fasten(base, null, 4) as unknown as Hole;
+    });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    // The part container hands its children's solids out again: each is counted twice.
+    const unique = [...new Set(volumes.map(v => v.toFixed(3)))].map(Number);
+    expect(unique).toHaveLength(2);
+    // The wall is cleared right through; the base only takes the 4 deep tap-drill bore.
+    expect(unique[0]).toBeCloseTo(13 * 110 * 10 - cylinderVolume(6.6, 13), 2);
+    expect(unique[1]).toBeCloseTo(140 * 96 * 10 - cylinderVolume(5, 4), 2);
+    expect(h.getFastenDimensions()).toMatchObject({ diameter: 5, depth: 4 });
+  });
+
   it("refuses .fasten() on a drilled or tapped hole, and a solid the axis misses", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });

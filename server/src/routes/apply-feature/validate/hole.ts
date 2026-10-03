@@ -2,10 +2,12 @@
 
 import {
   validConnectorAnchor,
+  validValueExpr,
   validHoleOptions,
   validHolePlacementSlot,
   type ConnectorAnchorSpec,
   type HoleValueOptions,
+  type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick, type VertexPick } from '../picks.ts';
@@ -23,11 +25,13 @@ export type HolePlacementInput =
 /**
  * The `.fasten(…)` chain as the dialog sends it: the mating solid by its
  * statement — or, on an edit, the statement's own argument kept (`verbatim`)
- * — and the tapped hole's pitch (null is coarse).
+ * — the tapped hole's pitch (null is coarse) and its blind depth (null is
+ * through all).
  */
 export type HoleFastenInput = {
   target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchLoc);
   pitch: number | null;
+  depth: ValueExpr | null;
 };
 
 export type HoleRequest = HoleValueOptions & {
@@ -78,14 +82,18 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
   if (pitch !== null && (typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch <= 0)) {
     return { error: 'the fasten pitch must be a positive number, or null for the coarse pitch' };
   }
+  const depth = raw.depth ?? null;
+  if (depth !== null && !validValueExpr(depth, { positive: true })) {
+    return { error: 'the fasten depth must be a positive number or expression, or null for through all' };
+  }
   if (edit && raw.target?.kind === 'verbatim') {
-    return { fasten: { target: { kind: 'verbatim' }, pitch } };
+    return { fasten: { target: { kind: 'verbatim' }, pitch, depth } };
   }
   const loc = validateSketchLoc(raw.target);
   if (!loc) {
     return { error: 'the fasten target must be the {filePath, line} of a solid statement' };
   }
-  return { fasten: { target: { kind: 'feature', ...loc }, pitch } };
+  return { fasten: { target: { kind: 'feature', ...loc }, pitch, depth } };
 }
 
 /**

@@ -563,8 +563,8 @@ export type HoleGhostRequest = {
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
-  /** The `.fasten(…)` solid by producing statement, and the tap-drill diameter its bore is drawn at. */
-  fasten?: { target: { filePath: string; line: number }; diameter: number } | null;
+  /** The `.fasten(…)` solid by producing statement, the tap-drill diameter its bore is drawn at and its blind depth (null is through). */
+  fasten?: { target: { filePath: string; line: number }; diameter: number; depth: ValueExpr | null } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2495,10 +2495,11 @@ export type HolePlacementRef =
 
 /**
  * The `.fasten(…)` chain of a clearance hole: the solid statement the
- * fastener threads into — it takes the matching tapped hole — and that
- * hole's pitch (null is the coarse pitch, written without a value).
+ * fastener threads into — it takes the matching tapped hole — that hole's
+ * pitch (null is the coarse pitch) and its blind depth from the face it
+ * enters the solid through (null is through all).
  */
-export type HoleFastenRef = { target: SketchSourceRef; pitch: number | null };
+export type HoleFastenRef = { target: SketchSourceRef; pitch: number | null; depth: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -2532,6 +2533,7 @@ export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeature
 export type HoleEditFastenRef = {
   target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchSourceRef);
   pitch: number | null;
+  depth: ValueExpr | null;
 };
 
 /** An edited placement: a kept argument by position, or a new pick. */
@@ -3344,10 +3346,12 @@ export type ParsedFeatureStatement =
       placementRefs: ({ line: number; column: number; slot?: number } | null)[];
       /**
        * The `.fasten(…)` chain: the solid argument verbatim, the statement it
-       * is bound to (or null) and the pitch (null is coarse); null without
-       * the chain. Absent on older servers.
+       * is bound to (or null), the pitch (null is coarse) and the blind depth
+       * (null is through all); null without the chain. Absent on older servers.
        */
-      fasten?: { text: string; ref: { line: number; column: number } | null; pitch: number | null } | null;
+      fasten?: {
+        text: string; ref: { line: number; column: number } | null; pitch: number | null; depth: ValueExpr | null;
+      } | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

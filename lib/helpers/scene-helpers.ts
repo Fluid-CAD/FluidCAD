@@ -569,11 +569,19 @@ export function cutWithSceneObjects(
     validateResult?: boolean;
     /** The tool sweeps away from `plane` on both sides (symmetric / two-distance); see `classifyCutEdges`. */
     bidirectional?: boolean;
+    /**
+     * Solids the cut leaves alone whichever scope object carries them — a
+     * part container hands out its children's solids too, so leaving an
+     * object out of `sceneObjects` does not keep its solids out of the stock.
+     */
+    excludeStock?: Shape[];
   },
 ): { cleanedShapes: Shape[], stockShapes: Shape[] } {
+  const excluded = options?.excludeStock ?? [];
   const sceneObjectMap = new Map<SceneObject, Shape[]>();
   for (const obj of sceneObjects) {
-    const shapes = obj.getShapes({}, 'solid');
+    const shapes = obj.getShapes({}, 'solid')
+      .filter(shape => !excluded.some(other => other === shape || other.getShape().IsSame(shape.getShape())));
     if (shapes.length === 0) {
       continue;
     }

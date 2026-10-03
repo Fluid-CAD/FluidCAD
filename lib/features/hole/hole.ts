@@ -17,6 +17,7 @@ import { PointResolver } from "../point-resolver.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
 import type { FastenerFit } from "./fastener-tables.js";
 import {
+  axisEntryDistance,
   buildHoleTool,
   resolveHoleDimensions,
   type HoleDimensions,
@@ -39,11 +40,13 @@ const FASTEN_DIMENSIONS_STATE_KEY = 'hole-fasten-dimensions';
 /** The classification buckets a cut leaves on its caller — a fastened hole joins its two cuts' buckets. */
 const CUT_STATE_KEYS = ['section-edges', 'start-edges', 'end-edges', 'internal-edges', 'internal-faces'];
 
-/** `.fasten(target[, pitch])`: the mating solid and the thread it is tapped for. */
+/** `.fasten(target[, pitch[, depth]])`: the mating solid and the tapped hole it takes. */
 export interface HoleFastenSpec {
   target: SceneObject;
   /** The thread pitch (mm) or threads per inch; null is the coarse pitch. */
   pitch: number | null;
+  /** Blind depth from the face the hole enters the solid through; null is through all. */
+  depth: number | null;
 }
 
 /**
@@ -122,14 +125,17 @@ export class Hole extends SceneObject implements IHole {
     return this;
   }
 
-  fasten(target: ISceneObject, pitch: number | null = null): this {
+  fasten(target: ISceneObject, pitch: number | null = null, depth: number | null = null): this {
     if (!(target instanceof SceneObject)) {
       throw new Error("hole(): .fasten() takes the solid the fastener threads into — an extrude, a boolean result, …");
     }
     if (pitch !== null && (typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch <= 0)) {
       throw new Error(`hole(): .fasten() takes the thread pitch (mm) or threads per inch after the solid (got ${String(pitch)})`);
     }
-    this._fasten = { target, pitch };
+    if (depth !== null && (typeof depth !== 'number' || !Number.isFinite(depth) || depth <= 0)) {
+      throw new Error(`hole(): .fasten() takes a positive blind depth after the pitch (got ${String(depth)})`);
+    }
+    this._fasten = { target, pitch, depth };
     return this;
   }
 
@@ -155,7 +161,8 @@ export class Hole extends SceneObject implements IHole {
 
   /**
    * The tapped hole `.fasten()` cuts into the mating solid: the statement's
-   * size at its tap drill, straight through. Null without the chain.
+   * size at its tap drill, through all or to its blind depth. Null without
+   * the chain.
    */
   private fastenDimensions(): HoleDimensions | null {
     if (!this._fasten) {
@@ -171,7 +178,7 @@ export class Hole extends SceneObject implements IHole {
       size: this.size,
       fastener: { type: 'tapped', pitch: this._fasten.pitch },
       style: null,
-      depth: null,
+      depth: this._fasten.depth,
       tipAngle: null,
     }, this.getUnit());
   }
@@ -227,11 +234,14 @@ export class Hole extends SceneObject implements IHole {
 
     // The mating solid takes the tapped hole, never the clearance one — it
     // leaves the clearance cut's scope however that scope was given.
-    const scope = this.resolveFusionScope(context.getSceneObjects()).filter(obj => obj !== fastenTarget);
-    if (fastenTarget && scope.every(obj => obj.getShapes({}, 'solid').length === 0)) {
+    // Left out by its solids, not only as an object: inside a part() the
+    // part container hands the same solids out again.
+    const scope = this.resolveFusionScope(context.getSceneObjects()).filter(obj => obj !== fastenTarget && obj !== this);
+    const fastenSolids = fastenTarget ? fastenTarget.getShapes({}, 'solid') : [];
+    const stock = scope.flatMap(obj => obj.getShapes({}, 'solid')).filter(solid => !fastenSolids.includes(solid));
+    if (fastenTarget && stock.length === 0) {
       throw new Error("hole(): .fasten() names the only solid in scope — the clearance hole needs another solid to cut");
     }
-    const stock = scope.flatMap(obj => obj.getShapes({}, 'solid'));
 
     const tools: Shape[] = p.record('Build tools', () => frames.map(frame => {
       const direction = frame.normal.normalize().negate();
@@ -256,11 +266,12 @@ export class Hole extends SceneObject implements IHole {
     const fastened = fastenTarget && fastenDims
       ? p.record('Cut fasten target', () => this.cutFastenTarget(fastenTarget, fastenDims, frames, cutPlane))
       : null;
-    p.record('Cut', () => cutWithSceneObjects(scope, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this }));
+    p.record('Cut', () => cutWithSceneObjects(scope, tools, cutPlane, dims.depth ?? 0, this,
+      { recordHistoryFor: this, excludeStock: fastened?.tapped }));
     if (fastened) {
       // The clearance cut's walls and rims first, the tapped holes' after.
       CUT_STATE_KEYS.forEach((key, i) => {
-        this.setState(key, [...((this.getState(key) as Shape[] | undefined) ?? []), ...fastened[i]]);
+        this.setState(key, [...((this.getState(key) as Shape[] | undefined) ?? []), ...fastened.buckets[i]]);
       });
     }
 
@@ -271,26 +282,42 @@ export class Hole extends SceneObject implements IHole {
 
   /**
    * The tapped holes in the mating solid: one tap-drill bore per placement,
-   * on the clearance hole's axis, through the whole solid. Each tool starts
-   * at its placement and only the mating solid is cut, so the bore opens on
-   * whichever face the axis meets first. Returns the cut's classification
-   * buckets, in {@link CUT_STATE_KEYS} order.
+   * on the clearance hole's axis, opening on whichever face of the solid the
+   * axis meets first. A through bore starts at its placement and only the
+   * mating solid is cut; a blind one starts on that face, its depth measured
+   * from there. Returns the tapped solids — the clearance cut must leave
+   * them alone — and the cut's classification buckets, in
+   * {@link CUT_STATE_KEYS} order.
    */
-  private cutFastenTarget(target: SceneObject, dims: HoleDimensions, frames: Plane[], cutPlane: Plane): Shape[][] {
+  private cutFastenTarget(
+    target: SceneObject, dims: HoleDimensions, frames: Plane[], cutPlane: Plane,
+  ): { tapped: Shape[]; buckets: Shape[][] } {
     const stock = target.getShapes({}, 'solid');
     if (stock.length === 0) {
       throw new Error("hole(): the .fasten() target has no solid to tap");
     }
+    const missed = "hole(): the hole axis never reaches the .fasten() solid — it must sit below the placement, along the hole";
     const tools = frames.map(frame => {
       const direction = frame.normal.normalize().negate();
-      const length = throughAllLength(stock, [], Plane.fromPointAndNormal(frame.origin, direction));
-      return buildHoleTool(frame.origin, direction, dims, length);
+      if (dims.depth === null) {
+        const length = throughAllLength(stock, [], Plane.fromPointAndNormal(frame.origin, direction));
+        return buildHoleTool(frame.origin, direction, dims, length);
+      }
+      const entry = axisEntryDistance(stock, frame.origin, direction);
+      if (entry === null) {
+        throw new Error(missed);
+      }
+      return buildHoleTool(frame.origin.add(direction.multiply(entry)), direction, dims, dims.depth);
     });
-    const { cleanedShapes } = cutWithSceneObjects([target], tools, cutPlane, 0, this, { recordHistoryFor: this });
+    const { cleanedShapes } = cutWithSceneObjects([target], tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this });
     if (cleanedShapes.length === 0) {
-      throw new Error("hole(): the hole axis never reaches the .fasten() solid — it must sit below the placement, along the hole");
+      throw new Error(missed);
     }
-    return CUT_STATE_KEYS.map(key => (this.getState(key) as Shape[] | undefined) ?? []);
+    return {
+      // What the solid became, plus whatever of it the bores never reached.
+      tapped: [...cleanedShapes, ...target.getShapes({}, 'solid')],
+      buckets: CUT_STATE_KEYS.map(key => (this.getState(key) as Shape[] | undefined) ?? []),
+    };
   }
 
   private stateShapes<T extends Shape>(key: string, indices: number[]): (parent: SceneObject) => T[] {
@@ -371,7 +398,8 @@ export class Hole extends SceneObject implements IHole {
       return false;
     }
     if (this._fasten && other._fasten
-      && (this._fasten.pitch !== other._fasten.pitch || !this._fasten.target.compareTo(other._fasten.target))) {
+      && (this._fasten.pitch !== other._fasten.pitch || this._fasten.depth !== other._fasten.depth
+        || !this._fasten.target.compareTo(other._fasten.target))) {
       return false;
     }
     if (this.placements.length !== other.placements.length) {
@@ -391,7 +419,9 @@ export class Hole extends SceneObject implements IHole {
       style: this._style,
       depth: this._depth,
       tipAngle: this._tipAngle,
-      fasten: this._fasten ? { pitch: this._fasten.pitch, dimensions: this.getFastenDimensions() } : null,
+      fasten: this._fasten
+        ? { pitch: this._fasten.pitch, depth: this._fasten.depth, dimensions: this.getFastenDimensions() }
+        : null,
       dimensions: this.getDimensions(),
       frames: this.getFrames().map(frame => ({
         origin: frame.origin.toArray(),

@@ -222,7 +222,7 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
       depth: request.depth, tipAngle: request.tipAngle,
       placements: resolved.placements, scope,
       fasten: fastenTarget
-        ? { target: mergeScopeProducers(producers, [fastenTarget])[0], pitch: request.fasten!.pitch }
+        ? { target: mergeScopeProducers(producers, [fastenTarget])[0], pitch: request.fasten!.pitch, depth: request.fasten!.depth }
         : null,
     };
     const activePart = activePartFor(filePath);
@@ -245,7 +245,7 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
       return;
     }
     const fasten = options.fasten && typeof options.fasten.target === 'number'
-      ? { expr: vars[options.fasten.target] ?? 'f', pitch: options.fasten.pitch }
+      ? { expr: vars[options.fasten.target] ?? 'f', pitch: options.fasten.pitch, depth: options.fasten.depth }
       : null;
     const statement = renderHoleStatement(options, exprs.exprs, scope.map(index => vars[index] ?? 'f'), fasten);
     if (preview === true) {

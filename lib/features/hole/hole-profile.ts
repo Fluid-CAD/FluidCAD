@@ -11,6 +11,7 @@ import { EdgeOps } from "../../oc/edge-ops.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { FaceOps } from "../../oc/face-ops.js";
 import { ExtrudeOps } from "../../oc/extrude-ops.js";
+import { OccHitTest } from "../../oc/hit-test.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { convertLength, type LengthUnit } from "../../units/units.js";
@@ -164,6 +165,23 @@ export function countersinkDepth(countersink: { diameter: number; angle: number 
 /** The drill point's height below the shoulder. */
 export function tipHeight(diameter: number, tipAngle: number | null): number {
   return tipAngle === null ? 0 : diameter / 2 / Math.tan(rad(tipAngle) / 2);
+}
+
+/**
+ * How far below the placement the hole axis first enters `stock` — where a
+ * blind hole in a solid under the placement starts. Null when the axis
+ * never reaches it.
+ */
+export function axisEntryDistance(stock: Shape[], origin: Point, direction: Vector3d): number | null {
+  const dir = direction.normalize();
+  let entry: number | null = null;
+  for (const solid of stock) {
+    const distance = OccHitTest.entryDistance(solid.getShape(), origin.toArray(), dir.toArray());
+    if (distance !== null && (entry === null || distance < entry)) {
+      entry = distance;
+    }
+  }
+  return entry;
 }
 
 /**

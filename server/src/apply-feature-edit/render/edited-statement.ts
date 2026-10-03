@@ -38,6 +38,7 @@ import {
   validValueExpr,
   validValueExprOrNull,
   type RegionName,
+  type ValueExpr,
 } from '../value-expr.ts';
 
 /**
@@ -240,10 +241,12 @@ export function renderEditedStatement(
     }
     // An absent fasten keeps the statement's own chain; null drops it. A
     // clearance hole no more (the type moved to Tapped or Drilled) drops it too.
-    let fasten: { expr: string; pitch: number | null } | null = null;
+    let fasten: { expr: string; pitch: number | null; depth?: ValueExpr | null } | null = null;
     const clearance = opts.size.kind === 'fastener' && opts.fastener?.type !== 'tapped';
     if (opts.fasten === undefined) {
-      fasten = parsed.fasten && clearance ? { expr: parsed.fasten.text, pitch: parsed.fasten.pitch } : null;
+      fasten = parsed.fasten && clearance
+        ? { expr: parsed.fasten.text, pitch: parsed.fasten.pitch, depth: parsed.fasten.depth }
+        : null;
     } else if (opts.fasten !== null) {
       if (!validHoleFasten(opts.fasten, opts) || typeof opts.fasten.target === 'number') {
         return { error: 'malformed hole edit spec: .fasten() takes a kept or re-picked solid on a clearance hole' };
@@ -253,12 +256,15 @@ export function renderEditedStatement(
         if (!parsed.fasten) {
           return { error: 'malformed hole edit spec: the kept fasten solid no longer matches the statement' };
         }
-        fasten = { expr: parsed.fasten.text, pitch: opts.fasten.pitch };
+        fasten = { expr: parsed.fasten.text, pitch: opts.fasten.pitch, depth: opts.fasten.depth };
       } else {
         if (!isScopeTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed hole edit spec: the fasten solid references a non-feature producer' };
         }
-        fasten = { expr: varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f', pitch: opts.fasten.pitch };
+        fasten = {
+          expr: varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f',
+          pitch: opts.fasten.pitch, depth: opts.fasten.depth,
+        };
       }
     }
     return { statement: renderHoleStatement(opts, exprs.exprs, scope.exprs, fasten) };

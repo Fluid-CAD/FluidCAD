@@ -6860,6 +6860,11 @@ describe('apply-feature route validation', () => {
       expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
       const fine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75 } });
       expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`);
+      const blind = await post({ ...BASE, placements, fasten: { target, pitch: null, depth: 12 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, null, 12)`);
+      const blindFine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75, depth: 'reach + 2' } });
+      expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, reach + 2)`);
+      expect((await post({ ...BASE, placements, fasten: { target, pitch: null, depth: -1 } })).status).toBe(400);
       const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { target, pitch: null } });
       expect(tapped.status).toBe(400);
       const scoped = await post({ ...BASE, placements, scope: [target], fasten: { target, pitch: null } });
@@ -6878,6 +6883,8 @@ describe('apply-feature route validation', () => {
       expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
       const repicked = await post({ ...edit, fasten: { target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 1 } });
       expect(repicked.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 1)`);
+      const blind = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: 0.75, depth: 9 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, 9)`);
       const dropped = await post({ ...edit, fasten: null });
       expect(dropped.body.preview).toBe(`hole('M6', bolt).clearance('close')`);
     });

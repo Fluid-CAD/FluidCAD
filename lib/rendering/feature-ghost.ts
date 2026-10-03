@@ -15,7 +15,7 @@ import {
 } from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
-import { buildHoleTool, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
+import { axisEntryDistance, buildHoleTool, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
@@ -146,10 +146,11 @@ export type HoleGhostRequest = {
   exclude?: { filePath: string; line: number };
   /**
    * The `.fasten(…)` solid by producing statement and the tap-drill diameter
-   * it is cut at: one more bore per placement, through that solid, which the
-   * clearance tools are no longer sized against.
+   * it is cut at: one more bore per placement — through that solid, or to
+   * `depth` from the face the axis enters it through — which the clearance
+   * tools are no longer sized against.
    */
-  fasten?: { target: { filePath: string; line: number }; diameter: number } | null;
+  fasten?: { target: { filePath: string; line: number }; diameter: number; depth?: number | null } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2337,7 +2338,7 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
     stock = stock.filter(solid => !fastenStock.includes(solid));
     try {
       fastenDims = resolveHoleDimensions({
-        size: request.fasten.diameter, fastener: null, style: null, depth: null, tipAngle: null,
+        size: request.fasten.diameter, fastener: null, style: null, depth: request.fasten.depth ?? null, tipAngle: null,
       }, getActiveUnit());
     } catch (error) {
       return { reason: error instanceof Error ? error.message : String(error), surface: true };
@@ -2350,9 +2351,16 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
       const origin = Point.fromArray(frame.origin);
       const direction = Vector3d.fromArray(frame.normal).normalize().negate();
       const plane = Plane.fromPointAndNormal(origin, direction);
-      const length = dims.depth ?? throughAllLength(stock, [], plane);
-      solids.push(buildHoleTool(origin, direction, dims, length));
-      if (fastenDims) {
+      // Where the axis enters the fastened solid: a through clearance tool is
+      // drawn up to that face — never into the solid it leaves alone — and the
+      // tapped bore from it.
+      const entry = fastenDims ? axisEntryDistance(fastenStock, origin, direction) : null;
+      const through = entry !== null && entry > mmTol(1e-6) ? entry : throughAllLength(stock, [], plane);
+      solids.push(buildHoleTool(origin, direction, dims, dims.depth ?? through));
+      if (fastenDims && entry !== null) {
+        const length = fastenDims.depth ?? throughAllLength(fastenStock, [], plane) - entry;
+        solids.push(buildHoleTool(origin.add(direction.multiply(entry)), direction, fastenDims, length));
+      } else if (fastenDims && fastenDims.depth === null) {
         solids.push(buildHoleTool(origin, direction, fastenDims, throughAllLength(fastenStock, [], plane)));
       }
     }

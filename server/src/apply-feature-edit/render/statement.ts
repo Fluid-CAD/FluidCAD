@@ -81,7 +81,7 @@ export function buildStatement(
       throw new Error(placements.error);
     }
     const fasten = ho.fasten && typeof ho.fasten.target === 'number'
-      ? { expr: scopeVarNames([ho.fasten.target])[0], pitch: ho.fasten.pitch }
+      ? { expr: scopeVarNames([ho.fasten.target])[0], pitch: ho.fasten.pitch, depth: ho.fasten.depth }
       : null;
     return renderHoleStatement(ho, placements.exprs, scopeVarNames(ho.scope), fasten);
   }

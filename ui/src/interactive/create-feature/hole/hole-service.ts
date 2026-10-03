@@ -738,7 +738,7 @@ export class HoleFeatureService {
     if (!loc || diameter === null) {
       return null;
     }
-    return { target: { filePath: loc.filePath, line: loc.line }, diameter };
+    return { target: { filePath: loc.filePath, line: loc.line }, diameter, depth: this.panel.fastenDepth() };
   }
 
   /** The edit payload's `.fasten(…)`: the kept argument, a re-picked solid, or null to drop the chain. */
@@ -748,11 +748,12 @@ export class HoleFeatureService {
       return null;
     }
     const pitch = this.panel.fastenPitch();
+    const depth = this.panel.fastenDepth();
     if (target.kind === 'keep') {
-      return { target: { kind: 'verbatim' }, pitch };
+      return { target: { kind: 'verbatim' }, pitch, depth };
     }
     const { filePath, line, column } = target.option;
-    return { target: { kind: 'feature', filePath, line, column }, pitch };
+    return { target: { kind: 'feature', filePath, line, column }, pitch, depth };
   }
 
   /** The create request for the current form state, or the blocking message. */
@@ -770,7 +771,9 @@ export class HoleFeatureService {
       ...values,
       placements,
       scope: this.scope.createRefs(),
-      fasten: fastenTarget ? { target: fastenTarget, pitch: this.panel.fastenPitch() } : null,
+      fasten: fastenTarget
+        ? { target: fastenTarget, pitch: this.panel.fastenPitch(), depth: this.panel.fastenDepth() }
+        : null,
     };
   }
 

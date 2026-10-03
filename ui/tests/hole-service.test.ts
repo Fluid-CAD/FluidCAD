@@ -352,7 +352,7 @@ describe('Hole dialog service', () => {
     expect(text('message')).toContain('fastens to');
 
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: null });
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: null, depth: null });
     const ghosts = vi.mocked(api.fetchFeatureGhostResult).mock.calls;
     expect(ghosts[ghosts.length - 1][0]).toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5 } });
 
@@ -364,7 +364,22 @@ describe('Hole dialog service', () => {
     };
     select('fasten-pitch', '0.75');
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75 });
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: null });
+    // A blind tapped hole sends its depth, to the statement and to the ghost.
+    expect(hidden('fasten-depth-row')).toBe(true);
+    select('fasten-termination', 'blind');
+    expect(hidden('fasten-depth-row')).toBe(false);
+    const depth = container.querySelector<HTMLInputElement>('[data-role="fasten-depth"]')!;
+    depth.value = '12';
+    depth.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 12 });
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ fasten: { depth: 12 } });
+    depth.value = '-3';
+    depth.dispatchEvent(new Event('input'));
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(text('message')).toContain('positive tapped depth');
     select('type', 'tapped');
     expect(hidden('fasten-section')).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
@@ -490,7 +505,7 @@ describe('Hole dialog service', () => {
       tipAngle: null,
       placementTexts: ['bolt'],
       placementRefs: [{ line: 6, column: 15 }],
-      fasten: { text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75 },
+      fasten: { text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75, depth: 9 },
       scopeTexts: [],
       scopeRefs: [],
     };
@@ -505,14 +520,14 @@ describe('Hole dialog service', () => {
     expect(container.querySelector<HTMLSelectElement>('[data-role="fasten-pitch"]')!.value).toBe('0.75');
 
     await vi.advanceTimersByTimeAsync(300);
-    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ target: { kind: 'verbatim' }, pitch: 0.75 });
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ target: { kind: 'verbatim' }, pitch: 0.75, depth: 9 });
 
     // At the boundary the kept argument becomes its solid's chip, sent by statement.
     service.handleSceneRendered(scene, 5, true);
     expect(chips('fasten-slot')).toEqual(['Extrude']);
     await vi.advanceTimersByTimeAsync(300);
     expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten)
-      .toEqual({ target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 0.75 });
+      .toEqual({ target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 9 });
     expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0])
       .toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5.25 } });
 

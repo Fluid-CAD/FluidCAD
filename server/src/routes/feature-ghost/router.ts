@@ -363,7 +363,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const holeDiameter = isHole ? resolve(body.diameter) : null;
     const holeDepth = isHole ? resolve(body.depth) : null;
     const holeTip = isHole ? resolve(body.tipAngle) : null;
-    const holeFastenDiameter = holeFastenTarget ? resolve(body.fasten.diameter) : null;
+    const holeFastenDiameter = holeFastenTarget ? resolve(body.fasten!.diameter) : null;
+    const holeFastenDepth = holeFastenTarget ? resolve(body.fasten!.depth) : null;
     const holeCounterbore = isHole && body.counterbore
       ? { diameter: resolve(body.counterbore.diameter), depth: resolve(body.counterbore.depth) }
       : null;
@@ -534,6 +535,10 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         res.status(400).json({ success: false, reason: 'Invalid fasten diameter' });
         return;
       }
+      if (holeFastenDepth !== null && holeFastenDepth <= 0) {
+        res.status(400).json({ success: false, reason: 'Invalid fasten depth' });
+        return;
+      }
       request = {
         feature: 'hole',
         frames: holeFrames,
@@ -544,7 +549,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         countersink: holeCountersink as { diameter: number; angle: number } | null,
         scope: holeScope,
         exclude: holeExclude,
-        fasten: holeFastenTarget ? { target: holeFastenTarget, diameter: holeFastenDiameter as number } : null,
+        fasten: holeFastenTarget
+          ? { target: holeFastenTarget, diameter: holeFastenDiameter as number, depth: holeFastenDepth }
+          : null,
       };
     } else if (isRib) {
       if (thickness === null || thickness === 0) {

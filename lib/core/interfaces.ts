@@ -1363,13 +1363,15 @@ export interface IHole extends ISceneObject {
   /**
    * Experimental. Names the solid this clearance hole fastens to: that solid
    * gets the matching tapped hole on the same axis, cut at the tap-drill
-   * diameter for the hole's fastener size, through the whole solid. It opens
-   * on whichever face the axis meets first, and the solid is left out of the
-   * clearance cut. Clearance holes of a fastener size only.
+   * diameter for the hole's fastener size. It opens on whichever face the
+   * axis meets first and runs through the whole solid, or to a blind depth
+   * measured from that face. The solid is left out of the clearance cut.
+   * Clearance holes of a fastener size only.
    * @param target - The solid the fastener threads into
-   * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted = coarse
+   * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted or null = coarse
+   * @param depth - Blind depth of the tapped hole from the face it enters; omitted = through all
    */
-  fasten(target: ISceneObject, pitch?: number): this;
+  fasten(target: ISceneObject, pitch?: number | null, depth?: number): this;
 
   /**
    * Narrows the cut to specific solids.

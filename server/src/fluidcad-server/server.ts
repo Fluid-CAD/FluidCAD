@@ -60,6 +60,7 @@ import type {
 import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRenderedData } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
+import { TimelineHistory } from './timeline-history.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
 /**
@@ -81,6 +82,7 @@ export class FluidCadServer {
   // connection UUID. Maps must be cleared via `destroySession` on hub-side
   // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
+  private readonly timelineHistory = new TimelineHistory();
   // A session's last complete render, served again on `process-file` — but
   // only while `fingerprint` (every file it was built from + the overrides it
   // ran with) still matches; see RenderInputs. `registry` is the param
@@ -272,6 +274,7 @@ export class FluidCadServer {
       this.sceneManager?.disposeScene?.(scene);
     }
     this.previousScenes.delete(sessionId);
+    this.timelineHistory.delete(sessionId);
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
     this.renderFingerprints.delete(sessionId);
@@ -422,6 +425,7 @@ export class FluidCadServer {
           this.lastRollbackStop = fromCache.data.rollbackStop;
           this.lastRollbackScopePartId = fromCache.data.rollbackScopePartId ?? null;
           this.lastBreakpointHit = fromCache.data.breakpointHit === true;
+          this.timelineHistory.setCurrent(sessionId, fromCache.data.timeline);
           this.compileError = null;
           setParamRegistry(fromCache.registry);
           return fromCache.data;
@@ -429,6 +433,13 @@ export class FluidCadServer {
       }
 
       try {
+        const readTimelineSource = (path: string): string | null => {
+          const buffer = this.host.getBuffer(path);
+          if (buffer !== null) return buffer;
+          try { return readFileSync(path, 'utf8'); } catch { return null; }
+        };
+        const timelineSources = new Map([normalizedFileName, ...this.timelineHistory.sourceFiles(sessionId)]
+          .map(path => [path, readTimelineSource(path)]));
         this.reseedProjectConfig();
         let scene = sceneKind === 'assembly'
           ? this.sceneManager.startAssemblyScene()
@@ -556,6 +567,21 @@ export class FluidCadServer {
         this.lastRollbackScopePartId = scopePartId;
         this.compileError = null;
 
+        // Names and structure come from real evaluations. History never
+        // retains meshes and never changes the live result or rollback indices.
+        let timeline: SceneRenderedData['timeline'];
+        this.timelineHistory.setCurrent(sessionId);
+        if (sceneKind === 'part' && [...timelineSources].every(([path, text]) => readTimelineSource(path) === text)) {
+          try {
+            timeline = await this.timelineHistory.update(sessionId, result, breakpointHit,
+              path => timelineSources.has(path) ? timelineSources.get(path)! : readTimelineSource(path));
+          } catch (error) {
+            // Presentation history must not turn a successful build into an
+            // error (e.g. when a source cannot be parsed during an edit).
+            console.warn('Could not retain timeline history:', error);
+          }
+        }
+
         const data: SceneRenderedData = {
           absPath: normalizedFileName,
           sceneKind,
@@ -566,6 +592,7 @@ export class FluidCadServer {
           rollbackStop: stop,
           ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
+          ...(timeline ? { timeline } : {}),
           params,
           // A part file's published values; an assembly's inserted parts
           // are not the assembly's own, so it lists none.
@@ -759,6 +786,8 @@ export class FluidCadServer {
       this.currentFilePath = `virtual:live-render:${fileName}`;
       this.lastRollbackStop = cached.data.rollbackStop;
       this.lastRollbackScopePartId = cached.data.rollbackScopePartId ?? null;
+      this.lastBreakpointHit = cached.data.breakpointHit === true;
+      this.timelineHistory.setCurrent(fileName, cached.data.timeline);
       // A deduplicated render built nothing: the summary says so rather
       // than leaving the caller to guess from a missing field.
       const scene = changes ? this.previousScenes.get(fileName) : undefined;
@@ -931,6 +960,7 @@ export class FluidCadServer {
       ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
+      ...(this.timelineHistory.get(fileName) ? { timeline: this.timelineHistory.get(fileName) } : {}),
       objectErrors: FluidCadServer.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       ...(assembly ? { assembly } : {}),

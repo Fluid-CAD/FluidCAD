@@ -250,6 +250,8 @@ const lastSceneByFile = new Map<string, {
   result: any[];
   rollbackStop: number;
   rollbackScopePartId?: string;
+  breakpointHit?: boolean;
+  timeline?: SceneRenderedData['timeline'];
   sceneKind: FluidScriptKind;
   unit: LengthUnit;
   declaredUnit: LengthUnit | null;
@@ -310,7 +312,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
   const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
   const prev = lastSceneByFile.get(key);
   const result = prev?.result ?? [];
-  const stop = sceneStopFields({ rollbackStop: prev?.rollbackStop ?? -1, rollbackScopePartId: prev?.rollbackScopePartId });
+  const stop = sceneStopFields({ ...prev, rollbackStop: prev?.rollbackStop ?? -1 });
   const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
   // The replayed scene is the last good one, so it keeps that render's
   // unit; the project unit is not the scene's and is read live.

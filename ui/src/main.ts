@@ -3324,6 +3324,7 @@ function applySceneRendered(msg: any): void {
       // last scene, so the last known state still describes it.
       rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
         paused: msg.breakpointHit ?? breakpointActive,
+        timeline: msg.timeline,
         // Non-fatal per-row notices (an unknown material id) — absent on a
         // compile-error replay, which keeps the last render's.
         warnings: msg.objectWarnings,

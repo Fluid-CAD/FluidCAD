@@ -2,6 +2,7 @@
 // Every consumer imports from here; the modules behind it are grouped by concern.
 
 export { getJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
+export { CallSites } from './call-sites.ts';
 export { isExpressionText } from './expression-text.ts';
 export {
   RenderedProperties,

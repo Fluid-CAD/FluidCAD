@@ -5,6 +5,7 @@ import type { ParamDefinition, RenderChanges } from '../../../lib/dist/index.js'
 import type { LengthUnit } from '../project-config.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { ScenePropertyDefinition } from './properties.ts';
+import type { TimelineEntry } from '../../../lib/dist/common/timeline.js';
 
 /**
  * A single feature that failed to build during an otherwise successful render.
@@ -57,6 +58,8 @@ export type SceneRenderedData = {
    */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
+  /** Paused history display, separate from the live scene and its indices. */
+  timeline?: TimelineEntry[];
   assembly?: SerializedAssembly;
   params?: ParamDefinition[];
   /** The `property()` declarations of the rendered file's parts — see `collectSceneProperties`. */

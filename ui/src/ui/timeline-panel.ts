@@ -1,6 +1,8 @@
 import type { ObjectBuildWarning, SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
+import { TimelineView } from '../helpers/timeline-view';
+import type { TimelineEntry } from '../../../lib/dist/common/timeline';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
@@ -256,6 +258,7 @@ export class TimelinePanel {
   private loaded = false;
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
+  private timelineView = new TimelineView([]);
 
   /**
    * The feature row the timeline shows for a source line, or null. A
@@ -463,15 +466,16 @@ export class TimelinePanel {
     sceneObjects: SceneObjectRender[],
     rollbackStop: number,
     rollbackScopePartId: string | null = null,
-    options: { paused?: boolean; warnings?: ObjectBuildWarning[] } = {},
+    options: { paused?: boolean; warnings?: ObjectBuildWarning[]; timeline?: TimelineEntry[] } = {},
   ): void {
     const paused = options.paused === true;
+    const view = new TimelineView(sceneObjects, paused ? options.timeline : undefined);
     if (options.warnings !== undefined) {
       this.rowWarnings = TimelinePanel.warningsByRow(sceneObjects, options.warnings);
     }
     const leavingPause = this.paused && !paused;
     if (paused && !this.paused) {
-      this.sceneBeforePause = this.sceneObjects;
+      this.sceneBeforePause = this.timelineView.rows;
     }
     const heldRow = leavingPause ? this.currentRowObject() : undefined;
     const heldMatch = heldRow ? findMatchingRow(heldRow, sceneObjects) : undefined;
@@ -479,13 +483,14 @@ export class TimelinePanel {
     this.selectedIndices.clear();
     this.selectionAnchor = null;
     this.dragIndices = null;
-    this.carryRowStateOver(sceneObjects, paused);
-    this.focusNewParts(sceneObjects);
+    this.carryRowStateOver(view.rows, paused);
+    this.focusNewParts(view.rows);
     if (!paused) {
       this.sceneBeforePause = [];
     }
     this.paused = paused;
     this.sceneObjects = sceneObjects;
+    this.timelineView = view;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
@@ -524,7 +529,7 @@ export class TimelinePanel {
       return;
     }
     const survivors = new Set<string>();
-    for (const prev of [...this.sceneObjects, ...this.sceneBeforePause]) {
+    for (const prev of [...this.timelineView.rows, ...this.sceneBeforePause]) {
       if (prev.type === 'part') {
         const match = findMatchingRow(prev, next);
         if (match?.id != null) {
@@ -576,7 +581,7 @@ export class TimelinePanel {
     }
     const stillParked: ParkedRowState[] = [];
     const park = (id: string, state: ParkedRowState['state'], suffix = ''): void => {
-      const row = SceneIndex.of(this.sceneObjects).byId(id);
+      const row = SceneIndex.of(this.timelineView.rows).byId(id);
       if (paused && row) {
         stillParked.push({ row, state, suffix });
       }
@@ -595,7 +600,7 @@ export class TimelinePanel {
       if (resolved.has(id)) {
         return resolved.get(id)!;
       }
-      const prev = SceneIndex.of(this.sceneObjects).byId(id);
+      const prev = SceneIndex.of(this.timelineView.rows).byId(id);
       const match = prev ? findMatchingRow(prev, next) : undefined;
       const out = match?.id ?? null;
       resolved.set(id, out);
@@ -747,7 +752,7 @@ export class TimelinePanel {
    * deeper than MAX_RENDER_DEPTH. Collapse state is not considered.
    */
   private renderedDepth(obj: SceneObjectRender): number | null {
-    const index = SceneIndex.of(this.sceneObjects);
+    const index = SceneIndex.of(this.timelineView.rows);
     if (!this.listsRow(obj, index.parent(obj))) {
       return null;
     }
@@ -774,7 +779,7 @@ export class TimelinePanel {
 
   /** Every ancestor of `obj` in the scene list, nearest first. */
   private ancestorsOf(obj: SceneObjectRender): SceneObjectRender[] {
-    return SceneIndex.of(this.sceneObjects).ancestors(obj);
+    return SceneIndex.of(this.timelineView.rows).ancestors(obj);
   }
 
   /**
@@ -790,9 +795,11 @@ export class TimelinePanel {
 
   /** The rendered row for `obj`, or for its nearest ancestor when a collapsed group hides it. */
   private rowElementFor(obj: SceneObjectRender): HTMLElement | null {
-    const index = SceneIndex.of(this.sceneObjects);
+    const index = SceneIndex.of(this.timelineView.rows);
     for (const candidate of [obj, ...index.ancestors(obj)]) {
-      const el = this.timelineBody.querySelector<HTMLElement>(`[data-index="${index.position(candidate)}"]`);
+      const liveIndex = this.timelineView.sceneIndex(candidate);
+      const selector = liveIndex < 0 ? `[data-history-index="${index.position(candidate)}"]` : `[data-index="${liveIndex}"]`;
+      const el = this.timelineBody.querySelector<HTMLElement>(selector);
       if (el) {
         return el;
       }
@@ -873,7 +880,7 @@ export class TimelinePanel {
   // ---------------------------------------------------------------------------
 
   private renderTimeline(scrollToCurrent = false, heldRow?: SceneObjectRender): void {
-    const items = this.sceneObjects;
+    const items = this.timelineView.rows;
     const rollbackStop = this.rollbackStop;
 
     // Mirrors the viewer's sketch-mode derivation: a non-truncated render
@@ -883,8 +890,8 @@ export class TimelinePanel {
     // rather than in update() so a part-row click — which repoints the
     // active part and re-renders without a new scene — reads the new
     // scope's state.
-    this.sketchActive = !isRollbackViewTruncated(items, rollbackStop, this.rollbackScopePartId)
-      && findActiveSketch(items) !== undefined;
+    this.sketchActive = !isRollbackViewTruncated(this.sceneObjects, rollbackStop, this.rollbackScopePartId)
+      && findActiveSketch(this.sceneObjects) !== undefined;
 
     const parentIds = new Set<string>();
     const sceneIndex = SceneIndex.of(items);
@@ -899,7 +906,7 @@ export class TimelinePanel {
       rollbackStop,
       parentIds,
       erroredIds: this.erroredAncestorIds(items),
-      scopedIds: rollbackScopeIds(items, this.rollbackScopePartId),
+      scopedIds: rollbackScopeIds(this.sceneObjects, this.rollbackScopePartId),
       pickedRowId: this.resolvePickedRowId(),
     };
 
@@ -916,6 +923,19 @@ export class TimelinePanel {
     this.closeProfilePopover();
     this.timelineBody.innerHTML = html
       || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
+
+    // Historical rows never join the live row handlers below. In particular,
+    // double-click, modifier-click and dialog interception cannot edit or
+    // select geometry that this evaluation did not produce.
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-history-index]').forEach(el => {
+      const row = items[Number(el.dataset.historyIndex)];
+      el.addEventListener('click', e => {
+        if (!(e.target as HTMLElement).closest('[data-toggle]')) this.goToSource(row);
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); this.goToSource(row); }
+      });
+    });
 
     this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -1221,9 +1241,11 @@ export class TimelinePanel {
     const hasChildren = canExpand && obj.id != null && ctx.parentIds.has(obj.id);
     const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
     const effectiveError = obj.hasError === true || (obj.id != null && ctx.erroredIds.has(obj.id));
-    const rollbackIndex = TimelinePanel.rollsBackToLastDescendant(obj) || !this.showChildren ? this.lastDescendantIndex(items, index) : index;
+    const liveIndex = this.timelineView.sceneIndex(obj);
+    const rollbackIndex = liveIndex >= 0 && (TimelinePanel.rollsBackToLastDescendant(obj) || !this.showChildren)
+      ? this.lastDescendantIndex(this.sceneObjects, liveIndex) : liveIndex;
 
-    let html = this.renderTimelineItem(obj, index, rollbackStop, depth, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
+    let html = this.renderTimelineItem(obj, liveIndex, rollbackStop, depth, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId, index);
     if (!hasChildren || isCollapsed || obj.id == null) {
       return html;
     }
@@ -1361,10 +1383,11 @@ export class TimelinePanel {
     `;
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, depth: number, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, depth: number, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean, displayIndex: number): string {
+    const unevaluated = index < 0;
     // Rows outside a part-scoped rollback's part are fully rendered — they
     // never read as past or current, whatever their flat index.
-    const inRollbackScope = scopedIds === null || (obj.id != null && scopedIds.has(obj.id));
+    const inRollbackScope = !unevaluated && (scopedIds === null || (obj.id != null && scopedIds.has(obj.id)));
     // A row that stands in for hidden descendants (rollbackIndex > index) is
     // current whenever the rollback stop lands anywhere inside its range.
     const isCurrent = inRollbackScope && rollbackStop >= index && rollbackStop <= rollbackIndex;
@@ -1378,10 +1401,10 @@ export class TimelinePanel {
     // is a name for a pick, with no shapes of its own, so it stays lit too.
     const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
-    const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
+    const isActivePart = !unevaluated && isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
-    const isDraggable = !this.sketchActive && this.isMovableRow(obj);
-    const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
+    const isDraggable = !unevaluated && !this.sketchActive && this.isMovableRow(obj);
+    const isDropTarget = !unevaluated && this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
     let iconSrc = iconUrl(resolveIconName(obj.uniqueType, obj.type));
@@ -1424,19 +1447,19 @@ export class TimelinePanel {
       itemClass += ' text-error';
     } else if (highlightCurrent || isActivePart) {
       itemClass += ' text-primary';
-    } else if (isPast || isInvisible) {
+    } else if (unevaluated || isPast || isInvisible) {
       itemClass += ' text-base-content/60';
     } else {
       itemClass += ' text-base-content/80';
     }
 
-    const imgClass = isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
+    const imgClass = unevaluated || isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
     const errorDot = effectiveError
       ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
       : '';
     // A non-fatal notice (an unknown material id) — the row built, so it
     // keeps its colour and gets a warning triangle carrying the message.
-    const warnings = obj.id != null ? this.rowWarnings.get(obj.id) : undefined;
+    const warnings = !unevaluated && obj.id != null ? this.rowWarnings.get(obj.id) : undefined;
     const warningMark = !effectiveError && warnings && warnings.length > 0
       ? `<span class="text-warning shrink-0 [&>svg]:w-3 [&>svg]:h-3" data-warning="${this.escapeHtml(warnings.join('\n'))}" title="${this.escapeHtml(warnings.join('\n'))}">${ICON_ALERT_TRIANGLE}</span>`
       : '';
@@ -1455,7 +1478,7 @@ export class TimelinePanel {
     // carries an eye: shown ones wear it always, hidden ones reveal it on
     // hover — the shapes panel's own eye convention.
     let eyeBtn = '';
-    if (isShowableConsumedRow(obj) && this.onToggleRowShown) {
+    if (!unevaluated && isShowableConsumedRow(obj) && this.onToggleRowShown) {
       const shown = this.isRowShown?.(obj) === true;
       const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
@@ -1468,7 +1491,7 @@ export class TimelinePanel {
     // material…, Remove) so the menu is discoverable without a right-click;
     // an editor-less host has no actions to offer, so no button.
     let menuBtn = '';
-    if (isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
+    if (!unevaluated && isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
       menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
     }
 
@@ -1486,7 +1509,9 @@ export class TimelinePanel {
     // The marks ride along with "Show execution time": a cached row's check
     // explains why it carries no duration, and off the toggle they are noise.
     let statusIcon = '';
-    if (this.showStatusMarks && this.showBuildTimings) {
+    if (unevaluated) {
+      statusIcon = `<span class="${statusIconClass}" aria-label="Not evaluated">${ICON_PAUSE}</span>`;
+    } else if (this.showStatusMarks && this.showBuildTimings) {
       statusIcon = obj.fromCache
         ? `<span class="${statusIconClass}">${ICON_CIRCLE_CHECK}</span>`
         : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
@@ -1496,13 +1521,16 @@ export class TimelinePanel {
       ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
       : '';
     const nameClass = isActivePart ? 'truncate font-semibold' : 'truncate';
+    const rowTarget = unevaluated
+      ? `data-history-index="${displayIndex}" data-evaluated="false" tabindex="0" title="Not evaluated. Name and structure are from the last complete evaluation."`
+      : `data-index="${index}" data-rollback-index="${rollbackIndex}"`;
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
+      <div class="${itemClass}" ${rowTarget} data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}${warningMark}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
-        <span class="${nameClass}">${name}</span>
+        <span class="${nameClass}">${this.escapeHtml(name)}</span>
         ${activeDot}
         ${eyeBtn}${menuBtn}
         ${durationSpan}

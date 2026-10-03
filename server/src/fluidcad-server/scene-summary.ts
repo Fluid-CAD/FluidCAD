@@ -44,14 +44,17 @@ export function sceneUnitFields(
 /**
  * The stop every `scene-rendered` message carries: the row the render stops
  * at, and the part that stop is scoped to (a part-scoped rollback, or a pause
- * inside a part) when there is one. Spread by each emitter, like the units.
+ * inside a part) when there is one, plus its paused history. Spread by every
+ * emitter so a rollback or error replay remains self-contained on refresh.
  */
 export function sceneStopFields(
-  data: Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId'>,
-): Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId'> {
+  data: Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'timeline'>,
+): Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'timeline'> {
   return {
     rollbackStop: data.rollbackStop,
     ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
+    ...(data.breakpointHit !== undefined ? { breakpointHit: data.breakpointHit } : {}),
+    ...(data.timeline ? { timeline: data.timeline } : {}),
   };
 }
 

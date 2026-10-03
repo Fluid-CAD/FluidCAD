@@ -1,5 +1,6 @@
 import type { LengthUnit } from './project-config.ts';
 import type { ObjectBuildWarning } from './fluidcad-server/render-types.ts';
+import type { TimelineEntry } from '../../lib/dist/common/timeline.js';
 
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
@@ -228,6 +229,8 @@ export type SerializedAssembly = {
 };
 
 export type SceneRenderedMessage = {
+  breakpointHit?: boolean;
+  timeline?: TimelineEntry[];
   type: 'scene-rendered';
   absPath: string;
   sceneKind: 'part' | 'assembly';
@@ -470,6 +473,7 @@ export type UIPropertyDefinition = {
 };
 
 export type UISceneRenderedMessage = {
+  timeline?: TimelineEntry[];
   type: 'scene-rendered';
   /**
    * Stamped by the server core on every scene it sends (renders and the

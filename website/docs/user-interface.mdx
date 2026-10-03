@@ -74,6 +74,10 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
 A `breakpoint()` statement stops evaluation at that line. The viewport shows the model up to that point, and anything the toolbar writes is inserted before the breakpoint rather than at the end of the file. Remove the statement to resume the full model. Besides the History menu, VS Code inserts one from the gutter and Neovim with `:FluidCadToggleBreakpoint`.
 
+After a complete evaluation, History keeps later features visible when a breakpoint stops the next build. These dimmed rows carry a pause icon: their names and structure come from the last complete evaluation, and they have not been evaluated in the current build. You can expand them and follow their source, but geometry and editing actions become available when they are evaluated again.
+
+Reloading the page preserves this history while the server is running. Opening a file already paused without a previous complete evaluation, or restarting the server, shows only evaluated features until the file completes a build. A source edit that removes a statement or makes its identity ambiguous drops its remembered row.
+
 ## Shapes and shape properties
 
 The **Shapes** panel lists the solids the model produced, grouped by type. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.

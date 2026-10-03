@@ -101,8 +101,7 @@ export async function applyCreateEdit(
           && placement.part < spec.parts.length && typeof placement.suffix === 'string')
         || (placement.kind === 'expression' && typeof placement.expression === 'string' && placement.expression.trim() !== ''))
       && Array.isArray(ho.scope) && ho.scope.every(p => isScopeTargetProducer(spec, p))
-      && validHoleFasten(ho.fasten, ho)
-      && (!ho.fasten || (typeof ho.fasten.target === 'number' && isScopeTargetProducer(spec, ho.fasten.target)));
+      && validHoleFasten(ho.fasten, ho);
     if (!valid) {
       return { newCode: code, error: 'malformed hole edit spec' };
     }

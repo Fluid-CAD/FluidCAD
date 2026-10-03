@@ -8,7 +8,6 @@ import {
   numericArgValue,
   numericValueArg,
   resolveIdentifierCall,
-  resolveRepeatTargetRef,
   stringArgValue,
 } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
@@ -36,27 +35,21 @@ export type HoleStyleSpec =
   | { kind: 'countersink'; diameter: ValueExpr | null; angle: ValueExpr | null };
 
 /**
- * `.fasten(target[, pitch[, depth[, tipAngle]]])` — the solid a clearance hole fastens
- * to, which takes the matching tapped hole. On a create the target is a
- * bound solid-bearing producer; an edit may also keep the statement's own
- * argument (`verbatim`). A null pitch is the coarse one — written without a
- * value, or as `null` ahead of a depth so it keeps following the size. A
- * null depth is through all; the tip angle is the drill point below a blind
- * depth (null is a flat bottom).
+ * `.fasten([pitch[, depth[, tipAngle]]])` — a clearance hole fastened to the
+ * next solid along its axis, which takes the matching tapped hole. A null
+ * pitch is the coarse one — written without a value, or as `null` ahead of
+ * a depth so it keeps following the size. A null depth is through all; the
+ * tip angle is the drill point below a blind depth (null is a flat bottom).
  */
 export type HoleFastenSpec = {
-  target: number | { kind: 'verbatim' } | { kind: 'feature'; producer: number };
   pitch: number | null;
   depth?: ValueExpr | null;
   tipAngle?: ValueExpr | null;
 };
 
-/** The values a rendered `.fasten(…)` chain carries after the solid expression. */
-export type HoleFastenRender = { expr: string; pitch: number | null; depth?: ValueExpr | null; tipAngle?: ValueExpr | null };
-
-/** The `.fasten(…)` chain as text: the solid expression, then the pitch, the blind depth and its tip angle when given. */
-export function renderHoleFastenChain(fasten: HoleFastenRender): string {
-  const args = [fasten.expr];
+/** The `.fasten(…)` chain as text: the pitch, the blind depth and its tip angle when given. */
+export function renderHoleFastenChain(fasten: HoleFastenSpec): string {
+  const args: string[] = [];
   const depth = fasten.depth ?? null;
   if (fasten.pitch !== null || depth !== null) {
     args.push(fasten.pitch === null ? 'null' : formatValue(fasten.pitch));
@@ -169,17 +162,11 @@ export function validHoleFasten(fasten: unknown, opts: HoleValueOptions): fasten
   if (fasten === null || fasten === undefined) {
     return true;
   }
-  const f = fasten as { target?: unknown; pitch?: unknown; depth?: unknown; tipAngle?: unknown };
+  const f = fasten as { pitch?: unknown; depth?: unknown; tipAngle?: unknown };
   if (typeof f !== 'object' || opts.size.kind !== 'fastener' || opts.fastener?.type === 'tapped') {
     return false;
   }
-  const target = f.target as { kind?: unknown; producer?: unknown } | number | null | undefined;
-  const validTarget = typeof target === 'number'
-    ? Number.isInteger(target) && target >= 0
-    : !!target && (target.kind === 'verbatim'
-      || (target.kind === 'feature' && Number.isInteger(target.producer) && (target.producer as number) >= 0));
-  return validTarget
-    && (f.pitch === null || (typeof f.pitch === 'number' && Number.isFinite(f.pitch) && f.pitch > 0))
+  return (f.pitch === null || (typeof f.pitch === 'number' && Number.isFinite(f.pitch) && f.pitch > 0))
     && (f.depth === undefined || f.depth === null || validValueExpr(f.depth, { positive: true }))
     && (f.tipAngle === undefined || f.tipAngle === null
       || ((f.depth ?? null) !== null && validValueExpr(f.tipAngle, { positive: true })));
@@ -216,14 +203,14 @@ function renderSizeArg(size: HoleSizeSpec): string {
  * Render a hole statement from its options and the placement expressions,
  * chains in the canonical order the docs show:
  * `hole(size, …)[.clearance('fit') | .tapped([pitch])][.counterbore(…) |
- * .countersink(…)][.depth(d[, tip])][.fasten(solid[, pitch[, depth[, tip]]])][.scope(…)]`. Shared with the
+ * .countersink(…)][.depth(d[, tip])][.fasten([pitch[, depth[, tip]]])][.scope(…)]`. Shared with the
  * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderHoleStatement(
   opts: HoleValueOptions,
   placementExprs: string[],
   scopeExprs: string[],
-  fasten: HoleFastenRender | null = null,
+  fasten: HoleFastenSpec | null = null,
 ): string {
   let statement = `hole(${[renderSizeArg(opts.size), ...placementExprs].join(', ')})`;
   if (opts.fastener?.type === 'clearance') {
@@ -310,15 +297,11 @@ export type ParsedHole = ParsedScopeChain & HoleValueOptions & {
    */
   placementRefs: ({ line: number; column: number; slot?: number } | null)[];
   /**
-   * The `.fasten(…)` chain: the solid argument verbatim, the statement it
-   * is bound to (or null), the pitch (null is coarse), the blind depth
+   * The `.fasten(…)` chain: the pitch (null is coarse), the blind depth
    * (null is through all) and its tip angle (null is a flat bottom); null
    * without the chain.
    */
-  fasten: {
-    text: string; ref: { line: number; column: number } | null; pitch: number | null;
-    depth: ValueExpr | null; tipAngle: ValueExpr | null;
-  } | null;
+  fasten: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
 };
 
 /**
@@ -452,31 +435,29 @@ export function parseHoleChain(
   let fasten: ParsedHole['fasten'] = null;
   const fastenSeg = recognized.get('fasten');
   if (fastenSeg) {
-    if (fastenSeg.args.length < 1 || fastenSeg.args.length > 4) {
-      return { error: 'the .fasten() chain takes a solid, an optional pitch, an optional depth and its tip angle — edit it in the source' };
+    // `null` holds the pitch slot open for a depth: the coarse pitch. Any
+    // other non-number there — a solid, as the chain once took — is no pitch.
+    const pitchNode = fastenSeg.args[0];
+    const coarse = pitchNode === undefined || pitchNode.type === 'null';
+    const pitch = coarse ? null : numericArgValue(pitchNode);
+    if (fastenSeg.args.length > 3 || (!coarse && pitch === null)) {
+      return { error: 'the .fasten() chain takes an optional pitch, depth and tip angle — edit it in the source' };
     }
     if (size.kind !== 'fastener' || fastener?.type === 'tapped') {
       return { error: ".fasten() goes with a clearance hole of a fastener size such as 'M6' — edit the statement in the source" };
     }
-    // `null` holds the pitch slot open for a depth: the coarse pitch.
-    const pitchNode = fastenSeg.args[1];
-    const coarse = pitchNode === undefined || pitchNode.type === 'null';
-    const pitch = coarse ? null : numericArgValue(pitchNode);
-    if (!coarse && (pitch === null || pitch <= 0)) {
+    if (pitch !== null && pitch <= 0) {
       return { error: 'the .fasten() pitch is not a plain positive number or null — edit it in the source' };
     }
-    const fastenDepth = fastenSeg.args.length >= 3 ? anyValueArg(fastenSeg.args[2]) : null;
-    if (fastenSeg.args.length >= 3 && fastenDepth === null) {
+    const fastenDepth = fastenSeg.args.length >= 2 ? anyValueArg(fastenSeg.args[1]) : null;
+    if (fastenSeg.args.length >= 2 && fastenDepth === null) {
       return { error: 'the .fasten() depth is not a plain number or expression — edit it in the source' };
     }
-    const fastenTip = fastenSeg.args.length === 4 ? anyValueArg(fastenSeg.args[3]) : null;
-    if (fastenSeg.args.length === 4 && fastenTip === null) {
+    const fastenTip = fastenSeg.args.length === 3 ? anyValueArg(fastenSeg.args[2]) : null;
+    if (fastenSeg.args.length === 3 && fastenTip === null) {
       return { error: 'the .fasten() tip angle is not a plain number or expression — edit it in the source' };
     }
-    fasten = {
-      text: fastenSeg.args[0].text, ref: resolveRepeatTargetRef(fastenSeg.args[0], start), pitch,
-      depth: fastenDepth, tipAngle: fastenTip,
-    };
+    fasten = { pitch, depth: fastenDepth, tipAngle: fastenTip };
   }
 
   return {

@@ -94,6 +94,30 @@ function coverOnBase(): { base: ExtrudeBase; cover: ExtrudeBase; seat: { geometr
   return { base, cover, seat: seat as unknown as { geometries: { l: SolvedCircle; r: SolvedCircle } } };
 }
 
+const RAIL = { w: 60, d: 10, t: 20 };
+const RAIL_VOLUME = RAIL.w * RAIL.d * RAIL.t;
+const PLATE_ON_RAILS = { d: 30, t: 8 };
+const PLATE_ON_RAILS_VOLUME = RAIL.w * PLATE_ON_RAILS.d * PLATE_ON_RAILS.t;
+
+/**
+ * Two 60 × 10 × 20 rails either side of the xz plane — two solids of one
+ * extrude — under an 8 thick plate spanning both, a solid of its own, with
+ * two circles on its top face, one over each rail at x = -20.
+ */
+function plateOnRails(): { seat: { geometries: { l: SolvedCircle; r: SolvedCircle } } } {
+  sketch("xy", () => {
+    testRect(RAIL.w, RAIL.d, { at: [-RAIL.w / 2, -15] });
+    testRect(RAIL.w, RAIL.d, { at: [-RAIL.w / 2, 5] });
+  });
+  const rails = extrude(RAIL.t) as unknown as ExtrudeBase;
+  sketch(rails.endFaces(), () => {
+    testRect(RAIL.w, PLATE_ON_RAILS.d, { at: [-RAIL.w / 2, -PLATE_ON_RAILS.d / 2] });
+  });
+  const plate = extrude(PLATE_ON_RAILS.t).new() as unknown as ExtrudeBase;
+  const seat = sketch(plate.endFaces(), () => ({ l: circle([-20, -10], 3), r: circle([-20, 10], 3) }));
+  return { seat: seat as unknown as { geometries: { l: SolvedCircle; r: SolvedCircle } } };
+}
+
 describe("hole() geometry", () => {
   setupOC();
 
@@ -370,16 +394,16 @@ describe("hole() placements", () => {
     expect(lower.getShapes().length).toBe(1);
   });
 
-  it("taps the fastened solid and keeps it out of the clearance cut", () => {
+  it("taps the next solid along the axis and keeps it out of the clearance cut", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
-    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    extrude(10).new();
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(30).new() as unknown as ExtrudeBase;
-    const h = hole('M6', upper.endFaces().center()).clearance('normal').fasten(lower) as unknown as Hole;
+    const h = hole('M6', upper.endFaces().center()).clearance('normal').fasten() as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -395,16 +419,16 @@ describe("hole() placements", () => {
     expect(resolved(h.startEdges())).toHaveLength(2);
   });
 
-  it("taps the fastened solid at a fine pitch and leaves it out of an explicit scope", () => {
+  it("taps the first solid past an explicit scope at a fine pitch", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
-    const lower = extrude(10).new() as unknown as ExtrudeBase;
+    extrude(10).new();
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(30).new() as unknown as ExtrudeBase;
-    const h = hole('M8', upper.endFaces().center()).fasten(lower, 1).scope(upper, lower) as unknown as Hole;
+    const h = hole('M8', upper.endFaces().center()).fasten(1).scope(upper) as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -414,7 +438,7 @@ describe("hole() placements", () => {
     expect(volumes[1]).toBeCloseTo(20 * 20 * 30 - cylinderVolume(9, 30), 3);
   });
 
-  it("taps the fastened solid to a blind depth from the face the axis enters it through", () => {
+  it("taps the next solid to a blind depth from the face the axis enters it through", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
@@ -423,7 +447,7 @@ describe("hole() placements", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(5, top).new() as unknown as ExtrudeBase;
-    const h = hole('M6', upper.endFaces().center()).fasten(lower, null, 4) as unknown as Hole;
+    const h = hole('M6', upper.endFaces().center()).fasten(null, 4) as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -435,7 +459,7 @@ describe("hole() placements", () => {
     expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4), 3);
   });
 
-  it("drills the fastened solid's blind tapped hole with a drill point, and refuses one on a through hole", () => {
+  it("drills the blind tapped hole with a drill point, and refuses one on a through hole", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
@@ -444,7 +468,7 @@ describe("hole() placements", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(5, top).new() as unknown as ExtrudeBase;
-    const h = hole('M6', upper.endFaces().center()).fasten(lower, null, 4, 118) as unknown as Hole;
+    const h = hole('M6', upper.endFaces().center()).fasten(null, 4, 118) as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -453,23 +477,23 @@ describe("hole() placements", () => {
     // The depth runs to the shoulder; the 118° point reaches below it.
     const tip = 2.5 / Math.tan((118 / 2) * Math.PI / 180);
     expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4) - coneVolume(5, tip), 3);
-    expect(() => hole('M6', upper.endFaces().center()).fasten(lower, null, null, 118)).toThrow(/only with a blind depth/);
+    expect(() => hole('M6', upper.endFaces().center()).fasten(null, null, 118)).toThrow(/only with a blind depth/);
   });
 
-  it("keeps a through clearance hole out of the fastened solid inside a part", () => {
+  it("keeps a through clearance hole out of the tapped solid inside a part", () => {
     let h!: Hole;
     part("bracket", () => {
       const s = sketch("xy", () => {
         testRect(140, 96, { at: [0, 0] });
       });
-      const base = extrude(10, s) as unknown as ExtrudeBase;
+      extrude(10, s);
       const s2 = sketch("xy", () => {
         testRect(13, 110, { at: [140, 0] });
       });
       extrude(10, s2).new();
       // On the wall's outer face, drilling back through the wall into the base beside it.
       const seat = connector("seat", select(face().planar().onPlane("yz", 153))) as unknown as Connector;
-      h = hole('M6', seat).clearance('normal').fasten(base, null, 4) as unknown as Hole;
+      h = hole('M6', seat).clearance('normal').fasten(null, 4) as unknown as Hole;
     });
 
     const scene = render();
@@ -484,12 +508,12 @@ describe("hole() placements", () => {
     expect(h.getFastenDimensions()).toMatchObject({ diameter: 5, depth: 4 });
   });
 
-  it("taps a solid an earlier fastened hole already holds", () => {
-    const { base, cover, seat } = coverOnBase();
-    hole('M6', seat.geometries.l.center()).fasten(base);
+  it("taps the solid under its axis when an earlier fastened hole already holds it", () => {
+    const { cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten();
     // The first hole holds the drilled cover and the tapped base now; this
-    // statement still names them by the extrudes that built them.
-    hole('M6', seat.geometries.r.center()).fasten(base).scope(cover);
+    // statement still names the cover by the extrude that built it.
+    hole('M6', seat.geometries.r.center()).fasten().scope(cover);
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -500,8 +524,8 @@ describe("hole() placements", () => {
   });
 
   it("cuts only the scoped solid of the two an earlier hole holds", () => {
-    const { base, cover, seat } = coverOnBase();
-    hole('M6', seat.geometries.l.center()).fasten(base);
+    const { cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten();
     hole(4, seat.geometries.r.center()).scope(cover);
 
     const scene = render();
@@ -513,7 +537,20 @@ describe("hole() placements", () => {
     expect(volumes[1]).toBeCloseTo(BASE_VOLUME - cylinderVolume(5, BASE.t), 3);
   });
 
-  it("refuses .fasten() on a drilled or tapped hole, and a solid the axis misses", () => {
+  it("taps the solid under each placement's own axis", () => {
+    const { seat } = plateOnRails();
+    hole('M6', seat.geometries.l.center(), seat.geometries.r.center()).fasten(null, 6);
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(3);
+    expect(volumes[0]).toBeCloseTo(RAIL_VOLUME - cylinderVolume(5, 6), 3);
+    expect(volumes[1]).toBeCloseTo(RAIL_VOLUME - cylinderVolume(5, 6), 3);
+    expect(volumes[2]).toBeCloseTo(PLATE_ON_RAILS_VOLUME - 2 * cylinderVolume(6.6, PLATE_ON_RAILS.t), 3);
+  });
+
+  it("refuses .fasten() on a drilled or tapped hole, with a solid, and with nothing below the clearance", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
@@ -521,16 +558,18 @@ describe("hole() placements", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [40, 40] });
     });
-    const aside = extrude(10).new() as unknown as ExtrudeBase;
-    hole(6, lower.endFaces().center()).fasten(aside);
-    hole('M6', lower.endFaces().center()).tapped().fasten(aside);
-    hole('M6', lower.endFaces().center()).fasten(aside);
+    extrude(10).new();
+    hole(6, lower.endFaces().center()).fasten();
+    hole('M6', lower.endFaces().center()).tapped().fasten();
+    // The solid beside the one the hole sits on is never on its axis.
+    hole('M6', lower.endFaces().center()).fasten();
+    expect(() => hole('M6', lower.endFaces().center()).fasten(lower as any)).toThrow(/takes no solid/);
 
     const errors = errorsOf(render());
     expect(errors).toHaveLength(3);
     expect(errors[0]).toMatch(/needs a fastener size/);
     expect(errors[1]).toMatch(/goes with a clearance hole/);
-    expect(errors[2]).toMatch(/never reaches/);
+    expect(errors[2]).toMatch(/finds no solid along the hole axis past the solid the hole sits on/);
   });
 
   it("reports a missing placement and a bad size on the row", () => {
@@ -747,8 +786,8 @@ describe("hole() under repeat", () => {
   });
 
   it("repeats a fastened hole, every copy tapping the solid the one before tapped", () => {
-    const { base, seat } = coverOnBase();
-    hole('M6', seat.geometries.l.center()).fasten(base);
+    const { seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten();
     repeat("linear", "x", { count: 3, offset: 20 });
 
     const scene = render();
@@ -760,8 +799,8 @@ describe("hole() under repeat", () => {
   });
 
   it("repeats a fastened hole with an explicit scope", () => {
-    const { base, cover, seat } = coverOnBase();
-    hole('M6', seat.geometries.l.center()).fasten(base, null, 6).scope(cover);
+    const { cover, seat } = coverOnBase();
+    hole('M6', seat.geometries.l.center()).fasten(null, 6).scope(cover);
     repeat("linear", "x", { count: 3, offset: 20 });
 
     const scene = render();
@@ -770,5 +809,21 @@ describe("hole() under repeat", () => {
     expect(volumes).toHaveLength(2);
     expect(volumes[0]).toBeCloseTo(COVER_VOLUME - 3 * cylinderVolume(6.6, COVER.t), 3);
     expect(volumes[1]).toBeCloseTo(BASE_VOLUME - 3 * cylinderVolume(5, 6), 3);
+  });
+
+  it("mirrors a repeated fastened hole, the mirrored copies tapping the solid under them", () => {
+    const { seat } = plateOnRails();
+    hole('M6', seat.geometries.l.center()).fasten(null, 6);
+    const row = repeat("linear", "x", { count: 2, offset: 40 });
+    repeat("mirror", "xz", row);
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(3);
+    // The row taps one rail; its mirror image the other.
+    expect(volumes[0]).toBeCloseTo(RAIL_VOLUME - 2 * cylinderVolume(5, 6), 3);
+    expect(volumes[1]).toBeCloseTo(RAIL_VOLUME - 2 * cylinderVolume(5, 6), 3);
+    expect(volumes[2]).toBeCloseTo(PLATE_ON_RAILS_VOLUME - 4 * cylinderVolume(6.6, PLATE_ON_RAILS.t), 3);
   });
 });

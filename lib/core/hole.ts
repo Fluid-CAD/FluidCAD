@@ -28,9 +28,9 @@ interface HoleFunction {
    * hole (`.clearance('close' | 'normal' | 'loose')`, normal fit by default)
    * or a tap drill (`.tapped()` for the coarse pitch, `.tapped(0.75)` for a
    * fine one). `.counterbore()` and `.countersink()` without values read the
-   * socket-head and flat-head tables for that size. `.fasten(solid)` on a
-   * clearance hole cuts the matching tapped hole into the solid the fastener
-   * threads into. Threads are not modelled
+   * socket-head and flat-head tables for that size. `.fasten()` on a
+   * clearance hole cuts the matching tapped hole into the next solid along
+   * the hole axis, the one the fastener threads into. Threads are not modelled
    * yet; the size and pitch stay in the statement for a later thread feature.
    * @param size - A metric or inch fastener size label
    * @param placements - One or more connectors, sketch points or anchored vertices

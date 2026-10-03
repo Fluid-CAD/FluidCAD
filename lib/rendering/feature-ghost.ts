@@ -15,7 +15,8 @@ import {
 } from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
-import { axisEntryDistance, buildHoleTool, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
+import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
+import { liveSolidsIn } from "../helpers/live-solids.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
@@ -145,14 +146,12 @@ export type HoleGhostRequest = {
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
   /**
-   * The `.fasten(…)` solid by producing statement and the tap-drill diameter
-   * it is cut at: one more bore per placement — through that solid, or to
-   * `depth` from the face the axis enters it through — which the clearance
-   * tools are no longer sized against.
+   * `.fasten(…)`: the tap-drill diameter of one more bore per placement, into
+   * the next solid along its axis past the clearance (see fastenedAxis) —
+   * through that solid, or to `depth` from the face the axis enters it
+   * through. The clearance tool stops where that solid begins.
    */
-  fasten?: {
-    target: { filePath: string; line: number }; diameter: number; depth?: number | null; tipAngle?: number | null;
-  } | null;
+  fasten?: { diameter: number; depth?: number | null; tipAngle?: number | null } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2323,21 +2322,29 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
     return { reason: error instanceof Error ? error.message : String(error), surface: true };
   }
 
-  let stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
+  const stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
   if ('reason' in stock) {
     return stock;
   }
 
-  // The fastened solid takes its own tap-drill bore and leaves the clearance stock.
+  // A fastened hole reads each axis against every solid it may meet: the
+  // next one past the clearance takes its own tap-drill bore.
   let fastenDims: HoleDimensions | null = null;
-  let fastenStock: Shape[] = [];
+  let axisSolids: Shape[] = [];
+  let scoped: Shape[] | null = null;
   if (request.fasten) {
-    const target = ghostStockSolids(scene, [request.fasten.target], request.exclude);
-    if ('reason' in target) {
-      return { reason: 'The solid to fasten to is not in the rendered scene.' };
+    const every = ghostStockSolids(scene, [], request.exclude);
+    if ('reason' in every) {
+      return every;
     }
-    fastenStock = target;
-    stock = stock.filter(solid => !fastenStock.includes(solid));
+    if (request.scope.length > 0) {
+      const named = ghostScopedSolids(scene, request.scope, request.exclude);
+      if ('reason' in named) {
+        return named;
+      }
+      scoped = named;
+    }
+    axisSolids = [...new Set([...(scoped ?? []), ...every])];
     try {
       fastenDims = resolveHoleDimensions({
         size: request.fasten.diameter, fastener: null, style: null,
@@ -2355,17 +2362,18 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
       const origin = Point.fromArray(frame.origin);
       const direction = Vector3d.fromArray(frame.normal).normalize().negate();
       const plane = Plane.fromPointAndNormal(origin, direction);
-      // Where the axis enters the fastened solid: a through clearance tool is
+      // Where the axis enters the solid it taps: a through clearance tool is
       // drawn up to that face — never into the solid it leaves alone — and the
-      // tapped bore from it.
-      const entry = fastenDims ? axisEntryDistance(fastenStock, origin, direction) : null;
-      const through = entry !== null && entry > mmTol(1e-6) ? entry : throughAllLength(stock, [], plane);
+      // tapped bore from it. An axis with nothing to tap draws the clearance alone.
+      const axis = fastenDims ? fastenedAxis(axisSolids, scoped, origin, direction) : null;
+      const entry = axis?.tapped ? axis.entry : null;
+      const through = entry !== null && entry > mmTol(1e-6)
+        ? entry
+        : throughAllLength(axis ? axis.clearance : stock, [], plane);
       solids.push(buildHoleTool(origin, direction, dims, dims.depth ?? through));
-      if (fastenDims && entry !== null) {
-        const length = fastenDims.depth ?? throughAllLength(fastenStock, [], plane) - entry;
+      if (fastenDims && axis?.tapped && entry !== null) {
+        const length = fastenDims.depth ?? throughAllLength([axis.tapped], [], plane) - entry;
         solids.push(buildHoleTool(origin.add(direction.multiply(entry)), direction, fastenDims, length));
-      } else if (fastenDims && fastenDims.depth === null) {
-        solids.push(buildHoleTool(origin, direction, fastenDims, throughAllLength(fastenStock, [], plane)));
       }
     }
   } catch (error) {
@@ -2383,6 +2391,31 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
  * own cut is unwound (its removal scope drops it) so the stock reads as the
  * feature will see it.
  */
+/**
+ * A fastened hole's `.scope(…)` solids, as the very solids the every-solid
+ * read lists so the axis can tell them apart: the removal-scoped read in edit
+ * mode, otherwise each statement's solids followed to wherever the scene
+ * holds them now (see liveSolidsOf).
+ */
+function ghostScopedSolids(
+  scene: Scene,
+  scope: { filePath: string; line: number }[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] | { reason: string } {
+  if (exclude) {
+    return ghostStockSolids(scene, scope, exclude);
+  }
+  const targets: SceneObject[] = [];
+  for (const ref of scope) {
+    const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
+    if (objects.length === 0) {
+      return { reason: 'That scope solid is not in the rendered scene.' };
+    }
+    targets.push(...objects);
+  }
+  return liveSolidsIn(targets).map(held => held.solid);
+}
+
 function ghostStockSolids(
   scene: Scene,
   scope: { filePath: string; line: number }[],

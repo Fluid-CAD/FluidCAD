@@ -41,6 +41,13 @@ export function liveSolidsIn(sources: SceneObject[]): HeldSolid[] {
   return out;
 }
 
+/** Where `held` is now: the solid itself while its holder keeps it, else what the features since made of it. */
+export function liveSolidsFrom(held: HeldSolid): HeldSolid[] {
+  const out: HeldSolid[] = [];
+  follow(held.holder, held.solid, out, new Set());
+  return out;
+}
+
 function collect(source: SceneObject, out: HeldSolid[], seen: Set<Shape>): void {
   if (source.isContainer()) {
     for (const child of source.getChildren()) {

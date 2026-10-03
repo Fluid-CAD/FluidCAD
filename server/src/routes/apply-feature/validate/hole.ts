@@ -23,14 +23,12 @@ export type HolePlacementInput =
   | { kind: 'verbatim'; sourceIndex: number };
 
 /**
- * The `.fasten(…)` chain as the dialog sends it: the mating solid by its
- * statement — or, on an edit, the statement's own argument kept (`verbatim`)
- * — the tapped hole's pitch (null is coarse), its blind depth (null is
- * through all) and the drill point angle below that depth (null is a flat
- * bottom).
+ * The `.fasten(…)` chain as the dialog sends it: the tapped hole the next
+ * solid along the axis takes — its pitch (null is coarse), its blind depth
+ * (null is through all) and the drill point angle below that depth (null is
+ * a flat bottom).
  */
 export type HoleFastenInput = {
-  target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchLoc);
   pitch: number | null;
   depth: ValueExpr | null;
   tipAngle: ValueExpr | null;
@@ -78,7 +76,7 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
     return { fasten: null };
   }
   if (options.size.kind !== 'fastener' || options.fastener?.type === 'tapped') {
-    return { error: 'fasten goes with a clearance hole of a fastener size — the mating solid takes the tapped hole' };
+    return { error: 'fasten goes with a clearance hole of a fastener size — the solid past it takes the tapped hole' };
   }
   const pitch = raw.pitch ?? null;
   if (pitch !== null && (typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch <= 0)) {
@@ -92,14 +90,7 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
   if (tipAngle !== null && (depth === null || !validValueExpr(tipAngle, { positive: true }))) {
     return { error: 'the fasten tip angle must be a positive number or expression, and only with a blind depth' };
   }
-  if (edit && raw.target?.kind === 'verbatim') {
-    return { fasten: { target: { kind: 'verbatim' }, pitch, depth, tipAngle } };
-  }
-  const loc = validateSketchLoc(raw.target);
-  if (!loc) {
-    return { error: 'the fasten target must be the {filePath, line} of a solid statement' };
-  }
-  return { fasten: { target: { kind: 'feature', ...loc }, pitch, depth, tipAngle } };
+  return { fasten: { pitch, depth, tipAngle } };
 }
 
 /**
@@ -180,12 +171,6 @@ export function validateHole(body: any): HoleRequest | { error: string } {
   const fasten = validateHoleFasten(body, options, false);
   if ('error' in fasten) {
     return fasten;
-  }
-  if (fasten.fasten?.target.kind === 'feature') {
-    const target = fasten.fasten.target;
-    if (scope.scope.some(loc => loc.filePath === target.filePath && loc.line === target.line)) {
-      return { error: 'the solid to fasten to cannot also be in the scope — it takes the tapped hole, not the clearance one' };
-    }
   }
   return { ...options, placements: placements.placements!, scope: scope.scope, fasten: fasten.fasten ?? null };
 }

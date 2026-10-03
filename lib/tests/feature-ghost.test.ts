@@ -2487,27 +2487,35 @@ describe("feature ghost — hole", () => {
     }
   });
 
-  it("draws the fastened solid's tap-drill bore and sizes the clearance tool without that solid", () => {
+  /** A 5 thick cover on the plate, at line 6. */
+  function coverOnPlate(): void {
     plate();
-    locatedSketch(5, () => { testRect(20, 20, { at: [-10, -10] }); }, 'xy');
-    const tall = extrude(25).new() as unknown as SceneObject;
-    tall.setSourceLocation({ filePath: FILE, line: 6, column: 0 });
+    locatedSketchAt(5, 10, () => { testRect(20, 20, { at: [-10, -10] }); });
+    const cover = extrude(5).new() as unknown as SceneObject;
+    cover.setSourceLocation({ filePath: FILE, line: 6, column: 0 });
+  }
+
+  it("taps the next solid along the axis, the clearance tool ending on its face", () => {
+    coverOnPlate();
     const scene = render();
-    const result = holeGhost(scene, { fasten: { target: { filePath: FILE, line: 6 }, diameter: 5 } });
+    const frames = [{ origin: [0, 0, 15] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }];
+    const result = holeGhost(scene, { frames, fasten: { diameter: 5 } });
     expect(refusal(result)).toBe('');
     if (result.ok) {
       expect(result.solids).toHaveLength(2);
-      // The clearance tool clears the plate only; the tall solid it fastens to no longer sizes it.
+      // The clearance tool clears the cover the hole sits on and stops where the plate begins.
       const clearance = bounds(result, 0);
       expect(clearance.maxX).toBeCloseTo(3, 3);
-      expect(clearance.minZ).toBeCloseTo(-1, 3);
-      // The tap-drill bore runs through the fastened solid's whole reach from the placement.
+      expect(clearance.maxZ).toBeCloseTo(15, 3);
+      expect(clearance.minZ).toBeCloseTo(10, 3);
+      // The tap-drill bore takes over there, through the plate's whole reach.
       const tapped = bounds(result, 1);
       expect(tapped.maxX).toBeCloseTo(2.5, 3);
-      expect(tapped.minZ).toBeCloseTo(10 - 15 * 1.1, 3);
+      expect(tapped.maxZ).toBeCloseTo(10, 3);
+      expect(tapped.minZ).toBeCloseTo(15 - 15 * 1.1, 3);
     }
-    // A blind bore stops at its depth below where the axis enters the fastened solid.
-    const blind = holeGhost(scene, { fasten: { target: { filePath: FILE, line: 6 }, diameter: 5, depth: 4 } });
+    // A blind bore stops at its depth below where the axis enters the plate.
+    const blind = holeGhost(scene, { frames, fasten: { diameter: 5, depth: 4 } });
     expect(refusal(blind)).toBe('');
     if (blind.ok) {
       expect(blind.solids).toHaveLength(2);
@@ -2515,30 +2523,26 @@ describe("feature ghost — hole", () => {
       expect(bounds(blind, 1).minZ).toBeCloseTo(6, 3);
     }
     // The drill point reaches below the blind depth.
-    const pointed = holeGhost(scene, { fasten: { target: { filePath: FILE, line: 6 }, diameter: 5, depth: 4, tipAngle: 118 } });
+    const pointed = holeGhost(scene, { frames, fasten: { diameter: 5, depth: 4, tipAngle: 118 } });
     if (pointed.ok) {
       expect(bounds(pointed, 1).minZ).toBeCloseTo(6 - 2.5 / Math.tan(59 * Math.PI / 180), 3);
     }
-    expect(refusal(holeGhost(scene, { fasten: { target: { filePath: FILE, line: 99 }, diameter: 5 } })))
-      .toMatch(/fasten to is not in the rendered scene/);
+    // A scope naming the cover reads the same: the plate is the first solid past it.
+    const scoped = holeGhost(scene, { frames, scope: [{ filePath: FILE, line: 6 }], fasten: { diameter: 5, depth: 4 } });
+    expect(refusal(scoped)).toBe('');
+    if (scoped.ok) {
+      expect(bounds(scoped, 0).minZ).toBeCloseTo(10, 3);
+      expect(bounds(scoped, 1).minZ).toBeCloseTo(6, 3);
+    }
   });
 
-  it("ends a through clearance tool on the face of the fastened solid below it", () => {
+  it("draws the clearance alone where nothing lies past it to tap", () => {
     plate();
-    locatedSketchAt(5, 10, () => { testRect(20, 20, { at: [-10, -10] }); });
-    const cover = extrude(5).new() as unknown as SceneObject;
-    cover.setSourceLocation({ filePath: FILE, line: 6, column: 0 });
-    const result = holeGhost(render(), {
-      frames: [{ origin: [0, 0, 15], normal: [0, 0, 1] }],
-      fasten: { target: { filePath: FILE, line: 4 }, diameter: 5 },
-    });
+    const result = holeGhost(render(), { fasten: { diameter: 5 } });
     expect(refusal(result)).toBe('');
     if (result.ok) {
-      // The clearance tool stops where the plate it fastens to begins; the tapped bore takes over there.
-      expect(bounds(result, 0).maxZ).toBeCloseTo(15, 3);
-      expect(bounds(result, 0).minZ).toBeCloseTo(10, 3);
-      expect(bounds(result, 1).maxZ).toBeCloseTo(10, 3);
-      expect(bounds(result, 1).minZ).toBeCloseTo(15 - 15 * 1.1, 3);
+      expect(result.solids).toHaveLength(1);
+      expect(bounds(result, 0).minZ).toBeCloseTo(-1, 3);
     }
   });
 

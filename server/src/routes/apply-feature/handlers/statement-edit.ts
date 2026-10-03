@@ -224,29 +224,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
     }
     if (request.holeFasten !== undefined && edit.hole) {
-      const fasten = request.holeFasten;
-      if (fasten === null) {
-        edit.hole.fasten = null;
-      } else if (fasten.target.kind === 'verbatim') {
-        edit.hole.fasten = { target: { kind: 'verbatim' }, pitch: fasten.pitch, depth: fasten.depth, tipAngle: fasten.tipAngle };
-      } else {
-        if (normalizePath(fasten.target.filePath) !== normalizePath(request.target.filePath)) {
-          res.status(422).json({ success: false, reason: 'the solid to fasten to comes from a different file than the statement' });
-          return;
-        }
-        edit.hole.fasten = {
-          target: {
-            kind: 'feature',
-            producer: mergeProducer({
-              line: fasten.target.line, column: fasten.target.column,
-              featureType: 'feature', nameHint: 'f', bind: true,
-            }),
-          },
-          pitch: fasten.pitch,
-          depth: fasten.depth,
-          tipAngle: fasten.tipAngle,
-        };
-      }
+      edit.hole.fasten = request.holeFasten;
     }
     if (request.holePlacements) {
       const resolved = await resolveHolePlacements(

@@ -167,21 +167,31 @@ export function tipHeight(diameter: number, tipAngle: number | null): number {
   return tipAngle === null ? 0 : diameter / 2 / Math.tan(rad(tipAngle) / 2);
 }
 
+/** Where a fastened hole's two bores go along one placement's axis — see {@link fastenedAxis}. */
+export type FastenedAxis = {
+  /** The solids the clearance hole cuts. */
+  clearance: Shape[];
+  /** The solid the tapped hole goes into, or null when the axis enters none. */
+  tapped: Shape | null;
+  /** How far below the placement the axis enters `tapped`. */
+  entry: number;
+};
+
 /**
- * How far below the placement the hole axis first enters `stock` — where a
- * blind hole in a solid under the placement starts. Null when the axis
- * never reaches it.
+ * A fastened hole read off its axis: the clearance hole cuts the scoped
+ * solids, or — without a scope — the first solid the axis enters, the one
+ * the hole sits on; the tapped hole goes into the next solid the axis
+ * enters past those. `solids` are every solid the axis may meet.
  */
-export function axisEntryDistance(stock: Shape[], origin: Point, direction: Vector3d): number | null {
+export function fastenedAxis(solids: Shape[], scoped: Shape[] | null, origin: Point, direction: Vector3d): FastenedAxis {
   const dir = direction.normalize();
-  let entry: number | null = null;
-  for (const solid of stock) {
-    const distance = OccHitTest.entryDistance(solid.getShape(), origin.toArray(), dir.toArray());
-    if (distance !== null && (entry === null || distance < entry)) {
-      entry = distance;
-    }
-  }
-  return entry;
+  const entered = solids
+    .map(solid => ({ solid, entry: OccHitTest.entryDistance(solid.getShape(), origin.toArray(), dir.toArray()) }))
+    .filter((hit): hit is { solid: Shape; entry: number } => hit.entry !== null)
+    .sort((a, b) => a.entry - b.entry);
+  const clearance = scoped ?? entered.slice(0, 1).map(hit => hit.solid);
+  const tapped = entered.find(hit => !clearance.includes(hit.solid));
+  return { clearance, tapped: tapped?.solid ?? null, entry: tapped?.entry ?? 0 };
 }
 
 /**

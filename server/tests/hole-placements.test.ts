@@ -253,24 +253,29 @@ describe('hole statement parsing', () => {
     });
   });
 
-  it('reads the fasten chain: the solid, its statement and the pitch, on a clearance hole only', async () => {
+  it('reads the fasten chain: the pitch, the blind depth and its tip, on a clearance hole only', async () => {
     const bound = (statement: string) => withHole(statement).replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
-    const fine = await parseFeatureStatement(bound(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`), 12);
+    const fine = await parseFeatureStatement(bound(`hole('M6', bolt).clearance('close').fasten(0.75)`), 12);
     expect(fine.ok && fine.parsed.feature === 'hole' && fine.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75, depth: null, tipAngle: null });
-    const coarse = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e)`), 12);
+      .toEqual({ pitch: 0.75, depth: null, tipAngle: null });
+    const coarse = await parseFeatureStatement(bound(`hole('M6', bolt).fasten()`), 12);
     expect(coarse.ok && coarse.parsed.feature === 'hole' && coarse.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null, depth: null, tipAngle: null });
-    const blind = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e, null, 12)`), 12);
+      .toEqual({ pitch: null, depth: null, tipAngle: null });
+    const blind = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(null, 12)`), 12);
     expect(blind.ok && blind.parsed.feature === 'hole' && blind.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: null, depth: 12, tipAngle: null });
-    const pointed = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e, 1, 12, 118)`), 12);
+      .toEqual({ pitch: null, depth: 12, tipAngle: null });
+    const pointed = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(1, 12, 118)`), 12);
     expect(pointed.ok && pointed.parsed.feature === 'hole' && pointed.parsed.fasten)
-      .toEqual({ text: 'e', ref: { line: 5, column: 12 }, pitch: 1, depth: 12, tipAngle: 118 });
-    const tapped = await parseFeatureStatement(bound(`hole('M6', bolt).tapped().fasten(e)`), 12);
+      .toEqual({ pitch: 1, depth: 12, tipAngle: 118 });
+    const tapped = await parseFeatureStatement(bound(`hole('M6', bolt).tapped().fasten()`), 12);
     expect(tapped.ok).toBe(false);
-    const drilled = await parseFeatureStatement(bound(`hole(6, bolt).fasten(e)`), 12);
+    const drilled = await parseFeatureStatement(bound(`hole(6, bolt).fasten()`), 12);
     expect(drilled.ok).toBe(false);
+    // The chain takes no solid: an old-style solid argument is no pitch.
+    const solid = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(e, 0.75)`), 12);
+    expect(solid).toMatchObject({ ok: false, reason: expect.stringContaining('takes an optional pitch, depth and tip angle') });
+    const tooMany = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(1, 12, 118, 3)`), 12);
+    expect(tooMany.ok).toBe(false);
   });
 
   it('resolves a connector copy to its seed statement and slot, and nothing else read off a variable', async () => {

@@ -6852,44 +6852,43 @@ describe('apply-feature route validation', () => {
       expect(body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
     });
 
-    it('writes the fasten chain before the scope, and refuses it off a clearance hole or inside the scope', async () => {
+    it('writes the fasten chain before the scope, and refuses it off a clearance hole', async () => {
       const placements = [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }];
-      const target = { filePath: FILE, line: 5, column: 12 };
-      const coarse = await post({ ...BASE, placements, fasten: { target, pitch: null } });
+      const coarse = await post({ ...BASE, placements, fasten: { pitch: null } });
       expect(coarse.status).toBe(200);
-      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
-      const fine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75 } });
-      expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`);
-      const blind = await post({ ...BASE, placements, fasten: { target, pitch: null, depth: 12 } });
-      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, null, 12)`);
-      const blindFine = await post({ ...BASE, placements, fasten: { target, pitch: 0.75, depth: 'reach + 2' } });
-      expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, reach + 2)`);
-      expect((await post({ ...BASE, placements, fasten: { target, pitch: null, depth: -1 } })).status).toBe(400);
-      const pointed = await post({ ...BASE, placements, fasten: { target, pitch: null, depth: 12, tipAngle: 118 } });
-      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, null, 12, 118)`);
-      expect((await post({ ...BASE, placements, fasten: { target, pitch: null, depth: null, tipAngle: 118 } })).status).toBe(400);
-      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { target, pitch: null } });
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten()`);
+      const fine = await post({ ...BASE, placements, fasten: { pitch: 0.75 } });
+      expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75)`);
+      const blind = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12)`);
+      const blindFine = await post({ ...BASE, placements, fasten: { pitch: 0.75, depth: 'reach + 2' } });
+      expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, reach + 2)`);
+      expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: -1 } })).status).toBe(400);
+      const pointed = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12, tipAngle: 118 } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12, 118)`);
+      expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: null, tipAngle: 118 } })).status).toBe(400);
+      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { pitch: null } });
       expect(tapped.status).toBe(400);
-      const scoped = await post({ ...BASE, placements, scope: [target], fasten: { target, pitch: null } });
-      expect(scoped.status).toBe(400);
-      expect(scoped.body.error).toContain('cannot also be in the scope');
+      const scoped = await post({ ...BASE, placements, scope: [{ filePath: FILE, line: 5, column: 12 }], fasten: { pitch: null, depth: 12 } });
+      expect(scoped.status).toBe(200);
+      expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12).scope(e)`);
     });
 
-    it('edits the fasten chain in place: kept, re-pitched, re-picked and dropped', async () => {
-      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close').fasten(e, 0.75)\n})`)
+    it('edits the fasten chain in place: kept, re-pitched, deepened and dropped', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close').fasten(0.75)\n})`)
         .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
       const edit = { ...BASE, edit: { filePath: FILE, line: 10, column: 2 } };
       const kept = await post(edit);
       expect(kept.status).toBe(200);
-      expect(kept.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75)`);
-      const coarse = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: null } });
-      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e)`);
-      const repicked = await post({ ...edit, fasten: { target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 1 } });
-      expect(repicked.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 1)`);
-      const blind = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: 0.75, depth: 9 } });
-      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, 9)`);
-      const pointed = await post({ ...edit, fasten: { target: { kind: 'verbatim' }, pitch: 0.75, depth: 9, tipAngle: 'tip' } });
-      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(e, 0.75, 9, tip)`);
+      expect(kept.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75)`);
+      const coarse = await post({ ...edit, fasten: { pitch: null } });
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten()`);
+      const repitched = await post({ ...edit, fasten: { pitch: 1 } });
+      expect(repitched.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(1)`);
+      const blind = await post({ ...edit, fasten: { pitch: 0.75, depth: 9 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, 9)`);
+      const pointed = await post({ ...edit, fasten: { pitch: 0.75, depth: 9, tipAngle: 'tip' } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, 9, tip)`);
       const dropped = await post({ ...edit, fasten: null });
       expect(dropped.body.preview).toBe(`hole('M6', bolt).clearance('close')`);
     });

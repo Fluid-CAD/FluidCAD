@@ -325,38 +325,30 @@ describe('Hole dialog service', () => {
     expect(chips('scope-slot')).toEqual(['Extrude']);
   });
 
-  it('takes the fasten solid while its slot is armed, keeps it out of the scope, and drops it off a clearance hole', async () => {
-    const { service, container, chips, armScope, text, lastPreview } = mount();
+  it('fastens on its toggle, sending the tapped hole to the statement and the ghost, and drops it off a clearance hole', async () => {
+    const { service, container, text, lastPreview } = mount();
     service.enter();
     service.handleConnectorPick('bolt');
     const hidden = (role: string) => container.querySelector<HTMLElement>(`[data-role="${role}"]`)!.classList.contains('hidden');
+    const fasten = container.querySelector<HTMLInputElement>('[data-role="fasten"]')!;
+    const lastGhost = () => vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0];
     expect(hidden('fasten-section')).toBe(false);
+    expect(fasten.checked).toBe(false);
     expect(hidden('fasten-rows')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.fasten).toBeNull();
 
-    // The solid sits in the scope first; naming it the fasten solid takes it out.
-    armScope();
-    service.handleClick('solid', { type: 'face', index: 0 });
-    expect(chips('scope-slot')).toEqual(['Extrude']);
-    container.querySelector<HTMLElement>('[data-role="fasten-slot"]')!.click();
-    service.handleClick('solid', { type: 'face', index: 0 });
-    expect(chips('fasten-slot')).toEqual(['Extrude']);
-    expect(chips('scope-slot')).toEqual([]);
+    // On: the tapped hole takes the clearance hole's size, cut into the next solid along each axis.
+    fasten.checked = true;
+    fasten.dispatchEvent(new Event('change'));
     expect(hidden('fasten-rows')).toBe(false);
     expect(container.querySelector<HTMLInputElement>('[data-role="fasten-size"]')!.value).toBe('M6');
     expect(container.querySelector<HTMLInputElement>('[data-role="fasten-diameter"]')!.value).toBe('5');
-
-    // It cannot go back into the scope while it is the fasten solid.
-    armScope();
-    service.handleClick('solid', { type: 'face', index: 0 });
-    expect(chips('scope-slot')).toEqual([]);
-    expect(text('message')).toContain('fastens to');
-
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: null, depth: null, tipAngle: null });
-    const ghosts = vi.mocked(api.fetchFeatureGhostResult).mock.calls;
-    expect(ghosts[ghosts.length - 1][0]).toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5 } });
+    expect(lastPreview()!.fasten).toEqual({ pitch: null, depth: null, tipAngle: null });
+    expect((lastGhost() as { fasten?: unknown }).fasten).toEqual({ diameter: 5, depth: null, tipAngle: null });
 
-    // A fine pitch is written; a tapped hole has no fasten slot and sends none.
+    // A fine pitch is written; a tapped hole has no fasten toggle and sends none.
     const select = (role: string, value: string) => {
       const el = container.querySelector<HTMLSelectElement>(`[data-role="${role}"]`)!;
       el.value = value;
@@ -364,7 +356,7 @@ describe('Hole dialog service', () => {
     };
     select('fasten-pitch', '0.75');
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: null, tipAngle: null });
+    expect(lastPreview()!.fasten).toEqual({ pitch: 0.75, depth: null, tipAngle: null });
     // A blind tapped hole sends its depth, to the statement and to the ghost.
     expect(hidden('fasten-through-wrap')).toBe(false);
     expect(hidden('fasten-depth-rows')).toBe(true);
@@ -378,8 +370,8 @@ describe('Hole dialog service', () => {
     depth.dispatchEvent(new Event('input'));
     await vi.advanceTimersByTimeAsync(300);
     // Blind opens on a standard 118° drill point; 0 is a flat bottom, written without the angle.
-    expect(lastPreview()!.fasten).toEqual({ target: { filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 12, tipAngle: 118 });
-    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ fasten: { depth: 12, tipAngle: 118 } });
+    expect(lastPreview()!.fasten).toEqual({ pitch: 0.75, depth: 12, tipAngle: 118 });
+    expect(lastGhost()).toMatchObject({ fasten: { depth: 12, tipAngle: 118 } });
     const tip = container.querySelector<HTMLInputElement>('[data-role="fasten-tip-angle"]')!;
     tip.value = '0';
     tip.dispatchEvent(new Event('input'));
@@ -504,8 +496,8 @@ describe('Hole dialog service', () => {
     });
   });
 
-  it('seeds an edit session with the statement\'s fasten solid and pitch, and keeps, re-pitches or drops it', async () => {
-    const { service, container, chips } = mount();
+  it('seeds an edit session with the statement\'s fasten chain, and keeps or drops it', async () => {
+    const { service, container } = mount();
     const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
       feature: 'hole',
       size: { kind: 'fastener', label: 'M6' },
@@ -515,7 +507,7 @@ describe('Hole dialog service', () => {
       tipAngle: null,
       placementTexts: ['bolt'],
       placementRefs: [{ line: 6, column: 15 }],
-      fasten: { text: 'e', ref: { line: 5, column: 12 }, pitch: 0.75, depth: 9 },
+      fasten: { pitch: 0.75, depth: 9, tipAngle: null },
       scopeTexts: [],
       scopeRefs: [],
     };
@@ -526,24 +518,19 @@ describe('Hole dialog service', () => {
     } as unknown as SceneObjectRender];
     service.update(scene);
     service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
-    expect(chips('fasten-slot')).toEqual(['Current: e']);
+    const fasten = container.querySelector<HTMLInputElement>('[data-role="fasten"]')!;
+    expect(fasten.checked).toBe(true);
     expect(container.querySelector<HTMLSelectElement>('[data-role="fasten-pitch"]')!.value).toBe('0.75');
 
-    await vi.advanceTimersByTimeAsync(300);
-    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ target: { kind: 'verbatim' }, pitch: 0.75, depth: 9, tipAngle: null });
-
-    // At the boundary the kept argument becomes its solid's chip, sent by statement.
     service.handleSceneRendered(scene, 5, true);
-    expect(chips('fasten-slot')).toEqual(['Extrude']);
     await vi.advanceTimersByTimeAsync(300);
-    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten)
-      .toEqual({ target: { kind: 'feature', filePath: FILE, line: 5, column: 12 }, pitch: 0.75, depth: 9, tipAngle: null });
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toEqual({ pitch: 0.75, depth: 9, tipAngle: null });
     expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0])
-      .toMatchObject({ fasten: { target: { filePath: FILE, line: 5 }, diameter: 5.25 } });
+      .toMatchObject({ fasten: { diameter: 5.25, depth: 9, tipAngle: null } });
 
-    // Removing the chip drops the chain.
-    container.querySelector<HTMLButtonElement>('[data-role="fasten-slot"] button[title="Remove this selection"]')!.click();
-    expect(chips('fasten-slot')).toEqual([]);
+    // Turning the toggle off drops the chain.
+    fasten.checked = false;
+    fasten.dispatchEvent(new Event('change'));
     await vi.advanceTimersByTimeAsync(300);
     expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fasten).toBeNull();
   });

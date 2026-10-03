@@ -19,7 +19,7 @@ import { renderEditedPlane } from '../features/plane.ts';
 import { renderEditedRepeat, type RepeatEditTargetSource } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
-import { renderHolePlacementExprs, renderHoleStatement, validHoleFasten, validHoleOptions, type HoleFastenRender } from '../features/hole.ts';
+import { renderHolePlacementExprs, renderHoleStatement, validHoleFasten, validHoleOptions, type HoleFastenSpec } from '../features/hole.ts';
 import { renderEditedRotate } from '../features/rotate.ts';
 import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
@@ -240,31 +240,15 @@ export function renderEditedStatement(
     }
     // An absent fasten keeps the statement's own chain; null drops it. A
     // clearance hole no more (the type moved to Tapped or Drilled) drops it too.
-    let fasten: HoleFastenRender | null = null;
+    let fasten: HoleFastenSpec | null = null;
     const clearance = opts.size.kind === 'fastener' && opts.fastener?.type !== 'tapped';
     if (opts.fasten === undefined) {
-      fasten = parsed.fasten && clearance
-        ? { expr: parsed.fasten.text, pitch: parsed.fasten.pitch, depth: parsed.fasten.depth, tipAngle: parsed.fasten.tipAngle }
-        : null;
+      fasten = parsed.fasten && clearance ? parsed.fasten : null;
     } else if (opts.fasten !== null) {
-      if (!validHoleFasten(opts.fasten, opts) || typeof opts.fasten.target === 'number') {
-        return { error: 'malformed hole edit spec: .fasten() takes a kept or re-picked solid on a clearance hole' };
+      if (!validHoleFasten(opts.fasten, opts)) {
+        return { error: 'malformed hole edit spec: .fasten() goes with a clearance hole of a fastener size' };
       }
-      const target = opts.fasten.target;
-      if (target.kind === 'verbatim') {
-        if (!parsed.fasten) {
-          return { error: 'malformed hole edit spec: the kept fasten solid no longer matches the statement' };
-        }
-        fasten = { expr: parsed.fasten.text, pitch: opts.fasten.pitch, depth: opts.fasten.depth, tipAngle: opts.fasten.tipAngle };
-      } else {
-        if (!isScopeTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
-          return { error: 'malformed hole edit spec: the fasten solid references a non-feature producer' };
-        }
-        fasten = {
-          expr: varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f',
-          pitch: opts.fasten.pitch, depth: opts.fasten.depth, tipAngle: opts.fasten.tipAngle,
-        };
-      }
+      fasten = opts.fasten;
     }
     return { statement: renderHoleStatement(opts, exprs.exprs, scope.exprs, fasten) };
   }

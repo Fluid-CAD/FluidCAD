@@ -174,16 +174,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     let holeFrames: HoleGhostRequest['frames'] = [];
     let holeScope: { filePath: string; line: number }[] = [];
     let holeExclude: { filePath: string; line: number } | undefined;
-    let holeFastenTarget: { filePath: string; line: number } | null = null;
+    // `.fasten(…)`: the next solid along each axis takes a tap-drill bore.
+    const holeFasten = isHole && body.fasten !== undefined && body.fasten !== null;
     if (isHole) {
-      if (body.fasten !== undefined && body.fasten !== null) {
-        const target = parseSourceRefs([body.fasten.target]);
-        if (!target || target.length !== 1) {
-          res.status(400).json({ success: false, reason: 'Invalid fasten reference' });
-          return;
-        }
-        holeFastenTarget = target[0];
-      }
       const frames = parseHoleFrames(body.frames);
       if (!frames) {
         res.status(400).json({ success: false, reason: 'Invalid hole frames' });
@@ -363,9 +356,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const holeDiameter = isHole ? resolve(body.diameter) : null;
     const holeDepth = isHole ? resolve(body.depth) : null;
     const holeTip = isHole ? resolve(body.tipAngle) : null;
-    const holeFastenDiameter = holeFastenTarget ? resolve(body.fasten!.diameter) : null;
-    const holeFastenDepth = holeFastenTarget ? resolve(body.fasten!.depth) : null;
-    const holeFastenTip = holeFastenTarget ? resolve(body.fasten!.tipAngle) : null;
+    const holeFastenDiameter = holeFasten ? resolve(body.fasten!.diameter) : null;
+    const holeFastenDepth = holeFasten ? resolve(body.fasten!.depth) : null;
+    const holeFastenTip = holeFasten ? resolve(body.fasten!.tipAngle) : null;
     const holeCounterbore = isHole && body.counterbore
       ? { diameter: resolve(body.counterbore.diameter), depth: resolve(body.counterbore.depth) }
       : null;
@@ -532,7 +525,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         res.status(400).json({ success: false, reason: 'Invalid countersink' });
         return;
       }
-      if (holeFastenTarget && (holeFastenDiameter === null || holeFastenDiameter <= 0)) {
+      if (holeFasten && (holeFastenDiameter === null || holeFastenDiameter <= 0)) {
         res.status(400).json({ success: false, reason: 'Invalid fasten diameter' });
         return;
       }
@@ -550,9 +543,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         countersink: holeCountersink as { diameter: number; angle: number } | null,
         scope: holeScope,
         exclude: holeExclude,
-        fasten: holeFastenTarget
+        fasten: holeFasten
           ? {
-            target: holeFastenTarget, diameter: holeFastenDiameter as number, depth: holeFastenDepth,
+            diameter: holeFastenDiameter as number, depth: holeFastenDepth,
             tipAngle: holeFastenDepth === null ? null : holeFastenTip,
           }
           : null,

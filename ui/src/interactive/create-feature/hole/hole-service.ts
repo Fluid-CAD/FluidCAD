@@ -1,6 +1,6 @@
 import {
   applyHole, applyHoleEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget, GhostSolid,
-  HoleApplyOptions, HoleEditFastenRef, HoleEditOptions, HoleGhostRequest, ParsedFeatureStatement, SourceSlotRef,
+  HoleApplyOptions, HoleEditOptions, HoleFastenRef, HoleGhostRequest, ParsedFeatureStatement, SourceSlotRef,
 } from '../../../api';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
 import { SelectedEntity, SelectionModifiers, Viewer } from '../../../viewer';
@@ -30,10 +30,9 @@ import { iconUrl } from '../../../ui/icon-url';
  * vertex dots (a point exported from its sketch) and face/edge anchor
  * suggestions (a connector created on the spot inside a part, the bare
  * anchor expression outside one); timeline connector rows land there too.
- * The Scope slot takes whole-solid picks like the other boolean dialogs, and
- * so does the Fasten slot of a clearance hole — one solid, the one the
- * fastener threads into: it takes the matching tapped hole and stays out of
- * the scope.
+ * The Scope slot takes whole-solid picks like the other boolean dialogs. A
+ * clearance hole's Fasten toggle adds the matching tapped hole, cut into the
+ * next solid along each hole's axis — no pick names it.
  * Applying writes `hole(<size>, <placements…>)` plus its chains; the
  * re-render is the preview and editor undo the rollback.
  */
@@ -47,8 +46,6 @@ export class HoleFeatureService {
   private placements = new HolePlacements();
   /** The `.scope(…)` targets, part-restricted whole-solid picks. */
   private scope = new ScopeTargetList();
-  /** The `.fasten(…)` solid — the scope list's rules, holding at most one target. */
-  private fasten = new ScopeTargetList();
   /** The edited statement's enclosing part — the scope picker's restriction. */
   private editPartLoc: SourceLocation | null = null;
   private sceneObjects: SceneObjectRender[] = [];
@@ -122,8 +119,6 @@ export class HoleFeatureService {
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
-      // The fasten solid's highlight follows the hole type offering its slot.
-      this.refreshHighlight();
       this.runner.schedulePreview();
     };
     this.panel.onRemovePlacement = (index) => {
@@ -137,12 +132,6 @@ export class HoleFeatureService {
       this.scope.removeAt(index);
       this.panel.setMessage(null);
       this.refreshScope();
-      this.runner.schedulePreview();
-    };
-    this.panel.onRemoveFasten = () => {
-      this.fasten.clear();
-      this.panel.setMessage(null);
-      this.refreshFasten();
       this.runner.schedulePreview();
     };
     this.panel.onArmedSlotChange = () => this.syncViewport();
@@ -229,13 +218,11 @@ export class HoleFeatureService {
     const editedRow = sceneObjects[this.session.boundary?.index ?? -1];
     this.placements.setScene(sceneObjects, { resolveKeeps: true, builtFrames: builtHoleFrames(editedRow) });
     this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
-    this.fasten.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     if (!this.sourceScope) {
       void this.loadEditSources();
     }
     this.syncViewport();
     this.refreshPlacements();
-    this.refreshFasten();
     this.refreshScope();
     this.runner.schedulePreview();
   }
@@ -270,10 +257,8 @@ export class HoleFeatureService {
       this.panel.setMessage('The model changed. Pick the dropped placements again.');
     }
     this.scope.setScene(sceneObjects, this.scopePartLoc());
-    this.fasten.setScene(sceneObjects, this.scopePartLoc());
     this.syncViewport();
     this.refreshPlacements();
-    this.refreshFasten();
     this.refreshScope();
     this.runner.schedulePreview();
   }
@@ -304,12 +289,6 @@ export class HoleFeatureService {
     this.placements.seedKeeps(parsed, target.filePath);
     this.scope.seedKeeps(parsed, target.filePath);
     this.scope.setScene(this.sceneObjects, this.scopePartLoc());
-    // The fasten solid seeds like a one-argument scope chain: a kept chip that
-    // becomes its solid's own once the boundary scene offers it.
-    this.fasten.seedKeeps(parsed.fasten
-      ? { scopeTexts: [parsed.fasten.text], scopeRefs: [parsed.fasten.ref] }
-      : { scopeTexts: [], scopeRefs: [] }, target.filePath);
-    this.fasten.setScene(this.sceneObjects, this.scopePartLoc());
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -318,7 +297,6 @@ export class HoleFeatureService {
     this.panel.showEdit(parsed);
     this.syncViewport();
     this.refreshPlacements();
-    this.refreshFasten();
     this.refreshScope();
     this.runner.schedulePreview();
   }
@@ -333,13 +311,11 @@ export class HoleFeatureService {
     this.placements.clear();
     this.placements.setScene(this.sceneObjects);
     this.scope.clear();
-    this.fasten.clear();
     this.editPartLoc = null;
     this.editPlacementCount = 0;
     // The scope picker's pool for this scene — a timeline or face pick can
     // land before any render re-syncs it.
     this.scope.setScene(this.sceneObjects, this.scopePartLoc());
-    this.fasten.setScene(this.sceneObjects, this.scopePartLoc());
     // Placing holes means looking at the whole model, not down the active
     // sketch plane — leave sketch editing right away.
     if (this.sceneSketchActive) {
@@ -350,7 +326,6 @@ export class HoleFeatureService {
     this.panel.show();
     this.syncViewport();
     this.refreshPlacements();
-    this.refreshFasten();
     this.refreshScope();
     this.runner.schedulePreview();
   }
@@ -374,7 +349,6 @@ export class HoleFeatureService {
     this.sourceScope = null;
     this.placements.clear();
     this.scope.clear();
-    this.fasten.clear();
     this.editPartLoc = null;
     this.pickMenu.close();
     this.suggestions.setEnabled(false);
@@ -393,8 +367,7 @@ export class HoleFeatureService {
 
   /**
    * A timeline row was clicked while the dialog is armed: a connector row
-   * toggles it in the placements, a solid row toggles it in the scope — or
-   * becomes the fasten solid while that slot is armed. Every
+   * toggles it in the placements, a solid row toggles it in the scope. Every
    * matching row is consumed so the timeline's default rollback can't close
    * the dialog mid-flow.
    */
@@ -412,11 +385,7 @@ export class HoleFeatureService {
     if (!option) {
       return false;
     }
-    if (this.panel.armedSlot === 'fasten') {
-      this.pickFasten(option);
-    } else {
-      this.toggleScope(option);
-    }
+    this.toggleScope(option);
     return true;
   }
 
@@ -450,8 +419,7 @@ export class HoleFeatureService {
    * Routes viewer clicks while the dialog is armed. Placements armed: a
    * vertex dot toggles as a sketch point, a face/edge locks its anchor
    * suggestion. Scope armed: any face or edge click toggles the owning
-   * solid whole (the boolean dialogs' idiom). Fasten armed: the click names
-   * the owning solid as the one the hole fastens to.
+   * solid whole (the boolean dialogs' idiom).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
     if (!this.armed || !shapeId || !sub) {
@@ -475,14 +443,6 @@ export class HoleFeatureService {
       return;
     }
     const option = this.scope.optionForShapeId(shapeId);
-    if (this.panel.armedSlot === 'fasten') {
-      if (!option) {
-        this.panel.setMessage('The hole cannot fasten to that shape — pick a solid in the same part.');
-        return;
-      }
-      this.pickFasten(option);
-      return;
-    }
     if (!option) {
       this.panel.setMessage('That shape cannot scope the hole — pick a solid in the same part.');
       return;
@@ -513,43 +473,7 @@ export class HoleFeatureService {
     this.runner.schedulePreview();
   }
 
-  /** Whether `list` already holds the solid `option` names (a pick, or a kept argument resolved to it). */
-  private holds(list: ScopeTargetList, option: SolidTargetOption): boolean {
-    return list.entries.some(entry => entry.kind === 'option'
-      ? entry.option.filePath === option.filePath && entry.option.line === option.line
-      : entry.loc !== undefined && entry.loc.filePath === option.filePath && entry.loc.line === option.line);
-  }
-
-  /**
-   * Name `option` the solid the hole fastens to — a second click on it clears
-   * the slot, another solid replaces it. The solid takes the tapped hole, so
-   * it leaves the scope if it was there.
-   */
-  private pickFasten(option: SolidTargetOption): void {
-    const same = this.holds(this.fasten, option);
-    this.fasten.clear();
-    if (!same) {
-      this.fasten.toggle(option);
-      if (this.holds(this.scope, option)) {
-        this.scope.toggle(option);
-        this.refreshScope();
-      }
-    }
-    this.panel.setMessage(null);
-    this.refreshFasten();
-    this.runner.schedulePreview();
-  }
-
-  /** The fasten slot's solid counts only while the hole type offers the slot. */
-  private get fastenActive(): boolean {
-    return this.panel.fastenAvailable && !this.fasten.isEmpty;
-  }
-
   private toggleScope(option: SolidTargetOption): void {
-    if (this.fastenActive && this.holds(this.fasten, option)) {
-      this.panel.setMessage('That solid is the one the hole fastens to — it takes the tapped hole, not the clearance one.');
-      return;
-    }
     this.scope.toggle(option);
     this.panel.setMessage(null);
     this.refreshScope();
@@ -642,14 +566,6 @@ export class HoleFeatureService {
     this.refreshHighlight();
   }
 
-  private refreshFasten(): void {
-    if (!this.armed) {
-      return;
-    }
-    this.panel.setFasten(this.fasten.chips()[0] ?? null);
-    this.refreshHighlight();
-  }
-
   /** Picked connectors enlarged, picked vertex dots and anchor faces lit, scope solids whole. */
   private refreshHighlight(): void {
     if (!this.armed) {
@@ -657,7 +573,7 @@ export class HoleFeatureService {
     }
     this.viewer.setPickedConnectors(this.placements.connectorIds());
     const entities: SelectedEntity[] = [...this.placements.vertexEntities(), ...this.placements.anchorEntities()];
-    this.solidPick.set(this.fastenActive ? [...this.scope.shapeIds(), ...this.fasten.shapeIds()] : this.scope.shapeIds());
+    this.solidPick.set(this.scope.shapeIds());
     this.solidPick.refreshHighlight({ entities });
   }
 
@@ -730,34 +646,21 @@ export class HoleFeatureService {
     return refs;
   }
 
-  /** The fastened solid's tap-drill bore for the ghost; null while there is none, or its statement is unknown. */
+  /** The tapped hole's bore for the ghost; null while the hole does not fasten. */
   private ghostFasten(): HoleGhostRequest['fasten'] {
-    const target = this.fastenActive ? this.fasten.entries[0] : undefined;
     const diameter = this.panel.fastenDiameter();
-    const loc = target?.kind === 'option' ? target.option : target?.loc;
-    if (!loc || diameter === null) {
+    if (!this.panel.fastened || diameter === null) {
       return null;
     }
-    return {
-      target: { filePath: loc.filePath, line: loc.line }, diameter,
-      depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle(),
-    };
+    return { diameter, depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle() };
   }
 
-  /** The edit payload's `.fasten(…)`: the kept argument, a re-picked solid, or null to drop the chain. */
-  private editFasten(): HoleEditFastenRef | null {
-    const target = this.fastenActive ? this.fasten.entries[0] : undefined;
-    if (!target) {
+  /** The `.fasten(…)` chain the toggle and its values write; null writes (or, editing, drops) none. */
+  private fastenRef(): HoleFastenRef | null {
+    if (!this.panel.fastened) {
       return null;
     }
-    const pitch = this.panel.fastenPitch();
-    const depth = this.panel.fastenDepth();
-    const tipAngle = this.panel.fastenTipAngle();
-    if (target.kind === 'keep') {
-      return { target: { kind: 'verbatim' }, pitch, depth, tipAngle };
-    }
-    const { filePath, line, column } = target.option;
-    return { target: { kind: 'feature', filePath, line, column }, pitch, depth, tipAngle };
+    return { pitch: this.panel.fastenPitch(), depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle() };
   }
 
   /** The create request for the current form state, or the blocking message. */
@@ -770,17 +673,11 @@ export class HoleFeatureService {
     if (placements.length === 0) {
       return { error: 'Pick where the holes go: a connector, a sketch vertex, or a face or round edge.' };
     }
-    const fastenTarget = this.fastenActive ? this.fasten.createRefs()[0] : undefined;
     return {
       ...values,
       placements,
       scope: this.scope.createRefs(),
-      fasten: fastenTarget
-        ? {
-          target: fastenTarget, pitch: this.panel.fastenPitch(),
-          depth: this.panel.fastenDepth(), tipAngle: this.panel.fastenTipAngle(),
-        }
-        : null,
+      fasten: this.fastenRef(),
     };
   }
 
@@ -807,7 +704,7 @@ export class HoleFeatureService {
       before: this.session.boundary ?? undefined,
       placements,
       scope: this.scope.editRefs(),
-      fasten: this.editFasten(),
+      fasten: this.fastenRef(),
     };
   }
 }

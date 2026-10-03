@@ -563,10 +563,11 @@ export type HoleGhostRequest = {
   scope: { filePath: string; line: number }[];
   /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
   exclude?: { filePath: string; line: number };
-  /** The `.fasten(…)` solid by producing statement, the tap-drill diameter its bore is drawn at, its blind depth (null is through) and tip angle. */
-  fasten?: {
-    target: { filePath: string; line: number }; diameter: number; depth: ValueExpr | null; tipAngle: ValueExpr | null;
-  } | null;
+  /**
+   * `.fasten(…)`: the tap-drill diameter of the bore drawn into the next solid
+   * along each hole's axis, its blind depth (null is through) and tip angle.
+   */
+  fasten?: { diameter: number; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
 };
 
 export type RevolveGhostRequest = {
@@ -2496,15 +2497,13 @@ export type HolePlacementRef =
   | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor; name: string };
 
 /**
- * The `.fasten(…)` chain of a clearance hole: the solid statement the
- * fastener threads into — it takes the matching tapped hole — that hole's
- * pitch (null is the coarse pitch), its blind depth from the face it
- * enters the solid through (null is through all) and the drill point angle
- * below that depth (null is a flat bottom).
+ * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
+ * into the next solid along each hole's axis — its pitch (null is the coarse
+ * pitch), its blind depth from the face it enters that solid through (null
+ * is through all) and the drill point angle below that depth (null is a
+ * flat bottom).
  */
-export type HoleFastenRef = {
-  target: SketchSourceRef; pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null;
-};
+export type HoleFastenRef = { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -2534,14 +2533,6 @@ export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeature
   }, options.signal);
 }
 
-/** An edited `.fasten(…)` chain: the statement's own solid argument kept, or a re-picked solid. */
-export type HoleEditFastenRef = {
-  target: { kind: 'verbatim' } | ({ kind: 'feature' } & SketchSourceRef);
-  pitch: number | null;
-  depth: ValueExpr | null;
-  tipAngle: ValueExpr | null;
-};
-
 /** An edited placement: a kept argument by position, or a new pick. */
 export type HoleEditPlacementRef = { kind: 'verbatim'; sourceIndex: number } | HolePlacementRef;
 
@@ -2554,7 +2545,7 @@ export type HoleEditOptions = HoleOptionValues & EditSessionFields & {
    */
   scope?: ScopeTargetRef[];
   /** The `.fasten(…)` chain; omitted keeps the statement's own, null drops it. */
-  fasten?: HoleEditFastenRef | null;
+  fasten?: HoleFastenRef | null;
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3351,15 +3342,11 @@ export type ParsedFeatureStatement =
        */
       placementRefs: ({ line: number; column: number; slot?: number } | null)[];
       /**
-       * The `.fasten(…)` chain: the solid argument verbatim, the statement it
-       * is bound to (or null), the pitch (null is coarse), the blind depth
+       * The `.fasten(…)` chain: the pitch (null is coarse), the blind depth
        * (null is through all) and its tip angle (null is a flat bottom); null
        * without the chain. Absent on older servers.
        */
-      fasten?: {
-        text: string; ref: { line: number; column: number } | null; pitch: number | null;
-        depth: ValueExpr | null; tipAngle?: ValueExpr | null;
-      } | null;
+      fasten?: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

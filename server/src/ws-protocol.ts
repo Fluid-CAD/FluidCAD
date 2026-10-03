@@ -230,6 +230,7 @@ export type SerializedAssembly = {
 
 export type SceneRenderedMessage = {
   breakpointHit?: boolean;
+  breakpointStop?: number;
   timeline?: TimelineEntry[];
   type: 'scene-rendered';
   absPath: string;
@@ -494,6 +495,7 @@ export type UISceneRenderedMessage = {
   /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
+  breakpointStop?: number;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
   params?: UIParamDefinition[];

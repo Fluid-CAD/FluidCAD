@@ -48,12 +48,13 @@ export function sceneUnitFields(
  * emitter so a rollback or error replay remains self-contained on refresh.
  */
 export function sceneStopFields(
-  data: Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'timeline'>,
-): Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'timeline'> {
+  data: Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'breakpointStop' | 'timeline'>,
+): Pick<SceneRenderedData, 'rollbackStop' | 'rollbackScopePartId' | 'breakpointHit' | 'breakpointStop' | 'timeline'> {
   return {
     rollbackStop: data.rollbackStop,
     ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
     ...(data.breakpointHit !== undefined ? { breakpointHit: data.breakpointHit } : {}),
+    ...(data.breakpointStop !== undefined ? { breakpointStop: data.breakpointStop } : {}),
     ...(data.timeline ? { timeline: data.timeline } : {}),
   };
 }

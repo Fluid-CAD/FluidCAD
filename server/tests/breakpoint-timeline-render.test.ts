@@ -98,6 +98,16 @@ describe('breakpoint history through server renders', () => {
     expect((await server.updateLiveCode(FILE, PAUSED))?.timeline).toBeUndefined();
   });
 
+  it('keeps the source breakpoint boundary when a rollback previews an earlier row', async () => {
+    const { host, server } = setup();
+    host.error = new BreakpointHit(null);
+    host.rows = [feature('a', 1, 'extrude'), feature('b', 2, 'fillet')];
+    const paused = await server.updateLiveCode(FILE, 'extrude(1);\nfillet(2);\nbreakpoint();');
+    expect(paused?.breakpointStop).toBe(1);
+    const preview = await server.rollbackFromUI(0);
+    expect(sceneStopFields(preview!)).toMatchObject({ rollbackStop: 0, breakpointStop: 1, breakpointHit: true });
+  });
+
   it('does not replace history with labels from an evaluation whose source changed in flight', async () => {
     const { host, server } = setup();
     host.rows = [feature('a', 1, 'extrude'), feature('b', 2, 'fillet')];

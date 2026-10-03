@@ -592,6 +592,7 @@ export class FluidCadServer {
           rollbackStop: stop,
           ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
+          ...(breakpointHit ? { breakpointStop: stop } : {}),
           ...(timeline ? { timeline } : {}),
           params,
           // A part file's published values; an assembly's inserted parts
@@ -960,6 +961,7 @@ export class FluidCadServer {
       ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
+      ...(this.lastBreakpointHit ? { breakpointStop: this.sceneManager.renderStop?.(scene)?.stop ?? result.length - 1 } : {}),
       ...(this.timelineHistory.get(fileName) ? { timeline: this.timelineHistory.get(fileName) } : {}),
       objectErrors: FluidCadServer.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),

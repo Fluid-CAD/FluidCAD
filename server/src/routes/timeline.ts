@@ -11,6 +11,7 @@ import type { ProjectMaterials } from '../project-config.ts';
 import { RemoveFeature } from '../remove-feature.ts';
 import { WorkspaceConnectorReads } from '../hole-connectors.ts';
 import { WorkspaceScripts } from '../workspace-scripts.ts';
+import { TimelineBreakpoint } from '../timeline-breakpoint.ts';
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
@@ -296,6 +297,34 @@ export function createTimelineRouter(
       line: sourceLocation.line,
     });
     res.json({ success: true });
+  });
+
+  router.post('/timeline-breakpoint', async (req, res) => {
+    const { filePath, before } = req.body ?? {};
+    if (typeof filePath !== 'string' || (before !== null && (!before
+      || !Number.isInteger(before.line) || before.line < 1
+      || !Number.isInteger(before.column) || before.column < 1))) {
+      res.status(400).json({ error: 'Invalid breakpoint target' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'No edit dispatcher is available.' });
+      return;
+    }
+    // The bar belongs to this document. Imported parts keep their own stops.
+    if (filePath !== fluidCadServer.getCurrentFileName()) {
+      res.status(422).json({ success: false, reason: 'Open this model file to move its breakpoint.' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (code === null) {
+      res.status(422).json({ success: false, reason: 'Wait for the model to rebuild, then try again.' });
+      return;
+    }
+    await options.dispatcher.dispatch(res, {
+      feature: 'sketch', filePath, producers: [], parts: [], imports: [],
+      timelineBreakpoint: TimelineBreakpoint.capture(code, before),
+    }, { success: true });
   });
 
   router.post('/clear-breakpoints', (_req, res) => {

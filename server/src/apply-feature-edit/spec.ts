@@ -9,6 +9,7 @@ import type { ParamEditSpec } from '../param-edit.ts';
 import type { PropertyEditSpec } from '../property-edit.ts';
 import type { UsageEditSpec } from '../declaration-usages.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
+import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
@@ -368,6 +369,8 @@ export type ApplyFeatureEditSpec = {
    * trip like `sketchClosed`; every other spec field is ignored.
    */
   partMaterial?: PartMaterialEditSpec;
+  /** Move or clear the document's breakpoint in one acknowledged source edit. */
+  timelineBreakpoint?: TimelineBreakpointSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part — whenever no input pins it

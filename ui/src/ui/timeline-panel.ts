@@ -12,6 +12,7 @@ import { AccordionSection } from './accordion-section';
 import { RAIL_PANEL_CLASS } from './rail-styles';
 import { viewerSettings, type ViewerSettings } from '../scene/viewer-settings';
 import { iconUrl } from './icon-url';
+import { TimelineBreakpointBar, type BreakpointStop } from './timeline-breakpoint-bar';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -244,6 +245,10 @@ export class TimelinePanel {
 
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
+  private breakpointBar: TimelineBreakpointBar | null = null;
+  private breakpointFilePath: string | undefined;
+  private breakpointStop = -1;
+  private sceneRevision = 0;
   private contentWrapper: HTMLDivElement;
   private historySection: AccordionSection;
   private shapesPanel: ShapesPanel;
@@ -384,6 +389,14 @@ export class TimelinePanel {
       this.contentWrapper.appendChild(this.historySection.body);
     }
     this.timelineBody = this.historySection.body;
+    this.timelineBody.classList.add('relative');
+    if (this.client.editor?.moveTimelineBreakpoint) {
+      this.breakpointBar = new TimelineBreakpointBar(this.timelineBody, async stop => {
+        const row = stop.before ? this.timelineView.rows[Number(stop.before.dataset.displayIndex)] : undefined;
+        if (row) this.enterScopeOf(row);
+        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source);
+      });
+    }
     this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
     const historyDotsBtn = this.historySection.header.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
     historyDotsBtn.addEventListener('click', (e) => {
@@ -466,7 +479,7 @@ export class TimelinePanel {
     sceneObjects: SceneObjectRender[],
     rollbackStop: number,
     rollbackScopePartId: string | null = null,
-    options: { paused?: boolean; warnings?: ObjectBuildWarning[]; timeline?: TimelineEntry[] } = {},
+    options: { paused?: boolean; warnings?: ObjectBuildWarning[]; timeline?: TimelineEntry[]; filePath?: string; breakpointStop?: number } = {},
   ): void {
     const paused = options.paused === true;
     const view = new TimelineView(sceneObjects, paused ? options.timeline : undefined);
@@ -491,6 +504,9 @@ export class TimelinePanel {
     this.paused = paused;
     this.sceneObjects = sceneObjects;
     this.timelineView = view;
+    this.breakpointFilePath = options.filePath ?? view.rows.find(row => row.sourceLocation?.filePath)?.sourceLocation?.filePath;
+    this.breakpointStop = options.breakpointStop ?? rollbackStop;
+    this.sceneRevision++;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
@@ -921,6 +937,7 @@ export class TimelinePanel {
     // Rebuilding the rows discards the hovered one along with its mouseleave
     // listener, so a popover anchored to it would otherwise outlive it.
     this.closeProfilePopover();
+    this.breakpointBar?.prepareRender();
     this.timelineBody.innerHTML = html
       || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
 
@@ -1148,6 +1165,8 @@ export class TimelinePanel {
       });
     }
 
+    this.syncBreakpointBar();
+
     if (scrollToCurrent) {
       const revealEl = (heldRow ? this.rowElementFor(heldRow) : null)
         ?? this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
@@ -1155,6 +1174,43 @@ export class TimelinePanel {
         this.revealRow(revealEl, false);
       }
     }
+  }
+
+  /** The bar snaps before source statements, including retained unevaluated rows. */
+  private syncBreakpointBar(): void {
+    if (!this.breakpointBar || !this.breakpointFilePath) return;
+    const rows = this.timelineView.rows;
+    const stops: BreakpointStop[] = [];
+    const seen = new Set<string>();
+    const normalize = (path: string | undefined) => path?.replace('virtual:live-render:', '').replaceAll('\\', '/');
+    this.breakpointFilePath = normalize(this.breakpointFilePath);
+    for (const el of this.timelineBody.querySelectorAll<HTMLElement>('[data-display-index]')) {
+      const row = rows[Number(el.dataset.displayIndex)];
+      const loc = row.sourceLocation;
+      if (!loc || normalize(loc.filePath) !== this.breakpointFilePath || (loc.occurrence ?? 0) > 0) continue;
+      const key = `${loc.line}:${loc.column}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      stops.push({ before: el, label: `Before ${row.name || row.type || 'feature'}`, source: { line: loc.line, column: loc.column } });
+    }
+    if (!stops.length && !this.paused) return;
+    stops.push({ before: null, label: 'End of history', source: null });
+    const currentRow = this.sceneObjects[this.breakpointStop];
+    const currentDisplayIndex = currentRow ? rows.indexOf(currentRow) : -1;
+    // Unrelated parts can still evaluate after a pause. The render's stop,
+    // rather than the last evaluated row, is the authoritative boundary.
+    let current = stops.length - 1;
+    if (this.paused) {
+      const next = stops.findIndex(stop => stop.before && Number(stop.before.dataset.displayIndex) > currentDisplayIndex);
+      if (next >= 0) current = next;
+    }
+    this.breakpointBar.update({
+      stops, current, paused: this.paused, revision: this.sceneRevision,
+      // A running sketch owns navigation until Finish Sketch. A breakpoint
+      // preview may itself expose an open sketch; the bar must remain usable
+      // so dragging back and forward cannot strand the user there.
+      disabled: this.sketchActive && !this.paused,
+    });
   }
 
   /**
@@ -1526,7 +1582,7 @@ export class TimelinePanel {
       : `data-index="${index}" data-rollback-index="${rollbackIndex}"`;
 
     return `
-      <div class="${itemClass}" ${rowTarget} data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
+      <div class="${itemClass}" ${rowTarget} data-display-index="${displayIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}${warningMark}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
@@ -1575,6 +1631,7 @@ export class TimelinePanel {
   }
 
   dispose(): void {
+    this.breakpointBar?.dispose();
     this.unsubscribeSettings();
     if (this.activeDropdown) {
       this.activeDropdown.remove();

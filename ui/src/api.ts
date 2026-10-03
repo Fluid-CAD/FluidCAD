@@ -4567,6 +4567,10 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/add-breakpoint', { sourceLocation });
 }
 
+export function moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
+  return postAcked('api/timeline-breakpoint', { filePath, before });
+}
+
 export function removeFeature(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/remove-feature', { sourceLocation });
 }

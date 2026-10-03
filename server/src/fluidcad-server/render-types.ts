@@ -58,6 +58,8 @@ export type SceneRenderedData = {
    */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
+  /** Actual source breakpoint boundary, unchanged by view-only rollback previews. */
+  breakpointStop?: number;
   /** Paused history display, separate from the live scene and its indices. */
   timeline?: TimelineEntry[];
   assembly?: SerializedAssembly;

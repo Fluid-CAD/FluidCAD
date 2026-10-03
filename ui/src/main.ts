@@ -3323,6 +3323,8 @@ function applySceneRendered(msg: any): void {
       // Responses without an authoritative flag (compile errors) serve the
       // last scene, so the last known state still describes it.
       rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
+        filePath: msg.absPath ?? currentSceneAbsPath,
+        breakpointStop: msg.breakpointStop,
         paused: msg.breakpointHit ?? breakpointActive,
         timeline: msg.timeline,
         // Non-fatal per-row notices (an unknown material id) — absent on a

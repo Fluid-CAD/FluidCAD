@@ -24,6 +24,8 @@ import type { LengthUnit } from './units/units';
  */
 export interface EngineEditorClient {
   addBreakpoint(sourceLocation: SourceLocationParam): void;
+  /** Atomic document breakpoint move; null continues to the end. */
+  moveTimelineBreakpoint?(filePath: string, before: { line: number; column: number } | null): Promise<{ success: boolean; reason?: string }>;
   /**
    * Reveal a source line. `revealEditor: false` is a passive navigation: an
    * editor that is hidden stays hidden (see {@link gotoSource} in api.ts).

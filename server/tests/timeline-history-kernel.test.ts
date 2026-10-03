@@ -6,6 +6,7 @@ import { getSceneManager } from '../../lib/scene-manager.js';
 import { setupOC } from '../../lib/tests/setup.js';
 import type { Scene } from '../../lib/rendering/scene.js';
 import { TimelineHistory } from '../src/fluidcad-server/timeline-history.ts';
+import { TimelineBreakpoint } from '../src/timeline-breakpoint.ts';
 
 const FILE = '/ws/history.part.js';
 const names = Object.keys(core);
@@ -17,7 +18,10 @@ function evaluate(code: string, previous?: Scene) {
   let paused = false;
   try {
     // Real script coordinates, without new Function's implicit line offset.
-    compileFunction(code, names, { filename: FILE })(...names.map(name => (core as any)[name]));
+    // The fixture's imports are supplied as arguments. Keep their line and
+    // column space intact so source locations match the edited document.
+    const script = code.replace(/^import [^\n]+;$/gm, line => ' '.repeat(line.length));
+    compileFunction(script, names, { filename: FILE })(...names.map(name => (core as any)[name]));
     scene.materializeLeftoverDefinitions();
   } catch (error) {
     if (!(error instanceof BreakpointHit)) throw error;
@@ -55,5 +59,29 @@ sphere(2).name('Outside');`;
     const continued = evaluate(code, paused.scene);
     expect(continued.rows.find(r => r.name === 'Computed lid')?.hasError).toBe(false);
     expect(await history.update(FILE, continued.rows, continued.paused, () => code)).toBeUndefined();
+  });
+
+  it('drags backward and forward through retained rows, then continues the real build', async () => {
+    const history = new TimelineHistory();
+    let code = "sphere(1).name('One');\nsphere(2).name('Two');\nsphere(3).name('Three');";
+    let run = evaluate(code);
+    await history.update(FILE, run.rows, run.paused, () => code);
+    for (const name of ['Two', 'Three', 'One']) {
+      const entries = history.get(FILE);
+      const target = run.rows.find(row => row.name === name)
+        ?? entries?.flatMap(entry => entry.kind === 'unevaluated' ? [entry.row] : []).find(row => row.name === name);
+      expect(target?.sourceLocation).toBeDefined();
+      const edited = await TimelineBreakpoint.apply(code, TimelineBreakpoint.capture(code, target!.sourceLocation!));
+      expect(edited.error).toBeUndefined();
+      code = edited.newCode;
+      run = evaluate(code, run.scene);
+      expect(run.paused).toBe(true);
+      expect(run.rows.map(row => row.name)).toEqual(name === 'Two' ? ['One'] : name === 'Three' ? ['One', 'Two'] : []);
+      await history.update(FILE, run.rows, run.paused, () => code);
+    }
+    code = (await TimelineBreakpoint.apply(code, TimelineBreakpoint.capture(code, null))).newCode;
+    run = evaluate(code, run.scene);
+    expect(run.paused).toBe(false);
+    expect(run.rows.map(row => row.name)).toEqual(['One', 'Two', 'Three']);
   });
 });

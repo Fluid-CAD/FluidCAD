@@ -1,5 +1,6 @@
 import {
   addBreakpoint,
+  moveTimelineBreakpoint,
   editorRedo,
   editorUndo,
   exportShapes,
@@ -29,6 +30,10 @@ import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
 class HttpEngineEditorClient implements EngineEditorClient {
+  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
+    return moveTimelineBreakpoint(filePath, before);
+  }
+
   addBreakpoint(sourceLocation: SourceLocationParam): void {
     addBreakpoint(sourceLocation);
   }

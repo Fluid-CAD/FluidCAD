@@ -37,8 +37,8 @@ export type HoleStyleSpec =
 /**
  * `.fasten([pitch[, depth[, tipAngle]]])` — a clearance hole fastened to the
  * next solid along its axis, which takes the matching tapped hole. A null
- * pitch is the coarse one — written without a value, or as `null` ahead of
- * a depth so it keeps following the size. A null depth is through all; the
+ * pitch is the coarse one — written without a value, or as `'coarse'` ahead
+ * of a depth so it keeps following the size. A null depth is through all; the
  * tip angle is the drill point below a blind depth (null is a flat bottom).
  */
 export type HoleFastenSpec = {
@@ -52,7 +52,7 @@ export function renderHoleFastenChain(fasten: HoleFastenSpec): string {
   const args: string[] = [];
   const depth = fasten.depth ?? null;
   if (fasten.pitch !== null || depth !== null) {
-    args.push(fasten.pitch === null ? 'null' : formatValue(fasten.pitch));
+    args.push(fasten.pitch === null ? "'coarse'" : formatValue(fasten.pitch));
   }
   if (depth !== null) {
     args.push(formatValue(depth));
@@ -435,10 +435,11 @@ export function parseHoleChain(
   let fasten: ParsedHole['fasten'] = null;
   const fastenSeg = recognized.get('fasten');
   if (fastenSeg) {
-    // `null` holds the pitch slot open for a depth: the coarse pitch. Any
-    // other non-number there — a solid, as the chain once took — is no pitch.
+    // `'coarse'` (or `null`) holds the pitch slot open for a depth: the coarse
+    // pitch. Any other non-number there — a solid, as the chain once took —
+    // is no pitch.
     const pitchNode = fastenSeg.args[0];
-    const coarse = pitchNode === undefined || pitchNode.type === 'null';
+    const coarse = pitchNode === undefined || pitchNode.type === 'null' || stringArgValue(pitchNode) === 'coarse';
     const pitch = coarse ? null : numericArgValue(pitchNode);
     if (fastenSeg.args.length > 3 || (!coarse && pitch === null)) {
       return { error: 'the .fasten() chain takes an optional pitch, depth and tip angle — edit it in the source' };
@@ -447,7 +448,7 @@ export function parseHoleChain(
       return { error: ".fasten() goes with a clearance hole of a fastener size such as 'M6' — edit the statement in the source" };
     }
     if (pitch !== null && pitch <= 0) {
-      return { error: 'the .fasten() pitch is not a plain positive number or null — edit it in the source' };
+      return { error: "the .fasten() pitch is not a plain positive number or 'coarse' — edit it in the source" };
     }
     const fastenDepth = fastenSeg.args.length >= 2 ? anyValueArg(fastenSeg.args[1]) : null;
     if (fastenSeg.args.length >= 2 && fastenDepth === null) {

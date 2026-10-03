@@ -6860,18 +6860,18 @@ describe('apply-feature route validation', () => {
       const fine = await post({ ...BASE, placements, fasten: { pitch: 0.75 } });
       expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75)`);
       const blind = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12 } });
-      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12)`);
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12)`);
       const blindFine = await post({ ...BASE, placements, fasten: { pitch: 0.75, depth: 'reach + 2' } });
       expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, reach + 2)`);
       expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: -1 } })).status).toBe(400);
       const pointed = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12, tipAngle: 118 } });
-      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12, 118)`);
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12, 118)`);
       expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: null, tipAngle: 118 } })).status).toBe(400);
       const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { pitch: null } });
       expect(tapped.status).toBe(400);
       const scoped = await post({ ...BASE, placements, scope: [{ filePath: FILE, line: 5, column: 12 }], fasten: { pitch: null, depth: 12 } });
       expect(scoped.status).toBe(200);
-      expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(null, 12).scope(e)`);
+      expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12).scope(e)`);
     });
 
     it('edits the fasten chain in place: kept, re-pitched, deepened and dropped', async () => {

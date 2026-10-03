@@ -261,9 +261,15 @@ describe('hole statement parsing', () => {
     const coarse = await parseFeatureStatement(bound(`hole('M6', bolt).fasten()`), 12);
     expect(coarse.ok && coarse.parsed.feature === 'hole' && coarse.parsed.fasten)
       .toEqual({ pitch: null, depth: null, tipAngle: null });
-    const blind = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(null, 12)`), 12);
+    const blind = await parseFeatureStatement(bound(`hole('M6', bolt).fasten('coarse', 12)`), 12);
     expect(blind.ok && blind.parsed.feature === 'hole' && blind.parsed.fasten)
       .toEqual({ pitch: null, depth: 12, tipAngle: null });
+    // `null` still holds the slot, as statements written before 'coarse' do.
+    const legacy = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(null, 12)`), 12);
+    expect(legacy.ok && legacy.parsed.feature === 'hole' && legacy.parsed.fasten)
+      .toEqual({ pitch: null, depth: 12, tipAngle: null });
+    const misspelt = await parseFeatureStatement(bound(`hole('M6', bolt).fasten('fine', 12)`), 12);
+    expect(misspelt.ok).toBe(false);
     const pointed = await parseFeatureStatement(bound(`hole('M6', bolt).fasten(1, 12, 118)`), 12);
     expect(pointed.ok && pointed.parsed.feature === 'hole' && pointed.parsed.fasten)
       .toEqual({ pitch: 1, depth: 12, tipAngle: 118 });

@@ -133,7 +133,7 @@ const seat = sketch(cover.endFaces(), () => {
   fix(p, [0, 0]);
   return { p };
 });
-hole('M6', seat.geometries.p).fasten(base, null, 12, 118);
+hole('M6', seat.geometries.p).fasten(base, 'coarse', 12, 118);
 ```
 
 See [[api/connector]] for holes at a part's mating frames and [[api/repeat]] for bolt circles.

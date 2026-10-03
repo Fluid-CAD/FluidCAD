@@ -447,7 +447,7 @@ describe("hole() placements", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(5, top).new() as unknown as ExtrudeBase;
-    const h = hole('M6', upper.endFaces().center()).fasten(null, 4) as unknown as Hole;
+    const h = hole('M6', upper.endFaces().center()).fasten('coarse', 4) as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -468,7 +468,7 @@ describe("hole() placements", () => {
       testRect(20, 20, { at: [-10, -10] });
     });
     const upper = extrude(5, top).new() as unknown as ExtrudeBase;
-    const h = hole('M6', upper.endFaces().center()).fasten(null, 4, 118) as unknown as Hole;
+    const h = hole('M6', upper.endFaces().center()).fasten('coarse', 4, 118) as unknown as Hole;
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -477,7 +477,8 @@ describe("hole() placements", () => {
     // The depth runs to the shoulder; the 118° point reaches below it.
     const tip = 2.5 / Math.tan((118 / 2) * Math.PI / 180);
     expect(volumes[1]).toBeCloseTo(20 * 20 * 10 - cylinderVolume(5, 4) - coneVolume(5, tip), 3);
-    expect(() => hole('M6', upper.endFaces().center()).fasten(null, null, 118)).toThrow(/only with a blind depth/);
+    expect(() => hole('M6', upper.endFaces().center()).fasten('coarse', null, 118)).toThrow(/only with a blind depth/);
+    expect(() => hole('M6', upper.endFaces().center()).fasten('fine' as any, 4)).toThrow(/threads per inch or 'coarse'/);
   });
 
   it("keeps a through clearance hole out of the tapped solid inside a part", () => {
@@ -493,7 +494,7 @@ describe("hole() placements", () => {
       extrude(10, s2).new();
       // On the wall's outer face, drilling back through the wall into the base beside it.
       const seat = connector("seat", select(face().planar().onPlane("yz", 153))) as unknown as Connector;
-      h = hole('M6', seat).clearance('normal').fasten(null, 4) as unknown as Hole;
+      h = hole('M6', seat).clearance('normal').fasten('coarse', 4) as unknown as Hole;
     });
 
     const scene = render();
@@ -539,7 +540,7 @@ describe("hole() placements", () => {
 
   it("taps the solid under each placement's own axis", () => {
     const { seat } = plateOnRails();
-    hole('M6', seat.geometries.l.center(), seat.geometries.r.center()).fasten(null, 6);
+    hole('M6', seat.geometries.l.center(), seat.geometries.r.center()).fasten('coarse', 6);
 
     const scene = render();
     expect(errorsOf(scene)).toEqual([]);
@@ -800,7 +801,7 @@ describe("hole() under repeat", () => {
 
   it("repeats a fastened hole with an explicit scope", () => {
     const { cover, seat } = coverOnBase();
-    hole('M6', seat.geometries.l.center()).fasten(null, 6).scope(cover);
+    hole('M6', seat.geometries.l.center()).fasten('coarse', 6).scope(cover);
     repeat("linear", "x", { count: 3, offset: 20 });
 
     const scene = render();

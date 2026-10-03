@@ -95,8 +95,8 @@ The pictures below show the rear half of a joint, an 8 mm cover on a 20 mm base,
 
 <ModeTable columns={[
   {title: 'Through all', code: '.fasten(base)', image: '/img/docs/3d-operations/hole-fasten.png', description: 'Ø6.6 through the cover, Ø5 through the whole base.'},
-  {title: 'Blind', code: '.fasten(base, null, 12)', image: '/img/docs/3d-operations/hole-fasten-blind.png', description: 'The tapped hole stops 12 below the top face of the base, with a flat bottom.'},
-  {title: 'Blind with a drill point', code: '.fasten(base, null, 12, 118)', image: '/img/docs/3d-operations/hole-fasten-tip.png', description: '12 deep to the shoulder, then the 118° point of a standard drill.'},
+  {title: 'Blind', code: ".fasten(base, 'coarse', 12)", image: '/img/docs/3d-operations/hole-fasten-blind.png', description: 'The tapped hole stops 12 below the top face of the base, with a flat bottom.'},
+  {title: 'Blind with a drill point', code: ".fasten(base, 'coarse', 12, 118)", image: '/img/docs/3d-operations/hole-fasten-tip.png', description: '12 deep to the shoulder, then the 118° point of a standard drill.'},
 ]} />
 
 ### In the dialog
@@ -117,10 +117,10 @@ The pictures below show the rear half of a joint, an 8 mm cover on a 20 mm base,
 `.fasten()` takes the solid first, then three optional values: the pitch, the blind depth and the tip angle.
 
 ```js
-hole('M6', p).fasten(base)                  // Ø5 through the whole base (M6 × 1, the coarse pitch)
-hole('M6', p).fasten(base, 0.75)            // Ø5.25, for M6 × 0.75 fine
-hole('M6', p).fasten(base, null, 12)        // coarse pitch, blind: 12 deep, flat bottom
-hole('M6', p).fasten(base, null, 12, 118)   // blind, with a 118° drill point below the 12
+hole('M6', p).fasten(base)                      // Ø5 through the whole base (M6 × 1, the coarse pitch)
+hole('M6', p).fasten(base, 0.75)                // Ø5.25, for M6 × 0.75 fine
+hole('M6', p).fasten(base, 'coarse', 12)        // coarse pitch, blind: 12 deep, flat bottom
+hole('M6', p).fasten(base, 'coarse', 12, 118)   // blind, with a 118° drill point below the 12
 ```
 
 - **The solid** is the variable of the feature that made it, here `const base = extrude(20)`.
@@ -135,7 +135,7 @@ hole('M6', p).fasten(base, null, 12, 118)   // blind, with a 118° drill point b
 `.fasten()` comes after the entry and the depth of the clearance hole, and before `.scope()`. This is the order the dialog writes:
 
 ```js
-hole('M6', p).clearance('close').counterbore().fasten(base, null, 12, 118).scope(cover);
+hole('M6', p).clearance('close').counterbore().fasten(base, 'coarse', 12, 118).scope(cover);
 ```
 
 ### What is cut, and what is not

@@ -137,12 +137,14 @@ export class Hole extends SceneObject implements IHole {
     return this;
   }
 
-  fasten(pitch: number | null = null, depth: number | null = null, tipAngle: number | null = null): this {
+  fasten(pitch: number | 'coarse' | null = null, depth: number | null = null, tipAngle: number | null = null): this {
     if ((pitch as unknown) instanceof SceneObject) {
       throw new Error("hole(): .fasten() takes no solid — the tapped hole goes into the next solid along the hole axis; pass the pitch, depth and tip angle only");
     }
-    if (pitch !== null && (typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch <= 0)) {
-      throw new Error(`hole(): .fasten() takes the thread pitch (mm) or threads per inch (got ${String(pitch)})`);
+    // 'coarse' (or null) holds the pitch slot for a depth: the size's coarse pitch.
+    const threadPitch = pitch === 'coarse' ? null : pitch;
+    if (threadPitch !== null && (typeof threadPitch !== 'number' || !Number.isFinite(threadPitch) || threadPitch <= 0)) {
+      throw new Error(`hole(): .fasten() takes the thread pitch (mm), threads per inch or 'coarse' (got ${String(pitch)})`);
     }
     if (depth !== null && (typeof depth !== 'number' || !Number.isFinite(depth) || depth <= 0)) {
       throw new Error(`hole(): .fasten() takes a positive blind depth after the pitch (got ${String(depth)})`);
@@ -150,7 +152,7 @@ export class Hole extends SceneObject implements IHole {
     if (tipAngle !== null && depth === null) {
       throw new Error("hole(): .fasten() takes a tip angle only with a blind depth — a through tapped hole has no drill point");
     }
-    this._fasten = { pitch, depth, tipAngle };
+    this._fasten = { pitch: threadPitch, depth, tipAngle };
     return this;
   }
 

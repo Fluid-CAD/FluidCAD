@@ -54,4 +54,4 @@ const seat = sketch(cover.endFaces(), () => {
 // The same clearance hole. The tapped hole now stops 12 into the base,
 // measured from the base's top face, with a flat bottom. `null` in the
 // pitch position keeps the coarse pitch for the size.
-hole('M6', seat.geometries.p).fasten(base, null, 12);
+hole('M6', seat.geometries.p).fasten(base, 'coarse', 12);

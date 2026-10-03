@@ -2430,6 +2430,7 @@ const sectionViewService = new SectionViewService(container, viewer, {
   onResumeSketchUI: resumeSketchForFeature,
   filePath: () => currentSceneAbsPath,
   canEdit: () => engineClient.editor !== null,
+  removeView: (sourceLocation) => engineClient.editor?.removeFeature(sourceLocation),
   instanceIds: () => (lastAssemblyPayload?.instances ?? []).map(i => i.instanceId),
   poseOf: (instanceId) => {
     const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);

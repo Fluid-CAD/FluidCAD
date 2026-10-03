@@ -4,7 +4,7 @@ import { toggleEntity } from '../../helpers/entities';
 import { SectionController } from '../../scene/section-controller';
 import { sceneGeometryBounds } from '../../scene/scene-geometry-bounds';
 import type { StandardPlaneId } from '../../scene/standard-planes';
-import type { SceneObjectRender, SubSelection } from '../../types';
+import type { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import type { SelectedEntity, Viewer } from '../../viewer';
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, PlaneOption, planeOptionForShape, planeQuadShapeIds,
@@ -30,6 +30,8 @@ export type SectionViewHooks = {
   filePath: () => string | null;
   /** Whether this host can write source at all (the browser viewer cannot). */
   canEdit: () => boolean;
+  /** Remove the `section()` statement at `sourceLocation` from the source. */
+  removeView?: (sourceLocation: SourceLocation) => void;
   /** Assembly files: the instance ids on screen, and each one's live pose. */
   instanceIds?: () => string[];
   poseOf?: (instanceId: string) => MeasurePose | null;
@@ -190,13 +192,25 @@ export class SectionViewService {
   }
 
   openMenu(anchor: HTMLElement): void {
+    const canEdit = this.hooks.canEdit() && this.hooks.filePath() !== null;
+    const deletable = (r: SectionRow): boolean => canEdit && !!this.hooks.removeView && r.sourceLocation !== null;
     showSectionMenu(this.container, anchor, {
-      entries: this.rows.map(r => ({ key: r.key, label: r.name, disabledReason: r.error })),
+      entries: this.rows.map(r => ({ key: r.key, label: r.name, disabledReason: r.error, deletable: deletable(r) })),
       activeKey: this.activeKey,
       onSelect: (key) => this.activate(key),
       onNew: () => this.enter(),
-      canCreate: this.hooks.canEdit() && this.hooks.filePath() !== null,
+      onDelete: (key) => this.remove(key),
+      canCreate: canEdit,
     });
+  }
+
+  /** Delete the view's statement; the render that follows drops its row (and the cut, if it was active). */
+  private remove(key: string): void {
+    const row = this.rows.find(r => r.key === key);
+    if (!row?.sourceLocation) {
+      return;
+    }
+    this.hooks.removeView?.(row.sourceLocation);
   }
 
   /** Show the view with `key`, or the uncut scene with null. */

@@ -64,6 +64,30 @@ describe('showSectionMenu', () => {
     expect(rows(menu).map(r => r.textContent?.trim())).toEqual(['None', 'A-A']);
   });
 
+  it('a deletable view carries a delete button that fires onDelete without selecting', () => {
+    const { host, anchor } = mount();
+    const onSelect = vi.fn();
+    const onDelete = vi.fn();
+    const menu = showSectionMenu(host, anchor, {
+      entries: [
+        { key: 'a', label: 'A-A', deletable: true },
+        { key: 'b', label: 'B-B' },
+      ],
+      activeKey: null,
+      onSelect,
+      onNew: () => {},
+      onDelete,
+      canCreate: false,
+    });
+    const buttons = menu.querySelectorAll<HTMLButtonElement>('[data-role="section-delete"]');
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].getAttribute('aria-label')).toBe('Delete A-A');
+    buttons[0].click();
+    expect(onDelete).toHaveBeenCalledWith('a');
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(isSectionMenuOpen()).toBe(false);
+  });
+
   it('opens to the left of the anchor, top-aligned, and only one menu at a time', () => {
     const { host, anchor } = mount();
     host.getBoundingClientRect = () => ({ top: 100, left: 0, right: 800, bottom: 700, width: 800, height: 600, x: 0, y: 100, toJSON: () => ({}) });

@@ -1,4 +1,4 @@
-import { ICON_CHECK, ICON_PLUS } from '../../ui/icons';
+import { ICON_CHECK, ICON_PLUS, ICON_TRASH } from '../../ui/icons';
 import { MENU_CLASS, MENU_HEADER_CLASS, MENU_ROW_CLASS } from '../../ui/menu-styles';
 
 export type SectionMenuEntry = {
@@ -6,6 +6,8 @@ export type SectionMenuEntry = {
   label: string;
   /** Why the view cannot be shown (its plane did not build); disables the row. */
   disabledReason?: string | null;
+  /** Whether the row gets a delete button (its statement can be removed from the source). */
+  deletable?: boolean;
 };
 
 export type SectionMenuOptions = {
@@ -16,6 +18,8 @@ export type SectionMenuOptions = {
   onSelect(key: string | null): void;
   /** "New section view…" was picked. */
   onNew(): void;
+  /** A view's delete button was pressed. */
+  onDelete?(key: string): void;
   /** Whether a new view can be written (an editor-backed host with a file open). */
   canCreate: boolean;
 };
@@ -38,7 +42,8 @@ export function isSectionMenuOpen(): boolean {
  * The section-views menu, opening to the LEFT of the viewport button it
  * hangs off (the button sits at the right edge, under the view gizmo),
  * top-aligned with it. Radio rows for "None" and every saved view, then
- * the create row. Same mounting and dismissal rules as the dropup menu:
+ * the create row; a deletable view carries a delete button at the row's
+ * right end. Same mounting and dismissal rules as the dropup menu:
  * in `host`, one at a time, closed on an outside press, Escape, or a pick;
  * arrow keys move between rows.
  */
@@ -54,7 +59,10 @@ export function showSectionMenu(host: HTMLElement, anchor: HTMLElement, options:
   menu.appendChild(header);
 
   const rows: HTMLButtonElement[] = [];
-  const addRadio = (label: string, current: boolean, onPick: () => void, disabledReason: string | null = null): void => {
+  const addRadio = (
+    label: string, current: boolean, onPick: () => void,
+    disabledReason: string | null = null, onDelete: (() => void) | null = null,
+  ): void => {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = MENU_ROW_CLASS + (disabledReason ? ' opacity-50 cursor-not-allowed' : '');
@@ -75,12 +83,37 @@ export function showSectionMenu(host: HTMLElement, anchor: HTMLElement, options:
       onPick();
     });
     rows.push(row);
-    menu.appendChild(row);
+    if (!onDelete) {
+      menu.appendChild(row);
+      return;
+    }
+    // The delete button sits beside the radio row, not inside it (a button
+    // cannot nest); Tab reaches it, the arrow keys keep to the rows.
+    const line = document.createElement('div');
+    line.className = 'flex items-center gap-0.5';
+    row.classList.add('flex-1', 'min-w-0');
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className =
+      'flex items-center justify-center w-6 h-6 shrink-0 rounded cursor-pointer [&>svg]:size-3.5 '
+      + 'text-base-content/40 hover:text-error hover:bg-base-content/[0.08] '
+      + 'focus-visible:outline-none focus-visible:text-error focus-visible:bg-base-content/[0.08]';
+    remove.dataset.role = 'section-delete';
+    remove.title = `Delete ${label}`;
+    remove.setAttribute('aria-label', `Delete ${label}`);
+    remove.innerHTML = ICON_TRASH;
+    remove.addEventListener('click', () => {
+      close();
+      onDelete();
+    });
+    line.append(row, remove);
+    menu.appendChild(line);
   };
 
   addRadio('None', options.activeKey === null, () => options.onSelect(null));
   for (const entry of options.entries) {
-    addRadio(entry.label, options.activeKey === entry.key, () => options.onSelect(entry.key), entry.disabledReason ?? null);
+    const onDelete = entry.deletable && options.onDelete ? () => options.onDelete!(entry.key) : null;
+    addRadio(entry.label, options.activeKey === entry.key, () => options.onSelect(entry.key), entry.disabledReason ?? null, onDelete);
   }
 
   if (options.canCreate) {

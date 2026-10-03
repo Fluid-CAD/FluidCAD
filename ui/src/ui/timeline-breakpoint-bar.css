@@ -7,7 +7,8 @@
   flex-wrap: wrap;
   align-items: center;
   min-height: 28px;
-  margin: 0 8px;
+  /* Keep the hover/focus surface separate from neighboring feature rows. */
+  margin: 4px 8px;
   color: var(--color-primary);
   user-select: none;
   --breakpoint-surface: var(--color-base-200);

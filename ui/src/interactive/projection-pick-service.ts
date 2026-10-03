@@ -119,12 +119,13 @@ export class ProjectionPickService {
     private viewer: Viewer,
     hooks: { onSuspendSketchUI?: () => void; onResumeSketchUI?: () => void } = {},
   ) {
-    this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.sketchUI = new SketchUISuspender(viewer, hooks, true);
 
     this.panel = new ProjectionPanel(container);
     this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.onDone?.();
     this.panel.onRemoveChip = (index) => this.removeChip(index);
+    this.panel.onLockCameraToggle = (enabled) => this.viewer.setSketchCameraLockEnabled(enabled);
     this.panel.onChipHover = (index) => this.previewChip(index);
     this.panel.onConfirmForeign = () => {
       this.foreign.confirm();
@@ -230,8 +231,10 @@ export class ProjectionPickService {
 
   /**
    * Arm the tool over the sketch being edited. Composing a projection means
-   * looking at the solids, not down the sketch plane, so sketch editing is
-   * suspended right away — Cancel resumes it, an Apply's re-render takes over.
+   * picking on the solids, so sketch editing is suspended right away — the
+   * camera stays where the sketch left it (the dialog's Lock-camera toggle
+   * frees it for a pick that is out of sight). Cancel resumes sketch editing,
+   * an Apply's re-render takes over.
    */
   enter(sketch: SketchSourceRef, op: ProjectionOp = 'project'): void {
     if (this.isPicking) {
@@ -241,6 +244,7 @@ export class ProjectionPickService {
     this.selection.clear();
     this.sketches = [];
     this.sketchUI.suspend();
+    this.panel.setCameraLockVisible(this.viewer.isSketchMode);
     this.dress(op);
     this.viewer.clearHighlight();
     this.panel.show();
@@ -266,9 +270,7 @@ export class ProjectionPickService {
    * Open the dialog over the `project()` statement at `target` (timeline
    * double-click). The session rolls the viewport back to just before the
    * statement's row — the world its arguments see, the projected edges
-   * absent — and suspending sketch editing restores the free 3D camera and
-   * the Z-up grid over that rolled-back scene (the fillet/chamfer edit
-   * pattern). The statement's own sources seed the pick set as highlighted,
+   * absent — with sketch editing suspended and the camera left where it is. The statement's own sources seed the pick set as highlighted,
    * removable chips; re-picking is live exactly like create mode.
    */
   enterEdit(
@@ -283,8 +285,9 @@ export class ProjectionPickService {
     this.editSceneStale = false;
     this.selection.clear();
     this.sketches = [];
-    // The session owns the view: free 3D camera over the rolled-back scene.
+    // The session owns the view: the rolled-back scene, the camera untouched.
     this.sketchUI.suspend();
+    this.panel.setCameraLockVisible(this.viewer.isSketchMode);
     this.session.begin({ ...info, target });
     // The statement's own callee decides the mode — an edit never changes it.
     this.dress(parsed.op);

@@ -158,6 +158,9 @@ export interface SectionViewControl {
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
 // transparency sort/overdraw cost on complex scenes.
 const SKETCH_GHOST_TINT_FACTOR = 0.75;
+// A solid's edges take only a light tint: faded like the faces they would sink
+// into them, and the ghosted model would lose the outline picks aim at.
+const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 
 
 /**
@@ -349,6 +352,12 @@ export class Viewer {
   private sketchEditingSuspended = false;
   /** A render landed while sketch editing was suspended — see {@link missedSketchRender}. */
   private renderedWhileSuspended = false;
+  /**
+   * The suspension kept the sketch view ({@link suspendSketchEditing} with
+   * `keepCamera`): the mode manager stays in sketch mode — camera, lock, grid
+   * and datum axes untouched — while the scene draws and picks as plain 3D.
+   */
+  private sketchCameraHeld = false;
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
   /**
@@ -843,7 +852,7 @@ export class Viewer {
       if (e.button !== 0) {
         return;
       }
-      if (!this.selectionHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.selectionHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       // A gizmo gesture (drag, handle click, typed commit) owns this click
@@ -910,7 +919,7 @@ export class Viewer {
     // fired by the time this arrives (DOM event order), so the handler sees
     // the selection as the clicks left it.
     canvas.addEventListener('dblclick', (e) => {
-      if (!this.doubleClickHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.doubleClickHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       const dx = e.clientX - downX;
@@ -928,7 +937,7 @@ export class Viewer {
     // Non-drag right-click. OrbitControls suppresses the browser menu on the
     // canvas; this hook adds pick-aware context actions on top.
     canvas.addEventListener('contextmenu', (e) => {
-      if (!this.contextMenuHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.contextMenuHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       const dx = e.clientX - downX;
@@ -1335,17 +1344,25 @@ export class Viewer {
    * the mesh un-ghosted so faces can be picked (the sketch-on-face flow from
    * inside a sketch). {@link resumeSketchEditing} undoes it; scene updates
    * arriving while suspended stay in the default mode.
+   *
+   * With `keepCamera` the view stays exactly where it is (the projection
+   * tool): the camera, its rotation lock, the grid and the datum axes remain
+   * the sketch's, and only the mesh un-ghosts for 3D picking. The user frees
+   * the camera through the Lock-camera toggle when a pick is out of sight.
    */
-  suspendSketchEditing(): void {
+  suspendSketchEditing(opts: { keepCamera?: boolean } = {}): void {
     this.modeManager.sketchEnabled = false;
     this.sketchEditingSuspended = true;
     this.renderedWhileSuspended = false;
-    if (this.modeManager.isSketchMode) {
-      this.modeManager.enterDefaultMode();
-    }
+    this.sketchCameraHeld = !!opts.keepCamera && this.modeManager.isSketchMode;
     this.activeSketchId = null;
-    this.settingsPanel.setProjectionLocked(false);
-    this.settingsPanel.setFitButtonVisible(true);
+    if (!this.sketchCameraHeld) {
+      if (this.modeManager.isSketchMode) {
+        this.modeManager.enterDefaultMode();
+      }
+      this.settingsPanel.setProjectionLocked(false);
+      this.settingsPanel.setFitButtonVisible(true);
+    }
     this.syncSectionViewVisible();
     this.clearHover();
     this.rebuildSceneMesh();
@@ -1392,6 +1409,7 @@ export class Viewer {
     this.modeManager.sketchEnabled = true;
     this.sketchEditingSuspended = false;
     this.renderedWhileSuspended = false;
+    this.sketchCameraHeld = false;
     if (immediate && this.sceneObjects) {
       // Replay the last render as it arrived: re-running a rollback as a full
       // render would let a rolled-back sketch grab the camera.
@@ -1460,7 +1478,11 @@ export class Viewer {
         this.activeSketchId = activeObject.id;
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
+      } else if (this.sketchCameraHeld && activeObject?.object?.plane) {
+        // A suspension holding the sketch view: draw as plain 3D, move nothing.
+        this.activeSketchId = null;
       } else {
+        this.sketchCameraHeld = false;
         this.activeSketchId = null;
         this.modeManager.enterDefaultMode();
         this.settingsPanel.setProjectionLocked(false);
@@ -1500,7 +1522,7 @@ export class Viewer {
     // mode (skip if viewport barely changed).
     // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
     const autoRefit = this.fitPolicy.refit === 'auto' && !this.cameraIsTheVisitors;
-    if (autoRefit || (!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
+    if (autoRefit || (!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !this.sketchCameraHeld && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
       const parts = geometryPartsOf(mesh);
       const box = unionBox(parts);
       if (!box.isEmpty() && this.shouldAutoFit(box)) {
@@ -1608,6 +1630,14 @@ export class Viewer {
 
   get isSketchMode(): boolean {
     return this.modeManager.isSketchMode;
+  }
+
+  /**
+   * Sketch mode owns the pointer — the 3D hover/pick channels stand down —
+   * unless a suspension is only holding its camera for a 3D pick.
+   */
+  private get sketchOwnsPointer(): boolean {
+    return this.modeManager.isSketchMode && !this.sketchCameraHeld;
   }
 
   /**
@@ -2151,7 +2181,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (this.isMouseDown || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       // Authoritative drag-active gate. `isMouseDown` above is mouse-event
@@ -2860,13 +2890,17 @@ export class Viewer {
 
     const bg = themeColors.backgroundColor;
     for (const child of compiled.children) {
-      this.tintForGhosting(child, bg);
+      this.tintForGhosting(child, bg, false);
     }
   }
 
-  private tintForGhosting(node: Object3D, bg: Color): void {
+  private tintForGhosting(node: Object3D, bg: Color, insideSolid: boolean): void {
     if (node.userData.isSketchRoot) { return; }
     if (node.renderOrder >= 999) { return; }
+    const factor = insideSolid && node.userData.isEdgeLine
+      ? SKETCH_GHOST_EDGE_TINT_FACTOR
+      : SKETCH_GHOST_TINT_FACTOR;
+    insideSolid = insideSolid || !!node.userData.isSolid;
 
     const mat = (node as any).material;
     if (mat) {
@@ -2876,12 +2910,12 @@ export class Viewer {
         if (!m.userData.ghostOriginalColor) {
           m.userData.ghostOriginalColor = m.color.clone();
         }
-        m.color.copy(m.userData.ghostOriginalColor).lerp(bg, SKETCH_GHOST_TINT_FACTOR);
+        m.color.copy(m.userData.ghostOriginalColor).lerp(bg, factor);
       }
     }
 
     for (const c of node.children) {
-      this.tintForGhosting(c, bg);
+      this.tintForGhosting(c, bg, insideSolid);
     }
   }
 

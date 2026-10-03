@@ -14,6 +14,8 @@ export class SketchUISuspender {
   constructor(
     private readonly viewer: Viewer,
     private readonly hooks: { onSuspendSketchUI?: () => void; onResumeSketchUI?: () => void },
+    /** Leave the sketch view in place while suspended (see Viewer.suspendSketchEditing). */
+    private readonly keepCamera = false,
   ) {}
 
   get suspended(): boolean {
@@ -25,7 +27,7 @@ export class SketchUISuspender {
       return;
     }
     this.suspendedFlag = true;
-    this.viewer.suspendSketchEditing();
+    this.viewer.suspendSketchEditing({ keepCamera: this.keepCamera });
     this.hooks.onSuspendSketchUI?.();
   }
 

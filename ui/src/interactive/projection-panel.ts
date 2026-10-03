@@ -3,6 +3,7 @@ import { FeaturePanel } from './create-feature/feature-panel';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
 import { PROJECTION_OP_SPECS, ProjectionOpSpec } from './projection-op';
+import { viewerSettings } from '../scene/viewer-settings';
 
 /**
  * The projection dialog: one multi-pick slot for the 3D edges and faces to
@@ -20,6 +21,8 @@ export class ProjectionPanel extends FeaturePanel {
   onChipHover?: (index: number | null) => void;
   /** The cross-part notice's Confirm button. */
   onConfirmForeign?: () => void;
+  /** The lock-camera toggle — the sketch dialog's own, reachable while it is hidden. */
+  onLockCameraToggle?: (enabled: boolean) => void;
 
   readonly expression: ExpressionRow;
 
@@ -27,6 +30,8 @@ export class ProjectionPanel extends FeaturePanel {
   private readonly foreignRow: HTMLDivElement;
   private readonly foreignText: HTMLParagraphElement;
   private readonly foreignConfirm: HTMLButtonElement;
+  private readonly lockCameraRow: HTMLLabelElement;
+  private readonly lockCameraInput: HTMLInputElement;
   /** The statement the dialog currently writes; everything op-specific reads off it. */
   private spec: ProjectionOpSpec = PROJECTION_OP_SPECS.project;
 
@@ -39,6 +44,11 @@ export class ProjectionPanel extends FeaturePanel {
       exitLabel: 'Cancel',
       bodyHtml: `
         <div data-role="sources"></div>
+        <label data-role="lock-camera-row" class="flex items-center justify-between cursor-pointer text-xs"
+          title="Keep the view flat on the sketch plane — turn off to rotate to geometry that is out of sight">
+          <span class="text-base-content/70">Lock camera</span>
+          <input data-role="lock-camera" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
         <div data-role="foreign" class="hidden rounded-lg border border-base-300 bg-base-200/60 px-3 py-2 text-xs leading-snug">
           <p data-role="foreign-text" class="text-base-content/80 m-0"></p>
           <button data-role="foreign-confirm" class="btn btn-primary btn-xs mt-2">Expose and project</button>
@@ -52,6 +62,12 @@ export class ProjectionPanel extends FeaturePanel {
     this.foreignText = this.role<HTMLParagraphElement>('foreign-text');
     this.foreignConfirm = this.role<HTMLButtonElement>('foreign-confirm');
     this.foreignConfirm.addEventListener('click', () => this.onConfirmForeign?.());
+
+    this.lockCameraRow = this.role<HTMLLabelElement>('lock-camera-row');
+    this.lockCameraInput = this.role<HTMLInputElement>('lock-camera');
+    this.lockCameraInput.addEventListener('change', () => {
+      this.onLockCameraToggle?.(this.lockCameraInput.checked);
+    });
 
     this.slot = new PickSlot(this.role('sources'), { label: 'Selection', multiple: true });
     // Picking is live the whole time the tool is armed, and the slot keeps
@@ -92,7 +108,13 @@ export class ProjectionPanel extends FeaturePanel {
     this.expression.setPrefix(`${op}(`);
   }
 
+  /** Offer the lock-camera toggle — only while the view is a held sketch view. */
+  setCameraLockVisible(visible: boolean): void {
+    this.lockCameraRow.classList.toggle('hidden', !visible);
+  }
+
   show(): void {
+    this.lockCameraInput.checked = viewerSettings.current.sketchLockCamera;
     this.setChips([]);
     this.setPrompt(null);
     this.setTitle(null);

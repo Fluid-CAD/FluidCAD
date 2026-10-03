@@ -9,11 +9,14 @@ import copy from "../../core/copy.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
 import { circle, line, point } from "../../core/2d/index.js";
-import { face } from "../../filters/index.js";
+import { edge, face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { Scene } from "../../rendering/scene.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Shape } from "../../common/shape.js";
+import { Edge } from "../../common/edge.js";
+import { Face } from "../../common/face.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Hole } from "../../features/hole/hole.js";
@@ -826,5 +829,78 @@ describe("hole() under repeat", () => {
     expect(volumes[0]).toBeCloseTo(RAIL_VOLUME - 2 * cylinderVolume(5, 6), 3);
     expect(volumes[1]).toBeCloseTo(RAIL_VOLUME - 2 * cylinderVolume(5, 6), 3);
     expect(volumes[2]).toBeCloseTo(PLATE_ON_RAILS_VOLUME - 4 * cylinderVolume(6.6, PLATE_ON_RAILS.t), 3);
+  });
+});
+
+describe("hole() accessors", () => {
+  setupOC();
+
+  /** Two 3 mm through holes in the plate, at (∓20, 10). */
+  function twoHoles(): Hole {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    const s = sketch(plate.endFaces(), () => ({ l: circle([-20, 10], 3), r: circle([20, 10], 3) }));
+    const { l, r } = s.geometries as unknown as { l: SolvedCircle; r: SolvedCircle };
+    return hole(3, l.center(), r.center()) as unknown as Hole;
+  }
+
+  it("filters its rims and walls like a cut's buckets", () => {
+    const h = twoHoles();
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    const right = resolved(h.startEdges(edge().farthest('x'))) as Edge[];
+    expect(right).toHaveLength(1);
+    expect(EdgeOps.getEdgeMidPoint(right[0]).x).toBeGreaterThan(0);
+    const exit = resolved(h.endEdges(edge().nearest('x'))) as Edge[];
+    expect(exit).toHaveLength(1);
+    expect(EdgeOps.getEdgeMidPoint(exit[0]).x).toBeLessThan(0);
+    const walls = resolved(h.faces(face().nearest('x'))) as Face[];
+    expect(walls).toHaveLength(1);
+    expect(walls[0].center().x).toBeLessThan(0);
+    // The right hole's rims, top and bottom.
+    expect(resolved(h.edges(edge().circle().farthest('x')))).toHaveLength(2);
+    // Indices still pick from the bucket.
+    expect(resolved(h.startEdges(1))).toHaveLength(1);
+  });
+
+  it("selects the crease where a countersink meets the bore", () => {
+    sketch("xy", () => {
+      testRect(PLATE.w, PLATE.d, { at: [-PLATE.w / 2, -PLATE.d / 2] });
+    });
+    const plate = extrude(PLATE.t).new() as unknown as ExtrudeBase;
+    const h = hole('M6', plate.endFaces().center()).clearance('normal').countersink() as unknown as Hole;
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    // The rest of the internal edges are the bore's and the cone's seams.
+    const crease = resolved(h.internalEdges(edge().circle())) as Edge[];
+    expect(crease).toHaveLength(1);
+    const z = EdgeOps.getEdgeMidPoint(crease[0]).z;
+    expect(z).toBeGreaterThan(0);
+    expect(z).toBeLessThan(PLATE.t);
+  });
+
+  it("anchors a connector on a filtered rim after a mirror took the hole's solid", () => {
+    let h!: Hole;
+    const out = {} as { rim: Connector };
+    part("plate", () => {
+      h = twoHoles();
+      repeat("mirror", "xz", h);
+      out.rim = connector("rim", h.startEdges(edge().farthest('x')).center()) as unknown as Connector;
+    });
+
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    // The mirrored copy holds the solid now; the rim is still the hole's.
+    expect(h.getShapes({}, 'solid')).toEqual([]);
+    const origin = out.rim.getFrame().origin;
+    expect([origin.x, origin.y, origin.z]).toEqual([
+      expect.closeTo(20, 6),
+      expect.closeTo(10, 6),
+      expect.closeTo(PLATE.t, 6),
+    ]);
   });
 });

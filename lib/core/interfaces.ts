@@ -1222,6 +1222,12 @@ export interface IRepeatInstance extends ISelection {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
+   * The repeated hole's walls at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
    * The repeated feature's section edges at this instance, by index.
    * @param indices - Edge indices within the section-edge bucket.
    */
@@ -1382,27 +1388,33 @@ export interface IHole extends ISceneObject {
 
   /**
    * Selects the walls the hole created — the bore, the counterbore step, the countersink cone and the drill point.
-   * @param indices - Optional indices into the wall faces
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  faces(...indices: number[]): ISelection;
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects every edge the hole created: the rims on the surfaces and the creases inside.
-   * @param indices - Optional indices into the edges
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  edges(...indices: number[]): ISelection;
+  edges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the rims where the hole meets the surface it enters.
-   * @param indices - Optional indices into the rims
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...indices: number[]): ISelection;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the rims at the bottom of a blind hole, or where a through hole leaves the solid.
-   * @param indices - Optional indices into the rims
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...indices: number[]): ISelection;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * Selects the edges between the hole's own walls: where a countersink or a drill point meets the bore, and the walls' seams.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 }
 
 export interface IRib extends IBooleanOperation {

@@ -4,6 +4,11 @@ import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { Plane } from "../../math/plane.js";
 import { Vector3d } from "../../math/vector3d.js";
+import { Matrix4 } from "../../math/matrix4.js";
+import { FaceFilterBuilder } from "../../filters/face/face-filter.js";
+import { EdgeFilterBuilder } from "../../filters/edge/edge-filter.js";
+import { ShapeFilter } from "../../filters/filter.js";
+import { applyBucketFilters } from "../../filters/bucket-scope.js";
 import { IHole, ISceneObject, ISelection } from "../../core/interfaces.js";
 import { cutWithSceneObjects } from "../../helpers/scene-helpers.js";
 import { throughAllLength } from "../../helpers/through-all.js";
@@ -367,42 +372,112 @@ export class Hole extends SceneObject implements IHole {
     return buckets;
   }
 
-  private stateShapes<T extends Shape>(key: string, indices: number[]): (parent: SceneObject) => T[] {
-    return parent => {
-      const shapes = (parent.getState(key) as T[] | undefined) ?? [];
-      if (indices.length === 0) {
-        return shapes;
-      }
-      return indices.filter(i => i >= 0 && i < shapes.length).map(i => shapes[i]);
-    };
+  private buildSuffix(prefix: string, args: unknown[]): string {
+    if (args.length === 0) {
+      return prefix;
+    }
+    const key = args.map(a => typeof a === 'number' ? a : 'f').join('-');
+    return `${prefix}-${key}`;
   }
 
-  private suffix(prefix: string, indices: number[]): string {
-    return indices.length === 0 ? prefix : `${prefix}-${indices.join('-')}`;
+  private faceSelection(prefix: string, key: string, args: (number | FaceFilterBuilder)[]): ISelection {
+    return new LazySelectionSceneObject(this.generateUniqueName(this.buildSuffix(prefix, args)),
+      (parent) => {
+        const faces = parent.getState(key) as Face[] || [];
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState(key) as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces, parent);
+      }, this, args);
+  }
+
+  private edgeSelection(prefix: string, key: string, args: (number | EdgeFilterBuilder)[]): ISelection {
+    return new LazySelectionSceneObject(this.generateUniqueName(this.buildSuffix(prefix, args)),
+      (parent) => {
+        const edges = parent.getState(key) as Edge[] || [];
+        const transform = parent.getTransform();
+        const originalEdges = transform
+          ? (this.getState(key) as Edge[] || [])
+          : null;
+        return this.resolveEdges(edges, args, transform, originalEdges, parent);
+      }, this, args);
+  }
+
+  /**
+   * Indices pick from the bucket (a mirrored copy's index follows the
+   * mirrored member); filters run over the bucket with the hole's as-built
+   * solids in scope, so `edge().convex()` reads adjacency there.
+   */
+  private resolveEdges(shapes: Edge[], args: (number | EdgeFilterBuilder)[],
+                       transform: Matrix4 = null, originalShapes: Edge[] = null,
+                       owner: SceneObject = this): Edge[] {
+    if (args.length === 0) {
+      return shapes;
+    }
+
+    if (args.every(a => typeof a === 'number')) {
+      const indices = args as number[];
+      let filters = indices.map(i => new EdgeFilterBuilder().atIndex(i, shapes, originalShapes));
+      if (transform) {
+        filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
+      }
+      return new ShapeFilter(shapes, ...filters).apply() as Edge[];
+    }
+
+    let filters = args.filter(a => a instanceof EdgeFilterBuilder) as EdgeFilterBuilder[];
+    if (transform) {
+      filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
+    }
+    return applyBucketFilters(shapes, filters, owner) as Edge[];
+  }
+
+  private resolveFaces(shapes: Face[], args: (number | FaceFilterBuilder)[],
+                       transform: Matrix4 = null, originalShapes: Face[] = null,
+                       owner: SceneObject = this): Face[] {
+    if (args.length === 0) {
+      return shapes;
+    }
+
+    if (args.every(a => typeof a === 'number')) {
+      const indices = args as number[];
+      let filters = indices.map(i => new FaceFilterBuilder().atIndex(i, shapes, originalShapes));
+      if (transform) {
+        filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+      }
+      return new ShapeFilter(shapes, ...filters).apply() as Face[];
+    }
+
+    let filters = args.filter(a => a instanceof FaceFilterBuilder) as FaceFilterBuilder[];
+    if (transform) {
+      filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+    }
+    return applyBucketFilters(shapes, filters, owner) as Face[];
   }
 
   /** The walls the cut created — the cylinder, the counterbore step, the countersink cone, the drill point. */
-  faces(...indices: number[]): ISelection {
-    return new LazySelectionSceneObject(this.generateUniqueName(this.suffix('faces', indices)),
-      this.stateShapes<Face>('internal-faces', indices), this, indices);
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection {
+    return this.faceSelection('faces', 'internal-faces', args);
   }
 
   /** Every edge the cut created: the rims on the surface and the creases inside. */
-  edges(...indices: number[]): ISelection {
-    return new LazySelectionSceneObject(this.generateUniqueName(this.suffix('edges', indices)),
-      this.stateShapes<Edge>('section-edges', indices), this, indices);
+  edges(...args: (number | EdgeFilterBuilder)[]): ISelection {
+    return this.edgeSelection('edges', 'section-edges', args);
   }
 
   /** The rims where the hole meets the surface it enters. */
-  startEdges(...indices: number[]): ISelection {
-    return new LazySelectionSceneObject(this.generateUniqueName(this.suffix('start-edges', indices)),
-      this.stateShapes<Edge>('start-edges', indices), this, indices);
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection {
+    return this.edgeSelection('start-edges', 'start-edges', args);
   }
 
   /** The rims at the bottom of a blind hole, or where a through hole leaves the solid. */
-  endEdges(...indices: number[]): ISelection {
-    return new LazySelectionSceneObject(this.generateUniqueName(this.suffix('end-edges', indices)),
-      this.stateShapes<Edge>('end-edges', indices), this, indices);
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection {
+    return this.edgeSelection('end-edges', 'end-edges', args);
+  }
+
+  /** The edges between the hole's own walls: where a countersink or a drill point meets the bore, and the walls' seams. */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection {
+    return this.edgeSelection('internal-edges', 'internal-edges', args);
   }
 
   override scope(...objects: ISceneObject[]): this {

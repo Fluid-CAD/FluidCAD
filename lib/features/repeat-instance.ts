@@ -89,6 +89,11 @@ export class RepeatInstance extends LazySelectionSceneObject {
     return this.forward('capFaces', args);
   }
 
+  /** A repeated hole's walls. */
+  faces(...args: FaceAccessorArgs): LazySelectionSceneObject {
+    return this.forward('faces', args);
+  }
+
   startEdges(...args: EdgeAccessorArgs): LazySelectionSceneObject {
     return this.forward('startEdges', args);
   }

@@ -17,10 +17,11 @@ interface Hole extends SceneObject {
   depth(distance: number, tipAngle?: number): this;
   fasten(pitch?: number | "coarse", depth?: number, tipAngle?: number): this;
   scope(...objects: SceneObject[]): this;
-  faces(...indices: number[]): ISelection;
-  edges(...indices: number[]): ISelection;
-  startEdges(...indices: number[]): ISelection;
-  endEdges(...indices: number[]): ISelection;
+  faces(...args: (number | FaceFilter)[]): ISelection;
+  edges(...args: (number | EdgeFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
 }
 ```
 
@@ -112,7 +113,7 @@ Selects the walls the hole created — the bore, the counterbore step, the count
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...indices` | `number`[] | Optional indices into the wall faces *(optional)* |
+| `...args` | (`number` \| `FaceFilter`)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
 
 ### `edges()`
 
@@ -122,7 +123,7 @@ Selects every edge the hole created: the rims on the surfaces and the creases in
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...indices` | `number`[] | Optional indices into the edges *(optional)* |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
 ### `startEdges()`
 
@@ -132,7 +133,7 @@ Selects the rims where the hole meets the surface it enters.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...indices` | `number`[] | Optional indices into the rims *(optional)* |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
 ### `endEdges()`
 
@@ -142,7 +143,17 @@ Selects the rims at the bottom of a blind hole, or where a through hole leaves t
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...indices` | `number`[] | Optional indices into the rims *(optional)* |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+### `internalEdges()`
+
+Selects the edges between the hole's own walls: where a countersink or a drill point meets the bore, and the walls' seams.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
 ## Inherited
 

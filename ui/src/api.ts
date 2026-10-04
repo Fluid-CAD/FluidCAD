@@ -6101,8 +6101,6 @@ export type FeaturePickerParam = FeatureParamCommon & {
   sameFile?: boolean;
   /** edge: only edges of this curve (the engine checks). */
   curve?: 'line' | 'circle' | 'arc';
-  /** edge: picks extend along tangent edges. */
-  tangents?: boolean;
   /** edge: a picked face stands for all of its edges. */
   facesAsEdges?: boolean;
   /** feature: only features of these types or ids. */
@@ -6176,7 +6174,7 @@ export function featureAssetUrl(id: string, path: string, revision = 0): string 
 /** One thing a custom feature dialog picked for a value. */
 export type CustomPickInput =
   /** Faces or edges picked in the viewport — one per value, every picked shape in it. */
-  | { kind: 'entities'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] }
+  | { kind: 'entities'; entities: ApplyFeatureEntity[] }
   /**
    * A statement picked in the viewport or the timeline: a sketch, an axis or
    * plane statement, a solid, a feature, a connector — `picker` the kind it

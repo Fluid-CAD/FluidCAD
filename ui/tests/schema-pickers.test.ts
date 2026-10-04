@@ -115,6 +115,8 @@ describe('face and edge values', () => {
     expect(rims.takeClick('plate-solid', face(1).sub)).toBe('taken');
     expect(rims.takeClick('plate-solid', edge(2).sub)).toBe('taken');
     expect(chips(rims)).toEqual(['Picked face', 'Picked edge']);
+    // The picks as picked: tangent chains are for fillet and chamfer only, never a custom feature's.
+    expect(rims.request()).toStrictEqual([{ kind: 'entities', entities: [face(1), edge(2)] }]);
   });
 
   it('drop their picks on a render, whose ids are new', () => {

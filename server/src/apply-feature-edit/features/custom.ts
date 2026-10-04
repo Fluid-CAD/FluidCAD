@@ -23,8 +23,12 @@ import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 import type { RepeatEditTargetSource } from './repeat.ts';
 
-/** One value of a custom feature, as its statement reads: typed in (its type), or picked (its picker kind). */
-export type CustomParamKind = { type?: string; picker?: string; list: boolean };
+/**
+ * One value of a custom feature, as its statement reads: typed in (its
+ * type), or picked (its picker kind); a typed-in value's default is what a
+ * call that leaves it out ahead of a later argument writes in its place.
+ */
+export type CustomParamKind = { type?: string; picker?: string; list: boolean; default?: number | string | boolean };
 
 /**
  * How a custom feature's statements are laid out — from the catalog's
@@ -188,9 +192,14 @@ export class CustomFeatureStatement {
   static shapeOf(meta: Pick<FeatureMetaSnapshot, 'call' | 'operations' | 'params'>): CustomFeatureShape {
     const params: Record<string, CustomParamKind> = {};
     for (const [name, spec] of Object.entries(meta.params ?? {})) {
-      const declared = spec as { type?: string; picker?: string; multiple?: boolean; max?: number };
-      params[name] = 'picker' in declared && declared.picker
-        ? { picker: declared.picker, list: declared.multiple === true || declared.max !== undefined }
+      const declared = spec as { type?: string; picker?: string; multiple?: boolean; max?: number; default?: unknown };
+      if ('picker' in declared && declared.picker) {
+        params[name] = { picker: declared.picker, list: declared.multiple === true || declared.max !== undefined };
+        continue;
+      }
+      const fallback = declared.default;
+      params[name] = typeof fallback === 'number' || typeof fallback === 'string' || typeof fallback === 'boolean'
+        ? { type: declared.type, list: false, default: fallback }
         : { type: declared.type, list: false };
     }
     return { call: meta.call, operations: [...(meta.operations ?? [])], params };
@@ -300,7 +309,11 @@ export class CustomFeatureStatement {
 
     let layout;
     try {
-      layout = call.layout<string>(values, operation);
+      // A value left out ahead of a later argument writes its default rather
+      // than `undefined`: `draft(5, e.sideFaces())`.
+      layout = call.layout<string>(values, operation, {
+        placeholder: param => CustomFeatureStatement.defaultText(shape.params[param]),
+      });
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -391,7 +404,7 @@ export class CustomFeatureStatement {
         picks[param] = elements.map(element => CustomFeatureStatement.pickText(element, start));
         continue;
       }
-      const value = CustomFeatureStatement.scalarOf(kind.type, node);
+      const value = CustomFeatureStatement.scalarOf(kind.type, node, bindings);
       if (value === null) {
         return notEditable(`${callee}()'s '${param}' is not a plain ${CustomFeatureStatement.typeName(kind.type)}`);
       }
@@ -526,6 +539,18 @@ export class CustomFeatureStatement {
     return { exprs };
   }
 
+  /** A typed-in value's default as the statement writes it, or undefined for a value without one. */
+  private static defaultText(kind: CustomParamKind | undefined): string | undefined {
+    const fallback = kind?.default;
+    if (typeof fallback === 'number') {
+      return formatValue(fallback);
+    }
+    if (typeof fallback === 'string') {
+      return CustomFeatureStatement.quote(fallback);
+    }
+    return typeof fallback === 'boolean' ? String(fallback) : undefined;
+  }
+
   private static renderArgument(arg: CallArgument<string>): string {
     if (arg.kind === 'options') {
       return `{ ${arg.entries.map(entry => `${entry.key}: ${CustomFeatureStatement.renderList(entry.value)}`).join(', ')} }`;
@@ -549,8 +574,12 @@ export class CustomFeatureStatement {
     return { text: node.text, start: node.startIndex, end: node.endIndex, ...(ref ? { ref } : {}) };
   }
 
-  /** A typed-in value's reading: a number or expression, a boolean, a string; null for anything else. */
-  private static scalarOf(type: string | undefined, node: TSNode): ValueExpr | boolean | string | null {
+  /**
+   * A typed-in value's reading: a number or expression, a boolean, a
+   * string; null for anything else — a number's slot holding what is
+   * provably no number (a selection, `draft(sel)`'s angle) among them.
+   */
+  private static scalarOf(type: string | undefined, node: TSNode, bindings: LexicalBindings): ValueExpr | boolean | string | null {
     if (type === 'boolean') {
       return booleanArgValue(node);
     }
@@ -560,7 +589,7 @@ export class CustomFeatureStatement {
     if (type === 'select') {
       return stringArgValue(node) ?? numericArgValue(node);
     }
-    if (!NUMBER_TYPES.has(type ?? 'number') || NOT_NUMBERS.has(node.type)) {
+    if (!NUMBER_TYPES.has(type ?? 'number') || NOT_NUMBERS.has(node.type) || bindings.kindOf(node) === 'other') {
       return null;
     }
     return anyValueArg(node);

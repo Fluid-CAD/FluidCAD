@@ -63,7 +63,7 @@ export type FeatureAssetLookup = { file: string } | { status: number; error: str
  */
 export class FeatureCatalog implements FeatureCalleeSource {
   /** The module a built-in feature is imported from. */
-  static readonly BUILT_IN_MODULE = 'fluidcad/core';
+  static readonly BUILT_IN_MODULE = FeatureScanner.CORE_MODULE;
 
   private readonly workspacePath: string;
   private readonly cache = new ScanCache<FeatureScanResult>();
@@ -212,7 +212,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
 
   private builtIns(): Promise<FeatureCatalogEntry[]> {
     if (!this.builtInEntries) {
-      const namespace = this.options.builtIns?.() ?? import('../../../lib/dist/core/index.js');
+      const namespace = this.options.builtIns?.() ?? FeatureScanner.core();
       this.builtInEntries = namespace.then(core => FeatureScanner.featuresOf(core).map(feature => ({
         id: feature.meta.id,
         exportName: feature.exportName,

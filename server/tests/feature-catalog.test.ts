@@ -300,15 +300,16 @@ describe('resolveCallee', () => {
     expect(callees.feature('so')).toEqual({
       id: 'acme.standoff',
       kind: 'tool',
-      // The shape the edit dialog reads and writes the call by.
+      // The shape the edit dialog reads and writes the call by, with the
+      // defaults a value left out ahead of a later argument writes.
       shape: {
         call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
         operations: ['add', 'new'],
         params: {
           face: { picker: 'face', list: false },
-          height: { type: 'length', list: false },
-          outer: { type: 'length', list: false },
-          hole: { type: 'length', list: false },
+          height: { type: 'length', list: false, default: 12 },
+          outer: { type: 'length', list: false, default: 6 },
+          hole: { type: 'length', list: false, default: 3 },
         },
       },
     });

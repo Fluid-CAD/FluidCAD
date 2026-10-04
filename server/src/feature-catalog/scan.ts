@@ -40,6 +40,18 @@ export type FeatureScanSceneManager = {
  * metadata object surfaces as the module's evaluation error.
  */
 export class FeatureScanner {
+  /** The module the engine's own feature builders are imported from — `draft` among them. */
+  static readonly CORE_MODULE = 'fluidcad/core';
+
+  /**
+   * The engine's own builders, as the `fluidcad/core` namespace: this
+   * server's kernel, which is the workspace's (the lib-identity check
+   * refuses a workspace that loads another).
+   */
+  static core(): Promise<object> {
+    return import('../../../lib/dist/core/index.js');
+  }
+
   /**
    * Evaluate one feature module through the host's real loader (Vite SSR:
    * live-buffer overlays and the blocked-import check apply as in a render)
@@ -87,6 +99,8 @@ export class FeatureScanner {
    * module the last render (or scan) evaluated comes from the loader's cache,
    * the very classes the scene's statements were built from, and a module
    * the render didn't need evaluates in a throwaway scene, as a scan does.
+   * A built-in's builder (`modulePath` {@link CORE_MODULE}) comes from the
+   * engine's own core namespace, which no workspace loader evaluates.
    * MUST be called with the OCC mutex held (see FluidCadServer.featureGhost).
    */
   static async loadBuilder(
@@ -95,6 +109,10 @@ export class FeatureScanner {
     modulePath: string,
     exportName: string,
   ): Promise<Function | { error: string }> {
+    if (modulePath === FeatureScanner.CORE_MODULE) {
+      const builder = (await FeatureScanner.core() as Record<string, unknown>)[exportName];
+      return typeof builder === 'function' ? builder : { error: `${modulePath} exports no '${exportName}'` };
+    }
     if (typeof host.loadModuleRaw !== 'function') {
       return { error: 'This host does not load feature modules.' };
     }

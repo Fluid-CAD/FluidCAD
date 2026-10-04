@@ -35,7 +35,8 @@ type Refusal = { status: number; reason: string };
  * its typed-in values (numbers or expression text, resolved where the
  * statement sits, like every ghost's) and its picks (one ref per element of
  * a picked value: a statement by call site, viewport faces or edges, a world
- * axis or an origin plane). Each is checked against the feature's metadata
+ * axis or an origin plane, a connector, a picked vertex, an anchor, or —
+ * editing — the statement's own element by position). Each is checked against the feature's metadata
  * before the server loads the feature's builder and the kernel draws it.
  */
 export class CustomGhostRoute {
@@ -47,6 +48,9 @@ export class CustomGhostRoute {
 
   /** The pickers viewport faces and edges fill. */
   private static readonly GEOMETRY_PICKERS = new Set(['face', 'edge', 'axis', 'plane']);
+
+  /** The anchors a face or an edge offers. */
+  private static readonly ANCHORS = new Set(['center', 'start', 'end']);
 
   static async handle(
     body: CustomGhostBody,
@@ -241,11 +245,11 @@ export class CustomGhostRoute {
     return /^[aeiou]/i.test(word) ? 'an' : 'a';
   }
 
-  /** One picked value's refs, checked against its picker, or why they don't fit. */
-  private static picks(spec: ParamSpecSnapshot & { picker: string }, value: unknown): GhostCustomRef[] | string {
-    if (!CustomGhostRoute.STATEMENT_PICKERS.has(spec.picker) && !CustomGhostRoute.GEOMETRY_PICKERS.has(spec.picker)) {
-      return `${spec.label}: ${CustomGhostRoute.article(spec.picker)} ${spec.picker} can't be previewed yet`;
-    }
+  /** One picked value's refs, checked against its picker's kinds, or why they don't fit. */
+  private static picks(spec: ParamSpecSnapshot & { picker: string | readonly string[] }, value: unknown): GhostCustomRef[] | string {
+    const kinds = Array.isArray(spec.picker) ? [...spec.picker as readonly string[]] : [spec.picker as string];
+    const takes = (kind: string) => kinds.includes(kind);
+    const what = kinds.map(kind => `${CustomGhostRoute.article(kind)} ${kind}`).join(' or ');
     if (!Array.isArray(value) || value.length > CustomGhostRoute.MAX_REFS) {
       return `${spec.label}: refs must be a list of picks`;
     }
@@ -255,27 +259,62 @@ export class CustomGhostRoute {
       return `${spec.label} takes one pick`;
     }
     const refs: GhostCustomRef[] = [];
-    for (const raw of value as { kind?: unknown; filePath?: unknown; line?: unknown; entities?: unknown; name?: unknown }[]) {
-      if (raw?.kind === 'statement' && CustomGhostRoute.STATEMENT_PICKERS.has(spec.picker)
-        && typeof raw.filePath === 'string' && typeof raw.line === 'number') {
-        refs.push({ kind: 'statement', filePath: raw.filePath, line: raw.line });
-        continue;
+    for (const raw of value as Record<string, unknown>[]) {
+      const ref = CustomGhostRoute.ref(raw, kinds, takes);
+      if (!ref) {
+        return `${spec.label}: not something ${what} takes`;
       }
-      if (raw?.kind === 'entities' && CustomGhostRoute.GEOMETRY_PICKERS.has(spec.picker)) {
-        const entities = parseEntityRefs(raw.entities);
-        if (entities && entities.length > 0 && entities.length <= CustomGhostRoute.MAX_REFS) {
-          refs.push({ kind: 'entities', entities });
-          continue;
-        }
-      }
-      if (raw?.kind === 'standard' && typeof raw.name === 'string'
-        && ((spec.picker === 'axis' && STANDARD_AXES.includes(raw.name))
-          || (spec.picker === 'plane' && STANDARD_PLANES.includes(raw.name)))) {
-        refs.push({ kind: 'standard', name: raw.name as 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' });
-        continue;
-      }
-      return `${spec.label}: not something ${CustomGhostRoute.article(spec.picker)} ${spec.picker} takes`;
+      refs.push(ref);
     }
     return refs;
+  }
+
+  /** One ref, as one of the value's kinds takes it, or null. */
+  private static ref(raw: Record<string, unknown>, kinds: string[], takes: (kind: string) => boolean): GhostCustomRef | null {
+    switch (raw?.kind) {
+      case 'statement':
+        return kinds.some(kind => CustomGhostRoute.STATEMENT_PICKERS.has(kind)) && typeof raw.filePath === 'string' && typeof raw.line === 'number'
+          ? { kind: 'statement', filePath: raw.filePath, line: raw.line }
+          : null;
+      case 'entities': {
+        const entities = kinds.some(kind => CustomGhostRoute.GEOMETRY_PICKERS.has(kind)) ? parseEntityRefs(raw.entities) : null;
+        return entities && entities.length > 0 && entities.length <= CustomGhostRoute.MAX_REFS ? { kind: 'entities', entities } : null;
+      }
+      case 'standard':
+        return typeof raw.name === 'string'
+          && ((takes('axis') && STANDARD_AXES.includes(raw.name)) || (takes('plane') && STANDARD_PLANES.includes(raw.name)))
+          ? { kind: 'standard', name: raw.name as 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+          : null;
+      case 'connector':
+        if (!takes('connector') || typeof raw.filePath !== 'string' || typeof raw.line !== 'number') {
+          return null;
+        }
+        if (raw.slot !== undefined && !(Number.isSafeInteger(raw.slot) && (raw.slot as number) >= 0)) {
+          return null;
+        }
+        return { kind: 'connector', filePath: raw.filePath, line: raw.line, ...(raw.slot !== undefined ? { slot: raw.slot as number } : {}) };
+      case 'point':
+        return takes('point') && typeof raw.shapeId === 'string' && Number.isInteger(raw.index) && (raw.index as number) >= 0
+          ? { kind: 'point', shapeId: raw.shapeId, index: raw.index as number }
+          : null;
+      case 'anchor': {
+        const [entity] = takes('anchor') ? parseEntityRefs([raw.entity]) ?? [] : [];
+        const anchor = raw.anchor as { kind?: unknown; mode?: unknown; value?: unknown } | undefined;
+        if (!entity || !anchor) {
+          return null;
+        }
+        if (typeof anchor.kind === 'string' && CustomGhostRoute.ANCHORS.has(anchor.kind)) {
+          return { kind: 'anchor', entity, anchor: { kind: anchor.kind as 'center' | 'start' | 'end' } };
+        }
+        if (anchor.kind === 'offset' && (anchor.mode === 'relative' || anchor.mode === 'absolute') && Number.isFinite(anchor.value)) {
+          return { kind: 'anchor', entity, anchor: { kind: 'offset', mode: anchor.mode, value: anchor.value as number } };
+        }
+        return null;
+      }
+      case 'kept':
+        return Number.isInteger(raw.index) && (raw.index as number) >= 0 ? { kind: 'kept', index: raw.index as number } : null;
+      default:
+        return null;
+    }
   }
 }

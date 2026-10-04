@@ -44,6 +44,8 @@ import { createFeatureGhostRouter } from '../src/routes/feature-ghost/index.ts';
 import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
 import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
+import { boss } from '../../lib/tests/fixtures/custom-features/boss.js';
+import { createApplyFeatureRouter } from '../src/routes/apply-feature/index.ts';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -1706,6 +1708,142 @@ describe("a custom feature's ghost, from the dialog's body to the kernel", () =>
       });
       expect(answer.success).toBe(true);
       expect(topOf(answer.solids)).toBeCloseTo(30, 4);
+    } finally {
+      await route.close();
+    }
+  });
+});
+
+describe('a custom feature at locations, from the dialog\'s picks to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/boss.feature.js';
+
+  const CODE = [
+    `import { part, sketch, line, point, extrude, connector, select } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    ``,
+    `part('plate', () => {`,
+    `  sketch('xy', () => { ${rectBodySrc(60, 40, -30, -20)} })`,
+    `  const e = extrude(10)`,
+    `  const bolt = connector('bolt', select(face().planar().onPlane('xy', 10)))`,
+    `  sketch(e.endFaces(), () => {`,
+    `    point([-20, -10])`,
+    `  })`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** The scene CODE builds, each statement at its line in CODE. */
+  function build(): { scene: Scene; plate: SceneObject; dot: SceneObject } {
+    const at = (obj: unknown, line: number, column: number) =>
+      (obj as SceneObject).setSourceLocation({ filePath: FILE, line, column });
+    let plate: SceneObject | null = null;
+    let dot: SceneObject | null = null;
+    core.part('plate', () => {
+      sketch('xy', () => { drawRect(60, 40, -30, -20) });
+      const e = extrude(10);
+      at(e, 6, 12);
+      plate = e as unknown as SceneObject;
+      at(core.connector('bolt', core.select(filters.face().planar().onPlane('xy', 10))), 7, 15);
+      const marks = sketch((e as unknown as { endFaces(): never }).endFaces(), () => {
+        dot = core.point([-20, -10]) as unknown as SceneObject;
+        at(dot, 9, 4);
+      });
+      at(marks, 8, 2);
+    });
+    return { scene: render(), plate: plate!, dot: dot! };
+  }
+
+  /** The apply route over the real scene, its slot synthesis the kernel's own. */
+  async function applyRoute(scene: Scene): Promise<{ post: (path: string, body: unknown) => Promise<{ status: number; body: any }>; relayed: any[]; close: () => Promise<void> }> {
+    const meta = snapshotFeatureMeta(getFeatureMeta(boss)!);
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'boss', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: () => CODE,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      synthesizeFeatureSlots: (request: any, options: any, before?: any) =>
+        getSceneManager()!.synthesizeFeatureSlots(scene, request, options, before),
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.boss', exportName: 'boss', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    return {
+      post: async (path, body) => {
+        const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json() };
+      },
+      relayed,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The index of the vertex of `shape` at `[x, y, z]`. */
+  function vertexAt(shape: Shape, [x, y, z]: number[]): number {
+    const vertices = Explorer.findVerticesWrapped(shape);
+    const index = vertices.findIndex(vertex => {
+      const p = vertex.toPoint();
+      return Math.abs(p.x - x) < 1e-6 && Math.abs(p.y - y) < 1e-6 && Math.abs(p.z - z) < 1e-6;
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    return index;
+  }
+
+  it('stands bosses at a connector, a sketch point, a solid corner and a face centre picked in the dialog', async () => {
+    const { scene, plate, dot } = build();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const solid = plate.getShapes().find(s => s.getType() === 'solid')!;
+    const back = Explorer.findFacesWrapped(solid).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).y - 20) < 1e-6));
+    expect(back).toBeGreaterThanOrEqual(0);
+
+    const route = await applyRoute(scene);
+    try {
+      const at = [
+        { kind: 'statement', filePath: FILE, line: 7, column: 15, picker: 'connector' },
+        { kind: 'point', entity: { shapeId: dot.getShapes()[0].id, sub: { type: 'vertex', index: 0 } } },
+        { kind: 'point', entity: { shapeId: solid.id, sub: { type: 'vertex', index: vertexAt(solid, [30, 20, 10]) } } },
+        { kind: 'anchor', entity: { shapeId: solid.id, sub: { type: 'face', index: back } }, anchor: { kind: 'center' } },
+      ];
+      const body = { feature: 'custom', custom: { id: 'acme.boss', values: { height: 4 }, picks: { at }, operation: 'new' } };
+      const preview = await route.post('/apply-feature', { ...body, preview: true });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      // The corner is the top end of an upright edge; the back face is a side face.
+      expect(preview.body.preview).toMatch(/^boss\(\[bolt, s\.geometries\.p1, e\.sideEdges\(.+\)\.end\(\), e\.sideFaces\(.+\)\.center\(\)\], \{ height: 4 \}\)\.new\(\)$/);
+
+      const applied = await route.post('/apply-feature', body);
+      expect(applied.status).toBe(200);
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      const newCode: string = written.body.newCode;
+      expect(newCode).toContain(`import { boss } from './boss.feature.js';`);
+      expect(newCode).toContain(`  const s = sketch(e.endFaces(), () => {\n    const p1 = point([-20, -10])\n    return { p1 };\n  })\n`);
+      expect(newCode).toContain(`  ${preview.body.preview}\n})`);
+
+      // The written model builds: four separate bosses beside the plate.
+      const built = runFluid(newCode, { boss });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const solids = built.getSceneObjects().filter(o => !o.isContainer()).flatMap(o => o.getShapes()).filter(s => s.isSolid());
+      expect(solids).toHaveLength(5);
+      const centres = solids.map(s => ShapeOps.getExactBoundingBox(s))
+        .map(b => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2].map(v => Math.round(v * 1000) / 1000));
+      // Each stands where it was picked, along its frame: up from the top, up the upright edge, out of the back.
+      expect(centres).toEqual(expect.arrayContaining([[0, 0, 12], [-20, -10, 12], [30, 20, 12], [0, 22, 5]]));
     } finally {
       await route.close();
     }

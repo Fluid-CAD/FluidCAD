@@ -3,6 +3,7 @@
 import type { Request, Response } from 'express';
 import {
   CustomFeatureImport,
+  CustomFeaturePoints,
   CustomFeatureStatement,
   parseFeatureStatement,
   renderEditedStatement,
@@ -13,7 +14,7 @@ import {
   type CustomValueSource,
   type ParsedCustomFeature,
 } from '../../../apply-feature-edit/index.ts';
-import type { FeatureMetaSnapshot, FeatureSlotPicks } from '../../../../../lib/dist/index.js';
+import type { FeatureMetaSnapshot, FeatureSlotPicks, FeatureSlotResult } from '../../../../../lib/dist/index.js';
 import type { SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import { detectKind } from '../../../file-kind.ts';
 import { normalizePath } from '../../../normalize-path.ts';
@@ -26,6 +27,17 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 
 /** A refusal the handler answers with. */
 type Refusal = { status: number; reason: string };
+
+/**
+ * One synthesized slot as the elements it writes: a face or edge value's
+ * parts, all taken by its one entities pick; a point or anchor value's
+ * elements, one per pick.
+ */
+type SynthesizedSlot = {
+  all: CustomPickSource[];
+  texts: string[];
+  points: { item: CustomPickSource; text: string }[];
+};
 
 /** The picks of one request folded into a spec's producers and parts, with each value's elements. */
 type ResolvedPicks = {
@@ -98,14 +110,20 @@ export async function handleCustomFeature(ctx: ApplyFeatureRequestContext, req: 
       ...(ctx.activePartFor(filePath) ? { activePart: ctx.activePartFor(filePath) } : {}),
     };
 
-    // Truthful preview: the callee the import plan names and the variables
-    // the transform's binding walk allocates.
+    // Truthful preview: the sketch exports a picked sketch point needs staged
+    // the way the transform stages them, the callee the import plan names
+    // and the variables the transform's binding walk allocates.
     const code = CustomFeatureRoute.codeFor(ctx, filePath);
-    const callee = code
-      ? (await CustomFeatureImport.plan(code, filePath, custom.exportName!, custom.modulePath!)).local
+    const staged = code ? await CustomFeaturePoints.prepare(code, spec) : { code, spec };
+    if ('error' in staged) {
+      res.status(422).json({ success: false, reason: staged.error });
+      return;
+    }
+    const callee = staged.code
+      ? (await CustomFeatureImport.plan(staged.code, filePath, custom.exportName!, custom.modulePath!)).local
       : custom.exportName!;
-    const vars = await allocateProducerVars(spec.producers, code, await ctx.currentCallees());
-    const rendered = CustomFeatureStatement.render(callee, custom, spec, i => vars[i] ?? null);
+    const vars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
+    const rendered = CustomFeatureStatement.render(callee, staged.spec.custom!, staged.spec, i => vars[i] ?? null);
     if ('error' in rendered) {
       res.status(422).json({ success: false, reason: rendered.error });
       return;
@@ -149,7 +167,8 @@ export async function handleCustomFeatureEdit(ctx: ApplyFeatureRequestContext, r
     res.status(400).json({ error: 'before must be {index, type, line, column}' });
     return;
   }
-  const repicks = Object.values(request.picks).some(inputs => inputs.some(input => input.kind === 'entities'));
+  const repicks = Object.values(request.picks)
+    .some(inputs => inputs.some(input => input.kind === 'entities' || input.kind === 'point' || input.kind === 'anchor'));
   if (repicks && !before) {
     res.status(400).json({ error: 'before is required when an edit re-picks geometry' });
     return;
@@ -225,8 +244,13 @@ export async function handleCustomFeatureEdit(ctx: ApplyFeatureRequestContext, r
       // same transform, and the model rebuilds to its tip.
       clearBreakpoints: true,
     };
-    const vars = await allocateProducerVars(spec.producers, code, callees);
-    const rendered = renderEditedStatement(parsed.parsed, spec, i => vars[i] ?? null);
+    const staged = await CustomFeaturePoints.prepare(code, spec);
+    if ('error' in staged) {
+      res.status(422).json({ success: false, reason: staged.error });
+      return;
+    }
+    const vars = await allocateProducerVars(staged.spec.producers, staged.code, callees);
+    const rendered = renderEditedStatement(parsed.parsed, staged.spec, i => vars[i] ?? null);
     if ('error' in rendered) {
       res.status(422).json({ success: false, reason: rendered.error });
       return;
@@ -283,10 +307,13 @@ class CustomFeatureRoute {
 
   /**
    * Every picked value of the request as the elements the transform
-   * writes: geometry synthesized in one pass over every slot (an edit's
-   * against the world before its statement), statements bound by call site,
-   * world axes and planes by name, an edit's keeps by position. Folded with
-   * the typed-in `values` and the scope into one spec.
+   * writes: geometry, points and anchors synthesized in one pass over every
+   * slot (an edit's against the world before its statement), statements —
+   * connectors among them — bound by call site, world axes and planes by
+   * name, an edit's keeps by position. Folded with the typed-in `values` and
+   * the scope into one spec. A value of several kinds asks the synthesis for
+   * one slot per kind and gets its elements back in the order they were
+   * picked.
    */
   static async resolvePicks(
     ctx: ApplyFeatureRequestContext,
@@ -307,19 +334,12 @@ class CustomFeatureRoute {
     // read is bound once, and the index is built once.
     const slots: Record<string, FeatureSlotPicks> = {};
     for (const [name, inputs] of Object.entries(request.picks)) {
-      const spec = meta.params[name] as FeatureMetaSnapshot['params'][string] & { picker: string };
-      for (const input of inputs) {
-        if (input.kind === 'entities') {
-          slots[name] = {
-            picker: spec.picker as FeatureSlotPicks['picker'],
-            entities: input.entities,
-            chains: input.chains,
-            options: CustomFeatureRoute.slotOptions(spec),
-          };
-        }
+      const spec = meta.params[name];
+      for (const [key, slot] of Object.entries(CustomFeatureRoute.slotsOf(name, spec, inputs))) {
+        slots[key] = slot;
       }
     }
-    const slotParts: Record<string, CustomPickSource[]> = {};
+    const synthesized: Record<string, SynthesizedSlot> = {};
     if (Object.keys(slots).length > 0) {
       const options = await ctx.synthesisOptionsForFile(ctx.fluidCadServer.getCurrentFileName() || null);
       const synthesis = ctx.fluidCadServer.synthesizeFeatureSlots({ slots }, options, before);
@@ -344,23 +364,29 @@ class CustomFeatureRoute {
       for (const symbol of synthesis.imports) {
         imports.add(symbol);
       }
-      for (const [name, slot] of Object.entries(synthesis.slots)) {
-        slotParts[name] = slot.parts.map(part => ({ kind: slot.wrap ?? 'part', part: offset + part }));
-        args[name] = slot.args;
+      for (const [key, slot] of Object.entries(synthesis.slots)) {
+        synthesized[key] = CustomFeatureRoute.slotItems(slot, offset, remap);
       }
     }
 
     for (const [name, inputs] of Object.entries(request.picks)) {
-      const spec = meta.params[name] as FeatureMetaSnapshot['params'][string] & { picker: string };
+      const spec = meta.params[name] as FeatureMetaSnapshot['params'][string] & { picker: string | string[] };
       const items: CustomPickSource[] = [];
+      const texts: string[] = [];
+      // Points and anchors come back one per pick, in pick order: each input takes the next.
+      const taken: Record<string, number> = {};
       for (const input of inputs) {
-        const item = CustomFeatureRoute.pickItems(input, spec, slotParts[name] ?? [], merge, files, parsed?.picks[name]);
+        const item = CustomFeatureRoute.pickItems(name, input, spec, synthesized, taken, merge, files, parsed?.picks[name]);
         if ('reason' in item) {
           return item;
         }
         items.push(...item.items);
+        texts.push(...item.texts);
       }
       out[name] = { kind: 'picks', items };
+      if (texts.length > 0) {
+        args[name] = texts;
+      }
     }
 
     let scope: CustomFeatureOptions['scope'];
@@ -385,47 +411,135 @@ class CustomFeatureRoute {
     };
   }
 
-  /** The elements one pick input writes. */
+  /**
+   * The synthesis slots one value's picks ask for: its faces or edges as one
+   * slot (split by sub-shape when the value takes both as different kinds),
+   * its points as one, its anchors as one — keyed by the value's name alone
+   * when it takes one kind, else by name and kind.
+   */
+  private static slotsOf(
+    name: string,
+    spec: FeatureMetaSnapshot['params'][string],
+    inputs: CustomPickInput[],
+  ): Record<string, FeatureSlotPicks> {
+    const kinds = CustomFeatureInputs.kindsOf(spec);
+    const keyOf = (kind: string) => kinds.length === 1 ? name : `${name}#${kind}`;
+    const options = CustomFeatureRoute.slotOptions(spec, kinds.length > 1);
+    const slots: Record<string, FeatureSlotPicks> = {};
+    for (const input of inputs) {
+      if (input.kind === 'entities') {
+        const subs = [...new Set([...input.entities, ...input.chains.map(chain => chain.seed)].map(pick => pick.sub.type))];
+        for (const sub of subs) {
+          const kind = CustomFeatureInputs.geometryKind(spec, sub)!;
+          const key = keyOf(kind);
+          const ofSub = (pick: { sub: { type: string } }) => kinds.length === 1 || pick.sub.type === sub;
+          slots[key] = {
+            picker: kind as FeatureSlotPicks['picker'],
+            entities: input.entities.filter(ofSub),
+            chains: input.chains.filter(chain => ofSub(chain.seed)),
+            options,
+          };
+        }
+      } else if (input.kind === 'point') {
+        const slot = slots[keyOf('point')] ??= { picker: 'point', entities: [], options };
+        slot.entities.push(input.entity);
+      } else if (input.kind === 'anchor') {
+        const slot = slots[keyOf('anchor')] ??= { picker: 'anchor', entities: [], anchors: [], options };
+        slot.entities.push(input.entity);
+        slot.anchors!.push(input.anchor);
+      }
+    }
+    return slots;
+  }
+
+  /** One synthesized slot as the elements it writes: its parts in order, or (points and anchors) one element per pick. */
+  private static slotItems(slot: FeatureSlotResult, offset: number, remap: number[]): SynthesizedSlot {
+    if (!slot.points) {
+      return { all: slot.parts.map(part => ({ kind: slot.wrap ?? 'part', part: offset + part })), texts: slot.args, points: [] };
+    }
+    const points = slot.points.map((point, i): { item: CustomPickSource; text: string } => ({
+      item: 'part' in point
+        ? { kind: 'part', part: offset + point.part, suffix: point.suffix }
+        : { kind: 'sketchPoint', producer: remap[point.sketch], target: point.target },
+      text: slot.args[i],
+    }));
+    return { all: [], texts: [], points };
+  }
+
+  /** The elements one pick input writes, and how the preview names them. */
   private static pickItems(
+    name: string,
     input: CustomPickInput,
-    spec: FeatureMetaSnapshot['params'][string] & { picker: string },
-    synthesized: CustomPickSource[],
+    spec: FeatureMetaSnapshot['params'][string] & { picker: string | string[] },
+    synthesized: Record<string, SynthesizedSlot>,
+    taken: Record<string, number>,
     merge: ReturnType<typeof makeProducerMerger>['merge'],
     files: Set<string>,
     own: ParsedCustomFeature['picks'][string] | undefined,
-  ): { items: CustomPickSource[] } | Refusal {
-    if (input.kind === 'entities') {
-      return { items: synthesized };
-    }
-    if (input.kind === 'standard') {
-      return { items: [{ kind: 'standard', name: input.name }] };
-    }
-    if (input.kind === 'verbatim') {
-      if (!own || input.sourceIndex >= own.length) {
-        return { status: 422, reason: `${spec.label}: a kept pick no longer matches the statement — re-open the dialog` };
+  ): { items: CustomPickSource[]; texts: string[] } | Refusal {
+    const kinds = CustomFeatureInputs.kindsOf(spec);
+    const keyOf = (kind: string) => kinds.length === 1 ? name : `${name}#${kind}`;
+    switch (input.kind) {
+      case 'entities': {
+        const subs = [...new Set([...input.entities, ...input.chains.map(chain => chain.seed)].map(pick => pick.sub.type))];
+        const slotsOfSubs = [...new Set(subs.map(sub => keyOf(CustomFeatureInputs.geometryKind(spec, sub)!)))];
+        return {
+          items: slotsOfSubs.flatMap(key => synthesized[key]?.all ?? []),
+          texts: slotsOfSubs.flatMap(key => synthesized[key]?.texts ?? []),
+        };
       }
-      return { items: [{ kind: 'verbatim', sourceIndex: input.sourceIndex }] };
+      case 'point':
+      case 'anchor': {
+        const key = keyOf(input.kind);
+        const at = taken[key] ?? 0;
+        taken[key] = at + 1;
+        const point = synthesized[key]?.points[at];
+        if (!point) {
+          return { status: 422, reason: `${spec.label}: the ${input.kind} was not named — re-pick it` };
+        }
+        return { items: [point.item], texts: [point.text] };
+      }
+      case 'standard':
+        return { items: [{ kind: 'standard', name: input.name }], texts: [`'${input.name}'`] };
+      case 'verbatim':
+        if (!own || input.sourceIndex >= own.length) {
+          return { status: 422, reason: `${spec.label}: a kept pick no longer matches the statement — re-open the dialog` };
+        }
+        return { items: [{ kind: 'verbatim', sourceIndex: input.sourceIndex }], texts: [own[input.sourceIndex].text] };
+      default: {
+        const kind = CustomFeatureInputs.statementKind(spec, input)!;
+        const producer = CustomFeatureInputs.statementProducer(kind, spec)!;
+        files.add(normalizePath(input.loc.filePath));
+        const item: CustomPickSource = {
+          kind: 'producer',
+          producer: merge({ line: input.loc.line, column: input.loc.column, featureType: producer.featureType, nameHint: producer.nameHint, bind: true }),
+          ...(input.slot !== undefined ? { instance: input.slot } : {}),
+        };
+        return { items: [item], texts: [] };
+      }
     }
-    const producer = CustomFeatureInputs.statementProducer(spec.picker, spec)!;
-    files.add(normalizePath(input.loc.filePath));
-    return {
-      items: [{
-        kind: 'producer',
-        producer: merge({ line: input.loc.line, column: input.loc.column, featureType: producer.featureType, nameHint: producer.nameHint, bind: true }),
-      }],
-    };
   }
 
-  /** What a geometry picker declares that the slot synthesis checks. */
-  private static slotOptions(spec: FeatureMetaSnapshot['params'][string]): FeatureSlotPicks['options'] {
-    const declared = spec as { label: string; multiple?: boolean; max?: number; surface?: never; curve?: never; facesAsEdges?: boolean };
+  /**
+   * What a picker declares that the slot synthesis checks. A value of
+   * several kinds counts its picks across them, here: each kind's slot is a
+   * list as the value is, without its `max`.
+   */
+  private static slotOptions(spec: FeatureMetaSnapshot['params'][string], union: boolean): FeatureSlotPicks['options'] {
+    const declared = spec as {
+      label: string; multiple?: boolean; max?: number; surface?: never; curve?: never; facesAsEdges?: boolean; anchors?: never;
+    };
+    const list = declared.multiple === true || declared.max !== undefined;
     return {
       label: declared.label,
-      ...(declared.multiple !== undefined ? { multiple: declared.multiple } : {}),
-      ...(declared.max !== undefined ? { max: declared.max } : {}),
+      ...(union ? (list ? { multiple: true } : {}) : {
+        ...(declared.multiple !== undefined ? { multiple: declared.multiple } : {}),
+        ...(declared.max !== undefined ? { max: declared.max } : {}),
+      }),
       ...(declared.surface !== undefined ? { surface: declared.surface } : {}),
       ...(declared.curve !== undefined ? { curve: declared.curve } : {}),
       ...(declared.facesAsEdges !== undefined ? { facesAsEdges: declared.facesAsEdges } : {}),
+      ...(declared.anchors !== undefined ? { anchors: declared.anchors } : {}),
     };
   }
 }

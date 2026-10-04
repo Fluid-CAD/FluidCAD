@@ -7,6 +7,7 @@ import { CheckJs } from '../../lib/tests/helpers/check-js.js';
 // it must show no red underlines, with every type inferred.
 
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures/custom-features/standoff.feature.js');
+const BOSS = path.resolve(import.meta.dirname, 'fixtures/custom-features/boss.feature.js');
 
 describe('the JavaScript standoff fixture, type-checked as a project checks it', () => {
   it('has no errors, its values and its builder typed by inference alone', () => {
@@ -37,5 +38,29 @@ standoff(pad.endFaces(), { hieght: 8 });
     expect(check.diagnostics().map(d => `${d.file}:${d.line}: ${d.message}`)).toEqual([
       expect.stringContaining("plate.part.js:9: Object literal may only specify known properties, but 'hieght' does not exist in type"),
     ]);
+  });
+
+  it('has no errors in the boss either, and types a model that stands it at a connector, a point and an anchor', () => {
+    const boss = path.relative(path.resolve(import.meta.dirname, '../../lib/tests/.check-js'), BOSS);
+    const check = CheckJs.check({
+      'plate.part.js': `
+import { extrude, connector, part, sketch, circle, copy } from 'fluidcad/core';
+import { boss } from '${boss}';
+
+part('plate', () => {
+  const plate = extrude(5);
+  const bolt = connector('bolt', plate.endFaces());
+  copy('linear', 'x', { count: 2, offset: 20 }, bolt);
+  const marks = sketch(plate.endFaces(), () => ({ c: circle([10, 0], 4) }));
+  boss([bolt, bolt.instance(1), marks.geometries.c.center(), plate.sideFaces().center()], { height: 8 });
+  boss(bolt, { hieght: 8 });
+});
+`,
+    }, [BOSS]);
+
+    expect(check.diagnostics().map(d => `${d.file}:${d.line}: ${d.message}`)).toEqual([
+      expect.stringContaining("plate.part.js:11: Object literal may only specify known properties, but 'hieght' does not exist in type"),
+    ]);
+    expect(check.typeOf('boss.feature.js', 'at')).toBe('ISceneObject[]');
   });
 });

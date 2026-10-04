@@ -14,10 +14,13 @@ import { normalizePath } from '../../normalize-path.ts';
 import { CallShapeMismatch, FeatureCall } from '../../../../lib/dist/sdk/call-shape.js';
 import type { CallArgument, CallOperation, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
 import type { FeatureMetaSnapshot } from '../../../../lib/dist/index.js';
-import { anyValueArg, booleanArgValue, numericArgValue, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
+import { renderSolvedTarget, type SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
+import {
+  anyValueArg, booleanArgValue, connectorInstanceRead, numericArgValue, resolveRepeatTargetRef, stringArgValue,
+} from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse, ParsedScopeChain } from '../parse/parsed-statement.ts';
-import { isScopeTargetProducer } from '../producers/predicates.ts';
+import { isScopeTargetProducer, isSketchProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
@@ -28,7 +31,7 @@ import type { RepeatEditTargetSource } from './repeat.ts';
  * type), or picked (its picker kind); a typed-in value's default is what a
  * call that leaves it out ahead of a later argument writes in its place.
  */
-export type CustomParamKind = { type?: string; picker?: string; list: boolean; default?: number | string | boolean };
+export type CustomParamKind = { type?: string; picker?: string | string[]; list: boolean; default?: number | string | boolean };
 
 /**
  * How a custom feature's statements are laid out — from the catalog's
@@ -43,14 +46,31 @@ export type CustomFeatureShape = {
 
 /** One element of a picked value, as the statement writes it. */
 export type CustomPickSource =
-  /** A selector the picks synthesized, from the spec's `parts` (`e.endFaces()`). */
-  | { kind: 'part'; part: number }
+  /**
+   * A selector the picks synthesized, from the spec's `parts`
+   * (`e.endFaces()`) — with the point taken on it for a location
+   * (`e.endFaces().center()`, `e.endEdges(0).start()`).
+   */
+  | { kind: 'part'; part: number; suffix?: string }
   /** A picked edge as an axis: `axis(<selector>)`. */
   | { kind: 'axis'; part: number }
   /** A picked face or edge as a plane: `plane(<selector>)`. */
   | { kind: 'plane'; part: number }
-  /** A statement by its bound variable: a sketch, an axis or plane statement, a solid, a feature. */
-  | { kind: 'producer'; producer: number }
+  /**
+   * A statement by its bound variable: a sketch, an axis or plane statement,
+   * a solid, a feature, a connector — `instance` one of a connector's copies
+   * (`bolt.instance(2)`).
+   */
+  | { kind: 'producer'; producer: number; instance?: number }
+  /**
+   * A point of a sketch, which the sketch must export before the statement
+   * can name it: the sketch producer and the entity's point. The transform
+   * authors the export first (see `CustomFeaturePoints`), turning it into an
+   * `expression`.
+   */
+  | { kind: 'sketchPoint'; producer: number; target: SolvedEmissionTarget }
+  /** A point expression an export just authored (`s.geometries.l1.start()`), written as it is. */
+  | { kind: 'expression'; expression: string }
   /** A world axis or an origin plane, by name: `'z'`, `'xy'`. */
   | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
   /** An edit's keep: one element of the statement's own value, as written. */
@@ -103,8 +123,12 @@ export type CustomPickText = {
   /** Character offsets of the text in the file. */
   start: number;
   end: number;
-  /** The statement a plain variable names (`s` bound to `sketch(…)`), as its timeline row reports it. */
-  ref?: { line: number; column: number };
+  /**
+   * The statement a plain variable names (`s` bound to `sketch(…)`), as its
+   * timeline row reports it — a connector copy's seed statement, with the
+   * copy's `slot` (`bolt.instance(2)`).
+   */
+  ref?: { line: number; column: number; slot?: number };
 };
 
 /** A custom feature statement read back by its call shape. */
@@ -132,6 +156,9 @@ export type ParsedCustomFeature = ParsedScopeChain & {
 
 /** The world axes and origin planes a picked axis or plane may name. */
 const STANDARD_NAMES = new Set(['x', 'y', 'z', 'xy', 'xz', 'yz']);
+
+/** The point a location takes on a selector: `.center()`, `.start()`, `.end()`, `.offset('relative', 0.5)`. */
+const POINT_SUFFIX = /^\.(?:center|start|end)\(\)$|^\.offset\('(?:relative|absolute)', -?\d+(?:\.\d+)?(?:e-?\d+)?\)$/;
 
 /** The methods a feature with operations owns on its statement. */
 const OPERATION_METHODS = new Set(['add', 'new', 'remove', 'scope']);
@@ -192,9 +219,10 @@ export class CustomFeatureStatement {
   static shapeOf(meta: Pick<FeatureMetaSnapshot, 'call' | 'operations' | 'params'>): CustomFeatureShape {
     const params: Record<string, CustomParamKind> = {};
     for (const [name, spec] of Object.entries(meta.params ?? {})) {
-      const declared = spec as { type?: string; picker?: string; multiple?: boolean; max?: number; default?: unknown };
+      const declared = spec as { type?: string; picker?: string | string[]; multiple?: boolean; max?: number; default?: unknown };
       if ('picker' in declared && declared.picker) {
-        params[name] = { picker: declared.picker, list: declared.multiple === true || declared.max !== undefined };
+        const picker = Array.isArray(declared.picker) ? [...declared.picker] : declared.picker;
+        params[name] = { picker, list: declared.multiple === true || declared.max !== undefined };
         continue;
       }
       const fallback = declared.default;
@@ -232,6 +260,12 @@ export class CustomFeatureStatement {
       return 'malformed custom feature spec: every selector part belongs to one picked value';
     }
     return null;
+  }
+
+  /** Every picked element of a spec's custom feature — a create's, or an edit's. */
+  static picksOf(spec: Pick<ApplyFeatureEditSpec, 'custom' | 'edit'>): CustomPickSource[] {
+    const custom = spec.edit ? spec.edit.custom : spec.custom;
+    return Object.values(custom?.values ?? {}).flatMap(source => source?.kind === 'picks' && Array.isArray(source.items) ? source.items : []);
   }
 
   /**
@@ -473,12 +507,20 @@ export class CustomFeatureStatement {
   private static validPick(item: CustomPickSource, spec: ApplyFeatureEditSpec, editing: boolean): boolean {
     switch (item?.kind) {
       case 'part':
+        return Number.isInteger(item.part) && item.part >= 0 && item.part < spec.parts.length
+          && (item.suffix === undefined || (typeof item.suffix === 'string' && POINT_SUFFIX.test(item.suffix)));
       case 'axis':
       case 'plane':
         return Number.isInteger(item.part) && item.part >= 0 && item.part < spec.parts.length;
       case 'producer':
         return Number.isInteger(item.producer) && item.producer >= 0 && item.producer < spec.producers.length
-          && spec.producers[item.producer].bind;
+          && spec.producers[item.producer].bind
+          && (item.instance === undefined || (Number.isSafeInteger(item.instance) && item.instance >= 0
+            && spec.producers[item.producer].featureType === 'connector'));
+      case 'sketchPoint':
+        return isSketchProducer(spec, item.producer) && !!item.target && typeof item.target === 'object';
+      case 'expression':
+        return typeof item.expression === 'string' && item.expression.length > 0 && item.expression.length <= 400;
       case 'standard':
         return STANDARD_NAMES.has(item.name);
       case 'verbatim':
@@ -502,11 +544,21 @@ export class CustomFeatureStatement {
       return `'${item.name}'`;
     }
     if (item.kind === 'producer') {
-      return varFor(item.producer) ?? spec.producers[item.producer].nameHint ?? 'f';
+      const name = varFor(item.producer) ?? spec.producers[item.producer].nameHint ?? 'f';
+      return item.instance === undefined ? name : `${name}.instance(${item.instance})`;
+    }
+    if (item.kind === 'expression') {
+      return item.expression;
+    }
+    if (item.kind === 'sketchPoint') {
+      // Authored by CustomFeaturePoints before the statement renders; a
+      // preview that skipped the staging names the point the way it will.
+      const sketch = varFor(item.producer) ?? spec.producers[item.producer].nameHint ?? 's';
+      return renderSolvedTarget(item.target, () => `${sketch}.geometries.point`);
     }
     const part = spec.parts[item.part];
     const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
-    return item.kind === 'part' ? selector : `${item.kind}(${selector})`;
+    return item.kind === 'part' ? `${selector}${item.suffix ?? ''}` : `${item.kind}(${selector})`;
   }
 
   /** The `.scope(…)` expressions: absent keeps the statement's own, entries render by producer or position. */
@@ -570,7 +622,9 @@ export class CustomFeatureStatement {
   }
 
   private static pickText(node: TSNode, statementStart: number): CustomPickText {
-    const ref = resolveRepeatTargetRef(node, statementStart);
+    const copy = connectorInstanceRead(node);
+    const seed = copy ? resolveRepeatTargetRef(copy.variable, statementStart) : null;
+    const ref = seed ? { ...seed, slot: copy!.slot } : resolveRepeatTargetRef(node, statementStart);
     return { text: node.text, start: node.startIndex, end: node.endIndex, ...(ref ? { ref } : {}) };
   }
 

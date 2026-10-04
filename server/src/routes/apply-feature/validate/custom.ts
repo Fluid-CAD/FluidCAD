@@ -1,7 +1,10 @@
 // Custom feature requests: the dialog's typed-in values and picks, checked against the feature's metadata.
 
 import {
+  validConnectorAnchor,
+  validHolePlacementSlot,
   validValueExpr,
+  type ConnectorAnchorSpec,
   type CustomValueSource,
 } from '../../../apply-feature-edit/index.ts';
 import type { FeatureMetaSnapshot, FeatureOperation, ParamSpecSnapshot } from '../../../../../lib/dist/index.js';
@@ -12,14 +15,26 @@ import {
   type EditScopeTargetInput,
   type SketchLoc,
 } from '../locations.ts';
-import { validateChains, validatePicks, type Pick } from '../picks.ts';
+import { validateChains, validatePick, validatePicks, type Pick, type VertexPick } from '../picks.ts';
 
-/** One thing a dialog picked for a value: geometry, a statement, a world axis or plane, or an edit's keep. */
+/**
+ * One thing a dialog picked for a value: geometry, a statement, a location,
+ * a world axis or plane, or an edit's keep.
+ */
 export type CustomPickInput =
   /** Faces or edges picked in the viewport (a face, edge, axis or plane picker), with any tangent chains. */
   | { kind: 'entities'; entities: Pick[]; chains: { seed: Pick; members: Pick[] }[] }
-  /** A statement picked in the viewport or the timeline: a sketch, an axis or plane statement, a solid, a feature. */
-  | { kind: 'statement'; loc: SketchLoc }
+  /**
+   * A statement picked in the viewport or the timeline: a sketch, an axis or
+   * plane statement, a solid, a feature, a connector — `picker` the kind it
+   * was picked as, when the value takes several; `slot` a connector copy's
+   * (`bolt.instance(2)`), addressed by its seed's statement.
+   */
+  | { kind: 'statement'; loc: SketchLoc; picker?: string; slot?: number }
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; entity: VertexPick }
+  /** A face or an edge picked in the viewport, and the well-known point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: Pick; anchor: ConnectorAnchorSpec }
   /** A world axis or an origin plane. */
   | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
   /** An edit's keep: one element of the statement's own value, by position. */
@@ -54,6 +69,7 @@ const STATEMENT_PICKERS: Record<string, { featureType: string; nameHint: string 
   plane: { featureType: 'plane', nameHint: 'p' },
   solid: { featureType: 'feature', nameHint: 'f' },
   feature: { featureType: 'feature', nameHint: 'f' },
+  connector: { featureType: 'connector', nameHint: 'c' },
 };
 
 /**
@@ -88,7 +104,7 @@ export function validateCustomRequest(body: any, editing: boolean): CustomFeatur
     for (const input of inputs) {
       const pick = validatePickInput(input, editing);
       if (!pick) {
-        return { error: `custom.picks.${name}: each pick is {kind: "entities", entities, chains?}, {kind: "statement", filePath, line, column}, {kind: "standard", name}${editing ? ' or {kind: "verbatim", sourceIndex}' : ''}` };
+        return { error: `custom.picks.${name}: each pick is {kind: "entities", entities, chains?}, {kind: "statement", filePath, line, column, picker?, slot?}, {kind: "point", entity}, {kind: "anchor", entity, anchor}, {kind: "standard", name}${editing ? ' or {kind: "verbatim", sourceIndex}' : ''}` };
       }
       parsed.push(pick);
     }
@@ -129,7 +145,28 @@ function validatePickInput(raw: any, editing: boolean): CustomPickInput | null {
   }
   if (raw?.kind === 'statement') {
     const loc = validateSketchLoc(raw);
-    return loc ? { kind: 'statement', loc } : null;
+    if (!loc || (raw.picker !== undefined && (typeof raw.picker !== 'string' || raw.picker.length > 32))) {
+      return null;
+    }
+    if (raw.slot !== undefined && (raw.slot === null || !validHolePlacementSlot(raw.slot))) {
+      return null;
+    }
+    return {
+      kind: 'statement', loc,
+      ...(raw.picker !== undefined ? { picker: raw.picker } : {}),
+      ...(raw.slot !== undefined ? { slot: raw.slot } : {}),
+    };
+  }
+  if (raw?.kind === 'point') {
+    const entity = validatePick(raw.entity, 'vertex');
+    return entity ? { kind: 'point', entity } : null;
+  }
+  if (raw?.kind === 'anchor') {
+    const entity = validatePick(raw.entity);
+    if (!entity || raw.anchor === undefined || !validConnectorAnchor(raw.anchor)) {
+      return null;
+    }
+    return { kind: 'anchor', entity, anchor: raw.anchor as ConnectorAnchorSpec };
   }
   if (raw?.kind === 'standard') {
     return STANDARD_AXES.has(raw.name) || STANDARD_PLANES.has(raw.name) ? { kind: 'standard', name: raw.name } : null;
@@ -180,7 +217,7 @@ export class CustomFeatureInputs {
       if (!('picker' in spec)) {
         return { error: `${spec.label} is typed in — send it under values, not picks` };
       }
-      const refusal = CustomFeatureInputs.pickError(spec, request.picks[name], editing);
+      const refusal = CustomFeatureInputs.pickError(spec as ParamSpecSnapshot & { picker: string | string[] }, request.picks[name], editing);
       if (refusal) {
         return { error: refusal };
       }
@@ -192,7 +229,11 @@ export class CustomFeatureInputs {
       if (editing) {
         values[name] = { kind: 'keep' };
       } else if (CustomFeatureInputs.required(spec)) {
-        return { error: `${spec.label} is required${'picker' in spec ? ` — pick ${CustomFeatureInputs.article(spec.picker)}` : ''}` };
+        return {
+          error: `${spec.label} is required${'picker' in spec
+            ? ` — pick ${CustomFeatureInputs.listed(CustomFeatureInputs.kindsOf(spec).map(kind => CustomFeatureInputs.article(kind)))}`
+            : ''}`,
+        };
       }
     }
     if (request.operation !== undefined && !meta.operations.includes(request.operation)) {
@@ -209,7 +250,7 @@ export class CustomFeatureInputs {
     return { values };
   }
 
-  /** The producer a statement pick binds, by picker kind; null when the picker takes no statement. */
+  /** The producer a statement pick binds, by the kind it was picked as; null when that kind takes no statement. */
   static statementProducer(picker: string, spec: ParamSpecSnapshot): { featureType: string; nameHint: string } | null {
     const producer = STATEMENT_PICKERS[picker] ?? null;
     if (producer && picker === 'sketch' && (spec as { wire?: boolean }).wire) {
@@ -221,6 +262,36 @@ export class CustomFeatureInputs {
   /** Whether the picker's picks are geometry the slot synthesis names. */
   static isGeometryPicker(picker: string): boolean {
     return GEOMETRY_PICKERS.has(picker);
+  }
+
+  /** The kinds a picked value takes: its picker's one kind, or each of a union's. */
+  static kindsOf(spec: ParamSpecSnapshot): string[] {
+    const picker = (spec as { picker?: unknown }).picker;
+    return Array.isArray(picker) ? picker.map(String) : [String(picker)];
+  }
+
+  /**
+   * The kind a statement pick is read as: the one the dialog named, else
+   * the value's one kind that takes statements — null when it names none it
+   * takes, or the value takes statements as more than one kind.
+   */
+  static statementKind(spec: ParamSpecSnapshot, input: { picker?: string }): string | null {
+    const kinds = CustomFeatureInputs.kindsOf(spec).filter(kind => STATEMENT_PICKERS[kind]);
+    if (input.picker !== undefined) {
+      return kinds.includes(input.picker) ? input.picker : null;
+    }
+    return kinds.length === 1 ? kinds[0] : null;
+  }
+
+  /** The kind faces or edges are read as: the value's kind that takes that sub-shape. */
+  static geometryKind(spec: ParamSpecSnapshot, sub: 'face' | 'edge'): string | null {
+    const kinds = CustomFeatureInputs.kindsOf(spec).filter(kind => GEOMETRY_PICKERS.has(kind));
+    if (kinds.length <= 1) {
+      return kinds[0] ?? null;
+    }
+    const takes = (kind: string) => kind === sub || (sub === 'face' ? kind === 'plane' : kind === 'axis')
+      || (kind === 'edge' && sub === 'face' && (spec as { facesAsEdges?: boolean }).facesAsEdges === true);
+    return kinds.find(takes) ?? null;
   }
 
   private static scalar(spec: ParamSpecSnapshot, raw: unknown): CustomValueSource | string {
@@ -263,35 +334,83 @@ export class CustomFeatureInputs {
       return false;
     }
     if ('picker' in spec) {
-      return !(spec.picker === 'sketch' && (spec as { implicitDefault?: boolean }).implicitDefault);
+      return !((spec as { picker: unknown }).picker === 'sketch' && (spec as { implicitDefault?: boolean }).implicitDefault);
     }
     return (spec as { default?: unknown }).default === undefined;
   }
 
-  private static pickError(spec: ParamSpecSnapshot & { picker: string }, inputs: CustomPickInput[], editing: boolean): string | null {
-    const picker = spec.picker;
-    if (picker === 'connector' || picker === 'point' || picker === 'anchor') {
-      return `${spec.label}: the ${picker} picker is not supported yet`;
-    }
+  private static pickError(spec: ParamSpecSnapshot & { picker: string | string[] }, inputs: CustomPickInput[], editing: boolean): string | null {
+    const kinds = CustomFeatureInputs.kindsOf(spec);
+    const what = CustomFeatureInputs.listed(kinds.map(kind => CustomFeatureInputs.article(kind)));
     const list = (spec as { multiple?: boolean }).multiple === true || (spec as { max?: number }).max !== undefined;
-    if (!list && inputs.filter(input => input.kind !== 'entities').length + (inputs.some(input => input.kind === 'entities') ? 1 : 0) > 1) {
-      return `${spec.label} takes one ${picker}`;
+    const entities = inputs.filter(input => input.kind === 'entities');
+    const elements = inputs.length - entities.length
+      + entities.reduce((count, input) => count + input.entities.length + input.chains.length, 0);
+    if (!list && inputs.length - entities.length + (entities.length > 0 ? 1 : 0) > 1) {
+      return `${spec.label} takes one ${kinds.length === 1 ? kinds[0] : 'pick'}`;
     }
-    if (inputs.filter(input => input.kind === 'entities').length > 1) {
+    // A value of geometry alone has its picks counted where they are named (the slot synthesis).
+    const max = (spec as { max?: number }).max;
+    const counted = kinds.length > 1 || !CustomFeatureInputs.isGeometryPicker(kinds[0]);
+    if (list && max !== undefined && counted && elements > max) {
+      return `${spec.label} takes at most ${max}, got ${elements}`;
+    }
+    if (entities.length > 1) {
       return `${spec.label}: send its picked geometry as one entities pick`;
     }
     if (inputs.length === 0 && !editing && CustomFeatureInputs.required(spec)) {
-      return `${spec.label} is required — pick ${CustomFeatureInputs.article(picker)}`;
+      return `${spec.label} is required — pick ${what}`;
     }
+    const anchors = (spec as { anchors?: string[] }).anchors;
     for (const input of inputs) {
-      if (input.kind === 'entities' && !CustomFeatureInputs.isGeometryPicker(picker)) {
-        return `${spec.label}: ${CustomFeatureInputs.article(picker)} is picked as its statement, not as geometry`;
-      }
-      if (input.kind === 'statement' && !STATEMENT_PICKERS[picker]) {
-        return `${spec.label}: ${CustomFeatureInputs.article(picker)} is not a statement to pick`;
-      }
-      if (input.kind === 'standard' && !(picker === 'axis' ? STANDARD_AXES : picker === 'plane' ? STANDARD_PLANES : new Set()).has(input.name)) {
-        return `${spec.label}: '${input.name}' is not ${picker === 'axis' ? 'a world axis' : picker === 'plane' ? 'an origin plane' : `${CustomFeatureInputs.article(picker)}`}`;
+      switch (input.kind) {
+        case 'entities': {
+          if (!kinds.some(kind => CustomFeatureInputs.isGeometryPicker(kind))) {
+            return kinds.every(kind => STATEMENT_PICKERS[kind])
+              ? `${spec.label}: ${what} is picked as its statement, not as geometry`
+              : `${spec.label}: ${what} is not picked as faces or edges`;
+          }
+          const subs = new Set([...input.entities, ...input.chains.flatMap(chain => [chain.seed, ...chain.members])].map(pick => pick.sub.type));
+          for (const sub of subs) {
+            if (CustomFeatureInputs.geometryKind(spec, sub) === null) {
+              return `${spec.label}: takes no ${sub}s`;
+            }
+          }
+          break;
+        }
+        case 'statement':
+          if (CustomFeatureInputs.statementKind(spec, input) === null) {
+            return input.picker !== undefined
+              ? `${spec.label}: takes no ${input.picker} statement — it takes ${what}`
+              : `${spec.label}: ${kinds.some(kind => STATEMENT_PICKERS[kind]) ? 'say which kind the statement is picked as (picker)' : `${what} is not a statement to pick`}`;
+          }
+          if (input.slot !== undefined && CustomFeatureInputs.statementKind(spec, input) !== 'connector') {
+            return `${spec.label}: only a connector is picked with a copy's slot`;
+          }
+          break;
+        case 'point':
+          if (!kinds.includes('point')) {
+            return `${spec.label}: takes no points — it takes ${what}`;
+          }
+          break;
+        case 'anchor':
+          if (!kinds.includes('anchor')) {
+            return `${spec.label}: takes no anchors — it takes ${what}`;
+          }
+          if (anchors && anchors.length > 0 && !anchors.includes(input.anchor.kind)) {
+            return `${spec.label}: takes anchors at ${anchors.map(anchor => `${anchor}()`).join(', ')} — not ${input.anchor.kind}()`;
+          }
+          break;
+        case 'standard': {
+          const axis = kinds.includes('axis') && STANDARD_AXES.has(input.name);
+          const plane = kinds.includes('plane') && STANDARD_PLANES.has(input.name);
+          if (!axis && !plane) {
+            return `${spec.label}: '${input.name}' is not ${kinds.includes('axis') ? 'a world axis' : kinds.includes('plane') ? 'an origin plane' : what}`;
+          }
+          break;
+        }
+        default:
+          break;
       }
     }
     return null;
@@ -299,5 +418,10 @@ export class CustomFeatureInputs {
 
   private static article(word: string): string {
     return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`;
+  }
+
+  /** `a, b or c`. */
+  private static listed(words: string[]): string {
+    return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
   }
 }

@@ -469,7 +469,20 @@ export type Mirror2DGhostRequest = {
 export type GhostCustomRef =
   | { kind: 'statement'; filePath: string; line: number }
   | { kind: 'entities'; entities: GhostEntityRef[] }
-  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' };
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** A connector by its statement — a copy by its seed's statement and its slot. */
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; shapeId: string; index: number }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: GhostEntityRef; anchor: GhostAnchor }
+  /** Edit mode: the edited statement's own element of the value, by position. */
+  | { kind: 'kept'; index: number };
+
+/** The well-known point an anchor takes on a face or an edge. */
+export type GhostAnchor =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
 
 /**
  * A custom feature's ghost. The feature is named by its builder — the

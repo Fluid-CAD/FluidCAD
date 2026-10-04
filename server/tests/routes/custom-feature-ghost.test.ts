@@ -44,6 +44,17 @@ const BOLT_CIRCLE_META = {
 
 const QUIET_META = { ...STANDOFF_META, id: 'acme.quiet', label: 'Quiet', ghost: false } as unknown as ScannedFeature['meta'];
 
+/** Bosses at connectors, points and face centres: a picker of three kinds. */
+const BOSS_META = {
+  id: 'acme.boss', label: 'Boss', group: 'create', kind: 'tool', operations: ['add', 'new'], defaultOperation: 'add',
+  params: {
+    at: { picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'], label: 'At' },
+    height: { type: 'length', default: 6, min: 0, label: 'Height' },
+  },
+  call: ['at', { height: 'height' }],
+  hasOnChange: false, ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 function entry(meta: ScannedFeature['meta'], exportName: string, modulePath: string): FeatureCatalogEntry {
   return { id: meta.id, exportName, modulePath, builtIn: false, meta };
 }
@@ -106,6 +117,7 @@ beforeEach(() => {
     entry(STANDOFF_META, 'standoff', MODULE),
     entry(BOLT_CIRCLE_META, 'boltCircle', '/ws/parts/bolt-circle.feature.js'),
     entry(QUIET_META, 'quiet', '/ws/quiet.feature.js'),
+    entry(BOSS_META, 'boss', '/ws/boss.feature.js'),
   ];
   received = undefined;
   answer = { status: 200, solids: [{ meshes: [] }] };
@@ -207,6 +219,35 @@ describe('feature-ghost route — custom features', () => {
     expect(received).toBeUndefined();
   });
 
+  it('passes locations through: a connector and its copy, a picked vertex, an anchor, an edit\'s own elements', async () => {
+    const at = [
+      { kind: 'connector', filePath: FILE, line: 7 },
+      { kind: 'connector', filePath: FILE, line: 7, slot: 2 },
+      { kind: 'point', shapeId: 'shape-1', index: 3 },
+      { kind: 'anchor', entity: { shapeId: 'shape-1', index: 4, kind: 'face' }, anchor: { kind: 'center' } },
+      { kind: 'kept', index: 1 },
+    ];
+    const { status } = await post({ feature: 'custom', id: 'acme.boss', operation: 'new', refs: { at }, exclude: { filePath: FILE, line: 9 } });
+    expect(status).toBe(200);
+    expect(received).toMatchObject({
+      feature: 'custom', modulePath: '/ws/boss.feature.js', exportName: 'boss', refs: { at }, exclude: { filePath: FILE, line: 9 },
+    });
+
+    const refusals: [unknown[], string][] = [
+      [[{ kind: 'statement', filePath: FILE, line: 7 }], 'At: not something a connector or a point or an anchor takes'],
+      [[{ kind: 'connector', filePath: FILE, line: 7, slot: -1 }], 'At: not something a connector or a point or an anchor takes'],
+      [[{ kind: 'anchor', entity: { shapeId: 'shape-1', index: 4, kind: 'face' }, anchor: { kind: 'middle' } }], 'At: not something'],
+      [[{ kind: 'point', shapeId: 'shape-1' }], 'At: not something'],
+      [[FACE], 'At: not something'],
+    ];
+    for (const [refs, reason] of refusals) {
+      received = undefined;
+      const answered = await post({ feature: 'custom', id: 'acme.boss', refs: { at: refs } });
+      expect({ refs, answered }).toEqual({ refs, answered: { status: 400, body: { success: false, reason: expect.stringContaining(reason) } } });
+      expect(received).toBeUndefined();
+    }
+  });
+
   it('refuses values and picks that do not fit the feature', async () => {
     const refusals: [unknown, string][] = [
       [{ id: 'acme.standoff', values: { width: 3 } }, "Standoff has no value 'width'"],
@@ -220,7 +261,7 @@ describe('feature-ghost route — custom features', () => {
       [{ id: 'acme.standoff', refs: { face: [{ kind: 'entities', entities: [] }] } }, 'On face: not something a face takes'],
       [{ id: 'acme.boltCircle', refs: { around: [{ kind: 'standard', name: 'xy' }] } }, 'Around: not something an axis takes'],
       [{ id: 'acme.boltCircle', refs: { profile: [FACE] } }, 'Profile: not something a sketch takes'],
-      [{ id: 'acme.boltCircle', refs: { anchor: [] } }, "Anchor: a point can't be previewed yet"],
+      [{ id: 'acme.boltCircle', refs: { anchor: [{ kind: 'anchor', entity: { shapeId: 's1', index: 0, kind: 'face' }, anchor: { kind: 'center' } }] } }, 'Anchor: not something a point takes'],
       [{ id: 'acme.boltCircle', refs: { targets: 'all' } }, 'Targets: refs must be a list of picks'],
       [{ id: 'acme.boltCircle', operation: 'add' }, 'Bolt circle offers no operation "add"'],
       [{ id: 'acme.standoff', exclude: { line: 3 } }, 'Invalid exclude reference'],

@@ -39,9 +39,30 @@ const GUSSET_META = {
   hasOnChange: false, ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** Bosses at connectors, points and face centres: a picker of three kinds. */
+const BOSS_META = {
+  id: 'acme.boss', label: 'Boss', group: 'create', kind: 'tool', operations: ['add', 'new'], defaultOperation: 'add',
+  params: {
+    at: { picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'], label: 'At' },
+    height: { type: 'length', default: 6, min: 0, label: 'Height' },
+  },
+  call: ['at', { height: 'height' }],
+  hasOnChange: false, ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** Copies of solids or connectors — two kinds a statement fills — at most two of them. */
+const COPIER_META = {
+  id: 'acme.copier', label: 'Copier', group: 'create', kind: 'tool', operations: [], defaultOperation: null,
+  params: { targets: { picker: ['solid', 'connector'], multiple: true, max: 2, label: 'Targets' } },
+  call: ['targets'],
+  hasOnChange: false, ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/gusset.feature.js': [{ exportName: 'gusset', meta: GUSSET_META }],
+  '/ws/boss.feature.js': [{ exportName: 'boss', meta: BOSS_META }],
+  '/ws/copier.feature.js': [{ exportName: 'copier', meta: COPIER_META }],
 };
 
 /** The catalog as the routes list it; error entries stand in for a refused module. */
@@ -133,6 +154,8 @@ beforeEach(() => {
   entries = [
     { id: 'acme.standoff', exportName: 'standoff', modulePath: '/ws/standoff.feature.js', builtIn: false, meta: STANDOFF_META },
     { id: 'acme.gusset', exportName: 'gusset', modulePath: '/ws/gusset.feature.js', builtIn: false, meta: GUSSET_META },
+    { id: 'acme.boss', exportName: 'boss', modulePath: '/ws/boss.feature.js', builtIn: false, meta: BOSS_META },
+    { id: 'acme.copier', exportName: 'copier', modulePath: '/ws/copier.feature.js', builtIn: false, meta: COPIER_META },
   ];
   currentCode = PLATE;
   currentFileName = MODEL;
@@ -267,7 +290,7 @@ describe('creating a custom feature', () => {
       [standoffBody({}, { picks: { face: [{ kind: 'verbatim', sourceIndex: 0 }] } }), 400, 'custom.picks.face'],
       [{ feature: 'custom', custom: { id: 'acme.gusset', values: { style: 'square' }, picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }] } } }, 422, 'Style must be one of "flat", "round"'],
       [{ feature: 'custom', custom: { id: 'acme.gusset', picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }], axis: [{ kind: 'standard', name: 'xy' }] } } }, 422, `Axis: 'xy' is not a world axis`],
-      [{ feature: 'custom', custom: { id: 'acme.gusset', picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }], anchor: [{ kind: 'standard', name: 'z' }] } } }, 422, 'Anchor: the point picker is not supported yet'],
+      [{ feature: 'custom', custom: { id: 'acme.gusset', picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }], anchor: [{ kind: 'standard', name: 'z' }] } } }, 422, `Anchor: 'z' is not a point`],
     ];
     for (const [request, status, reason] of cases) {
       const { status: got, body } = await post(`${base}/apply-feature`, request);
@@ -387,5 +410,178 @@ describe('editing a custom feature', () => {
     const { status, body } = await post(`${base}/apply-feature`, editBody({ id: 'acme.gusset' }, { preview: true }));
     expect(status).toBe(422);
     expect(body.reason).toContain('is not a acme.gusset');
+  });
+});
+
+describe('a custom feature at locations', () => {
+  /** A plate in a part, a connector on its top copied along x, and a sketch on the top holding a point. */
+  const BOSS_PLATE = [
+    `import { part, sketch, rect, point, extrude, connector, copy, select } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    ``,
+    `part('plate', () => {`,
+    `  sketch('xy', () => { rect(60, 40) })`,
+    `  const e = extrude(10)`,
+    `  const bolt = connector('bolt', select(face().onPlane('xy', 10)))`,
+    `  copy('linear', 'x', { count: 2, offset: 15 }, bolt)`,
+    `  sketch(e.endFaces(), () => {`,
+    `    point([-20, -10])`,
+    `  })`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  const CORNER = { shapeId: 'shape-1', sub: { type: 'vertex', index: 3 } };
+  const DOT = { shapeId: 'shape-9', sub: { type: 'vertex', index: 0 } };
+  const TOP = { shapeId: 'shape-1', sub: { type: 'face', index: 4 } };
+
+  /** The slot pass's answer: the corner as the end of an edge, the dot as the sketch's point, the top's centre. */
+  function locationsAnswer(): any {
+    return {
+      ok: true,
+      filePath: MODEL,
+      producers: [
+        { line: 6, column: 12, featureType: 'extrude', nameHint: 'e', bind: true },
+        { line: 9, column: 2, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: 'endEdges', indices: [0], filterArgs: null, refs: null },
+        { producer: 0, accessor: 'endFaces', indices: null, filterArgs: null, refs: null },
+      ],
+      imports: [],
+      slots: {
+        'at#point': {
+          parts: [0], wrap: null,
+          points: [{ part: 0, suffix: '.start()' }, { sketch: 1, target: { line: 10, featureType: 'point' } }],
+          args: ['e.endEdges(0).start()', 's.geometries.p1'],
+        },
+        'at#anchor': { parts: [1], wrap: null, points: [{ part: 1, suffix: '.center()' }], args: ['e.endFaces().center()'] },
+      },
+    };
+  }
+
+  beforeEach(() => {
+    currentCode = BOSS_PLATE;
+    slotAnswer = locationsAnswer();
+  });
+
+  function bossBody(at: unknown[], extra: Record<string, unknown> = {}) {
+    return { feature: 'custom', custom: { id: 'acme.boss', values: {}, picks: { at } }, ...extra };
+  }
+
+  const AT = [
+    { kind: 'statement', filePath: MODEL, line: 7, column: 15, picker: 'connector' },
+    { kind: 'point', entity: CORNER },
+    { kind: 'anchor', entity: TOP, anchor: { kind: 'center' } },
+    { kind: 'statement', filePath: MODEL, line: 7, column: 15, picker: 'connector', slot: 1 },
+    { kind: 'point', entity: DOT },
+  ];
+
+  it('routes each pick to the kind that takes it, and writes them in the order they were picked', async () => {
+    const base = await serve();
+    const { status, body } = await post(`${base}/apply-feature`, bossBody(AT, { preview: true }));
+    expect(status).toBe(200);
+    expect(body.preview).toBe('boss([bolt, e.endEdges(0).start(), e.endFaces().center(), bolt.instance(1), s.geometries.p1])');
+    expect(body.args).toEqual({ at: ['e.endEdges(0).start()', 'e.endFaces().center()', 's.geometries.p1'] });
+    // One slot pass, one slot per kind; each a list, the value's max counted here.
+    expect(slotCalls).toHaveLength(1);
+    expect(slotCalls[0].request).toEqual({
+      slots: {
+        'at#point': { picker: 'point', entities: [CORNER, DOT], options: { label: 'At', multiple: true, anchors: ['center'] } },
+        'at#anchor': {
+          picker: 'anchor', entities: [TOP], anchors: [{ kind: 'center' }], options: { label: 'At', multiple: true, anchors: ['center'] },
+        },
+      },
+    });
+
+    const applied = await post(`${base}/apply-feature`, bossBody(AT));
+    expect(applied.status).toBe(200);
+    const spec = relayed[0].spec;
+    expect(spec.custom.values.at.items).toEqual([
+      { kind: 'producer', producer: 2 },
+      { kind: 'part', part: 0, suffix: '.start()' },
+      { kind: 'part', part: 1, suffix: '.center()' },
+      { kind: 'producer', producer: 2, instance: 1 },
+      { kind: 'sketchPoint', producer: 1, target: { line: 10, featureType: 'point' } },
+    ]);
+    expect(spec.producers[2]).toMatchObject({ line: 7, featureType: 'connector', nameHint: 'c', bind: true });
+
+    const written = await post(`${base}/code/apply-feature`, { code: BOSS_PLATE, spec });
+    expect(written.body.error).toBeUndefined();
+    expect(written.body.newCode).toContain(`  const s = sketch(e.endFaces(), () => {\n    const p1 = point([-20, -10])\n    return { p1 };\n  })\n`);
+    expect(written.body.newCode).toContain(`  boss([bolt, e.endEdges(0).start(), e.endFaces().center(), bolt.instance(1), s.geometries.p1])\n})`);
+  });
+
+  it('binds statements of a picker of two statement kinds by the kind each was picked as', async () => {
+    slotAnswer = null;
+    const base = await serve();
+    const { status, body } = await post(`${base}/apply-feature`, {
+      feature: 'custom',
+      custom: {
+        id: 'acme.copier', values: {},
+        picks: { targets: [
+          { kind: 'statement', filePath: MODEL, line: 6, column: 12, picker: 'solid' },
+          { kind: 'statement', filePath: MODEL, line: 7, column: 15, picker: 'connector', slot: 1 },
+        ] },
+      },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('copier([e, bolt.instance(1)])');
+    expect(slotCalls).toEqual([]);
+    expect(relayed[0].spec.producers).toMatchObject([
+      { line: 6, featureType: 'feature', nameHint: 'f', bind: true },
+      { line: 7, featureType: 'connector', nameHint: 'c', bind: true },
+    ]);
+  });
+
+  it('refuses picks the value does not take', async () => {
+    const base = await serve();
+    const statement = (picker?: string, slot?: number) => ({
+      kind: 'statement', filePath: MODEL, line: 6, column: 12, ...(picker ? { picker } : {}), ...(slot !== undefined ? { slot } : {}),
+    });
+    const copier = (targets: unknown[]) => ({ feature: 'custom', custom: { id: 'acme.copier', values: {}, picks: { targets } } });
+    const cases: [unknown, number, string][] = [
+      [bossBody([{ kind: 'anchor', entity: TOP, anchor: { kind: 'start' } }]), 422, 'At: takes anchors at center() — not start()'],
+      [bossBody([statement('solid')]), 422, 'At: takes no solid statement — it takes a connector, a point or an anchor'],
+      [bossBody([{ kind: 'entities', entities: [FACE_PICK] }]), 422, 'At: a connector, a point or an anchor is not picked as faces or edges'],
+      [bossBody([{ kind: 'point', entity: TOP }]), 400, 'custom.picks.at'],
+      [bossBody([{ kind: 'standard', name: 'z' }]), 422, "At: 'z' is not a connector, a point or an anchor"],
+      [bossBody([]), 422, 'At is required — pick a connector, a point or an anchor'],
+      [copier([statement()]), 422, 'Targets: say which kind the statement is picked as (picker)'],
+      [copier([statement('solid', 1)]), 422, "Targets: only a connector is picked with a copy's slot"],
+      [copier([{ kind: 'point', entity: CORNER }]), 422, 'Targets: takes no points — it takes a solid or a connector'],
+      [copier([statement('solid'), statement('solid'), statement('connector')]), 422, 'Targets takes at most 2, got 3'],
+      [standoffBody({}, { picks: { face: [{ kind: 'anchor', entity: TOP, anchor: { kind: 'center' } }] } }), 422, 'On face: takes no anchors — it takes a face'],
+    ];
+    for (const [request, status, reason] of cases) {
+      const { status: got, body } = await post(`${base}/apply-feature`, request);
+      expect({ request, got, reason: body.reason ?? body.error }).toEqual({ request, got: status, reason: expect.stringContaining(reason) });
+    }
+    expect(relayed).toEqual([]);
+  });
+
+  it('edits the locations it changes, keeping the rest as written, the new point against the world before it', async () => {
+    currentCode = BOSS_PLATE
+      .replace(`\n\npart(`, `\nimport { boss } from './boss.feature.js'\npart(`)
+      .replace(`  })\n})`, `  })\n  boss([bolt, e.endFaces().center()], { height: 8 })\n})`);
+    slotAnswer = {
+      ...locationsAnswer(),
+      slots: { 'at#point': { parts: [0], wrap: null, points: [{ part: 0, suffix: '.start()' }], args: ['e.endEdges(0).start()'] } },
+    };
+    const base = await serve();
+    const parsed = await post(`${base}/feature/parse`, { line: 12, filePath: MODEL });
+    expect(parsed.body.parsed.picks.at.map((pick: any) => pick.ref)).toEqual([{ line: 7, column: 15 }, undefined]);
+
+    const body = {
+      feature: 'custom',
+      edit: { filePath: MODEL, line: 12, column: 2 },
+      custom: { id: 'acme.boss', values: {}, picks: { at: [{ kind: 'verbatim', sourceIndex: 1 }, { kind: 'point', entity: CORNER }] } },
+      preview: true,
+    };
+    expect((await post(`${base}/apply-feature`, body)).status).toBe(400);
+    const { status, body: answer } = await post(`${base}/apply-feature`, { ...body, before: { ...BEFORE, type: 'acme.boss', line: 12 } });
+    expect(status).toBe(200);
+    expect(answer.preview).toBe('boss([e.endFaces().center(), e.endEdges(0).start()], { height: 8 })');
+    expect(slotCalls[0].before).toEqual({ ...BEFORE, type: 'acme.boss', line: 12 });
   });
 });

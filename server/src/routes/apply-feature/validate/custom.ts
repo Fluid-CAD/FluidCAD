@@ -15,15 +15,15 @@ import {
   type EditScopeTargetInput,
   type SketchLoc,
 } from '../locations.ts';
-import { validateChains, validatePick, validatePicks, type Pick, type VertexPick } from '../picks.ts';
+import { validatePick, validatePicks, type Pick, type VertexPick } from '../picks.ts';
 
 /**
  * One thing a dialog picked for a value: geometry, a statement, a location,
  * a world axis or plane, or an edit's keep.
  */
 export type CustomPickInput =
-  /** Faces or edges picked in the viewport (a face, edge, axis or plane picker), with any tangent chains. */
-  | { kind: 'entities'; entities: Pick[]; chains: { seed: Pick; members: Pick[] }[] }
+  /** Faces or edges picked in the viewport (a face, edge, axis or plane picker). */
+  | { kind: 'entities'; entities: Pick[] }
   /**
    * A statement picked in the viewport or the timeline: a sketch, an axis or
    * plane statement, a solid, a feature, a connector — `picker` the kind it
@@ -102,9 +102,12 @@ export function validateCustomRequest(body: any, editing: boolean): CustomFeatur
     }
     const parsed: CustomPickInput[] = [];
     for (const input of inputs) {
+      if (input?.kind === 'entities' && input.chains !== undefined) {
+        return { error: `custom.picks.${name}: a custom feature takes no tangent chains — they are for fillet and chamfer only` };
+      }
       const pick = validatePickInput(input, editing);
       if (!pick) {
-        return { error: `custom.picks.${name}: each pick is {kind: "entities", entities, chains?}, {kind: "statement", filePath, line, column, picker?, slot?}, {kind: "point", entity}, {kind: "anchor", entity, anchor}, {kind: "standard", name}${editing ? ' or {kind: "verbatim", sourceIndex}' : ''}` };
+        return { error: `custom.picks.${name}: each pick is {kind: "entities", entities}, {kind: "statement", filePath, line, column, picker?, slot?}, {kind: "point", entity}, {kind: "anchor", entity, anchor}, {kind: "standard", name}${editing ? ' or {kind: "verbatim", sourceIndex}' : ''}` };
       }
       parsed.push(pick);
     }
@@ -135,13 +138,8 @@ export function validateCustomRequest(body: any, editing: boolean): CustomFeatur
 
 function validatePickInput(raw: any, editing: boolean): CustomPickInput | null {
   if (raw?.kind === 'entities') {
-    const entities = raw.entities === undefined || (Array.isArray(raw.entities) && raw.entities.length === 0)
-      ? [] : validatePicks(raw.entities);
-    const chains = validateChains(raw.chains);
-    if (!entities || !chains || entities.length + chains.length === 0) {
-      return null;
-    }
-    return { kind: 'entities', entities, chains };
+    const entities = validatePicks(raw.entities);
+    return entities ? { kind: 'entities', entities } : null;
   }
   if (raw?.kind === 'statement') {
     const loc = validateSketchLoc(raw);
@@ -348,7 +346,7 @@ export class CustomFeatureInputs {
     const list = (spec as { multiple?: boolean }).multiple === true || (spec as { max?: number }).max !== undefined;
     const entities = inputs.filter(input => input.kind === 'entities');
     const elements = inputs.length - entities.length
-      + entities.reduce((count, input) => count + input.entities.length + input.chains.length, 0);
+      + entities.reduce((count, input) => count + input.entities.length, 0);
     if (!list && inputs.length - entities.length + (entities.length > 0 ? 1 : 0) > 1) {
       return `${spec.label} takes one ${kinds.length === 1 ? kinds[0] : 'pick'}`;
     }
@@ -373,7 +371,7 @@ export class CustomFeatureInputs {
               ? `${spec.label}: ${what} is picked as its statement, not as geometry`
               : `${spec.label}: ${what} is not picked as faces or edges`;
           }
-          const subs = new Set([...input.entities, ...input.chains.flatMap(chain => [chain.seed, ...chain.members])].map(pick => pick.sub.type));
+          const subs = new Set(input.entities.map(pick => pick.sub.type));
           for (const sub of subs) {
             if (CustomFeatureInputs.geometryKind(spec, sub) === null) {
               return `${spec.label}: takes no ${sub}s`;

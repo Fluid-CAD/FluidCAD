@@ -20,7 +20,7 @@ import { getFeatureMeta } from '../../lib/dist/index.js';
 const FIXTURES = path.resolve(__dirname, 'fixtures/custom-features');
 
 /** A minimal tool feature module: the class, its metadata and the builder. */
-function featureModule(options: { id: string; exportName: string; icon?: string; header?: string; label?: string; field?: string }): string {
+function featureModule(options: { id: string; exportName: string; icon?: string; header?: string; label?: string; field?: string; params?: string }): string {
   return [
     `import { Feature, parseCall, registerBuilder } from 'fluidcad/sdk';`,
     options.header ?? '',
@@ -32,7 +32,7 @@ function featureModule(options: { id: string; exportName: string; icon?: string;
     `  class: F, label: ${options.label ?? `'${options.exportName}'`}, group: 'create', kind: 'tool',`,
     options.icon ? `  icon: '${options.icon}',` : '',
     options.field ? `  ${options.field},` : '',
-    `  params: { size: { type: 'length', default: 4 } },`,
+    `  params: ${options.params ?? `{ size: { type: 'length', default: 4 } }`},`,
     `  call: ['size'],`,
     `};`,
     `export const ${options.exportName} = registerBuilder(`,
@@ -246,6 +246,20 @@ describe('the feature catalog over a workspace', () => {
     } finally {
       remove('sketchy.feature.js');
       remove('hooked.feature.js');
+    }
+  });
+
+  it('turns a module whose edge value declares tangents into an error entry saying why', async () => {
+    write('chained.feature.js', featureModule({
+      id: 'acme.chained', exportName: 'chained',
+      params: `{ size: { type: 'length', default: 4 }, rims: { picker: 'edge', multiple: true, tangents: true } }`,
+    }));
+    try {
+      expect((await list()).find(entry => entry.modulePath === at('chained.feature.js'))).toMatchObject({
+        id: null, meta: null, error: expect.stringContaining("param 'rims': leave 'tangents' out — tangent chains are for fillet and chamfer only"),
+      });
+    } finally {
+      remove('chained.feature.js');
     }
   });
 

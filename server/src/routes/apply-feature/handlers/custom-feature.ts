@@ -428,7 +428,7 @@ class CustomFeatureRoute {
     const slots: Record<string, FeatureSlotPicks> = {};
     for (const input of inputs) {
       if (input.kind === 'entities') {
-        const subs = [...new Set([...input.entities, ...input.chains.map(chain => chain.seed)].map(pick => pick.sub.type))];
+        const subs = [...new Set(input.entities.map(pick => pick.sub.type))];
         for (const sub of subs) {
           const kind = CustomFeatureInputs.geometryKind(spec, sub)!;
           const key = keyOf(kind);
@@ -436,7 +436,6 @@ class CustomFeatureRoute {
           slots[key] = {
             picker: kind as FeatureSlotPicks['picker'],
             entities: input.entities.filter(ofSub),
-            chains: input.chains.filter(chain => ofSub(chain.seed)),
             options,
           };
         }
@@ -481,7 +480,7 @@ class CustomFeatureRoute {
     const keyOf = (kind: string) => kinds.length === 1 ? name : `${name}#${kind}`;
     switch (input.kind) {
       case 'entities': {
-        const subs = [...new Set([...input.entities, ...input.chains.map(chain => chain.seed)].map(pick => pick.sub.type))];
+        const subs = [...new Set(input.entities.map(pick => pick.sub.type))];
         const slotsOfSubs = [...new Set(subs.map(sub => keyOf(CustomFeatureInputs.geometryKind(spec, sub)!)))];
         return {
           items: slotsOfSubs.flatMap(key => synthesized[key]?.all ?? []),

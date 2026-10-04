@@ -194,7 +194,7 @@ describe('creating a custom feature', () => {
     // One slot pass, each picker as the feature declares it, over the file's names.
     expect(slotCalls).toHaveLength(1);
     expect(slotCalls[0].request).toEqual({
-      slots: { face: { picker: 'face', entities: [FACE_PICK], chains: [], options: { label: 'On face', surface: 'planar' } } },
+      slots: { face: { picker: 'face', entities: [FACE_PICK], options: { label: 'On face', surface: 'planar' } } },
     });
     expect(slotCalls[0].options.namer([{ line: 5, nameHint: 'e', featureType: 'extrude' }])).toEqual(['e']);
     expect(slotCalls[0].before).toBeUndefined();
@@ -288,6 +288,8 @@ describe('creating a custom feature', () => {
       [standoffBody({}, { operation: 'remove' }), 422, 'Standoff offers add, new — not remove'],
       [standoffBody({}, { operation: 'sideways' }), 400, 'custom.operation must be'],
       [standoffBody({}, { picks: { face: [{ kind: 'verbatim', sourceIndex: 0 }] } }), 400, 'custom.picks.face'],
+      [standoffBody({}, { picks: { face: [{ kind: 'entities', entities: [FACE_PICK], chains: [{ seed: FACE_PICK, members: [FACE_PICK] }] }] } }), 400,
+        'custom.picks.face: a custom feature takes no tangent chains — they are for fillet and chamfer only'],
       [{ feature: 'custom', custom: { id: 'acme.gusset', values: { style: 'square' }, picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }] } } }, 422, 'Style must be one of "flat", "round"'],
       [{ feature: 'custom', custom: { id: 'acme.gusset', picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }], axis: [{ kind: 'standard', name: 'xy' }] } } }, 422, `Axis: 'xy' is not a world axis`],
       [{ feature: 'custom', custom: { id: 'acme.gusset', picks: { profile: [{ kind: 'statement', filePath: MODEL, line: 3 }], anchor: [{ kind: 'standard', name: 'z' }] } } }, 422, `Anchor: 'z' is not a point`],

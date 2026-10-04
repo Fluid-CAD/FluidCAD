@@ -36,6 +36,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
+import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
 } from "./types.js";
@@ -128,7 +129,17 @@ export type FeatureSources =
    * and edge forms, two for a mid plane. An origin-plane literal names nothing
    * and stays opaque; the dialog reads it straight off the argument text.
    */
-  | { feature: 'plane'; bases: SourceSlot[] };
+  | { feature: 'plane'; bases: SourceSlot[] }
+  /**
+   * A custom feature — any `Feature`, whatever its class — by its picked
+   * values: one slot per value that holds a scene object, a list value one
+   * per element, in its order. A statement (a sketch, a helix, an axis or
+   * plane statement, a solid or feature) resolves by call site; a face or
+   * edge selection as viewport entities on the pre-statement solids; an
+   * inline `axis(<edge>)` or `plane(<face>)` as the geometry it names.
+   * Typed-in values, and picked ones left out, have no slot.
+   */
+  | { feature: 'custom'; id: string; slots: Record<string, SourceSlot | SourceSlot[]> };
 
 export type FeatureSourcesResult =
   | ({ ok: true } & FeatureSources)
@@ -154,6 +165,11 @@ export function resolveFeatureSources(
   const feature = objectAtRow(scene, boundary.index);
   const resolver = new SourceResolver(scoped.scene.getAllSceneObjects(), boundary);
   try {
+    // Kernel-side, so `instanceof` holds for a workspace module's class,
+    // which is evaluated anew every render.
+    if (feature instanceof Feature) {
+      return { ok: true, feature: 'custom', id: feature.getType(), slots: resolver.featureSlots(feature.values) };
+    }
     if (feature instanceof Shell) {
       return { ok: true, feature: 'shell', selection: resolver.entitiesSlot(feature.faceSelections) };
     }
@@ -497,6 +513,43 @@ class SourceResolver {
       return this.callSiteSlot(placement);
     }
     return OPAQUE;
+  }
+
+  /**
+   * A custom feature's picked values, by name: a reference value its slot,
+   * a list of them one slot per element. Scalars have none.
+   */
+  featureSlots(values: Readonly<Record<string, unknown>>): Record<string, SourceSlot | SourceSlot[]> {
+    const slots: Record<string, SourceSlot | SourceSlot[]> = {};
+    for (const [name, value] of Object.entries(values)) {
+      if (value instanceof SceneObject) {
+        slots[name] = this.referenceSlot(value);
+      } else if (Array.isArray(value) && value.length > 0 && value.every(entry => entry instanceof SceneObject)) {
+        slots[name] = value.map(entry => this.referenceSlot(entry));
+      }
+    }
+    return slots;
+  }
+
+  /**
+   * One scene object a custom feature reads, as its dialog picks it again:
+   * a statement by call site, a selection as entities, an inline axis or
+   * plane as the geometry it was built from.
+   */
+  private referenceSlot(obj: SceneObject): SourceSlot {
+    if (obj instanceof Sketch || obj instanceof Helix) {
+      return this.callSiteSlot(obj);
+    }
+    if (obj instanceof AxisObjectBase) {
+      return this.axisObjectSlot(obj);
+    }
+    if (obj instanceof PlaneObjectBase) {
+      return this.planeSlot(obj);
+    }
+    if (obj.isSelection() || obj.isLazy()) {
+      return this.entitiesSlot([obj]);
+    }
+    return this.callSiteSlot(obj);
   }
 
   /** Statements by call site — a repeat's targets are features, not sketches. */

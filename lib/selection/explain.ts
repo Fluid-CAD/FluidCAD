@@ -474,7 +474,7 @@ const REHOME_PLANE_TOLERANCE = 1e-6;
  * same-side normal; anything else keeps the original attribution (and its
  * select() fallback).
  */
-function rehomePlaneFacePick(
+export function rehomePlaneFacePick(
   scene: SelectionScene,
   index: SelectionIndex,
   attr: PickAttribution,

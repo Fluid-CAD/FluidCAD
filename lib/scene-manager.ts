@@ -56,6 +56,8 @@ import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { FeatureSlotSynthesizer } from "./selection/feature-slots.js";
+import type { FeatureSlotRequest, FeatureSlotSynthesis } from "./selection/feature-slots.js";
 import {
   AnchorPurpose, ConnectorAnchorFrames, ConnectorAnchorSuggestions, suggestConnectorAnchors, suggestConnectorFrames,
 } from "./selection/connector-anchors.js";
@@ -448,6 +450,20 @@ class SceneManager {
     return withBoundary(
       scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
     );
+  }
+
+  /**
+   * The selectors a custom feature's picked values write, each slot checked
+   * against its picker (see FeatureSlotSynthesizer). An edit's picks
+   * resolve against the world before the edited statement.
+   */
+  synthesizeFeatureSlots(
+    scene: Scene,
+    request: FeatureSlotRequest,
+    options: SynthesizeOptions = {},
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | BoundaryFailure {
+    return withBoundary(scene, before, scoped => FeatureSlotSynthesizer.synthesize(scoped, request, options));
   }
 
   /**

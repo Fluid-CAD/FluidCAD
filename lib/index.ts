@@ -237,6 +237,10 @@ export type {
 export type {
   SynthesizedSelection, SynthesizedSelectionPart, SynthesizedProducer, SynthesizedForm,
 } from './selection/synthesize-selection.js';
+export type {
+  FeatureSlotRequest, FeatureSlotPicks, FeatureSlotOptions, FeatureSlotPicker, FeatureSlotResult, FeatureSlotSynthesis,
+} from './selection/feature-slots.js';
+export type { FeatureSourcesResult, FeatureSources, SourceSlot } from './selection/feature-sources.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';
 export type {
   ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,

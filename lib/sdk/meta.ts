@@ -179,7 +179,11 @@ export type FeatureMeta = {
   illustration?: string;
   /** Runs in the engine when a dialog value changes. */
   onChange?: (values: Record<string, unknown>) => FeatureChange | void;
-  /** Whether the dialog shows a preview of the feature (the default). */
+  /**
+   * Whether the dialog draws a preview of the feature while its values are
+   * typed: on by default for a tool, and for a modifier whose class
+   * overrides `ghost(ctx)`; `false` turns it off.
+   */
   ghost?: boolean;
   /** Where the feature may be used; `['part']`, the only context so far, when left out. */
   contexts?: readonly FeatureContext[];
@@ -191,6 +195,7 @@ export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'gho
   operations: readonly FeatureOperation[];
   /** What a statement without an operation chain does (see `FeatureCall.defaultOperationOf`); null without operations. */
   defaultOperation: FeatureOperation | null;
+  /** Whether the dialog draws a preview: the metadata allows one and the class has one to draw. */
   ghost: boolean;
   contexts: readonly FeatureContext[];
 }>;
@@ -217,6 +222,7 @@ export type FeatureMetaSnapshot = {
   call: CallShape;
   illustration?: string;
   hasOnChange: boolean;
+  /** Whether the dialog draws a preview — the UI asks for none when false. */
   ghost: boolean;
   contexts: FeatureContext[];
 };
@@ -326,15 +332,13 @@ class FeatureMetaValidator {
     if (meta.onChange !== undefined && typeof meta.onChange !== 'function') {
       this.fail(`'onChange' must be a function, got ${FeatureMetaValidator.describe(meta.onChange)}`);
     }
-    if (meta.ghost !== undefined && typeof meta.ghost !== 'boolean') {
-      this.fail(`'ghost' must be true or false, got ${FeatureMetaValidator.describe(meta.ghost)}`);
-    }
+    const ghost = this.ghost(meta.ghost, featureClass as typeof Feature);
     const contexts = this.contexts(meta.contexts);
 
     const resolved: Record<string, unknown> = {
       id, class: featureClass, label, description, icon, group, kind, operations,
       defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, illustration,
-      onChange: meta.onChange, ghost: meta.ghost ?? true, contexts,
+      onChange: meta.onChange, ghost, contexts,
     };
     return Object.freeze(FeatureMetaValidator.defined(resolved)) as ResolvedFeatureMeta;
   }
@@ -376,6 +380,22 @@ class FeatureMetaValidator {
     if (kind === 'modifier' && isTool) {
       this.fail("is declared kind 'modifier' but its class leaves build() to the base — a modifier overrides build(ctx); a feature that implements buildTool() is kind 'tool'");
     }
+  }
+
+  /**
+   * Whether the dialog draws a preview: unless the metadata turns it off,
+   * whenever the class has one to draw — a tool always, a modifier when it
+   * overrides `ghost(ctx)`. Asking for one a modifier can't draw is refused.
+   */
+  private ghost(value: unknown, featureClass: typeof Feature): boolean {
+    if (value !== undefined && typeof value !== 'boolean') {
+      this.fail(`'ghost' must be true or false, got ${FeatureMetaValidator.describe(value)}`);
+    }
+    const previews = Feature.previews(featureClass);
+    if (value === true && !previews) {
+      this.fail("'ghost: true' needs a preview to draw — a modifier draws one only when its class overrides ghost(ctx); override it, or leave 'ghost' out");
+    }
+    return value !== false && previews;
   }
 
   private operations(value: unknown, kind: FeatureKind): FeatureOperation[] {
@@ -903,7 +923,7 @@ export class FeatureMetas {
     const params: Record<string, ParamSpecSnapshot> = {};
     for (const [name, spec] of Object.entries(meta.params ?? {})) {
       const copy = FeatureMetas.json(spec) as ParamSpecSnapshot;
-      params[name] = { ...copy, label: spec.label ?? FeatureMetas.humanize(name) };
+      params[name] = { ...copy, label: FeatureMetas.labelOf(name, spec) };
     }
     return FeatureMetaValidator.defined({
       id: typeof resolved.id === 'string' ? resolved.id : Feature.idOf(meta.class),
@@ -918,9 +938,21 @@ export class FeatureMetas {
       call: FeatureMetas.json(meta.call ?? []),
       illustration: meta.illustration,
       hasOnChange: typeof meta.onChange === 'function',
-      ghost: meta.ghost ?? true,
+      ghost: FeatureMetas.ghostOf(meta),
       contexts: [...(meta.contexts ?? ['part'])],
     }) as FeatureMetaSnapshot;
+  }
+
+  /**
+   * Whether the dialog draws a preview: what the checking kernel resolved,
+   * or — for metadata nobody checked yet — the same rule read off the class.
+   */
+  private static ghostOf(meta: FeatureMeta | ResolvedFeatureMeta): boolean {
+    const resolved = meta as Partial<ResolvedFeatureMeta>;
+    if (typeof resolved.id === 'string' && typeof resolved.ghost === 'boolean') {
+      return resolved.ghost;
+    }
+    return meta.ghost !== false && typeof meta.class === 'function' && Feature.previews(meta.class);
   }
 
   /**
@@ -931,7 +963,16 @@ export class FeatureMetas {
    * list — one scene object passed for it becomes a list of one.
    */
   static values(meta: ResolvedFeatureMeta, args: ArrayLike<unknown>): FeatureValues {
-    const read = FeatureMetas.callOf(meta).parse(args);
+    return FeatureMetas.complete(meta, FeatureMetas.callOf(meta).parse(args));
+  }
+
+  /**
+   * Values by name — however they were gathered: read off a call, or put
+   * together by the editor's preview — completed and checked as
+   * {@link values} does: every declared value present, defaults filled,
+   * each value checked against its declaration.
+   */
+  static complete(meta: ResolvedFeatureMeta, read: Readonly<Record<string, unknown>>): FeatureValues {
     const callee = FeatureMetas.calleeOf(meta.id);
     const values: FeatureValues = {};
     for (const [name, spec] of Object.entries(meta.params)) {
@@ -1098,6 +1139,11 @@ export class FeatureMetas {
 
   private static json(value: unknown): unknown {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  }
+
+  /** A value's label: the one it declares, or its name made readable. */
+  static labelOf(name: string, spec: ParamSpec): string {
+    return spec.label ?? FeatureMetas.humanize(name);
   }
 
   /** `holeDiameter` → `Hole diameter`. */

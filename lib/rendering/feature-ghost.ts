@@ -59,6 +59,8 @@ import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 import { getActiveUnit, withUnit } from "../units/registry.js";
+import { GhostScene } from "./ghost-scene.js";
+import { CustomFeatureGhost, type CustomGhostRequest } from "./custom-feature-ghost.js";
 import { mmTol } from "../units/tolerance.js";
 
 /**
@@ -83,7 +85,10 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
+
+export type { CustomGhostRequest, GhostCustomRef } from "./custom-feature-ghost.js";
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -658,6 +663,12 @@ export type FeatureGhostResult =
      * by changing a number, where a silently blank viewport reads as a bug.
      */
     surface?: boolean;
+    /**
+     * The ghost took longer than its budget to build (a custom feature's):
+     * the dialog stops asking for one on every keystroke and says so. Its
+     * geometry is not sent — a preview that slow lags what is typed.
+     */
+    paused?: boolean;
   };
 
 /**
@@ -738,6 +749,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'mirror2d') {
     return buildMirror2DGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'custom') {
+    return CustomFeatureGhost.build(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -2683,14 +2697,7 @@ function resolvePickedFace(
   ref: { shapeId: string; index: number },
   scratch: Shape[],
 ): Face | null {
-  const shape = findShapeById(scene, ref.shapeId);
-  if (!shape) {
-    return null;
-  }
-  const faces = Explorer.findFacesWrapped(shape);
-  scratch.push(...faces);
-  const face = faces[ref.index];
-  return face instanceof Face ? face : null;
+  return GhostScene.pickedFace(scene, ref, scratch);
 }
 
 /**
@@ -2822,14 +2829,7 @@ function resolvePickedEdge(
   ref: { shapeId: string; index: number },
   scratch: Shape[],
 ): Edge | null {
-  const shape = findShapeById(scene, ref.shapeId);
-  if (!shape) {
-    return null;
-  }
-  const edges = Explorer.findEdgesWrapped(shape);
-  scratch.push(...edges);
-  const edge = edges[ref.index];
-  return edge instanceof Edge ? edge : null;
+  return GhostScene.pickedEdge(scene, ref, scratch);
 }
 
 /** An omitted dialog field, in the kernel's wording — null in, default out. */
@@ -2880,19 +2880,7 @@ function findWireSource(scene: Scene, ref: { filePath: string; line: number }): 
  * scenes, so nothing here may read the flat list alone.
  */
 function allObjects(scene: Scene): SceneObject[] {
-  const seen = new Set<SceneObject>();
-  const stack: SceneObject[] = [...scene.getSceneObjects()];
-  const objects: SceneObject[] = [];
-  while (stack.length > 0) {
-    const obj = stack.pop()!;
-    if (seen.has(obj)) {
-      continue;
-    }
-    seen.add(obj);
-    objects.push(obj);
-    stack.push(...obj.getChildren());
-  }
-  return objects;
+  return GhostScene.allObjects(scene);
 }
 
 /**
@@ -2901,11 +2889,7 @@ function allObjects(scene: Scene): SceneObject[] {
  * `virtual:` prefix, so both sides are normalized before comparing.
  */
 function objectsAt(scene: Scene, ref: { filePath: string; line: number }): SceneObject[] {
-  const target = normalizeSourcePath(ref.filePath);
-  return allObjects(scene).filter(obj => {
-    const loc = obj.getSourceLocation();
-    return !!loc && loc.line === ref.line && normalizeSourcePath(loc.filePath) === target;
-  });
+  return GhostScene.objectsAt(scene, ref);
 }
 
 /**
@@ -3017,14 +3001,7 @@ function findByLocation(
 
 /** The scene shape a viewport pick's `shapeId` names. */
 function findShapeById(scene: Scene, shapeId: string): Shape | null {
-  for (const obj of allObjects(scene)) {
-    for (const shape of obj.getAddedShapes()) {
-      if (shape.id === shapeId) {
-        return shape;
-      }
-    }
-  }
-  return null;
+  return GhostScene.findShapeById(scene, shapeId);
 }
 
 /**
@@ -3074,11 +3051,6 @@ function unconsumedEdges(source: SceneObject): Edge[] {
 
 function onlyEdges(shapes: Shape[]): Edge[] {
   return [...new Set(shapes)].filter((s): s is Edge => s instanceof Edge);
-}
-
-/** Paths travel with a `virtual:live-render:` prefix mid-edit; ids don't. */
-function normalizeSourcePath(filePath: string | undefined): string {
-  return (filePath ?? '').replace('virtual:live-render:', '').replace(/\\/g, '/');
 }
 
 /**

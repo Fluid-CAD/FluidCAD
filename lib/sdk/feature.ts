@@ -223,6 +223,61 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   }
 
   /**
+   * What the dialog's preview (its "ghost") draws while the values are being
+   * typed, built from the values alone — the scene is never changed. A tool
+   * draws the solids {@link buildTool} returns, which the dialog colours by
+   * the operation: green for what an add or a new adds, red for what a remove
+   * cuts. A modifier draws nothing unless it overrides this to return the
+   * shapes its preview shows; returning null means no preview.
+   *
+   * The preview frees every shape returned here once it is drawn — except
+   * one the scene itself holds — so return shapes built here.
+   */
+  ghost(ctx: FeatureBuildContext): Shape[] | null {
+    if (!this.isTool()) {
+      return null;
+    }
+    this.collectingTool = true;
+    try {
+      return this.buildTool(ctx);
+    } finally {
+      this.collectingTool = false;
+    }
+  }
+
+  /**
+   * @internal The preview's shapes ({@link ghost}), and every shape its build
+   * declared in a bucket on the way: all of them the preview's to free, as
+   * nothing keeps them. Null when the feature draws no preview.
+   */
+  buildPreview(ctx: FeatureBuildContext): { shapes: Shape[]; scratch: Shape[] } | null {
+    this.declared = {};
+    try {
+      const shapes = this.ghost(ctx);
+      if (shapes === null || shapes === undefined) {
+        return null;
+      }
+      if (!Array.isArray(shapes)) {
+        throw new Error(`${this.getType()}: ghost() returns the shapes to draw, or null for no preview`);
+      }
+      const scratch = [...Feature.FACE_KEYS, ...Feature.EDGE_KEYS]
+        .flatMap(([name]) => (this.declared[name] ?? []) as Shape[]);
+      return { shapes, scratch };
+    } finally {
+      this.declared = {};
+    }
+  }
+
+  /**
+   * Whether a feature class has a preview to draw: a tool always does, a
+   * modifier when it overrides {@link ghost}.
+   */
+  static previews(featureClass: Function): boolean {
+    const prototype = featureClass.prototype as Feature;
+    return prototype.build === Feature.prototype.build || prototype.ghost !== Feature.prototype.ghost;
+  }
+
+  /**
    * Add the feature to the scene the builder runs in, after any reference
    * that is not there yet — an accessor written inline (`e.endFaces()`)
    * exists for this call alone, and must build before the feature reads it.

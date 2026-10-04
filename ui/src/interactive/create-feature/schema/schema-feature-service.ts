@@ -1,7 +1,8 @@
 import {
-  applyCustomFeature, applyCustomFeatureEdit, fetchFeatureSources,
-  type CustomFeatureApplyOptions, type CustomFeatureEditOptions, type CustomPickInput, type FeatureEditTarget,
-  type FeatureScalarValue, type NewVariable, type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
+  applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
+  type CustomFeatureApplyOptions, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
+  type FeatureEditTarget, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
+  type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
 import type { StandardAxisId } from '../../../scene/standard-axes';
 import type { StandardPlaneId } from '../../../scene/standard-planes';
@@ -14,6 +15,7 @@ import type {
 } from '../../feature-dialog-registry';
 import { ApplyRunner } from '../apply-runner';
 import { FeatureButton } from '../feature-button';
+import { FeatureGhostOverlay } from '../feature-ghost';
 import { refreshScopeVariables } from '../option-relabeler';
 import { enclosingPartLocOf, scopePartLocation, ScopeTargetList } from '../scope-targets';
 import { collectSketchProfiles } from '../sketch-profiles';
@@ -50,6 +52,11 @@ export type SchemaFeatureHooks = {
  * shape — the values the user set, the picks, the operation and its scope —
  * and an edit rewrites only what the user changed. The re-render is the
  * preview, editor undo the rollback.
+ *
+ * While the values are typed the feature's ghost draws in the viewport —
+ * built by the engine from the same values and picks, unless its metadata
+ * turns it off. One that takes longer to build than a live preview may
+ * pauses: the dialog says so and builds it again only when asked.
  */
 export class SchemaFeatureService implements FeatureDialogService {
   readonly id: string;
@@ -79,6 +86,12 @@ export class SchemaFeatureService implements FeatureDialogService {
   private editSceneStale = false;
   /** The scope row was changed in this edit. */
   private scopeTouched = false;
+  /** The live geometry ("ghost"); null for a feature whose metadata draws none. */
+  private readonly ghost: FeatureGhostOverlay | null;
+  /** Why the ghost paused (it built slower than a live preview may), or null while it runs. */
+  private ghostPaused: string | null = null;
+  /** The one unbounded ghost "Show preview" asked for, while it builds. */
+  private ghostOnce: AbortController | null = null;
 
   constructor(
     container: HTMLElement,
@@ -143,6 +156,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       this.refreshScope();
       this.runner.schedulePreview();
     };
+    this.panel.onShowPreview = () => void this.showGhostOnce();
     for (const picker of this.panel.pickers.values()) {
       picker.onChange = () => {
         this.panel.setMessage(null);
@@ -151,6 +165,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       };
     }
 
+    this.ghost = schema.meta.ghost ? new FeatureGhostOverlay(viewer) : null;
     this.runner = new ApplyRunner<CreateRequest | EditRequest>({
       panel: this.panel,
       isArmed: () => this.armed,
@@ -160,6 +175,14 @@ export class SchemaFeatureService implements FeatureDialogService {
         : applyCustomFeature({ ...(request as CreateRequest), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : `Could not apply the ${schema.label.toLowerCase()}.`,
+      // The statement preview's geometric twin, under the same debounce and
+      // abort scope: drawn only once the statement previewed cleanly.
+      ...(this.ghost ? {
+        ghost: {
+          fetch: (_request: CreateRequest | EditRequest, signal: AbortSignal) => this.fetchGhost(signal),
+          apply: (solids: GhostSolid[] | null) => this.drawGhost(solids),
+        },
+      } : {}),
     });
   }
 
@@ -205,6 +228,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.parsed = null;
     this.scope.clear();
     this.scopeTouched = false;
+    this.resumeGhost();
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
@@ -239,6 +263,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.sourcesLoaded = false;
     this.editSceneStale = false;
     this.scopeTouched = false;
+    this.resumeGhost();
     this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
@@ -276,6 +301,9 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.editSceneStale = false;
     this.scope.clear();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.resumeGhost();
     this.viewer.clearHighlight();
     this.viewer.setSelectedStandardAxes([]);
     this.viewer.hideStandardAxes();
@@ -293,6 +321,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   /** Take the dialog and its button off the page — its feature changed or left the catalog. */
   destroy(): void {
     this.exit({ resume: 'lazy' });
+    this.ghost?.dispose();
     this.navbar.setGroupVisible('create', false, this.id);
     this.button.remove();
     this.panel.destroy();
@@ -319,11 +348,16 @@ export class SchemaFeatureService implements FeatureDialogService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost?.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
+    // At the boundary: the scene under the ghost was rebuilt.
+    this.ghost?.clear();
     this.sceneObjects = sceneObjects;
     const stale = this.editSceneStale;
     this.editSceneStale = false;
@@ -349,6 +383,9 @@ export class SchemaFeatureService implements FeatureDialogService {
     if (!this.armed) {
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it.
+    this.ghost?.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -636,6 +673,129 @@ export class SchemaFeatureService implements FeatureDialogService {
   }
 
   // -------------------------------------------------------------------------
+  // Live geometry ("ghost")
+  // -------------------------------------------------------------------------
+
+  /**
+   * The ghost of the form as it stands: the values the rows hold (a new
+   * variable by its value), every pick as the ghost addresses it, the
+   * operation — in edit mode against the scene before the statement. Null
+   * when there is nothing to draw: a row that doesn't read, a pick the
+   * ghost can't address. In edit mode a hidden row's value or pick is the
+   * statement's own, which it keeps, so it travels too.
+   */
+  private ghostRequest(): CustomGhostRequest | null {
+    const editing = this.editTarget !== null;
+    const values: Record<string, ValueExpr | boolean | string> = {};
+    for (const [name, field] of this.panel.fields) {
+      if (!field.visible && !editing) {
+        continue;
+      }
+      const read = field.read();
+      if ('error' in read) {
+        return null;
+      }
+      if ('empty' in read) {
+        continue;
+      }
+      values[name] = read.newVariable ? read.newVariable.initializer : read.value;
+    }
+    const refs: Record<string, GhostCustomRef[]> = {};
+    for (const [name, picker] of this.panel.pickers) {
+      if (!picker.visible && !editing) {
+        continue;
+      }
+      const picked = picker.ghostRefs();
+      if (picked === null) {
+        return null;
+      }
+      if (picked) {
+        refs[name] = picked;
+      }
+    }
+    return {
+      feature: 'custom',
+      id: this.schema.id,
+      values,
+      refs,
+      operation: this.panel.operation,
+      ...(this.editTarget ? { exclude: { filePath: this.editTarget.filePath, line: this.editTarget.line } } : {}),
+    };
+  }
+
+  /**
+   * The bodies the form would build, or null to clear. While paused, none:
+   * a build that slow would lag every keystroke — "Show preview" asks for
+   * one. A ghost that comes back paused pauses the dialog.
+   */
+  private async fetchGhost(signal: AbortSignal, unbounded = false): Promise<GhostSolid[] | null> {
+    if (!unbounded) {
+      // The form changed since "Show preview" asked: its answer is stale.
+      this.ghostOnce?.abort();
+      this.ghostOnce = null;
+    }
+    if (this.ghostPaused !== null && !unbounded) {
+      return null;
+    }
+    const request = this.ghostRequest();
+    if (!request) {
+      return null;
+    }
+    const result = await fetchFeatureGhostResult(
+      unbounded ? { ...request, unbounded: true } : request,
+      featureGhostScope(this.editTarget),
+      signal,
+    );
+    if (result.paused && !signal.aborted && this.armed) {
+      this.ghostPaused = result.paused;
+      this.panel.setPreviewPaused(result.paused);
+    }
+    return result.solids;
+  }
+
+  /** Draw the ghost in the operation's colour — red for what a remove cuts — or clear it. */
+  private drawGhost(solids: GhostSolid[] | null): void {
+    if (!this.ghost) {
+      return;
+    }
+    if (solids) {
+      this.ghost.set(solids, this.panel.operation === 'remove' ? 'remove' : 'add');
+    } else {
+      this.ghost.clear();
+    }
+  }
+
+  /** "Show preview" while paused: build the ghost of the form once, however long it takes. */
+  private async showGhostOnce(): Promise<void> {
+    if (!this.armed || !this.ghost) {
+      return;
+    }
+    this.ghostOnce?.abort();
+    const abort = new AbortController();
+    this.ghostOnce = abort;
+    let solids: GhostSolid[] | null;
+    try {
+      solids = await this.fetchGhost(abort.signal, true);
+    } catch {
+      return; // aborted
+    }
+    if (abort.signal.aborted || this.ghostOnce !== abort || !this.armed) {
+      return;
+    }
+    this.ghostOnce = null;
+    this.drawGhost(solids);
+  }
+
+  /** A fresh dialog (or none): no ghost drawn, previews running again. */
+  private resumeGhost(): void {
+    this.ghostOnce?.abort();
+    this.ghostOnce = null;
+    this.ghostPaused = null;
+    this.panel.setPreviewPaused(null);
+    this.ghost?.clear();
+  }
+
+  // -------------------------------------------------------------------------
   // Scene and viewport
   // -------------------------------------------------------------------------
 
@@ -676,6 +836,9 @@ export class SchemaFeatureService implements FeatureDialogService {
       }
     }
     this.refreshHighlight();
+    // The kept picks' ghost refs read these sources, which land after
+    // enterEdit already scheduled its preview — ask again now they're known.
+    this.runner.schedulePreview();
   }
 
   private async refreshScopeVariables(): Promise<void> {

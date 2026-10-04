@@ -16,6 +16,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   applyCustomFeature: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
   applyCustomFeatureEdit: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
   getFeatureCatalog: vi.fn(async () => []),
+  fetchFeatureGhostResult: vi.fn(async () => ({ solids: [{ meshes: [] }], frames: [], notice: null })),
   rollback: vi.fn(),
   clearBreakpoints: vi.fn(),
 }));
@@ -26,12 +27,14 @@ import { FeatureCatalogDialogs } from '../src/interactive/create-feature/schema/
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeatureService } from '../src/interactive/create-feature/schema/schema-feature-service';
 import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
+import { FeatureGhostOverlay } from '../src/interactive/create-feature/feature-ghost';
 import { FeatureDialogRegistry } from '../src/interactive/feature-dialog-registry';
 import { setActivePartLocationProvider } from '../src/helpers/scene-utils';
 import { Navbar } from '../src/ui/navbar';
 import { ObjectIcons } from '../src/ui/object-icons';
 import type { SceneObjectRender } from '../src/types';
 import type { Viewer } from '../src/viewer';
+import { Object3D, PerspectiveCamera, Scene } from 'three';
 
 class ResizeObserverStub {
   observe(): void {}
@@ -127,6 +130,7 @@ function stubViewer() {
     planePick: null as ((plane: 'xy' | 'xz' | 'yz') => void) | null,
   };
   const viewer = {
+    sceneContext: { scene: new Scene(), camera: new PerspectiveCamera(), requestRender: () => {} },
     pickFilter: 'all',
     pickSketchWires: false,
     pickAxes: false,
@@ -159,13 +163,18 @@ function stubViewer() {
       state.planePick = null;
     },
   };
-  return { viewer: viewer as unknown as Viewer, state };
+  /** The bodies the dialog's ghost draws right now. */
+  const ghostBodies = (): number => {
+    const groups = viewer.sceneContext.scene.children.filter((child: Object3D) => child.name === 'featureGhost');
+    return groups.reduce((count: number, group: Object3D) => count + group.children.length, 0);
+  };
+  return { viewer: viewer as unknown as Viewer, state, ghostBodies };
 }
 
 function mount(featureMeta: FeatureMetaSnapshot = STANDOFF) {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const { viewer, state } = stubViewer();
+  const { viewer, state, ghostBodies } = stubViewer();
   setActivePartLocationProvider(() => at(3, 22));
   const navbar = new Navbar(container);
   const entered = vi.fn();
@@ -184,7 +193,8 @@ function mount(featureMeta: FeatureMetaSnapshot = STANDOFF) {
   const message = () => panel().querySelector('[data-role="message"]')!.textContent;
   const lastCreate = () => vi.mocked(api.applyCustomFeature).mock.calls.at(-1)?.[0];
   const lastEdit = () => vi.mocked(api.applyCustomFeatureEdit).mock.calls.at(-1)?.[1];
-  return { service, container, viewer, state, navbar, panel, input, type, opTab, message, lastCreate, lastEdit, entered };
+  const lastGhost = () => vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1);
+  return { service, container, viewer, state, navbar, panel, input, type, opTab, message, lastCreate, lastEdit, entered, lastGhost, ghostBodies };
 }
 
 const faceOf = (shapeId: string, index: number) => ({ shapeId, sub: { type: 'face' as const, index } });
@@ -474,6 +484,170 @@ describe('editing a custom feature statement', () => {
     expect(registry.forStatement({ ...parsed, id: 'acme.gone' })).toBeNull();
     registry.unregister(service.id);
     expect(registry.editsRowType('acme.standoff')).toBe(false);
+  });
+});
+
+describe("a custom feature's ghost", () => {
+  const PAUSED = 'Building it took 2.1 s — over the 1.5 s a live preview may take.';
+
+  afterEach(() => {
+    api.setActivePartProvider(() => null);
+  });
+
+  it('draws the form as the engine builds it: every value the rows hold, the picks as refs, where the statement lands', async () => {
+    const { service, type, lastGhost, ghostBodies } = mount();
+    api.setActivePartProvider(() => at(3, 22));
+    service.enter();
+    await vi.advanceTimersByTimeAsync(300);
+    // Nothing picked yet: the statement doesn't preview, so no ghost is asked for.
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastGhost()![0]).toEqual({
+      feature: 'custom', id: 'acme.standoff',
+      values: { height: 10, outer: 6, hole: 3 },
+      refs: { face: [{ kind: 'entities', entities: [{ shapeId: 'plate-solid', index: 4, kind: 'face' }] }] },
+      operation: 'add',
+    });
+    // The values read where a created statement lands: the active part.
+    expect(lastGhost()![1]).toEqual({ kind: 'append', filePath: FILE, line: 3, column: 22 });
+    expect(ghostBodies()).toBe(1);
+
+    // A new variable travels as its declaration's initializer, not a name the code lacks yet.
+    type('height', 'tall = 14');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 'param("tall", 14)', outer: 6, hole: 3 } });
+  });
+
+  it("draws a cut in the remove colour, a world axis as a ref, and sends no hidden row's value", async () => {
+    const set = vi.spyOn(FeatureGhostOverlay.prototype, 'set');
+    const { service, state, lastGhost } = mount(BOLT_CIRCLE);
+    service.enter();
+    state.axisPick!('z');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastGhost()![0]).toMatchObject({ values: { count: 4 }, refs: { around: [{ kind: 'standard', name: 'z' }] }, operation: 'remove' });
+    expect(set.mock.calls.at(-1)![1]).toBe('remove');
+
+    const bracket = mount(BRACKET);
+    bracket.service.enter();
+    bracket.service.handleTimelinePick(row('sk'));
+    bracket.service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    bracket.type('depth', '5');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(bracket.lastGhost()![0]).toMatchObject({
+      values: { depth: 5, style: 'flat' },
+      refs: { profile: [{ kind: 'statement', filePath: FILE, line: 6 }], base: [{ kind: 'entities' }] },
+    });
+    expect(bracket.lastGhost()![0].values).not.toHaveProperty('gusset');
+    set.mockRestore();
+  });
+
+  it('clears on every render and on the way out', async () => {
+    const { service, ghostBodies } = mount();
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(ghostBodies()).toBe(1);
+    service.update(scene());
+    expect(ghostBodies()).toBe(0);
+
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(ghostBodies()).toBe(1);
+    service.exit();
+    expect(ghostBodies()).toBe(0);
+  });
+
+  it('draws an edit from the statement it edits — kept picks as their sources resolve — read before it', async () => {
+    vi.mocked(api.fetchFeatureSources).mockResolvedValueOnce({
+      ok: true, feature: 'custom', id: 'acme.standoff',
+      slots: { face: { kind: 'entities', entities: [{ shapeId: 'pad-solid', sub: { type: 'face', index: 2 } }] } },
+    } as never);
+    const { service, lastGhost, ghostBodies } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.standoff', callee: 'standoff',
+      values: { height: 'tall + 2', hole: 3.2 },
+      picks: { face: [{ text: 'pad.endFaces()', start: 100, end: 114 }] },
+      operation: 'add', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(11, 15), parsed, { index: 5, type: 'acme.standoff', expectedStatement: 'standoff(pad.endFaces())' });
+    service.handleSceneRendered(scene(), 4, true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastGhost()![0]).toEqual({
+      feature: 'custom', id: 'acme.standoff',
+      values: { height: 'tall + 2', outer: 6, hole: 3.2 },
+      refs: { face: [{ kind: 'entities', entities: [{ shapeId: 'pad-solid', index: 2, kind: 'face' }] }] },
+      operation: 'add',
+      exclude: { filePath: FILE, line: 11 },
+    });
+    expect(lastGhost()![1]).toEqual({ kind: 'statement', filePath: FILE, line: 11, column: 15 });
+    expect(ghostBodies()).toBe(1);
+
+    // Mid-flight to a new boundary, the ghost goes with the scene it stood on.
+    service.handleSceneRendered(scene(), 6, false);
+    expect(ghostBodies()).toBe(0);
+  });
+
+  it("draws no ghost for a kept pick it can't address", async () => {
+    const { service } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.standoff', callee: 'standoff',
+      values: {}, picks: { face: [{ text: 'faces[0]', start: 100, end: 108 }] },
+      operation: 'add', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(11, 15), parsed, { index: 5, type: 'acme.standoff', expectedStatement: 'standoff(faces[0])' });
+    service.handleSceneRendered(scene(), 4, true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.applyCustomFeatureEdit).toHaveBeenCalled();
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+  });
+
+  it('pauses a ghost too slow to follow the form, and builds it once on request', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: null, frames: [], notice: null, paused: PAUSED });
+    const { service, panel, type, lastGhost, ghostBodies } = mount();
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    const row = panel().querySelector<HTMLElement>('[data-role="ghost-paused"]')!;
+    expect(row.classList.contains('hidden')).toBe(false);
+    expect(row.textContent).toContain(`Preview paused. ${PAUSED}`);
+    expect(ghostBodies()).toBe(0);
+
+    // While paused the form previews its statement, but asks for no ghost.
+    type('height', '12');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
+
+    row.querySelector<HTMLButtonElement>('[data-role="show-preview"]')!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 12 }, unbounded: true });
+    expect(ghostBodies()).toBe(1);
+
+    // The next change clears it; the dialog stays paused.
+    type('height', '13');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(ghostBodies()).toBe(0);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+
+    // A fresh dialog previews live again.
+    service.exit();
+    service.enter();
+    expect(row.classList.contains('hidden')).toBe(true);
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(3);
+    expect(lastGhost()![0]).not.toHaveProperty('unbounded');
+  });
+
+  it('asks for no ghost when the metadata turns it off', async () => {
+    const { service } = mount({ ...STANDOFF, ghost: false });
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.applyCustomFeature).toHaveBeenCalled();
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
   });
 });
 

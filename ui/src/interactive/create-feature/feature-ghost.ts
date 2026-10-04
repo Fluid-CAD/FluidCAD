@@ -107,6 +107,12 @@ export class FeatureGhostOverlay {
     this.viewer.sceneContext.requestRender();
   }
 
+  /** Clear, and take the overlay out of the scene for good — its dialog is gone. */
+  dispose(): void {
+    this.clear();
+    this.viewer.sceneContext.scene.remove(this.group);
+  }
+
   /** Drop the drawn bodies and free their GPU resources. */
   clear(): void {
     if (this.group.children.length === 0) {

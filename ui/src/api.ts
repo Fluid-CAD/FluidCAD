@@ -488,7 +488,8 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
 
 /** One half-edge of a region's boundary, by the source line of the statement that drew it. */
 export type RegionItemRef = {
@@ -995,6 +996,35 @@ export type Mirror2DGhostRequest = {
 };
 
 /**
+ * One element of a custom feature's picked value, as the ghost addresses
+ * it: a statement by call site, faces or edges picked in the viewport (all
+ * of a value's picks one element, as the apply writes them in one
+ * selector), or a world axis or an origin plane. A kept chip travels as
+ * whichever of these it resolved to.
+ */
+export type GhostCustomRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'entities'; entities: { shapeId: string; index: number; kind: 'edge' | 'face' }[] }
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' };
+
+/**
+ * A custom feature's ghost: the feature by its catalog id, the values as
+ * the form holds them (a value left out takes its default) and one ref per
+ * picked element. The engine builds the feature's class from them.
+ */
+export type CustomGhostRequest = {
+  feature: 'custom';
+  id: string;
+  values: Record<string, ValueExpr | boolean | string>;
+  refs: Record<string, GhostCustomRef[]>;
+  operation: FeatureOpKind | null;
+  /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
+  exclude?: { filePath: string; line: number };
+  /** Build without the live preview's time limit: the user asked for this one after a pause. */
+  unbounded?: boolean;
+};
+
+/**
  * One ghost body, in the mesh wire format the scene's solids already use.
  * `kind` overrides the overlay's per-dialog color for this body alone: a
  * fillet's picks can take material away at one edge and put it back at the
@@ -1103,12 +1133,14 @@ export async function fetchFeatureGhost(
  * noise. `notice` carries only a refusal the server marked as a **limit the
  * user can act on** (the repeat's cap on how many instances it draws, where a
  * silently blank viewport reads as a bug), and is null for everything else.
+ * `paused` is set when the build ran over the live preview's time limit —
+ * why, to say so — and the dialog stops asking until the user does.
  */
 export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
+): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null; paused?: string }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1119,6 +1151,11 @@ export async function fetchFeatureGhostResult(
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
       return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
+    }
+    if (body?.paused === true) {
+      // The build ran over the live preview's time limit (a custom
+      // feature's): no geometry, and why — the dialog pauses its previews.
+      return { solids: null, frames: [], notice: null, paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
     }
     const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
     return { solids: null, frames: [], notice };

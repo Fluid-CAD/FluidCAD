@@ -1,4 +1,4 @@
-import type { CustomPickInput, FeaturePickerParam, ParsedCustomPick, SourceSlotRef } from '../../../api';
+import type { CustomPickInput, FeaturePickerParam, GhostCustomRef, ParsedCustomPick, SourceSlotRef } from '../../../api';
 import { sameEntity } from '../../../helpers/entities';
 import { findEnclosingPartRow } from '../../../helpers/scene-utils';
 import type { StandardAxisId } from '../../../scene/standard-axes';
@@ -456,6 +456,74 @@ export class SchemaPicker {
       }
     }
     return inputs;
+  }
+
+  /**
+   * The value as its ghost addresses it, one ref per element, in the order
+   * the statement holds them: a statement by call site, a world axis or
+   * plane, the picked faces and edges together where the first of them
+   * stood, and a kept element as what it resolved to — its faces or edges
+   * on the solids before the statement, else the statement it names, else
+   * the world axis or plane its text spells. Undefined for a value left
+   * out; null when an element can't be addressed (a kept expression), which
+   * means no ghost rather than a partial one.
+   */
+  ghostRefs(): GhostCustomRef[] | undefined | null {
+    if (this.elements.length === 0) {
+      return undefined;
+    }
+    if (!this.offered) {
+      return null;
+    }
+    const refs: GhostCustomRef[] = [];
+    let picked: Extract<GhostCustomRef, { kind: 'entities' }> | null = null;
+    for (const element of this.elements) {
+      if (element.kind === 'entity') {
+        const sub = element.entity.sub;
+        if (sub.type !== 'face' && sub.type !== 'edge') {
+          return null;
+        }
+        const entity = { shapeId: element.entity.shapeId, index: sub.index, kind: sub.type };
+        if (picked) {
+          picked.entities.push(entity);
+        } else {
+          picked = { kind: 'entities', entities: [entity] };
+          refs.push(picked);
+        }
+        continue;
+      }
+      const ref = element.kind === 'statement'
+        ? { kind: 'statement' as const, filePath: element.option.filePath, line: element.option.line }
+        : element.kind === 'standard'
+          ? { kind: 'standard' as const, name: element.name }
+          : this.keepRef(element);
+      if (!ref) {
+        return null;
+      }
+      refs.push(ref);
+    }
+    return refs;
+  }
+
+  /** What a kept element resolved to, as a ghost ref — null when it names nothing the ghost can find. */
+  private keepRef(keep: Extract<PickElement, { kind: 'keep' }>): GhostCustomRef | null {
+    const source = keep.source;
+    if (source?.kind === 'entities' && source.entities.length > 0) {
+      const entities: Extract<GhostCustomRef, { kind: 'entities' }>['entities'] = [];
+      for (const entity of source.entities) {
+        if (entity.sub.type !== 'face' && entity.sub.type !== 'edge') {
+          return null;
+        }
+        entities.push({ shapeId: entity.shapeId, index: entity.sub.index, kind: entity.sub.type });
+      }
+      return { kind: 'entities', entities };
+    }
+    const loc = source?.kind === 'sketch' ? source : keep.option ?? keep.loc;
+    if (loc) {
+      return { kind: 'statement', filePath: loc.filePath, line: loc.line };
+    }
+    const standard = this.standardOf(keep.text);
+    return standard ? { kind: 'standard', name: standard } : null;
   }
 
   /** Whether the request carries viewport geometry — an edit then needs its boundary. */

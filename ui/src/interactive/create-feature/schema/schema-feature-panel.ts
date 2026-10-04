@@ -29,6 +29,8 @@ export class SchemaFeaturePanel extends FeaturePanel {
   onOperationChange?: () => void;
   /** A scope chip's ✕. */
   onScopeRemove?: (index: number) => void;
+  /** The paused preview's "Show preview": build it once, however long it takes. */
+  onShowPreview?: () => void;
 
   readonly fields = new Map<string, SchemaField>();
   readonly pickers = new Map<string, SchemaPicker>();
@@ -38,6 +40,8 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private readonly tabs: ChoiceTabs<string> | null = null;
   private readonly panes = new Map<string, HTMLElement>();
   private readonly groupHosts: { host: HTMLElement; names: string[] }[] = [];
+  private readonly pausedRow: HTMLElement;
+  private readonly pausedText: HTMLElement;
   private armed: ArmedSlot = null;
 
   constructor(container: HTMLElement, readonly schema: FeatureSchema, iconSrc: string) {
@@ -81,6 +85,27 @@ export class SchemaFeaturePanel extends FeaturePanel {
       this.scopeSlot.onArm = () => this.armSlot('scope');
       this.scopeSlot.onRemove = (index) => this.onScopeRemove?.(index);
     }
+
+    this.pausedRow = this.append('ghost-paused', 'hidden flex-col items-start gap-1.5 text-xs leading-snug text-base-content/70');
+    this.pausedText = document.createElement('span');
+    const showPreview = document.createElement('button');
+    showPreview.type = 'button';
+    showPreview.dataset.role = 'show-preview';
+    showPreview.className = 'btn btn-xs btn-outline';
+    showPreview.textContent = 'Show preview';
+    showPreview.addEventListener('click', () => this.onShowPreview?.());
+    this.pausedRow.append(this.pausedText, showPreview);
+  }
+
+  /**
+   * The live preview paused — it took longer to build than a keystroke may
+   * wait — and why; null when it runs again. While paused the row offers
+   * to build the preview once.
+   */
+  setPreviewPaused(reason: string | null): void {
+    this.pausedText.textContent = reason ? `Preview paused. ${reason}` : '';
+    this.pausedRow.classList.toggle('hidden', reason === null);
+    this.pausedRow.classList.toggle('flex', reason !== null);
   }
 
   /**

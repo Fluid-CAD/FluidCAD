@@ -31,7 +31,6 @@ const VENT: FeatureMetaSnapshot = {
     angle: { type: 'angle', label: 'Angle', default: 0, tab: 'Notes' },
   },
   call: [],
-  hasOnChange: false,
   ghost: true,
   contexts: ['part'],
 };

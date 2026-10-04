@@ -6130,8 +6130,6 @@ export type FeatureMetaSnapshot = {
   /** Every value, in declaration order. */
   params: Record<string, FeatureParam>;
   call: unknown;
-  illustration?: string;
-  hasOnChange: boolean;
   ghost: boolean;
   contexts: string[];
 };
@@ -6160,9 +6158,9 @@ export async function getFeatureCatalog(signal?: AbortSignal): Promise<FeatureCa
 }
 
 /**
- * Where a feature's icon or illustration is served — `path` exactly as its
- * metadata declares it. `revision` busts the browser's copy after the
- * module changed.
+ * Where a feature's icon is served — `path` exactly as its metadata
+ * declares it. `revision` busts the browser's copy after the module
+ * changed.
  */
 export function featureAssetUrl(id: string, path: string, revision = 0): string {
   const qs = new URLSearchParams({ id, path });

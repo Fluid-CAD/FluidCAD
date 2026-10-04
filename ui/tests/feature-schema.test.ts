@@ -16,7 +16,6 @@ function meta(params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaS
     defaultOperation: null,
     params,
     call: [],
-    hasOnChange: false,
     ghost: true,
     contexts: ['part'],
     ...extra,

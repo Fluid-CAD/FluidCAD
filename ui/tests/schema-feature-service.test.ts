@@ -64,7 +64,7 @@ const MESH = [{ vertices: [], indices: [] }] as never;
 function meta(id: string, label: string, params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaSnapshot> = {}): FeatureMetaSnapshot {
   return {
     id, label, group: 'create', kind: 'tool', operations: [], defaultOperation: null, params, call: [],
-    hasOnChange: false, ghost: true, contexts: ['part'], ...extra,
+    ghost: true, contexts: ['part'], ...extra,
   };
 }
 

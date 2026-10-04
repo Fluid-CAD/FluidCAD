@@ -11,7 +11,7 @@ import { stringArgValue } from '../ast/args.ts';
 import { decomposeChain } from '../ast/chain.ts';
 import { CONNECTOR_NAME } from '../features/connector.ts';
 import { enclosingFunctionScope, enclosingScope, enclosingStatement, sameNode } from '../ast/nodes.ts';
-import { producerCallees, requiredChainRoots } from './callees.ts';
+import { FeatureCallees, requiredChainRoots } from './callees.ts';
 import { isIdentityInput } from './predicates.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
@@ -132,12 +132,14 @@ function isReassignedAfter(scope: TSNode, name: string, afterIndex: number): boo
  * existing one). The bindings that pin the statement's scope must share one:
  * one statement executes in one place. A top-level identity input pins
  * nothing, so it may join bindings from any scope below it. Also validates
- * that every selector part references a bound producer.
+ * that every selector part references a bound producer. `callees` adds the
+ * custom features the file imports to the callees a producer may bind.
  */
 export function resolveProducerBindings(
   tree: TSTree,
   lines: string[],
   spec: ApplyFeatureEditSpec,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): { bindings: ProducerBinding[] } | { error: string } {
   const bindings: ProducerBinding[] = [];
   for (const [index, producer] of spec.producers.entries()) {
@@ -175,10 +177,7 @@ export function resolveProducerBindings(
     }
 
     const root = chainRootCallee(call);
-    const validCallee = requiredRoots
-      ? root !== null && requiredRoots.includes(root)
-      : root !== null && producerCallees(producer.featureType).has(root);
-    if (!validCallee) {
+    if (!callees.produces(producer.featureType, root)) {
       return {
         error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
           + `expected a ${producer.featureType}()-producing call`,

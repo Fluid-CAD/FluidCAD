@@ -27,6 +27,7 @@ import { validTextStatementOptions } from '../features/text.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
+import type { FeatureCallees } from '../producers/callees.ts';
 import {
   isAxisProducer,
   isConnectorProducer,
@@ -50,11 +51,13 @@ import { validCountValue, validEditExtend, validValueExpr } from '../value-expr.
  * cross-part references, resolved before it gets here: a projection appends
  * them after its selector parts ({@link applyProjectForeign}), a plane's
  * `foreign` bases render them by index ({@link applyPlaneForeign}).
+ * `extras.callees` are the custom features the file imports, which bind as
+ * producers like the built-ins (see {@link FeatureCallees}).
  */
 export async function applyCreateEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
-  extras: { foreignArgs?: string[] } = {},
+  extras: { foreignArgs?: string[]; callees?: FeatureCallees } = {},
 ): Promise<ApplyFeatureEditResult> {
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
@@ -580,7 +583,7 @@ export async function applyCreateEdit(
   const tree = parser.parse(code);
   const lines = splitLines(code);
 
-  const resolved = resolveProducerBindings(tree, lines, spec);
+  const resolved = resolveProducerBindings(tree, lines, spec, extras.callees);
   if ('error' in resolved) {
     return { newCode: code, error: resolved.error };
   }

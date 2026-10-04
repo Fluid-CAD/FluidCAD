@@ -3,7 +3,7 @@
 import type { Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
+import type { ApplyFeatureEditSpec, FeatureCallees, FeatureCalleeSource, FeatureEditApply } from '../../apply-feature-edit/index.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import type { SketchLoc } from './locations.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
@@ -14,6 +14,14 @@ export type ApplyFeatureServices = {
   fluidCadServer: FluidCadServer;
   dispatcher: FeatureEditDispatcher;
   synthesisOptionsForFile: ReturnType<typeof makeSynthesisOptionsForFile>;
+  /**
+   * What the calls in a file build, custom features included (the feature
+   * catalog follows its imports); the built-in lists alone when the router
+   * has no catalog.
+   */
+  callees: FeatureCalleeSource;
+  /** The code transform, over {@link callees}: the editor round trip, and dry runs that stage an edit. */
+  applyEdit: FeatureEditApply;
   foreignPicks: ForeignPickResolver;
   /** Lands cross-file expose() creates through their own dispatches; answers the request itself on failure. */
   dispatchCrossFileCreates: (res: Response, creates: ApplyFeatureEditSpec[]) => Promise<boolean>;
@@ -38,4 +46,6 @@ export type ApplyFeatureRequestContext = ApplyFeatureServices & {
   activePartLoc: SketchLoc | null;
   /** The active part for `filePath`, or undefined when it lives in another buffer. */
   activePartFor: (filePath: string | null) => { line: number; column: number } | undefined;
+  /** The current buffer's {@link ApplyFeatureServices.callees}, resolved on first use. */
+  currentCallees: () => Promise<FeatureCallees>;
 };

@@ -689,6 +689,18 @@ export type UIFileEventMessage = {
 
 
 /**
+ * The workspace's custom features may have changed: a `*.feature.js` module,
+ * or a file one imports, was added, edited or removed on disk. The page
+ * refetches `/api/features/catalog`. UI-only — no editor host receives it.
+ */
+export type UIFeaturesChangedMessage = {
+  type: 'features-changed';
+  /** The file whose change was seen. */
+  absPath: string;
+};
+
+
+/**
  * An edit for the in-page editor host to apply — the WebSocket carriage of a
  * message an IPC host would receive on `process.send`. Wrapped rather than
  * sent bare so the host contract's 24 message types can grow without ever
@@ -713,6 +725,7 @@ export type ServerToUIMessage =
   | UIRenderVersionMessage
   | UIEditorCapabilitiesMessage
   | UIFileEventMessage
+  | UIFeaturesChangedMessage
   | UIHostMessage;
 
 // ---------------------------------------------------------------------------

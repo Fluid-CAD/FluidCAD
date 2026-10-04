@@ -4,10 +4,12 @@ import type { Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import {
   extractNumericParams,
+  FeatureCallees,
   makeProducerBindable,
   makeProducerNamer,
   resolveParamValues,
   type ApplyFeatureEditSpec,
+  type FeatureCalleeSource,
 } from '../../apply-feature-edit/index.ts';
 import { createHash } from 'crypto';
 import { readFile } from 'fs/promises';
@@ -86,6 +88,8 @@ export function makePickSynthesizer(deps: {
   mergeProducer: (producer: ApplyFeatureEditSpec['producers'][number]) => number;
   parts: ApplyFeatureEditSpec['parts'];
   imports: Set<string>;
+  /** The custom features `code` imports, for truthful producer names. */
+  callees: () => Promise<FeatureCallees>;
 }): (
   pick: Pick,
   kind: 'revolve' | 'plane',
@@ -103,7 +107,7 @@ export function makePickSynthesizer(deps: {
       synthOptionsReady = true;
       if (deps.code) {
         synthOptions = {
-          namer: await makeProducerNamer(deps.code),
+          namer: await makeProducerNamer(deps.code, await deps.callees()),
           params: resolveParamValues(
             await extractNumericParams(deps.code),
             deps.fluidCadServer.getParamDefinitions(),
@@ -154,16 +158,18 @@ export const AXIS_PICK_ERRORS = {
 
 /**
  * Truthful preview names: one namer pass over the bound producers in spec
- * order — the same allocation walk the transform runs. Unnamed producers fall
- * back to collision-suffixed hints; unbound (anchor) entries stay null.
+ * order — the same allocation walk the transform runs, over the same custom
+ * feature `callees`. Unnamed producers fall back to collision-suffixed
+ * hints; unbound (anchor) entries stay null.
  */
 export async function allocateProducerVars(
   producers: ApplyFeatureEditSpec['producers'],
   code: string | null,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<(string | null)[]> {
   const names: (string | null)[] = producers.map((): null => null);
   if (code) {
-    const namer = await makeProducerNamer(code);
+    const namer = await makeProducerNamer(code, callees);
     const bound = producers
       .map((producer, index) => ({ producer, index }))
       .filter(entry => entry.producer.bind);
@@ -206,11 +212,16 @@ export async function allocateProducerVars(
  * verifies the final transform). Shared with the assembly-mate route's
  * tangent find-or-create.
  *
- * `key` identifies what the options were built from (the file, its code and
- * the resolved params) — the stand-in for the function-valued options that
- * `synthesizeApplyFeatureCached` keys its per-scene memo by.
+ * `key` identifies what the options were built from (the file, its code,
+ * its custom feature callees and the resolved params) — the stand-in for
+ * the function-valued options that `synthesizeApplyFeatureCached` keys its
+ * per-scene memo by. `callees` follows the file's imports to the custom
+ * features its calls build, so their picks bind like the built-ins'.
  */
-export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
+export function makeSynthesisOptionsForFile(
+  fluidCadServer: FluidCadServer,
+  callees: FeatureCalleeSource = FeatureCallees.BUILT_IN_SOURCE,
+) {
   return async (
     filePath: string | null | undefined,
   ): Promise<{
@@ -237,12 +248,15 @@ export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
       await extractNumericParams(code),
       fluidCadServer.getParamDefinitions(),
     );
+    const sourceFile = filePath ?? currentFile;
+    const fileCallees = sourceFile ? await callees.calleesFor(code, sourceFile) : FeatureCallees.BUILT_IN;
     return {
-      namer: await makeProducerNamer(code),
-      bindable: await makeProducerBindable(code),
+      namer: await makeProducerNamer(code, fileCallees),
+      bindable: await makeProducerBindable(code, fileCallees),
       params,
       key: createHash('sha1')
         .update(filePath ?? '').update('\0').update(code).update('\0').update(JSON.stringify(params))
+        .update('\0').update(fileCallees.key())
         .digest('hex'),
     };
   };

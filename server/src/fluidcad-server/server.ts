@@ -29,6 +29,7 @@ import {
   type ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
+import { FeatureScanner, type FeatureScanResult } from '../feature-catalog/scan.ts';
 import { collectRenderedPartProperties, collectSceneProperties, type RenderedPartProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
@@ -871,6 +872,21 @@ export class FluidCadServer {
         return null;
       }
       return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
+    });
+  }
+
+  /**
+   * Evaluate one `*.feature.js` module and snapshot the feature builders it
+   * exports (the feature catalog). Serialized with renders on the OCC
+   * mutex, in a throwaway scene, like the part scan. Returns null before
+   * init.
+   */
+  async scanFeaturesInFile(filePath: string): Promise<FeatureScanResult | null> {
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      return FeatureScanner.scanFile(this.host, this.sceneManager, normalizePath(filePath));
     });
   }
 

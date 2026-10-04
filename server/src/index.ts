@@ -29,6 +29,8 @@ import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
+import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
+import { FeatureCatalog } from './feature-catalog/catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
 import { createSectionRouter } from './routes/section.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
@@ -146,10 +148,20 @@ const broadcastToUI = core.broadcastToUI;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
 
+// The workspace's custom features: the `*.feature.js` modules' builders. The
+// toolbar lists them, and every transform and synthesis probe follows a
+// file's imports through it, so their calls bind, repeat and move like the
+// built-ins'.
+const featureCatalog = new FeatureCatalog({
+  workspacePath: WORKSPACE_PATH,
+  scan: (absPath) => fluidCadServer.scanFeaturesInFile(absPath),
+  hasLiveBuffer: (absPath) => fluidCadServer.hasLiveBuffer(absPath),
+});
+
 // Every router that writes source dispatches through this one instance: the
 // ack that settles a dispatch arrives at /code/apply-feature, so a router with
 // its own registry would never hear about its own edits.
-const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost);
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, { callees: featureCatalog });
 
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
@@ -164,12 +176,14 @@ app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, ed
 app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
-app.use('/api', createResolveSelectionRouter(fluidCadServer));
+app.use('/api', createResolveSelectionRouter(fluidCadServer, featureCatalog));
 app.use('/api', createValidateRouter(fluidCadServer));
 app.use('/api', createInterfereRouter(fluidCadServer));
-app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH }));
+app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, {
+  dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, callees: featureCatalog,
+}));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher));
-app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher }));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher, callees: featureCatalog }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadServer.resolveSelection(request)));
@@ -196,9 +210,10 @@ app.use('/api', createUnitRouter({
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
+app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
-app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, featureCatalog));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
 
@@ -655,6 +670,11 @@ httpServer.listen(PORT, HOST, () => {
     try {
       workspaceWatcher = createWorkspaceWatcher(WORKSPACE_PATH, (event) => {
         broadcastToUI(event);
+        // A feature module (or a file one imports) changed: the toolbar's
+        // catalog is stale. UI-only — editor hosts never see this message.
+        if (featureCatalog.noteFileChange(event.absPath)) {
+          broadcastToUI({ type: 'features-changed', absPath: event.absPath });
+        }
       });
     } catch (err: any) {
       console.warn(`Failed to watch the workspace: ${err?.message ?? err}`);

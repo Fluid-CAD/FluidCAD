@@ -38,7 +38,7 @@ export async function handleRotate(ctx: ApplyFeatureRequestContext, req: Request
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
 
     let axis: RotateEditOptions['axis'];
@@ -66,7 +66,7 @@ export async function handleRotate(ctx: ApplyFeatureRequestContext, req: Request
       axis, angle: request.angle, copy: request.copy, targets,
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const statement = renderRotateStatement(
       options,

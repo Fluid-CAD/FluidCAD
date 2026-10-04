@@ -17,6 +17,7 @@ import { enclosingScope, enclosingSketchStatement, enclosingStatement, sameNode 
 import { declarationsBefore } from '../insertion.ts';
 import { parseFeatureChain } from '../parse/feature-chain.ts';
 import { allocateNames, resolveProducerBindings, type ProducerBinding } from '../producers/bindings.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 import { renderEditedStatement } from '../render/edited-statement.ts';
 import { importsForRawArgs, MODULE_FOR_IMPORT } from '../render/selectors.ts';
 import { renderNewVariableDecls } from '../render/variable-decls.ts';
@@ -35,9 +36,14 @@ import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
  * must lie strictly before the edited statement in the same scope (any
  * enclosing scope for a top-level identity input), because the rewritten
  * statement executes where it already is. A producer at or after it would
- * be a self or forward reference.
+ * be a self or forward reference. `callees` are the custom features the
+ * file imports, which bind as producers like the built-ins.
  */
-export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Promise<ApplyFeatureEditResult> {
+export async function applyStatementEdit(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
+): Promise<ApplyFeatureEditResult> {
   const edit = spec.edit!;
   if (!Number.isInteger(edit.line) || edit.line < 1) {
     return { newCode: code, error: 'malformed edit spec: bad line' };
@@ -69,7 +75,7 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
   }
   let bindings: ProducerBinding[] = [];
   if (spec.producers.length > 0 || spec.parts.length > 0) {
-    const resolved = resolveProducerBindings(tree, lines, spec);
+    const resolved = resolveProducerBindings(tree, lines, spec, callees);
     if ('error' in resolved) {
       return { newCode: code, error: resolved.error };
     }

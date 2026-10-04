@@ -53,7 +53,7 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
         }),
       };
       const options: CopyEditOptions = { kind: 'pattern', pattern, targets };
-      const producerVars = await allocateProducerVars(producers, code);
+      const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
       const statement = renderCopyStatement(
         options, [producerVars[pattern.producer] ?? 'r'], targets.map(t => producerVars[t.producer] ?? 'c'),
       );
@@ -74,7 +74,7 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
     }
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     const synthesizeInput = (pick: Pick): Promise<number | null> =>
       synthesizePick(pick, 'revolve',
@@ -139,7 +139,7 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
       targets,
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const inputExprs = request.kind === 'linear'
       ? directions!.map(d => renderCopyAxisExpr(d.axis, parts, varFor))

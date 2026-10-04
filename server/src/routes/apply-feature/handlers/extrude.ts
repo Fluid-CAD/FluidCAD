@@ -60,7 +60,7 @@ export async function handleExtrude(ctx: ApplyFeatureRequestContext, req: Reques
     } else if (request.toFace) {
       const synthOptions = code
         ? {
-          namer: await makeProducerNamer(code),
+          namer: await makeProducerNamer(code, await ctx.currentCallees()),
           params: resolveParamValues(
             await extractNumericParams(code),
             fluidCadServer.getParamDefinitions(),
@@ -119,7 +119,7 @@ export async function handleExtrude(ctx: ApplyFeatureRequestContext, req: Reques
     };
     // Truthful preview names: the same resolution the transform runs
     // (reused consts, collision-suffixed hints).
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const profileVar = request.profile.mode === 'bound' ? producerVars[0] ?? profileHint : null;
     const statement = renderExtrudeStatement(
       options, profileVar, faceArgs, scope.map(index => producerVars[index] ?? 'f'),

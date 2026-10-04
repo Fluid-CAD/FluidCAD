@@ -29,6 +29,9 @@ import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.j
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
 import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
+import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
+import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
+import { standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -67,10 +70,13 @@ function rectBodySrc(w: number, h: number, x = 0, y = 0): string {
 
 const IMPORT_LINE_RE = /^\s*import\s[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm;
 
-/** Execute a .fluid.js source string against the real runtime (fresh scene). */
-function runFluid(source: string): Scene {
+/**
+ * Execute a .fluid.js source string against the real runtime (fresh scene).
+ * `extra` stands in for the file's other imports (a custom feature's builder).
+ */
+function runFluid(source: string, extra: Record<string, unknown> = {}): Scene {
   getSceneManager()!.startScene();
-  const globals: Record<string, unknown> = { ...core, ...filters, ...math };
+  const globals: Record<string, unknown> = { ...core, ...filters, ...math, ...extra };
   const names = Object.keys(globals);
   const values = names.map(n => globals[n]);
   const fn = new Function(...names, `"use strict";\n${source.replace(IMPORT_LINE_RE, '')}`);
@@ -1328,5 +1334,75 @@ describe('create into the active part from a sketch drawn before it', () => {
     expect(built?.getError()).toBeNull();
     expect(built?.getParent()?.getType()).toBe('part');
     expect(built?.getShapes().some(s => s.getType() === 'solid')).toBe(true);
+  });
+});
+
+describe('a custom feature as a producer', () => {
+  setupOC();
+
+  /** The workspace's feature catalog, its one module answered from the TypeScript fixture's metadata. */
+  function standoffCatalog(): FeatureCatalog {
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    return new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/standoff.feature.js'
+        ? { file: absPath, features: [{ exportName: 'standoff', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+  }
+
+  it('fillets a picked standoff rim through the standoff\'s own variable', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      `import { standoff } from './standoff.feature.js'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `const s = standoff(e.endFaces(), { height: 12 })`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 5, column: 10 });
+    const s = standoff(e.endFaces(), { height: 12 });
+    (s as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 6, column: 10 });
+
+    const scene = render();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const solid = findSolid(scene);
+    const picks = topEdgeRefs(solid, 22);
+    expect(picks).toHaveLength(2);
+
+    // Without the catalog the standoff's statement is not bindable: the
+    // rim falls to a variable-free selector.
+    const builtIn = synthesizeApplyFeature(scene, picks, 'fillet', 0.5, [], {
+      bindable: await makeProducerBindable(code), namer: await makeProducerNamer(code),
+    });
+    expect(builtIn.ok === true && builtIn.preview).not.toBe('fillet(0.5, s.endEdges())');
+
+    const catalog = standoffCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const synthesis = synthesizeApplyFeature(scene, picks, 'fillet', 0.5, [], {
+      bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees),
+    });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('fillet(0.5, s.endEdges())');
+    expect(synthesis.spec.producers).toMatchObject([{ line: 6, featureType: 'acme.standoff', bind: true }]);
+
+    const edited = await applyFeatureEdit(code, synthesis.spec, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`const s = standoff(e.endFaces(), { height: 12 })\nfillet(0.5, s.endEdges())`);
+
+    // The edited program builds: both rims become fillet faces.
+    const rerun = runFluid(edited.newCode, { standoff });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const filleted = findSolid(rerun) as Solid;
+    const tori = filleted.getFaces().filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'torus');
+    expect(tori.length).toBeGreaterThanOrEqual(2);
   });
 });

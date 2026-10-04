@@ -8,6 +8,7 @@ export type {
   ApplyFeatureEditSpec,
   EditPathSource,
   EditSketchSource,
+  FeatureEditApply,
   FeatureStatementEditTarget,
   SketchClosedEditSpec,
 } from './spec.ts';
@@ -155,6 +156,11 @@ export type {
 } from './parse/parsed-statement.ts';
 export { parseFeatureStatement, resolveEditedStatementLine } from './parse/feature-statement.ts';
 export { resolvePartBodyInsertion, type Insertion } from './insertion.ts';
-export { applyFeatureEdit } from './apply/feature-edit.ts';
+export { applyFeatureEdit, type ApplyFeatureEditOptions } from './apply/feature-edit.ts';
+export {
+  FeatureCallees,
+  type CustomFeatureCallee,
+  type FeatureCalleeSource,
+} from './producers/callees.ts';
 export { SketchExports } from './sketch-exports.ts';
 export { LoftConnections } from './loft-connections.ts';

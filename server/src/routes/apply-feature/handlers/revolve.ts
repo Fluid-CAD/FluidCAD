@@ -50,7 +50,7 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
     if (request.axis.kind === 'edge') {
       const options = code
         ? {
-          namer: await makeProducerNamer(code),
+          namer: await makeProducerNamer(code, await ctx.currentCallees()),
           params: resolveParamValues(
             await extractNumericParams(code),
             fluidCadServer.getParamDefinitions(),
@@ -116,7 +116,7 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
     // Truthful preview names: the same resolution the transform runs
     // (reused consts, collision-suffixed hints) in one pass, so
     // collision suffixes stay consistent across every input.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const axisExpr = axis.kind === 'selector'
       ? `axis(${axisArgs})`
       : axis.kind === 'axis' ? (producerVars[axis.producer] ?? 'a') : `'${axis.axis}'`;

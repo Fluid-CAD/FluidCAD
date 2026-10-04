@@ -34,7 +34,7 @@ export async function handlePlaneSketch(ctx: ApplyFeatureRequestContext, req: Re
         line: planeRef.line, column: planeRef.column,
         featureType: 'plane', nameHint: 'p', bind: true,
       }];
-      const producerVars = await allocateProducerVars(producers, fluidCadServer.getCurrentCode());
+      const producerVars = await allocateProducerVars(producers, fluidCadServer.getCurrentCode(), await ctx.currentCallees());
       const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n})`;
       if (preview === true) {
         res.json({ success: true, preview: statement, args: '' });

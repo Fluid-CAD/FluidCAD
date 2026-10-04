@@ -3,7 +3,7 @@
 import { Router, type Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
+import { applyFeatureEdit, FeatureCallees, type ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
 import { registerSelectionEndpoints } from './endpoints/selection.ts';
@@ -30,7 +30,11 @@ export function createApplyFeatureRouter(
   const dispatcher = options.dispatcher
     ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
 
-  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer);
+  // The workspace's custom features: their calls bind, repeat and move
+  // like the built-ins' in every synthesis probe and transform here.
+  const callees = options.callees ?? FeatureCallees.BUILT_IN_SOURCE;
+  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer, callees);
+  const applyEdit = (code: string, spec: ApplyFeatureEditSpec) => applyFeatureEdit(code, spec, { callees });
   const foreignPicks = new ForeignPickResolver(fluidCadServer, synthesisOptionsForFile);
 
   /**
@@ -54,7 +58,8 @@ export function createApplyFeatureRouter(
     picks.length > 0 ? { foreign: { picks } } : {};
 
   const services: ApplyFeatureServices = {
-    fluidCadServer, dispatcher, synthesisOptionsForFile, foreignPicks, dispatchCrossFileCreates, foreignBody,
+    fluidCadServer, dispatcher, synthesisOptionsForFile, callees, applyEdit, foreignPicks, dispatchCrossFileCreates,
+    foreignBody,
   };
   registerSelectionEndpoints(router, services);
   registerApplyFeatureEndpoint(router, services);

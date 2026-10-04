@@ -10,6 +10,7 @@ import {
   type LoftConnectionSpec,
   type LoftPointSpec,
   type ValueExpr,
+  type FeatureCallees,
 } from '../../../apply-feature-edit/index.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
@@ -116,6 +117,7 @@ export async function synthesizeLoftConnections(
   merge: ReturnType<typeof makeProducerMerger>['merge'],
   scopeLocation: { filePath: string; line: number; column?: number },
   owners: LoftProfileOwner[] | undefined,
+  callees: FeatureCallees,
   before?: SelectionBoundary,
 ): Promise<{ connections: LoftConnectionSpec[] | undefined; imports: string[] } | { error: string }> {
   if (rows === undefined) {
@@ -136,7 +138,7 @@ export async function synthesizeLoftConnections(
     const scope = server.resolveStatementPart(scopeLocation);
     const resolved = server.resolveSelection({ picks, ...(before ? { before: before.index } : {}),
       ...(scope ? { scope: { part: scope.partName } } : {}) }, {
-      namer: await makeProducerNamer(code), bindable: await makeProducerBindable(code),
+      namer: await makeProducerNamer(code, callees), bindable: await makeProducerBindable(code, callees),
       params: resolveParamValues(await extractNumericParams(code), server.getParamDefinitions()),
     });
     if (resolved.ok === false) {

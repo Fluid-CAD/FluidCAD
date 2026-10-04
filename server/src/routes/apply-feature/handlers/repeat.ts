@@ -48,7 +48,7 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     const synthesizeInput = (pick: Pick, kind: 'revolve' | 'plane'): Promise<number | null> =>
       synthesizePick(pick, kind, kind === 'plane'
@@ -128,7 +128,7 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
       targets,
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const inputExprs = request.kind === 'mirror'
       ? [renderRepeatPlaneExpr(plane!, parts, varFor)]

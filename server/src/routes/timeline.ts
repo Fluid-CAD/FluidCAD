@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
 import { PartRename } from '../part-rename.ts';
@@ -23,6 +23,8 @@ export function createTimelineRouter(
     loadGlobalMaterials?: () => Promise<ProjectMaterials>;
     /** Where the other model files live — the ones that may read a removed hole's connectors by name. */
     workspacePath?: string;
+    /** The workspace's custom features, whose statements a move carries along like the built-ins'. */
+    callees?: FeatureCalleeSource;
   } = {},
 ): Router {
   const router = Router();
@@ -372,7 +374,8 @@ export function createTimelineRouter(
     }
     const moveToPart = { statements: captured.statements, part: { line: part.line, column: part.column } };
     if (dryRun) {
-      const analysis = await MoveToPart.analyze(code, moveToPart);
+      const callees = await (options.callees ?? FeatureCallees.BUILT_IN_SOURCE).calleesFor(code, filePath);
+      const analysis = await MoveToPart.analyze(code, moveToPart, callees);
       if (analysis.ok === false) {
         res.json({ success: false, reason: analysis.reason, ...(analysis.needs ? { needs: analysis.needs } : {}) });
       } else {

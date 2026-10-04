@@ -2,7 +2,6 @@
 
 import type { Request, Response } from 'express';
 import {
-  applyFeatureEdit,
   enclosingSketchLine,
   extractNumericParams,
   HolePlacements,
@@ -122,7 +121,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if ((request.needsPicks || request.sketchPicks || request.copySketchTargets
       || request.copyAxisPicks) && code) {
       synthOptions = {
-        namer: await makeProducerNamer(code),
+        namer: await makeProducerNamer(code, await ctx.currentCallees()),
         params: resolveParamValues(
           await extractNumericParams(code),
           fluidCadServer.getParamDefinitions(),
@@ -229,7 +228,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.holePlacements) {
       const resolved = await resolveHolePlacements(
         fluidCadServer, request.holePlacements, { merge: mergeProducer, parts, imports: importSet },
-        ctx.synthesisOptionsForFile, before ?? undefined,
+        ctx.synthesisOptionsForFile, await ctx.currentCallees(), before ?? undefined,
       );
       if ('error' in resolved) {
         res.status(resolved.status).json({ success: false, reason: resolved.error });
@@ -381,7 +380,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.loftConnections !== undefined) {
       const connections = await synthesizeLoftConnections(fluidCadServer, request.loftConnections,
         request.target.filePath, mergeProducer, request.target,
-        loftProfileOwners(request.loftProfiles), before ?? undefined);
+        loftProfileOwners(request.loftProfiles), await ctx.currentCallees(), before ?? undefined);
       if ('error' in connections) {
         res.status(422).json({ success: false, reason: connections.error });
         return;
@@ -952,7 +951,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       for (const producer of sketchProducers) {
         parts.push({ producer, accessor: '', indices: null, filterArgs: null });
       }
-      const producerVars = await allocateProducerVars(producers, code);
+      const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
       const sketchArgs = sketchProducers.map((producer, i) => producerVars[producer] ?? `s${i === 0 ? '' : i + 1}`);
       const withSketches = (own: string | undefined): string =>
         [own ?? '', ...sketchArgs].filter(arg => arg !== '').join(', ');
@@ -1015,13 +1014,13 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       const staged = spec.feature === 'loft'
         ? await LoftConnections.prepare(code, spec)
         : spec.feature === 'hole'
-          ? await HolePlacements.prepare(code, spec, applyFeatureEdit)
+          ? await HolePlacements.prepare(code, spec, ctx.applyEdit)
           : { code, spec };
       if ('error' in staged) {
         res.status(422).json({ success: false, reason: staged.error });
         return;
       }
-      const vars = await allocateProducerVars(staged.spec.producers, staged.code);
+      const vars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
       const rendered = renderEditedStatement(parsed.parsed, staged.spec, i => vars[i] ?? null);
       if ('error' in rendered) {
         res.status(422).json({ success: false, reason: rendered.error });

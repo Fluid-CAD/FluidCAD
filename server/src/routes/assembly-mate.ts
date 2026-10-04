@@ -3,7 +3,12 @@ import { basename } from 'path';
 import { readFile } from 'fs/promises';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import { parseFeatureStatement, type ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import {
+  FeatureCallees,
+  parseFeatureStatement,
+  type ApplyFeatureEditSpec,
+  type FeatureCalleeSource,
+} from '../apply-feature-edit/index.ts';
 import {
   ASSEMBLY_MATE_TYPES,
   type AssemblyMateOptions,
@@ -126,9 +131,10 @@ function isMatePayload(v: unknown): v is MatePayloadBody {
 export function createAssemblyMateRouter(
   fluidCadServer: FluidCadServer,
   dispatcher: FeatureEditDispatcher,
+  callees: FeatureCalleeSource = FeatureCallees.BUILT_IN_SOURCE,
 ): Router {
   const router = Router();
-  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer);
+  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer, callees);
 
   /**
    * Tangent side resolution (17-mate-tangent §7.2): a side that matched an

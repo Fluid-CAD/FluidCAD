@@ -37,7 +37,7 @@ export async function handleHelix(ctx: ApplyFeatureRequestContext, req: Request,
     if (request.source.kind === 'edge' || request.source.kind === 'face') {
       const options = code
         ? {
-          namer: await makeProducerNamer(code),
+          namer: await makeProducerNamer(code, await ctx.currentCallees()),
           params: resolveParamValues(
             await extractNumericParams(code),
             fluidCadServer.getParamDefinitions(),
@@ -107,7 +107,7 @@ export async function handleHelix(ctx: ApplyFeatureRequestContext, req: Request,
     // resolution the transform runs.
     let axisVar: string | null = null;
     if (code && request.source.kind === 'axis') {
-      const namer = await makeProducerNamer(code);
+      const namer = await makeProducerNamer(code, await ctx.currentCallees());
       axisVar = namer([{ line: request.source.loc.line, nameHint: 'a', featureType: 'axis' }])[0];
     }
     const sourceExpr = source.kind === 'edge'

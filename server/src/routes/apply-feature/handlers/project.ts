@@ -99,7 +99,7 @@ export async function handleProject(ctx: ApplyFeatureRequestContext, req: Reques
       const code = fluidCadServer.getCurrentCode();
       const options = code
         ? {
-          namer: await makeProducerNamer(code),
+          namer: await makeProducerNamer(code, await ctx.currentCallees()),
           params: resolveParamValues(
             await extractNumericParams(code),
             fluidCadServer.getParamDefinitions(),
@@ -155,7 +155,7 @@ export async function handleProject(ctx: ApplyFeatureRequestContext, req: Reques
       parts.push({ producer, accessor: '', indices: null, filterArgs: null });
     }
     const producerVars = sketches.length > 0
-      ? await allocateProducerVars(producers, fluidCadServer.getCurrentCode())
+      ? await allocateProducerVars(producers, fluidCadServer.getCurrentCode(), await ctx.currentCallees())
       : [];
     const sketchArgs = sketchProducers.map((producer, i) => producerVars[producer] ?? `s${i === 0 ? '' : i + 1}`);
     // The references append after the sketch's own selectors — in the

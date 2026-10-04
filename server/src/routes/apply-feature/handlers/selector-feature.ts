@@ -132,7 +132,7 @@ export async function handleSelectorFeature(ctx: ApplyFeatureRequestContext, req
     const code = fluidCadServer.getCurrentCode();
     const options = code
       ? {
-        namer: await makeProducerNamer(code),
+        namer: await makeProducerNamer(code, await ctx.currentCallees()),
         params: resolveParamValues(
           await extractNumericParams(code),
           fluidCadServer.getParamDefinitions(),

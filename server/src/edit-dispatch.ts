@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
 
 export type EditDispatcherOptions = {
   /**
@@ -12,6 +12,8 @@ export type EditDispatcherOptions = {
   preflight?: boolean;
   /** How long to wait for the editor's transform round-trip (default 5000ms). */
   ackTimeoutMs?: number;
+  /** The workspace's custom features, for the preflight's producer gates (the feature catalog). */
+  callees?: FeatureCalleeSource;
 };
 
 /**
@@ -35,6 +37,7 @@ export class FeatureEditDispatcher {
   private readonly acks: EditAckRegistry;
   private readonly preflightEnabled: boolean;
   private readonly ackTimeoutMs: number;
+  private readonly callees: FeatureCalleeSource | undefined;
 
   constructor(
     private readonly fluidCadServer: FluidCadServer,
@@ -43,6 +46,7 @@ export class FeatureEditDispatcher {
   ) {
     this.preflightEnabled = options.preflight !== false;
     this.ackTimeoutMs = options.ackTimeoutMs ?? 5000;
+    this.callees = options.callees;
     this.acks = new EditAckRegistry(this.ackTimeoutMs);
   }
 
@@ -55,7 +59,7 @@ export class FeatureEditDispatcher {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
         try {
-          const dryRun = await applyFeatureEdit(code, spec);
+          const dryRun = await applyFeatureEdit(code, spec, { callees: this.callees });
           if (dryRun.error) {
             res.status(422).json({ success: false, reason: dryRun.error });
             return;
@@ -97,7 +101,7 @@ export class FeatureEditDispatcher {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
         try {
-          const dryRun = await applyFeatureEdit(code, spec);
+          const dryRun = await applyFeatureEdit(code, spec, { callees: this.callees });
           if (dryRun.error) {
             return { error: dryRun.error };
           }

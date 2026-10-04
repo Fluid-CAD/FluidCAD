@@ -2,6 +2,7 @@
 
 import { ensureSymbolImport, importLocalName } from '../../code-editor/index.ts';
 import { applyCreateEdit } from './create.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 import { relocateCallLines } from '../call-site-relocation.ts';
 import { CONNECTOR_NAME } from '../features/connector.ts';
 import type { ForeignExposureRef } from '../features/expose.ts';
@@ -194,6 +195,7 @@ export async function applyProjectForeign(
   code: string,
   spec: ApplyFeatureEditSpec,
   apply: FeatureEditApply,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<ApplyFeatureEditResult> {
   const pj = spec.project!;
   const refs = pj.foreign!;
@@ -224,6 +226,7 @@ export async function applyProjectForeign(
   };
   const result = await applyCreateEdit(staged.code, relocated, {
     foreignArgs: staged.refs.map((ref, i) => ForeignExposures.reference(idents[i], ref)),
+    callees,
   });
   if (result.error) {
     return { newCode: code, error: result.error };
@@ -244,6 +247,7 @@ export async function applyPlaneForeign(
   code: string,
   spec: ApplyFeatureEditSpec,
   apply: FeatureEditApply,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<ApplyFeatureEditResult> {
   const pl = spec.plane!;
   const refs = pl.foreign!;
@@ -277,6 +281,7 @@ export async function applyPlaneForeign(
   };
   const result = await applyCreateEdit(staged.code, relocated, {
     foreignArgs: staged.refs.map((ref, i) => ForeignExposures.reference(idents[i], ref)),
+    callees,
   });
   if (result.error) {
     return { newCode: code, error: result.error };

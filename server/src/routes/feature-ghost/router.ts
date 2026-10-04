@@ -37,6 +37,7 @@ import {
   type RawRepeat,
   type RawRotate,
 } from './transforms.ts';
+import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { ValueScope } from './value-scope.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
@@ -49,12 +50,23 @@ import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type Ghost
  *
  * Its own small validator on purpose: the ghost body is a fraction of an
  * apply-feature payload, and the two must not drift into each other.
+ *
+ * `catalog` is where a custom feature's ghost (`feature: 'custom'`) looks
+ * the feature up; without one, custom features draw no ghost.
  */
-export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router {
+export function createFeatureGhostRouter(
+  fluidCadServer: FluidCadServer,
+  options: { catalog?: GhostFeatureCatalog } = {},
+): Router {
   const router = Router();
 
   router.post('/feature-ghost', async (req, res) => {
     const body = (req.body ?? {}) as GhostBody;
+
+    if (body.feature === 'custom') {
+      await CustomGhostRoute.handle(req.body ?? {}, res, fluidCadServer, options.catalog);
+      return;
+    }
 
     if (typeof body.feature !== 'string' || !FEATURES.includes(body.feature)) {
       res.status(400).json({ success: false, reason: 'Unsupported ghost feature' });

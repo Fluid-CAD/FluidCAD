@@ -196,7 +196,7 @@ app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
 app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes), core.awaitLatestSceneApplied));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
-app.use('/api', createFeatureGhostRouter(fluidCadServer));
+app.use('/api', createFeatureGhostRouter(fluidCadServer, { catalog: featureCatalog }));
 app.use('/api', createFilesRouter({
   workspacePath: WORKSPACE_PATH,
   openFile: (absPath) => processFile(absPath),

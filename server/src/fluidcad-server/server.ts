@@ -39,9 +39,11 @@ import { PROJECT_CONFIG_FILENAME, readProjectConfig, writeProjectMaterials, type
 import { PartPropertiesAggregator, type PartProperties } from './part-properties.ts';
 import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
+  CustomGhostRequest,
   FeatureGhostOutcome,
   FeatureGhostRequest,
   GhostFrame,
+  KernelCustomGhostRequest,
   GhostSolid,
   SketchRegionPreview,
   SketchRegionsOutcome,
@@ -136,6 +138,13 @@ export class FluidCadServer {
   // queue behind the mutex; one whose successor already landed skips its OC
   // work rather than meshing geometry nobody will draw.
   private ghostGeneration = 0;
+
+  /**
+   * Custom feature builders loaded for ghosts, by module and export name.
+   * Kept until a render or a scan re-evaluates the workspace modules, so a
+   * dialog's keystrokes don't each load the feature's module again.
+   */
+  private ghostBuilders = new Map<string, Function>();
 
   private currentFileName: string = '';
   private currentFilePath: string = '';
@@ -457,7 +466,7 @@ export class FluidCadServer {
           ? this.sceneManager.startAssemblyScene()
           : this.sceneManager.startScene();
         this.sceneManager.setCurrentFile(normalizedFileName);
-        this.host.invalidateModule();
+        this.invalidateModules();
 
         const registry = createParamRegistry();
         const overrides = this.paramOverrides.get(sessionId);
@@ -629,7 +638,7 @@ export class FluidCadServer {
         return renderChanges ? { ...data, changes: renderChanges } : data;
       }
       catch (error) {
-        this.host.invalidateModule();
+        this.invalidateModules();
         console.log('Error processing file:', error);
         throw error;
       }
@@ -873,6 +882,8 @@ export class FluidCadServer {
       if (!this.sceneManager) {
         return null;
       }
+      // The scan re-evaluates the workspace modules.
+      this.ghostBuilders.clear();
       return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
     });
   }
@@ -888,6 +899,8 @@ export class FluidCadServer {
       if (!this.sceneManager) {
         return null;
       }
+      // The scan re-evaluates the workspace modules.
+      this.ghostBuilders.clear();
       return FeatureScanner.scanFile(this.host, this.sceneManager, normalizePath(filePath));
     });
   }
@@ -1209,14 +1222,22 @@ export class FluidCadServer {
       if (!scene) {
         return { status: 422, reason: 'No rendered scene' };
       }
+      const kernelRequest = request.feature === 'custom' ? await this.customGhostRequest(request) : request;
+      if ('error' in kernelRequest) {
+        return { status: 422, reason: kernelRequest.error };
+      }
       try {
-        const result = this.sceneManager.buildFeatureGhost(scene, request);
+        const result = this.sceneManager.buildFeatureGhost(scene, kernelRequest);
         if (result?.ok) {
           return {
             status: 200,
             solids: (result.solids ?? []) as GhostSolid[],
             ...(result.frames?.length ? { frames: result.frames as GhostFrame[] } : {}),
           };
+        }
+        if (result?.paused === true) {
+          // Not a failure: the build ran, slower than a live preview may.
+          return { status: 200, reason: result.reason, paused: true };
         }
         return {
           status: 422,
@@ -1229,6 +1250,34 @@ export class FluidCadServer {
         return { status: 200, reason: err?.message ?? 'Could not build the preview geometry.' };
       }
     });
+  }
+
+  /**
+   * A custom feature's ghost as the kernel takes it: its builder in place of
+   * the module and export that name it — the module loaded through the
+   * workspace loader (see FeatureScanner.loadBuilder), once per render —
+   * and no time limit when the dialog asked for an unbounded one. Runs with
+   * the OCC mutex held.
+   */
+  private async customGhostRequest(request: CustomGhostRequest): Promise<KernelCustomGhostRequest | { error: string }> {
+    const key = `${normalizePath(request.modulePath)}#${request.exportName}`;
+    let builder = this.ghostBuilders.get(key);
+    if (!builder) {
+      const loaded = await FeatureScanner.loadBuilder(this.host, this.sceneManager!, request.modulePath, request.exportName);
+      if (typeof loaded !== 'function') {
+        return loaded;
+      }
+      builder = loaded;
+      this.ghostBuilders.set(key, builder);
+    }
+    const { modulePath: _modulePath, exportName: _exportName, unbounded, ...rest } = request;
+    return { ...rest, builder, ...(unbounded ? { budgetMs: null } : {}) };
+  }
+
+  /** Mark the workspace modules stale for the next load, and the builders loaded from them. */
+  private invalidateModules(): void {
+    this.ghostBuilders.clear();
+    this.host.invalidateModule();
   }
 
   /**

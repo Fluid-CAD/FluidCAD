@@ -63,21 +63,11 @@ export class FeatureScanner {
       result.error = 'This host does not support feature scanning.';
       return result;
     }
-
-    const manager = sceneManager as any;
-    const liveRegistry = getParamRegistry();
-    const liveScene = manager.currentScene ?? null;
-    const liveFile = manager.currentFile ?? '';
-    let scene: any = null;
-    try {
-      createParamRegistry();
-      sceneManager.setCurrentFile(absPath);
+    return FeatureScanner.isolated(sceneManager, absPath, async () => {
       host.invalidateModule();
-      scene = sceneManager.startScene();
-
       let mod: Record<string, any>;
       try {
-        mod = await host.loadModuleRaw(absPath);
+        mod = await host.loadModuleRaw!(absPath);
       } catch (err: any) {
         result.error = err?.message ?? String(err);
         return result;
@@ -88,12 +78,68 @@ export class FeatureScanner {
         result.deps.push(absPath);
       }
       return result;
+    });
+  }
+
+  /**
+   * The builder a feature module exports as `exportName` — what a ghost
+   * constructs the feature from. Nothing is invalidated, unlike a scan: a
+   * module the last render (or scan) evaluated comes from the loader's cache,
+   * the very classes the scene's statements were built from, and a module
+   * the render didn't need evaluates in a throwaway scene, as a scan does.
+   * MUST be called with the OCC mutex held (see FluidCadServer.featureGhost).
+   */
+  static async loadBuilder(
+    host: SceneHost,
+    sceneManager: FeatureScanSceneManager,
+    modulePath: string,
+    exportName: string,
+  ): Promise<Function | { error: string }> {
+    if (typeof host.loadModuleRaw !== 'function') {
+      return { error: 'This host does not load feature modules.' };
+    }
+    const absPath = normalizePath(modulePath);
+    return FeatureScanner.isolated(sceneManager, absPath, async () => {
+      let mod: Record<string, any>;
+      try {
+        mod = await host.loadModuleRaw!(absPath);
+      } catch (err: any) {
+        return { error: err?.message ?? String(err) };
+      }
+      const builder = mod[exportName];
+      if (typeof builder !== 'function') {
+        return { error: `${absPath} exports no '${exportName}'` };
+      }
+      return builder as Function;
+    });
+  }
+
+  /**
+   * Run `fn` with the manager on a throwaway scene and a fresh param
+   * registry, so a module that builds geometry at its top level can't touch
+   * the live session; both are restored before returning.
+   */
+  private static async isolated<T>(
+    sceneManager: FeatureScanSceneManager,
+    absPath: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const manager = sceneManager as any;
+    const liveRegistry = getParamRegistry();
+    const liveScene = manager.currentScene ?? null;
+    const liveFile = manager.currentFile ?? '';
+    let scene: any = null;
+    try {
+      createParamRegistry();
+      sceneManager.setCurrentFile(absPath);
+      scene = sceneManager.startScene();
+      return await fn();
     } finally {
       if (scene) {
         try {
           sceneManager.disposeScene?.(scene);
         } catch {
-          // Disposal is best-effort; a failure must not mask the scan result.
+          // Disposal is best-effort; a failure must not mask the result.
         }
       }
       setParamRegistry(liveRegistry);

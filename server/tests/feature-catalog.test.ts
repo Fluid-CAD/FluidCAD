@@ -10,6 +10,7 @@ import { FeatureCatalog, type FeatureCatalogEntry } from '../src/feature-catalog
 import { FeatureScanner, type FeatureScanSceneManager } from '../src/feature-catalog/scan.ts';
 import { FeatureModules } from '../src/feature-catalog/walk.ts';
 import { createFeatureCatalogRouter } from '../src/routes/feature-catalog.ts';
+import { getFeatureMeta } from '../../lib/dist/index.js';
 
 // The feature catalog over a real workspace: the JS standoff fixture and a
 // few small modules, evaluated through the Vite host the engine renders
@@ -239,6 +240,34 @@ describe('the feature catalog over a workspace', () => {
     } finally {
       engineUp = true;
     }
+  });
+});
+
+describe('FeatureScanner.loadBuilder', () => {
+  it('loads the builder a ghost constructs the feature from, from the loader\'s cache when the module is evaluated', async () => {
+    host.invalidateModule();
+    const first = await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'standoff');
+    expect(typeof first).toBe('function');
+    expect(getFeatureMeta(first)).toMatchObject({ id: 'acme.standoff', label: 'Standoff', ghost: true, kind: 'tool' });
+    // Evaluated in a throwaway scene, the live one restored.
+    expect(manager.currentFile).toBe('/ws/live.part.js');
+    expect(manager.currentScene).toEqual({ marker: 'live' });
+
+    // Nothing invalidated in between: the same evaluation, the same builder.
+    expect(await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'standoff')).toBe(first);
+    // A render (or a scan) re-evaluates the module: a builder of its own.
+    host.invalidateModule();
+    const again = await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'standoff');
+    expect(again).not.toBe(first);
+    expect(getFeatureMeta(again)!.id).toBe('acme.standoff');
+  });
+
+  it('says why a builder cannot be loaded', async () => {
+    expect(await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'nope'))
+      .toEqual({ error: `${at('standoff.feature.js')} exports no 'nope'` });
+    const broken = await FeatureScanner.loadBuilder(host, manager, at('broken.feature.js'), 'broken');
+    expect(broken).toEqual({ error: expect.stringContaining(`the id 'broken' needs a namespace`) });
+    expect(manager.currentScene).toEqual({ marker: 'live' });
   });
 });
 

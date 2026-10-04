@@ -25,7 +25,8 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -461,6 +462,53 @@ export type Mirror2DGhostRequest = {
 };
 
 /**
+ * One element of a custom feature's picked value: a statement by call site,
+ * faces or edges picked in the viewport (one element, as the dialog writes
+ * them in one selector), or a world axis or an origin plane.
+ */
+export type GhostCustomRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'entities'; entities: GhostEntityRef[] }
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' };
+
+/**
+ * A custom feature's ghost. The feature is named by its builder — the
+ * module the catalog found it in and the name it is exported by — which the
+ * server loads and hands the kernel; the kernel constructs the feature's
+ * class from the values and draws it.
+ */
+export type CustomGhostRequest = {
+  feature: 'custom';
+  /** The feature module's absolute path. */
+  modulePath: string;
+  /** The name the module exports the builder by. */
+  exportName: string;
+  /** Typed-in values by name, numbers resolved; one left out takes its default. */
+  values: Record<string, number | string | boolean>;
+  /** Picked values by name, one ref per element. */
+  refs: Record<string, GhostCustomRef[]>;
+  /** The operation the dialog shows; null applies the feature's default. */
+  operation: 'add' | 'remove' | 'new' | null;
+  /** Edit mode: the edited statement's call site — the kernel reads the scene as it stood before it. */
+  exclude?: { filePath: string; line: number };
+  /** Build without a time limit: the dialog asked for this one preview after pausing. */
+  unbounded?: boolean;
+};
+
+/**
+ * A custom feature's ghost as the kernel takes it: the builder itself,
+ * loaded from the module, and the time the build may take (null: no limit;
+ * left out: the kernel's own budget).
+ */
+export type KernelCustomGhostRequest = Omit<CustomGhostRequest, 'modulePath' | 'exportName' | 'unbounded'> & {
+  builder: Function;
+  budgetMs?: number | null;
+};
+
+/** What the kernel's ghost builder takes: every request as the route sent it, a custom one with its builder loaded. */
+export type KernelGhostRequest = Exclude<FeatureGhostRequest, CustomGhostRequest> | KernelCustomGhostRequest;
+
+/**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
  * `kind` overrides the overlay's per-dialog color for this body alone — a
  * fillet takes material away at one edge and puts it back at the next; `plane`
@@ -561,4 +609,6 @@ export type FeatureGhostOutcome = {
    * only flash noise about. Unset means the client clears and says nothing.
    */
   surface?: boolean;
+  /** The build took longer than a live preview may: the dialog pauses its previews. */
+  paused?: boolean;
 };

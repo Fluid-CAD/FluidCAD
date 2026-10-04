@@ -5,6 +5,8 @@
 // HTTP/IPC plumbing.
 
 import { describe, it, expect } from 'vitest';
+import express from 'express';
+import http from 'http';
 import { setupOC, render } from '../../lib/tests/setup.js';
 import { getSceneManager } from '../../lib/scene-manager.js';
 import sketch from '../../lib/core/sketch.js';
@@ -37,6 +39,8 @@ import {
   type ApplyFeatureEditSpec,
 } from '../src/apply-feature-edit/index.ts';
 import { FeatureSlotSynthesizer } from '../../lib/selection/feature-slots.js';
+import { resolveFeatureSources } from '../../lib/selection/feature-sources.js';
+import { createFeatureGhostRouter } from '../src/routes/feature-ghost/index.ts';
 import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
 import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
@@ -1575,5 +1579,135 @@ describe('a custom feature as a producer', () => {
     expect(edited.error).toBeUndefined();
     expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 12 }).remove().scope(b)\n`);
     expect(volumes(edited.newCode)[0]).toBeCloseTo(20 * 20 * 20 - tube(12), 3);
+  });
+});
+
+describe("a custom feature's ghost, from the dialog's body to the kernel", () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/standoff.feature.js';
+
+  /**
+   * The ghost route over the real scene: the server half is faked only
+   * where it loads the module — it hands the kernel the TypeScript
+   * fixture's builder, as `FeatureScanner.loadBuilder` hands it the module's.
+   */
+  async function ghostRoute(scene: Scene, code: string): Promise<{ post: (body: unknown) => Promise<any>; close: () => Promise<void> }> {
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    const fakeServer = {
+      getCurrentCode: () => code,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      getRenderedInstances: () => [],
+      getRenderedParts: () => [],
+      featureGhost: async (request: any) => {
+        expect(request).toMatchObject({ modulePath: MODULE, exportName: 'standoff' });
+        const { modulePath: _m, exportName: _e, unbounded: _u, ...rest } = request;
+        const result = getSceneManager()!.buildFeatureGhost(scene, { ...rest, builder: standoff });
+        return result.ok ? { status: 200, solids: result.solids } : { status: 422, reason: result.reason };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createFeatureGhostRouter(fakeServer as never, {
+      catalog: { list: async () => [{ id: 'acme.standoff', exportName: 'standoff', modulePath: MODULE, builtIn: false, meta: meta as any }] },
+    }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    return {
+      post: async (body) => (await fetch(`${base}/api/feature-ghost`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })).json(),
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The highest z a ghost answer's meshes reach. */
+  function topOf(solids: { meshes: { vertices: number[] }[] }[]): number {
+    let max = -Infinity;
+    for (const solid of solids) {
+      for (const mesh of solid.meshes) {
+        for (let i = 2; i < mesh.vertices.length; i += 3) {
+          max = Math.max(max, mesh.vertices[i]);
+        }
+      }
+    }
+    return max;
+  }
+
+  it('draws the standoff on the face the dialog picked, its height read where the statement lands', async () => {
+    const code = [
+      `import { sketch, line, extrude, part, param } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const tall = param('tall', 12)`,
+      `  sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `  const e = extrude(10)`,
+      `})`,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 6, column: 13 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const index = Explorer.findFacesWrapped(plate).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+
+    const route = await ghostRoute(scene, code);
+    try {
+      const answer = await route.post({
+        feature: 'custom', id: 'acme.standoff', operation: 'add',
+        values: { height: 'tall * 2' },
+        refs: { face: [{ kind: 'entities', entities: [{ shapeId: plate.id, index, kind: 'face' }] }] },
+        valueScope: { kind: 'append', filePath: FILE, line: 3, column: 22 },
+      });
+      expect(answer.success).toBe(true);
+      expect(answer.solids).toHaveLength(1);
+      expect(topOf(answer.solids)).toBeCloseTo(10 + 24, 4);
+    } finally {
+      await route.close();
+    }
+  });
+
+  it('draws an edited standoff from the face its statement stood on, as the edit dialog seeds it', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      `import { standoff } from './standoff.feature.js'`,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `standoff(e.endFaces(), { height: 12 })`,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 11 });
+    const s = standoff((e as unknown as { endFaces(): never }).endFaces(), { height: 12 });
+    (s as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 5, column: 1 });
+    const scene = render();
+    expect((s as unknown as SceneObject).getError()).toBeNull();
+
+    // The edit dialog's keep chip: the face, as /feature/sources resolves it.
+    const index = scene.getAllSceneObjects().indexOf(s as unknown as SceneObject);
+    const sources = resolveFeatureSources(scene, { index, type: 'acme.standoff', line: 5, column: 1 });
+    expect(sources).toMatchObject({ ok: true, feature: 'custom', slots: { face: { kind: 'entities' } } });
+    const entities = (sources as any).slots.face.entities
+      .map((entity: PickRef) => ({ shapeId: entity.shapeId, index: entity.sub.index, kind: entity.sub.type }));
+
+    const route = await ghostRoute(scene, code);
+    try {
+      const answer = await route.post({
+        feature: 'custom', id: 'acme.standoff',
+        values: { height: 20 },
+        refs: { face: [{ kind: 'entities', entities }] },
+        exclude: { filePath: FILE, line: 5 },
+        valueScope: { kind: 'statement', filePath: FILE, line: 5, column: 1 },
+      });
+      expect(answer.success).toBe(true);
+      expect(topOf(answer.solids)).toBeCloseTo(30, 4);
+    } finally {
+      await route.close();
+    }
   });
 });

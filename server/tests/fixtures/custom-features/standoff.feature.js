@@ -1,14 +1,21 @@
 // The standoff fixture, JavaScript copy: a PCB standoff — a cylinder boss
 // with a bore through it — standing on a picked planar face. This is the
 // file a project keeps as `standoff.feature.js`, written against the public
-// entry points only. The TypeScript copy the lib tests build from is
+// entry points only: the class declares its values with Feature.with(), so
+// `this.values` is typed in the editor, and defineFeature() makes the builder
+// a model calls. The TypeScript copy the lib tests build from is
 // lib/tests/fixtures/custom-features/standoff.ts; keep the two in step.
 
-import { Feature, parseCall, registerBuilder } from 'fluidcad/sdk';
+import { Feature, defineFeature } from 'fluidcad/sdk';
 import { BooleanOps, Primitives, ShapeOps } from 'fluidcad/sdk/kernel';
 import { Matrix4, Plane } from 'fluidcad/math';
 
-export class Standoff extends Feature {
+export class Standoff extends Feature.with({
+  face: { picker: 'face', label: 'On face', surface: 'planar' },
+  height: { type: 'length', default: 10, min: 0 },
+  outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
+  hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
+}) {
   static id = 'acme.standoff';
 
   buildTool() {
@@ -39,40 +46,28 @@ export class Standoff extends Feature {
     const internal = walls.filter(f => !side.includes(f));
 
     const frame = Matrix4.fromBasis(plane.xDirection, plane.yDirection, plane.normal, origin);
-    const members = [...start, ...end, ...side, ...internal];
-    const placed = ShapeOps.transformTracking(tube, frame, members);
+    const placed = ShapeOps.transformTracking(tube, frame, all);
     tube.dispose();
-    const image = list => list.map(f => placed.images[members.indexOf(f)]);
+    // Each group as the faces it became once placed.
+    const [startFaces, endFaces, sideFaces, internalFaces] = [start, end, side, internal]
+      .map(group => group.map(f => placed.images[all.indexOf(f)]).filter(f => f !== null));
 
     this.setBuckets({
-      startFaces: image(start),
-      endFaces: image(end),
-      sideFaces: image(side),
-      internalFaces: image(internal),
+      startFaces,
+      endFaces,
+      sideFaces,
+      internalFaces,
       startPlane: new Plane(origin, plane.xDirection, plane.normal),
     });
     return [placed.shape];
   }
 }
 
-const meta = {
-  class: Standoff,
+export const standoff = defineFeature(Standoff, {
   label: 'Standoff',
   description: 'A boss with a bore through it, standing on a planar face',
   icon: './standoff.svg',
   group: 'create',
-  kind: 'tool',
   operations: ['add', 'new'],
-  params: {
-    face: { picker: 'face', label: 'On face', surface: 'planar' },
-    height: { type: 'length', default: 10, min: 0 },
-    outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
-    hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
-  },
   call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-};
-
-export const standoff = registerBuilder(
-  context => (...args) => new Standoff(parseCall(meta, args)).addTo(context),
-  { feature: meta },
-);
+});

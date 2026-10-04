@@ -43,6 +43,7 @@ import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
 import { createUnitRouter } from './routes/unit.ts';
 import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
+import { RenderInputChanges } from './files/render-input-changes.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
@@ -255,6 +256,25 @@ app.get('*splat', (_req, res) => {
 let currentFile: string | null = null;
 let renderVersion = 0;
 let workspaceWatcher: WorkspaceWatcher | null = null;
+
+// A file the open model is built from changed on disk — an imported
+// `*.feature.js` or helper saved in any editor, `fluidcad.json`, a part file
+// an assembly inserts: render the model again, from the same buffer. The
+// model file's own edits keep their host's path (see RenderInputChanges).
+const renderInputChanges = new RenderInputChanges({
+  isRenderBehind: (absPath) => fluidCadServer.isRenderBehind(absPath),
+  rerender: async () => {
+    const fileName = currentFile;
+    if (fileName === null) {
+      return;
+    }
+    const code = fluidCadServer.getLiveBuffer(fileName)
+      ?? await fs.promises.readFile(fileName, 'utf8').catch((): null => null);
+    if (code !== null) {
+      await runLiveRender(fileName, code);
+    }
+  },
+});
 /**
  * What the in-page host last put on disk, so the `fluidcad serve` disk
  * watcher's echo of that same save is recognised. The host has already
@@ -677,6 +697,7 @@ httpServer.listen(PORT, HOST, () => {
         if (featureCatalog.noteFileChange(event.absPath)) {
           broadcastToUI({ type: 'features-changed', absPath: event.absPath });
         }
+        renderInputChanges.note(event.absPath);
       });
     } catch (err: any) {
       console.warn(`Failed to watch the workspace: ${err?.message ?? err}`);
@@ -751,6 +772,7 @@ function cleanupDiscovery(): void {
   cleanedUp = true;
   workspaceWatcher?.close();
   workspaceWatcher = null;
+  renderInputChanges.dispose();
   deleteInstanceFile(WORKSPACE_PATH, process.pid);
   try {
     removeInstance(WORKSPACE_PATH, process.pid);

@@ -2,7 +2,7 @@
 
 import { createHash } from 'crypto';
 import { basename, join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { readFile } from 'fs/promises';
 import type { SceneHost } from '../host/scene-host.ts';
 import { LocalSceneHost } from '../host/local-scene-host.ts';
@@ -1777,6 +1777,47 @@ export class FluidCadServer {
 
   getCurrentFileName(): string {
     return this.currentFileName;
+  }
+
+  /**
+   * Whether a change to `absPath` on disk left the current file's render
+   * behind what it was built from: the file is an input of that render other
+   * than the current file itself — a module it imports, directly or through
+   * another (a `*.feature.js`, a helper, the part file an assembly inserts),
+   * `fluidcad.json`, a file the engine read — and the inputs no longer match
+   * the render. The current file's own edits reach the server through its
+   * editor host, so they never count here.
+   *
+   * A render that failed keeps the inputs of the last one that succeeded, so
+   * fixing a module that broke it renders again. While the current file does
+   * not compile, a change to any workspace script retries it too: the import
+   * that failed may be the file that just appeared.
+   */
+  isRenderBehind(absPath: string): boolean {
+    const current = this.currentFileName;
+    if (!current) {
+      return false;
+    }
+    const candidates = FluidCadServer.pathForms(absPath);
+    if (candidates.includes(current)) {
+      return false;
+    }
+    const fingerprint = this.renderFingerprints.get(current) ?? null;
+    if (fingerprint && candidates.some(file => fingerprint.files.has(file))) {
+      return !this.isFingerprintCurrent(current, fingerprint);
+    }
+    return this.compileError !== null && /\.[cm]?[jt]s$/.test(candidates[0]);
+  }
+
+  /** A changed path as the watcher names it, and through its symlinks, as the module graph does. */
+  private static pathForms(absPath: string): string[] {
+    const file = normalizePath(absPath);
+    try {
+      const real = normalizePath(realpathSync(file));
+      return real === file ? [file] : [file, real];
+    } catch {
+      return [file];
+    }
   }
 
   /**

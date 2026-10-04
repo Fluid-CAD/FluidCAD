@@ -19,6 +19,10 @@ repeat("rotate", axis, angle?, ...objects)   // angle defaults to 90°
 repeat(matrix: Matrix4, ...objects)
 ```
 
+An axis may be a connector — its Z axis through its origin (see
+[[api/axis]]); `repeat()` still refuses connectors as the features it
+repeats.
+
 `repeat()` re-runs the modeling feature itself at new positions. Pass the
 result of an `extrude()`, `cut()`, `fillet()`, etc. as the trailing
 argument — each repetition re-executes that operation, so the output is

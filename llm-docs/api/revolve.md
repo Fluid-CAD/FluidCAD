@@ -12,8 +12,8 @@ seeAlso: [api/sketch, api/sweep, api/extrude]
 Imported from `fluidcad/core`.
 
 ```ts
-revolve(axis: AxisLike, target?: SceneObject)         // full 360
-revolve(axis: AxisLike, angle: number, target?)       // partial revolution
+revolve(axis: AxisLike | Connector, target?: SceneObject)    // full 360
+revolve(axis: AxisLike | Connector, angle: number, target?) // partial revolution
 ```
 
 Returns `Revolve` (extends `BooleanOperation`). Chain: `.symmetric()`,
@@ -22,7 +22,8 @@ Returns `Revolve` (extends `BooleanOperation`). Chain: `.symmetric()`,
 see [[api/region]] and [[api/extrude]].
 
 The **sketch plane must contain the axis**: to revolve around `"z"`,
-sketch on `"xz"` or `"yz"`.
+sketch on `"xz"` or `"yz"`. A connector stands for its Z axis through its
+origin (see [[api/axis]]).
 
 ## Example
 

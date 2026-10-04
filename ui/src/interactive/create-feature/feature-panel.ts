@@ -20,6 +20,7 @@ export abstract class FeaturePanel {
   protected readonly shell: PanelShell;
   protected readonly body: HTMLDivElement;
   private readonly applyBtn: HTMLButtonElement;
+  private readonly unsubscribeUnit: () => void;
 
   constructor(
     container: HTMLElement,
@@ -53,7 +54,7 @@ export abstract class FeaturePanel {
     // unit now and whenever it changes — but never under an open dialog,
     // whose fields may hold the user's edit or an edit-mode seed.
     applyUnitDefaults(this.body);
-    sceneUnit.subscribe(() => {
+    this.unsubscribeUnit = sceneUnit.subscribe(() => {
       if (!this.shell.isVisible) {
         applyUnitDefaults(this.body);
       }
@@ -69,6 +70,12 @@ export abstract class FeaturePanel {
 
   hide(): void {
     this.shell.hide();
+  }
+
+  /** Remove the dialog from the page for good (a dialog built from data that changed). */
+  destroy(): void {
+    this.unsubscribeUnit();
+    this.shell.destroy();
   }
 
   setPreview(text: string | null): void {

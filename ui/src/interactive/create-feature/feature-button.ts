@@ -133,4 +133,9 @@ export class FeatureButton {
   setSketchHidden(hidden: boolean): void {
     this.wrap.classList.toggle('feature-sketch-hidden', hidden);
   }
+
+  /** Take the button off its group for good (a feature its catalog no longer offers). */
+  remove(): void {
+    this.wrap.remove();
+  }
 }

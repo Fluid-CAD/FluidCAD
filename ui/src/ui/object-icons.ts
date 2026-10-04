@@ -80,6 +80,32 @@ export function resolveIconName(uniqueType: string | undefined, type: string | u
 }
 
 /**
+ * Where an object's icon comes from. The product's own types resolve to
+ * their PNG ({@link resolveIconName}); a type whose artwork lives elsewhere
+ * — a custom feature's, served from its module's directory — is registered
+ * here by whoever knows it (the feature catalog), keyed by the type the
+ * object's row carries.
+ */
+export class ObjectIcons {
+  private static readonly byType = new Map<string, string>();
+
+  /** Serve `src` as the icon of every object of `type`. */
+  static register(type: string, src: string): void {
+    ObjectIcons.byType.set(type, src);
+  }
+
+  static unregister(type: string): void {
+    ObjectIcons.byType.delete(type);
+  }
+
+  /** The icon URL of an object of this unique type and type. */
+  static srcFor(uniqueType: string | undefined, type: string | undefined): string {
+    const registered = type ? ObjectIcons.byType.get(type) : undefined;
+    return registered ?? iconUrl(resolveIconName(uniqueType, type));
+  }
+}
+
+/**
  * Generic icon shown when a feature or shape has no PNG of its own (e.g. a newly
  * added feature/shape type that predates its artwork). `solid` is a neutral grey
  * cube and is already the catch-all returned by resolveIconName.

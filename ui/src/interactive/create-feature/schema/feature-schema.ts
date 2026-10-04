@@ -1,0 +1,192 @@
+import type {
+  FeatureMetaSnapshot, FeatureOpKind, FeatureParam, FeaturePickerKind, FeaturePickerParam, FeatureScalarParam,
+  FeatureScalarValue,
+} from '../../../api';
+
+/** Rows gathered under one group heading (`group: null` — a row of its own). */
+export type SchemaBlock = { group: string | null; names: string[] };
+
+/** Where a feature's rows sit: above the tabs, then one pane per tab. */
+export type SchemaLayout = {
+  top: SchemaBlock[];
+  tabs: { name: string; blocks: SchemaBlock[] }[];
+};
+
+/** The picker kinds a feature dialog offers today; the location pickers come later. */
+const DIALOG_PICKERS: ReadonlySet<FeaturePickerKind> = new Set([
+  'sketch', 'face', 'edge', 'axis', 'plane', 'solid', 'feature',
+]);
+
+const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> = {
+  add: { label: 'Add', title: 'Join the result to the solids it touches' },
+  remove: { label: 'Remove', title: 'Cut the result from the solids it touches — .remove()' },
+  new: { label: 'New', title: 'Keep the result as a separate body — .new()' },
+};
+
+/**
+ * A custom feature's dialog, described by its metadata snapshot: which rows
+ * it has and where they sit (groups, tabs), when each row shows
+ * (`visibleWhen`), what a fresh dialog shows in each, and the checks a
+ * typed-in value must pass before the engine sees it. Pure data — the
+ * panel renders it and the service drives it.
+ */
+export class FeatureSchema {
+  constructor(readonly meta: FeatureMetaSnapshot) {}
+
+  get id(): string {
+    return this.meta.id;
+  }
+
+  get label(): string {
+    return this.meta.label;
+  }
+
+  /** Every value's name, in declaration order. */
+  get names(): string[] {
+    return Object.keys(this.meta.params);
+  }
+
+  param(name: string): FeatureParam {
+    return this.meta.params[name];
+  }
+
+  /** The picked values, in declaration order. */
+  get pickerNames(): string[] {
+    return this.names.filter(name => FeatureSchema.isPicker(this.param(name)));
+  }
+
+  /** The typed-in values, in declaration order. */
+  get scalarNames(): string[] {
+    return this.names.filter(name => !FeatureSchema.isPicker(this.param(name)));
+  }
+
+  static isPicker(spec: FeatureParam): spec is FeaturePickerParam {
+    return 'picker' in spec;
+  }
+
+  /** A picked value that holds a list. */
+  static isList(spec: FeaturePickerParam): boolean {
+    return spec.multiple === true || spec.max !== undefined;
+  }
+
+  /** Whether the dialog can pick this kind yet. */
+  static offersPicker(kind: FeaturePickerKind): boolean {
+    return DIALOG_PICKERS.has(kind);
+  }
+
+  /** The operation tabs, in the product's order (Add, Remove, New), or none. */
+  get operations(): { op: FeatureOpKind; label: string; title: string }[] {
+    return (['add', 'remove', 'new'] as const)
+      .filter(op => this.meta.operations.includes(op))
+      .map(op => ({ op, ...OPERATION_LABELS[op] }));
+  }
+
+  /** The operation a fresh dialog opens on: Add when offered, else the first. */
+  get defaultOperation(): FeatureOpKind | null {
+    const ops = this.operations;
+    if (ops.length === 0) {
+      return null;
+    }
+    return ops.some(o => o.op === 'add') ? 'add' : ops[0].op;
+  }
+
+  /**
+   * The rows above the tabs, then each tab's — in the order their first row
+   * is declared. Within each, a grouped row joins the heading its group got
+   * where the group first appeared; an ungrouped row stands alone.
+   */
+  layout(): SchemaLayout {
+    const top: SchemaBlock[] = [];
+    const tabs = new Map<string, SchemaBlock[]>();
+    for (const name of this.names) {
+      const spec = this.param(name);
+      let blocks = top;
+      if (spec.tab) {
+        blocks = tabs.get(spec.tab) ?? [];
+        tabs.set(spec.tab, blocks);
+      }
+      const group = spec.group ?? null;
+      const existing = group === null ? undefined : blocks.find(b => b.group === group);
+      if (existing) {
+        existing.names.push(name);
+      } else {
+        blocks.push({ group, names: [name] });
+      }
+    }
+    return { top, tabs: [...tabs].map(([name, blocks]) => ({ name, blocks })) };
+  }
+
+  /**
+   * Whether a row shows for the typed-in values `scalars`: every value its
+   * `visibleWhen` names must equal the one given, or one of a list.
+   */
+  isVisible(name: string, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    const when = this.param(name).visibleWhen;
+    if (!when) {
+      return true;
+    }
+    return Object.entries(when).every(([other, expected]) => {
+      const current = scalars[other];
+      return Array.isArray(expected) ? expected.some(e => e === current) : expected === current;
+    });
+  }
+
+  /** What a fresh dialog shows for a typed-in value: its default, or nothing. */
+  defaultOf(name: string): FeatureScalarValue | undefined {
+    const spec = this.param(name);
+    if (FeatureSchema.isPicker(spec)) {
+      return undefined;
+    }
+    if (spec.type === 'select' && spec.default === undefined) {
+      return spec.options[0]?.value;
+    }
+    if (spec.type === 'boolean' && spec.default === undefined) {
+      return false;
+    }
+    return spec.default;
+  }
+
+  /**
+   * A create must say this value: nothing stands in for one left out — not
+   * optional, no default, and (a sketch) not the active sketch implicitly.
+   */
+  required(name: string): boolean {
+    const spec = this.param(name);
+    if (spec.optional) {
+      return false;
+    }
+    if (FeatureSchema.isPicker(spec)) {
+      return !(spec.picker === 'sketch' && spec.implicitDefault === true);
+    }
+    return this.defaultOf(name) === undefined;
+  }
+
+  /**
+   * The values a create needs that the dialog cannot pick yet (a required
+   * connector, point or anchor) — the dialog says so instead of offering
+   * an Apply that can never go through.
+   */
+  unpickableRequired(): string[] {
+    return this.pickerNames.filter(name => {
+      const spec = this.param(name) as FeaturePickerParam;
+      return !FeatureSchema.offersPicker(spec.picker) && this.required(name);
+    }).map(name => this.param(name).label);
+  }
+
+  /** Why a typed-in number can't be this value, or null — the engine's own checks, before it sees it. */
+  static numberError(spec: FeatureScalarParam, value: number): string | null {
+    if (spec.type !== 'number' && spec.type !== 'integer' && spec.type !== 'length' && spec.type !== 'angle') {
+      return null;
+    }
+    if (spec.type === 'integer' && !Number.isInteger(value)) {
+      return `${spec.label} must be a whole number.`;
+    }
+    if (spec.min !== undefined && value < spec.min) {
+      return `${spec.label} must be at least ${spec.min}.`;
+    }
+    if (spec.max !== undefined && value > spec.max) {
+      return `${spec.label} must be at most ${spec.max}.`;
+    }
+    return null;
+  }
+}

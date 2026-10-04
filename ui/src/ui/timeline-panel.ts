@@ -6,7 +6,7 @@ import type { TimelineEntry } from '../../../lib/dist/common/timeline';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
-import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
+import { ObjectIcons, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
 import { RAIL_PANEL_CLASS } from './rail-styles';
@@ -514,6 +514,18 @@ export class TimelinePanel {
     this.renderTimeline(true, heldMatch);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * Re-draw the rows of the last scene: something a row reads from outside
+   * the scene changed — its icon, whether a dialog edits it (the feature
+   * catalog arriving or changing). Scroll and row state stay as they are.
+   */
+  refreshRows(): void {
+    if (!this.loaded) {
+      return;
+    }
+    this.renderTimeline(false);
   }
 
   /** Group a render's warnings by the row they name — by id, else by `index` into the scene. */
@@ -1463,7 +1475,7 @@ export class TimelinePanel {
     const isDropTarget = !unevaluated && this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
-    let iconSrc = iconUrl(resolveIconName(obj.uniqueType, obj.type));
+    let iconSrc = ObjectIcons.srcFor(obj.uniqueType, obj.type);
     if (obj.type === 'part') {
       iconSrc = isActivePart ? iconUrl('box-blue') : iconUrl('box');
     }

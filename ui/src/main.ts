@@ -47,6 +47,8 @@ import { BooleanFeatureService } from './interactive/create-feature/boolean-serv
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
 import { FinishSketchButton } from './interactive/create-feature/finish-sketch-button';
+import { FeatureCatalogDialogs } from './interactive/create-feature/schema/feature-catalog-dialogs';
+import { SchemaFeatureService } from './interactive/create-feature/schema/schema-feature-service';
 import { PartToolButton } from './interactive/create-feature/part-tool';
 import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
@@ -1407,10 +1409,15 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   }
   // The registered dialog that edits this statement kind. `repeat('mirror' |
   // 'rotate', …)` rows parse as feature 'repeat', so only `mirror()` and
-  // `rotate()` rows reach those dialogs.
-  const dialog = featureDialogs.forParsedFeature(parsed.feature);
+  // `rotate()` rows reach those dialogs; a custom feature's statement goes to
+  // its own feature's dialog.
+  const dialog = featureDialogs.forStatement(parsed);
   if (dialog?.enterEdit) {
     dialog.enterEdit(target, parsed, info, obj);
+    return;
+  }
+  if (parsed.feature === 'custom') {
+    showEditRefusal(`No dialog for ${parsed.id} — the feature catalog doesn't offer it right now. Edit the statement in the code.`);
     return;
   }
   if (parsed.feature === 'offset') {
@@ -1908,17 +1915,40 @@ PartFeatureDialogs.register(featureDialogs, {
   text: textEditService,
 });
 
+// The workspace's custom features (its `*.feature.js` builders): one schema
+// dialog per feature the catalog offers, registered after the built-ins —
+// so their buttons close each group — and rebuilt whenever a feature module
+// changes (`features-changed`). Each takes the same hooks as a built-in.
+const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema, iconSrc) =>
+  new SchemaFeatureService(container, viewer, navbar, schema, iconSrc, {
+    onEnter: () => {
+      enterPartDialog(SchemaFeatureService.dialogId(schema.id));
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  }));
+
 // While a sketch is active, a green "Finish Sketch" button heads the create
 // group and the create-feature buttons leave the bar. It marks the sketch
 // done — writing `.close()` onto its statement, or clearing the edit
 // breakpoint of a consumed sketch — and sketch mode ends with the render that
 // follows, bringing the 3D toolbar back for the follow-up feature.
 // Constructed after every create service so its button prepends ahead of theirs.
-const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, [
+const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, () => [
   ...featureDialogs.toolbarButtons,
+  ...featureCatalog.brokenButtons,
   modifyService.sketchButton,
   partTool.button,
 ]);
+// A catalog change adds or drops buttons and changes which rows a dialog
+// edits (and their icons): the sketch-mode swap and the timeline re-read it.
+featureCatalog.onChange = () => {
+  finishSketchButton.sync();
+  if (currentRail?.kind === 'part') {
+    currentRail.timeline.refreshRows();
+  }
+};
 finishSketchButton.onClick = () => {
   void modifyService.finishSketch(breakpointActive);
 };
@@ -2879,7 +2909,13 @@ function connectWebSocket() {
           loadingOverlay.fail(`FluidCAD failed to start: ${msg.error ?? 'unknown error'}`);
         } else {
           loadingOverlay.hide();
+          // The engine is up: the workspace's custom features can be listed.
+          void featureCatalog.refresh();
         }
+        break;
+      case 'features-changed':
+        // A feature module (or a file one imports) changed: its dialog follows.
+        void featureCatalog.refresh({ changed: true });
         break;
       case 'processing-file':
         loadingOverlay.show('Loading model...');

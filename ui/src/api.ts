@@ -3229,6 +3229,12 @@ export type FeatureSourcesResult =
    * off the argument text.
    */
   | { ok: true; feature: 'plane'; bases: SourceSlotRef[] }
+  /**
+   * A custom feature, by its catalog id: each picked value's source, keyed by
+   * its name — one slot for a single value, one per element (in order) for a
+   * list. Typed-in values and picks the statement leaves out have none.
+   */
+  | { ok: true; feature: 'custom'; id: string; slots: Record<string, SourceSlotRef | SourceSlotRef[]> }
   | { ok: false; reason: string };
 
 /** Current sources of the statement at `before`, for edit-dialog seeding. */
@@ -3631,7 +3637,33 @@ export type ParsedFeatureStatement =
        * length as `targetTexts` — seeds each target as its solid option.
        */
       targetRefs: ({ line: number; column: number } | null)[];
-    };
+    }
+  | (ParsedScopeChain & {
+      /**
+       * A custom feature's statement, read back by its call shape. The
+       * dialog for it is the one whose catalog id is `id`.
+       */
+      feature: 'custom';
+      id: string;
+      /** The callee as written — an import alias included. */
+      callee: string;
+      /** The typed-in values the statement writes; one it leaves out is absent. */
+      values: Record<string, ValueExpr | boolean | string>;
+      /** The picked values it writes, element by element; one it leaves out is absent. */
+      picks: Record<string, ParsedCustomPick[]>;
+      operation: FeatureOpKind;
+    });
+
+/** One element of a parsed custom feature's picked value. */
+export type ParsedCustomPick = {
+  /** The element's text, verbatim. */
+  text: string;
+  /** Character offsets of the text in the file. */
+  start: number;
+  end: number;
+  /** The statement a plain variable names (`s` bound to `sketch(…)`), by call site. */
+  ref?: { line: number; column: number };
+};
 
 export type ParseFeatureResult =
   | { ok: true; parsed: ParsedFeatureStatement; statement: string }
@@ -5952,4 +5984,202 @@ export type InterferenceRequestBody = {
  */
 export async function fetchInterference(body: InterferenceRequestBody, signal?: AbortSignal): Promise<InterferenceReport | null> {
   return postJson<InterferenceReport>('api/interfere', body, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Custom features: the workspace's `*.feature.js` builders, described by data
+// ---------------------------------------------------------------------------
+
+/** A typed-in value a custom feature's `visibleWhen` can compare. */
+export type FeatureScalarValue = number | string | boolean;
+
+/** When a value's row shows: every named value equals the given one, or one of the listed ones. */
+export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+
+/** What every value of a custom feature declares (mirror of the engine's snapshot). */
+type FeatureParamCommon = {
+  /** Always present in a snapshot — filled from the name when the author left it out. */
+  label: string;
+  description?: string;
+  /** A heading the row sits under. */
+  group?: string;
+  /** The dialog tab the row sits on; rows without one sit above the tabs. */
+  tab?: string;
+  visibleWhen?: FeatureVisibleWhen;
+  /** The value may be left out. */
+  optional?: boolean;
+};
+
+/** A value the dialog types in. Lengths are in the document's unit, angles in degrees. */
+export type FeatureScalarParam = FeatureParamCommon & (
+  | { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
+  | { type: 'boolean'; default?: boolean }
+  | { type: 'select'; options: { label: string; value: string | number }[]; default?: string | number }
+  | { type: 'text'; default?: string }
+);
+
+/** The public picker kinds. */
+export type FeaturePickerKind =
+  | 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
+
+/** A value the dialog picks in the viewport or the timeline; each kind reads its own fields. */
+export type FeaturePickerParam = FeatureParamCommon & {
+  picker: FeaturePickerKind;
+  /** The value is a list. */
+  multiple?: boolean;
+  /** The value is a list of at most this many. */
+  max?: number;
+  /** The list's order matters, and the dialog lets it be changed. */
+  ordered?: boolean;
+  /** sketch: left out, the value is the active sketch. */
+  implicitDefault?: boolean;
+  /** sketch: only sketches that hold geometry. */
+  hasGeometry?: boolean;
+  /** sketch: helices and other wire sources too. */
+  wire?: boolean;
+  /** face: only faces of this surface (the engine checks). */
+  surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
+  /** face: only faces of the model's own file. */
+  sameFile?: boolean;
+  /** edge: only edges of this curve (the engine checks). */
+  curve?: 'line' | 'circle' | 'arc';
+  /** edge: picks extend along tangent edges. */
+  tangents?: boolean;
+  /** edge: a picked face stands for all of its edges. */
+  facesAsEdges?: boolean;
+  /** axis: a connector's Z axis too. */
+  connector?: boolean;
+  /** feature: only features of these types or ids. */
+  types?: string[];
+};
+
+export type FeatureParam = FeatureScalarParam | FeaturePickerParam;
+
+/** A custom feature's metadata, as the engine snapshots it — pure data, no code. */
+export type FeatureMetaSnapshot = {
+  id: string;
+  label: string;
+  description?: string;
+  /** The icon file, relative to the feature's module, verbatim. */
+  icon?: string;
+  group: 'create' | 'modify';
+  kind: 'tool' | 'modifier';
+  /** The operation tabs to offer; empty for none. */
+  operations: FeatureOpKind[];
+  /** Every value, in declaration order. */
+  params: Record<string, FeatureParam>;
+  call: unknown;
+  illustration?: string;
+  hasOnChange: boolean;
+  ghost: boolean;
+  contexts: string[];
+};
+
+/**
+ * One entry of the workspace's feature catalog. A module that fails to load,
+ * a builder whose id another shares, or a module exporting no feature is an
+ * entry with an `error` (and, for the first and last, no id or metadata).
+ */
+export type FeatureCatalogEntry = {
+  id: string | null;
+  exportName: string | null;
+  modulePath: string;
+  builtIn: boolean;
+  meta: FeatureMetaSnapshot | null;
+  error?: string;
+};
+
+/**
+ * `GET /api/features/catalog` — the features the workspace offers. Null
+ * while the engine is not up, or when the server can't answer.
+ */
+export async function getFeatureCatalog(signal?: AbortSignal): Promise<FeatureCatalogEntry[] | null> {
+  const data = await getJson<{ features: FeatureCatalogEntry[] }>('api/features/catalog', undefined, signal);
+  return data?.features ?? null;
+}
+
+/**
+ * Where a feature's icon or illustration is served — `path` exactly as its
+ * metadata declares it. `revision` busts the browser's copy after the
+ * module changed.
+ */
+export function featureAssetUrl(id: string, path: string, revision = 0): string {
+  const qs = new URLSearchParams({ id, path });
+  if (revision > 0) {
+    qs.set('v', String(revision));
+  }
+  return `api/features/asset?${qs.toString()}`;
+}
+
+/** One thing a custom feature dialog picked for a value. */
+export type CustomPickInput =
+  /** Faces or edges picked in the viewport — one per value, every picked shape in it. */
+  | { kind: 'entities'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] }
+  /** A statement picked in the viewport or the timeline: a sketch, an axis or plane statement, a solid, a feature. */
+  | ({ kind: 'statement' } & SketchSourceRef)
+  /** A world axis or an origin plane. */
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** Edit only: one element of the statement's own value, by position. */
+  | { kind: 'verbatim'; sourceIndex: number };
+
+/** The request fields a custom feature's create and edit share. */
+type CustomFeatureFields = {
+  /** The feature's catalog id. */
+  id: string;
+  /** Typed-in values by name; `null` drops one (edit). */
+  values: Record<string, ValueExpr | boolean | string | null>;
+  /** Picked values by name, element by element; an empty list drops one (edit). */
+  picks: Record<string, CustomPickInput[]>;
+  operation?: FeatureOpKind;
+  newVariables?: NewVariable[];
+  preview?: true;
+  signal?: AbortSignal;
+};
+
+/** A custom feature create: the `.scope(…)` solids by call site. */
+export type CustomFeatureApplyOptions = CustomFeatureFields & { scope?: SketchSourceRef[] };
+
+/**
+ * A custom feature edit: a value or pick left out keeps the statement's own
+ * text; `scope` is the full replacement list (omitted keeps the chain).
+ */
+export type CustomFeatureEditOptions = CustomFeatureFields & EditSessionFields & { scope?: ScopeTargetRef[] };
+
+/** Write (or preview) a custom feature's statement. */
+export async function applyCustomFeature(options: CustomFeatureApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'custom',
+    custom: CustomFeatureRequests.body(options),
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** Rewrite (or preview) the custom feature statement at `edit` in place. */
+export async function applyCustomFeatureEdit(
+  edit: FeatureEditTarget,
+  options: CustomFeatureEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'custom',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    custom: CustomFeatureRequests.body(options),
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** The `custom` object of an apply request. */
+class CustomFeatureRequests {
+  static body(options: CustomFeatureFields & { scope?: unknown[] }): Record<string, unknown> {
+    return {
+      id: options.id,
+      values: options.values,
+      picks: options.picks,
+      ...(options.operation ? { operation: options.operation } : {}),
+      ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    };
+  }
 }

@@ -231,6 +231,28 @@ describe('FeatureDialogRegistry', () => {
     // A mismatched parse is never handed to the service.
     dialog!.enterEdit!(TARGET, { feature: 'extrude' } as ParsedFeatureStatement, INFO, ROW);
     expect(service.edits).toEqual([[TARGET, rib, INFO, ROW]]);
+    expect(registry.forStatement(rib)).toBe(dialog);
+  });
+
+  it('takes a dialog out of every chain, closing it first', () => {
+    const registry = new FeatureDialogRegistry();
+    const a = new FakeService('a');
+    const b = new FakeService('b');
+    registry.register(fakeDialog('a', a));
+    registry.register(fakeDialog('b', b));
+    a.armed = true;
+    registry.unregister('a');
+    expect(a.calls).toEqual(['exit']);
+    expect(registry.ids).toEqual(['b']);
+    expect(registry.get('a')).toBeNull();
+    b.armed = true;
+    expect(registry.routeClick('s1', FACE)).toBe(true);
+    expect(a.calls).toEqual(['exit']);
+    // An id that was never registered (or already left) is nothing to take out.
+    registry.unregister('a');
+    // The id is free again.
+    registry.register(fakeDialog('a', new FakeService('a')));
+    expect(registry.ids).toEqual(['b', 'a']);
   });
 });
 

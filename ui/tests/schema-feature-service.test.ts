@@ -1,0 +1,514 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// A custom feature's dialog, end to end in the page: the catalog builds it
+// from the feature's metadata, the registry routes picks and timeline edits
+// to it, and its requests carry the values the user set, the picks, the
+// operation and its scope — an edit only what changed. One dialog service
+// per test file: the shared worker binds a service to the first file's api
+// mock.
+
+vi.mock('../src/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/api')>()),
+  getScopeVariables: vi.fn(async () => []),
+  fetchSketchNames: vi.fn(async (lines: number[]) => lines.map(() => null)),
+  fetchFeatureSources: vi.fn(async () => ({ ok: false, reason: 'none' })),
+  applyCustomFeature: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
+  applyCustomFeatureEdit: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
+  getFeatureCatalog: vi.fn(async () => []),
+  rollback: vi.fn(),
+  clearBreakpoints: vi.fn(),
+}));
+
+import * as api from '../src/api';
+import type { FeatureCatalogEntry, FeatureMetaSnapshot, ParsedFeatureStatement } from '../src/api';
+import { FeatureCatalogDialogs } from '../src/interactive/create-feature/schema/feature-catalog-dialogs';
+import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
+import { SchemaFeatureService } from '../src/interactive/create-feature/schema/schema-feature-service';
+import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
+import { FeatureDialogRegistry } from '../src/interactive/feature-dialog-registry';
+import { setActivePartLocationProvider } from '../src/helpers/scene-utils';
+import { Navbar } from '../src/ui/navbar';
+import { ObjectIcons } from '../src/ui/object-icons';
+import type { SceneObjectRender } from '../src/types';
+import type { Viewer } from '../src/viewer';
+
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+if (typeof ResizeObserver === 'undefined') {
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
+  setActivePartLocationProvider(() => null);
+  document.body.innerHTML = '';
+});
+
+const FILE = '/ws/plate.part.js';
+const at = (line: number, column = 2) => ({ filePath: FILE, line, column });
+const MESH = [{ vertices: [], indices: [] }] as never;
+
+function meta(id: string, label: string, params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaSnapshot> = {}): FeatureMetaSnapshot {
+  return {
+    id, label, group: 'create', kind: 'tool', operations: [], params, call: [],
+    hasOnChange: false, ghost: true, contexts: ['part'], ...extra,
+  };
+}
+
+const STANDOFF = meta('acme.standoff', 'Standoff', {
+  face: { picker: 'face', label: 'On face', surface: 'planar' },
+  height: { type: 'length', default: 10, min: 0, label: 'Height' },
+  outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
+  hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
+}, { description: 'A boss with a bore', icon: './standoff.svg', operations: ['add', 'new'] });
+
+/** A feature reading a sketch, a face and an axis, with a depth it can't do without. */
+const BRACKET = meta('acme.bracket', 'Bracket', {
+  profile: { picker: 'sketch', label: 'Profile' },
+  base: { picker: 'face', label: 'Base' },
+  hinge: { picker: 'axis', label: 'Hinge', optional: true },
+  depth: { type: 'length', label: 'Depth' },
+  style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }, { label: 'Gusset', value: 'gusset' }] },
+  gusset: { type: 'length', label: 'Gusset size', default: 4, visibleWhen: { style: 'gusset' } },
+}, { operations: ['add', 'remove', 'new'] });
+
+/** A part holding a plate, a sketch, a boss and a standoff row. */
+function scene(): SceneObjectRender[] {
+  return [
+    { id: 'part', type: 'part', name: 'Plate', isContainer: true, sceneShapes: [], ownShapes: [], sourceLocation: at(3, 22) },
+    {
+      id: 'plate', type: 'extrude', name: 'Extrude', parentId: 'part', ownShapes: [], sourceLocation: at(5, 16),
+      sceneShapes: [{ shapeId: 'plate-solid', shapeType: 'solid', meshes: MESH }],
+    },
+    { id: 'sk', type: 'sketch', name: 'Sketch', parentId: 'part', isContainer: true, sceneShapes: [], ownShapes: [], sourceLocation: at(6, 12) },
+    {
+      id: 'circle', type: 'circle', name: 'Circle', parentId: 'sk', ownShapes: [], sourceLocation: at(7, 4),
+      sceneShapes: [{ shapeId: 'circle-wire', shapeType: 'edge', meshes: MESH }],
+    },
+    {
+      id: 'boss', type: 'extrude', name: 'Boss', parentId: 'part', ownShapes: [], sourceLocation: at(9, 15),
+      sceneShapes: [{ shapeId: 'boss-solid', shapeType: 'solid', meshes: MESH }],
+    },
+    {
+      id: 'post', type: 'acme.standoff' as never, name: 'Standoff', parentId: 'part', ownShapes: [], sourceLocation: at(11, 15),
+      sceneShapes: [{ shapeId: 'post-solid', shapeType: 'solid', meshes: MESH }],
+    },
+  ] as SceneObjectRender[];
+}
+const row = (id: string) => scene().find(o => o.id === id)!;
+
+/** A viewer recording what the dialog asks of it. */
+function stubViewer() {
+  const state = {
+    highlighted: [] as unknown[],
+    solids: [] as string[],
+    standardAxes: [] as string[],
+    axisPick: null as ((axis: 'x' | 'y' | 'z') => void) | null,
+    planePick: null as ((plane: 'xy' | 'xz' | 'yz') => void) | null,
+  };
+  const viewer = {
+    pickFilter: 'all',
+    pickSketchWires: false,
+    pickAxes: false,
+    pickPlanes: false,
+    missedSketchRender: false,
+    currentSceneObjects: [] as SceneObjectRender[],
+    suspendSketchEditing: () => {},
+    resumeSketchEditing: () => {},
+    highlightEntities: (entities: unknown[], _wires: string[] = [], solids: string[] = []) => {
+      state.highlighted = entities;
+      state.solids = solids;
+    },
+    clearHighlight: () => {
+      state.highlighted = [];
+      state.solids = [];
+    },
+    setSelectedStandardAxes: (axes: string[]) => {
+      state.standardAxes = [...axes];
+    },
+    showStandardAxes: (onPick: (axis: 'x' | 'y' | 'z') => void) => {
+      state.axisPick = onPick;
+    },
+    hideStandardAxes: () => {
+      state.axisPick = null;
+    },
+    showStandardPlanes: (onPick: (plane: 'xy' | 'xz' | 'yz') => void) => {
+      state.planePick = onPick;
+    },
+    hideStandardPlanes: () => {
+      state.planePick = null;
+    },
+  };
+  return { viewer: viewer as unknown as Viewer, state };
+}
+
+function mount(featureMeta: FeatureMetaSnapshot = STANDOFF) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const { viewer, state } = stubViewer();
+  setActivePartLocationProvider(() => at(3, 22));
+  const navbar = new Navbar(container);
+  const entered = vi.fn();
+  const service = new SchemaFeatureService(container, viewer, navbar, new FeatureSchema(featureMeta), 'icon.svg', {
+    onEnter: entered,
+  });
+  service.update(scene());
+  const panel = () => container.querySelector<HTMLElement>(`#fluidcad-feature-${featureMeta.id.replace('.', '-')}`)!;
+  const input = (name: string) => panel().querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
+  const type = (name: string, value: string) => {
+    input(name).value = value;
+    input(name).dispatchEvent(new Event(input(name).tagName === 'SELECT' ? 'change' : 'input'));
+  };
+  const opTab = (label: string) => [...panel().querySelectorAll<HTMLButtonElement>('[data-role="op-tabs"] button')]
+    .find(b => b.textContent === label)!.click();
+  const message = () => panel().querySelector('[data-role="message"]')!.textContent;
+  const lastCreate = () => vi.mocked(api.applyCustomFeature).mock.calls.at(-1)?.[0];
+  const lastEdit = () => vi.mocked(api.applyCustomFeatureEdit).mock.calls.at(-1)?.[1];
+  return { service, container, viewer, state, navbar, panel, input, type, opTab, message, lastCreate, lastEdit, entered };
+}
+
+const faceOf = (shapeId: string, index: number) => ({ shapeId, sub: { type: 'face' as const, index } });
+
+describe('a custom feature dialog', () => {
+  it('puts a button in its group and opens the dialog its metadata describes', () => {
+    const { service, container, panel, viewer, entered } = mount();
+    const button = container.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!;
+    expect(button.dataset.tip).toBe('Standoff — A boss with a bore');
+    expect(service.toolbarButton).not.toBeNull();
+    button.querySelector('button')!.click();
+    expect(entered).toHaveBeenCalledOnce();
+    expect(service.isActive).toBe(true);
+    expect(panel().classList.contains('hidden')).toBe(false);
+    expect([...panel().querySelectorAll('[data-role="op-tabs"] button')].map(b => b.textContent)).toEqual(['Add', 'New']);
+    expect(panel().querySelector<HTMLInputElement>('[data-role="value-height"]')!.value).toBe('10');
+    // The first value still to pick is armed, and the viewer offers faces.
+    expect(service.dialogPanel.armedSlot).toBe('face');
+    expect(viewer.pickFilter).toBe('face');
+  });
+
+  it("writes the picks and only the values the user set — the builder's defaults stand for the rest", async () => {
+    const { service, type, opTab, lastCreate, state } = mount();
+    service.enter();
+    expect(service.handleClick('plate-solid', faceOf('plate-solid', 4).sub)).toBe(true);
+    expect(state.highlighted).toEqual([faceOf('plate-solid', 4)]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({
+      id: 'acme.standoff', values: {}, picks: { face: [{ kind: 'entities', entities: [faceOf('plate-solid', 4)] }] }, preview: true,
+    });
+    expect(lastCreate()!.values).toEqual({});
+    expect(lastCreate()!.operation).toBeUndefined();
+
+    type('height', '12');
+    opTab('New');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ height: 12 });
+    expect(lastCreate()!.operation).toBe('new');
+
+    await service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastCreate()!.preview).toBeUndefined();
+    expect(service.isActive).toBe(false);
+  });
+
+  it('refuses what the engine would — a value out of range, a required value or pick left out', async () => {
+    const { service, type, message } = mount(BRACKET);
+    service.enter();
+    service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(message()).toBe('Enter Depth.');
+    type('depth', '-2');
+    type('depth', '5');
+    service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(message()).toBe('Profile: pick a sketch.');
+
+    const standoff = mount();
+    standoff.service.enter();
+    standoff.service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    standoff.type('hole', '-1');
+    standoff.service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(standoff.message()).toBe('Hole diameter must be at least 0.');
+    expect(api.applyCustomFeature).not.toHaveBeenCalledWith(expect.not.objectContaining({ preview: true }));
+  });
+
+  it("routes a timeline row to the value that takes it whichever is armed, and hands the armed state on", async () => {
+    const { service, lastCreate, message } = mount(BRACKET);
+    service.enter();
+    expect(service.dialogPanel.armedSlot).toBe('profile');
+    // The profile slot is armed; a face pick lands only where faces go.
+    service.dialogPanel.armSlot('base');
+    expect(service.handleTimelinePick(row('circle'))).toBe(true);
+    // The sketch filled its single slot: the next value still empty takes over.
+    expect(service.dialogPanel.armedSlot).toBe('base');
+    service.handleClick('plate-solid', faceOf('plate-solid', 1).sub);
+    expect(service.dialogPanel.armedSlot).toBe('hinge');
+
+    expect(service.handleTimelinePick(row('part'))).toBe(true);
+    expect(message()).toBe('Plate is not something Bracket takes.');
+
+    // No value takes a solid's row: it scopes the operation.
+    service.handleTimelinePick(row('boss'));
+    expect(service.dialogPanel.armedSlot).toBe('scope');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toBeUndefined();
+  });
+
+  it('takes a world axis shown while an axis value is armed', async () => {
+    const { service, state, lastCreate, type } = mount(BRACKET);
+    service.enter();
+    service.handleTimelinePick(row('sk'));
+    service.handleClick('plate-solid', faceOf('plate-solid', 1).sub);
+    expect(service.dialogPanel.armedSlot).toBe('hinge');
+    expect(state.axisPick).not.toBeNull();
+    state.axisPick!('x');
+    expect(state.standardAxes).toEqual(['x']);
+    type('depth', '5');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({
+      profile: [{ kind: 'statement', filePath: FILE, line: 6, column: 12 }],
+      base: [{ kind: 'entities', entities: [faceOf('plate-solid', 1)] }],
+      hinge: [{ kind: 'standard', name: 'x' }],
+    });
+    expect(lastCreate()!.values).toEqual({ depth: 5 });
+  });
+
+  it('shows a row while its visibleWhen holds, and writes no value for a hidden one', async () => {
+    const { service, input, type, lastCreate } = mount(BRACKET);
+    service.enter();
+    const gussetRow = () => input('gusset').closest('[data-param]')!;
+    expect(gussetRow().classList.contains('hidden')).toBe(true);
+    type('style', '1');
+    expect(gussetRow().classList.contains('hidden')).toBe(false);
+    type('gusset', '6');
+    service.handleTimelinePick(row('sk'));
+    service.handleClick('plate-solid', faceOf('plate-solid', 1).sub);
+    type('depth', '5');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ style: 'gusset', gusset: 6, depth: 5 });
+    type('style', '0');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ style: 'flat', depth: 5 });
+  });
+
+  it('scopes the operation to the solids picked in its scope row, and drops the scope for a separate body', async () => {
+    const { service, container, opTab, lastCreate, state } = mount();
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    (container.querySelector<HTMLElement>('[data-role="scope-slot"]')!.lastElementChild as HTMLElement).click();
+    expect(service.dialogPanel.armedSlot).toBe('scope');
+    service.handleClick('boss-solid', faceOf('boss-solid', 0).sub);
+    expect(state.solids).toEqual(['boss-solid']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.scope).toEqual([{ filePath: FILE, line: 9, column: 15 }]);
+
+    opTab('New');
+    expect(container.querySelector('[data-role="scope-slot"]')!.classList.contains('hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.scope).toBeUndefined();
+  });
+
+  it("drops its viewport picks on a render, whose ids are new, and keeps its statement picks", async () => {
+    const { service, lastCreate, type } = mount(BRACKET);
+    service.enter();
+    service.handleTimelinePick(row('sk'));
+    service.handleClick('plate-solid', faceOf('plate-solid', 1).sub);
+    type('depth', '5');
+    service.update(scene());
+    service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.dialogPanel.pickers.get('profile')!.isEmpty).toBe(false);
+    expect(service.dialogPanel.pickers.get('base')!.isEmpty).toBe(true);
+    expect(lastCreate()).toBeUndefined();
+  });
+});
+
+describe('editing a custom feature statement', () => {
+  const parsed: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+    feature: 'custom',
+    id: 'acme.standoff',
+    callee: 'standoff',
+    values: { outer: 6, hole: 3.2 },
+    picks: { face: [{ text: 'pad.endFaces()', start: 100, end: 114 }] },
+    operation: 'add',
+    scopeTexts: ['plate'],
+    scopeRefs: [{ line: 5, column: 16 }],
+  };
+  const info = { index: 5, type: 'acme.standoff', expectedStatement: 'standoff(pad.endFaces(), { outer: 6, hole: 3.2 })' };
+
+  function openEdit() {
+    const mounted = mount();
+    mounted.service.enterEdit(at(11, 15), parsed, info);
+    // The session's rollback lands on the boundary — the world before the statement.
+    mounted.service.handleSceneRendered(scene(), 4, true);
+    return mounted;
+  }
+
+  it('opens on the statement: its values, its picks kept, its operation, its scope', () => {
+    const { service, panel, input } = openEdit();
+    expect(panel().querySelector('[data-role="title"]')!.textContent).toBe('Edit standoff');
+    expect(input('height').value).toBe('10');
+    expect(input('hole').value).toBe('3.2');
+    expect([...panel().querySelectorAll('span.truncate[title]')].map(el => el.textContent))
+      .toEqual(['Current: pad.endFaces()', 'Extrude']);
+    expect(service.isEditing).toBe(true);
+    expect(api.fetchFeatureSources).toHaveBeenCalledWith({ index: 5, type: 'acme.standoff', line: 11, column: 15 });
+  });
+
+  it('writes only what changed — an untouched value keeps its own text', async () => {
+    const { service, type, lastEdit } = openEdit();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()).toMatchObject({ id: 'acme.standoff', expectedStatement: info.expectedStatement });
+    expect(lastEdit()!.values).toEqual({});
+    expect(lastEdit()!.picks).toEqual({});
+    expect(lastEdit()!.operation).toBeUndefined();
+    expect(lastEdit()!.scope).toBeUndefined();
+    expect(lastEdit()!.before).toBeUndefined();
+
+    type('hole', '3');
+    service.handleClick('boss-solid', faceOf('boss-solid', 2).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()).toMatchObject({
+      values: { hole: 3 },
+      picks: { face: [{ kind: 'entities', entities: [faceOf('boss-solid', 2)] }] },
+      before: { index: 5, type: 'acme.standoff', line: 11, column: 15 },
+    });
+  });
+
+  it('drops the scope of a statement that becomes a separate body', async () => {
+    const { opTab, lastEdit, type } = openEdit();
+    type('height', '');
+    opTab('New');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()).toMatchObject({ operation: 'new', scope: [], values: { height: null } });
+  });
+
+  it('is the dialog the registry hands a parsed statement of its feature', () => {
+    const registry = new FeatureDialogRegistry();
+    const { service } = mount();
+    const other = mount(BRACKET).service;
+    registry.register(other);
+    registry.register(service);
+    expect(registry.editsRowType('acme.standoff')).toBe(true);
+    expect(registry.forStatement(parsed)).toBe(service);
+    expect(registry.forStatement({ ...parsed, id: 'acme.gone' })).toBeNull();
+    registry.unregister(service.id);
+    expect(registry.editsRowType('acme.standoff')).toBe(false);
+  });
+});
+
+describe('the feature catalog on the page', () => {
+  const entry = (featureMeta: FeatureMetaSnapshot, extra: Partial<FeatureCatalogEntry> = {}): FeatureCatalogEntry => ({
+    id: featureMeta.id, exportName: featureMeta.id.split('.')[1], modulePath: `/ws/${featureMeta.id}.feature.js`,
+    builtIn: false, meta: featureMeta, ...extra,
+  });
+
+  function catalog() {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const { viewer } = stubViewer();
+    const navbar = new Navbar(container);
+    const registry = new FeatureDialogRegistry();
+    const built: SchemaFeatureService[] = [];
+    const dialogs = new FeatureCatalogDialogs(registry, navbar, (schema, icon) => {
+      const service = new SchemaFeatureService(container, viewer, navbar, schema, icon);
+      built.push(service);
+      return service;
+    });
+    const changes = vi.fn();
+    dialogs.onChange = changes;
+    const buttons = () => [...container.querySelectorAll<HTMLElement>('[data-tip]')].map(el => el.dataset.tip);
+    return { container, registry, dialogs, built, changes, buttons, navbar };
+  }
+
+  it("registers one dialog per feature, with its icon on its timeline rows", () => {
+    const { registry, dialogs, changes } = catalog();
+    dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
+    expect(registry.ids).toEqual(['feature:acme.standoff', 'feature:acme.bracket']);
+    expect(changes).toHaveBeenCalledOnce();
+    expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('api/features/asset?id=acme.standoff&path=.%2Fstandoff.svg');
+    expect(ObjectIcons.srcFor(undefined, 'acme.bracket')).toContain('solid');
+    expect(ObjectIcons.srcFor(undefined, 'extrude')).toBe('icons/extrude.png');
+  });
+
+  it('rebuilds a dialog whose metadata changed, closing it, and leaves the others open', () => {
+    const { registry, dialogs, built, changes } = catalog();
+    dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
+    const [standoff, bracket] = built;
+    bracket.enter();
+    standoff.enter();
+    dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
+    expect(changes).toHaveBeenCalledOnce();
+    expect(built).toHaveLength(2);
+
+    const taller = { ...STANDOFF, params: { ...STANDOFF.params, height: { type: 'length' as const, default: 14, label: 'Height' } } };
+    dialogs.apply([entry(taller), entry(BRACKET)]);
+    expect(built).toHaveLength(3);
+    expect(standoff.isActive).toBe(false);
+    expect(registry.get('feature:acme.standoff')).toBe(built[2]);
+
+    dialogs.apply([entry(BRACKET)]);
+    expect(registry.ids).toEqual(['feature:acme.bracket']);
+    expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('icons/acme.standoff.png');
+  });
+
+  it("offers an entry it can't as a greyed button that says why", async () => {
+    const { dialogs, registry, buttons, container } = catalog();
+    vi.mocked(api.getFeatureCatalog).mockResolvedValueOnce([
+      entry(STANDOFF, { error: "the feature id 'acme.standoff' is used by more than one builder" }),
+      { id: null, exportName: null, modulePath: '/ws/bolt-boss.feature.js', builtIn: false, meta: null, error: 'boom' },
+    ]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await dialogs.refresh();
+    warn.mockRestore();
+    expect(registry.ids).toEqual([]);
+    expect(buttons()).toEqual([
+      "Standoff can't be offered: the feature id 'acme.standoff' is used by more than one builder",
+      "bolt-boss can't be offered: boom",
+    ]);
+    expect([...container.querySelectorAll<HTMLButtonElement>('[data-tip] button')].every(b => b.disabled)).toBe(true);
+    expect(dialogs.brokenButtons).toHaveLength(2);
+    dialogs.apply([]);
+    expect(buttons()).toEqual([]);
+  });
+
+  it('keeps the newest answer when two refreshes overlap', async () => {
+    const { dialogs, registry } = catalog();
+    let resolveFirst!: (entries: FeatureCatalogEntry[]) => void;
+    vi.mocked(api.getFeatureCatalog)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce([entry(BRACKET)]);
+    const first = dialogs.refresh();
+    await dialogs.refresh({ changed: true });
+    resolveFirst([entry(STANDOFF)]);
+    await first;
+    expect(registry.ids).toEqual(['feature:acme.bracket']);
+  });
+
+  it('takes the create-group buttons off the bar while a sketch is up, ones added later too', () => {
+    const { dialogs, built, navbar } = catalog();
+    const finish = new FinishSketchButton(navbar.addGroup('create', { immune: true }), () => [
+      ...built.flatMap(s => s.toolbarButton ? [s.toolbarButton] : []),
+      ...dialogs.brokenButtons,
+    ]);
+    finish.setVisible(true);
+    dialogs.apply([entry(STANDOFF), entry({ ...BRACKET, group: 'modify' })]);
+    finish.sync();
+    const wrapOf = (id: string) => document.querySelector(`[data-tool="feature:${id}"]`)!;
+    expect(wrapOf('acme.standoff').classList.contains('feature-sketch-hidden')).toBe(true);
+    // A modify-group feature's button sits in the modify group, which the sketch toolbar hides whole.
+    expect(built[1].toolbarButton).toBeNull();
+    expect(wrapOf('acme.bracket').classList.contains('feature-sketch-hidden')).toBe(false);
+    finish.setVisible(false);
+    expect(wrapOf('acme.standoff').classList.contains('feature-sketch-hidden')).toBe(false);
+  });
+});

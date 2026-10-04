@@ -103,6 +103,21 @@ export class FeatureDialogRegistry {
     this.dialogs.push(dialog);
   }
 
+  /**
+   * Take a dialog out of every chain — one built from data that changed (a
+   * custom feature its catalog no longer offers, or offers differently). It
+   * is closed first, so it never leaves the viewport armed behind it.
+   */
+  unregister(id: string): void {
+    const dialog = this.byId.get(id);
+    if (!dialog) {
+      return;
+    }
+    dialog.exit();
+    this.byId.delete(id);
+    this.dialogs.splice(this.dialogs.indexOf(dialog), 1);
+  }
+
   get all(): readonly FeatureDialogService[] {
     return this.dialogs;
   }
@@ -190,6 +205,20 @@ export class FeatureDialogRegistry {
   /** The dialog that edits statements parsed as `feature`, or null. */
   forParsedFeature(feature: ParsedFeatureKind): FeatureDialogService | null {
     return this.dialogs.find(d => d.parsedFeatures.includes(feature) && d.enterEdit) ?? null;
+  }
+
+  /**
+   * The dialog that edits this parsed statement, or null. A built-in kind
+   * names its dialog; every custom feature parses as `'custom'`, so one is
+   * matched by its id too — a custom feature's id is the type its timeline
+   * row carries, which is the row type its dialog edits.
+   */
+  forStatement(parsed: ParsedFeatureStatement): FeatureDialogService | null {
+    if (parsed.feature !== 'custom') {
+      return this.forParsedFeature(parsed.feature);
+    }
+    return this.dialogs.find(d => d.parsedFeatures.includes('custom') && d.editRowTypes.includes(parsed.id)
+      && d.enterEdit) ?? null;
   }
 
   // ---------------------------------------------------------------------------

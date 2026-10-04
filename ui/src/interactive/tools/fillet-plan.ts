@@ -1,23 +1,24 @@
-// Constraint-native 2D fillet (sketch-rewrite P8).
+// Constraint-native 2D fillet (sketch-rewrite P8): the Fillet tool's
+// client-side plan.
 //
-// The Fillet tool no longer writes a `fillet(r, …)` derived op: it emits, per
-// shared corner among the picked edges, a real `arc(start, end, center)`
+// The Fillet tool does not write a `fillet(r, …)` derived op: per shared
+// corner among the picked edges it adds a real `arc(start, end, center)`
 // statement plus the constraints that make it a fillet — two coincidents
 // (the arc's ends onto the trimmed edges' endpoints) and two tangents — with
 // one `radius(a1, r)` dimension on the first arc and pairwise `equal` across
-// the rest (the rounded-rect recipe). The pre-existing corner coincident is
-// deleted in the same edit (`removals`), or the corner would be
-// over-constrained. The solver then pulls the edge endpoints back to the
-// tangent points; source literals stay as (stale, harmless) guesses.
+// the rest (the rounded-rect recipe). This plan finds the corners on the
+// solved sketch and where the arc touches each edge; the server's statement
+// transform (SketchFillet) rewrites the source: the edges' corner literals
+// move to the tangent points, the corner coincident goes, and whatever else
+// pinned the corner (a dimension, an anchor onto the origin) moves to a
+// virtual sharp so the rounded shape keeps its size and place.
 //
-// The math here only supplies the GUESS geometry — the constraints own the
-// truth. Line–line corners are exact; corners involving arcs solve the
+// Line–line corners are exact; corners involving arcs solve the
 // offset-intersection candidates and pick the one nearest the corner.
 
-import type { SolvedConstraintParam, SolvedEmissionTargetParam, SolvedGeometryParam } from '../../api';
-import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from '../../sketch-solver-client/model';
+import type { SketchFilletCornerParam, SketchFilletEndParam } from '../../api';
+import type { SolvedEntityView, SolvedSketchModel } from '../../sketch-solver-client/model';
 import type { SolvedPick } from '../sketch-hover-select-handler';
-import { arcText, coincident, newTarget, type SolvedEmissionRequest } from './solved-emission';
 
 /** Two solved endpoints within this distance read as one corner. Solved
  * coincident corners agree to ~1e-9; literal-coincident ones exactly. */
@@ -50,7 +51,6 @@ const wrap = (a: number): number => {
 
 /** One picked edge, resolved to fillet-relevant data. */
 type PickedCurve = {
-  entityId: number;
   kind: 'line' | 'arc';
   view: SolvedEntityView;
   /** The statement's 1-indexed source line. */
@@ -85,15 +85,22 @@ type CornerPlan = {
   advanceB: number;
 };
 
-export type FilletEmissionPlan = {
+/** What the Fillet tool sends: the corners and the radius dimension. */
+export type SketchFilletRequest = {
+  corners: SketchFilletCornerParam[];
+  /** The radius dimension's expression, verbatim. */
+  radiusExpr: string;
+};
+
+export type FilletPlan = {
   ok: true;
-  request: SolvedEmissionRequest;
+  request: SketchFilletRequest;
   corners: number;
 };
 
-export type FilletEmissionError = { ok: false; reason: string };
+export type FilletPlanError = { ok: false; reason: string };
 
-const fail = (reason: string): FilletEmissionError => ({ ok: false, reason });
+const fail = (reason: string): FilletPlanError => ({ ok: false, reason });
 
 function endpointOf(view: SolvedEntityView, role: 'start' | 'end'): V2 | null {
   const p = role === 'start' ? view.start : view.end;
@@ -279,44 +286,20 @@ function solveCorner(
   };
 }
 
-/** The coincident statements pinning this corner — the lines to remove. */
-function cornerCoincidentLines(
-  constraints: SolvedConstraintView[],
-  a: { entityId: number; role: 'start' | 'end' },
-  b: { entityId: number; role: 'start' | 'end' },
-): number[] {
-  const lines: number[] = [];
-  for (const c of constraints) {
-    const spec = c.spec as { kind: string; a?: { entity: number; point?: string }; b?: { entity: number; point?: string } };
-    if (spec.kind !== 'coincident' || !spec.a || !spec.b
-      || spec.a.point === undefined || spec.b.point === undefined) {
-      continue;
-    }
-    const matches = (spec.a.entity === a.entityId && spec.a.point === a.role
-      && spec.b.entity === b.entityId && spec.b.point === b.role)
-      || (spec.a.entity === b.entityId && spec.a.point === b.role
-        && spec.b.entity === a.entityId && spec.b.point === a.role);
-    if (matches && c.obj.sourceLocation?.line !== undefined) {
-      lines.push(c.obj.sourceLocation.line);
-    }
-  }
-  return lines;
-}
-
 const fmt = (n: number): string => String(Math.round(n * 100) / 100);
-const p2 = (p: V2): V2 => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100];
 
 /**
- * Build the constraint-native fillet emission for the current picks.
+ * Plan the constraint-native fillet for the current picks: every corner the
+ * picked edges share, where the arc touches each edge, and the arc's guess.
  * `radiusExpr` rides the radius dimension verbatim; `radius` is the numeric
- * value the guess geometry is computed from.
+ * value the geometry is computed from.
  */
-export function buildFilletEmission(opts: {
+export function buildFilletPlan(opts: {
   picks: SolvedPick[];
   model: SolvedSketchModel;
   radius: number;
   radiusExpr: string;
-}): FilletEmissionPlan | FilletEmissionError {
+}): FilletPlan | FilletPlanError {
   const { model, radius } = opts;
   if (!(radius > 0)) {
     return fail('enter a positive radius');
@@ -357,7 +340,7 @@ export function buildFilletEmission(opts: {
       continue;
     }
     seen.add(pick.entityId);
-    curves.push({ entityId: pick.entityId, kind: pick.kind, view, line });
+    curves.push({ kind: pick.kind, view, line });
   }
   if (curves.length < 2) {
     return fail('pick two or more edges that share a corner');
@@ -427,47 +410,27 @@ export function buildFilletEmission(opts: {
     }
   }
 
-  // Emission: one arc per corner, the corner's own recipe, one radius dim on
-  // the first arc, pairwise equal across the rest, and the corner
-  // coincidents removed.
-  const existingTarget = (end: CornerEnd, role?: 'start' | 'end'): SolvedEmissionTargetParam => ({
+  // The request: each corner by its two edge ends (the arc starts on `a`
+  // and ends on `b`), the corner itself and the arc's guess.
+  const endOf = (end: CornerEnd): SketchFilletEndParam => ({
     line: curves[end.curve].line,
     featureType: curves[end.curve].kind,
-    ...(role !== undefined ? { role } : {}),
+    role: end.role,
   });
-  const geometry: SolvedGeometryParam[] = [];
-  const constraints: SolvedConstraintParam[] = [];
-  const removalLines = new Set<number>();
-  plans.forEach((plan, k) => {
-    geometry.push({ kind: 'arc', text: arcText(p2(plan.start), p2(plan.end), p2(plan.center), plan.cw) });
-    constraints.push(
-      coincident(newTarget(k, 'start'), existingTarget(plan.a, plan.a.role)),
-      coincident(newTarget(k, 'end'), existingTarget(plan.b, plan.b.role)),
-      { kind: 'tangent', targets: [existingTarget(plan.a), newTarget(k)] },
-      { kind: 'tangent', targets: [newTarget(k), existingTarget(plan.b)] },
-    );
-    for (const line of cornerCoincidentLines(
-      model.constraints,
-      { entityId: curves[plan.a.curve].entityId, role: plan.a.role },
-      { entityId: curves[plan.b.curve].entityId, role: plan.b.role },
-    )) {
-      removalLines.add(line);
-    }
-  });
-  constraints.push({ kind: 'radius', targets: [newTarget(0)], valueExpr: opts.radiusExpr });
-  for (let k = 1; k < plans.length; k++) {
-    constraints.push({ kind: 'equal', targets: [newTarget(0), newTarget(k)] });
-  }
-
   return {
     ok: true,
     corners: plans.length,
     request: {
-      geometry,
-      constraints,
-      ...(removalLines.size > 0
-        ? { removals: [...removalLines].map(line => ({ line })) }
-        : {}),
+      corners: plans.map(plan => ({
+        a: endOf(plan.a),
+        b: endOf(plan.b),
+        at: plan.at,
+        start: plan.start,
+        end: plan.end,
+        center: plan.center,
+        cw: plan.cw,
+      })),
+      radiusExpr: opts.radiusExpr,
     },
   };
 }

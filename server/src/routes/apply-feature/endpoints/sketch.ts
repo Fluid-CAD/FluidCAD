@@ -1,7 +1,8 @@
-// Solved-sketch editing endpoints: constraints, split, trim, delete, distance tangency and solved insertion.
+// Solved-sketch editing endpoints: constraints, split, trim, fillet, delete, distance tangency and solved insertion.
 
 import type { Router } from 'express';
 import type { ApplyFeatureEditSpec } from '../../../apply-feature-edit/index.ts';
+import { isExpressionText } from '../../../code-editor/index.ts';
 import {
   applySolvedEmission,
   constraintTargetCountValid,
@@ -13,6 +14,7 @@ import {
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../../../sketch-symbols.ts';
 import { SketchSplit, type SketchSplitSpec } from '../../../sketch-split.ts';
 import { SketchTrim, type SketchTrimSpec } from '../../../sketch-trim.ts';
+import { SketchFillet, type SketchFilletSpec } from '../../../sketch-fillet.ts';
 import { SketchEntityDelete, type SketchDeleteSpec } from '../../../sketch-entity-delete.ts';
 import { validateSketchPositionEdits } from '../../../sketch-position-validate.ts';
 import {
@@ -29,6 +31,7 @@ import {
   sanitizeSplitPoint,
   sanitizeSplittableEntity,
 } from '../validate/sketch-split.ts';
+import { sanitizeFilletCorners } from '../validate/sketch-fillet.ts';
 import type { ApplyFeatureServices } from '../context.ts';
 
 export function registerSketchEndpoints(router: Router, services: ApplyFeatureServices): void {
@@ -256,6 +259,73 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
     await dispatcher.dispatch(res, spec, { success: true, ...report });
   });
 
+  // Sketch Fillet tool (2D, constraint-native): the UI planned each corner
+  // on the solved sketch (the two edge ends, the corner, the arc's guess);
+  // the statement transform trims the edges to the tangent points in their
+  // literals, swaps each corner coincident for the arc recipe and keeps
+  // every other constraint on a corner through a virtual sharp — so the
+  // rounded shape keeps its size and place.
+  router.post('/sketch/fillet', async (req, res) => {
+    const { sketchLine, filePath, corners, radiusExpr, settle } = req.body ?? {};
+    const cleanCorners = sanitizeFilletCorners(corners);
+    const cleanSettle = validateSketchPositionEdits(settle);
+    if (typeof sketchLine !== 'number' || typeof radiusExpr !== 'string' || !isExpressionText(radiusExpr)
+      || (filePath !== undefined && typeof filePath !== 'string')
+      || cleanCorners === null || cleanSettle === null) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const nvResult = validateNewVariables(req.body?.newVariables);
+    if ('error' in nvResult) {
+      res.status(400).json({ error: nvResult.error });
+      return;
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const sketchFillet: SketchFilletSpec = {
+      sketchLine,
+      corners: cleanCorners,
+      radiusExpr,
+      ...(nvResult.newVariables !== undefined ? { newVariables: nvResult.newVariables } : {}),
+      ...(cleanSettle.length > 0 ? { settle: cleanSettle } : {}),
+    };
+
+    // Preflight for the report (the arcs' and sharps' names); the
+    // dispatcher preflights again for the drift guard.
+    let report: Record<string, unknown> = {};
+    if (targetFile === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await SketchFillet.apply(code, sketchFillet);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+          report = {
+            ...(dryRun.names !== undefined ? { names: dryRun.names } : {}),
+            ...(dryRun.sharps !== undefined ? { sharps: dryRun.sharps } : {}),
+            ...(dryRun.sketchLine !== undefined ? { sketchLine: dryRun.sketchLine } : {}),
+          };
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchFillet,
+    };
+    await dispatcher.dispatch(res, spec, { success: true, ...report });
+  });
+
   // Sketcher Delete key: remove the picked entity statements (by line) in
   // one edit, with the constraints naming them and the statements that
   // consumed them. Like the cut tools, the sketch's solved positions travel
@@ -361,8 +431,8 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
-    // Statement removals riding the emission (the constraint-native fillet
-    // deletes each corner's coincident as it emits the replacing arc).
+    // Statement removals riding the emission (the constraint bar swaps out
+    // a replaced orientation in the same edit).
     const cleanRemovals: { line: number }[] = [];
     for (const r of removals ?? []) {
       if (typeof r !== 'object' || r === null || !Number.isInteger(r.line) || r.line < 1) {

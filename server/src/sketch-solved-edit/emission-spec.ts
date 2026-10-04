@@ -37,10 +37,10 @@ export type SolvedEmissionSpec = {
   newVariables?: NewVariableDecl[];
   /**
    * Constraint statements to DELETE in the same edit, by 1-indexed line —
-   * the constraint-native fillet removes each corner's point coincident as
-   * it emits the arc that replaces it (leaving it would over-constrain the
-   * corner). Only unbound single-line constraint statements inside the
-   * sketch body qualify; anything else refuses the whole emission.
+   * the constraint bar swaps out a replaced orientation and deletes the
+   * coincident(s) behind a vertex pick. Only unbound single-line constraint
+   * statements inside the sketch body qualify; anything else refuses the
+   * whole emission.
    */
   removals?: { line: number }[];
 };

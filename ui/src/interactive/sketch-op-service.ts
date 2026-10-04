@@ -7,8 +7,8 @@ import {
 import type { SolvedSketchModel } from '../sketch-solver-client/model';
 import type { SolvedPick } from './sketch-hover-select-handler';
 import {
-  buildFilletEmission, type FilletEmissionError, type FilletEmissionPlan,
-} from './tools/fillet-emission';
+  buildFilletPlan, type FilletPlan, type FilletPlanError, type SketchFilletRequest,
+} from './tools/fillet-plan';
 import { buildOffsetEmission, offsetNeedsStatement, offsetSourcePicks } from './tools/offset-emission';
 import type { SolvedEmissionRequest, SolvedEmitResult } from './tools/solved-emission';
 import { ExpressionRow } from './modify-pick/expression-row';
@@ -55,16 +55,20 @@ export type SketchOpDialog = {
 
 /**
  * A 2D op dialog's window onto the solved-sketch world: the resolved picks
- * and read model its client-side plan consumes, and the atomic
- * insert-solved emission rail its Apply writes through. The constraint-
- * native CREATE paths use it (fillet: arcs + tangents; mirror: reflected
- * geometry + symmetric rows) — an edit dialog still rewrites its legacy
- * statement through the synthesis rail.
+ * and read model its client-side plan consumes, and the rails its Apply
+ * writes through. The constraint-native CREATE paths use it (mirror:
+ * reflected geometry + symmetric rows through the atomic insert-solved
+ * emission; fillet: the corner plans through the fillet transform) — an
+ * edit dialog still rewrites its legacy statement through the synthesis
+ * rail.
  */
 export type SolvedOpRail = {
   picks(): SolvedPick[];
   model(): SolvedSketchModel | null;
   emit(request: SolvedEmissionRequest): Promise<SolvedEmitResult>;
+  /** Round the planned corners — the sketch settles on its solved
+   * positions in the same edit. */
+  fillet(request: SketchFilletRequest & { newVariables?: NewVariable[] }): Promise<SolvedEmitResult>;
 };
 
 /**
@@ -613,7 +617,7 @@ export class SketchOpService {
 
   /** The constraint-native fillet plan for the current picks + radius, or
    * null while the value field is invalid (incompleteReason covers that). */
-  private buildFilletPlan(): FilletEmissionPlan | FilletEmissionError | null {
+  private planFillet(): FilletPlan | FilletPlanError | null {
     const read = this.readValue();
     if (!read || 'error' in read) {
       return null;
@@ -629,7 +633,7 @@ export class SketchOpService {
         reason: 'enter a numeric radius or a numeric variable — the radius dimension can be edited to any expression afterwards',
       };
     }
-    return buildFilletEmission({
+    return buildFilletPlan({
       picks: this.solved!.picks(),
       model,
       radius,
@@ -797,7 +801,7 @@ export class SketchOpService {
     // stands in for the statement expression row, and the OCCT ghost still
     // previews the resulting arcs.
     if (this.isConstraintNativeFillet()) {
-      const plan = this.buildFilletPlan();
+      const plan = this.planFillet();
       this.expression.hide();
       if (plan?.ok) {
         this.setHint(plan.corners === 1
@@ -993,11 +997,11 @@ export class SketchOpService {
       ? [read.newVariable]
       : undefined;
 
-    // Constraint-native fillet (P8): Apply emits the arc + constraint
-    // recipe (and the corner-coincident removals) through the atomic
-    // insert-solved rail instead of writing a `fillet()` statement.
+    // Constraint-native fillet (P8): Apply sends the corner plans to the
+    // fillet transform (arc + constraint recipe, trimmed edges, virtual
+    // sharps) instead of writing a `fillet()` statement.
     if (this.isConstraintNativeFillet()) {
-      const plan = this.buildFilletPlan();
+      const plan = this.planFillet();
       if (!plan || !plan.ok) {
         this.setError(plan && 'reason' in plan ? plan.reason : 'Enter a positive radius');
         return;
@@ -1005,7 +1009,7 @@ export class SketchOpService {
       this.applying = true;
       this.applyBtn.disabled = true;
       try {
-        const result = await this.solved!.emit({
+        const result = await this.solved!.fillet({
           ...plan.request,
           ...(newVariables ? { newVariables } : {}),
         });

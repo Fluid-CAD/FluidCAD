@@ -3,6 +3,7 @@
 import type { SketchConstraintEditSpec } from '../sketch-constraint-edit.ts';
 import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
+import type { SketchFilletSpec } from '../sketch-fillet.ts';
 import type { SketchDeleteSpec } from '../sketch-entity-delete.ts';
 import type { DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit/index.ts';
 import type { ParamEditSpec } from '../param-edit.ts';
@@ -222,6 +223,14 @@ export type ApplyFeatureEditSpec = {
    * round trip as `sketchSplit`; every other spec field is ignored.
    */
   sketchTrim?: SketchTrimSpec;
+  /**
+   * Sketch Fillet tool (2D, constraint-native): round the planned corners —
+   * move each edge's corner end to its tangent point, swap the corner
+   * coincident for the arc recipe, and keep every other constraint on the
+   * corner through a virtual sharp. Rides the same round trip as
+   * `sketchTrim`; every other spec field is ignored.
+   */
+  sketchFillet?: SketchFilletSpec;
   /**
    * Sketcher Delete key (2D): remove the picked entity statements from the
    * sketch body in one edit, with the constraints naming them and the

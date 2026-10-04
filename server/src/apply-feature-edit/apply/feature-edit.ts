@@ -4,6 +4,7 @@ import { setPartMaterial, setSectionOptions, setSketchClosed } from '../../code-
 import { applySketchConstraint } from '../../sketch-constraint-edit.ts';
 import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';
+import { SketchFillet } from '../../sketch-fillet.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
 import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
@@ -115,6 +116,10 @@ async function applyFeatureEditTransform(
   }
   if (spec.sketchTrim) {
     const { newCode, error } = await SketchTrim.apply(code, spec.sketchTrim);
+    return { newCode, ...(error !== undefined ? { error } : {}) };
+  }
+  if (spec.sketchFillet) {
+    const { newCode, error } = await SketchFillet.apply(code, spec.sketchFillet);
     return { newCode, ...(error !== undefined ? { error } : {}) };
   }
   if (spec.sketchDelete) {

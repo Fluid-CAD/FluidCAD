@@ -2172,8 +2172,8 @@ export async function insertSolvedGeometry(options: {
   constraints: SolvedConstraintParam[];
   newVariables?: { name: string; initializer: string }[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
-   * the constraint-native fillet removes each corner's coincident as it
-   * emits the replacing arc. */
+   * the constraint bar swaps out a replaced orientation and deletes the
+   * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
 }): Promise<{
   success: boolean;
@@ -2273,6 +2273,59 @@ export function trimSketchEntity(options: {
   settle?: SketchPositionEditParam[];
 }): Promise<TrimSketchEntityResult> {
   return postSketchCut('api/sketch/trim', options);
+}
+
+/** One edge's end at a fillet corner, by the edge statement's line. */
+export type SketchFilletEndParam = {
+  line: number;
+  featureType: 'line' | 'arc';
+  /** The end that sits at the corner. */
+  role: 'start' | 'end';
+};
+
+/** A corner the Fillet tool rounds, planned on the solved sketch. */
+export type SketchFilletCornerParam = {
+  /** The edge the arc starts on. */
+  a: SketchFilletEndParam;
+  /** The edge the arc ends on. */
+  b: SketchFilletEndParam;
+  /** The corner itself — where a virtual sharp keeps whatever pinned it. */
+  at: [number, number];
+  /** The arc's guess: `start` is the tangent point on `a`, `end` the one on `b`. */
+  start: [number, number];
+  end: [number, number];
+  center: [number, number];
+  cw: boolean;
+};
+
+export type FilletSketchCornersResult = {
+  success: boolean;
+  reason?: string;
+  /** The fillet arcs' binding names, in corner order. */
+  names?: string[];
+  /** The virtual sharps' binding names. */
+  sharps?: string[];
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Fillet tool (constraint-native): round `corners` with arcs of the
+ * dimensioned radius. The statement transform moves each edge's corner end
+ * to its tangent point, swaps the corner coincident for the arc recipe and
+ * keeps every other constraint on the corner through a virtual sharp — the
+ * rounded shape keeps its size and place.
+ */
+export function filletSketchCorners(options: {
+  sketchLine: number;
+  filePath?: string;
+  corners: SketchFilletCornerParam[];
+  radiusExpr: string;
+  newVariables?: NewVariable[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<FilletSketchCornersResult> {
+  return postSketchCut('api/sketch/fillet', options);
 }
 
 /** A statement the delete took along, by its line in the source BEFORE the edit. */

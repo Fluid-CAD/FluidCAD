@@ -50,7 +50,7 @@ export type NumberParamSpec = ParamCommon & Partial<Pick<ParamDefinition, 'min' 
 
 export type BooleanParamSpec = ParamCommon & { type: 'boolean'; default?: boolean };
 
-export type SelectParamSpec = ParamCommon & { type: 'select'; options: SelectOption[]; default?: string | number };
+export type SelectParamSpec = ParamCommon & { type: 'select'; options: readonly SelectOption[]; default?: string | number };
 
 export type TextParamSpec = ParamCommon & { type: 'text'; default?: string };
 
@@ -107,7 +107,7 @@ export type SolidPickerSpec = ParamCommon & ListPicker & { picker: 'solid' };
 export type FeaturePickerSpec = ParamCommon & ListPicker & {
   picker: 'feature';
   /** Only features of these types or ids. */
-  types?: string[];
+  types?: readonly string[];
 };
 
 export type ConnectorPickerSpec = ParamCommon & ListPicker & { picker: 'connector' };
@@ -117,7 +117,7 @@ export type PointPickerSpec = ParamCommon & ListPicker & { picker: 'point' };
 export type AnchorPickerSpec = ParamCommon & ListPicker & {
   picker: 'anchor';
   /** The anchors offered on a face or an edge; all of them when left out. */
-  anchors?: ('center' | 'start' | 'end' | 'offset')[];
+  anchors?: readonly ('center' | 'start' | 'end' | 'offset')[];
 };
 
 export type PickerParamSpec =
@@ -166,7 +166,7 @@ export type FeatureMeta = {
   group: FeatureGroup;
   kind: FeatureKind;
   /** The operations the dialog offers, for a tool; left out, it offers none. A statement with no operation chain adds. */
-  operations?: FeatureOperation[];
+  operations?: readonly FeatureOperation[];
   /** The feature's values, in dialog order: exactly what its class is constructed from. */
   params: Record<string, ParamSpec>;
   /** How the builder's call lays the values out (see `CallShape`). */
@@ -178,7 +178,7 @@ export type FeatureMeta = {
   /** Whether the dialog shows a preview of the feature (the default). */
   ghost?: boolean;
   /** Where the feature may be used; `['part']`, the only context so far, when left out. */
-  contexts?: FeatureContext[];
+  contexts?: readonly FeatureContext[];
 };
 
 /** A feature's metadata once `registerBuilder` checked it: the id read from the class, every default filled. */
@@ -726,7 +726,7 @@ class FeatureMetaValidator {
     if (Array.isArray(value)) {
       return 'a list';
     }
-    return typeof value === 'function' ? 'a function' : `a ${typeof value}`;
+    return typeof value === 'function' ? 'a function' : `${FeatureMetaValidator.article(typeof value)} ${typeof value}`;
   }
 
   /** A deep copy of plain data, frozen. */
@@ -787,9 +787,60 @@ export class FeatureMetas {
     return meta;
   }
 
-  /** Mark `builder` as the builder of the feature `meta` describes. */
+  /**
+   * Mark `builder` as the builder of the feature `meta` describes, and name
+   * the feature's class by the metadata's label, which its timeline rows
+   * read.
+   */
   static attach(builder: Function, meta: ResolvedFeatureMeta): void {
     Object.defineProperty(builder, FeatureMetas.KEY, { value: meta });
+    Feature.label(meta.class, meta.label);
+  }
+
+  /** What `defineFeature()` takes from the class rather than its metadata, and why. */
+  private static readonly FROM_THE_CLASS: [string, string][] = [
+    ['class', "the class is defineFeature()'s first argument"],
+    ['params', 'the values are the class\'s own, declared with Feature.with({ … })'],
+    ['kind', 'it is read from the class: one that implements buildTool() is a tool, one that overrides build() a modifier'],
+  ];
+
+  /**
+   * The metadata `defineFeature(featureClass, meta)` registers: `meta`, plus
+   * the class, the values it declares (its `static params`, which
+   * `Feature.with()` gives it) and its kind, read from what it implements.
+   * Everything else is checked as `registerBuilder` checks any metadata.
+   */
+  static define(featureClass: unknown, meta: unknown): FeatureMeta {
+    if (typeof featureClass !== 'function' || !(featureClass.prototype instanceof Feature)) {
+      throw new Error(`defineFeature(): the first argument is the feature's class, one that extends Feature.with({ … }), got ${FeatureMetaValidator.describe(featureClass)}`);
+    }
+    const name = featureClass.name || 'the class';
+    const where = featureClass.name ? `defineFeature(${featureClass.name})` : 'defineFeature()';
+    const params = (featureClass as { params?: unknown }).params;
+    if (params === undefined) {
+      throw new Error(`${where}: ${name} declares no values — declare them with Feature.with({ … }): class ${name} extends Feature.with({ height: { type: 'length' } })`);
+    }
+    if (!FeatureCall.isPlainObject(meta)) {
+      throw new Error(`${where}: the second argument describes the feature, such as { label: 'Standoff', group: 'create', call: […] } — got ${FeatureMetaValidator.describe(meta)}`);
+    }
+    for (const [field, why] of FeatureMetas.FROM_THE_CLASS) {
+      if (field in meta) {
+        throw new Error(`${where}: leave '${field}' out — ${why}`);
+      }
+    }
+    return { ...meta, class: featureClass, params, kind: FeatureMetas.kindOf(featureClass as typeof Feature, where) } as FeatureMeta;
+  }
+
+  /** A class's kind: a modifier overrides `build()`, a tool leaves it to the base and implements `buildTool()`. */
+  private static kindOf(featureClass: typeof Feature, where: string): FeatureKind {
+    const prototype = featureClass.prototype;
+    if (prototype.build !== Feature.prototype.build) {
+      return 'modifier';
+    }
+    if (prototype.buildTool === Feature.prototype.buildTool) {
+      throw new Error(`${where}: ${featureClass.name || 'the class'} implements neither buildTool() nor build() — a tool returns its solids from buildTool(ctx), a modifier overrides build(ctx)`);
+    }
+    return 'tool';
   }
 
   /** The metadata a builder carries, or null for a builder of no feature (or not a builder at all). */

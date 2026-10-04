@@ -106,8 +106,9 @@ describe("a custom feature: the standoff", () => {
 
   it("keeps the selection it stands on readable, and only takes it off the screen", () => {
     plate();
-    const top = select(face().planar().onPlane("xy", PLATE.t)) as unknown as SceneObject;
-    standoff(top);
+    const picked = select(face().planar().onPlane("xy", PLATE.t));
+    standoff(picked);
+    const top = picked as unknown as SceneObject;
     const scene = render();
 
     expect(errorsOf(scene)).toEqual([]);

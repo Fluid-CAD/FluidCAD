@@ -3,6 +3,8 @@ import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { Matrix4 } from "../math/matrix4.js";
 import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
+import type { Face } from "./face.js";
+import type { Edge } from "./edge.js";
 
 export interface ShapeFilter {
   excludeMeta?: boolean;
@@ -78,6 +80,14 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     return this.shape;
   }
 
+  /**
+   * The sub-shapes of one type the shape holds: a solid's faces or edges, a
+   * face's edges, a wire's edges, an edge itself. Asked for faces or edges,
+   * the list is typed as faces or edges; every subclass repeats these
+   * overloads.
+   */
+  abstract getSubShapes(type: 'face'): Face[];
+  abstract getSubShapes(type: 'edge'): Edge[];
   abstract getSubShapes(type: ShapeType): Shape[];
 
   isSame(other: Shape): boolean {

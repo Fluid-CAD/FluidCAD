@@ -19,6 +19,8 @@ import { applyBucketFilters } from "../filters/bucket-scope.js";
 import type { ISceneObject, ISelection } from "../core/interfaces.js";
 import type { SceneParserContext } from "../index.js";
 import { FeatureInputs, type FeatureValues } from "./feature-inputs.js";
+import { FeatureCall } from "./call-shape.js";
+import type { FeatureParams, ValuesOf } from "./feature-params.js";
 
 /** What `buildTool()` and a modifier's `build()` are handed: the scene as it stands before the feature. */
 export type FeatureBuildContext = BuildSceneObjectContext;
@@ -52,6 +54,13 @@ export type FeatureBuckets = {
 /** A `Feature` subclass: the one constructor signature the framework calls. */
 export type FeatureClass<V extends FeatureValues = FeatureValues> = (new (values: V) => Feature<V>) & { id: string };
 
+/**
+ * What `Feature.with(params)` returns: an abstract `Feature` whose values
+ * are typed by `params`, which it carries as `static params`.
+ */
+export type FeatureWith<P extends FeatureParams> =
+  (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>>) & { readonly params: P };
+
 type FaceBucketName = 'startFaces' | 'endFaces' | 'sideFaces' | 'internalFaces' | 'capFaces';
 type EdgeBucketName = 'startEdges' | 'endEdges' | 'sideEdges' | 'internalEdges' | 'capEdges';
 type FaceArgs = (number | FaceFilterBuilder)[];
@@ -82,12 +91,58 @@ type EdgeArgs = (number | EdgeFilterBuilder)[];
  *
  * Subclasses declare `static id` (`'acme.standoff'`): the timeline type and
  * the cache's unique type. They declare no constructor of their own — the
- * framework constructs features from values alone.
+ * framework constructs features from values alone. A subclass declares its
+ * values by extending {@link Feature.with}, which types `this.values` from
+ * them, and `defineFeature()` turns it into the builder a model calls.
  */
 export abstract class Feature<V extends FeatureValues = FeatureValues> extends SceneObject {
 
   /** The feature's type: namespaced for custom features (`'acme.standoff'`). */
   static id: string;
+
+  /** Each registered feature class's label, as its timeline row reads (see {@link getDisplayType}). */
+  private static readonly labels = new WeakMap<Function, string>();
+
+  /**
+   * A base for a feature class that declares its values: the class extends
+   * it, and `this.values` is typed from `params` — a length is a number, a
+   * select one of its options' values, a face picker's value a selection.
+   * The base carries `params` as `static params`, where `defineFeature()`
+   * reads them.
+   *
+   * ```js
+   * class Standoff extends Feature.with({
+   *   face: { picker: 'face', surface: 'planar' },
+   *   height: { type: 'length', default: 10, min: 0 },
+   * }) {
+   *   static id = 'acme.standoff';
+   *   buildTool() {
+   *     const { height } = this.values;   // a number
+   *   }
+   * }
+   * ```
+   *
+   * Every evaluation of the module makes a new base and a new class; the
+   * cache compares features by id, never by class, so that costs nothing.
+   */
+  static with<const P extends FeatureParams>(params: P): FeatureWith<P> {
+    if (!FeatureCall.isPlainObject(params)) {
+      throw new Error("Feature.with() takes the feature's values by name, such as { height: { type: 'length', default: 10 } }");
+    }
+    const frozen = Feature.frozenCopy(params);
+    abstract class FeatureWithParams extends Feature {
+      static readonly params = frozen;
+    }
+    return FeatureWithParams as unknown as FeatureWith<P>;
+  }
+
+  /**
+   * @internal Name a feature class for the timeline: `registerBuilder` gives
+   * the class its metadata's label.
+   */
+  static label(featureClass: Function, label: string): void {
+    Feature.labels.set(featureClass, label);
+  }
 
   private static readonly FACE_KEYS: [FaceBucketName, string][] = [
     ['startFaces', 'start-faces'], ['endFaces', 'end-faces'], ['sideFaces', 'side-faces'],
@@ -374,6 +429,17 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     return list as SceneObject[];
   }
 
+  /** A deep copy of plain data, frozen: later changes to the author's object never reach the class. */
+  private static frozenCopy<T>(value: T): T {
+    if (Array.isArray(value)) {
+      return Object.freeze(value.map(entry => Feature.frozenCopy(entry))) as T;
+    }
+    if (FeatureCall.isPlainObject(value)) {
+      return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, Feature.frozenCopy(entry)]))) as T;
+    }
+    return value;
+  }
+
   /** Every reference the feature holds, lists flattened. */
   override getDependencies(): SceneObject[] {
     return this.inputs.references();
@@ -423,8 +489,16 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     return Feature.idOf(this.constructor as typeof Feature);
   }
 
-  /** The id's last segment, capitalized: `acme.standoff` reads as Standoff. */
+  /**
+   * The label its metadata gives the feature ("Bolt circle"), or for a
+   * feature no builder registered, its id's last segment capitalized:
+   * `acme.standoff` reads as Standoff.
+   */
   override getDisplayType(): string {
+    const label = Feature.labels.get(this.constructor);
+    if (label !== undefined) {
+      return label;
+    }
     const name = this.getType().split('.').pop()!;
     return name.charAt(0).toUpperCase() + name.slice(1);
   }

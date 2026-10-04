@@ -3,6 +3,7 @@ import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Shape } from "./shape.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Vertex } from "./vertex.js";
+import type { Face } from "./face.js";
 
 export class Edge extends Shape<TopoDS_Edge> {
   constructor(edge: TopoDS_Edge) {
@@ -17,6 +18,9 @@ export class Edge extends Shape<TopoDS_Edge> {
     return true;
   }
 
+  getSubShapes(type: 'face'): Face[];
+  getSubShapes(type: 'edge'): Edge[];
+  getSubShapes(type: ShapeType): Shape[];
   getSubShapes(type: ShapeType): Shape[] {
     if (type === 'edge') {
       return [this];

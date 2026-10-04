@@ -52,8 +52,8 @@ export class ShapeOps {
    * edges of `shape`) went: its image in the moved shape, parallel to
    * `subShapes`, or null for one `shape` does not hold.
    */
-  static transformTracking(shape: Shape, matrix: Matrix4, subShapes: Shape[]): { shape: Shape; images: (Shape | null)[] } {
-    let images: (Shape | null)[] = [];
+  static transformTracking<T extends Shape>(shape: Shape, matrix: Matrix4, subShapes: readonly T[]): { shape: Shape; images: (T | null)[] } {
+    let images: (T | null)[] = [];
     const moved = ShapeOps.transformWith(shape, matrix, transformer => {
       if (subShapes.length === 0) {
         return;
@@ -65,7 +65,7 @@ export class ShapeOps {
         oc.TopExp.MapShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, held);
         images = subShapes.map(sub => held.FindIndex(sub.getShape()) === 0
           ? null
-          : ShapeFactory.fromShape(transformer.ModifiedShape(sub.getShape())));
+          : ShapeFactory.fromShape(transformer.ModifiedShape(sub.getShape())) as Shape as T);
       } finally {
         held.delete();
       }

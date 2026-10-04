@@ -1,33 +1,36 @@
 /**
  * `fluidcad/sdk` — what a custom feature is written with: the {@link Feature}
- * base class, `registerBuilder` to turn a builder into the function a model
- * calls, and `parseCall` to read that call's arguments.
+ * base class, whose `Feature.with()` declares the feature's values, and
+ * `defineFeature` to turn the class into the builder a model calls.
  *
  * ```js
- * import { Feature, parseCall, registerBuilder } from 'fluidcad/sdk';
+ * import { Feature, defineFeature } from 'fluidcad/sdk';
  *
- * class Standoff extends Feature {
+ * class Standoff extends Feature.with({
+ *   face: { picker: 'face', surface: 'planar' },
+ *   height: { type: 'length', default: 10, min: 0 },
+ * }) {
  *   static id = 'acme.standoff';
- *   buildTool() { … }
+ *   buildTool() {
+ *     const { height } = this.values;   // a number
+ *     …
+ *   }
  * }
  *
- * const meta = {
- *   class: Standoff, label: 'Standoff', group: 'create', kind: 'tool',
- *   params: {
- *     face: { picker: 'face', surface: 'planar' },
- *     height: { type: 'length', default: 10, min: 0 },
- *   },
+ * export const standoff = defineFeature(Standoff, {
+ *   label: 'Standoff', group: 'create', operations: ['add', 'new'],
  *   call: ['face', { height: 'height' }],
- * };
- *
- * export const standoff = registerBuilder(
- *   context => (...args) => new Standoff(parseCall(meta, args)).addTo(context),
- *   { feature: meta },
- * );
+ * });
  * ```
  *
- * The metadata gives the feature its toolbar button and dialog; the editor
- * finds it by scanning the module's exports.
+ * Plain JavaScript is typed by inference alone: `this.values`, the call
+ * shape's names and the builder's arguments. The metadata gives the feature
+ * its toolbar button and dialog; the editor finds it by scanning the
+ * module's exports.
+ *
+ * `registerBuilder` with the whole metadata (`{ feature: { class, kind,
+ * params, call, … } }`) and `parseCall` to read the arguments by it build
+ * the same feature from a plain `Feature` subclass.
  *
  * The geometry a tool is built from lives in `fluidcad/sdk/kernel`.
  */
@@ -37,7 +40,10 @@
 export { registerBuilder } from "../index.js";
 export type { RegisterBuilderOptions, SceneParserContext } from "../index.js";
 export { Feature } from "./feature.js";
-export type { FeatureBuckets, FeatureBuildContext, FeatureClass } from "./feature.js";
+export type { FeatureBuckets, FeatureBuildContext, FeatureClass, FeatureWith } from "./feature.js";
+export { defineFeature } from "./define-feature.js";
+export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.js";
+export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } from "./feature-params.js";
 export type { FeatureValue, FeatureValues, FeatureScalar, FeatureReferenceSummary } from "./feature-inputs.js";
 export { parseCall } from "./meta.js";
 export type {

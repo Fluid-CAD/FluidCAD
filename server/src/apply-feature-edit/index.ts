@@ -131,6 +131,17 @@ export {
 } from './features/plane.ts';
 export { renderTextStatement, type TextStatementOptions } from './features/text.ts';
 export {
+  CustomFeatureImport,
+  CustomFeatureStatement,
+  type CustomFeatureOptions,
+  type CustomFeatureShape,
+  type CustomParamKind,
+  type CustomPickSource,
+  type CustomPickText,
+  type CustomValueSource,
+  type ParsedCustomFeature,
+} from './features/custom.ts';
+export {
   makeProducerBindable,
   makeProducerBoundProbe,
   makeProducerNamer,

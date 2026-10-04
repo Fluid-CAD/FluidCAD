@@ -10,7 +10,7 @@ import { registerSelectionEndpoints } from './endpoints/selection.ts';
 import { registerSketchEndpoints } from './endpoints/sketch.ts';
 import { registerCodeEndpoints } from './endpoints/code.ts';
 import { registerApplyFeatureEndpoint } from './dispatch.ts';
-import type { ApplyFeatureServices } from './context.ts';
+import type { ApplyFeatureServices, FeatureCatalogReader } from './context.ts';
 
 export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
   /**
@@ -19,6 +19,8 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
    * builds its own from the remaining options (tests, standalone use).
    */
   dispatcher?: FeatureEditDispatcher;
+  /** The workspace's feature catalog: what a custom feature dialog's create or edit names by id. */
+  catalog?: FeatureCatalogReader;
 };
 
 export function createApplyFeatureRouter(
@@ -59,7 +61,7 @@ export function createApplyFeatureRouter(
 
   const services: ApplyFeatureServices = {
     fluidCadServer, dispatcher, synthesisOptionsForFile, callees, applyEdit, foreignPicks, dispatchCrossFileCreates,
-    foreignBody,
+    foreignBody, ...(options.catalog ? { catalog: options.catalog } : {}),
   };
   registerSelectionEndpoints(router, services);
   registerApplyFeatureEndpoint(router, services);

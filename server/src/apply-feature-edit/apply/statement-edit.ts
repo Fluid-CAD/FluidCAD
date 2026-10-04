@@ -55,7 +55,7 @@ export async function applyStatementEdit(
   if (!call) {
     return { newCode: code, error: `no call found at line ${edit.line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code, new LexicalBindings(tree));
+  const chain = parseFeatureChain(call, code, new LexicalBindings(tree), callees);
   if ('error' in chain) {
     return { newCode: code, error: chain.error };
   }
@@ -195,14 +195,18 @@ export async function applyStatementEdit(
   }
   result = landed.newCode;
 
-  const callee = spec.feature === 'extrude'
-    ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
-    : spec.feature === 'boolean'
-      ? edit.boolean!.kind
-      : chain.parsed.feature === 'project'
-        ? chain.parsed.op
-        : spec.feature;
-  result = await ensureSymbolImport(result, callee);
+  // A custom feature keeps the callee its statement imports; every other
+  // edit makes sure the callee it renders is imported from the core.
+  if (chain.parsed.feature !== 'custom') {
+    const callee = spec.feature === 'extrude'
+      ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
+      : spec.feature === 'boolean'
+        ? edit.boolean!.kind
+        : chain.parsed.feature === 'project'
+          ? chain.parsed.op
+          : spec.feature;
+    result = await ensureSymbolImport(result, callee);
+  }
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
     for (const symbol of importsForRawArgs(spec.rawArgs)) {

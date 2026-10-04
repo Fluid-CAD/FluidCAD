@@ -3,6 +3,8 @@
 import type {
   AssemblyExportOutcome,
   AssemblyExportPose,
+  FeatureSlotRequest,
+  FeatureSlotSynthesis,
   InterferenceRequest,
   RenderChangeTracker,
   ResolveSelectionRequest,
@@ -65,6 +67,13 @@ export type SceneManager = {
     },
     before?: SelectionBoundary,
   ): any;
+  // Optional: may predate custom feature pickers.
+  synthesizeFeatureSlots?(
+    scene: any,
+    request: FeatureSlotRequest,
+    options?: SelectionSynthesisOptions,
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | { ok: false; reason: string };
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate consumer-side exposure resolution.
   resolvePickExposure?(

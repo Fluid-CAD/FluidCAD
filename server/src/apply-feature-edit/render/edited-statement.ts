@@ -25,6 +25,7 @@ import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
 import { renderTextStatement, textOptionsNeedPath, validTextStatementOptions } from '../features/text.ts';
 import { renderWrapStatement } from '../features/wrap.ts';
+import { CustomFeatureStatement } from '../features/custom.ts';
 import type { ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isAxisProducer, isPlaneProducer, isScopeTargetProducer } from '../producers/predicates.ts';
 import { editedSelectorArgs, editSourceVar } from './edit-sources.ts';
@@ -111,6 +112,20 @@ export function renderEditedStatement(
       error: `the statement is a ${parsed.feature}, not a ${spec.feature} — `
         + 'is the file in sync with the last render?',
     };
+  }
+  if (parsed.feature === 'custom') {
+    // The statement's own callee and call shape; the values the dialog
+    // kept read from its own text.
+    const opts = spec.edit?.custom;
+    if (!opts) {
+      return { error: 'malformed custom feature edit spec' };
+    }
+    if (opts.id !== parsed.id) {
+      return {
+        error: `the statement builds '${parsed.id}', not '${opts.id}' — is the file in sync with the last render?`,
+      };
+    }
+    return CustomFeatureStatement.render(parsed.callee, opts, spec, varFor, parsed);
   }
   if (parsed.feature === 'extrude') {
     const opts = spec.edit?.extrude;

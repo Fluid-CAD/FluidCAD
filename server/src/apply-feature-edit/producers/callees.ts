@@ -1,6 +1,7 @@
 // Which callees can produce each kind of feature input (sketches, wires, planes, axes, repeat targets).
 
 import { listEngineSymbols } from '../../lint-fluid-js.ts';
+import type { CustomFeatureShape } from '../features/custom.ts';
 
 /**
  * Chain-root callees this transform will bind a variable to. Guards against a
@@ -136,6 +137,12 @@ export type CustomFeatureCallee = {
   /** The feature's id: the `getType()` of the object the call builds. */
   id: string;
   kind: 'tool' | 'modifier';
+  /**
+   * How its statements are laid out (the catalog's snapshot): what the
+   * edit dialog reads a call by. Without one the call binds and repeats,
+   * but is not editable in a dialog.
+   */
+  shape?: CustomFeatureShape;
 };
 
 /**

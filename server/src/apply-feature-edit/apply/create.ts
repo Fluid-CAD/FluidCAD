@@ -25,6 +25,7 @@ import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
+import { CustomFeatureImport, CustomFeatureStatement } from '../features/custom.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import type { FeatureCallees } from '../producers/callees.ts';
@@ -59,6 +60,9 @@ export async function applyCreateEdit(
   spec: ApplyFeatureEditSpec,
   extras: { foreignArgs?: string[]; callees?: FeatureCallees } = {},
 ): Promise<ApplyFeatureEditResult> {
+  // A custom feature's builder is imported from its own module, under the
+  // name the file already reads it by or a free one.
+  let customImport: CustomFeatureImport | null = null;
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
     // producers[0]. A picked-face target carries exactly one selector part —
@@ -572,6 +576,28 @@ export async function applyCreateEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed expose edit spec' };
     }
+  } else if (spec.feature === 'custom') {
+    // Every value renders through the feature's call shape: picked elements
+    // from the producers and parts, typed-in ones as written. A statement
+    // that reads no existing one (typed-in values, a world axis) appends
+    // like a pick-less sketch — to the active part when one is set.
+    const refusal = CustomFeatureStatement.createError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+    const custom = spec.custom!;
+    customImport = await CustomFeatureImport.plan(code, spec.filePath, custom.exportName!, custom.modulePath!);
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      const rendered = CustomFeatureStatement.render(customImport.local, custom, spec, () => null);
+      if ('error' in rendered) {
+        return { newCode: code, error: rendered.error };
+      }
+      const importer = customImport;
+      return appendTopLevelStatement(
+        code, () => rendered.statement, customImport.local, spec.newVariables, spec.activePart,
+        result => importer.ensure(result),
+      );
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -595,7 +621,16 @@ export async function applyCreateEdit(
   if ('error' in insertion) {
     return { newCode: code, error: insertion.error };
   }
-  let statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+  let statementText: string;
+  if (customImport) {
+    const rendered = CustomFeatureStatement.render(customImport.local, spec.custom!, spec, i => bindings[i].varName);
+    if ('error' in rendered) {
+      return { newCode: code, error: rendered.error };
+    }
+    statementText = rendered.statement;
+  } else {
+    statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+  }
   let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };
@@ -667,7 +702,7 @@ export async function applyCreateEdit(
     return { newCode: code, error: landed.error };
   }
   result = landed.newCode;
-  result = await ensureSymbolImport(result, statementCallee(spec));
+  result = customImport ? await customImport.ensure(result) : await ensureSymbolImport(result, statementCallee(spec));
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
     for (const symbol of importsForRawArgs(spec.rawArgs)) {

@@ -5,9 +5,16 @@ import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec, FeatureCallees, FeatureCalleeSource, FeatureEditApply } from '../../apply-feature-edit/index.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
+import type { FeatureCatalogEntry } from '../../feature-catalog/catalog.ts';
 import type { SketchLoc } from './locations.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
 import { validateNewVariables } from './validate/common.ts';
+
+/** The feature catalog as the custom feature arms read it: every feature the workspace offers. */
+export type FeatureCatalogReader = {
+  /** Every feature, error entries included; null while the engine is not up. */
+  list(): Promise<FeatureCatalogEntry[] | null>;
+};
 
 /** What every endpoint of the apply-feature router shares, created once per router. */
 export type ApplyFeatureServices = {
@@ -20,6 +27,8 @@ export type ApplyFeatureServices = {
    * has no catalog.
    */
   callees: FeatureCalleeSource;
+  /** The features a custom feature request names, by id; absent, custom features are refused. */
+  catalog?: FeatureCatalogReader;
   /** The code transform, over {@link callees}: the editor round trip, and dry runs that stage an edit. */
   applyEdit: FeatureEditApply;
   foreignPicks: ForeignPickResolver;

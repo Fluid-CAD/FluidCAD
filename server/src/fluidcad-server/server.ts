@@ -16,6 +16,8 @@ import {
   setParamRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
+  type FeatureSlotRequest,
+  type FeatureSlotSynthesis,
   type ImportReport,
   type InterferenceRequest,
   type ParamDefinition,
@@ -1317,6 +1319,31 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /**
+   * The selectors a custom feature's picked values write, every geometry
+   * slot in one pass and checked against its picker — kind-agnostic, so no
+   * feature names its own arm here. An edit's picks resolve against the
+   * world before its statement. Null without a scene; a refusal on a
+   * workspace kernel that predates custom feature pickers.
+   */
+  synthesizeFeatureSlots(
+    request: FeatureSlotRequest,
+    options?: SelectionSynthesisOptions,
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | { ok: false; reason: string } | null {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    if (!this.sceneManager.synthesizeFeatureSlots) {
+      return { ok: false, reason: "This workspace's FluidCAD version predates custom feature pickers — update its fluidcad dependency." };
+    }
+    return this.sceneManager.synthesizeFeatureSlots(scene, request, options, before);
   }
 
   /**

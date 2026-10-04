@@ -1,8 +1,9 @@
 import { realpathSync } from 'fs';
 import { dirname, resolve, sep } from 'path';
 import { normalizePath } from '../normalize-path.ts';
-import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor/index.ts';
+import { getJavaScriptParser, namedImportBindings, type NamedImportBinding, type TSTree } from '../code-editor/index.ts';
 import {
+  CustomFeatureStatement,
   FeatureCallees,
   type CustomFeatureCallee,
   type FeatureCalleeSource,
@@ -44,9 +45,6 @@ export type FeatureCatalogOptions = {
   /** Whether an editor buffer overlays a file: a module depending on one is rescanned, never served from the mtime cache. */
   hasLiveBuffer?: (absPath: string) => boolean;
 };
-
-/** A named import in a file: the export it reads, from which module specifier. */
-type ImportBinding = { imported: string; source: string };
 
 /** Where a feature's icon or illustration is served from, or why it isn't. */
 export type FeatureAssetLookup = { file: string } | { status: number; error: string };
@@ -103,19 +101,23 @@ export class FeatureCatalog implements FeatureCalleeSource {
    * feature there.
    */
   async resolveCallee(tree: TSTree, calleeName: string, filePath: string): Promise<FeatureCatalogEntry | null> {
-    const binding = FeatureCatalog.importBindings(tree).get(calleeName);
+    const binding = namedImportBindings(tree).get(calleeName);
     return binding ? this.entryFor(binding, filePath) : null;
   }
 
-  /** What the calls in a file build: every name it imports, resolved as {@link resolveCallee} does. */
+  /**
+   * What the calls in a file build: every name it imports, resolved as
+   * {@link resolveCallee} does, with the shape its statements are read and
+   * written by.
+   */
   async calleesFor(code: string, filePath: string): Promise<FeatureCallees> {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
     const custom = new Map<string, CustomFeatureCallee>();
-    for (const [local, binding] of FeatureCatalog.importBindings(tree)) {
+    for (const [local, binding] of namedImportBindings(tree)) {
       const entry = await this.entryFor(binding, filePath);
       if (entry?.meta) {
-        custom.set(local, { id: entry.meta.id, kind: entry.meta.kind });
+        custom.set(local, { id: entry.meta.id, kind: entry.meta.kind, shape: CustomFeatureStatement.shapeOf(entry.meta) });
       }
     }
     return custom.size === 0 ? FeatureCallees.BUILT_IN : new FeatureCallees(custom);
@@ -223,7 +225,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
   }
 
   /** The feature an import binding names, in the module its specifier resolves to from `filePath`. */
-  private async entryFor(binding: ImportBinding, filePath: string): Promise<FeatureCatalogEntry | null> {
+  private async entryFor(binding: NamedImportBinding, filePath: string): Promise<FeatureCatalogEntry | null> {
     const modulePath = this.moduleOf(binding.source, filePath);
     if (modulePath === null) {
       return null;
@@ -251,36 +253,6 @@ export class FeatureCatalog implements FeatureCalleeSource {
       return null;
     }
     return absPath;
-  }
-
-  /** The file's named imports, by the local name each binds. */
-  private static importBindings(tree: TSTree): Map<string, ImportBinding> {
-    const bindings = new Map<string, ImportBinding>();
-    for (const node of tree.rootNode.namedChildren) {
-      if (node.type !== 'import_statement') {
-        continue;
-      }
-      const sourceNode = node.childForFieldName('source');
-      if (!sourceNode) {
-        continue;
-      }
-      const source = sourceNode.text.slice(1, -1);
-      for (const specifier of FeatureCatalog.importSpecifiers(node)) {
-        const name = specifier.childForFieldName('name') ?? specifier.namedChild(0);
-        if (!name) {
-          continue;
-        }
-        const alias = specifier.childForFieldName('alias');
-        bindings.set((alias ?? name).text, { imported: name.text, source });
-      }
-    }
-    return bindings;
-  }
-
-  private static importSpecifiers(importNode: TSNode): TSNode[] {
-    const clause = importNode.namedChildren.find(child => child.type === 'import_clause');
-    const named = clause?.namedChildren.find(child => child.type === 'named_imports');
-    return named ? named.namedChildren.filter(child => child.type === 'import_specifier') : [];
   }
 
   /** Every entry whose id another entry shares, refused with a message naming both. */

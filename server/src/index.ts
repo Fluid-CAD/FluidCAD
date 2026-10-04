@@ -183,7 +183,9 @@ app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, 
   dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, callees: featureCatalog,
 }));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher));
-app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher, callees: featureCatalog }));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, {
+  dispatcher: editDispatcher, callees: featureCatalog, catalog: featureCatalog,
+}));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadServer.resolveSelection(request)));

@@ -28,7 +28,15 @@ import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
 import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
-import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
+import {
+  applyFeatureEdit,
+  CustomFeatureStatement,
+  makeProducerBindable,
+  makeProducerNamer,
+  parseFeatureStatement,
+  type ApplyFeatureEditSpec,
+} from '../src/apply-feature-edit/index.ts';
+import { FeatureSlotSynthesizer } from '../../lib/selection/feature-slots.js';
 import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
 import { standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
@@ -1404,5 +1412,88 @@ describe('a custom feature as a producer', () => {
     const filleted = findSolid(rerun) as Solid;
     const tori = filleted.getFaces().filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'torus');
     expect(tori.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('places a standoff on a picked face through its call shape, and edits its height', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      ``,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 4, column: 10 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const top = Explorer.findFacesWrapped(plate)
+      .map((face, index) => ({ face, index }))
+      .filter(({ face }) => face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+    expect(top).toHaveLength(1);
+
+    // The route's two halves: the picked face synthesized as its slot, the
+    // spec written through the feature's call shape.
+    const catalog = standoffCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    const synthesis = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { face: { picker: 'face', entities: [{ shapeId: plate.id, sub: { type: 'face', index: top[0].index } }], options: { surface: 'planar' } } },
+    }, { bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees) });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.slots.face.args).toEqual(['e.endFaces()']);
+    const created = await applyFeatureEdit(code, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: synthesis.producers,
+      parts: synthesis.parts,
+      imports: synthesis.imports,
+      custom: {
+        id: meta.id,
+        exportName: 'standoff',
+        modulePath: '/ws/standoff.feature.js',
+        shape: CustomFeatureStatement.shapeOf(meta),
+        values: {
+          face: { kind: 'picks', items: synthesis.slots.face.parts.map(part => ({ kind: 'part' as const, part })) },
+          height: { kind: 'value', value: 12 },
+        },
+      },
+    }, { callees: catalog });
+    expect(created.error).toBeUndefined();
+    expect(created.newCode).toContain(`import { standoff } from './standoff.feature.js';`);
+    expect(created.newCode).toContain(`const e = extrude(10)\nstandoff(e.endFaces(), { height: 12 })\n`);
+
+    const tube = (height: number) => Math.PI * (3 ** 2 - 1.5 ** 2) * height;
+    const volume = (source: string) => {
+      const built = runFluid(source, { standoff });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      return ShapeProps.getProperties(findSolid(built).getShape()).volumeMm3;
+    };
+    expect(volume(created.newCode)).toBeCloseTo(40 * 40 * 10 + tube(12), 3);
+
+    // The timeline double-click: the statement read back by its shape, its
+    // height changed, everything else kept as written.
+    const line = created.newCode.split('\n').findIndex(l => l.startsWith('standoff(')) + 1;
+    const parsed = await parseFeatureStatement(created.newCode, line, await catalog.calleesFor(created.newCode, '/ws/model.part.js'));
+    expect(parsed).toMatchObject({ ok: true, parsed: { feature: 'custom', values: { height: 12 }, picks: { face: [{ text: 'e.endFaces()' }] } } });
+    const edited = await applyFeatureEdit(created.newCode, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: {
+        line,
+        column: 0,
+        expectedStatement: parsed.ok ? parsed.statement : undefined,
+        custom: { id: meta.id, values: { face: { kind: 'keep' }, height: { kind: 'value', value: 20 } } },
+      },
+    }, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 20 })\n`);
+    expect(volume(edited.newCode)).toBeCloseTo(40 * 40 * 10 + tube(20), 3);
   });
 });

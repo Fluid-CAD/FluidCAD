@@ -268,8 +268,22 @@ describe('resolveCallee', () => {
 
   it('turns a file’s imports into the callees its producer gates read', async () => {
     const callees = await catalog.calleesFor(fs.readFileSync(at('model.part.js'), 'utf8'), at('model.part.js'));
-    expect(callees.feature('so')).toEqual({ id: 'acme.standoff', kind: 'tool' });
-    expect(callees.feature('plate')).toEqual({ id: 'acme.plate', kind: 'tool' });
+    expect(callees.feature('so')).toEqual({
+      id: 'acme.standoff',
+      kind: 'tool',
+      // The shape the edit dialog reads and writes the call by.
+      shape: {
+        call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
+        operations: ['add', 'new'],
+        params: {
+          face: { picker: 'face', list: false },
+          height: { type: 'length', list: false },
+          outer: { type: 'length', list: false },
+          hole: { type: 'length', list: false },
+        },
+      },
+    });
+    expect(callees.feature('plate')).toMatchObject({ id: 'acme.plate', kind: 'tool' });
     expect(callees.feature('helper')).toBeNull();
     expect(callees.produces('acme.standoff', 'so')).toBe(true);
   });

@@ -34,7 +34,9 @@ import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from './spec.ts';
  * file's first. With `partLoc` (the timeline's active part) the statement
  * lands at the end of that `part()`'s callback body instead, under the same
  * breakpoint/return rules. `statementFor` receives the insertion indent (for
- * multi-line bodies) and renders without the trailing semicolon.
+ * multi-line bodies) and renders without the trailing semicolon. `callee`
+ * is imported from the core, unless `importCallee` writes the import itself
+ * (a custom feature's builder comes from its own module).
  */
 export async function appendTopLevelStatement(
   code: string,
@@ -42,6 +44,7 @@ export async function appendTopLevelStatement(
   callee: string,
   newVariables?: ApplyFeatureEditSpec['newVariables'],
   partLoc?: { line: number; column: number },
+  importCallee?: (code: string) => Promise<string>,
 ): Promise<ApplyFeatureEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -84,7 +87,7 @@ export async function appendTopLevelStatement(
   if ('error' in landed) {
     return { newCode: code, error: landed.error };
   }
-  result = await ensureSymbolImport(landed.newCode, callee);
+  result = importCallee ? await importCallee(landed.newCode) : await ensureSymbolImport(landed.newCode, callee);
   if (declsResult.paramDecls.length > 0) {
     result = await ensureSymbolImport(result, 'param');
   }

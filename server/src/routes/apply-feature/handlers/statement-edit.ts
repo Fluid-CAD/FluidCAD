@@ -29,6 +29,7 @@ import { projectSketchRefusal } from '../validate/project.ts';
 import type { RepeatEditAxisInput } from '../validate/repeat.ts';
 import { validateStatementEdit } from '../validate/statement-edit.ts';
 import { resolveHolePlacements } from './hole.ts';
+import { handleCustomFeatureEdit } from './custom-feature.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // In-place statement edit (timeline double-click → edit dialog): the
@@ -37,6 +38,11 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // profiles, paths) synthesize selectors against the scene truncated to
 // the `before` boundary — the world the statement's arguments see.
 export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
+  // A custom feature's statement reads and writes through its call shape.
+  if (req.body?.feature === 'custom') {
+    await handleCustomFeatureEdit(ctx, req, res);
+    return;
+  }
   const { fluidCadServer, dispatcher, foreignPicks, preview, newVariables } = ctx;
   const request = validateStatementEdit(req.body);
   if ('error' in request) {

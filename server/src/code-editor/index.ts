@@ -52,7 +52,7 @@ export {
   type SetUnitResult,
   type UnitStatement,
 } from './units.ts';
-export { ensureSymbolImport, importLocalName, removeSymbolImport } from './imports.ts';
+export { ensureSymbolImport, importLocalName, namedImportBindings, removeSymbolImport, type NamedImportBinding } from './imports.ts';
 export {
   findSketchBody,
   insertGeometryCall,

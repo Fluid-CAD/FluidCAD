@@ -144,6 +144,41 @@ export function findNamedImports(importNode: TSNode): TSNode | null {
   return null;
 }
 
+/** A named import of a file: the export it reads, and the specifier of the module it reads it from. */
+export type NamedImportBinding = { imported: string; source: string };
+
+/**
+ * The file's top-level named imports (`import { a, b as c } from '…'`), by
+ * the local name each binds — `c` reads `b`. Default and namespace imports
+ * bind no named export and are left out.
+ */
+export function namedImportBindings(tree: TSTree): Map<string, NamedImportBinding> {
+  const bindings = new Map<string, NamedImportBinding>();
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type !== 'import_statement') {
+      continue;
+    }
+    const sourceNode = node.childForFieldName('source');
+    const namedImports = sourceNode ? findNamedImports(node) : null;
+    if (!sourceNode || !namedImports) {
+      continue;
+    }
+    const source = sourceNode.text.slice(1, -1);
+    for (const specifier of namedImports.namedChildren) {
+      if (specifier.type !== 'import_specifier') {
+        continue;
+      }
+      const name = specifier.childForFieldName('name') ?? specifier.namedChild(0);
+      if (!name) {
+        continue;
+      }
+      const alias = specifier.childForFieldName('alias');
+      bindings.set((alias ?? name).text, { imported: name.text, source });
+    }
+  }
+  return bindings;
+}
+
 /** The specifier of `module`'s import that brings in `symbol`, if any. */
 function findImportSpecifier(tree: TSTree, symbol: string, module: string): TSNode | null {
   const importNode = module === 'fluidcad/core'

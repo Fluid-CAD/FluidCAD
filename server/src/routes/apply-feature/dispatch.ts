@@ -26,6 +26,7 @@ import { handleConnector } from './handlers/connector.ts';
 import { handleExpose } from './handlers/expose.ts';
 import { handleSketchEntities } from './handlers/sketch-entities.ts';
 import { handleSelectorFeature } from './handlers/selector-feature.ts';
+import { handleCustomFeature } from './handlers/custom-feature.ts';
 import type { ApplyFeatureRequestContext, ApplyFeatureServices } from './context.ts';
 import { FeatureCallees } from '../../apply-feature-edit/index.ts';
 
@@ -250,6 +251,14 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // the frame adjustments (an exposure has no anchor/rotate/offset).
     if (feature === 'expose') {
       await handleExpose(ctx, req, res);
+      return;
+    }
+
+    // A custom feature, named by its catalog id: its values checked against
+    // its metadata, its picks synthesized per picker, its statement written
+    // through its call shape with the builder imported from its module.
+    if (feature === 'custom') {
+      await handleCustomFeature(ctx, req, res);
       return;
     }
 

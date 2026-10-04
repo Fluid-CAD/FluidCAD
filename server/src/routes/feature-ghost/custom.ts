@@ -286,7 +286,8 @@ export class CustomGhostRoute {
           ? { kind: 'standard', name: raw.name as 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
           : null;
       case 'connector':
-        if (!takes('connector') || typeof raw.filePath !== 'string' || typeof raw.line !== 'number') {
+        // An axis takes a connector too: its Z axis through its origin.
+        if (!(takes('connector') || takes('axis')) || typeof raw.filePath !== 'string' || typeof raw.line !== 'number') {
           return null;
         }
         if (raw.slot !== undefined && !(Number.isSafeInteger(raw.slot) && (raw.slot as number) >= 0)) {

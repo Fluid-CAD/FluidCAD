@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import {
   extractNumericParams,
   makeProducerNamer,
+  renderRevolveAxisExpr,
   renderRevolveStatement,
   resolveParamValues,
   type ApplyFeatureEditSpec,
@@ -13,11 +14,12 @@ import { RegionDeclarations } from '../../../apply-feature-edit/region-declarati
 import { scopeCrossFileError } from '../locations.ts';
 import { allocateProducerVars, mergeScopeProducers } from '../synthesis.ts';
 import { validateRevolve } from '../validate/revolve.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // Revolve composes a profile sketch around an axis — a standard world
-// axis, an existing axis statement bound to a variable, or a picked edge
-// synthesized into `axis(<selector>)`.
+// axis, an existing axis statement bound to a variable, a connector (its Z
+// axis), or a picked edge synthesized into `axis(<selector>)`.
 export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
   const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateRevolve(req.body);
@@ -88,14 +90,8 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
       axisArgs = synthesis.args;
       alternatives = synthesis.alternatives;
       axis = { kind: 'selector' };
-    } else if (request.axis.kind === 'axis') {
-      producers.push({
-        line: request.axis.loc.line, column: request.axis.loc.column,
-        featureType: 'axis', nameHint: 'a', bind: true,
-      });
-      axis = { kind: 'axis', producer: producers.length - 1 };
     } else {
-      axis = { kind: 'standard', axis: request.axis.axis };
+      axis = AxisInputs.bind(request.axis, AxisInputs.appender(producers));
     }
 
     const scope = mergeScopeProducers(producers, request.scope);
@@ -119,7 +115,7 @@ export async function handleRevolve(ctx: ApplyFeatureRequestContext, req: Reques
     const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const axisExpr = axis.kind === 'selector'
       ? `axis(${axisArgs})`
-      : axis.kind === 'axis' ? (producerVars[axis.producer] ?? 'a') : `'${axis.axis}'`;
+      : renderRevolveAxisExpr(axis, parts, i => producerVars[i]);
     const statement = renderRevolveStatement(
       options,
       axisExpr,

@@ -15,7 +15,8 @@ import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
 import { CONNECTOR_NAME, validConnectorAnchor, validConnectorRotate } from '../features/connector.ts';
-import { validCopyAxisSlot, type CopyAxisSpec } from '../features/copy.ts';
+import type { CopyAxisSpec } from '../features/copy.ts';
+import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
@@ -156,7 +157,9 @@ export async function applyCreateEdit(
         : spec.parts.length === 0
           && (rev.axis.kind === 'standard'
             ? spec.producers.length === 1 + scope.length
-            : isAxisProducer(spec, rev.axis.producer)));
+            : rev.axis.kind === 'connector'
+              ? ConnectorAxisSpecs.valid(spec, rev.axis)
+              : isAxisProducer(spec, rev.axis.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed revolve edit spec' };
     }
@@ -171,7 +174,9 @@ export async function applyCreateEdit(
         : spec.parts.length === 0
           && (hx.source.kind === 'standard'
             ? spec.producers.length === 0
-            : isAxisProducer(spec, hx.source.producer)));
+            : hx.source.kind === 'connector'
+              ? ConnectorAxisSpecs.valid(spec, hx.source)
+              : isAxisProducer(spec, hx.source.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed helix edit spec' };
     }
@@ -300,6 +305,8 @@ export async function applyCreateEdit(
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'connector'
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
       plane !== undefined && (plane.kind === 'selector'
@@ -365,7 +372,7 @@ export async function applyCreateEdit(
           : axis.kind === 'local'
             ? axis.axis === 'x' || axis.axis === 'y'
           : axis.kind === 'connector'
-            ? isConnectorProducer(spec, axis.producer) && validCopyAxisSlot(axis.slot)
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validSweep = cp?.sweep !== undefined
       && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')
@@ -487,6 +494,8 @@ export async function applyCreateEdit(
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'connector'
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const valid = ro !== undefined
       && targets.length >= 1

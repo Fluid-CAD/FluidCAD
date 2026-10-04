@@ -104,12 +104,12 @@ export type RevolveGhostRequest = {
 };
 
 /**
- * The revolve dialog's axis slot on the wire: a world axis from the X/Y/Z
- * quick buttons, an `axis()` statement by call site, or an edge picked in the
- * viewport. "Keep the current axis" never travels — the client resolves it to
- * the edited statement's own `axis()` call site first. The copy's axis slot
- * also takes a connector — its `connector()` call site, plus a copy's slot —
- * standing for its Z axis through its origin.
+ * An axis slot on the wire (revolve, helix, repeat, rotate, copy): a world
+ * axis clicked in the viewport, an `axis()` statement by call site, an edge
+ * picked in the viewport, or a connector — its `connector()` call site, plus
+ * a copy's slot — standing for its Z axis through its origin. "Keep the
+ * current axis" never travels — the client resolves it to what the edited
+ * statement's own axis names first.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
@@ -214,8 +214,8 @@ export type HelixGhostRequest = {
 };
 
 /**
- * The helix dialog's source slot on the wire: the revolve axis family (a world
- * axis, an `axis()` statement, and a picked edge the dialog writes as
+ * The helix dialog's source slot on the wire: the axis family (a world axis,
+ * an `axis()` statement, a connector, and a picked edge the dialog writes as
  * `axis(<edge>)`), plus the helix's own two — a cylindrical/conical face, and
  * a bare edge source, which only an edit dialog over `helix(select(edge()))`
  * produces.
@@ -223,6 +223,7 @@ export type HelixGhostRequest = {
 export type GhostHelixSourceRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };

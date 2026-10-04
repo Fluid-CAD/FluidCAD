@@ -52,6 +52,7 @@ export { CustomFeaturePoints } from './custom-feature-points.ts';
 export { renderSweepStatement, type SweepEditOptions } from './features/sweep.ts';
 export { renderWrapStatement, type WrapEditOptions } from './features/wrap.ts';
 export { PROJECTION_OPS, type ProjectEditOptions, type ProjectionOp } from './features/projection.ts';
+export { ConnectorAxisSpecs, type ConnectorAxisSpec } from './features/connector-axis.ts';
 export {
   renderRevolveAxisExpr,
   renderRevolveStatement,

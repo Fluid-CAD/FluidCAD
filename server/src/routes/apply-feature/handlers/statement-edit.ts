@@ -23,6 +23,7 @@ import { normalizePath } from '../../../normalize-path.ts';
 import type { SketchLoc } from '../locations.ts';
 import { validateBoundary, type Pick } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
 import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.ts';
 import { projectSketchRefusal } from '../validate/project.ts';
@@ -76,13 +77,13 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.sweepProfile ? [request.sweepProfile] : []),
       ...(request.wrapSketch ? [request.wrapSketch] : []),
       ...(request.revolveProfile ? [request.revolveProfile] : []),
-      ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
-      ...(request.helixSource?.kind === 'axis' ? [request.helixSource.loc] : []),
+      ...(request.revolveAxis?.kind === 'axis' || request.revolveAxis?.kind === 'connector' ? [request.revolveAxis.loc] : []),
+      ...(request.helixSource?.kind === 'axis' || request.helixSource?.kind === 'connector' ? [request.helixSource.loc] : []),
       ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
       ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
       ...(request.sketchTarget?.kind === 'planeRef' ? [request.sketchTarget.loc] : []),
-      ...(request.repeatDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
-      ...(request.repeatAxis?.kind === 'axis' ? [request.repeatAxis.loc] : []),
+      ...(request.repeatDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
+      ...(request.repeatAxis?.kind === 'axis' || request.repeatAxis?.kind === 'connector' ? [request.repeatAxis.loc] : []),
       ...(request.repeatPlane?.kind === 'plane' ? [request.repeatPlane.loc] : []),
       ...(request.repeatTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
@@ -91,7 +92,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.copyPattern?.kind === 'repeat' ? [request.copyPattern.loc] : []),
       ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
       ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
-      ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
+      ...(request.rotateAxis?.kind === 'axis' || request.rotateAxis?.kind === 'connector' ? [request.rotateAxis.loc] : []),
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
@@ -296,16 +297,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       edit.revolve!.regionSketch = { line: request.revolveProfile.line, column: request.revolveProfile.column };
     }
     if (request.revolveAxis) {
-      if (request.revolveAxis.kind === 'standard') {
-        edit.revolve!.axis = { kind: 'standard', axis: request.revolveAxis.axis };
-      } else if (request.revolveAxis.kind === 'axis') {
-        edit.revolve!.axis = {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: request.revolveAxis.loc.line, column: request.revolveAxis.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (request.revolveAxis.kind !== 'edge') {
+        edit.revolve!.axis = AxisInputs.bind(request.revolveAxis, mergeProducer);
       } else {
         const synthesis = synthesizeSlot([request.revolveAxis.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -323,16 +316,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
     }
     if (request.helixSource) {
-      if (request.helixSource.kind === 'standard') {
-        edit.helix!.source = { kind: 'standard', axis: request.helixSource.axis };
-      } else if (request.helixSource.kind === 'axis') {
-        edit.helix!.source = {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: request.helixSource.loc.line, column: request.helixSource.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (request.helixSource.kind !== 'edge' && request.helixSource.kind !== 'face') {
+        edit.helix!.source = AxisInputs.bind(request.helixSource, mergeProducer);
       } else {
         const synthesis = synthesizeSlot([request.helixSource.pick], 'helix', undefined, []);
         if (!synthesis) {
@@ -486,24 +471,16 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.feature === 'repeat') {
       const rp = edit.repeat!;
       // One repeat axis input as its edit spec form; null after refusing.
-      // Keeps and standard axes pass through; an axis statement binds a
-      // producer; a picked edge synthesizes its own selector part against
-      // the pre-statement boundary, wrapped in `axis(…)` at render time.
+      // Keeps and standard axes pass through; an axis statement or a
+      // connector binds a producer; a picked edge synthesizes its own
+      // selector part against the pre-statement boundary, wrapped in
+      // `axis(…)` at render time.
       const resolveAxis = (input: RepeatEditAxisInput): RepeatEditAxis | null => {
         if (input.kind === 'keep') {
           return { kind: 'keep', sourceIndex: input.sourceIndex };
         }
-        if (input.kind === 'standard') {
-          return { kind: 'standard', axis: input.axis };
-        }
-        if (input.kind === 'axis') {
-          return {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
+        if (input.kind !== 'edge') {
+          return AxisInputs.bind(input, mergeProducer);
         }
         const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -631,9 +608,6 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         if (input.kind === 'keep') {
           return { kind: 'keep', sourceIndex: input.sourceIndex };
         }
-        if (input.kind === 'standard') {
-          return { kind: 'standard', axis: input.axis };
-        }
         if (input.kind === 'local') {
           importSet.add(`${input.axis}Axis`);
           return { kind: 'local', axis: input.axis };
@@ -642,24 +616,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           importSet.add('axis');
           return { kind: 'selector', part: sketchAxisParts[sketchAxisIndex++] };
         }
-        if (input.kind === 'axis') {
-          return {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
-        }
-        if (input.kind === 'connector') {
-          return {
-            kind: 'connector',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'connector', nameHint: 'c', bind: true,
-            }),
-            ...(input.slot !== undefined ? { slot: input.slot } : {}),
-          };
+        if (input.kind !== 'edge') {
+          return AxisInputs.bind(input, mergeProducer);
         }
         const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -834,16 +792,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         let axis: RotateEditAxis | null;
         if (input.kind === 'keep') {
           axis = { kind: 'keep' };
-        } else if (input.kind === 'standard') {
-          axis = { kind: 'standard', axis: input.axis };
-        } else if (input.kind === 'axis') {
-          axis = {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
+        } else if (input.kind !== 'edge') {
+          axis = AxisInputs.bind(input, mergeProducer);
         } else {
           const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
           if (!synthesis) {

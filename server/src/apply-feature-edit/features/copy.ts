@@ -12,6 +12,7 @@ import {
   stringArgValue,
 } from '../ast/args.ts';
 import { renderRepeatAxisExpr, type RepeatAxisSpec } from './repeat.ts';
+import { ConnectorAxisSpecs } from './connector-axis.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import {
   isAxisProducer,
@@ -23,14 +24,11 @@ import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 
 /**
- * One axis of a copy statement: the revolve axis shapes a repeat takes too,
- * plus a connector standing for its Z axis through its origin — its
- * `connector()` statement bound under the connector's own name, and
- * `.instance(<slot>)` on it for one of its copies (`bolt.instance(2)`).
+ * One axis of a copy statement: the axis shapes a repeat takes — a connector
+ * among them, standing for its Z axis through its origin ({@link
+ * ConnectorAxisSpec}).
  */
-export type CopyAxisSpec =
-  | RepeatAxisSpec
-  | { kind: 'connector'; producer: number; slot?: number };
+export type CopyAxisSpec = RepeatAxisSpec;
 
 /**
  * One axis slot of an edited copy: keep the statement's own axis text by its
@@ -104,30 +102,18 @@ export type CopyEditOptions = {
 };
 
 /**
- * Render one copy axis argument: a connector as its bound variable — plus
- * `.instance(<slot>)` for one of its copies — and every other shape the way
- * a repeat renders it ({@link renderRepeatAxisExpr}). Shared with the
- * route's preview, which passes its namer's variables; the transform passes
- * its bindings'.
+ * Render one copy axis argument, the way a repeat renders it ({@link
+ * renderRepeatAxisExpr}): a connector as its bound variable, plus
+ * `.instance(<slot>)` for one of its copies. Shared with the route's
+ * preview, which passes its namer's variables; the transform passes its
+ * bindings'.
  */
 export function renderCopyAxisExpr(
   axis: CopyAxisSpec,
   parts: ApplyFeatureEditSpec['parts'],
   varFor: (producer: number) => string | null,
 ): string {
-  if (axis.kind === 'connector') {
-    const binding = varFor(axis.producer) ?? 'c';
-    return axis.slot === undefined ? binding : `${binding}.instance(${axis.slot})`;
-  }
   return renderRepeatAxisExpr(axis, parts, varFor);
-}
-
-/**
- * A copy axis's connector slot, when it names one: a copy's pattern slot is a
- * non-negative whole number; absent names the connector itself.
- */
-export function validCopyAxisSlot(slot: unknown): boolean {
-  return slot === undefined || (Number.isSafeInteger(slot) && (slot as number) >= 0);
 }
 
 /** The 2D circular copy's center argument: `[x, y]`. */
@@ -549,7 +535,7 @@ export function renderEditedCopy(
         return { error: 'malformed copy edit spec: the axis references a non-axis producer' };
       }
     } else if (axis?.kind === 'connector') {
-      if (!isConnectorProducer(spec as ApplyFeatureEditSpec, axis.producer) || !validCopyAxisSlot(axis.slot)) {
+      if (!ConnectorAxisSpecs.valid(spec, axis)) {
         return { error: 'malformed copy edit spec: the axis references a non-connector producer' };
       }
     } else if (axis?.kind === 'local') {

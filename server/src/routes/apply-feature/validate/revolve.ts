@@ -5,16 +5,21 @@ import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locatio
 import { validatePick, type Pick } from '../picks.ts';
 import { validateRegionPicks } from '../regions.ts';
 import { validateThinOffsets } from './common.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 
 /**
- * One revolve axis input: a standard world axis string, an existing axis
- * statement addressed by its source location, or a picked edge to synthesize
- * an `axis(<selector>)` from.
+ * One axis input, as every axis slot sends it (revolve, helix, repeat,
+ * rotate, copy): a standard world axis string, an existing axis statement
+ * addressed by its source location, a picked edge to synthesize an
+ * `axis(<selector>)` from, or a connector standing for its Z axis through
+ * its origin — its `connector()` statement's call site, plus the pattern
+ * slot for one of its copies (`bolt.instance(2)`).
  */
 export type RevolveAxisInput =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; loc: SketchLoc }
-  | { kind: 'edge'; pick: Pick };
+  | { kind: 'edge'; pick: Pick }
+  | { kind: 'connector'; loc: SketchLoc; slot?: number };
 
 /**
  * The revolve request's shape: the profile is a sketch (like extrude); the
@@ -35,7 +40,7 @@ type RevolveRequest = {
   regions: RegionPickSpec[];
 };
 
-/** One revolve axis field: standard string, axis statement, or edge pick. */
+/** One axis field: standard string, axis statement, edge pick, or connector. */
 export function validateRevolveAxis(raw: any): RevolveAxisInput | { error: string } {
   if (raw?.kind === 'standard') {
     if (raw.axis !== 'x' && raw.axis !== 'y' && raw.axis !== 'z') {
@@ -57,7 +62,18 @@ export function validateRevolveAxis(raw: any): RevolveAxisInput | { error: strin
     }
     return { kind: 'edge', pick };
   }
-  return { error: 'axis must be {kind: "standard"|"axis"|"edge", …}' };
+  if (raw?.kind === 'connector') {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'a connector axis must carry its connector() {filePath, line}' };
+    }
+    if (raw.slot !== undefined && raw.slot !== null
+      && !(Number.isSafeInteger(raw.slot) && raw.slot >= 0)) {
+      return { error: 'a connector axis slot must be a whole number counting from 0' };
+    }
+    return typeof raw.slot === 'number' ? { kind: 'connector', loc, slot: raw.slot } : { kind: 'connector', loc };
+  }
+  return { error: 'axis must be {kind: "standard"|"axis"|"edge"|"connector", …}' };
 }
 
 export function validateRevolve(body: any): RevolveRequest | { error: string } {
@@ -84,7 +100,8 @@ export function validateRevolve(body: any): RevolveRequest | { error: string } {
   if ('error' in axis) {
     return axis;
   }
-  if (axis.kind === 'axis' && axis.loc.filePath !== profileLoc.filePath) {
+  const axisFile = AxisInputs.fileOf(axis);
+  if (axisFile !== null && axisFile !== profileLoc.filePath) {
     return { error: 'the axis and the profile sketch live in different files' };
   }
   const scopeResult = validateScopeLocs(body, op);

@@ -272,13 +272,16 @@ export class CustomFeatureInputs {
 
   /**
    * The kind a statement pick is read as: the one the dialog named, else
-   * the value's one kind that takes statements — null when it names none it
-   * takes, or the value takes statements as more than one kind.
+   * the value's one declared kind that takes statements — null when it
+   * names none it takes, or the value takes statements as more than one
+   * kind. An axis value takes a connector statement too (its Z axis), which
+   * the dialog names as one: a statement it leaves unnamed is the axis.
    */
   static statementKind(spec: ParamSpecSnapshot, input: { picker?: string }): string | null {
     const kinds = CustomFeatureInputs.kindsOf(spec).filter(kind => STATEMENT_PICKERS[kind]);
     if (input.picker !== undefined) {
-      return kinds.includes(input.picker) ? input.picker : null;
+      const taken = kinds.includes('axis') ? [...kinds, 'connector'] : kinds;
+      return taken.includes(input.picker) ? input.picker : null;
     }
     return kinds.length === 1 ? kinds[0] : null;
   }

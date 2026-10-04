@@ -10,14 +10,14 @@ import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validateSketchPicks } from '../picks.ts';
 import { validateRepeatEditAxis, type RepeatEditAxisInput } from './repeat.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { StatementEditRequest } from './statement-edit.ts';
 
 /**
- * One copy axis field: the revolve axis shapes, or a connector standing for
- * its Z axis through its origin — its `connector()` statement's call site,
- * plus the pattern slot for one of its copies (`bolt.instance(2)`).
+ * One copy axis field: the axis inputs every axis slot takes, a connector
+ * among them ({@link RevolveAxisInput}).
  */
-export type CopyAxisInput = RevolveAxisInput | { kind: 'connector'; loc: SketchLoc; slot?: number };
+export type CopyAxisInput = RevolveAxisInput;
 
 /**
  * One copy target: a feature statement whose solids the copy clones, or a
@@ -81,26 +81,6 @@ export function validateCopySkip(raw: unknown, arity: number): number[][] | { er
 }
 
 /**
- * A copy axis field: a connector by its `connector()` statement (with the
- * slot of one of its copies, a non-negative whole number), or any revolve
- * axis shape.
- */
-export function validateCopyAxis(raw: any): CopyAxisInput | { error: string } {
-  if (raw?.kind === 'connector') {
-    const loc = validateSketchLoc(raw);
-    if (!loc) {
-      return { error: 'a connector axis must carry its connector() {filePath, line}' };
-    }
-    if (raw.slot !== undefined && raw.slot !== null
-      && !(Number.isSafeInteger(raw.slot) && raw.slot >= 0)) {
-      return { error: 'a connector axis slot must be a whole number counting from 0' };
-    }
-    return typeof raw.slot === 'number' ? { kind: 'connector', loc, slot: raw.slot } : { kind: 'connector', loc };
-  }
-  return validateRevolveAxis(raw);
-}
-
-/**
  * The copy targets: statements by call site, each a feature (the default)
  * or a `connector()` the copy copies as frames — all in one file, each once.
  */
@@ -129,11 +109,6 @@ function validateCopyTargets(targets: unknown): CopyTargetInput[] | { error: str
     targetLocs.push({ ...loc, kind: raw.kind === 'connector' ? 'connector' : 'feature' });
   }
   return targetLocs;
-}
-
-/** The file an axis statement lives in — the axis forms that name one. */
-function axisFile(axis: CopyAxisInput): string | null {
-  return axis.kind === 'axis' || axis.kind === 'connector' ? axis.loc.filePath : null;
 }
 
 /**
@@ -184,11 +159,11 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
     }
     const directions: CopyDirectionInput[] = [];
     for (const entry of raw) {
-      const axis = validateCopyAxis(entry?.axis);
+      const axis = validateRevolveAxis(entry?.axis);
       if ('error' in axis) {
         return axis;
       }
-      if (axisFile(axis) !== null && axisFile(axis) !== filePath) {
+      if (AxisInputs.fileOf(axis) !== null && AxisInputs.fileOf(axis) !== filePath) {
         return { error: 'an axis and the targets live in different files' };
       }
       if (!validCountValue(entry?.count)) {
@@ -215,11 +190,11 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
   if (body?.spacingMode !== undefined && body?.spacingMode !== null) {
     return { error: 'only a linear copy takes a spacingMode' };
   }
-  const axis = validateCopyAxis(body?.axis);
+  const axis = validateRevolveAxis(body?.axis);
   if ('error' in axis) {
     return axis;
   }
-  if (axisFile(axis) !== null && axisFile(axis) !== filePath) {
+  if (AxisInputs.fileOf(axis) !== null && AxisInputs.fileOf(axis) !== filePath) {
     return { error: 'the axis and the targets live in different files' };
   }
 
@@ -288,13 +263,11 @@ function validateFollowCopy(body: any, targets: CopyTargetInput[]): CopyRequest 
 }
 
 /**
- * One copy-edit axis field: the repeat shapes, a connector (see
- * {@link validateCopyAxis}), plus the 2D in-sketch forms — a sketch-local
- * axis, or a picked sketch edge whose `{shapeId}` rides `sketchAxisEntities`
- * in direction order.
+ * One copy-edit axis field: the repeat shapes — a connector among them —
+ * plus the 2D in-sketch forms: a sketch-local axis, or a picked sketch edge
+ * whose `{shapeId}` rides `sketchAxisEntities` in direction order.
  */
 export type CopyEditAxisInput = RepeatEditAxisInput
-  | { kind: 'connector'; loc: SketchLoc; slot?: number }
   | { kind: 'local'; axis: 'x' | 'y' }
   | { kind: 'sketch-edge' };
 
@@ -307,9 +280,6 @@ function validateCopyEditAxis(raw: any): CopyEditAxisInput | { error: string } {
   }
   if (raw?.kind === 'sketch-edge') {
     return { kind: 'sketch-edge' };
-  }
-  if (raw?.kind === 'connector') {
-    return validateCopyAxis(raw);
   }
   return validateRepeatEditAxis(raw);
 }

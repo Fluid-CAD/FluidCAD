@@ -7,6 +7,7 @@ import {
 } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { StatementEditRequest } from './statement-edit.ts';
 
 type RotateRequest = {
@@ -57,7 +58,7 @@ export function validateRotate(body: any): RotateRequest | { error: string } {
   if ('error' in axis) {
     return axis;
   }
-  if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+  if (AxisInputs.fileOf(axis) !== null && AxisInputs.fileOf(axis) !== filePath) {
     return { error: 'the axis and the targets live in different files' };
   }
   if (!validValueExpr(angle, { nonzero: true })) {

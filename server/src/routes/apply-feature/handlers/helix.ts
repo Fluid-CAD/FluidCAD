@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import {
   extractNumericParams,
   makeProducerNamer,
+  renderHelixSourceExpr,
   renderHelixStatement,
   resolveParamValues,
   type ApplyFeatureEditSpec,
@@ -11,12 +12,15 @@ import {
   type HelixSourceSpec,
 } from '../../../apply-feature-edit/index.ts';
 import { validateHelix } from '../validate/helix.ts';
+import { AxisInputs } from '../axis-inputs.ts';
+import { allocateProducerVars } from '../synthesis.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // Helix builds a wire around an axis (a standard world axis, an existing
-// axis statement bound to a variable, or a picked edge synthesized into
-// `axis(<selector>)`) or on a cylindrical/conical face (its selector on
-// its own). It consumes no sketch, so there is no profile producer.
+// axis statement bound to a variable, a connector — its Z axis — or a
+// picked edge synthesized into `axis(<selector>)`) or on a
+// cylindrical/conical face (its selector on its own). It consumes no
+// sketch, so there is no profile producer.
 export async function handleHelix(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
   const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateHelix(req.body);
@@ -71,15 +75,9 @@ export async function handleHelix(ctx: ApplyFeatureRequestContext, req: Request,
       alternatives = synthesis.alternatives;
       filePath = synthesis.spec.filePath;
       source = { kind: request.source.kind };
-    } else if (request.source.kind === 'axis') {
-      producers.push({
-        line: request.source.loc.line, column: request.source.loc.column,
-        featureType: 'axis', nameHint: 'a', bind: true,
-      });
-      filePath = request.source.loc.filePath;
-      source = { kind: 'axis', producer: producers.length - 1 };
     } else {
-      source = { kind: 'standard', axis: request.source.axis };
+      source = AxisInputs.bind(request.source, AxisInputs.appender(producers));
+      filePath = AxisInputs.fileOf(request.source);
     }
 
     // A standard axis references no existing statement — the helix still
@@ -103,20 +101,14 @@ export async function handleHelix(ctx: ApplyFeatureRequestContext, req: Request,
       endOffset: request.endOffset,
     };
 
-    // Truthful preview name for a bound axis statement — the same
-    // resolution the transform runs.
-    let axisVar: string | null = null;
-    if (code && request.source.kind === 'axis') {
-      const namer = await makeProducerNamer(code, await ctx.currentCallees());
-      axisVar = namer([{ line: request.source.loc.line, nameHint: 'a', featureType: 'axis' }])[0];
-    }
+    // Truthful preview name for a bound axis statement or connector — the
+    // same allocation walk the transform runs.
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const sourceExpr = source.kind === 'edge'
       ? `axis(${sourceArgs})`
       : source.kind === 'face'
         ? sourceArgs ?? ''
-        : source.kind === 'axis'
-          ? (axisVar ?? 'a')
-          : `'${source.axis}'`;
+        : renderHelixSourceExpr(source, parts, i => producerVars[i]);
     const statement = renderHelixStatement(options, sourceExpr);
     if (preview === true) {
       res.json({ success: true, preview: statement, args: sourceArgs ?? undefined, alternatives });

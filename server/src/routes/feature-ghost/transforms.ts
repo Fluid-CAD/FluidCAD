@@ -10,7 +10,6 @@ import {
 import {
   parseAxes,
   parseAxis,
-  parseCopyAxes,
   parsePlane,
   parseSketchAxes,
   parseSketchEntityRefs,
@@ -188,7 +187,7 @@ export function parseCopy(body: GhostBody): RawCopy | string {
   if (!targets || targets.length === 0 || targets.length > MAX_COPY_TARGETS) {
     return 'Invalid copy targets';
   }
-  const axes = parseCopyAxes(body.axes ?? []);
+  const axes = parseAxes(body.axes ?? []);
   if (!axes) {
     return 'Invalid axis reference';
   }

@@ -13,13 +13,19 @@ import type {
 import { STANDARD_AXES, STANDARD_PLANES, type GhostBody } from './vocabulary.ts';
 
 /**
- * The revolve axis slot, narrowed to the three forms the kernel resolves.
- * Anything else — a keep chip the client failed to resolve, a malformed pick
- * — is a bad request, not a silent fall back to a world axis.
+ * An axis slot (revolve, helix, repeat, rotate, copy), narrowed to the forms
+ * the kernel resolves: a world axis, an `axis()` statement, a picked edge,
+ * or a connector — its Z axis through its origin. Anything else — a keep
+ * chip the client failed to resolve, a malformed pick — is a bad request,
+ * not a silent fall back to a world axis.
  */
 export function parseAxis(value: GhostBody['axis']): GhostAxisRef | null {
   if (!value || typeof value !== 'object') {
     return null;
+  }
+  const connector = parseConnectorAxis(value);
+  if (connector !== undefined) {
+    return connector;
   }
   if (value.kind === 'standard') {
     return typeof value.axis === 'string' && STANDARD_AXES.includes(value.axis)
@@ -40,7 +46,28 @@ export function parseAxis(value: GhostBody['axis']): GhostAxisRef | null {
 }
 
 /**
- * The helix's single source slot. The three axis forms mirror {@link parseAxis}
+ * A connector standing for an axis: its `connector()` statement by call
+ * site, plus the slot of one of its copies (a whole number from 0). Null for
+ * a malformed one; undefined when the value is no connector ref at all.
+ */
+function parseConnectorAxis(value: unknown): { kind: 'connector'; filePath: string; line: number; slot?: number } | null | undefined {
+  const ref = value as { kind?: unknown; filePath?: unknown; line?: unknown; slot?: unknown };
+  if (ref?.kind !== 'connector') {
+    return undefined;
+  }
+  if (typeof ref.filePath !== 'string' || typeof ref.line !== 'number') {
+    return null;
+  }
+  if (ref.slot !== undefined && !(Number.isSafeInteger(ref.slot) && (ref.slot as number) >= 0)) {
+    return null;
+  }
+  return ref.slot === undefined
+    ? { kind: 'connector', filePath: ref.filePath, line: ref.line }
+    : { kind: 'connector', filePath: ref.filePath, line: ref.line, slot: ref.slot as number };
+}
+
+/**
+ * The helix's single source slot. The axis forms mirror {@link parseAxis}
  * — a picked edge arrives as `axis-edge`, since the helix dialog writes an edge
  * pick as `axis(<edge>)` — and the two the helix adds are a cylindrical/conical
  * face and a bare edge source. As with the axis slot, a keep chip the client
@@ -49,6 +76,10 @@ export function parseAxis(value: GhostBody['axis']): GhostAxisRef | null {
 export function parseHelixSource(value: unknown): GhostHelixSourceRef | null {
   if (!value || typeof value !== 'object') {
     return null;
+  }
+  const connector = parseConnectorAxis(value);
+  if (connector !== undefined) {
+    return connector;
   }
   const source = value as { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   if (source.kind === 'standard') {
@@ -273,7 +304,7 @@ export function parsePlaneBases(value: unknown, type: 'offset' | 'mid' | 'edge')
   return bases;
 }
 
-/** The repeat's axis slots — one per linear direction, or one on its own. */
+/** The repeat's and the copy's axis slots — one per linear direction, or one on its own. */
 export function parseAxes(value: unknown): GhostAxisRef[] | null {
   if (!Array.isArray(value)) {
     return null;
@@ -285,40 +316,6 @@ export function parseAxes(value: unknown): GhostAxisRef[] | null {
       return null;
     }
     axes.push(axis);
-  }
-  return axes;
-}
-
-/**
- * The copy's axis slots: the repeat's forms, plus a connector — its
- * `connector()` statement by call site, with the slot of one of its copies —
- * standing for its Z axis through its origin. Only the copy takes one; the
- * other axis slots have no statement form that writes it.
- */
-export function parseCopyAxes(value: unknown): GhostAxisRef[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const axes: GhostAxisRef[] = [];
-  for (const raw of value) {
-    const ref = raw as { kind?: unknown; filePath?: unknown; line?: unknown; slot?: unknown };
-    if (ref?.kind !== 'connector') {
-      const axis = parseAxis(raw as GhostBody['axis']);
-      if (!axis) {
-        return null;
-      }
-      axes.push(axis);
-      continue;
-    }
-    if (typeof ref.filePath !== 'string' || typeof ref.line !== 'number') {
-      return null;
-    }
-    if (ref.slot !== undefined && !(Number.isSafeInteger(ref.slot) && (ref.slot as number) >= 0)) {
-      return null;
-    }
-    axes.push(ref.slot === undefined
-      ? { kind: 'connector', filePath: ref.filePath, line: ref.line }
-      : { kind: 'connector', filePath: ref.filePath, line: ref.line, slot: ref.slot as number });
   }
   return axes;
 }

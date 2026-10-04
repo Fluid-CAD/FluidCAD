@@ -16,6 +16,7 @@ import {
   makeProducerMerger,
 } from '../synthesis.ts';
 import { validateCopy, type CopyAxisInput } from '../validate/copy.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
@@ -82,27 +83,8 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
 
     /** One validated axis input as its spec form; null after refusing. */
     const axisSpec = async (input: CopyAxisInput): Promise<CopyAxisSpec | null> => {
-      if (input.kind === 'standard') {
-        return { kind: 'standard', axis: input.axis };
-      }
-      if (input.kind === 'connector') {
-        return {
-          kind: 'connector',
-          producer: mergeProducer({
-            line: input.loc.line, column: input.loc.column,
-            featureType: 'connector', nameHint: 'c', bind: true,
-          }),
-          ...(input.slot !== undefined ? { slot: input.slot } : {}),
-        };
-      }
-      if (input.kind === 'axis') {
-        return {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: input.loc.line, column: input.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (input.kind !== 'edge') {
+        return AxisInputs.bind(input, mergeProducer);
       }
       const part = await synthesizeInput(input.pick);
       return part === null ? null : { kind: 'selector', part };

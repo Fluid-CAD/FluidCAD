@@ -46,6 +46,8 @@ import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
 import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
 import { boss } from '../../lib/tests/fixtures/custom-features/boss.js';
 import { createApplyFeatureRouter } from '../src/routes/apply-feature/index.ts';
+import { Feature, defineFeature } from '../../lib/sdk/index.js';
+import { Primitives, ShapeOps as KernelShapeOps } from '../../lib/sdk/kernel.js';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -1849,3 +1851,156 @@ describe('a custom feature at locations, from the dialog\'s picks to the built m
     }
   });
 });
+
+/**
+ * Every axis slot takes a connector — its Z axis through its origin. The
+ * dialogs send it as its `connector()` statement (and a copy's slot); the
+ * route binds it and writes `bolt` or `bolt.instance(1)`, the written model
+ * builds around that line, and an edit of the rest keeps it as written —
+ * for a built-in (revolve) and a custom feature's axis value alike.
+ */
+describe('an axis that is a connector, from the dialog\'s pick to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/flange.part.js';
+  const MODULE = '/ws/pin.feature.js';
+
+  /** `pin(along, { length })`: a Ø2 pin of `length` along the picked axis, from its origin. */
+  class Pin extends Feature.with({
+    along: { picker: 'axis', label: 'Along' },
+    length: { type: 'length', default: 8 },
+  }) {
+    static id = 'acme.pin';
+
+    buildTool(): Shape[] {
+      const along = this.axisOf(this.values.along);
+      const d = along.direction.normalize();
+      const helper = Math.abs(d.z) < 0.9 ? new math.Vector3d(0, 0, 1) : new math.Vector3d(1, 0, 0);
+      const x = helper.cross(d).normalize();
+      const pin = Primitives.makeCylinder(1, this.values.length);
+      const placed = KernelShapeOps.transform(pin, math.Matrix4.fromBasis(x, d.cross(x), d, along.origin));
+      pin.dispose();
+      return [placed];
+    }
+  }
+  const pin = defineFeature(Pin, { label: 'Pin', group: 'create', operations: ['add', 'new'], call: ['along', { length: 'length' }] });
+
+  const CODE = [
+    `import { part, sketch, line, extrude, connector, select, copy } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    ``,
+    `part('flange', () => {`,
+    `  const s = sketch('xz', () => { ${rectBodySrc(10, 10, 40, 20)} })`,
+    `  sketch('xy', () => { ${rectBodySrc(100, 100, -50, -50)} })`,
+    `  extrude(10).new()`,
+    `  const bolt = connector('bolt', select(face().planar().onPlane('xy', 10))).offset(30, 0, 0)`,
+    `  copy('linear', 'y', { count: 2, offset: 20 }, bolt)`,
+    `})`,
+    ``,
+  ].join('\n');
+  const BOLT = { filePath: FILE, line: 8, column: 15 };
+
+  async function applyRoute(code: () => string) {
+    const meta = snapshotFeatureMeta(getFeatureMeta(pin)!);
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'pin', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: code,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.pin', exportName: 'pin', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    return {
+      post: async (path: string, body: unknown) => {
+        const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json() as any };
+      },
+      relayed,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The x/y centre of the solids `type`'s objects built. */
+  function centreOf(scene: Scene, type: string): number[] {
+    const solids = scene.getAllSceneObjects().filter(o => o.getType() === type).flatMap(o => o.getShapes()).filter(s => s.isSolid());
+    expect(solids).toHaveLength(1);
+    const b = ShapeOps.getExactBoundingBox(solids[0]);
+    return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2].map(v => Math.round(v * 1000) / 1000);
+  }
+
+  it('revolves around a connector copy, and edits the angle keeping it as written', async () => {
+    let current = CODE;
+    const route = await applyRoute(() => current);
+    try {
+      const created = await route.post('/apply-feature', {
+        feature: 'revolve', op: 'new', angle: 360, symmetric: false, thin: null,
+        profile: { mode: 'bound', filePath: FILE, line: 5, column: 12 },
+        axis: { kind: 'connector', ...BOLT, slot: 1 }, scope: [], regions: [],
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      current = written.body.newCode;
+      expect(current).toContain(`  revolve(bolt.instance(1), s).new()\n})`);
+
+      // A ring around the copy's line, (30, 20).
+      let scene = runFluid(current);
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      expect(centreOf(scene, 'revolve')).toEqual([30, 20]);
+
+      const edited = await route.post('/apply-feature', {
+        feature: 'revolve', edit: { filePath: FILE, line: 10, column: 2 }, op: 'new', angle: 180,
+      });
+      expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+      const rewritten = await route.post('/code/apply-feature', { code: current, spec: route.relayed[1].spec });
+      expect(rewritten.body.error).toBeUndefined();
+      expect(rewritten.body.newCode).toContain(`  revolve(bolt.instance(1), 180, s).new()\n})`);
+      scene = runFluid(rewritten.body.newCode);
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    } finally {
+      await route.close();
+    }
+  });
+
+  it("stands a custom feature's axis value on a connector picked as one", async () => {
+    const route = await applyRoute(() => CODE);
+    try {
+      const created = await route.post('/apply-feature', {
+        feature: 'custom',
+        custom: {
+          id: 'acme.pin', values: { length: 12 }, operation: 'new',
+          picks: { along: [{ kind: 'statement', ...BOLT, picker: 'connector' }] },
+        },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
+      expect(created.body.preview).toBe('pin(bolt, { length: 12 }).new()');
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      expect(written.body.newCode).toContain(`import { pin } from './pin.feature.js';`);
+
+      const scene = runFluid(written.body.newCode, { pin });
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const solids = scene.getAllSceneObjects().filter(o => o.getType() === 'acme.pin').flatMap(o => o.getShapes()).filter(s => s.isSolid());
+      expect(solids).toHaveLength(1);
+      const b = ShapeOps.getExactBoundingBox(solids[0]);
+      expect([b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ].map(v => Math.round(v * 1000) / 1000)).toEqual([29, -1, 10, 31, 1, 22]);
+    } finally {
+      await route.close();
+    }
+  });
+});
+

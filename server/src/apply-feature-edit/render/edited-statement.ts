@@ -10,6 +10,7 @@ import {
   validConnectorRotate,
 } from '../features/connector.ts';
 import { renderEditedCopy } from '../features/copy.ts';
+import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
@@ -358,6 +359,8 @@ export function renderEditedStatement(
         }
       } else if (opts.axis.kind === 'axis' && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.axis.producer)) {
         return { error: 'malformed revolve edit spec: the axis references a non-axis producer' };
+      } else if (opts.axis.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.axis)) {
+        return { error: 'malformed revolve edit spec: the axis references a non-connector producer' };
       } else if (opts.axis.kind === 'standard'
         && opts.axis.axis !== 'x' && opts.axis.axis !== 'y' && opts.axis.axis !== 'z') {
         return { error: 'malformed revolve edit spec: bad standard axis' };
@@ -409,6 +412,8 @@ export function renderEditedStatement(
       } else if (opts.source.kind === 'axis'
         && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.source.producer)) {
         return { error: 'malformed helix edit spec: the source references a non-axis producer' };
+      } else if (opts.source.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.source)) {
+        return { error: 'malformed helix edit spec: the source references a non-connector producer' };
       } else if (opts.source.kind === 'standard'
         && opts.source.axis !== 'x' && opts.source.axis !== 'y' && opts.source.axis !== 'z') {
         return { error: 'malformed helix edit spec: bad standard axis' };

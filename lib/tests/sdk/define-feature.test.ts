@@ -14,7 +14,7 @@ import { ExtrudeBase } from "../../features/extrude-base.js";
 import { getFeatureMeta, registerBuilder, snapshotFeatureMeta } from "../../index.js";
 import { Feature, defineFeature, parseCall, type FeatureBuildContext, type FeatureMeta } from "../../sdk/index.js";
 import { Primitives, type Shape } from "../../sdk/kernel.js";
-import { defineStandoff, defineStandoffWithMeta, STANDOFF_DEFAULTS, type StandoffDefinition } from "../fixtures/custom-features/standoff.js";
+import { defineStandoff, defineStandoffWithMeta, STANDOFF_DEFAULTS, type StandoffDefinition, type StandoffVariant } from "../fixtures/custom-features/standoff.js";
 
 const PLATE = { w: 60, d: 40, t: 10 };
 const PLATE_VOLUME = PLATE.w * PLATE.d * PLATE.t;
@@ -171,7 +171,7 @@ describe("defineFeature()", () => {
 });
 
 /** Both ways of writing the standoff, each held to the same behaviour. */
-const AUTHORING_PATHS: [string, () => StandoffDefinition][] = [
+const AUTHORING_PATHS: [string, (variant?: StandoffVariant) => StandoffDefinition][] = [
   ['Feature.with() and defineFeature()', defineStandoff],
   ['a Feature subclass and registerBuilder()', defineStandoffWithMeta],
 ];
@@ -243,6 +243,22 @@ describe.each(AUTHORING_PATHS)("the standoff written with %s", (_path, define) =
 
     expect(errorsOf(scene)).toEqual([]);
     expect(solidVolumes(scene).filter(v => Math.abs(v - TUBE) < 1e-3)).toHaveLength(3);
+  });
+
+  it("applies its default operation without a chain, a repeat's copies too, and refuses one it doesn't offer", () => {
+    const { standoff, meta } = define({ operations: ['new'] });
+    expect(meta.defaultOperation).toBe('new');
+    const s = standoff(plate().endFaces()) as unknown as SceneObject;
+    repeat("linear", "x", { count: 3, offset: 15 }, s);
+    const scene = render();
+
+    expect(errorsOf(scene)).toEqual([]);
+    expect(solidVolumes(scene)).toHaveLength(4);
+    expect(solidVolumes(scene).filter(v => Math.abs(v - TUBE) < 1e-3)).toHaveLength(3);
+
+    const added = (define({ operations: ['new'] }).standoff(plate().endFaces()) as unknown as SceneObject).add();
+    render();
+    expect(added.getError()).toBe("standoff(): .add() is not an operation this feature offers — it offers 'new'; 'new' is its default and needs no chain");
   });
 });
 

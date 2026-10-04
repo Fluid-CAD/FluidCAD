@@ -19,7 +19,7 @@ import { applyBucketFilters } from "../filters/bucket-scope.js";
 import type { ISceneObject, ISelection } from "../core/interfaces.js";
 import type { SceneParserContext } from "../index.js";
 import { FeatureInputs, type FeatureValues } from "./feature-inputs.js";
-import { FeatureCall } from "./call-shape.js";
+import { FeatureCall, type FeatureOperation } from "./call-shape.js";
 import type { FeatureParams, ValuesOf } from "./feature-params.js";
 
 /** What `buildTool()` and a modifier's `build()` are handed: the scene as it stands before the feature. */
@@ -61,6 +61,17 @@ export type FeatureClass<V extends FeatureValues = FeatureValues> = (new (values
 export type FeatureWith<P extends FeatureParams> =
   (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>>) & { readonly params: P };
 
+/**
+ * @internal What a feature class's metadata tells the class itself, once a
+ * builder registered it: the label its timeline rows read, and the
+ * operations its statements may choose, with the default one.
+ */
+export type FeatureRegistration = {
+  label: string;
+  operations: readonly FeatureOperation[];
+  defaultOperation: FeatureOperation | null;
+};
+
 type FaceBucketName = 'startFaces' | 'endFaces' | 'sideFaces' | 'internalFaces' | 'capFaces';
 type EdgeBucketName = 'startEdges' | 'endEdges' | 'sideEdges' | 'internalEdges' | 'capEdges';
 type FaceArgs = (number | FaceFilterBuilder)[];
@@ -80,11 +91,13 @@ type EdgeArgs = (number | EdgeFilterBuilder)[];
  *
  * - **Tool.** Implement {@link buildTool}: return the solids the feature adds
  *   or removes, built where the references stand. The base applies the
- *   operation the statement chose — `.add()` (the default) fuses them into
- *   the solids in scope, `.new()` keeps them apart, `.remove()` cuts them,
- *   `.scope(...)` narrows the solids — records the history, and carries the
- *   buckets {@link setBuckets} named across the fusion. A repeat's copy is
- *   the tool moved, read from the same references.
+ *   operation the statement chose — `.add()` fuses them into the solids in
+ *   scope, `.new()` keeps them apart, `.remove()` cuts them, `.scope(...)`
+ *   narrows the solids — records the history, and carries the buckets
+ *   {@link setBuckets} named across the fusion. A statement that chooses
+ *   none applies the feature's default operation: `add` when its metadata
+ *   offers it (or offers no operations), else the first it lists. A repeat's
+ *   copy is the tool moved, read from the same references.
  * - **Modifier.** Override `build(ctx)` and change the scene's solids
  *   directly, the way `fillet()` and `draft()` do. A repeat's copy is
  *   rebuilt from copies of the references.
@@ -100,8 +113,8 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   /** The feature's type: namespaced for custom features (`'acme.standoff'`). */
   static id: string;
 
-  /** Each registered feature class's label, as its timeline row reads (see {@link getDisplayType}). */
-  private static readonly labels = new WeakMap<Function, string>();
+  /** What each registered feature class's metadata says of it (see {@link Feature.register}). */
+  private static readonly registrations = new WeakMap<Function, FeatureRegistration>();
 
   /**
    * A base for a feature class that declares its values: the class extends
@@ -137,11 +150,14 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   }
 
   /**
-   * @internal Name a feature class for the timeline: `registerBuilder` gives
-   * the class its metadata's label.
+   * @internal Tell a feature class what its metadata says of it:
+   * `registerBuilder` gives the class its label, which its timeline rows
+   * read, and its operations — a statement without an operation chain
+   * applies the default one, and one that chooses an operation the feature
+   * doesn't offer fails to build.
    */
-  static label(featureClass: Function, label: string): void {
-    Feature.labels.set(featureClass, label);
+  static register(featureClass: Function, registration: FeatureRegistration): void {
+    Feature.registrations.set(featureClass, Object.freeze({ ...registration, operations: Object.freeze([...registration.operations]) }));
   }
 
   private static readonly FACE_KEYS: [FaceBucketName, string][] = [
@@ -162,9 +178,19 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   /** True while `buildTool()` runs: declared buckets wait for the base to place them. */
   private collectingTool = false;
 
+  /** The operation the statement's last operation chain chose, or null when it left it to the default. */
+  private chosenOperation: FeatureOperation | null = null;
+
   constructor(values: V) {
     super();
     this.inputs = FeatureInputs.from(Feature.idOf(this.constructor as typeof Feature), values);
+    // A statement without an operation chain applies the feature's default,
+    // as hole() cuts without a .remove(). A class no builder registered adds.
+    const operation = Feature.registrations.get(this.constructor)?.defaultOperation ?? null;
+    if (operation !== null) {
+      this._operationMode = operation;
+      this._fusionScope = operation === 'new' ? 'none' : 'all';
+    }
   }
 
   /** The `static id` of a feature class, refusing a class without one. */
@@ -273,6 +299,10 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   }
 
   build(context: FeatureBuildContext): void {
+    const refusal = this.operationRefusal();
+    if (refusal) {
+      throw new Error(refusal);
+    }
     const p = context.getProfiler();
     this.declared = {};
     this.collectingTool = true;
@@ -299,6 +329,38 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     } else {
       p.record('Fuse', () => this.fuseTool(tools, buckets, context));
     }
+  }
+
+  override add(): this {
+    this.chosenOperation = 'add';
+    return super.add();
+  }
+
+  override new(): this {
+    this.chosenOperation = 'new';
+    return super.new();
+  }
+
+  override remove(): this {
+    this.chosenOperation = 'remove';
+    return super.remove();
+  }
+
+  /**
+   * Why the operation the statement chose can't build, or null: a feature
+   * whose metadata lists its operations builds only those. A statement that
+   * chose none applies the default, and a feature that lists none (or that
+   * no builder registered) takes any.
+   */
+  private operationRefusal(): string | null {
+    const registration = Feature.registrations.get(this.constructor);
+    const chosen = this.chosenOperation;
+    if (!registration || chosen === null || registration.operations.length === 0 || registration.operations.includes(chosen)) {
+      return null;
+    }
+    const callee = this.getType().split('.').pop();
+    return `${callee}(): .${chosen}() is not an operation this feature offers — it offers ${FeatureCall.listed(registration.operations)}; `
+      + `'${registration.defaultOperation}' is its default and needs no chain`;
   }
 
   /**
@@ -467,6 +529,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     copy._operationMode = this._operationMode;
     copy._fusionScope = this._fusionScope;
     copy._symmetric = this._symmetric;
+    copy.chosenOperation = this.chosenOperation;
     return copy;
   }
 
@@ -474,12 +537,17 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * The base checks (operation, scope, transform), then the values. The type
    * is compared by id, never by class: a workspace module is evaluated anew
    * on every render, so the same feature arrives as a new class each time.
+   * An operation the metadata stopped (or started) offering is a change too,
+   * though the statement reads the same.
    */
   override compareTo(other: SceneObject): boolean {
     if (!(other instanceof Feature) || other.getType() !== this.getType()) {
       return false;
     }
     if (!super.compareTo(other)) {
+      return false;
+    }
+    if (this.operationRefusal() !== other.operationRefusal()) {
       return false;
     }
     return this.inputs.equals(other.inputs);
@@ -495,7 +563,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * `acme.standoff` reads as Standoff.
    */
   override getDisplayType(): string {
-    const label = Feature.labels.get(this.constructor);
+    const label = Feature.registrations.get(this.constructor)?.label;
     if (label !== undefined) {
       return label;
     }

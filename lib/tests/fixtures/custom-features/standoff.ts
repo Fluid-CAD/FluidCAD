@@ -9,7 +9,7 @@
 
 import {
   Feature, defineFeature, parseCall, registerBuilder,
-  type FeatureArgs, type FeatureBuckets, type FeatureMeta, type ValuesOf,
+  type FeatureArgs, type FeatureBuckets, type FeatureMeta, type FeatureOperation, type ValuesOf,
 } from "../../../sdk/index.js";
 import { getFeatureMeta, type ResolvedFeatureMeta } from "../../../index.js";
 import { BooleanOps, Primitives, ShapeOps, type Face, type Shape } from "../../../sdk/kernel.js";
@@ -93,12 +93,18 @@ function standoffTube(faces: Face[], { height, outer, hole }: StandoffValues): {
   };
 }
 
+/** What a test may change about the standoff it defines. */
+export type StandoffVariant = {
+  /** The operations its metadata offers, in place of `['add', 'new']`. */
+  operations?: readonly FeatureOperation[];
+};
+
 /**
  * The standoff class, its builder and its metadata, made anew on every call.
  * A workspace module is evaluated again on every render, so its feature
  * class is a new class each time; a test calls this twice to do the same.
  */
-export function defineStandoff(): StandoffDefinition {
+export function defineStandoff(variant: StandoffVariant = {}): StandoffDefinition {
   class Standoff extends Feature.with(STANDOFF_PARAMS) {
     static id = 'acme.standoff';
 
@@ -109,12 +115,12 @@ export function defineStandoff(): StandoffDefinition {
     }
   }
 
-  const standoff = defineFeature(Standoff, { ...STANDOFF_META, call: STANDOFF_CALL });
+  const standoff = defineFeature(Standoff, { ...STANDOFF_META, ...variant, call: STANDOFF_CALL });
   return { Standoff, standoff, meta: getFeatureMeta(standoff)! };
 }
 
 /** The same standoff written the Stage 2 way: a plain `Feature` subclass, and `registerBuilder` with its whole metadata. */
-export function defineStandoffWithMeta(): StandoffDefinition {
+export function defineStandoffWithMeta(variant: StandoffVariant = {}): StandoffDefinition {
   class Standoff extends Feature<StandoffValues> {
     static id = 'acme.standoff';
 
@@ -127,6 +133,7 @@ export function defineStandoffWithMeta(): StandoffDefinition {
 
   const meta: FeatureMeta = {
     ...STANDOFF_META,
+    ...variant,
     class: Standoff,
     kind: 'tool',
     params: STANDOFF_PARAMS,

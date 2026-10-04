@@ -76,6 +76,7 @@ describe("registerBuilder with feature metadata", () => {
     expect(attached.id).toBe('acme.boss');
     expect(attached.class).toBe(meta.class);
     expect(attached.operations).toEqual(['add', 'new']);
+    expect(attached.defaultOperation).toBe('add');
     expect(attached.ghost).toBe(true);
     expect(attached.contexts).toEqual(['part']);
     expect(attached.params.height).toEqual({ type: 'length', default: 5, min: 0 });
@@ -96,6 +97,16 @@ describe("registerBuilder with feature metadata", () => {
     expect(getFeatureMeta(register(taperMeta()))!.kind).toBe('modifier');
     const draftLike = taperMeta({ class: class extends Taper { static id = 'taper'; } });
     expect(getFeatureMeta(register(draftLike, { builtIn: true }))!.id).toBe('taper');
+  });
+
+  it("resolves the default operation: add when offered, else the first listed, none without operations", () => {
+    const defaultOf = (meta: FeatureMeta) => getFeatureMeta(register(meta))!.defaultOperation;
+    expect(defaultOf(bossMeta({ operations: ['new', 'add'] }))).toBe('add');
+    expect(defaultOf(bossMeta({ operations: ['remove'] }))).toBe('remove');
+    expect(defaultOf(bossMeta({ operations: ['remove', 'new'] }))).toBe('remove');
+    expect(defaultOf(bossMeta())).toBeNull();
+    expect(defaultOf(taperMeta())).toBeNull();
+    expect(snapshotFeatureMeta(bossMeta({ operations: ['remove', 'new'] })).defaultOperation).toBe('remove');
   });
 });
 
@@ -121,6 +132,8 @@ describe("feature metadata refusals", () => {
     refuses('boss', /the feature is described by an object/);
     refuses(bossMeta({ lable: 'Boss' }), /feature metadata: unknown field 'lable' — the fields are class, label/);
     refuses(bossMeta({ id: 'acme.boss' }), "feature metadata: leave 'id' out — the feature's id is its class's static id");
+    refuses(bossMeta({ operations: ['remove', 'new'], defaultOperation: 'new' }),
+      "feature metadata: leave 'defaultOperation' out — a feature adds by default when it offers 'add', else it applies the first of its 'operations'");
   });
 
   it("refuse a missing label, an unknown group or kind", () => {
@@ -287,6 +300,7 @@ describe("a feature metadata snapshot", () => {
       group: 'create',
       kind: 'tool',
       operations: ['add', 'new'],
+      defaultOperation: 'add',
       params: {
         face: { picker: 'face', label: 'On face', surface: 'planar' },
         height: { type: 'length', default: 10, min: 0, label: 'Height' },
@@ -310,7 +324,7 @@ describe("a feature metadata snapshot", () => {
     });
     const snapshot = snapshotFeatureMeta(meta);
     expect(functionsIn(snapshot)).toEqual([]);
-    expect(snapshot).toMatchObject({ id: 'acme.taper', hasOnChange: true, ghost: false, operations: [], contexts: ['part'] });
+    expect(snapshot).toMatchObject({ id: 'acme.taper', hasOnChange: true, ghost: false, operations: [], defaultOperation: null, contexts: ['part'] });
     expect(snapshot.params.draftFaces.label).toBe('Draft faces');
     expect(snapshotFeatureMeta(getFeatureMeta(register(meta))!)).toEqual(snapshot);
   });

@@ -155,25 +155,76 @@ describe("a call shape's operation chains", () => {
   });
 
   it("read back as the statement runs them: the last operation wins and resets the scope", () => {
-    expect(call.readChains([])).toEqual({ operation: 'add', scope: null, foreign: [] });
+    expect(call.readChains([])).toEqual({ operation: 'add', explicit: false, scope: null, foreign: [] });
     expect(call.readChains([{ method: 'remove', args: [] }, { method: 'scope', args: ['b'] }]))
-      .toEqual({ operation: 'remove', scope: ['b'], foreign: [] });
+      .toEqual({ operation: 'remove', explicit: true, scope: ['b'], foreign: [] });
     expect(call.readChains([{ method: 'scope', args: ['b'] }, { method: 'new', args: [] }]))
-      .toEqual({ operation: 'new', scope: null, foreign: [] });
+      .toEqual({ operation: 'new', explicit: true, scope: null, foreign: [] });
     expect(call.readChains([{ method: 'name', args: ["'boss'"] }, { method: 'new', args: [] }, { method: 'add', args: [] }]))
-      .toEqual({ operation: 'add', scope: null, foreign: [0] });
+      .toEqual({ operation: 'add', explicit: true, scope: null, foreign: [0] });
+    expect(call.readChains([{ method: 'scope', args: ['b'] }]))
+      .toEqual({ operation: 'add', explicit: false, scope: ['b'], foreign: [] });
   });
 
   it("belong to the statement alone when the feature declares no operations", () => {
     const plain = new FeatureCall(STANDOFF, [], 'standoff');
+    expect(plain.defaultOperation).toBeNull();
     expect(plain.readChains([{ method: 'remove', args: [] }, { method: 'scope', args: ['b'] }]))
-      .toEqual({ operation: 'add', scope: null, foreign: [0, 1] });
+      .toEqual({ operation: 'add', explicit: false, scope: null, foreign: [0, 1] });
   });
 
   it("refuse a statement whose operation the dialog doesn't offer", () => {
-    const newOnly = new FeatureCall(STANDOFF, ['new'], 'standoff');
-    expect(() => newOnly.readChains([])).toThrow("standoff(): the statement adds (no operation chain), which its dialog doesn't offer — it offers 'new'");
     expect(() => new FeatureCall(STANDOFF, ['add', 'new'], 'standoff').readChains([{ method: 'remove', args: [] }]))
-      .toThrow(/the statement uses \.remove\(\), which its dialog doesn't offer/);
+      .toThrow("standoff(): the statement uses .remove(), which its dialog doesn't offer — it offers 'add' and 'new'");
+    expect(() => new FeatureCall(STANDOFF, ['remove'], 'boltCircle').readChains([{ method: 'add', args: [] }]))
+      .toThrow("boltCircle(): the statement uses .add(), which its dialog doesn't offer — it offers 'remove'");
+  });
+});
+
+describe("a feature's default operation", () => {
+  it("is add when the feature offers it, else the first operation it declares", () => {
+    expect(FeatureCall.defaultOperationOf(['add', 'new'])).toBe('add');
+    expect(FeatureCall.defaultOperationOf(['new', 'remove', 'add'])).toBe('add');
+    expect(FeatureCall.defaultOperationOf(['remove'])).toBe('remove');
+    expect(FeatureCall.defaultOperationOf(['remove', 'new'])).toBe('remove');
+    expect(FeatureCall.defaultOperationOf(['new', 'remove'])).toBe('new');
+    expect(FeatureCall.defaultOperationOf([])).toBeNull();
+    expect(new FeatureCall(STANDOFF, ['remove'], 'boltCircle').defaultOperation).toBe('remove');
+  });
+
+  const cutOnly = new FeatureCall(STANDOFF, ['remove'], 'boltCircle');
+  const cutOrNew = new FeatureCall(STANDOFF, ['remove', 'new'], 'boltCircle');
+
+  it("is what a statement without an operation chain reads as, and an explicit chain the same operation", () => {
+    expect(cutOnly.readChains([])).toEqual({ operation: 'remove', explicit: false, scope: null, foreign: [] });
+    expect(cutOnly.readChains([{ method: 'remove', args: [] }]))
+      .toEqual({ operation: 'remove', explicit: true, scope: null, foreign: [] });
+    expect(cutOnly.readChains([{ method: 'scope', args: ['plate'] }]))
+      .toEqual({ operation: 'remove', explicit: false, scope: ['plate'], foreign: [] });
+    expect(cutOrNew.readChains([])).toMatchObject({ operation: 'remove', explicit: false });
+    expect(cutOrNew.readChains([{ method: 'new', args: [] }])).toMatchObject({ operation: 'new', explicit: true });
+  });
+
+  it("writes no chain — only .scope(…) when it names solids — unless the edit keeps one the statement spelled out", () => {
+    expect(cutOnly.layout({ face: 'f' }, { operation: 'remove' }).chains).toEqual([]);
+    expect(cutOnly.layout({ face: 'f' }, { operation: 'remove', scope: ['plate'] }).chains)
+      .toEqual([{ method: 'scope', args: ['plate'] }]);
+    expect(cutOnly.layout({ face: 'f' }, { operation: 'remove', explicit: true }).chains)
+      .toEqual([{ method: 'remove', args: [] }]);
+    expect(cutOnly.layout({ face: 'f' }, { operation: 'remove', scope: ['plate'], explicit: true }).chains)
+      .toEqual([{ method: 'remove', args: [] }, { method: 'scope', args: ['plate'] }]);
+    expect(cutOrNew.layout({ face: 'f' }, { operation: 'new' }).chains).toEqual([{ method: 'new', args: [] }]);
+    // The standoff's default is add: an explicit .add() is kept the same way.
+    expect(new FeatureCall(STANDOFF, ['add', 'new'], 'standoff').layout({}, { operation: 'add', explicit: true }).chains)
+      .toEqual([{ method: 'add', args: [] }]);
+  });
+
+  it("round trips a statement with and without the default's chain", () => {
+    for (const chains of [[], [{ method: 'remove', args: [] }], [{ method: 'scope', args: ['plate'] }], [{ method: 'new', args: [] }]]) {
+      const read = cutOrNew.readChains(chains);
+      const written = cutOrNew.layout({}, { operation: read.operation, scope: read.scope, explicit: read.explicit }).chains;
+      expect(written).toEqual(chains);
+      expect(cutOrNew.readChains(written)).toEqual(read);
+    }
   });
 });

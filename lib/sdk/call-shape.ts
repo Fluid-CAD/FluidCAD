@@ -18,7 +18,9 @@
  *
  * A feature that declares operations also owns the operation chains on its
  * statement: `.add()`, `.new()`, `.remove()` and `.scope(…)`. A statement
- * without an operation chain adds.
+ * without an operation chain applies the feature's **default operation**:
+ * `add` when the feature offers it, else the first operation it declares —
+ * `boltCircle('z')` cuts when the bolt circle offers only `remove`.
  */
 
 /** One slot of a call shape: a positional value, a `'...rest'` value, or the object of options. */
@@ -46,7 +48,16 @@ export type CallChain<T> = { method: 'add' | 'new' | 'remove' | 'scope'; args: T
 export type CallLayout<T> = { args: CallArgument<T>[]; chains: CallChain<T>[] };
 
 /** The operation a statement applies, as the dialog sets it. */
-export type CallOperation<T> = { operation: FeatureOperation; scope?: T[] | null };
+export type CallOperation<T> = {
+  operation: FeatureOperation;
+  scope?: T[] | null;
+  /**
+   * Write the operation's chain even when it is the default: an edit keeps
+   * a statement that spells its operation out (`.remove()` on a feature
+   * that removes anyway) as it is written.
+   */
+  explicit?: boolean;
+};
 
 /**
  * How one kind of argument reads: run-time values for a builder, syntax
@@ -62,6 +73,8 @@ export type CallReader<A> = {
 /** The chains a statement carries, read by the feature's operations. */
 export type ChainReading<A> = {
   operation: FeatureOperation;
+  /** Whether an operation chain spells the operation out; false when the statement leaves it to the default. */
+  explicit: boolean;
   /** The solids a `.scope(…)` named, or null for the operation's own default. */
   scope: A[] | null;
   /** The indices of the chains the operations don't own, which an edit keeps as they are. */
@@ -102,6 +115,13 @@ export class FeatureCall {
 
   /** The rest value's name, or null without one. */
   readonly rest: string | null;
+
+  /**
+   * The operation a statement without an operation chain applies (see
+   * {@link FeatureCall.defaultOperationOf}), or null for a feature that
+   * declares no operations.
+   */
+  readonly defaultOperation: FeatureOperation | null;
 
   /**
    * @param shape the declared call shape.
@@ -178,6 +198,20 @@ export class FeatureCall {
     this.positional = positional;
     this.options = options;
     this.rest = rest;
+    this.defaultOperation = FeatureCall.defaultOperationOf(operations);
+  }
+
+  /**
+   * The operation a feature applies when its statement names none: `add`
+   * when it offers `add`, else the first operation it declares — a feature
+   * that only cuts cuts without a `.remove()`. Null for a feature that
+   * declares no operations: its statements carry no operation chains.
+   */
+  static defaultOperationOf(operations: readonly FeatureOperation[]): FeatureOperation | null {
+    if (operations.length === 0) {
+      return null;
+    }
+    return operations.includes('add') ? 'add' : operations[0];
   }
 
   /** Every value the shape names, in call order. */
@@ -244,8 +278,9 @@ export class FeatureCall {
   }
 
   /**
-   * Named values laid out as arguments, and the operation as chains. A value
-   * that is `undefined` is left out: a trailing one is dropped, an earlier
+   * Named values laid out as arguments, and the operation as chains — none
+   * for the default operation unless `explicit` asks for it. A value that
+   * is `undefined` is left out: a trailing one is dropped, an earlier
    * positional one holds its place as `undefined`, an option loses its
    * entry, and an object left with none is dropped.
    */
@@ -285,11 +320,13 @@ export class FeatureCall {
   /**
    * Read a statement's chains, in order. The operation chains decide the
    * operation the way the statement runs them — the last one wins, and
-   * resets any scope named before it. A statement whose operation the
-   * feature doesn't offer is refused.
+   * resets any scope named before it; a statement without one applies the
+   * default operation. A statement whose operation the feature doesn't
+   * offer is refused.
    */
   readChains<A>(chains: readonly { method: string; args: readonly A[] }[]): ChainReading<A> {
-    let operation: FeatureOperation = 'add';
+    let operation: FeatureOperation = this.defaultOperation ?? 'add';
+    let explicit = false;
     let scope: A[] | null = null;
     const foreign: number[] = [];
     for (let index = 0; index < chains.length; index++) {
@@ -300,17 +337,20 @@ export class FeatureCall {
         scope = [...chain.args];
       } else {
         operation = chain.method as FeatureOperation;
+        explicit = true;
         scope = null;
       }
     }
     if (this.operations.length > 0 && !this.operations.includes(operation)) {
-      const written = operation === 'add' ? 'adds (no operation chain)' : `uses .${operation}()`;
-      throw new CallShapeMismatch(`${this.callee}(): the statement ${written}, which its dialog doesn't offer — it offers ${FeatureCall.listed(this.operations)}`);
+      throw new CallShapeMismatch(`${this.callee}(): the statement uses .${operation}(), which its dialog doesn't offer — it offers ${FeatureCall.listed(this.operations)}`);
     }
-    return { operation, scope, foreign };
+    return { operation, explicit, scope, foreign };
   }
 
-  /** The chains that write `operation`: none for a plain add, then `.scope(…)` when it names solids. */
+  /**
+   * The chains that write `operation`: none for the default operation
+   * (unless `explicit`), then `.scope(…)` when it names solids.
+   */
   private chainsFor<T>(operation: CallOperation<T>): CallChain<T>[] {
     if (this.operations.length === 0) {
       throw new Error(`${this.callee}(): the feature declares no operations`);
@@ -319,7 +359,7 @@ export class FeatureCall {
       throw new Error(`${this.callee}(): the operation '${operation.operation}' is not one of ${FeatureCall.listed(this.operations)}`);
     }
     const chains: CallChain<T>[] = [];
-    if (operation.operation !== 'add') {
+    if (operation.operation !== this.defaultOperation || operation.explicit) {
       chains.push({ method: operation.operation, args: [] });
     }
     if (operation.scope && operation.scope.length > 0) {
@@ -347,7 +387,8 @@ export class FeatureCall {
     return value === null ? 'null' : `a ${typeof value}`;
   }
 
-  private static listed(names: readonly string[]): string {
+  /** `'add'`, `'add' and 'new'`, `'add', 'new' and 'remove'`. */
+  static listed(names: readonly string[]): string {
     const quoted = names.map(name => `'${name}'`);
     return quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}` : quoted.join('');
   }

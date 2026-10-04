@@ -21,6 +21,7 @@ import type { PickRef } from "../../selection/types.js";
 import type { ISelection } from "../../core/interfaces.js";
 import { setLocation } from "../selection/pick-helpers.js";
 import { defineStandoff, Standoff, standoff, STANDOFF_DEFAULTS, type StandoffFunction, type StandoffOptions } from "../fixtures/custom-features/standoff.js";
+import { Feature } from "../../sdk/index.js";
 
 const PLATE = { w: 60, d: 40, t: 10 };
 const PLATE_VOLUME = PLATE.w * PLATE.d * PLATE.t;
@@ -169,35 +170,104 @@ describe("the standoff's operations", () => {
     expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
   });
 
-  it("cuts a remove() standoff out of the solid in scope", () => {
+  /** The plate with a 20 mm block sitting on it, a new solid the standoff grows into. */
+  function plateAndBlock(): { plate: ExtrudeBase; block: SceneObject } {
     const p = plate();
-    // A block sitting on the plate: the standoff grows into it.
     sketch(p.endFaces(), () => {
       testRect(20, 20, { at: [-10, -10] });
     });
-    const block = extrude(20).new() as unknown as SceneObject;
-    const s = (standoff(p.endFaces(), { height: 8 }) as unknown as SceneObject).remove().scope(block);
-    const scene = render();
+    return { plate: p, block: extrude(20).new() as unknown as SceneObject };
+  }
 
+  /** The block with an 8 mm deep groove cut into it, and the plate as it was. */
+  function expectGroovedBlock(scene: Scene): void {
     expect(errorsOf(scene)).toEqual([]);
     const volumes = solidVolumes(scene);
     expect(volumes).toHaveLength(2);
     expect(volumes[0]).toBeCloseTo(20 * 20 * 20 - tubeVolume({ ...STANDOFF_DEFAULTS, height: 8 }), 3);
     expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
+  }
 
+  it("cuts a remove() standoff out of the solid in scope when its metadata offers remove", () => {
+    const { standoff: cutting } = defineStandoff({ operations: ['add', 'new', 'remove'] });
+    const { plate: p, block } = plateAndBlock();
+    const s = (cutting(p.endFaces(), { height: 8 }) as unknown as SceneObject).remove().scope(block);
+    const scene = render();
+
+    expectGroovedBlock(scene);
     // The cut classifies its rims from the start plane: two circles where
     // the tool enters the block, two at the groove's floor.
     const feature = s as unknown as { startEdges(): ISelection; endEdges(): ISelection };
     expect(resolved(feature.startEdges())).toHaveLength(2);
     expect(resolved(feature.endEdges())).toHaveLength(2);
   });
+
+  it("refuses an operation its metadata doesn't offer, as a build error on its own row", () => {
+    const p = plate();
+    const s = (standoff(p.endFaces()) as unknown as SceneObject).remove();
+    const scene = render();
+
+    expect(s.getError()).toBe("standoff(): .remove() is not an operation this feature offers — it offers 'add' and 'new'; 'add' is its default and needs no chain");
+    expect(errorsOf(scene)).toHaveLength(1);
+    expect(p.getError()).toBeNull();
+    expect(solidVolumes(scene)).toEqual([expect.closeTo(PLATE_VOLUME, 3)]);
+  });
+
+  it("cuts without a chain when remove is its only operation — remove is its default", () => {
+    const { standoff: cutOnly } = defineStandoff({ operations: ['remove'] });
+    const { plate: p, block } = plateAndBlock();
+    const s = (cutOnly(p.endFaces(), { height: 8 }) as unknown as SceneObject).scope(block);
+    expect(s.getOperationMode()).toBe('remove');
+    expectGroovedBlock(render());
+  });
+
+  it("reads an explicit chain of its default operation as that operation, and refuses add", () => {
+    const { standoff: cutOnly } = defineStandoff({ operations: ['remove'] });
+    const { plate: p, block } = plateAndBlock();
+    (cutOnly(p.endFaces(), { height: 8 }) as unknown as SceneObject).remove().scope(block);
+    expectGroovedBlock(render());
+
+    const { standoff: again } = defineStandoff({ operations: ['remove'] });
+    const q = plate();
+    const added = (again(q.endFaces()) as unknown as SceneObject).add();
+    const scene = render();
+    expect(added.getError()).toBe("standoff(): .add() is not an operation this feature offers — it offers 'remove'; 'remove' is its default and needs no chain");
+    expect(q.getError()).toBeNull();
+  });
+
+  it("keeps a standoff apart without a chain when new is its default", () => {
+    const { standoff: apart } = defineStandoff({ operations: ['new', 'remove'] });
+    const p = plate();
+    const s = apart(p.endFaces()) as unknown as SceneObject;
+    expect(s.getOperationMode()).toBe('new');
+    const scene = render();
+
+    expect(errorsOf(scene)).toEqual([]);
+    const volumes = solidVolumes(scene);
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toBeCloseTo(TUBE, 3);
+    expect(volumes[1]).toBeCloseTo(PLATE_VOLUME, 3);
+  });
+
+  it("adds by default when no builder registered its class", () => {
+    const { Standoff: Registered } = defineStandoff({ operations: ['remove'] });
+    class Unregistered extends Feature.with({ face: { picker: 'face' } }) {
+      static id = 'acme.unregistered';
+    }
+    const p = plate();
+    expect(new Registered({ face: p.endFaces(), ...STANDOFF_DEFAULTS }).getOperationMode()).toBe('remove');
+    expect(new Unregistered({ face: p.endFaces() }).getOperationMode()).toBe('add');
+  });
 });
 
 describe("the standoff in the render cache", () => {
   setupOC();
 
-  /** Render `first`, then compare a scene authored by `second` against it: whether the standoff is cached. */
-  function cachedAcross(first: () => SceneObject, second: () => SceneObject): boolean {
+  /**
+   * Render `first`, then compare a scene authored by `second` against it:
+   * whether the standoff is cached. The second render reports `errors`.
+   */
+  function cachedAcross(first: () => SceneObject, second: () => SceneObject, errors: string[] = []): boolean {
     const manager = getSceneManager();
     first();
     render();
@@ -207,7 +277,7 @@ describe("the standoff in the render cache", () => {
     const feature = second();
     SceneCompare.compare(previous, next);
     const cached = next.isCached(feature);
-    expect(errorsOf(render())).toEqual([]);
+    expect(errorsOf(render())).toEqual(errors);
     return cached;
   }
 
@@ -247,6 +317,28 @@ describe("the standoff in the render cache", () => {
     expect(cachedAcross(
       () => plateWithStandoff().standoff,
       () => plateWithStandoff().standoff.new(),
+    )).toBe(false);
+  });
+
+  it("misses when the default operation changes under a statement without a chain", () => {
+    expect(cachedAcross(
+      () => plateWithStandoff().standoff,
+      () => plateWithStandoff({}, defineStandoff({ operations: ['new'] }).standoff).standoff,
+    )).toBe(false);
+  });
+
+  it("hits when a statement spells out the default operation it applied without a chain", () => {
+    expect(cachedAcross(
+      () => plateWithStandoff({}, defineStandoff({ operations: ['new'] }).standoff).standoff,
+      () => plateWithStandoff({}, defineStandoff({ operations: ['new'] }).standoff).standoff.new(),
+    )).toBe(true);
+  });
+
+  it("misses when the metadata stops offering the operation the statement chose", () => {
+    expect(cachedAcross(
+      () => plateWithStandoff().standoff.new(),
+      () => plateWithStandoff({}, defineStandoff({ operations: ['add'] }).standoff).standoff.new(),
+      ["acme.standoff: standoff(): .new() is not an operation this feature offers — it offers 'add'; 'add' is its default and needs no chain"],
     )).toBe(false);
   });
 });

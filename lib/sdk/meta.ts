@@ -165,7 +165,11 @@ export type FeatureMeta = {
   icon?: string;
   group: FeatureGroup;
   kind: FeatureKind;
-  /** The operations the dialog offers, for a tool; left out, it offers none. A statement with no operation chain adds. */
+  /**
+   * The operations the dialog offers, for a tool; left out, it offers none.
+   * A statement with no operation chain applies the default: `add` when it
+   * is offered, else the first listed — `['remove']` cuts without a chain.
+   */
   operations?: readonly FeatureOperation[];
   /** The feature's values, in dialog order: exactly what its class is constructed from. */
   params: Record<string, ParamSpec>;
@@ -185,6 +189,8 @@ export type FeatureMeta = {
 export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'ghost' | 'contexts'> & {
   id: string;
   operations: readonly FeatureOperation[];
+  /** What a statement without an operation chain does (see `FeatureCall.defaultOperationOf`); null without operations. */
+  defaultOperation: FeatureOperation | null;
   ghost: boolean;
   contexts: readonly FeatureContext[];
 }>;
@@ -205,6 +211,8 @@ export type FeatureMetaSnapshot = {
   group: FeatureGroup;
   kind: FeatureKind;
   operations: FeatureOperation[];
+  /** The operation a statement without an operation chain applies — the dialog's preselected one; null without operations. */
+  defaultOperation: FeatureOperation | null;
   params: Record<string, ParamSpecSnapshot>;
   call: CallShape;
   illustration?: string;
@@ -291,6 +299,9 @@ class FeatureMetaValidator {
     if ('id' in meta) {
       this.fail("leave 'id' out — the feature's id is its class's static id");
     }
+    if ('defaultOperation' in meta) {
+      this.fail("leave 'defaultOperation' out — a feature adds by default when it offers 'add', else it applies the first of its 'operations'");
+    }
     for (const field of Object.keys(meta)) {
       if (!FeatureMetaValidator.FIELDS.has(field)) {
         this.fail(`unknown field '${field}' — the fields are ${[...FeatureMetaValidator.FIELDS].join(', ')}`);
@@ -321,7 +332,8 @@ class FeatureMetaValidator {
     const contexts = this.contexts(meta.contexts);
 
     const resolved: Record<string, unknown> = {
-      id, class: featureClass, label, description, icon, group, kind, operations, params, call, illustration,
+      id, class: featureClass, label, description, icon, group, kind, operations,
+      defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, illustration,
       onChange: meta.onChange, ghost: meta.ghost ?? true, contexts,
     };
     return Object.freeze(FeatureMetaValidator.defined(resolved)) as ResolvedFeatureMeta;
@@ -788,13 +800,14 @@ export class FeatureMetas {
   }
 
   /**
-   * Mark `builder` as the builder of the feature `meta` describes, and name
-   * the feature's class by the metadata's label, which its timeline rows
-   * read.
+   * Mark `builder` as the builder of the feature `meta` describes, and tell
+   * the feature's class what its metadata says of it: the label its
+   * timeline rows read, and the operations its statements may choose, with
+   * the default one a statement without a chain applies.
    */
   static attach(builder: Function, meta: ResolvedFeatureMeta): void {
     Object.defineProperty(builder, FeatureMetas.KEY, { value: meta });
-    Feature.label(meta.class, meta.label);
+    Feature.register(meta.class, { label: meta.label, operations: meta.operations, defaultOperation: meta.defaultOperation });
   }
 
   /** What `defineFeature()` takes from the class rather than its metadata, and why. */
@@ -900,6 +913,7 @@ export class FeatureMetas {
       group: meta.group,
       kind: meta.kind,
       operations: [...(meta.operations ?? [])],
+      defaultOperation: FeatureCall.defaultOperationOf(meta.operations ?? []),
       params,
       call: FeatureMetas.json(meta.call ?? []),
       illustration: meta.illustration,

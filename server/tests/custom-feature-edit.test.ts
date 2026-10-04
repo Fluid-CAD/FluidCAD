@@ -56,10 +56,33 @@ const GUSSET_META = {
   hasOnChange: false, ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** A ring of holes around an axis that only cuts: remove is its default, written without a chain. */
+const BOLT_CIRCLE_META = {
+  id: 'acme.boltCircle', label: 'Bolt circle', group: 'create', kind: 'tool', operations: ['remove'],
+  defaultOperation: 'remove',
+  params: {
+    around: { picker: 'axis', label: 'Around axis' },
+    count: { type: 'integer', default: 4, min: 1, label: 'Holes' },
+  },
+  call: ['around', { count: 'count' }],
+  hasOnChange: false, ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** A pocket that cuts by default and may keep its tool apart instead. */
+const POCKET_META = {
+  id: 'acme.pocket', label: 'Pocket', group: 'create', kind: 'tool', operations: ['remove', 'new'],
+  defaultOperation: 'remove',
+  params: { depth: { type: 'length', default: 2, label: 'Depth' } },
+  call: [{ depth: 'depth' }],
+  hasOnChange: false, ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/lib/taper.feature.js': [{ exportName: 'taper', meta: TAPER_META }],
   '/ws/gusset.feature.js': [{ exportName: 'gusset', meta: GUSSET_META }],
+  '/ws/bolt-circle.feature.js': [{ exportName: 'boltCircle', meta: BOLT_CIRCLE_META }],
+  '/ws/pocket.feature.js': [{ exportName: 'pocket', meta: POCKET_META }],
 };
 
 function catalog(): FeatureCatalog {
@@ -455,5 +478,111 @@ describe('editing a custom feature statement', () => {
 
     const without = await applyFeatureEdit(PLACED, editSpec({}));
     expect(without.error).toContain('so() is not an editable feature statement');
+  });
+});
+
+describe("a custom feature's default operation", () => {
+  const BOLTED = src(
+    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    `import { boltCircle } from './bolt-circle.feature.js'`,
+    `import { pocket } from './pocket.feature.js'`,
+    `sketch('xy', () => { rect(40, 40) })`,
+    `const e = extrude(10)`,
+    `boltCircle('z', { count: 8 }).remove()`,
+    `boltCircle('x', { count: 3 })`,
+    `pocket({ depth: 4 }).new()`,
+    `standoff(e.endFaces()).add()`,
+  ).replace(`import { pocket }`, `import { standoff } from './standoff.feature.js'\nimport { pocket }`);
+
+  /** A create of a bolt circle around the world Z axis. */
+  function boltSpec(custom: Partial<CustomFeatureOptions> = {}, extra: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: [],
+      parts: [],
+      imports: [],
+      custom: {
+        id: 'acme.boltCircle', exportName: 'boltCircle', modulePath: '/ws/bolt-circle.feature.js',
+        shape: CustomFeatureStatement.shapeOf(BOLT_CIRCLE_META),
+        values: { around: { kind: 'picks', items: [{ kind: 'standard', name: 'z' }] }, count: { kind: 'value', value: 6 } },
+        ...custom,
+      },
+      ...extra,
+    };
+  }
+
+  /** An edit of the statement on `line` of BOLTED. */
+  function edit(line: number, custom: CustomFeatureOptions, extra: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
+    return { feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [], edit: { line, column: 0, custom }, ...extra };
+  }
+
+  it('is written without a chain, whether the dialog names it or leaves it out', async () => {
+    for (const operation of ['remove', undefined] as const) {
+      const result = await applyFeatureEdit(PLATE, boltSpec(operation ? { operation } : {}));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`\nboltCircle('z', { count: 6 })\n`);
+    }
+  });
+
+  it('writes only the scope when the default operation names solids', async () => {
+    const result = await applyFeatureEdit(PLATE, boltSpec(
+      { operation: 'remove', scope: [{ kind: 'feature', producer: 0 }] },
+      { producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`\nboltCircle('z', { count: 6 }).scope(e)\n`);
+  });
+
+  it('reads back from both spellings, and refuses an operation the feature does not offer', async () => {
+    const callees = await catalog().calleesFor(BOLTED, MODEL);
+    const explicit = await parseFeatureStatement(BOLTED, 7, callees);
+    const implicit = await parseFeatureStatement(BOLTED, 8, callees);
+    expect(explicit).toMatchObject({ ok: true, parsed: { id: 'acme.boltCircle', values: { count: 8 }, operation: 'remove', operationWritten: true } });
+    expect(implicit).toMatchObject({ ok: true, parsed: { id: 'acme.boltCircle', values: { count: 3 }, operation: 'remove', operationWritten: false } });
+
+    const added = BOLTED.replace(`boltCircle('x', { count: 3 })`, `boltCircle('x', { count: 3 }).add()`);
+    const refused = await parseFeatureStatement(added, 8, await catalog().calleesFor(added, MODEL));
+    expect(refused.ok === false && refused.reason).toContain(
+      `boltCircle(): the statement uses .add(), which its dialog doesn't offer — it offers 'remove' — not editable in the dialog`,
+    );
+  });
+
+  it('keeps the chains as written on an edit that leaves the operation alone', async () => {
+    const count = (value: number) => ({ around: { kind: 'keep' as const }, count: { kind: 'value' as const, value } });
+    const explicit = await applyFeatureEdit(BOLTED, edit(7, { id: 'acme.boltCircle', values: count(6) }), { callees: catalog() });
+    expect(explicit.error).toBeUndefined();
+    expect(explicit.newCode).toContain(`\nboltCircle('z', { count: 6 }).remove()\n`);
+
+    // Naming the operation it already applies is no change either.
+    const named = await applyFeatureEdit(BOLTED, edit(7, { id: 'acme.boltCircle', values: count(6), operation: 'remove' }), { callees: catalog() });
+    expect(named.newCode).toContain(`\nboltCircle('z', { count: 6 }).remove()\n`);
+
+    const implicit = await applyFeatureEdit(BOLTED, edit(8, { id: 'acme.boltCircle', values: count(5) }), { callees: catalog() });
+    expect(implicit.error).toBeUndefined();
+    expect(implicit.newCode).toContain(`\nboltCircle('x', { count: 5 })\n`);
+
+    // A scope joins the operation the statement spelled out.
+    const scoped = await applyFeatureEdit(BOLTED, edit(7, {
+      id: 'acme.boltCircle', values: count(8), scope: [{ kind: 'feature', producer: 0 }],
+    }, { producers: [{ line: 6, column: 6, featureType: 'extrude', nameHint: 'e', bind: true }] }), { callees: catalog() });
+    expect(scoped.error).toBeUndefined();
+    expect(scoped.newCode).toContain(`\nboltCircle('z', { count: 8 }).remove().scope(e)\n`);
+
+    // The standoff adds by default: its spelled-out .add() stays too.
+    const added = await applyFeatureEdit(BOLTED, edit(10, {
+      id: 'acme.standoff', values: { face: { kind: 'keep' }, height: { kind: 'value', value: 7 } },
+    }), { callees: catalog() });
+    expect(added.error).toBeUndefined();
+    expect(added.newCode).toContain(`\nstandoff(e.endFaces(), { height: 7 }).add()\n`);
+  });
+
+  it('drops the chain when an edit changes the operation to the default', async () => {
+    const result = await applyFeatureEdit(BOLTED, edit(9, { id: 'acme.pocket', values: { depth: { kind: 'keep' } }, operation: 'remove' }), { callees: catalog() });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`\npocket({ depth: 4 })\n`);
+
+    const back = await applyFeatureEdit(result.newCode!, edit(9, { id: 'acme.pocket', values: { depth: { kind: 'keep' } }, operation: 'new' }), { callees: catalog() });
+    expect(back.newCode).toContain(`\npocket({ depth: 4 }).new()\n`);
   });
 });

@@ -74,9 +74,9 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
         return;
       }
       if (result.parsed.feature === 'custom') {
-        // The dialog seeds from the values and picks; the call shape and the
-        // raw texts are the transform's.
-        const { shape: _shape, texts: _texts, ...parsed } = result.parsed;
+        // The dialog seeds from the values and picks; the call shape, the
+        // raw texts and how the operation is spelled are the transform's.
+        const { shape: _shape, texts: _texts, operationWritten: _written, ...parsed } = result.parsed;
         res.json({ ok: true, parsed, statement: result.statement });
         return;
       }

@@ -12,7 +12,7 @@ import {
 import { relativeSpecifier } from '../../files/relative-specifier.ts';
 import { normalizePath } from '../../normalize-path.ts';
 import { CallShapeMismatch, FeatureCall } from '../../../../lib/dist/sdk/call-shape.js';
-import type { CallArgument, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
+import type { CallArgument, CallOperation, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
 import type { FeatureMetaSnapshot } from '../../../../lib/dist/index.js';
 import { anyValueArg, booleanArgValue, numericArgValue, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
@@ -75,7 +75,10 @@ export type CustomFeatureOptions = {
   /** The feature's id — what the callee must build. */
   id: string;
   values: Record<string, CustomValueSource>;
-  /** The operation; absent adds (an edit keeps the statement's own). */
+  /**
+   * The operation; absent applies the feature's default (an edit keeps the
+   * statement's own). The default is written without a chain.
+   */
   operation?: FeatureOperation;
   /**
    * The `.scope(…)` solids: bound feature producers, or (an edit) the
@@ -110,7 +113,14 @@ export type ParsedCustomFeature = ParsedScopeChain & {
   values: Record<string, ValueExpr | boolean | string>;
   /** The picked values it writes, element by element; one it leaves out is absent. */
   picks: Record<string, CustomPickText[]>;
+  /** The operation the statement applies: its operation chain's, else the feature's default. */
   operation: FeatureOperation;
+  /**
+   * Whether an operation chain spells the operation out (`.remove()` on a
+   * feature that removes anyway) rather than leaving it to the default; an
+   * edit that leaves the operation alone keeps it spelled out.
+   */
+  operationWritten: boolean;
   /** Each value's own text, as written — a rest value's, argument by argument. */
   texts: Record<string, string | string[]>;
   shape: CustomFeatureShape;
@@ -168,8 +178,9 @@ const SYNTAX_READER: CallReader<TSNode> = {
  * feature's call shape, read back by the same shape, and re-rendered for an
  * edit with the values it keeps. The operation chains (`.new()`,
  * `.remove()`, `.scope(…)`) are the dialog's when the feature declares
- * operations; every other chain is the user's and survives an edit as
- * written.
+ * operations — none for the feature's default operation, unless the
+ * statement already spells it out; every other chain is the user's and
+ * survives an edit as written.
  */
 export class CustomFeatureStatement {
 
@@ -270,13 +281,21 @@ export class CustomFeatureStatement {
       }
     }
 
-    let operation: { operation: FeatureOperation; scope: string[] } | undefined;
+    let operation: CallOperation<string> | undefined;
     if (shape.operations.length > 0) {
       const scope = CustomFeatureStatement.scopeExprs(spec as ApplyFeatureEditSpec, options.scope, parsed, varFor);
       if ('error' in scope) {
         return scope;
       }
-      operation = { operation: options.operation ?? parsed?.operation ?? 'add', scope: scope.exprs };
+      // A statement with no operation chain applies the feature's default,
+      // which is written without one; an edit that leaves the operation
+      // alone keeps a chain the statement spelled it out with.
+      const keepsOperation = parsed !== null && (options.operation === undefined || options.operation === parsed.operation);
+      operation = {
+        operation: options.operation ?? parsed?.operation ?? call.defaultOperation!,
+        scope: scope.exprs,
+        explicit: keepsOperation && parsed.operationWritten,
+      };
     }
 
     let layout;
@@ -388,6 +407,7 @@ export class CustomFeatureStatement {
         values,
         picks,
         operation: reading.operation,
+        operationWritten: reading.explicit,
         scopeTexts: scopeNodes.map(node => node.text),
         scopeRefs: scopeNodes.map(node => resolveRepeatTargetRef(node, start)),
         texts,

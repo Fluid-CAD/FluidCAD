@@ -39,7 +39,7 @@ import {
 import { FeatureSlotSynthesizer } from '../../lib/selection/feature-slots.js';
 import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
-import { standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
+import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -1495,5 +1495,85 @@ describe('a custom feature as a producer', () => {
     expect(edited.error).toBeUndefined();
     expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 20 })\n`);
     expect(volume(edited.newCode)).toBeCloseTo(40 * 40 * 10 + tube(20), 3);
+  });
+
+  it('writes a feature that only removes without a chain, and the statement cuts; a spelled-out .remove() edits as written', async () => {
+    // The standoff offering remove alone: its default, so its statement needs no chain.
+    const { standoff: cutter, meta: resolved } = defineStandoff({ operations: ['remove'] });
+    const meta = snapshotFeatureMeta(resolved);
+    expect(meta.defaultOperation).toBe('remove');
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/standoff.feature.js'
+        ? { file: absPath, features: [{ exportName: 'standoff', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+    // A 20 mm block standing on the plate: the standoff grows into it.
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `sketch(e.endFaces(), () => { ${rectBodySrc(20, 20, -10, -10)} })`,
+      `const b = extrude(20).new()`,
+      ``,
+    ].join('\n');
+
+    const created = await applyFeatureEdit(code, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [
+        { line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true },
+        { line: 6, column: 10, featureType: 'extrude', nameHint: 'b', bind: true },
+      ],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      imports: [],
+      custom: {
+        id: meta.id,
+        exportName: 'standoff',
+        modulePath: '/ws/standoff.feature.js',
+        shape: CustomFeatureStatement.shapeOf(meta),
+        values: { face: { kind: 'picks', items: [{ kind: 'part', part: 0 }] }, height: { kind: 'value', value: 8 } },
+        operation: 'remove',
+        scope: [{ kind: 'feature', producer: 1 }],
+      },
+    }, { callees: catalog });
+    expect(created.error).toBeUndefined();
+    expect(created.newCode).toContain(`const b = extrude(20).new()\nstandoff(e.endFaces(), { height: 8 }).scope(b)\n`);
+
+    const tube = (height: number) => Math.PI * (3 ** 2 - 1.5 ** 2) * height;
+    const volumes = (source: string) => {
+      const built = runFluid(source, { standoff: cutter });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      return built.getAllSceneObjects()
+        .filter(o => !o.isContainer())
+        .flatMap(o => o.getShapes())
+        .filter(shape => shape.getType() === 'solid')
+        .map(shape => ShapeProps.getProperties(shape.getShape()).volumeMm3)
+        .sort((a, b) => a - b);
+    };
+    const grooved = volumes(created.newCode);
+    expect(grooved).toHaveLength(2);
+    expect(grooved[0]).toBeCloseTo(20 * 20 * 20 - tube(8), 3);
+    expect(grooved[1]).toBeCloseTo(40 * 40 * 10, 3);
+
+    // The same statement spelled out with .remove() reads back as the
+    // default, and an edit of its height keeps the chain as written.
+    const spelled = created.newCode.replace('.scope(b)', '.remove().scope(b)');
+    const line = spelled.split('\n').findIndex(l => l.startsWith('standoff(')) + 1;
+    const parsed = await parseFeatureStatement(spelled, line, await catalog.calleesFor(spelled, '/ws/model.part.js'));
+    expect(parsed).toMatchObject({ ok: true, parsed: { operation: 'remove', scopeTexts: ['b'] } });
+    const edited = await applyFeatureEdit(spelled, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: { line, column: 0, custom: { id: meta.id, values: { face: { kind: 'keep' }, height: { kind: 'value', value: 12 } } } },
+    }, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 12 }).remove().scope(b)\n`);
+    expect(volumes(edited.newCode)[0]).toBeCloseTo(20 * 20 * 20 - tube(12), 3);
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { enclosingStatementOf, ensureSymbolImport, getJavaScriptParser, isBreakpointStatement, walkTree } from './code-editor/index.ts';
+import { applySpliceEdits, BreakpointMarker, enclosingStatementOf, ensureSymbolImport, getJavaScriptParser, isBreakpointStatement, type SpliceEdit } from './code-editor/index.ts';
 import type { ApplyFeatureEditResult } from './apply-feature-edit/spec.ts';
 
 /** A single, atomic move of the document's timeline stop. Null resumes the build. */
@@ -23,7 +23,7 @@ export class TimelineBreakpoint {
     }
     const tree = (await getJavaScriptParser()).parse(code);
     try {
-      const edits: { start: number; end: number; text: string }[] = [];
+      const edits: SpliceEdit[] = [];
       if (spec.before) {
         const { line, column } = spec.before;
         const node = tree.rootNode.descendantForPosition({ row: line - 1, column: column - 1 });
@@ -35,30 +35,22 @@ export class TimelineBreakpoint {
         const lineStart = code.lastIndexOf('\n', statement.startIndex - 1) + 1;
         const prefix = code.slice(lineStart, statement.startIndex);
         const indent = /^\s*$/.test(prefix) ? prefix : ' '.repeat(statement.startPosition.column);
-        const newline = code.includes('\r\n') ? '\r\n' : '\n';
-        edits.push({ start: statement.startIndex, end: statement.startIndex, text: `breakpoint();${newline}${indent}` });
+        const lineBreak = BreakpointMarker.lineBreakOf(code);
+        edits.push({ start: statement.startIndex, end: statement.startIndex, text: `breakpoint();${lineBreak}${indent}` });
       }
       // Delete exact statements, not their whole lines: inline callbacks and
-      // adjacent feature statements must survive. Coordinates all refer to
-      // the original buffer, so moving in either direction cannot shift them.
-      for (const node of walkTree(tree.rootNode)) {
-        if (!isBreakpointStatement(node)) continue;
-        let start = node.startIndex;
-        let end = node.endIndex;
-        const lineStart = code.lastIndexOf('\n', start - 1) + 1;
-        const newline = code.indexOf('\n', end);
-        const lineEnd = newline < 0 ? code.length : newline;
-        if (/^\s*$/.test(code.slice(lineStart, start)) && /^\s*$/.test(code.slice(end, lineEnd))) {
-          start = lineStart;
-          end = newline < 0 ? lineEnd : newline + 1;
-        }
-        edits.push({ start, end, text: '' });
+      // adjacent feature statements must survive (BreakpointMarker.removals).
+      // Coordinates all refer to the original buffer, so moving in either
+      // direction cannot shift them.
+      const markers = BreakpointMarker.statementsIn(tree);
+      edits.push(...BreakpointMarker.removals(code, markers));
+      let newCode = applySpliceEdits(code, edits);
+      if (spec.before) {
+        newCode = await ensureSymbolImport(newCode, 'breakpoint');
+      } else if (markers.length > 0) {
+        // Resuming takes the last stop away, and its import with it.
+        newCode = await BreakpointMarker.releaseImport(newCode);
       }
-      let newCode = code;
-      for (const edit of edits.sort((a, b) => b.start - a.start)) {
-        newCode = newCode.slice(0, edit.start) + edit.text + newCode.slice(edit.end);
-      }
-      if (spec.before) newCode = await ensureSymbolImport(newCode, 'breakpoint');
       return { newCode };
     } finally {
       (tree as typeof tree & { delete?: () => void }).delete?.();

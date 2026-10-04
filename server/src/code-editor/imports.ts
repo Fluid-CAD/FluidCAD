@@ -79,10 +79,14 @@ export async function removeSymbolImport(
   const start = isLast ? consumeLeadingSeparator(code, spec.startIndex) : spec.startIndex;
   const end = isLast ? spec.endIndex : consumeTrailingSeparator(code, spec.endIndex);
   const withoutSpec = spliceCode(code, start, end, '');
-  // `{unit, a }` (the shape ensureSymbolImport writes) becomes `{a }` — put
-  // the space back so the brace pair reads evenly.
-  const braceOffset = findNamedImports(importNode)!.startIndex + 1;
-  if (!isLast && index === 0 && withoutSpec[braceOffset] !== ' ' && withoutSpec[braceOffset] !== '\n') {
+  // `{unit, a }` (an older writer's shape) becomes `{a }` — put the space
+  // back so the brace pair reads evenly. A pair that was already even stays
+  // as it is: `{unit, a}` (what ensureSymbolImport writes into `{a}`) gives
+  // `{a}` back.
+  const namedImports = findNamedImports(importNode)!;
+  const braceOffset = namedImports.startIndex + 1;
+  const closeOffset = namedImports.endIndex - 1 - (end - start);
+  if (!isLast && index === 0 && !/\s/.test(withoutSpec[braceOffset]) && /\s/.test(withoutSpec[closeOffset - 1])) {
     return spliceCode(withoutSpec, braceOffset, braceOffset, ' ');
   }
   return withoutSpec;
@@ -287,13 +291,15 @@ export async function ensureSymbolImport(
   const importNode = module === 'fluidcad/core'
     ? findFluidCadImport(tree)
     : findImportForModule(tree, module);
+  // A new line takes the file's own line break, so a CRLF file stays CRLF.
+  const lineBreak = code.includes('\r\n') ? '\r\n' : '\n';
   if (!importNode) {
     const statement = `import { ${specifier} } from '${module}';`;
     const lastImport = findLastImport(tree);
     if (lastImport) {
-      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `${lineBreak}${statement}`);
     }
-    return `${statement}\n` + code;
+    return `${statement}${lineBreak}` + code;
   }
   const namedImports = findNamedImports(importNode);
   if (!namedImports) {
@@ -310,7 +316,7 @@ export async function ensureSymbolImport(
   if (after === '\n' || after === '\r') {
     const nextLineStart = code.indexOf('\n', openBraceOffset) + 1;
     const indent = code.slice(nextLineStart).match(/^[ \t]*/)?.[0] ?? '';
-    insertText = `\n${indent}${specifier},`;
+    insertText = `${lineBreak}${indent}${specifier},`;
   } else if (after === ' ' || after === '\t') {
     insertText = ` ${specifier},`;
   } else {

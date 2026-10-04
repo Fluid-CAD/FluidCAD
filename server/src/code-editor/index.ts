@@ -36,6 +36,7 @@ export {
 export { addGuide, getPointExpression, insertPoint, removeGuide, removePoint } from './points.ts';
 export {
   addBreakpoint,
+  BreakpointMarker,
   clearBreakpoints,
   isBreakpointStatement,
   removeBreakpoint,

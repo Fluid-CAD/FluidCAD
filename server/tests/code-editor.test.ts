@@ -38,9 +38,9 @@ describe('addBreakpoint', () => {
   it('adds the import line and inserts breakpoint after the statement', async () => {
     const code = `const a = 1;\nconst b = 2;\n`;
     const result = await addBreakpoint(code, 0);
-    // Following line has content, so a blank line follows the breakpoint.
+    // The marker takes a line of its own and nothing else: no blank line.
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n\nconst b = 2;\n`,
+      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\n`,
     );
     // Breakpoint is on line 2 of the new file: import, const a, breakpoint
     expect(result.breakpointLine).toBe(2);
@@ -50,7 +50,7 @@ describe('addBreakpoint', () => {
     const code = `import { line } from 'fluidcad/core';\nconst a = 1;\n`;
     const result = await addBreakpoint(code, 1);
     expect(result.newCode).toBe(
-      `import {breakpoint, line } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n`,
+      `import { breakpoint, line } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n`,
     );
     // No line shift because the import was edited in place.
     expect(result.breakpointLine).toBe(2);
@@ -65,12 +65,11 @@ describe('addBreakpoint', () => {
     expect(result.breakpointLine).toBe(2);
   });
 
-  it('inserts a blank line after when the next line has content', async () => {
+  it('adds no blank line when the next line has content', async () => {
     const code = `const a = 1;\nconst b = 2;`;
     const result = await addBreakpoint(code, 0);
-    // Following row has content, so a blank line follows the breakpoint
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n\nconst b = 2;`,
+      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;`,
     );
   });
 
@@ -85,7 +84,7 @@ describe('addBreakpoint', () => {
     const code = `const a = {\n  x: 1,\n  y: 2,\n};\nconst b = 3;\n`;
     // Cursor is on the first line of the object literal
     const result = await addBreakpoint(code, 0);
-    expect(result.newCode).toContain(`};\nbreakpoint();\n\nconst b = 3;`);
+    expect(result.newCode).toContain(`};\nbreakpoint();\nconst b = 3;`);
   });
 
   it('places breakpoint after a 2d feature inside a sketch callback, not after the sketch', async () => {
@@ -93,7 +92,7 @@ describe('addBreakpoint', () => {
     // referenceRow points at the first line(...) inside the callback.
     const result = await addBreakpoint(code, 2);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    breakpoint();\n\n    line([40, 20]);\n});\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    breakpoint();\n    line([40, 20]);\n});\n`,
     );
     expect(result.breakpointLine).toBe(3);
   });
@@ -102,7 +101,7 @@ describe('addBreakpoint', () => {
     const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n});\n`;
     const result = await addBreakpoint(code, 3);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n    breakpoint();\n\n});\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n    breakpoint();\n});\n`,
     );
     expect(result.breakpointLine).toBe(4);
   });
@@ -111,7 +110,7 @@ describe('addBreakpoint', () => {
     const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nconst b = 2;\n`;
     const result = await addBreakpoint(code, 1);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nbreakpoint();\n\nconst b = 2;\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nbreakpoint();\nconst b = 2;\n`,
     );
     expect(result.breakpointLine).toBe(4);
   });
@@ -135,7 +134,7 @@ describe('addBreakpoint (AST robustness)', () => {
   it('reuses an import that has trailing inline comments', async () => {
     const code = `import { line } from 'fluidcad/core'; // note\nconst a = 1;\n`;
     const result = await addBreakpoint(code, 1);
-    expect(result.newCode).toContain(`import {breakpoint, line } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`import { breakpoint, line } from 'fluidcad/core';`);
     // No new import line was prepended.
     expect(result.newCode.split('\n').filter(l => l.startsWith('import')).length).toBe(1);
   });
@@ -154,8 +153,9 @@ describe('clearBreakpoints (AST robustness)', () => {
   it('skips a commented-out breakpoint() while removing real calls', async () => {
     const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n// breakpoint();\nconst b = 2;\n`;
     const result = await clearBreakpoints(code);
+    // The comment calls nothing, so the import goes with the last real call.
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\n// breakpoint();\nconst b = 2;\n`,
+      `const a = 1;\n// breakpoint();\nconst b = 2;\n`,
     );
   });
 });
@@ -197,11 +197,11 @@ describe('toggleBreakpoint', () => {
 });
 
 describe('clearBreakpoints', () => {
-  it('removes every breakpoint() line', async () => {
-    const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\nbreakpoint();\nconst c = 3;\n`;
+  it('removes every breakpoint() line, and the import nothing calls anymore', async () => {
+    const code = `import { breakpoint, extrude } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\nbreakpoint();\nconst c = 3;\n`;
     const result = await clearBreakpoints(code);
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nconst b = 2;\nconst c = 3;\n`,
+      `import { extrude } from 'fluidcad/core';\nconst a = 1;\nconst b = 2;\nconst c = 3;\n`,
     );
   });
 

@@ -11,19 +11,21 @@ import { SelectedEntity, Viewer } from '../../viewer';
 import { StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { RepeatDirection, RepeatPanel } from './repeat-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
-import { KeptAxisSlot } from './kept-axis-slot';
+import { ConnectorOption } from './connector-options';
+import { ConnectorPicks } from './connector-picks';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectRepeatTargets, connectorRepeatRefusal, RepeatTargetOption, resolveRepeatTargetRow,
 } from './repeat-targets';
 import {
-  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
-  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
@@ -124,6 +126,8 @@ export class RepeatFeatureService {
   private relabeler: OptionRelabeler<{ axes: AxisOption[]; planes: PlaneOption[] }>;
   /** The translucent instances the current pattern would place. */
   private ghost: FeatureGhostOverlay;
+  /** The scene's connectors, which the axis slots take too. */
+  private connectors: ConnectorPicks;
 
   constructor(
     container: HTMLElement,
@@ -162,6 +166,7 @@ export class RepeatFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.connectors = new ConnectorPicks(container, viewer);
 
     this.panel = new RepeatPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -261,6 +266,11 @@ export class RepeatFeatureService {
     return this.armed && (this.panel.armedSlot === 'axis1' || this.panel.armedSlot === 'axis2');
   }
 
+  /** An armed axis slot: connector gizmos are revealed and land in it. */
+  get isConnectorPicking(): boolean {
+    return this.isAxisPicking;
+  }
+
   /** Plane-quad and face clicks route here (the armed plane slot). */
   get isPlanePicking(): boolean {
     return this.armed && this.panel.armedSlot === 'plane';
@@ -307,6 +317,7 @@ export class RepeatFeatureService {
     this.targetOptions = collectRepeatTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.planes = collectPlaneOptions(sceneObjects);
+    this.panel.setConnectorOptions(this.connectors.collect(sceneObjects));
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked shape ids; keep chips are
@@ -361,6 +372,7 @@ export class RepeatFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectRepeatTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.connectors.collect(sceneObjects);
     this.planes = collectPlaneOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty});
@@ -406,6 +418,7 @@ export class RepeatFeatureService {
       this.planeFaceEntity = null;
       this.panel.setPlaneFaceChip(null);
     }
+    this.panel.setConnectorOptions(this.connectors.all);
     this.panel.setOptions(this.axes, this.planes);
     this.refreshLabels();
     this.syncViewport();
@@ -568,6 +581,7 @@ export class RepeatFeatureService {
     // The overlay is a compiledMesh sibling, so no render tears it down —
     // every way out of the dialog (apply, cancel, scene-driven) lands here.
     this.ghost.clear();
+    this.connectors.close();
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
     this.viewer.hideStandardAxes();
@@ -627,12 +641,21 @@ export class RepeatFeatureService {
   }
 
   /**
-   * A connector gizmo was clicked with the Features slot armed — the dialog
-   * keeps the gizmos on screen pickable there only to say this: repeat()
+   * A connector gizmo was clicked. With an axis slot armed the connector is
+   * that direction's axis — its Z axis through its origin (several gizmos
+   * under the cursor ask which first). With the Features slot armed the
+   * dialog keeps the gizmos on screen pickable only to say this: repeat()
    * re-applies features and refuses connectors, and Copy copies them.
    */
-  handleConnectorPick(): void {
+  handleConnectorPick(connectorId: string | null, detail?: ConnectorPickDetail): void {
     if (!this.armed) {
+      return;
+    }
+    if (this.isConnectorPicking && connectorId) {
+      const refusal = this.connectors.pick(connectorId, detail, option => this.pickConnectorAxis(option));
+      if (refusal) {
+        this.panel.setMessage(refusal);
+      }
       return;
     }
     this.panel.setMessage(
@@ -680,12 +703,18 @@ export class RepeatFeatureService {
   /**
    * A timeline row was clicked while the dialog is armed: a feature row
    * toggles it in the targets list; axis and plane rows land in their input
-   * slots when the current type takes them. Every row is consumed so the
-   * default rollback can't close the dialog mid-flow.
+   * slots when the current type takes them, and so does a connector row
+   * while an axis slot is armed (else it is refused as a target). Every row
+   * is consumed so the default rollback can't close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    const connector = this.isConnectorPicking ? this.connectors.forRow(obj) : undefined;
+    if (connector) {
+      this.pickConnectorAxis(connector);
+      return true;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
       if (!this.panel.usesAxis) {
@@ -793,6 +822,15 @@ export class RepeatFeatureService {
     this.targets.sort((a, b) => position(a) - position(b));
   }
 
+  /** A connector landed in the armed direction's axis slot (a gizmo or a row) — its Z axis. */
+  private pickConnectorAxis(option: ConnectorOption): void {
+    this.axisEdgeEntities.set(this.panel.armedAxis, null);
+    this.panel.selectConnectorAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  }
+
   /** An offered axis landed in the armed direction's slot (3D or timeline pick). */
   private pickAxis(option: AxisOption): void {
     this.axisEdgeEntities.set(this.panel.armedAxis, null);
@@ -825,7 +863,7 @@ export class RepeatFeatureService {
     if (selection.kind === 'keep') {
       return { kind: 'keep', sourceIndex: selection.sourceIndex };
     }
-    return pickedAxisRef(selection, this.axisEdgeEntities.get(direction) ?? null,
+    return AxisRefs.request(selection, this.axisEdgeEntities.get(direction) ?? null,
       `Pick the axis edge${which} first.`);
   }
 
@@ -878,6 +916,10 @@ export class RepeatFeatureService {
     this.sourceSlots = result.ok && result.feature === 'repeat'
       ? { targets: result.targets, axes: result.axes, plane: result.plane ?? null }
       : { targets: [], axes: [], plane: null };
+    // A connector axis reads as that connector's chip, still kept as written.
+    for (const direction of [1, 2] as const) {
+      this.panel.setKeptConnector(direction, this.connectors.forSource(this.sourceSlots.axes[direction - 1]));
+    }
     this.seedImplicitTargets();
     this.sortTargets();
     this.refresh();
@@ -1021,26 +1063,15 @@ export class RepeatFeatureService {
     return refs;
   }
 
-  /** One direction's axis slot, in the form the kernel resolves. */
+  /**
+   * One direction's axis slot, in the form the kernel resolves — a keep as
+   * the sources query resolved the statement's own: an `axis()` statement,
+   * the edge an inline `axis(<edge>)` was built on, or a connector.
+   */
   private ghostAxis(direction: RepeatDirection): GhostAxisRef | null {
     const selection = this.panel.axisSelection(direction);
-    if (!selection) {
-      return null;
-    }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      const { filePath, line } = selection.option;
-      return { kind: 'axis', filePath, line };
-    }
-    if (selection.kind === 'edge') {
-      const entity = this.axisEdgeEntities.get(direction);
-      return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
-    }
-    // The kept statement axis, as the sources query resolved it — an `axis()`
-    // statement, or the edge an inline `axis(<edge>)` was built on.
-    return KeptAxisSlot.ghostRef(this.sourceSlots?.axes[selection.sourceIndex]);
+    const kept = selection?.kind === 'keep' ? this.sourceSlots?.axes[selection.sourceIndex] : null;
+    return AxisRefs.ghost(selection, this.axisEdgeEntities.get(direction) ?? null, kept);
   }
 
   /** The mirror plane slot, in the form the kernel resolves. */
@@ -1239,10 +1270,14 @@ export class RepeatFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = planeArmed;
     this.viewer.pickFilter = axisArmed ? 'edge' : planeArmed ? 'face' : 'none';
-    // The Features slot takes timeline rows; a connector gizmo on screen is
+    // An armed axis slot takes a connector — every gizmo revealed. The
+    // Features slot takes timeline rows; a connector gizmo on screen is
     // pickable there only to be refused with the pointer to Copy (B9) —
     // none is revealed, since none is ever a target.
-    this.viewer.setConnectorPicking(!axisArmed && !planeArmed, { reveal: false });
+    this.viewer.setConnectorPicking(!planeArmed, { reveal: axisArmed });
+    if (!axisArmed) {
+      this.connectors.close();
+    }
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {
@@ -1294,6 +1329,10 @@ export class RepeatFeatureService {
       }
     }
     this.viewer.setSelectedStandardAxes(standardAxes);
+    // A connector axis, picked or kept, draws its gizmo enlarged.
+    this.viewer.setPickedConnectors(this.panel.usesAxis
+      ? this.panel.directions.flatMap(direction => this.panel.axisConnector(direction)?.id ?? [])
+      : []);
     if (!this.panel.usesAxis) {
       const selection = this.panel.planeSelection();
       if (selection?.kind === 'plane') {

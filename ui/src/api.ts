@@ -589,13 +589,13 @@ export type RevolveGhostRequest = {
 };
 
 /**
- * The revolve axis slot on the ghost wire — the apply request's
+ * An axis slot on the ghost wire — the apply request's
  * {@link RevolveAxisRef} flattened to what the kernel can resolve without
- * reading code: a world axis, an `axis()` statement's call site, or the
- * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
- * before it ships, so "keep" itself never travels. The copy's axis slot also
- * takes a connector — its `connector()` call site, plus a copy's slot —
- * standing for its Z axis through its origin.
+ * reading code: a world axis, an `axis()` statement's call site, the picked
+ * edge's `{shapeId, index}`, or a connector — its `connector()` call site,
+ * plus a copy's slot — standing for its Z axis through its origin. The keep
+ * chip resolves to one of these before it ships, so "keep" itself never
+ * travels.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
@@ -700,7 +700,7 @@ export type HelixGhostRequest = {
 
 /**
  * The helix source slot, flattened to what the kernel can resolve without
- * reading code. The first three are the axis family {@link GhostAxisRef} uses
+ * reading code. The first four are the axis family {@link GhostAxisRef} uses
  * — a picked edge is `axis-edge` because the dialog writes it as
  * `axis(<edge>)`. The last two are the helix's own: the From-face tab's
  * cylindrical/conical face, and a bare edge source, which only an edit dialog
@@ -711,6 +711,7 @@ export type HelixGhostRequest = {
 export type GhostHelixSourceRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };
@@ -2638,14 +2639,19 @@ export type RevolveOptionValues = {
 };
 
 /**
- * The revolve axis: a standard world axis, an existing `axis(…)` statement
- * addressed by its source location, or a picked edge — synthesized into
- * `axis(<edge selector>)` server-side.
+ * An axis slot's request field, as every axis dialog sends it (revolve,
+ * helix, repeat, rotate, copy): a standard world axis, an existing
+ * `axis(…)` statement addressed by its source location, a picked edge —
+ * synthesized into `axis(<edge selector>)` server-side — or a connector
+ * standing for its Z axis through its origin: its `connector()` statement
+ * by call site, plus the pattern slot for one of its copies
+ * (`bolt.instance(2)`).
  */
 export type RevolveAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | ({ kind: 'axis' } & SketchSourceRef)
-  | { kind: 'edge'; entity: ApplyFeatureEntity };
+  | { kind: 'edge'; entity: ApplyFeatureEntity }
+  | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
 
 export type RevolveApplyOptions = RevolveOptionValues & {
   profile: ExtrudeProfileRef;
@@ -2681,9 +2687,10 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
 }
 
 /**
- * The helix source: the revolve axis inputs (a standard world axis, an axis
- * statement by call site, or a picked edge synthesized into `axis(<edge>)`)
- * plus a picked cylindrical/conical face — its selector on its own.
+ * The helix source: the axis inputs (a standard world axis, an axis
+ * statement by call site, a picked edge synthesized into `axis(<edge>)`, or
+ * a connector) plus a picked cylindrical/conical face — its selector on its
+ * own.
  */
 export type HelixSourceRef =
   | RevolveAxisRef
@@ -3009,12 +3016,8 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
-/**
- * A copy's axis: the revolve axis shapes, or a connector standing for its Z
- * axis through its origin — its `connector()` statement by call site, plus
- * the pattern slot for one of its copies (`bolt.instance(2)`).
- */
-export type CopyAxisRef = RevolveAxisRef | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
+/** A copy's axis: the axis shapes every axis slot takes, a connector among them ({@link RevolveAxisRef}). */
+export type CopyAxisRef = RevolveAxisRef;
 
 /**
  * A copy target by call site: a solid-bearing statement (the default), or a
@@ -3207,6 +3210,8 @@ export type SelectionBoundaryRef = {
 export type SourceSlotRef =
   | { kind: 'sketch'; filePath: string; line: number; column: number }
   | { kind: 'entities'; entities: ApplyFeatureEntity[] }
+  /** An axis that is a connector, by its site: its `connector()` statement, and a copy's slot. */
+  | { kind: 'connector'; filePath: string; line: number; column: number; slot?: number }
   | { kind: 'opaque' };
 
 export type FeatureSourcesResult =
@@ -6100,8 +6105,6 @@ export type FeaturePickerParam = FeatureParamCommon & {
   tangents?: boolean;
   /** edge: a picked face stands for all of its edges. */
   facesAsEdges?: boolean;
-  /** axis: a connector's Z axis too. */
-  connector?: boolean;
   /** feature: only features of these types or ids. */
   types?: string[];
   /** anchor: the well-known points offered on a face or an edge; all of them when left out. */

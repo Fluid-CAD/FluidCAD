@@ -3,6 +3,7 @@ import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
 import { AxisOption } from './axis-options';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
 import { ScopeSlotControl } from './scope-slot';
 import { RevolveOptionValues, ValueExpr } from '../../api';
@@ -208,6 +209,33 @@ export class RevolvePanel extends FeaturePanel {
   selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
     this.axisSlot.selectStandard(axis);
     this.armSlot('axis');
+  }
+
+  /**
+   * A connector picked as the axis (a gizmo or a connector row) — its Z
+   * axis through its origin; arms the axis slot. No change event fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    this.axisSlot.selectConnector(option);
+    this.armSlot('axis');
+  }
+
+  /**
+   * Re-find a connector axis after a re-render, by its site — the
+   * connector sibling of {@link setOptions}.
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    this.axisSlot.setConnectorOptions(connectors);
+  }
+
+  /** Edit mode: the statement's own axis is this connector (its sources said so); its chip shows it. */
+  setKeptConnector(option: ConnectorOption | null): void {
+    this.axisSlot.setKeptConnector(option);
+  }
+
+  /** The connector the axis slot holds — picked, or the statement's own — whose gizmo the viewport enlarges. */
+  axisConnector(): ConnectorOption | null {
+    return this.axisSlot.connector;
   }
 
   /**

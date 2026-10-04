@@ -28,6 +28,7 @@ class FakeService {
   scopePicking = false;
   edgePicking = false;
   axisPicking = false;
+  connectorPicking = false;
   planePicking = false;
   calls: string[] = [];
   edits: unknown[][] = [];
@@ -71,6 +72,10 @@ class FakeService {
 
   get isPlanePicking(): boolean {
     return this.armed && this.planePicking;
+  }
+
+  get isConnectorPicking(): boolean {
+    return this.armed && this.connectorPicking;
   }
 
   /** What every real service does: the onEnter hook runs, then it arms. */
@@ -367,6 +372,20 @@ describe('PartFeatureDialogs', () => {
       arm(id);
       expect(registry.routeConnectorPick('c1', {}), id).toBe(connectorTakers.includes(id));
       fakes[id].exit();
+    }
+    // An armed axis slot takes a connector gizmo — its Z axis — and only then.
+    for (const id of PART_ORDER) {
+      fakes[id].calls = [];
+    }
+    for (const id of ['revolve', 'helix', 'rotate'] as PartId[]) {
+      arm(id, { axisPicking: true });
+      expect(registry.routeConnectorPick('c1', {}), id).toBe(false);
+      fakes[id].connectorPicking = true;
+      expect(registry.routeConnectorPick('c1', {}), id).toBe(true);
+      expect(takers('connector')).toEqual([id]);
+      fakes[id].exit();
+      fakes[id].connectorPicking = false;
+      fakes[id].calls = [];
     }
 
     const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'plane'];

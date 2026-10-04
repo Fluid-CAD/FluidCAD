@@ -7,24 +7,24 @@ import {
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
-import { SelectedEntity, SelectionModifiers, Viewer } from '../../viewer';
+import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { SolidPickSelection } from '../solid-pick';
-import { ConnectorPickMenu } from '../assembly-mate/connector-pick-menu';
 import { CopyDirection, CopyPanel } from './copy-panel';
 import { ConnectorOption, ConnectorOptions } from './connector-options';
+import { ConnectorPicks } from './connector-picks';
 import { PatternOption, PatternOptions, PatternPick } from './pattern-options';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
-import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
-  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
-  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
@@ -97,10 +97,12 @@ export class CopyFeatureService {
   private armed = false;
   private available = false;
   private targetOptions: SolidTargetOption[] = [];
-  /** Every connector the scene carries — the targets' and the axis slots' connector picks. */
-  private connectorOptions: ConnectorOption[] = [];
-  /** The "which connector?" popover a click over coincident gizmos opens. */
-  private pickMenu: ConnectorPickMenu;
+  /**
+   * Every connector the scene carries — the targets' and the axis slots'
+   * connector picks — and the "which connector?" popover a click over
+   * coincident gizmos opens.
+   */
+  private connectors: ConnectorPicks;
   /** The chosen targets, in pick order — the copy's argument order. */
   private targets: CopyTargetChoice[] = [];
   /** Every linear or circular repeat the scene holds — what "Along a repeat" can follow. */
@@ -173,7 +175,7 @@ export class CopyFeatureService {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
     this.ghost = new FeatureGhostOverlay(viewer);
-    this.pickMenu = new ConnectorPickMenu(container);
+    this.connectors = new ConnectorPicks(container, viewer);
 
     this.panel = new CopyPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -316,7 +318,7 @@ export class CopyFeatureService {
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
-    this.connectorOptions = ConnectorOptions.collect(sceneObjects);
+    this.connectors.collect(sceneObjects);
     this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
@@ -360,7 +362,7 @@ export class CopyFeatureService {
       void this.loadEditSources();
     }
     this.panel.setOptions(this.axes);
-    this.panel.setConnectorOptions(this.connectorOptions);
+    this.panel.setConnectorOptions(this.connectors.all);
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
@@ -370,14 +372,14 @@ export class CopyFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
-    this.connectorOptions = ConnectorOptions.collect(sceneObjects);
+    this.connectors.collect(sceneObjects);
     this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty});
     // the dialog then opens on its empty target list.
     this.available = this.targetOptions.length > 0
-      || this.connectorOptions.some(option => option.slot === undefined)
+      || this.connectors.all.some(option => option.slot === undefined)
       || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('repeat', this.available, 'copy');
     this.button.setVisible(this.available);
@@ -414,7 +416,7 @@ export class CopyFeatureService {
       }
     }
     this.panel.setOptions(this.axes);
-    this.panel.setConnectorOptions(this.connectorOptions);
+    this.panel.setConnectorOptions(this.connectors.all);
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
@@ -573,7 +575,7 @@ export class CopyFeatureService {
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.solidPick.set([]);
-    this.pickMenu.close();
+    this.connectors.close();
     this.runner.cancelPreview();
     this.ghost.clear();
     this.viewer.clearHighlight();
@@ -648,41 +650,28 @@ export class CopyFeatureService {
    * toggles in the targets. Several gizmos under the cursor open the
    * "which connector?" popover first.
    */
-  handleConnectorPick(
-    connectorId: string | null,
-    pick?: Pick<SelectionModifiers, 'clientX' | 'clientY' | 'connectorCandidates'>,
-  ): void {
+  handleConnectorPick(connectorId: string | null, pick?: ConnectorPickDetail): void {
     if (!this.armed || !connectorId) {
       return;
     }
-    this.pickMenu.close();
-    const candidates = pick?.connectorCandidates;
-    if (candidates && candidates.length > 1 && pick?.clientX !== undefined && pick.clientY !== undefined) {
-      this.openPickMenu(candidates.map(candidate => candidate.connectorId), pick.clientX, pick.clientY);
-      return;
+    const refusal = this.connectors.pick(connectorId, pick, option => this.takeConnector(option));
+    if (refusal) {
+      this.panel.setMessage(refusal);
     }
-    this.pickConnector(connectorId);
-  }
-
-  /** The popover listing every connector under an ambiguous click, named the way code names them. */
-  private openPickMenu(connectorIds: string[], clientX: number, clientY: number): void {
-    const items = connectorIds.map(id => ({
-      label: ConnectorOptions.forId(id, this.connectorOptions)?.label ?? id,
-      onHover: () => this.viewer.setHoveredConnector(id),
-      onPick: () => this.pickConnector(id),
-    }));
-    this.pickMenu.show(clientX, clientY, items, () => this.viewer.setHoveredConnector(null));
   }
 
   /** One connector, by its row's id, into the armed slot. */
   private pickConnector(connectorId: string): void {
-    const option = ConnectorOptions.forId(connectorId, this.connectorOptions);
+    const option = ConnectorOptions.forId(connectorId, this.connectors.all);
     if (!option) {
-      this.panel.setMessage(
-        'That connector cannot be referenced — only connector() features and their copies can be picked.',
-      );
+      this.panel.setMessage(ConnectorPicks.UNREFERENCEABLE);
       return;
     }
+    this.takeConnector(option);
+  }
+
+  /** A connector into the armed slot: an axis slot's axis, else a target. */
+  private takeConnector(option: ConnectorOption): void {
     if (this.isAxisPicking) {
       this.pickConnectorAxis(option);
     } else {
@@ -802,7 +791,7 @@ export class CopyFeatureService {
    */
   private rematchTarget(target: Exclude<CopyTargetChoice, { kind: 'keep' }>): CopyTargetChoice[] {
     if (target.kind === 'connector') {
-      const match = ConnectorOptions.forSite(target.option, this.connectorOptions);
+      const match = ConnectorOptions.forSite(target.option, this.connectors.all);
       return match ? [{ kind: 'connector', option: match }] : [];
     }
     const match = this.targetOptions.find(o =>
@@ -823,7 +812,7 @@ export class CopyFeatureService {
     if (solid) {
       return { kind: 'option', option: solid };
     }
-    const connector = ConnectorOptions.forLocation(loc, this.connectorOptions);
+    const connector = ConnectorOptions.forLocation(loc, this.connectors.all);
     return connector ? { kind: 'connector', option: connector } : target;
   }
 
@@ -892,7 +881,7 @@ export class CopyFeatureService {
       const { filePath, line, column, slot } = selection.option;
       return { kind: 'connector', filePath, line, column, ...(slot !== undefined ? { slot } : {}) };
     }
-    return pickedAxisRef(selection, this.axisEdgeEntities.get(direction) ?? null,
+    return AxisRefs.request(selection, this.axisEdgeEntities.get(direction) ?? null,
       `Pick the axis edge${which} first.`);
   }
 
@@ -920,6 +909,11 @@ export class CopyFeatureService {
     this.sourceSlots = result.ok && result.feature === 'copy'
       ? { targets: result.targets, axes: result.axes, pattern: result.pattern ?? null }
       : { targets: [], axes: [], pattern: null };
+    // A connector axis reads as that connector's chip, still kept as written.
+    for (const direction of [1, 2] as const) {
+      this.panel.setKeptConnector(direction, this.connectors.forSource(this.sourceSlots.axes[direction - 1]));
+    }
+    this.refreshHighlight();
     // The ghost's keep slots read `sourceSlots`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the ghost appears
     // now that the statement's own sources are known.
@@ -1049,37 +1043,16 @@ export class CopyFeatureService {
     return loc ? { filePath: loc.filePath, line: loc.line } : null;
   }
 
-  /** One direction's axis slot, in the form the kernel resolves. */
+  /**
+   * One direction's axis slot, in the form the kernel resolves — a keep as
+   * the sources query resolved the statement's own: an `axis()` statement,
+   * the edge an inline `axis(<edge>)` was built on, or a connector (a copy's
+   * with its slot), whose Z axis the ghost walks or turns.
+   */
   private ghostAxis(direction: CopyDirection): GhostAxisRef | null {
     const selection = this.panel.axisSelection(direction);
-    if (!selection) {
-      return null;
-    }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      const { filePath, line } = selection.option;
-      return { kind: 'axis', filePath, line };
-    }
-    if (selection.kind === 'connector') {
-      const { filePath, line, slot } = selection.option;
-      return { kind: 'connector', filePath, line, ...(slot !== undefined ? { slot } : {}) };
-    }
-    if (selection.kind === 'edge') {
-      const entity = this.axisEdgeEntities.get(direction);
-      return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
-    }
-    // The kept statement axis, as the sources query resolved it — a connector
-    // the statement names by variable turns its Z axis; anything else is what
-    // every dialog's kept axis resolves to (an `axis()` statement, or the edge
-    // an inline `axis(<edge>)` was built on).
-    const slot = this.sourceSlots?.axes[selection.sourceIndex];
-    const loc = KeptAxisSlot.statement(slot);
-    if (loc && ConnectorOptions.forLocation(loc, this.connectorOptions)) {
-      return { kind: 'connector', filePath: loc.filePath, line: loc.line };
-    }
-    return KeptAxisSlot.ghostRef(slot);
+    const kept = selection?.kind === 'keep' ? this.sourceSlots?.axes[selection.sourceIndex] : null;
+    return AxisRefs.ghost(selection, this.axisEdgeEntities.get(direction) ?? null, kept);
   }
 
   /** One target as the apply request names it: its statement, a connector's marked as one. */
@@ -1327,12 +1300,15 @@ export class CopyFeatureService {
     const directions = this.panel.copyType === 'pattern' ? [] : this.panel.directions;
     for (const direction of directions) {
       const selection = this.panel.axisSelection(direction);
+      // A connector axis, picked or kept, draws its gizmo enlarged.
+      const connector = this.panel.axisConnector(direction);
+      if (connector) {
+        connectorIds.push(connector.id);
+      }
       if (selection?.kind === 'standard') {
         standardAxes.push(selection.axis);
       } else if (selection?.kind === 'axis') {
         wireIds.push(...axisLineShapeIds(selection.option, this.sceneObjects));
-      } else if (selection?.kind === 'connector') {
-        connectorIds.push(selection.option.id);
       } else if (selection?.kind === 'edge') {
         const entity = this.axisEdgeEntities.get(direction);
         if (entity) {

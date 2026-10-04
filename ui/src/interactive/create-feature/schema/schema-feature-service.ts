@@ -175,7 +175,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
 
     const pickers = [...this.panel.pickers.values()];
-    this.pickMenu = pickers.some(p => p.takes('connector')) ? new ConnectorPickMenu(container) : null;
+    this.pickMenu = pickers.some(p => p.takesConnectors) ? new ConnectorPickMenu(container) : null;
     if (pickers.some(p => p.takes('anchor'))) {
       this.connectorGhost = new ConnectorGhostOverlay(viewer);
       // A custom feature takes the bare anchor wherever it is — never a
@@ -482,15 +482,16 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /**
    * A connector gizmo clicked: the armed value takes it when it takes
-   * connectors, else the first shown value that does — a connector is only
-   * ever a connector. Several gizmos under the cursor ask which first.
+   * connectors — a connector value, or an axis value, which reads it as its
+   * Z axis — else the first shown value that does. Several gizmos under the
+   * cursor ask which first.
    */
   handleConnectorPick(connectorId: string | null, pick: ConnectorPickDetail): boolean {
     if (!this.armed) {
       return false;
     }
     const armed = this.panel.armedPicker;
-    const picker = armed?.takes('connector') ? armed : [...this.panel.pickers.values()].find(p => p.visible && p.takes('connector'));
+    const picker = armed?.takesConnectors ? armed : [...this.panel.pickers.values()].find(p => p.visible && p.takesConnectors);
     if (!picker || !connectorId) {
       return true;
     }

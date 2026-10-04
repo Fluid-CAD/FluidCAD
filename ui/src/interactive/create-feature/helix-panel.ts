@@ -2,6 +2,7 @@ import { ChoiceTabs } from './panel-controls';
 import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { EntitySlotControl } from './entity-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -298,6 +299,29 @@ export class HelixPanel extends FeaturePanel {
   /** A world axis clicked in the viewport (axis mode). No change event fires. */
   selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
     this.axisSlot.selectStandard(axis);
+  }
+
+  /**
+   * A connector picked as the axis (a gizmo or a connector row, axis mode)
+   * — its Z axis through its origin. No change event fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    this.axisSlot.selectConnector(option);
+  }
+
+  /** Re-find a connector axis after a re-render, by its site — the connector sibling of {@link setOptions}. */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    this.axisSlot.setConnectorOptions(connectors);
+  }
+
+  /** Edit mode: the statement's own source is this connector (its sources said so); its chip shows it. */
+  setKeptConnector(option: ConnectorOption | null): void {
+    this.axisSlot.setKeptConnector(option);
+  }
+
+  /** The connector the axis slot holds in axis mode — picked, or the statement's own. */
+  axisConnector(): ConnectorOption | null {
+    return this.mode === 'axis' ? this.axisSlot.connector : null;
   }
 
   /**

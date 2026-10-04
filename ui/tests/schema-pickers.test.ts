@@ -457,6 +457,49 @@ describe('connector values', () => {
   });
 });
 
+describe('an axis value takes a connector — its Z axis through its origin', () => {
+  it('offers the gizmos with its axis channels, and writes a connector it took as one', () => {
+    const picker = mountAt({ picker: 'axis', label: 'Around' });
+    expect(picker.channels()).toMatchObject({ pickFilter: 'edge', axes: true, standardAxes: true, connectors: true });
+    expect(picker.takesConnectors).toBe(true);
+    expect(picker.takeConnector('bolt-1')).toBe('taken');
+    expect(chips(picker)).toEqual(['Connector bolt.instance(1)']);
+    // The kind it was picked as rides along: the server binds the connector, not an axis().
+    expect(picker.request()).toEqual([{ kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector', slot: 1 }]);
+    expect(picker.ghostRefs()).toEqual([{ kind: 'connector', filePath: FILE, line: 14, slot: 1 }]);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.connectorIds).toEqual(['bolt-1']);
+
+    // A connector row swaps in; an axis statement is written as one, its kind unnamed.
+    expect(picker.takeRow(row('bolt', connectorScene()))).toBe('taken');
+    expect(picker.request()).toEqual([{ kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector' }]);
+    expect(picker.takeRow(row('ax', connectorScene()))).toBe('taken');
+    expect(picker.request()).toEqual([{ kind: 'statement', filePath: FILE, line: 9, column: 13 }]);
+
+    // A connector pick survives a render, found again by its statement and slot.
+    picker.takeConnector('bolt-1');
+    picker.setScene(inPart(connectorScene('#2')), { dropEntities: true });
+    expect(picker.request()).toEqual([{ kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector', slot: 1 }]);
+  });
+
+  it("keeps an edit's connector axis — its chip, and its ghost by its site", () => {
+    const picker = mountAt({ picker: 'axis', label: 'Around' });
+    picker.seedKeeps([{ text: 'bolt.instance(1)', start: 0, end: 16, ref: { line: 14, column: 15, slot: 1 } }], FILE);
+    picker.setSources({ kind: 'connector', filePath: FILE, line: 14, column: 15, slot: 1 });
+    expect(chips(picker)).toEqual(['Connector bolt.instance(1)']);
+    expect(picker.request()).toBeUndefined();
+    expect(picker.ghostRefs()).toEqual([{ kind: 'connector', filePath: FILE, line: 14, slot: 1 }]);
+
+    // Its ref unknown, the sources name it all the same.
+    const fromSources = mountAt({ picker: 'axis', label: 'Around' });
+    fromSources.seedKeeps([{ text: 'bolt', start: 0, end: 4 }], FILE);
+    fromSources.setSources({ kind: 'connector', filePath: FILE, line: 14, column: 15 });
+    expect(chips(fromSources)).toEqual(['Connector bolt']);
+    expect(fromSources.ghostRefs()).toEqual([{ kind: 'connector', filePath: FILE, line: 14 }]);
+  });
+});
+
 describe('point values', () => {
   it('take vertices only — offered alone, a face click passes — and drop them on a render', () => {
     const picker = mountAt({ picker: 'point', multiple: true });

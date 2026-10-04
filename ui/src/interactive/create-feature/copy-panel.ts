@@ -1,6 +1,6 @@
 import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
-import { AxisSelection, AxisSlotControl, ConnectorAxisSelection } from './axis-slot';
+import { AxisSelection, AxisSlotControl } from './axis-slot';
 import { ConnectorOption } from './connector-options';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
@@ -24,13 +24,12 @@ export type CopyDirection = 1 | 2;
 export type CopyArmedSlot = 'targets' | 'axis1' | 'axis2' | 'pattern';
 
 /**
- * An axis slot's state — the shared axis-picker state machine, plus a
- * connector standing for its Z axis (a copy's axis can be one), with the
- * kept statement axis carrying its position in the parsed `axisTexts`.
+ * An axis slot's state — the shared axis-picker state machine (a connector
+ * standing for its Z axis among its picks), with the kept statement axis
+ * carrying its position in the parsed `axisTexts`.
  */
 export type CopyAxisSelection =
   | Exclude<AxisSelection, { kind: 'keep' }>
-  | ConnectorAxisSelection
   | { kind: 'keep'; sourceIndex: number };
 
 /** Validated form values, or the message to show when a field is invalid. */
@@ -126,7 +125,7 @@ export class CopyPanel extends FeaturePanel {
   private countRow: HTMLElement;
   private skipRow: HTMLElement;
   private dir1Header: HTMLElement;
-  private axisSlots = new Map<CopyDirection, AxisSlotControl<ConnectorAxisSelection>>();
+  private axisSlots = new Map<CopyDirection, AxisSlotControl>();
   private spacingRow: HTMLElement;
   private spacingModeSelect: HTMLSelectElement;
   private sweepRow: HTMLElement;
@@ -273,7 +272,7 @@ export class CopyPanel extends FeaturePanel {
 
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
-      const control = new AxisSlotControl<ConnectorAxisSelection>(this.role(`axis-slot-${direction}`), {
+      const control = new AxisSlotControl(this.role(`axis-slot-${direction}`), {
         prompt: options.axisPrompt ?? 'Pick a world axis, an axis, an edge or a connector',
       });
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
@@ -486,6 +485,16 @@ export class CopyPanel extends FeaturePanel {
     for (const direction of [1, 2] as const) {
       this.axisSlots.get(direction)!.setConnectorOptions(connectors);
     }
+  }
+
+  /** Edit mode: a direction's own axis is this connector (its sources said so); its chip shows it. */
+  setKeptConnector(direction: CopyDirection, option: ConnectorOption | null): void {
+    this.axisSlots.get(direction)!.setKeptConnector(option);
+  }
+
+  /** The connector a direction's axis slot holds — picked, or the statement's own. */
+  axisConnector(direction: CopyDirection): ConnectorOption | null {
+    return this.axisSlots.get(direction)!.connector;
   }
 
   /**

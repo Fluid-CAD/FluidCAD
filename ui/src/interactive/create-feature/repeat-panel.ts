@@ -2,6 +2,7 @@ import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
 import { PlaneOption } from './plane-bases';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { DIRECTION_GROUP_CLASSES } from './panel-controls';
@@ -449,6 +450,38 @@ export class RepeatPanel extends FeaturePanel {
     const direction = this.armedAxis;
     this.axisSlots.get(direction)!.selectStandard(axis);
     this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
+   * A connector picked as the axis (a gizmo or a connector row) — it lands
+   * in the armed direction's slot, standing for its Z axis. No change event
+   * fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    const direction = this.armedAxis;
+    this.axisSlots.get(direction)!.selectConnector(option);
+    this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
+   * Re-find a connector axis after a re-render, by its site — the
+   * connector sibling of {@link setOptions}; a connector the scene lost
+   * falls back to the pick prompt (or the statement's own axis in edit mode).
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    for (const direction of [1, 2] as const) {
+      this.axisSlots.get(direction)!.setConnectorOptions(connectors);
+    }
+  }
+
+  /** Edit mode: a direction's own axis is this connector (its sources said so); its chip shows it. */
+  setKeptConnector(direction: RepeatDirection, option: ConnectorOption | null): void {
+    this.axisSlots.get(direction)!.setKeptConnector(option);
+  }
+
+  /** The connector a direction's axis slot holds — picked, or the statement's own. */
+  axisConnector(direction: RepeatDirection): ConnectorOption | null {
+    return this.axisSlots.get(direction)!.connector;
   }
 
   /**

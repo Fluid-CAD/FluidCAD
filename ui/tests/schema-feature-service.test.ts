@@ -467,6 +467,36 @@ describe('a custom feature standing at locations', () => {
   });
 });
 
+describe("a custom feature's axis value takes a connector", () => {
+  it('reveals the gizmos with the axis slot armed, and a gizmo or a row lands in it as the connector', async () => {
+    const { service, state, viewer, lastCreate, lastGhost } = mount(BOLT_CIRCLE);
+    service.update(bossScene());
+    service.enter();
+    expect(service.dialogPanel.armedSlot).toBe('around');
+    expect(viewer.pickAxes).toBe(true);
+    expect(state.connectorPicking).toBe(true);
+
+    expect(service.handleConnectorPick('bolt-1', {} as never)).toBe(true);
+    expect(state.pickedConnectors).toEqual(['bolt-1']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({
+      around: [{ kind: 'statement', filePath: FILE, line: 13, column: 15, picker: 'connector', slot: 1 }],
+    });
+    expect(lastGhost()![0].refs).toEqual({ around: [{ kind: 'connector', filePath: FILE, line: 13, slot: 1 }] });
+
+    // Its timeline row swaps it for the connector itself.
+    const bolt = bossScene().find(o => o.id === 'bolt')!;
+    expect(service.handleTimelinePick(bolt)).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({
+      around: [{ kind: 'statement', filePath: FILE, line: 13, column: 15, picker: 'connector' }],
+    });
+
+    service.exit();
+    expect(state.connectorPicking).toBe(false);
+  });
+});
+
 describe("a custom feature's operations in its dialog", () => {
   it('shows no tabs for a feature with one operation, and its requests still carry it', async () => {
     const { service, panel, container, state, type, lastCreate } = mount(BOLT_CIRCLE);

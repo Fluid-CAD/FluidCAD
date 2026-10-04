@@ -112,7 +112,8 @@ const KIND_CHANNELS: Record<FeaturePickerKind, { faces?: boolean; edges?: boolea
   sketch: { sketchWires: true },
   face: { faces: true },
   edge: { edges: true },
-  axis: { edges: true, axes: true, standardAxes: true },
+  // An axis takes a connector too: its Z axis through its origin.
+  axis: { edges: true, axes: true, standardAxes: true, connectors: true },
   plane: { faces: true, planes: true, standardPlanes: true },
   solid: { faces: true, edges: true },
   // A feature comes from the timeline only.
@@ -232,6 +233,23 @@ export class SchemaPicker {
     return this.kinds.includes(kind);
   }
 
+  /**
+   * Whether the value takes a connector — a connector value's, or an axis
+   * value's, which reads one as its Z axis through its origin.
+   */
+  get takesConnectors(): boolean {
+    return this.takes('connector') || this.takes('axis');
+  }
+
+  /**
+   * The kinds the value's statements are picked as: its own, and a
+   * connector for an axis value — written as the connector, `bolt` or
+   * `bolt.instance(2)`.
+   */
+  private get statementKinds(): readonly FeaturePickerKind[] {
+    return this.takes('axis') && !this.takes('connector') ? [...this.kinds, 'connector'] : this.kinds;
+  }
+
   /** The value takes more than one kind of pick. */
   get isUnion(): boolean {
     return this.kinds.length > 1;
@@ -343,6 +361,12 @@ export class SchemaPicker {
       keep.source = source;
       if (!keep.loc && source?.kind === 'sketch') {
         keep.loc = { filePath: source.filePath, line: source.line, column: source.column };
+      }
+      if (!keep.loc && source?.kind === 'connector') {
+        keep.loc = {
+          filePath: source.filePath, line: source.line, column: source.column,
+          ...(source.slot !== undefined ? { slot: source.slot } : {}),
+        };
       }
     });
     this.resolveKeeps();
@@ -465,9 +489,9 @@ export class SchemaPicker {
     return !offered || offered.length === 0 || offered.includes(anchor.kind);
   }
 
-  /** A connector gizmo clicked: the connector, or one of its copies. */
+  /** A connector gizmo clicked: the connector, or one of its copies — an axis value's Z axis. */
   takeConnector(connectorId: string): PickOutcome {
-    if (!this.takes('connector')) {
+    if (!this.takesConnectors) {
       return 'ignored';
     }
     const option = this.options.find(o => o.picker === 'connector' && o.connectorId === connectorId);
@@ -478,7 +502,7 @@ export class SchemaPicker {
 
   /** A timeline row clicked: the statement it stands for, as the first kind that takes it. */
   takeRow(obj: SceneObjectRender): PickOutcome {
-    for (const kind of this.kinds) {
+    for (const kind of this.statementKinds) {
       const outcome = this.takeRowAs(kind, obj);
       if (outcome !== 'ignored') {
         return outcome;
@@ -597,7 +621,9 @@ export class SchemaPicker {
         const { filePath, line, column, slot, picker } = element.option;
         inputs.push({
           kind: 'statement', filePath, line, column,
-          ...(this.isUnion ? { picker } : {}),
+          // A union names the kind each statement is picked as; so does an
+          // axis value for a connector it takes.
+          ...(this.isUnion || picker !== this.kinds[0] ? { picker } : {}),
           ...(slot !== undefined ? { slot } : {}),
         });
       } else if (element.kind === 'anchor') {
@@ -693,6 +719,11 @@ export class SchemaPicker {
   /** What a kept element resolved to, as a ghost ref — null when it names nothing the ghost can find. */
   private keepRef(keep: Extract<PickElement, { kind: 'keep' }>): GhostCustomRef | null {
     const source = keep.source;
+    // A connector — an axis value's Z axis — by its site, a copy's with its slot.
+    const connector = source?.kind === 'connector' ? source : keep.option?.picker === 'connector' ? keep.option : null;
+    if (connector) {
+      return { kind: 'connector', filePath: connector.filePath, line: connector.line, ...(connector.slot !== undefined ? { slot: connector.slot } : {}) };
+    }
     if (source?.kind === 'entities' && source.entities.length > 0) {
       const entities: Extract<GhostCustomRef, { kind: 'entities' }>['entities'] = [];
       for (const entity of source.entities) {
@@ -856,7 +887,7 @@ export class SchemaPicker {
             taken.push({ kind: 'entity', entity: { shapeId: entity.shapeId, sub: entity.sub } as SelectedEntity });
           }
         }
-      } else if (source.kind === 'sketch') {
+      } else if (source.kind === 'sketch' || source.kind === 'connector') {
         const option = this.optionAt(source);
         if (option) {
           taken.push({ kind: 'statement', option });
@@ -884,9 +915,9 @@ export class SchemaPicker {
     }
   }
 
-  /** The statements this value can take in the current scene, every kind's. */
+  /** The statements this value can take in the current scene, every kind's — an axis value's connectors too. */
   private collectOptions(): PickerOption[] {
-    return this.kinds.flatMap(kind => this.collectOptionsOf(kind));
+    return this.statementKinds.flatMap(kind => this.collectOptionsOf(kind));
   }
 
   private collectOptionsOf(kind: FeaturePickerKind): PickerOption[] {
@@ -971,7 +1002,7 @@ export class SchemaPicker {
         return many ? `Pick ${curve}edges` : `Pick ${curve ? `a ${curve}` : 'an'} edge`;
       }
       case 'axis':
-        return 'Pick a world axis, an axis or an edge';
+        return 'Pick a world axis, an axis, an edge or a connector';
       case 'plane':
         return 'Pick an origin plane, a plane or a face';
       case 'solid':

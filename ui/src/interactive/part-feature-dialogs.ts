@@ -137,8 +137,8 @@ export class PartFeatureDialogs {
       toolbarButton: s.revolve.toolbarButton,
       pinsSketchToolbar: true,
       picking: (d) => d.isAxisPicking,
-      // An edge or an axis line is the axis.
-      claims: { click: (d) => d.isAxisPicking, axis: (d) => d.isAxisPicking },
+      // An edge, an axis line or (axis slot armed) a connector gizmo is the axis.
+      claims: { click: (d) => d.isAxisPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },
       timelinePicks: true,
       sketchPicks: true,
     }));
@@ -181,8 +181,8 @@ export class PartFeatureDialogs {
       edit: { rowTypes: ['helix'], kind: 'helix', open: (t, p, i) => s.helix.enterEdit(t, p, i) },
       toolbarButton: s.helix.toolbarButton,
       picking: (d) => d.isPicking,
-      // An edge (axis mode) or a face (face mode) is the helix's source.
-      claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking },
+      // An edge or a connector gizmo (axis mode) or a face (face mode) is the helix's source.
+      claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },
       timelinePicks: true,
     }));
     registry.register(new ServiceDialog('repeat', s.repeat, {
@@ -200,7 +200,8 @@ export class PartFeatureDialogs {
         click: (d) => d.isPicking,
         axis: (d) => d.isAxisPicking,
         plane: (d) => d.isPlanePicking,
-        // A connector gizmo: the dialog explains that Copy repeats connectors.
+        // A connector gizmo: an armed axis slot's axis, else the dialog
+        // explains that Copy repeats connectors.
         connector: (d) => d.isPicking,
       },
       timelinePicks: true,
@@ -238,8 +239,8 @@ export class PartFeatureDialogs {
       edit: { rowTypes: ['rotate'], kind: 'rotate', open: (t, p, i) => s.rotate.enterEdit(t, p, i) },
       picking: (d) => d.isPicking,
       // A face or edge selects its whole solid as a target, or (axis slot
-      // armed) an edge is the rotation axis.
-      claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking },
+      // armed) an edge or a connector gizmo is the rotation axis.
+      claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },
       timelinePicks: true,
     }));
     registry.register(new ServiceDialog('connector', s.connector, {

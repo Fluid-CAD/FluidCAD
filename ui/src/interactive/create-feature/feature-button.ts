@@ -2,6 +2,18 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../ui/toolbar-styles';
 
 /**
+ * What a dialog needs of the control it opens from: the click that toggles
+ * it, the armed styling, and taking the control away with the dialog. A
+ * {@link FeatureButton} on the bar is one; a cell of the custom features
+ * menu (`CustomFeaturesMenu`) is the other.
+ */
+export interface FeatureLauncher {
+  onClick?: () => void;
+  setActive(active: boolean): void;
+  remove(): void;
+}
+
+/**
  * The toolbar button every feature service registers: an icon with a muted
  * caption inside a daisyUI tooltip wrapper (which hides with the button so
  * no phantom toolbar gap), toggling armed styling. The service owns the
@@ -12,7 +24,7 @@ import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LAB
  * it and delegate clicks straight back through {@link click} — every
  * service's coordination then runs unchanged whichever surface was clicked.
  */
-export class FeatureButton {
+export class FeatureButton implements FeatureLauncher {
   onClick?: () => void;
   /** Fired whenever `visible`, `disabled`, or `active` changes. */
   onStateChange?: () => void;

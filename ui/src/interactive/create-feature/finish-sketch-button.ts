@@ -1,5 +1,12 @@
-import { FeatureButton } from './feature-button';
 import { TOOLBAR_BTN_LABEL } from '../../ui/toolbar-styles';
+
+/**
+ * A create-group control that leaves the bar while a sketch is up: a
+ * `FeatureButton`, or the custom features menu's button.
+ */
+export interface SketchHideable {
+  setSketchHidden(hidden: boolean): void;
+}
 
 // Green "success" styling: a green border and green check (the icon strokes
 // with `currentColor` = text-success) over a transparent, ghost-hover surface.
@@ -50,7 +57,7 @@ export class FinishSketchButton {
    * go (the feature catalog's) follow it; {@link sync} re-applies the
    * current state to a button added while a sketch is up.
    */
-  constructor(group: HTMLElement, private readonly hiddenWhileSketching: () => readonly FeatureButton[]) {
+  constructor(group: HTMLElement, private readonly hiddenWhileSketching: () => readonly SketchHideable[]) {
     injectStyle();
 
     // `hidden` until a sketch becomes active.

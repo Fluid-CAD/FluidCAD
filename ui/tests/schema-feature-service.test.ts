@@ -847,36 +847,56 @@ describe('the feature catalog on the page', () => {
     builtIn: false, meta: featureMeta, ...extra,
   });
 
+  /** Every catalog a test builds — its dropdown closed afterwards, so no document listener outlives the test. */
+  const catalogs: FeatureCatalogDialogs[] = [];
+  afterEach(() => {
+    for (const dialogs of catalogs.splice(0)) {
+      dialogs.menu.close();
+    }
+  });
+
   function catalog() {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const { viewer } = stubViewer();
     const navbar = new Navbar(container);
+    // The tool groups the page builds before its catalog.
+    const modify = navbar.addGroup('modify', { visible: false });
+    navbar.addGroup('repeat', { visible: false });
+    navbar.addGroup('connector', { visible: false, mode: 'all' });
     const registry = new FeatureDialogRegistry();
     const built: SchemaFeatureService[] = [];
-    const dialogs = new FeatureCatalogDialogs(registry, navbar, (schema, icon) => {
-      const service = new SchemaFeatureService(container, viewer, navbar, schema, icon);
+    const dialogs = new FeatureCatalogDialogs(registry, navbar, (schema, icon, launcher) => {
+      const service = new SchemaFeatureService(container, viewer, navbar, schema, icon, {}, launcher);
       built.push(service);
       return service;
     });
+    catalogs.push(dialogs);
     const changes = vi.fn();
     dialogs.onChange = changes;
+    /** The tooltips of the buttons on the bar. */
     const buttons = () => [...container.querySelectorAll<HTMLElement>('[data-tip]')].map(el => el.dataset.tip);
-    return { container, registry, dialogs, built, changes, buttons, navbar };
+    const menuButton = container.querySelector<HTMLButtonElement>('[data-tool="custom-features"] button')!;
+    const menuGroup = menuButton.closest<HTMLElement>('[data-tool="custom-features"]')!.parentElement!;
+    /** The dropdown's cells, in grid order, while it is open. */
+    const cells = () => [...document.querySelectorAll<HTMLElement>('[data-role="custom-features-menu"] [title]')];
+    return { container, registry, dialogs, built, changes, buttons, navbar, modify, menuButton, menuGroup, cells };
   }
 
   it("registers one dialog per feature, with its icon on its timeline rows", () => {
     const { registry, dialogs, changes } = catalog();
     dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
     expect(registry.ids).toEqual(['feature:acme.standoff', 'feature:acme.bracket']);
+    // A workspace feature opens from the Custom dropdown, so no button on the bar to hide in a sketch.
+    expect(registry.toolbarButtons).toEqual([]);
     expect(changes).toHaveBeenCalledOnce();
     expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('api/features/asset?id=acme.standoff&path=.%2Fstandoff.svg');
     expect(ObjectIcons.srcFor(undefined, 'acme.bracket')).toContain('solid');
     expect(ObjectIcons.srcFor(undefined, 'extrude')).toBe('icons/extrude.png');
   });
 
-  it("offers a built-in that describes itself — Draft — in its group, with the product's own icon", () => {
-    const { registry, dialogs, built, container, navbar } = catalog();
+  it("offers a built-in that describes itself — Draft — as a regular button in its group, with the product's own icon", () => {
+    const { registry, dialogs, built, container, navbar, menuGroup } = catalog();
     dialogs.apply([{ id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: DRAFT }]);
     expect(registry.ids).toEqual(['feature:draft']);
     expect(registry.editsRowType('draft')).toBe(true);
@@ -884,6 +904,12 @@ describe('the feature catalog on the page', () => {
     expect(wrap.querySelector('img')!.getAttribute('src')).toBe('icons/draft.png');
     expect(navbar.getGroup('modify')!.contains(wrap)).toBe(true);
     expect(built[0].toolbarButton).toBeNull();
+    // Not in the Custom dropdown, which has nothing to list and stays off the bar.
+    expect(dialogs.menu.entries).toEqual([]);
+    expect(menuGroup.classList.contains('hidden')).toBe(true);
+    wrap.querySelector('button')!.click();
+    expect(built[0].isActive).toBe(true);
+    built[0].exit();
     // Its timeline rows read the product's icon by their type, as they always did.
     expect(ObjectIcons.srcFor(undefined, 'draft')).toBe('icons/draft.png');
     dialogs.apply([]);
@@ -912,24 +938,114 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('icons/acme.standoff.png');
   });
 
-  it("offers an entry it can't as a greyed button that says why", async () => {
-    const { dialogs, registry, buttons, container } = catalog();
+  it("offers an entry it can't as a greyed cell that says why — a built-in's as a greyed button", async () => {
+    const { dialogs, registry, buttons, menuButton, menuGroup, cells } = catalog();
     vi.mocked(api.getFeatureCatalog).mockResolvedValueOnce([
       entry(STANDOFF, { error: "the feature id 'acme.standoff' is used by more than one builder" }),
       { id: null, exportName: null, modulePath: '/ws/bolt-boss.feature.js', builtIn: false, meta: null, error: 'boom' },
     ]);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await dialogs.refresh();
-    warn.mockRestore();
     expect(registry.ids).toEqual([]);
-    expect(buttons()).toEqual([
+    // Listed (so the button shows), greyed, by label.
+    expect(menuGroup.classList.contains('hidden')).toBe(false);
+    menuButton.click();
+    expect(cells().map(cell => cell.title)).toEqual([
       "Standoff can't be offered: the feature id 'acme.standoff' is used by more than one builder",
       "bolt-boss can't be offered: boom",
-    ]);
-    expect([...container.querySelectorAll<HTMLButtonElement>('[data-tip] button')].every(b => b.disabled)).toBe(true);
-    expect(dialogs.brokenButtons).toHaveLength(2);
+    ].sort((a, b) => a.localeCompare(b)));
+    expect(cells().every(cell => cell.querySelector('button')!.disabled)).toBe(true);
+    expect(buttons()).toEqual(['Custom features']);
+    expect(dialogs.brokenButtons).toEqual([]);
+
+    // A built-in that can't be offered greys where its button would be.
+    dialogs.apply([{ id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: DRAFT, error: 'shared id' }]);
+    warn.mockRestore();
+    expect(buttons()).toEqual(['Custom features', "Draft can't be offered: shared id"]);
+    expect(dialogs.brokenButtons).toHaveLength(1);
+    expect(dialogs.menu.entries).toEqual([]);
+    expect(menuGroup.classList.contains('hidden')).toBe(true);
     dialogs.apply([]);
-    expect(buttons()).toEqual([]);
+    expect(buttons()).toEqual(['Custom features']);
+  });
+
+  it("lists only the workspace's features under the Custom button, create ones first, each by label", () => {
+    const { dialogs, container, menuGroup, menuButton, cells, navbar, modify } = catalog();
+    expect(menuGroup.classList.contains('hidden')).toBe(true);
+    // The last group on the bar, after every tool group.
+    expect(modify.parentElement!.lastElementChild).toBe(menuGroup);
+    dialogs.apply([
+      { id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: DRAFT },
+      entry({ ...POCKET, group: 'modify' }),
+      entry(STANDOFF),
+      entry(BOLT_CIRCLE),
+    ]);
+    expect(menuGroup.classList.contains('hidden')).toBe(false);
+    // None of them is a button on the bar; Draft is.
+    expect(container.querySelector('[data-tool="feature:acme.standoff"]')).toBeNull();
+    expect(navbar.getGroup('modify')!.querySelector('[data-tool="feature:draft"]')).not.toBeNull();
+    menuButton.click();
+    expect(cells().map(cell => cell.dataset.tool)).toEqual(['feature:acme.boltCircle', 'feature:acme.standoff', 'feature:acme.pocket']);
+    expect(cells()[1].title).toBe('Standoff — A boss with a bore');
+    expect(cells()[1].querySelector('img')!.getAttribute('src')).toBe('api/features/asset?id=acme.standoff&path=.%2Fstandoff.svg');
+    expect(cells()[0].querySelector('img')!.getAttribute('src')).toBe('icons/solid.png');
+  });
+
+  it("opens a cell's dialog and reads as armed while one of its features' dialogs is open", () => {
+    const { dialogs, built, menuButton, cells, container } = catalog();
+    dialogs.apply([entry(STANDOFF), entry(BOLT_CIRCLE)]);
+    menuButton.click();
+    cells()[1].querySelector('button')!.click();
+    expect(dialogs.menu.isOpen).toBe(false);
+    const standoff = built.find(s => s.id === 'feature:acme.standoff')!;
+    expect(built.map(s => s.isActive)).toEqual([true, false]);
+    expect(container.querySelector('#fluidcad-feature-acme-standoff')!.classList.contains('hidden')).toBe(false);
+    expect(menuButton.className).toContain('btn-primary');
+
+    // Its cell reads as armed in the dropdown too; clicking it again closes the dialog, as a button does.
+    menuButton.click();
+    expect(cells()[1].querySelector('button')!.className).toContain('btn-primary');
+    cells()[1].querySelector('button')!.click();
+    expect(standoff.isActive).toBe(false);
+    expect(menuButton.className).toContain('btn-ghost');
+
+    // An edit of one of them is its dialog open too.
+    const boltCircle = built.find(s => s.id === 'feature:acme.boltCircle')!;
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.boltCircle', callee: 'boltCircle',
+      values: { count: 8 }, picks: { around: [{ text: "'z'", start: 100, end: 103 }] },
+      operation: 'remove', scopeTexts: [], scopeRefs: [],
+    };
+    boltCircle.enterEdit(at(11, 15), parsed, { index: 5, type: 'acme.boltCircle', expectedStatement: "boltCircle('z', { count: 8 })" });
+    expect(menuButton.className).toContain('btn-primary');
+    boltCircle.exit();
+    expect(menuButton.className).toContain('btn-ghost');
+  });
+
+  it('keeps the Custom button and an open dropdown in step with the catalog', () => {
+    const { dialogs, built, menuButton, menuGroup, cells } = catalog();
+    dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
+    menuButton.click();
+    expect(cells().map(cell => cell.textContent)).toEqual(['Bracket', 'Standoff']);
+
+    // A feature module added, one renamed: the open dropdown follows, still open.
+    dialogs.apply([entry({ ...STANDOFF, label: 'Anchor post' }), entry(BRACKET), entry(BOLT_CIRCLE)]);
+    expect(dialogs.menu.isOpen).toBe(true);
+    expect(cells().map(cell => cell.textContent)).toEqual(['Anchor post', 'Bolt circle', 'Bracket']);
+    expect(built).toHaveLength(4);
+
+    // A rebuilt feature whose dialog was open: the armed look goes with the old dialog.
+    built[3].enter();
+    expect(menuButton.className).toContain('btn-primary');
+    dialogs.apply([entry({ ...STANDOFF, label: 'Anchor post' }), entry(BRACKET), entry({ ...BOLT_CIRCLE, label: 'Bolt ring' })]);
+    expect(menuButton.className).toContain('btn-ghost');
+
+    // The last custom feature gone: the button leaves the bar, the dropdown with it.
+    menuButton.click();
+    dialogs.apply([]);
+    expect(dialogs.menu.isOpen).toBe(false);
+    expect(menuGroup.classList.contains('hidden')).toBe(true);
+    expect(cells()).toEqual([]);
   });
 
   it('keeps the newest answer when two refreshes overlap', async () => {
@@ -945,21 +1061,21 @@ describe('the feature catalog on the page', () => {
     expect(registry.ids).toEqual(['feature:acme.bracket']);
   });
 
-  it('takes the create-group buttons off the bar while a sketch is up, ones added later too', () => {
-    const { dialogs, built, navbar } = catalog();
+  it('takes the Custom button off the bar while a sketch is up, also when its first feature arrives mid-sketch', () => {
+    const { dialogs, built, navbar, menuGroup } = catalog();
     const finish = new FinishSketchButton(navbar.addGroup('create', { immune: true }), () => [
       ...built.flatMap(s => s.toolbarButton ? [s.toolbarButton] : []),
       ...dialogs.brokenButtons,
+      dialogs.menu,
     ]);
     finish.setVisible(true);
     dialogs.apply([entry(STANDOFF), entry({ ...BRACKET, group: 'modify' })]);
     finish.sync();
-    const wrapOf = (id: string) => document.querySelector(`[data-tool="feature:${id}"]`)!;
-    expect(wrapOf('acme.standoff').classList.contains('feature-sketch-hidden')).toBe(true);
-    // A modify-group feature's button sits in the modify group, which the sketch toolbar hides whole.
-    expect(built[1].toolbarButton).toBeNull();
-    expect(wrapOf('acme.bracket').classList.contains('feature-sketch-hidden')).toBe(false);
+    expect(built.map(s => s.toolbarButton)).toEqual([null, null]);
+    expect(menuGroup.classList.contains('hidden')).toBe(true);
+    dialogs.menu.open();
+    expect(dialogs.menu.isOpen).toBe(false);
     finish.setVisible(false);
-    expect(wrapOf('acme.standoff').classList.contains('feature-sketch-hidden')).toBe(false);
+    expect(menuGroup.classList.contains('hidden')).toBe(false);
   });
 });

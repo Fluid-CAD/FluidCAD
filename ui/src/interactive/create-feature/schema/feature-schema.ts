@@ -36,6 +36,11 @@ export class FeatureSchema {
     return this.meta.label;
   }
 
+  /** What the feature's button or menu cell says on hover: its label, and its description when it has one. */
+  get tip(): string {
+    return this.meta.description ? `${this.label} — ${this.meta.description}` : this.label;
+  }
+
   /** Every value's name, in declaration order. */
   get names(): string[] {
     return Object.keys(this.meta.params);

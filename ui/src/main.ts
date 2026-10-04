@@ -1916,10 +1916,13 @@ PartFeatureDialogs.register(featureDialogs, {
 });
 
 // The workspace's custom features (its `*.feature.js` builders): one schema
-// dialog per feature the catalog offers, registered after the built-ins —
-// so their buttons close each group — and rebuilt whenever a feature module
-// changes (`features-changed`). Each takes the same hooks as a built-in.
-const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema, iconSrc) =>
+// dialog per feature the catalog offers, registered after the built-ins and
+// rebuilt whenever a feature module changes (`features-changed`). They open
+// from the toolbar's Custom dropdown, a group of its own that this, built
+// after every tool group, puts last on the bar; a built-in described the
+// same way (Draft) gets a regular button closing its group. Each takes the
+// same hooks as a built-in.
+const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema, iconSrc, launcher) =>
   new SchemaFeatureService(container, viewer, navbar, schema, iconSrc, {
     onEnter: () => {
       enterPartDialog(SchemaFeatureService.dialogId(schema.id));
@@ -1927,7 +1930,7 @@ const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema
     onActiveChange: syncSketchButtonBlocked,
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
-  }));
+  }, launcher));
 
 // While a sketch is active, a green "Finish Sketch" button heads the create
 // group and the create-feature buttons leave the bar. It marks the sketch
@@ -1938,6 +1941,7 @@ const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema
 const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, () => [
   ...featureDialogs.toolbarButtons,
   ...featureCatalog.brokenButtons,
+  featureCatalog.menu,
   modifyService.sketchButton,
   partTool.button,
 ]);

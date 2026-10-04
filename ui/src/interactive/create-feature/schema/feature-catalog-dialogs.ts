@@ -5,12 +5,17 @@ import { iconUrl } from '../../../ui/icon-url';
 import { DEFAULT_ICON_SRC, ObjectIcons } from '../../../ui/object-icons';
 import type { Navbar } from '../../../ui/navbar';
 import type { FeatureDialogRegistry } from '../../feature-dialog-registry';
-import { FeatureButton } from '../feature-button';
+import { FeatureButton, type FeatureLauncher } from '../feature-button';
+import { CustomFeaturesMenu } from './custom-features-menu';
 import { FeatureSchema } from './feature-schema';
 import type { SchemaFeatureService } from './schema-feature-service';
 
-/** Builds one feature's dialog; the page supplies the hooks it shares with every dialog. */
-export type SchemaDialogFactory = (schema: FeatureSchema, iconSrc: string) => SchemaFeatureService;
+/**
+ * Builds one feature's dialog; the page supplies the hooks it shares with
+ * every dialog. `launcher`: where the dialog opens from — a cell of the
+ * custom features menu; absent, its own button in its metadata's group.
+ */
+export type SchemaDialogFactory = (schema: FeatureSchema, iconSrc: string, launcher?: FeatureLauncher) => SchemaFeatureService;
 
 /** A catalog entry the page can offer: one feature, with its metadata. */
 type OfferedEntry = FeatureCatalogEntry & { id: string; meta: FeatureMetaSnapshot };
@@ -18,23 +23,30 @@ type OfferedEntry = FeatureCatalogEntry & { id: string; meta: FeatureMetaSnapsho
 /**
  * The catalog's features on the page — the workspace's custom features and
  * the engine's own that describe themselves the same way (Draft): one
- * schema dialog (with its toolbar button and its timeline rows) per feature
- * the catalog offers,
+ * schema dialog (with its timeline rows) per feature the catalog offers,
  * registered with the page's dialog registry like the built-ins, and each
  * feature's icon for its timeline rows. A refresh (the engine coming up, a
  * `features-changed`) rebuilds only the dialogs whose metadata changed, so a
  * dialog open on an unrelated feature stays open.
  *
+ * The workspace's features open from one toolbar button, the custom
+ * features {@link menu}: a cell apiece. A built-in keeps a regular button in
+ * its group, as the product's own tools do.
+ *
  * An entry the catalog can't offer — a module that fails to load, an id two
- * builders share, a module exporting no feature — gets a greyed button
- * whose tooltip says why, and a console warning; nothing louder.
+ * builders share, a module exporting no feature — gets a greyed cell (a
+ * greyed button for a built-in) whose tooltip says why, and a console
+ * warning; nothing louder.
  */
 export class FeatureCatalogDialogs {
   /** What the page offers changed — the Finish Sketch swap and the timeline re-read it. */
   onChange?: () => void;
 
+  /** The toolbar's Custom dropdown, listing the workspace's features. */
+  readonly menu: CustomFeaturesMenu;
+
   private readonly dialogs = new Map<string, { service: SchemaFeatureService; signature: string; builtIn: boolean }>();
-  private readonly broken = new Map<string, { button: FeatureButton; error: string }>();
+  private readonly broken = new Map<string, { launcher: FeatureLauncher; error: string }>();
   /** Bumped on every module change, so a rebuilt dialog's icon is fetched fresh. */
   private revision = 0;
   /** The latest refresh — an older one's answer is dropped. */
@@ -44,16 +56,18 @@ export class FeatureCatalogDialogs {
     private readonly registry: FeatureDialogRegistry,
     private readonly navbar: Navbar,
     private readonly create: SchemaDialogFactory,
-  ) {}
+  ) {
+    this.menu = new CustomFeaturesMenu(navbar);
+  }
 
   /** The registered dialogs, by feature id. */
   get services(): SchemaFeatureService[] {
     return [...this.dialogs.values()].map(d => d.service);
   }
 
-  /** The greyed buttons of the entries that can't be offered (the Finish Sketch swap hides them too). */
+  /** The greyed toolbar buttons of built-ins that can't be offered (the Finish Sketch swap hides them too). */
   get brokenButtons(): FeatureButton[] {
-    return [...this.broken.values()].map(b => b.button);
+    return [...this.broken.values()].flatMap(b => (b.launcher instanceof FeatureButton ? [b.launcher] : []));
   }
 
   /** Fetch the catalog and bring the page in line with it. `changed`: a module changed since the last fetch. */
@@ -93,7 +107,12 @@ export class FeatureCatalogDialogs {
         continue;
       }
       const icon = FeatureCatalogDialogs.iconOf(entry, this.revision);
-      const service = this.create(new FeatureSchema(entry.meta), icon);
+      const schema = new FeatureSchema(entry.meta);
+      const service = entry.builtIn
+        ? this.create(schema, icon)
+        : this.create(schema, icon, this.menu.add({
+          id, label: schema.label, iconSrc: icon, tip: schema.tip, group: FeatureCatalogDialogs.groupOf(entry.meta),
+        }));
       this.registry.register(service);
       // A built-in's rows already read the product's own icon by their type.
       if (!entry.builtIn) {
@@ -133,7 +152,7 @@ export class FeatureCatalogDialogs {
     return entry.meta.icon ? featureAssetUrl(entry.id, entry.meta.icon, revision) : DEFAULT_ICON_SRC;
   }
 
-  /** One greyed button per entry that can't be offered; answers whether the set changed. */
+  /** One greyed cell (a built-in's: button) per entry that can't be offered; answers whether the set changed. */
   private syncBroken(entries: readonly FeatureCatalogEntry[]): boolean {
     const keep = new Set<string>();
     let changed = false;
@@ -144,28 +163,44 @@ export class FeatureCatalogDialogs {
       if (this.broken.get(key)?.error === error) {
         continue;
       }
-      this.broken.get(key)?.button.remove();
+      this.broken.get(key)?.launcher.remove();
       const label = entry.meta?.label ?? FeatureCatalogDialogs.moduleLabel(entry.modulePath);
-      const group = this.navbar.getGroup('create') ?? this.navbar.addGroup('create', { visible: false, immune: true });
-      const button = new FeatureButton(group, {
-        icon: DEFAULT_ICON_SRC,
-        label,
-        tip: `${label} can't be offered: ${error}`,
-        ariaLabel: `${label} can't be offered`,
-      });
-      button.setDisabled(true);
-      this.broken.set(key, { button, error });
+      const tip = `${label} can't be offered: ${error}`;
+      this.broken.set(key, { launcher: this.brokenLauncher(entry, label, tip), error });
       console.warn(`[feature catalog] ${entry.modulePath}: ${error}`);
       changed = true;
     }
     for (const [key, held] of [...this.broken]) {
       if (!keep.has(key)) {
-        held.button.remove();
+        held.launcher.remove();
         this.broken.delete(key);
         changed = true;
       }
     }
     return changed;
+  }
+
+  /** A workspace entry greys in the menu; a built-in greys on the bar, where its button would be. */
+  private brokenLauncher(entry: FeatureCatalogEntry, label: string, tip: string): FeatureLauncher {
+    if (!entry.builtIn) {
+      return this.menu.add({
+        id: entry.id, label, iconSrc: DEFAULT_ICON_SRC, tip, group: FeatureCatalogDialogs.groupOf(entry.meta), disabled: true,
+      });
+    }
+    const group = this.navbar.getGroup('create') ?? this.navbar.addGroup('create', { visible: false, immune: true });
+    const button = new FeatureButton(group, {
+      icon: DEFAULT_ICON_SRC,
+      label,
+      tip,
+      ariaLabel: `${label} can't be offered`,
+    });
+    button.setDisabled(true);
+    return button;
+  }
+
+  /** Which half of the menu a feature lists in: modify, or create (also for an entry with no metadata). */
+  private static groupOf(meta: FeatureMetaSnapshot | null | undefined): 'create' | 'modify' {
+    return meta?.group === 'modify' ? 'modify' : 'create';
   }
 
   /** What a dialog is built from: a change here rebuilds it. */

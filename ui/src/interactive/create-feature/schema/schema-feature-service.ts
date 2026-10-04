@@ -18,7 +18,7 @@ import { AnchorSuggestions } from '../anchor-suggestions';
 import { ApplyRunner } from '../apply-runner';
 import { ConnectorGhostOverlay } from '../connector-ghost';
 import { ConnectorOptions } from '../connector-options';
-import { FeatureButton } from '../feature-button';
+import { FeatureButton, type FeatureLauncher } from '../feature-button';
 import { FeatureGhostOverlay } from '../feature-ghost';
 import { refreshScopeVariables } from '../option-relabeler';
 import { enclosingPartLocOf, scopePartLocation, ScopeTargetList } from '../scope-targets';
@@ -45,10 +45,11 @@ export type SchemaFeatureHooks = {
 };
 
 /**
- * The dialog of one custom feature, built from its metadata: a toolbar
- * button in the feature's group, the schema dialog, and the create and
- * timeline-edit flows every built-in dialog has — registered with the page's
- * {@link FeatureDialogRegistry} like them.
+ * The dialog of one custom feature, built from its metadata: the control it
+ * opens from (its own toolbar button in the feature's group, or a launcher
+ * the page hands it — a cell of the custom features menu), the schema
+ * dialog, and the create and timeline-edit flows every built-in dialog has —
+ * registered with the page's {@link FeatureDialogRegistry} like them.
  *
  * Picks route to the armed slot (the viewer offers only what that slot
  * takes); timeline rows route to the slot that takes their kind, whichever
@@ -71,7 +72,9 @@ export class SchemaFeatureService implements FeatureDialogService {
   readonly toolbarButton: FeatureButton | null;
 
   private readonly panel: SchemaFeaturePanel;
-  private readonly button: FeatureButton;
+  private readonly launcher: FeatureLauncher;
+  /** Its own button sits in the create group, which it votes visible. */
+  private readonly votesCreateGroup: boolean;
   private readonly sketchUI: SketchUISuspender;
   private readonly runner: ApplyRunner<CreateRequest | EditRequest>;
   private readonly scope = new ScopeTargetList();
@@ -109,6 +112,8 @@ export class SchemaFeatureService implements FeatureDialogService {
     readonly schema: FeatureSchema,
     iconSrc: string,
     private readonly hooks: SchemaFeatureHooks = {},
+    /** Where the dialog opens from; absent — its own button in its metadata's group. */
+    launcher?: FeatureLauncher,
   ) {
     this.id = SchemaFeatureService.dialogId(schema.id);
     this.editRowTypes = [schema.id];
@@ -117,30 +122,37 @@ export class SchemaFeatureService implements FeatureDialogService {
     // up while it is armed from an active sketch, as for Extrude.
     this.pinsSketchToolbar = schema.pickerNames.some(name => (schema.param(name) as { picker: string }).picker === 'sketch');
 
-    const groupKey = schema.meta.group === 'modify' ? 'modify' : 'create';
-    const group = navbar.getGroup(groupKey)
-      ?? navbar.addGroup(groupKey, groupKey === 'create' ? { visible: false, immune: true } : { visible: false });
-    const tip = schema.meta.description ? `${schema.label} — ${schema.meta.description}` : schema.label;
-    this.button = new FeatureButton(group, {
-      icon: iconSrc,
-      label: schema.label,
-      tip,
-      ariaLabel: tip,
-      datasetTool: `feature:${schema.id}`,
-    });
-    this.button.onClick = () => {
+    if (launcher) {
+      this.launcher = launcher;
+      this.toolbarButton = null;
+      this.votesCreateGroup = false;
+    } else {
+      const groupKey = schema.meta.group === 'modify' ? 'modify' : 'create';
+      const group = navbar.getGroup(groupKey)
+        ?? navbar.addGroup(groupKey, groupKey === 'create' ? { visible: false, immune: true } : { visible: false });
+      const button = new FeatureButton(group, {
+        icon: iconSrc,
+        label: schema.label,
+        tip: schema.tip,
+        ariaLabel: schema.tip,
+        datasetTool: `feature:${schema.id}`,
+      });
+      this.launcher = button;
+      // Create-group buttons leave the bar while a sketch is up; the modify
+      // group hides wholesale then.
+      this.toolbarButton = groupKey === 'create' ? button : null;
+      this.votesCreateGroup = groupKey === 'create';
+      if (this.votesCreateGroup) {
+        navbar.setGroupVisible('create', true, this.id);
+      }
+    }
+    this.launcher.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
     };
-    // Create-group buttons leave the bar while a sketch is up; the modify
-    // group hides wholesale then.
-    this.toolbarButton = groupKey === 'create' ? this.button : null;
-    if (groupKey === 'create') {
-      navbar.setGroupVisible('create', true, this.id);
-    }
     this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new SchemaFeaturePanel(container, schema, iconSrc);
@@ -352,13 +364,15 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
-  /** Take the dialog and its button off the page — its feature changed or left the catalog. */
+  /** Take the dialog and its button (or menu cell) off the page — its feature changed or left the catalog. */
   destroy(): void {
     this.exit({ resume: 'lazy' });
     this.ghost?.dispose();
     this.suggestions?.dispose();
-    this.navbar.setGroupVisible('create', false, this.id);
-    this.button.remove();
+    if (this.votesCreateGroup) {
+      this.navbar.setGroupVisible('create', false, this.id);
+    }
+    this.launcher.remove();
     this.panel.destroy();
   }
 
@@ -1006,7 +1020,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   }
 
   private syncButton(): void {
-    this.button.setActive(this.armed);
+    this.launcher.setActive(this.armed);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FeatureMetaSnapshot } from '../src/api';
+import type { FeatureMetaSnapshot, FeaturePickerParam } from '../src/api';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 
 // The custom feature dialog is drawn from its metadata snapshot alone: these
@@ -118,15 +118,15 @@ describe('FeatureSchema', () => {
     expect(schema.names.filter(name => schema.required(name))).toEqual(['face', 'depth']);
   });
 
-  it('names the required values the dialog cannot pick yet', () => {
+  it('reads the kinds a picked value takes, and asks a create for a required location like any pick', () => {
     const schema = new FeatureSchema(meta({
-      at: { picker: 'connector', label: 'At connector' },
+      at: { picker: ['connector', 'point', 'anchor'], multiple: true, label: 'At' },
+      pin: { picker: 'connector', label: 'Pin' },
       near: { picker: 'point', label: 'Near', optional: true },
-      face: { picker: 'face', label: 'Face' },
     }));
-    expect(schema.unpickableRequired()).toEqual(['At connector']);
-    expect(FeatureSchema.offersPicker('anchor')).toBe(false);
-    expect(FeatureSchema.offersPicker('solid')).toBe(true);
+    expect(FeatureSchema.kindsOf(schema.param('at') as FeaturePickerParam)).toEqual(['connector', 'point', 'anchor']);
+    expect(FeatureSchema.kindsOf(schema.param('pin') as FeaturePickerParam)).toEqual(['connector']);
+    expect(schema.names.filter(name => schema.required(name))).toEqual(['at', 'pin']);
   });
 
   it("checks a typed-in number the way the engine will, in the value's own words", () => {

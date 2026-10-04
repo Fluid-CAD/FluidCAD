@@ -12,11 +12,6 @@ export type SchemaLayout = {
   tabs: { name: string; blocks: SchemaBlock[] }[];
 };
 
-/** The picker kinds a feature dialog offers today; the location pickers come later. */
-const DIALOG_PICKERS: ReadonlySet<FeaturePickerKind> = new Set([
-  'sketch', 'face', 'edge', 'axis', 'plane', 'solid', 'feature',
-]);
-
 const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> = {
   add: { label: 'Add', title: 'Join the result to the solids it touches' },
   remove: { label: 'Remove', title: 'Cut the result from the solids it touches — .remove()' },
@@ -69,9 +64,9 @@ export class FeatureSchema {
     return spec.multiple === true || spec.max !== undefined;
   }
 
-  /** Whether the dialog can pick this kind yet. */
-  static offersPicker(kind: FeaturePickerKind): boolean {
-    return DIALOG_PICKERS.has(kind);
+  /** The kinds a picked value takes: its picker's one kind, or each kind of a picker of several. */
+  static kindsOf(spec: FeaturePickerParam): FeaturePickerKind[] {
+    return Array.isArray(spec.picker) ? [...spec.picker] : [spec.picker];
   }
 
   /** The operations the feature offers, in the product's order (Add, Remove, New), or none. */
@@ -169,18 +164,6 @@ export class FeatureSchema {
       return !(spec.picker === 'sketch' && spec.implicitDefault === true);
     }
     return this.defaultOf(name) === undefined;
-  }
-
-  /**
-   * The values a create needs that the dialog cannot pick yet (a required
-   * connector, point or anchor) — the dialog says so instead of offering
-   * an Apply that can never go through.
-   */
-  unpickableRequired(): string[] {
-    return this.pickerNames.filter(name => {
-      const spec = this.param(name) as FeaturePickerParam;
-      return !FeatureSchema.offersPicker(spec.picker) && this.required(name);
-    }).map(name => this.param(name).label);
   }
 
   /** Why a typed-in number can't be this value, or null — the engine's own checks, before it sees it. */

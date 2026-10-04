@@ -1005,7 +1005,15 @@ export type Mirror2DGhostRequest = {
 export type GhostCustomRef =
   | { kind: 'statement'; filePath: string; line: number }
   | { kind: 'entities'; entities: { shapeId: string; index: number; kind: 'edge' | 'face' }[] }
-  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' };
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** A connector by its statement — a copy by its seed's statement and its slot. */
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; shapeId: string; index: number }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: { shapeId: string; index: number; kind: 'edge' | 'face' }; anchor: ConnectorAnchor }
+  /** Edit mode: the edited statement's own element of the value, by position — as its feature built it. */
+  | { kind: 'kept'; index: number };
 
 /**
  * A custom feature's ghost: the feature by its catalog id, the values as
@@ -3698,8 +3706,12 @@ export type ParsedCustomPick = {
   /** Character offsets of the text in the file. */
   start: number;
   end: number;
-  /** The statement a plain variable names (`s` bound to `sketch(…)`), by call site. */
-  ref?: { line: number; column: number };
+  /**
+   * The statement a plain variable names (`s` bound to `sketch(…)`), by call
+   * site — a connector copy's seed statement, with the copy's `slot`
+   * (`bolt.instance(2)`).
+   */
+  ref?: { line: number; column: number; slot?: number };
 };
 
 export type ParseFeatureResult =
@@ -6059,9 +6071,13 @@ export type FeatureScalarParam = FeatureParamCommon & (
 export type FeaturePickerKind =
   | 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
 
-/** A value the dialog picks in the viewport or the timeline; each kind reads its own fields. */
+/**
+ * A value the dialog picks in the viewport or the timeline; each kind reads
+ * its own fields. A list of kinds takes any of them, each click routed to
+ * the one kind that takes it (`['connector', 'point', 'anchor']`).
+ */
 export type FeaturePickerParam = FeatureParamCommon & {
-  picker: FeaturePickerKind;
+  picker: FeaturePickerKind | FeaturePickerKind[];
   /** The value is a list. */
   multiple?: boolean;
   /** The value is a list of at most this many. */
@@ -6088,6 +6104,8 @@ export type FeaturePickerParam = FeatureParamCommon & {
   connector?: boolean;
   /** feature: only features of these types or ids. */
   types?: string[];
+  /** anchor: the well-known points offered on a face or an edge; all of them when left out. */
+  anchors?: ('center' | 'start' | 'end' | 'offset')[];
 };
 
 export type FeatureParam = FeatureScalarParam | FeaturePickerParam;
@@ -6158,8 +6176,16 @@ export function featureAssetUrl(id: string, path: string, revision = 0): string 
 export type CustomPickInput =
   /** Faces or edges picked in the viewport — one per value, every picked shape in it. */
   | { kind: 'entities'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] }
-  /** A statement picked in the viewport or the timeline: a sketch, an axis or plane statement, a solid, a feature. */
-  | ({ kind: 'statement' } & SketchSourceRef)
+  /**
+   * A statement picked in the viewport or the timeline: a sketch, an axis or
+   * plane statement, a solid, a feature, a connector — `picker` the kind it
+   * was picked as when the value takes several, `slot` a connector copy's.
+   */
+  | ({ kind: 'statement'; picker?: FeaturePickerKind; slot?: number } & SketchSourceRef)
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; entity: { shapeId: string; sub: { type: 'vertex'; index: number } } }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor }
   /** A world axis or an origin plane. */
   | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
   /** Edit only: one element of the statement's own value, by position. */

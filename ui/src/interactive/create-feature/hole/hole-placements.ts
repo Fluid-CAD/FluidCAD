@@ -81,14 +81,18 @@ function vertexOwner(
 }
 
 /** What a picked sketch dot stands for, read off the scene rows around its shape. */
-function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]): string {
+export function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]): string {
   const owner = vertexOwner(shapeId, sceneObjects);
   if (!owner) {
     return 'Vertex';
   }
   const { row, shape } = owner;
   const sketch = SceneIndex.of(sceneObjects).enclosing(row, 'sketch');
-  const entity = row.type ? row.type.charAt(0).toUpperCase() + row.type.slice(1) : 'Entity';
+  // A row's type names its entity — a custom feature's id (`acme.boss`) is
+  // no word, so its timeline name ("Boss") does.
+  const entity = row.type && !row.type.includes('.')
+    ? row.type.charAt(0).toUpperCase() + row.type.slice(1)
+    : row.name ?? 'Entity';
   const role = (row.type as string) === 'point'
     ? 'point'
     : shape.isMetaShape && shape.shapeType === 'vertex' ? 'centre' : 'vertex';

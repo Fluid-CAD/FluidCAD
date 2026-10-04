@@ -17,6 +17,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   applyCustomFeatureEdit: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
   getFeatureCatalog: vi.fn(async () => []),
   fetchFeatureGhostResult: vi.fn(async () => ({ solids: [{ meshes: [] }], frames: [], notice: null })),
+  fetchConnectorAnchors: vi.fn(async () => ({ ok: false, reason: null })),
   rollback: vi.fn(),
   clearBreakpoints: vi.fn(),
 }));
@@ -126,6 +127,28 @@ function scene(): SceneObjectRender[] {
 }
 const row = (id: string) => scene().find(o => o.id === id)!;
 
+/** Bosses at connectors, points and face centres: a value of three kinds. */
+const BOSS = meta('acme.boss', 'Boss', {
+  at: { picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'], label: 'At' },
+  height: { type: 'length', default: 6, min: 0, label: 'Height' },
+}, { operations: ['add', 'new'], defaultOperation: 'add' });
+
+/** The scene plus a connector on the plate's top (line 13) and one of its copies (slot 1). */
+function bossScene(): SceneObjectRender[] {
+  const frame = { origin: { x: 0, y: 0, z: 10 }, xDirection: { x: 1, y: 0, z: 0 }, yDirection: { x: 0, y: 1, z: 0 }, normal: { x: 0, y: 0, z: 1 } };
+  return [
+    ...scene(),
+    {
+      id: 'bolt', type: 'connector', name: 'bolt', parentId: 'part', ownShapes: [], sceneShapes: [], sourceLocation: at(13, 15),
+      object: { name: 'bolt', ...frame },
+    },
+    {
+      id: 'bolt-1', type: 'connector', name: 'bolt', parentId: 'part', ownShapes: [], sceneShapes: [], sourceLocation: at(14, 2),
+      object: { name: 'bolt', ...frame, copy: { seedId: 'bolt', slot: 1 } },
+    },
+  ] as SceneObjectRender[];
+}
+
 /** A viewer recording what the dialog asks of it. */
 function stubViewer() {
   const state = {
@@ -134,13 +157,27 @@ function stubViewer() {
     standardAxes: [] as string[],
     axisPick: null as ((axis: 'x' | 'y' | 'z') => void) | null,
     planePick: null as ((plane: 'xy' | 'xz' | 'yz') => void) | null,
+    connectorPicking: false,
+    pickedConnectors: [] as string[],
   };
   const viewer = {
-    sceneContext: { scene: new Scene(), camera: new PerspectiveCamera(), requestRender: () => {} },
+    sceneContext: {
+      scene: new Scene(), camera: new PerspectiveCamera(), requestRender: () => {},
+      renderer: { domElement: document.createElement('canvas') },
+    },
     pickFilter: 'all',
     pickSketchWires: false,
     pickAxes: false,
     pickPlanes: false,
+    pickVertices: false,
+    setVertexPickScope: () => {},
+    setHoveredConnector: () => {},
+    setConnectorPicking: (on: boolean) => {
+      state.connectorPicking = on;
+    },
+    setPickedConnectors: (ids: string[]) => {
+      state.pickedConnectors = [...ids];
+    },
     missedSketchRender: false,
     currentSceneObjects: [] as SceneObjectRender[],
     suspendSketchEditing: () => {},
@@ -356,6 +393,77 @@ describe('a custom feature dialog', () => {
     expect(service.dialogPanel.pickers.get('profile')!.isEmpty).toBe(false);
     expect(service.dialogPanel.pickers.get('base')!.isEmpty).toBe(true);
     expect(lastCreate()).toBeUndefined();
+  });
+});
+
+describe('a custom feature standing at locations', () => {
+  const centre = {
+    ok: true, inPart: true, defaultName: null, args: null,
+    anchors: [
+      { anchor: { kind: 'center' }, suffix: '.center()', frame: { origin: { x: 0, y: 0, z: 10 }, xDirection: { x: 1, y: 0, z: 0 }, yDirection: { x: 0, y: 1, z: 0 }, normal: { x: 0, y: 0, z: 1 } } },
+      { anchor: { kind: 'start' }, suffix: '.start()', frame: { origin: { x: 5, y: 0, z: 10 }, xDirection: { x: 1, y: 0, z: 0 }, yDirection: { x: 0, y: 1, z: 0 }, normal: { x: 0, y: 0, z: 1 } } },
+    ],
+  };
+
+  it('offers connectors, vertices and anchors at once, and writes every pick in the order it was made', async () => {
+    const { service, viewer, state, lastCreate, lastGhost } = mount(BOSS);
+    service.update(bossScene());
+    service.enter();
+    expect(service.dialogPanel.armedSlot).toBe('at');
+    expect(viewer.pickFilter).toBe('all');
+    expect(viewer.pickVertices).toBe(true);
+    expect(state.connectorPicking).toBe(true);
+
+    expect(service.handleConnectorPick('bolt', {} as never)).toBe(true);
+    expect(service.handleClick('plate-solid', { type: 'vertex', index: 3 })).toBe(true);
+    // A face: the rail asks for its anchors — the value takes centres only — and locks the one under the cursor.
+    vi.mocked(api.fetchConnectorAnchors).mockResolvedValueOnce(centre as never);
+    expect(service.handleHover('plate-solid', faceOf('plate-solid', 4).sub, 10, 10)).toBe(true);
+    expect(service.handleClick('plate-solid', faceOf('plate-solid', 4).sub)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(api.fetchConnectorAnchors).mock.calls[0][2]).toBe('hole');
+    expect(service.handleConnectorPick('bolt-1', {} as never)).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(lastCreate()!.picks).toEqual({
+      at: [
+        { kind: 'statement', filePath: FILE, line: 13, column: 15, picker: 'connector' },
+        { kind: 'point', entity: { shapeId: 'plate-solid', sub: { type: 'vertex', index: 3 } } },
+        { kind: 'anchor', entity: faceOf('plate-solid', 4), anchor: { kind: 'center' } },
+        { kind: 'statement', filePath: FILE, line: 13, column: 15, picker: 'connector', slot: 1 },
+      ],
+    });
+    expect(state.pickedConnectors).toEqual(['bolt', 'bolt-1']);
+    expect(lastGhost()![0].refs).toEqual({
+      at: [
+        { kind: 'connector', filePath: FILE, line: 13 },
+        { kind: 'point', shapeId: 'plate-solid', index: 3 },
+        { kind: 'anchor', entity: { shapeId: 'plate-solid', index: 4, kind: 'face' }, anchor: { kind: 'center' } },
+        { kind: 'connector', filePath: FILE, line: 13, slot: 1 },
+      ],
+    });
+
+    // Every location channel goes back when the dialog closes.
+    service.exit();
+    expect(state.connectorPicking).toBe(false);
+    expect(viewer.pickVertices).toBe(false);
+    expect(state.pickedConnectors).toEqual([]);
+  });
+
+  it('refuses a face that offers no anchor the value takes, and drops vertex and anchor picks on a render', async () => {
+    const { service, message } = mount(BOSS);
+    service.update(bossScene());
+    service.enter();
+    vi.mocked(api.fetchConnectorAnchors).mockResolvedValueOnce({ ...centre, anchors: [centre.anchors[1]] } as never);
+    service.handleClick('plate-solid', faceOf('plate-solid', 5).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(message()).toBe('That face or edge offers no anchor this value takes.');
+
+    service.handleClick('plate-solid', { type: 'vertex', index: 3 });
+    service.handleConnectorPick('bolt', {} as never);
+    service.update(bossScene());
+    await vi.advanceTimersByTimeAsync(300);
+    expect(service.dialogPanel.pickers.get('at')!.value.map(e => e.kind)).toEqual(['statement']);
   });
 });
 

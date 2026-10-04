@@ -175,12 +175,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   /**
-   * Move the armed state onto one slot. A hidden or not-yet-pickable value
-   * can't be armed; null disarms every slot.
+   * Move the armed state onto one slot. A hidden value, or one on a tab out
+   * of view, can't be armed; null disarms every slot.
    */
   armSlot(slot: ArmedSlot): void {
     const picker = slot && slot !== 'scope' ? this.pickers.get(slot) : undefined;
-    if (picker && (!picker.visible || !picker.offered || !this.onShownTab(picker))) {
+    if (picker && (!picker.visible || !this.onShownTab(picker))) {
       return;
     }
     if (slot === 'scope' && !this.scopeSlot?.visible) {
@@ -223,7 +223,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
 
   /** The picked values the dialog can arm right now — shown, on the shown tab — in the order they read. */
   private pickableValues(): SchemaPicker[] {
-    return [...this.pickers.values()].filter(p => p.visible && p.offered && this.onShownTab(p));
+    return [...this.pickers.values()].filter(p => p.visible && this.onShownTab(p));
   }
 
   private onShownTab(picker: SchemaPicker): boolean {

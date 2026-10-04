@@ -1,5 +1,6 @@
 import {
-  applyHole, applyHoleEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget, GhostSolid,
+  applyHole, applyHoleEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
+  FeatureEditTarget, GhostSolid,
   HoleApplyOptions, HoleEditOptions, HoleFastenRef, HoleGhostRequest, ParsedFeatureStatement, SourceSlotRef,
 } from '../../../api';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
@@ -107,6 +108,7 @@ export class HoleFeatureService {
       purpose: 'hole',
       // A placement writes the synthesized anchor expression.
       needsArgs: true,
+      request: fetchConnectorAnchors,
     });
     this.suggestions.onLock = (locked) => {
       this.placements.toggleAnchor(locked);

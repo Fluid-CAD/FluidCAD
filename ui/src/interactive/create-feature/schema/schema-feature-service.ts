@@ -1,5 +1,5 @@
 import {
-  applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
+  applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
   type CustomFeatureApplyOptions, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
   type FeatureEditTarget, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
@@ -11,9 +11,13 @@ import type { Navbar } from '../../../ui/navbar';
 import type { Viewer } from '../../../viewer';
 import { EditSession } from '../../edit-session';
 import type {
-  FeatureDialogExit, FeatureDialogService, FeatureEditInfo, ParsedFeatureKind,
+  ConnectorPickDetail, FeatureDialogExit, FeatureDialogService, FeatureEditInfo, ParsedFeatureKind,
 } from '../../feature-dialog-registry';
+import { ConnectorPickMenu } from '../../assembly-mate/connector-pick-menu';
+import { AnchorSuggestions } from '../anchor-suggestions';
 import { ApplyRunner } from '../apply-runner';
+import { ConnectorGhostOverlay } from '../connector-ghost';
+import { ConnectorOptions } from '../connector-options';
 import { FeatureButton } from '../feature-button';
 import { FeatureGhostOverlay } from '../feature-ghost';
 import { refreshScopeVariables } from '../option-relabeler';
@@ -92,6 +96,11 @@ export class SchemaFeatureService implements FeatureDialogService {
   private ghostPaused: string | null = null;
   /** The one unbounded ghost "Show preview" asked for, while it builds. */
   private ghostOnce: AbortController | null = null;
+  /** The anchor suggestions a hovered face or edge floats — for a feature with an anchor value. */
+  private readonly suggestions: AnchorSuggestions | null;
+  private readonly connectorGhost: ConnectorGhostOverlay | null;
+  /** "Which connector?" when several gizmos sit under the cursor — for a feature with a connector value. */
+  private readonly pickMenu: ConnectorPickMenu | null;
 
   constructor(
     container: HTMLElement,
@@ -165,6 +174,30 @@ export class SchemaFeatureService implements FeatureDialogService {
       };
     }
 
+    const pickers = [...this.panel.pickers.values()];
+    this.pickMenu = pickers.some(p => p.takes('connector')) ? new ConnectorPickMenu(container) : null;
+    if (pickers.some(p => p.takes('anchor'))) {
+      this.connectorGhost = new ConnectorGhostOverlay(viewer);
+      // A custom feature takes the bare anchor wherever it is — never a
+      // connector made behind the user's back — so it asks as a hole does.
+      this.suggestions = new AnchorSuggestions(viewer, this.connectorGhost, {
+        purpose: 'hole',
+        isTaken: (key, index) => this.anchorPicker()?.holdsAnchor(key, index) ?? false,
+        offers: (anchor) => this.anchorPicker()?.offersAnchor(anchor) ?? false,
+        request: fetchConnectorAnchors,
+      });
+      this.suggestions.onLock = (locked) => {
+        const picker = this.anchorPicker();
+        if (picker) {
+          this.land(picker, picker.takeAnchor(locked));
+        }
+      };
+      this.suggestions.onRefuse = (reason) => this.panel.setMessage(reason ?? 'That face or edge takes no anchor.');
+    } else {
+      this.connectorGhost = null;
+      this.suggestions = null;
+    }
+
     this.ghost = schema.meta.ghost ? new FeatureGhostOverlay(viewer) : null;
     this.runner = new ApplyRunner<CreateRequest | EditRequest>({
       panel: this.panel,
@@ -236,7 +269,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.applyScene({ dropEntities: true });
     void this.refreshScopeVariables();
     this.panel.show();
-    this.panel.setMessage(this.unpickableMessage());
+    this.panel.setMessage(null);
     this.syncViewport();
     this.refreshScope();
     this.runner.schedulePreview();
@@ -311,6 +344,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
+    this.releaseLocationChannels();
     // pickPlanes is left alone: syncButton's onActiveChange runs the modify
     // service's neutral-mode restore, which owns that channel.
     this.syncButton();
@@ -322,6 +356,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   destroy(): void {
     this.exit({ resume: 'lazy' });
     this.ghost?.dispose();
+    this.suggestions?.dispose();
     this.navbar.setGroupVisible('create', false, this.id);
     this.button.remove();
     this.panel.destroy();
@@ -358,6 +393,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
     // At the boundary: the scene under the ghost was rebuilt.
     this.ghost?.clear();
+    this.suggestions?.clear();
     this.sceneObjects = sceneObjects;
     const stale = this.editSceneStale;
     this.editSceneStale = false;
@@ -384,8 +420,9 @@ export class SchemaFeatureService implements FeatureDialogService {
       return;
     }
     // The geometry under the ghost just changed — drop it now and let the
-    // debounce redraw it.
+    // debounce redraw it. Anchor answers name the old render's shapes.
     this.ghost?.clear();
+    this.suggestions?.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -401,7 +438,11 @@ export class SchemaFeatureService implements FeatureDialogService {
   // Pick channels
   // -------------------------------------------------------------------------
 
-  /** A face or edge click: the armed slot's, or the armed scope row's solid. */
+  /**
+   * A face, edge or vertex click: the armed slot's — an anchor value's face
+   * or edge locks the suggestion the cursor floats — or the armed scope
+   * row's solid.
+   */
   handleClick(shapeId: string | null, sub: SubSelection): boolean {
     if (!this.armed) {
       return false;
@@ -421,9 +462,61 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
     const picker = this.panel.armedPicker;
     if (picker) {
+      if (picker.clickKind(sub) === 'anchor') {
+        this.suggestions?.handleClick(shapeId, sub);
+        return true;
+      }
       this.land(picker, picker.takeClick(shapeId, sub));
     }
     return true;
+  }
+
+  /** The cursor rests on a face or edge: an armed anchor value floats its nearest anchor there. */
+  handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): boolean {
+    if (!this.armed || !this.anchorPicker() || this.panel.armedSlot === 'scope') {
+      return false;
+    }
+    this.suggestions?.handleHover(shapeId, sub, clientX, clientY);
+    return true;
+  }
+
+  /**
+   * A connector gizmo clicked: the armed value takes it when it takes
+   * connectors, else the first shown value that does — a connector is only
+   * ever a connector. Several gizmos under the cursor ask which first.
+   */
+  handleConnectorPick(connectorId: string | null, pick: ConnectorPickDetail): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    const armed = this.panel.armedPicker;
+    const picker = armed?.takes('connector') ? armed : [...this.panel.pickers.values()].find(p => p.visible && p.takes('connector'));
+    if (!picker || !connectorId) {
+      return true;
+    }
+    this.pickMenu?.close();
+    const candidates = pick?.connectorCandidates;
+    if (this.pickMenu && candidates && candidates.length > 1 && pick.clientX !== undefined && pick.clientY !== undefined) {
+      this.pickMenu.show(pick.clientX, pick.clientY, candidates.map(candidate => ({
+        label: this.connectorLabel(candidate.connectorId),
+        onHover: () => this.viewer.setHoveredConnector(candidate.connectorId),
+        onPick: () => this.land(picker, picker.takeConnector(candidate.connectorId)),
+      })), () => this.viewer.setHoveredConnector(null));
+      return true;
+    }
+    this.land(picker, picker.takeConnector(connectorId));
+    return true;
+  }
+
+  /** How code names a connector: `bolt`, `bolt.instance(2)`. */
+  private connectorLabel(connectorId: string): string {
+    return ConnectorOptions.forId(connectorId, ConnectorOptions.collect(this.sceneObjects))?.label ?? connectorId;
+  }
+
+  /** The armed value, when it takes anchors. */
+  private anchorPicker(): SchemaPicker | null {
+    const picker = this.armed ? this.panel.armedPicker : null;
+    return picker?.takes('anchor') ? picker : null;
   }
 
   /**
@@ -440,7 +533,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     const armed = this.panel.armedPicker;
     const order = [
       ...(armed ? [armed] : []),
-      ...[...this.panel.pickers.values()].filter(p => p !== armed && p.visible && p.offered),
+      ...[...this.panel.pickers.values()].filter(p => p !== armed && p.visible),
     ];
     for (const picker of order) {
       const outcome = picker.takeRow(obj);
@@ -479,7 +572,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   /** An `axis()` line clicked while an axis value is armed. */
   handleAxisPick(shapeId: string | null): boolean {
     const picker = this.armed ? this.panel.armedPicker : null;
-    if (!picker || picker.kind !== 'axis') {
+    if (!picker || !picker.takes('axis')) {
       return false;
     }
     if (shapeId) {
@@ -491,7 +584,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   /** A `plane()` quad clicked while a plane value is armed. */
   handlePlanePick(shapeId: string): boolean {
     const picker = this.armed ? this.panel.armedPicker : null;
-    if (!picker || picker.kind !== 'plane') {
+    if (!picker || !picker.takes('plane')) {
       return false;
     }
     this.land(picker, picker.takePlaneQuad(shapeId));
@@ -539,10 +632,6 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /** The create request for the current form, or the message blocking it. */
   private buildRequest(): CreateRequest | { error: string } {
-    const unpickable = this.unpickableMessage();
-    if (unpickable) {
-      return { error: unpickable };
-    }
     const values = this.collectValues(false);
     if ('error' in values) {
       return values;
@@ -661,15 +750,6 @@ export class SchemaFeatureService implements FeatureDialogService {
       picks[name] = request;
     }
     return { picks };
-  }
-
-  /** A required value the dialog cannot pick yet, as the message the dialog shows. */
-  private unpickableMessage(): string | null {
-    const labels = this.schema.unpickableRequired();
-    if (labels.length === 0) {
-      return null;
-    }
-    return `${labels.join(', ')} can't be picked in the dialog yet — write the ${this.schema.label.toLowerCase()} statement in the code.`;
   }
 
   // -------------------------------------------------------------------------
@@ -863,6 +943,15 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.viewer.pickSketchWires = channels.sketchWires;
     this.viewer.pickAxes = channels.axes;
     this.viewer.pickPlanes = channels.planes;
+    this.viewer.setConnectorPicking(channels.connectors);
+    this.viewer.setVertexPickScope(null);
+    this.viewer.pickVertices = channels.vertices;
+    // Another value may take other anchors: what was asked for the last one doesn't hold.
+    this.suggestions?.setEnabled(false);
+    this.suggestions?.setEnabled(channels.anchors);
+    if (!channels.connectors) {
+      this.pickMenu?.close();
+    }
     if (channels.standardAxes) {
       this.viewer.showStandardAxes(this.onStandardPick);
     } else {
@@ -873,6 +962,17 @@ export class SchemaFeatureService implements FeatureDialogService {
     } else {
       this.viewer.hideStandardPlanes();
     }
+  }
+
+  /** Hand the connector, vertex and anchor channels back: the dialog no longer picks. */
+  private releaseLocationChannels(): void {
+    this.suggestions?.setEnabled(false);
+    this.connectorGhost?.clear();
+    this.pickMenu?.close();
+    this.viewer.setConnectorPicking(false);
+    this.viewer.pickVertices = false;
+    this.viewer.setVertexPickScope(null);
+    this.viewer.setPickedConnectors([]);
   }
 
   /** Repaint the scope chips, then the highlight. */
@@ -896,6 +996,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       highlight.solidIds.push(...this.scope.shapeIds());
     }
     this.viewer.setSelectedStandardAxes(highlight.standardAxes);
+    this.viewer.setPickedConnectors(highlight.connectorIds);
     if (highlight.isEmpty) {
       this.viewer.clearHighlight();
     } else {

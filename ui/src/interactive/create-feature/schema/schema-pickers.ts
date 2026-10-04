@@ -1,4 +1,6 @@
-import type { CustomPickInput, FeaturePickerParam, GhostCustomRef, ParsedCustomPick, SourceSlotRef } from '../../../api';
+import type {
+  ConnectorAnchor, CustomPickInput, FeaturePickerKind, FeaturePickerParam, GhostCustomRef, ParsedCustomPick, SourceSlotRef,
+} from '../../../api';
 import { sameEntity } from '../../../helpers/entities';
 import { findEnclosingPartRow } from '../../../helpers/scene-utils';
 import type { StandardAxisId } from '../../../scene/standard-axes';
@@ -9,7 +11,10 @@ import { PickSlot, type PickSlotChip } from '../../pick-slot';
 import {
   AXIS_UNAVAILABLE_MESSAGE, axisLineShapeIds, axisOptionForLocation, axisOptionForShape, collectAxisOptions,
 } from '../axis-options';
+import { anchorChipLabel, type LockedAnchor } from '../anchor-suggestions';
+import { ConnectorOptions } from '../connector-options';
 import { consumedReveal } from '../consumed-reveal';
+import { vertexLabel } from '../hole/hole-placements';
 import {
   collectPlaneOptions, planeOptionForLocation, planeOptionForShape, planeQuadShapeIds, resolvePlaneRow,
 } from '../plane-bases';
@@ -38,7 +43,16 @@ export type PickerOption = {
   active?: boolean;
   /** A solid or a feature: its rendered solids, lit while it is picked. */
   shapeIds?: string[];
+  /** The kind it is picked as — a value of several kinds offers each kind's statements. */
+  picker: FeaturePickerKind;
+  /** A connector copy's pattern slot (`bolt.instance(2)`), addressed by its seed's statement. */
+  slot?: number;
+  /** A connector's scene id in this render: gizmo picks find it by it, and the viewport enlarges it. */
+  connectorId?: string;
 };
+
+/** A statement's call site, and a connector copy's slot. */
+type StatementSite = { filePath: string; line: number; slot?: number };
 
 /**
  * One element of a picked value. `keep` is the edited statement's own
@@ -53,29 +67,74 @@ export type PickElement =
     kind: 'keep';
     sourceIndex: number;
     text: string;
-    loc: SourceLocation | null;
+    loc: (SourceLocation & { slot?: number }) | null;
     option: PickerOption | null;
     source: SourceSlotRef | null;
   }
   | { kind: 'statement'; option: PickerOption }
+  /** A face or an edge — or, for a point, a vertex — picked in the viewport. */
   | { kind: 'entity'; entity: SelectedEntity }
+  /** A face or an edge and the well-known point taken on it, locked from the hover suggestions. */
+  | { kind: 'anchor'; locked: LockedAnchor }
   | { kind: 'standard'; name: StandardDatum };
 
 /** What the viewer offers while a slot is armed. */
 export type PickChannels = {
-  pickFilter: 'all' | 'edge' | 'face' | 'none';
+  pickFilter: 'all' | 'edge' | 'face' | 'vertex' | 'none';
   sketchWires: boolean;
   axes: boolean;
   planes: boolean;
   standardAxes: boolean;
   standardPlanes: boolean;
+  /** Connector gizmos, revealed and pickable. */
+  connectors: boolean;
+  /** Vertex dots, tried ahead of faces and edges. */
+  vertices: boolean;
+  /** The anchor suggestions a hovered face or edge floats. */
+  anchors: boolean;
 };
 
 /** The armed scope slot (whole solids) and no armed slot at all. */
 export const SCOPE_CHANNELS: PickChannels = {
   pickFilter: 'all', sketchWires: false, axes: false, planes: false, standardAxes: false, standardPlanes: false,
+  connectors: false, vertices: false, anchors: false,
 };
 export const NO_CHANNELS: PickChannels = { ...SCOPE_CHANNELS, pickFilter: 'none' };
+
+/** The kinds a value picks as statements, by call site. */
+const STATEMENT_KINDS: ReadonlySet<FeaturePickerKind> = new Set(['sketch', 'axis', 'plane', 'solid', 'feature', 'connector']);
+
+/** The kinds that stand for a location: their kept elements are read off the edited feature. */
+const LOCATION_KINDS: ReadonlySet<FeaturePickerKind> = new Set(['connector', 'point', 'anchor']);
+
+/** What each kind's armed slot needs the viewer to offer. */
+const KIND_CHANNELS: Record<FeaturePickerKind, { faces?: boolean; edges?: boolean } & Partial<PickChannels>> = {
+  sketch: { sketchWires: true },
+  face: { faces: true },
+  edge: { edges: true },
+  axis: { edges: true, axes: true, standardAxes: true },
+  plane: { faces: true, planes: true, standardPlanes: true },
+  solid: { faces: true, edges: true },
+  // A feature comes from the timeline only.
+  feature: {},
+  connector: { connectors: true },
+  point: { vertices: true },
+  anchor: { faces: true, edges: true, anchors: true },
+};
+
+/** How a prompt names each kind: one, and several. */
+const KIND_NOUNS: Record<FeaturePickerKind, [string, string]> = {
+  sketch: ['a sketch', 'sketches'],
+  face: ['a face', 'faces'],
+  edge: ['an edge', 'edges'],
+  axis: ['an axis', 'axes'],
+  plane: ['a plane', 'planes'],
+  solid: ['a solid', 'solids'],
+  feature: ['a feature', 'features'],
+  connector: ['a connector', 'connectors'],
+  point: ['a point (a vertex)', 'points (vertices)'],
+  anchor: ['a face or edge centre', 'face or edge centres'],
+};
 
 /** Everything the dialog's picks light up, gathered for one highlight pass. */
 export class PickHighlight {
@@ -84,6 +143,8 @@ export class PickHighlight {
   readonly solidIds: string[] = [];
   readonly planeQuadIds: string[] = [];
   readonly standardAxes: StandardAxisId[] = [];
+  /** Picked connectors' scene ids — the viewport draws their gizmos enlarged. */
+  readonly connectorIds: string[] = [];
 
   get isEmpty(): boolean {
     return this.entities.length === 0 && this.wireIds.length === 0 && this.solidIds.length === 0
@@ -102,17 +163,23 @@ const STANDARD_PLANE_TEXT = /^['"](xy|xz|yz)['"]$/;
 
 /**
  * One picked value of a schema dialog — a `face`, `edge`, `sketch`, `axis`,
- * `plane`, `solid` or `feature` picker — over the shared {@link PickSlot}
- * and the option collectors the built-in dialogs use. Single and list values
- * share one element model: a single value holds at most one element, a list
- * up to its `max`, ordered when the author asked.
+ * `plane`, `solid`, `feature`, `connector`, `point` or `anchor` picker, or a
+ * picker of several of them — over the shared {@link PickSlot} and the
+ * option collectors the built-in dialogs use. Single and list values share
+ * one element model: a single value holds at most one element, a list up to
+ * its `max`, ordered when the author asked. A value of several kinds routes
+ * each pick to the one kind that takes it (the metadata guarantees there is
+ * one): a vertex to its point, a connector gizmo to its connector, a face
+ * to its face — or, for an anchor, to the suggestion the dialog locks.
  *
- * Every pick comes from the viewport or the timeline. Statement picks
- * re-match their statement by `(filePath, line)` after each render; raw
- * face and edge picks die with the render that minted their ids, as in the
- * built-in dialogs; an edit's kept elements are addressed by their text and
- * survive anything. The picker answers which viewer channels its armed slot
- * needs, what it lights up, and the request elements it writes.
+ * Every pick comes from the viewport or the timeline. Statement picks —
+ * connectors among them, a copy by its seed's statement and slot — re-match
+ * their statement by `(filePath, line, slot)` after each render; raw face,
+ * edge and vertex picks and locked anchors die with the render that minted
+ * their ids, as in the built-in dialogs; an edit's kept elements are
+ * addressed by their text and survive anything. The picker answers which
+ * viewer channels its armed slot needs, what it lights up, and the request
+ * elements it writes.
  */
 export class SchemaPicker {
   /** The slot was clicked — the panel arms it. */
@@ -122,6 +189,8 @@ export class SchemaPicker {
 
   /** The row element, hidden while the value's `visibleWhen` fails. */
   readonly row: HTMLElement;
+  /** The kinds the value takes, in the order its metadata lists them. */
+  readonly kinds: readonly FeaturePickerKind[];
   private readonly slot: PickSlot;
   private elements: PickElement[] = [];
   /**
@@ -139,6 +208,7 @@ export class SchemaPicker {
   private readonly revealOwners: object[] = [];
 
   constructor(readonly name: string, readonly spec: FeaturePickerParam) {
+    this.kinds = FeatureSchema.kindsOf(spec);
     this.row = document.createElement('div');
     this.row.dataset.param = name;
     if (spec.description) {
@@ -157,17 +227,18 @@ export class SchemaPicker {
     this.render();
   }
 
-  get kind(): FeaturePickerParam['picker'] {
-    return this.spec.picker;
+  /** Whether the value takes picks of `kind`. */
+  takes(kind: FeaturePickerKind): boolean {
+    return this.kinds.includes(kind);
+  }
+
+  /** The value takes more than one kind of pick. */
+  get isUnion(): boolean {
+    return this.kinds.length > 1;
   }
 
   get isList(): boolean {
     return FeatureSchema.isList(this.spec);
-  }
-
-  /** The dialog can pick this kind (the location pickers come later). */
-  get offered(): boolean {
-    return FeatureSchema.offersPicker(this.spec.picker);
   }
 
   get isEmpty(): boolean {
@@ -215,7 +286,7 @@ export class SchemaPicker {
     this.written = false;
     this.keeps = [];
     this.elements = [];
-    if (this.kind === 'sketch' && !this.isList && this.spec.implicitDefault !== true) {
+    if (this.kinds.length === 1 && this.takes('sketch') && !this.isList && this.spec.implicitDefault !== true) {
       const active = this.options.find(o => o.active);
       if (active) {
         this.elements = [{ kind: 'statement', option: active }];
@@ -236,7 +307,9 @@ export class SchemaPicker {
       kind: 'keep',
       sourceIndex,
       text: pick.text,
-      loc: pick.ref ? { filePath, line: pick.ref.line, column: pick.ref.column } : null,
+      loc: pick.ref
+        ? { filePath, line: pick.ref.line, column: pick.ref.column, ...(pick.ref.slot !== undefined ? { slot: pick.ref.slot } : {}) }
+        : null,
       option: null,
       source: null,
     }));
@@ -248,7 +321,7 @@ export class SchemaPicker {
   /**
    * What the engine resolved the edited statement's elements to — one slot
    * per element, in order. A kept statement learns its call site; a kept
-   * selection, the faces or edges it lights up.
+   * selection (or an anchor's face), the faces or edges it lights up.
    *
    * A value the statement leaves out may still hold something: its builder
    * filled it in — `draft(5)` drafts the last selection. Those elements
@@ -278,9 +351,10 @@ export class SchemaPicker {
 
   /**
    * A new scene: the offered statements rebuild, picked statements re-match
-   * theirs by `(filePath, line)` (and drop when it is gone), and — when
-   * `dropEntities` — picked faces and edges drop, since the render minted
-   * new ids. Answers whether a pick the user made was dropped.
+   * theirs by `(filePath, line, slot)` (and drop when it is gone), and —
+   * when `dropEntities` — picked faces, edges, vertices and anchors drop,
+   * since the render minted new ids. Answers whether a pick the user made
+   * was dropped.
    */
   setScene(scene: PickerScene, opts: { dropEntities: boolean }): boolean {
     this.scene = scene;
@@ -288,10 +362,10 @@ export class SchemaPicker {
     let dropped = false;
     const rematch = (element: PickElement): PickElement[] => {
       if (element.kind === 'statement') {
-        const match = this.optionAt(element.option);
+        const match = this.optionAt(element.option, element.option.picker);
         return match ? [{ kind: 'statement', option: match }] : [];
       }
-      return element.kind === 'entity' && opts.dropEntities ? [] : [element];
+      return (element.kind === 'entity' || element.kind === 'anchor') && opts.dropEntities ? [] : [element];
     };
     // A value the statement leaves out holds what its feature took: those
     // elements re-match (or drop) with the scene, and come back with the
@@ -316,68 +390,118 @@ export class SchemaPicker {
   // Picks
   // -------------------------------------------------------------------------
 
-  /** What the armed slot needs the viewer to offer. */
+  /** What the armed slot needs the viewer to offer: every kind's channels, together. */
   channels(): PickChannels {
-    switch (this.kind) {
-      case 'sketch':
-        return { ...NO_CHANNELS, sketchWires: true };
-      case 'face':
-        return { ...NO_CHANNELS, pickFilter: 'face' };
-      case 'edge':
-        return { ...NO_CHANNELS, pickFilter: this.spec.facesAsEdges ? 'all' : 'edge' };
-      case 'axis':
-        return { ...NO_CHANNELS, pickFilter: 'edge', axes: true, standardAxes: true };
-      case 'plane':
-        return { ...NO_CHANNELS, pickFilter: 'face', planes: true, standardPlanes: true };
-      case 'solid':
-        return { ...NO_CHANNELS, pickFilter: 'all' };
-      default:
-        // A feature comes from the timeline only.
-        return NO_CHANNELS;
+    const merged: PickChannels & { faces: boolean; edges: boolean } = { ...NO_CHANNELS, faces: false, edges: false };
+    for (const kind of this.kinds) {
+      const wanted = KIND_CHANNELS[kind];
+      for (const key of Object.keys(wanted) as (keyof typeof merged)[]) {
+        if (key !== 'pickFilter' && wanted[key as keyof typeof wanted]) {
+          (merged as Record<string, unknown>)[key] = true;
+        }
+      }
+      if (kind === 'edge' && this.spec.facesAsEdges) {
+        merged.faces = true;
+      }
     }
+    const { faces, edges, ...channels } = merged;
+    channels.pickFilter = faces && edges ? 'all' : faces ? 'face' : edges ? 'edge' : channels.vertices ? 'vertex' : 'none';
+    return channels;
   }
 
-  /** A face, edge or vertex clicked in the viewport. */
+  /**
+   * The kind a viewport click of this sub-shape lands in, or null when the
+   * value takes none: a vertex is a point, a face or an edge whichever kind
+   * takes it — an anchor's the suggestion rail locks.
+   */
+  clickKind(sub: SubSelection): FeaturePickerKind | null {
+    if (!sub) {
+      return null;
+    }
+    if (sub.type === 'vertex') {
+      return this.takes('point') ? 'point' : null;
+    }
+    if (sub.type === 'face') {
+      const taker = this.kinds.find(kind => kind === 'face' || kind === 'plane' || kind === 'solid' || kind === 'anchor');
+      return taker ?? (this.takes('edge') && this.spec.facesAsEdges ? 'edge' : null);
+    }
+    if (sub.type === 'edge') {
+      return this.kinds.find(kind => kind === 'edge' || kind === 'axis' || kind === 'solid' || kind === 'anchor') ?? null;
+    }
+    return null;
+  }
+
+  /** A face, edge or vertex clicked in the viewport. An anchor's clicks go through the suggestion rail ({@link takeAnchor}). */
   takeClick(shapeId: string, sub: SubSelection): PickOutcome {
-    if (!sub || (sub.type !== 'face' && sub.type !== 'edge')) {
+    const kind = this.clickKind(sub);
+    if (!kind || !sub || kind === 'anchor') {
       return 'ignored';
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    switch (this.kind) {
-      case 'face':
-      case 'plane':
-        return sub.type === 'face' ? this.add({ kind: 'entity', entity }) : 'ignored';
-      case 'edge':
-        return sub.type === 'edge' || this.spec.facesAsEdges ? this.add({ kind: 'entity', entity }) : 'ignored';
-      case 'axis':
-        return sub.type === 'edge' ? this.add({ kind: 'entity', entity }) : 'ignored';
-      case 'solid': {
-        const option = this.options.find(o => o.shapeIds?.includes(shapeId));
-        return option
-          ? this.add({ kind: 'statement', option })
-          : { message: `${this.spec.label}: that shape is not a solid this statement can reference.` };
-      }
-      default:
-        return 'ignored';
+    const entity = { shapeId, sub } as SelectedEntity;
+    if (kind === 'solid') {
+      const option = this.options.find(o => o.picker === 'solid' && o.shapeIds?.includes(shapeId));
+      return option
+        ? this.add({ kind: 'statement', option })
+        : { message: `${this.spec.label}: that shape is not a solid this statement can reference.` };
     }
+    return this.add({ kind: 'entity', entity });
   }
 
-  /** A timeline row clicked: the statement it stands for, when this value takes that kind. */
+  /** A face's or an edge's anchor, locked from the hover suggestions. */
+  takeAnchor(locked: LockedAnchor): PickOutcome {
+    if (!this.takes('anchor')) {
+      return 'ignored';
+    }
+    const anchor = locked.anchors[locked.anchorIndex]?.anchor;
+    if (!anchor || !this.offersAnchor(anchor)) {
+      return { message: `${this.spec.label} takes anchors at ${(this.spec.anchors ?? []).map(a => `${a}()`).join(', ')}.` };
+    }
+    return this.add({ kind: 'anchor', locked });
+  }
+
+  /** Whether the value offers this anchor: its metadata's `anchors`, all of them when it lists none. */
+  offersAnchor(anchor: ConnectorAnchor): boolean {
+    const offered = this.spec.anchors;
+    return !offered || offered.length === 0 || offered.includes(anchor.kind);
+  }
+
+  /** A connector gizmo clicked: the connector, or one of its copies. */
+  takeConnector(connectorId: string): PickOutcome {
+    if (!this.takes('connector')) {
+      return 'ignored';
+    }
+    const option = this.options.find(o => o.picker === 'connector' && o.connectorId === connectorId);
+    return option
+      ? this.add({ kind: 'statement', option })
+      : { message: 'That connector cannot be referenced — only connector() features and their copies can be picked.' };
+  }
+
+  /** A timeline row clicked: the statement it stands for, as the first kind that takes it. */
   takeRow(obj: SceneObjectRender): PickOutcome {
+    for (const kind of this.kinds) {
+      const outcome = this.takeRowAs(kind, obj);
+      if (outcome !== 'ignored') {
+        return outcome;
+      }
+    }
+    return 'ignored';
+  }
+
+  private takeRowAs(kind: FeaturePickerKind, obj: SceneObjectRender): PickOutcome {
     const objects = this.scene.objects;
-    switch (this.kind) {
+    switch (kind) {
       case 'sketch': {
         const row = this.spec.wire ? resolveWireRow(obj, objects) : resolveSketchRow(obj, objects);
-        return row?.sourceLocation ? this.addStatementAt(row.sourceLocation, 'That sketch is not one this statement can reference.') : 'ignored';
+        return row?.sourceLocation ? this.addStatementAt(kind, row.sourceLocation, 'That sketch is not one this statement can reference.') : 'ignored';
       }
       case 'axis':
         return obj.type === 'axis' && obj.sourceLocation
-          ? this.addOption(axisOptionForLocation(this.options, obj.sourceLocation), AXIS_UNAVAILABLE_MESSAGE)
+          ? this.addOption(this.ofKind(kind, axisOptionForLocation(this.optionsOf(kind), obj.sourceLocation)), AXIS_UNAVAILABLE_MESSAGE)
           : 'ignored';
       case 'plane': {
         const row = resolvePlaneRow(obj);
         return row?.sourceLocation
-          ? this.addOption(planeOptionForLocation(this.options, row.sourceLocation),
+          ? this.addOption(this.ofKind(kind, planeOptionForLocation(this.optionsOf(kind), row.sourceLocation)),
             'That plane cannot be referenced — only plane() features can.')
           : 'ignored';
       }
@@ -385,7 +509,7 @@ export class SchemaPicker {
         if (!obj.sourceLocation || !SchemaPicker.solidIdsOf(obj).length) {
           return 'ignored';
         }
-        return this.addStatementAt(obj.sourceLocation, 'That solid is in another part — this statement cannot reference it.');
+        return this.addStatementAt(kind, obj.sourceLocation, 'That solid is in another part — this statement cannot reference it.');
       }
       case 'feature': {
         const row = resolveRepeatTargetRow(obj, objects);
@@ -395,8 +519,10 @@ export class SchemaPicker {
         if (!SchemaPicker.typeAllowed(row, this.spec.types)) {
           return { message: `${this.spec.label} takes ${this.spec.types!.join(', ')} features.` };
         }
-        return this.addStatementAt(row.sourceLocation, 'That feature is in another part — this statement cannot reference it.');
+        return this.addStatementAt(kind, row.sourceLocation, 'That feature is in another part — this statement cannot reference it.');
       }
+      case 'connector':
+        return obj.type === 'connector' && obj.id != null ? this.takeConnector(obj.id) : 'ignored';
       default:
         return 'ignored';
     }
@@ -404,34 +530,34 @@ export class SchemaPicker {
 
   /** A sketch wire (or helix) clicked in the viewport. */
   takeSketchWire(shapeId: string): PickOutcome {
-    if (this.kind !== 'sketch') {
+    if (!this.takes('sketch')) {
       return 'ignored';
     }
     const objects = this.scene.objects;
     const row = this.spec.wire ? resolveWireByShapeId(shapeId, objects) : resolveSketchByShapeId(shapeId, objects);
-    return row?.sourceLocation ? this.addStatementAt(row.sourceLocation, 'That sketch is not one this statement can reference.') : 'ignored';
+    return row?.sourceLocation ? this.addStatementAt('sketch', row.sourceLocation, 'That sketch is not one this statement can reference.') : 'ignored';
   }
 
   /** An `axis()` line clicked. */
   takeAxisLine(shapeId: string): PickOutcome {
-    if (this.kind !== 'axis') {
+    if (!this.takes('axis')) {
       return 'ignored';
     }
-    return this.addOption(axisOptionForShape(shapeId, this.scene.objects, this.options), AXIS_UNAVAILABLE_MESSAGE);
+    return this.addOption(this.ofKind('axis', axisOptionForShape(shapeId, this.scene.objects, this.optionsOf('axis'))), AXIS_UNAVAILABLE_MESSAGE);
   }
 
   /** A `plane()` quad clicked. */
   takePlaneQuad(shapeId: string): PickOutcome {
-    if (this.kind !== 'plane') {
+    if (!this.takes('plane')) {
       return 'ignored';
     }
-    return this.addOption(planeOptionForShape(shapeId, this.scene.objects, this.options),
+    return this.addOption(this.ofKind('plane', planeOptionForShape(shapeId, this.scene.objects, this.optionsOf('plane'))),
       'That plane cannot be referenced — only plane() features can.');
   }
 
   /** A world axis or an origin plane clicked in the viewport. */
   takeStandard(name: StandardDatum): PickOutcome {
-    const fits = this.kind === 'axis' ? name.length === 1 : this.kind === 'plane' ? name.length === 2 : false;
+    const fits = name.length === 1 ? this.takes('axis') : this.takes('plane');
     return fits ? this.add({ kind: 'standard', name }) : 'ignored';
   }
 
@@ -444,17 +570,15 @@ export class SchemaPicker {
    * lets the builder's default stand; an edit keeps the statement's own),
    * an empty list drops it (an edit), or the message blocking the apply.
    * Picked faces and edges travel together as one `entities` element, where
-   * the first of them stood.
+   * the first of them stood; a point and an anchor each as its own, in the
+   * order they were picked.
    */
   request(): CustomPickInput[] | undefined | { error: string } {
-    if (!this.offered) {
-      return undefined;
-    }
     if (this.editing && !this.touched) {
       return undefined;
     }
     if (this.elements.length === 0) {
-      if (!this.spec.optional && !(this.kind === 'sketch' && this.spec.implicitDefault)) {
+      if (!this.spec.optional && !(this.kinds.length === 1 && this.takes('sketch') && this.spec.implicitDefault)) {
         return { error: `${this.spec.label}: ${this.prompt().toLowerCase()}.` };
       }
       return this.editing ? [] : undefined;
@@ -470,8 +594,17 @@ export class SchemaPicker {
         if (this.spec.hasGeometry && element.option.hasGeometry === false) {
           return { error: `Nothing is drawn in "${element.option.label}" yet.` };
         }
-        const { filePath, line, column } = element.option;
-        inputs.push({ kind: 'statement', filePath, line, column });
+        const { filePath, line, column, slot, picker } = element.option;
+        inputs.push({
+          kind: 'statement', filePath, line, column,
+          ...(this.isUnion ? { picker } : {}),
+          ...(slot !== undefined ? { slot } : {}),
+        });
+      } else if (element.kind === 'anchor') {
+        const locked = element.locked;
+        inputs.push({ kind: 'anchor', entity: locked.entity, anchor: locked.anchors[locked.anchorIndex].anchor });
+      } else if (element.entity.sub.type === 'vertex') {
+        inputs.push({ kind: 'point', entity: { shapeId: element.entity.shapeId, sub: { type: 'vertex', index: element.entity.sub.index } } });
       } else if (entities) {
         entities.entities.push(element.entity);
       } else {
@@ -484,26 +617,30 @@ export class SchemaPicker {
 
   /**
    * The value as its ghost addresses it, one ref per element, in the order
-   * the statement holds them: a statement by call site, a world axis or
-   * plane, the picked faces and edges together where the first of them
-   * stood, and a kept element as what it resolved to — its faces or edges
-   * on the solids before the statement, else the statement it names, else
-   * the world axis or plane its text spells. Undefined for a value left
-   * out; null when an element can't be addressed (a kept expression), which
-   * means no ghost rather than a partial one.
+   * the statement holds them: a statement by call site (a connector — a copy
+   * with its slot — as a connector), the picked faces and edges together
+   * where the first of them stood, a vertex as its point, an anchor as its
+   * face or edge and the point taken on it, a world axis or plane; and a
+   * kept element as what it resolved to — a location's read off the edited
+   * feature itself, any other's as its faces or edges on the solids before
+   * the statement, else the statement it names, else the world axis or
+   * plane its text spells. Undefined for a value left out; null when an
+   * element can't be addressed (a kept expression), which means no ghost
+   * rather than a partial one.
    */
   ghostRefs(): GhostCustomRef[] | undefined | null {
     if (this.elements.length === 0) {
       return undefined;
-    }
-    if (!this.offered) {
-      return null;
     }
     const refs: GhostCustomRef[] = [];
     let picked: Extract<GhostCustomRef, { kind: 'entities' }> | null = null;
     for (const element of this.elements) {
       if (element.kind === 'entity') {
         const sub = element.entity.sub;
+        if (sub.type === 'vertex') {
+          refs.push({ kind: 'point', shapeId: element.entity.shapeId, index: sub.index });
+          continue;
+        }
         if (sub.type !== 'face' && sub.type !== 'edge') {
           return null;
         }
@@ -516,17 +653,41 @@ export class SchemaPicker {
         }
         continue;
       }
-      const ref = element.kind === 'statement'
-        ? { kind: 'statement' as const, filePath: element.option.filePath, line: element.option.line }
-        : element.kind === 'standard'
-          ? { kind: 'standard' as const, name: element.name }
-          : this.keepRef(element);
+      const ref = this.elementRef(element);
       if (!ref) {
         return null;
       }
       refs.push(ref);
     }
     return refs;
+  }
+
+  private elementRef(element: Exclude<PickElement, { kind: 'entity' }>): GhostCustomRef | null {
+    switch (element.kind) {
+      case 'statement': {
+        const { filePath, line, slot, picker } = element.option;
+        return picker === 'connector'
+          ? { kind: 'connector', filePath, line, ...(slot !== undefined ? { slot } : {}) }
+          : { kind: 'statement', filePath, line };
+      }
+      case 'standard':
+        return { kind: 'standard', name: element.name };
+      case 'anchor': {
+        const { entity, anchors, anchorIndex } = element.locked;
+        if (entity.sub.type === 'vertex') {
+          return null;
+        }
+        return {
+          kind: 'anchor',
+          entity: { shapeId: entity.shapeId, index: entity.sub.index, kind: entity.sub.type },
+          anchor: anchors[anchorIndex].anchor,
+        };
+      }
+      default:
+        return this.kinds.some(kind => LOCATION_KINDS.has(kind))
+          ? { kind: 'kept', index: element.sourceIndex }
+          : this.keepRef(element);
+    }
   }
 
   /** What a kept element resolved to, as a ghost ref — null when it names nothing the ghost can find. */
@@ -552,7 +713,7 @@ export class SchemaPicker {
 
   /** Whether the request carries viewport geometry — an edit then needs its boundary. */
   get hasPickedGeometry(): boolean {
-    return (!this.editing || this.touched) && this.elements.some(e => e.kind === 'entity');
+    return (!this.editing || this.touched) && this.elements.some(e => e.kind === 'entity' || e.kind === 'anchor');
   }
 
   /** Light up what the value holds. */
@@ -560,6 +721,8 @@ export class SchemaPicker {
     for (const element of this.elements) {
       if (element.kind === 'entity') {
         into.entities.push(element.entity);
+      } else if (element.kind === 'anchor') {
+        into.entities.push({ shapeId: element.locked.entity.shapeId, sub: element.locked.entity.sub } as SelectedEntity);
       } else if (element.kind === 'standard') {
         if (element.name.length === 1) {
           into.standardAxes.push(element.name as StandardAxisId);
@@ -577,6 +740,11 @@ export class SchemaPicker {
         }
       }
     }
+  }
+
+  /** Whether the value holds this anchor already — the suggestion rail floats no faint twin under it. */
+  holdsAnchor(key: string, anchorIndex: number): boolean {
+    return this.elements.some(e => e.kind === 'anchor' && e.locked.key === key && e.locked.anchorIndex === anchorIndex);
   }
 
   // -------------------------------------------------------------------------
@@ -625,8 +793,8 @@ export class SchemaPicker {
     return option ? this.add({ kind: 'statement', option }) : { message: refusal };
   }
 
-  private addStatementAt(loc: { filePath: string; line: number }, refusal: string): PickOutcome {
-    return this.addOption(this.optionAt(loc), refusal);
+  private addStatementAt(kind: FeaturePickerKind, loc: { filePath: string; line: number }, refusal: string): PickOutcome {
+    return this.addOption(this.optionAt(loc, kind), refusal);
   }
 
   /** A chip's ✕: a list loses the element; a single value undoes its pick (or, optional, drops its own). */
@@ -656,8 +824,20 @@ export class SchemaPicker {
     this.onChange?.();
   }
 
-  private optionAt(loc: { filePath: string; line: number }): PickerOption | undefined {
-    return this.options.find(o => o.filePath === loc.filePath && o.line === loc.line);
+  /** The option at a statement's site, as `kind` offers it (any kind when left out). */
+  private optionAt(loc: StatementSite, kind?: FeaturePickerKind): PickerOption | undefined {
+    return this.options.find(o => (kind === undefined || o.picker === kind)
+      && o.filePath === loc.filePath && o.line === loc.line && o.slot === loc.slot);
+  }
+
+  /** The options `kind` offers. */
+  private optionsOf(kind: FeaturePickerKind): PickerOption[] {
+    return this.options.filter(o => o.picker === kind);
+  }
+
+  /** An option a collector of `kind` found — typed back to its kind. */
+  private ofKind(kind: FeaturePickerKind, option: Omit<PickerOption, 'picker'> | undefined): PickerOption | undefined {
+    return option ? { ...option, picker: kind } as PickerOption : undefined;
   }
 
   /**
@@ -704,12 +884,17 @@ export class SchemaPicker {
     }
   }
 
-  /** The statements this value can take in the current scene. */
+  /** The statements this value can take in the current scene, every kind's. */
   private collectOptions(): PickerOption[] {
+    return this.kinds.flatMap(kind => this.collectOptionsOf(kind));
+  }
+
+  private collectOptionsOf(kind: FeaturePickerKind): PickerOption[] {
     const { objects, partLoc } = this.scene;
-    switch (this.kind) {
+    const typed = (options: Omit<PickerOption, 'picker'>[]): PickerOption[] => options.map(option => ({ ...option, picker: kind }) as PickerOption);
+    switch (kind) {
       case 'sketch':
-        return (this.spec.wire ? collectWireSources(objects) : collectSketchProfiles(objects)).map(option => ({
+        return typed((this.spec.wire ? collectWireSources(objects) : collectSketchProfiles(objects)).map(option => ({
           label: option.label,
           filePath: option.filePath,
           line: option.line,
@@ -717,15 +902,25 @@ export class SchemaPicker {
           consumer: option.consumer,
           hasGeometry: option.hasGeometry,
           active: option.kind === 'active',
-        }));
+        })));
       case 'axis':
-        return collectAxisOptions(objects);
+        return typed(collectAxisOptions(objects));
       case 'plane':
-        return collectPlaneOptions(objects);
+        return typed(collectPlaneOptions(objects));
       case 'solid':
-        return partScopedSolidTargets(objects, partLoc);
+        return typed(partScopedSolidTargets(objects, partLoc));
       case 'feature':
-        return SchemaPicker.featureOptions(objects, partLoc, this.spec.types);
+        return typed(SchemaPicker.featureOptions(objects, partLoc, this.spec.types));
+      case 'connector':
+        return ConnectorOptions.collect(objects).map(option => ({
+          label: option.label,
+          filePath: option.filePath,
+          line: option.line,
+          column: option.column,
+          picker: 'connector',
+          connectorId: option.id,
+          ...(option.slot !== undefined ? { slot: option.slot } : {}),
+        }));
       default:
         return [];
     }
@@ -733,7 +928,7 @@ export class SchemaPicker {
 
   private highlightOption(option: PickerOption, into: PickHighlight): void {
     const objects = this.scene.objects;
-    switch (this.kind) {
+    switch (option.picker) {
       case 'sketch':
         into.wireIds.push(...sketchWireShapeIds(option, objects));
         break;
@@ -743,23 +938,28 @@ export class SchemaPicker {
       case 'plane':
         into.planeQuadIds.push(...planeQuadShapeIds(option, objects));
         break;
+      case 'connector':
+        if (option.connectorId) {
+          into.connectorIds.push(option.connectorId);
+        }
+        break;
       default:
         into.solidIds.push(...(option.shapeIds ?? []));
     }
   }
 
   private standardOf(text: string): StandardDatum | null {
-    const pattern = this.kind === 'axis' ? STANDARD_AXIS_TEXT : this.kind === 'plane' ? STANDARD_PLANE_TEXT : null;
+    const pattern = this.takes('axis') ? STANDARD_AXIS_TEXT : this.takes('plane') ? STANDARD_PLANE_TEXT : null;
     const match = pattern ? text.trim().match(pattern) : null;
     return match ? match[1] as StandardDatum : null;
   }
 
   private prompt(): string {
-    if (!this.offered) {
-      return `Not offered in the dialog yet — write the ${this.kind} in the code`;
-    }
     const many = this.isList;
-    switch (this.kind) {
+    if (this.isUnion) {
+      return `Pick ${SchemaPicker.listed(this.kinds.map(kind => KIND_NOUNS[kind][many ? 1 : 0]))}`;
+    }
+    switch (this.kinds[0]) {
       case 'sketch':
         return this.spec.implicitDefault ? 'The active sketch, or pick one' : many ? 'Pick sketches' : 'Pick a sketch';
       case 'face': {
@@ -776,6 +976,12 @@ export class SchemaPicker {
         return 'Pick an origin plane, a plane or a face';
       case 'solid':
         return many ? 'Pick solids' : 'Pick a solid';
+      case 'connector':
+        return many ? 'Pick connectors' : 'Pick a connector';
+      case 'point':
+        return many ? 'Pick points (vertices)' : 'Pick a point (a vertex)';
+      case 'anchor':
+        return many ? 'Pick face or edge centres' : 'Pick a face or edge centre';
       default:
         return many ? 'Pick features in the timeline' : 'Pick a feature in the timeline';
     }
@@ -796,7 +1002,7 @@ export class SchemaPicker {
     switch (element.kind) {
       case 'keep': {
         if (element.option) {
-          return sourceChip(element.option, { badge, removable });
+          return this.optionChip(element.option, { badge, removable });
         }
         const standard = this.standardOf(element.text);
         return {
@@ -807,12 +1013,30 @@ export class SchemaPicker {
         };
       }
       case 'statement':
-        return sourceChip(element.option, { badge, removable });
+        return this.optionChip(element.option, { badge, removable });
       case 'standard':
         return { label: SchemaPicker.standardLabel(element.name), badge, removable };
-      default:
-        return { label: element.entity.sub.type === 'edge' ? 'Picked edge' : 'Picked face', badge, removable };
+      case 'anchor': {
+        const anchor = element.locked.anchors[element.locked.anchorIndex];
+        const label = anchorChipLabel(element.locked.entity, anchor);
+        return { label, title: element.locked.args ? `${element.locked.args}${anchor.suffix}` : label, badge, removable };
+      }
+      default: {
+        const type = element.entity.sub.type;
+        if (type === 'vertex') {
+          return { label: vertexLabel(element.entity.shapeId, this.scene.objects), badge, removable };
+        }
+        return { label: type === 'edge' ? 'Picked edge' : 'Picked face', badge, removable };
+      }
     }
+  }
+
+  /** A statement's chip: a connector by how code names it, anything else by its row. */
+  private optionChip(option: PickerOption, opts: { badge?: string; removable?: boolean }): PickSlotChip {
+    if (option.picker === 'connector') {
+      return { ...sourceChip(option, opts), label: `Connector ${option.label}`, title: `Connector ${option.label}` };
+    }
+    return sourceChip(option, opts);
   }
 
   private render(): void {
@@ -836,20 +1060,28 @@ export class SchemaPicker {
   }
 
   private static same(a: PickElement, b: PickElement): boolean {
-    const locOf = (e: PickElement) => e.kind === 'statement' ? e.option : e.kind === 'keep' ? e.option ?? e.loc : null;
+    const siteOf = (e: PickElement): StatementSite | null => e.kind === 'statement' ? e.option : e.kind === 'keep' ? e.option ?? e.loc : null;
     if (a.kind === 'entity' && b.kind === 'entity') {
       return sameEntity(a.entity, b.entity);
+    }
+    if (a.kind === 'anchor' && b.kind === 'anchor') {
+      return a.locked.key === b.locked.key && a.locked.anchorIndex === b.locked.anchorIndex;
     }
     if (a.kind === 'standard' && b.kind === 'standard') {
       return a.name === b.name;
     }
-    const la = locOf(a);
-    const lb = locOf(b);
-    return la !== null && lb !== null && la.filePath === lb.filePath && la.line === lb.line;
+    const sa = siteOf(a);
+    const sb = siteOf(b);
+    return sa !== null && sb !== null && sa.filePath === sb.filePath && sa.line === sb.line && sa.slot === sb.slot;
   }
 
   private static standardLabel(name: StandardDatum): string {
     return name.length === 1 ? `World ${name.toUpperCase()} axis` : `${name.toUpperCase()} plane`;
+  }
+
+  /** `a, b or c`. */
+  private static listed(words: string[]): string {
+    return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
   }
 
   private static solidIdsOf(obj: SceneObjectRender): string[] {
@@ -872,7 +1104,7 @@ export class SchemaPicker {
     objects: SceneObjectRender[],
     partLoc: SourceLocation | null,
     types: readonly string[] | undefined,
-  ): PickerOption[] {
+  ): Omit<PickerOption, 'picker'>[] {
     const part = partLoc
       ? objects.find(o => o.type === 'part' && !o.parentId
         && o.sourceLocation?.filePath === partLoc.filePath && o.sourceLocation?.line === partLoc.line)
@@ -880,7 +1112,7 @@ export class SchemaPicker {
     if (partLoc && !part) {
       return [];
     }
-    const byLine = new Map<string, PickerOption>();
+    const byLine = new Map<string, Omit<PickerOption, 'picker'>>();
     for (const obj of objects) {
       const row = resolveRepeatTargetRow(obj, objects);
       if (!row?.sourceLocation || !SchemaPicker.typeAllowed(row, types)) {

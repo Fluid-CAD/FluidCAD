@@ -230,10 +230,10 @@ describe('an empty value', () => {
     expect(mount({ picker: 'solid', label: 'Body' }).request()).toEqual({ error: 'Body: pick a solid.' });
   });
 
-  it('is not offered yet for the location pickers', () => {
-    const picker = mount({ picker: 'connector', label: 'At' });
-    expect(picker.offered).toBe(false);
-    expect(picker.request()).toBeUndefined();
+  it('asks for a required location by what the value takes', () => {
+    expect(mount({ picker: 'connector', label: 'At' }).request()).toEqual({ error: 'At: pick a connector.' });
+    expect(mount({ picker: ['connector', 'point', 'anchor'], multiple: true, label: 'At' }).request())
+      .toEqual({ error: 'At: pick connectors, points (vertices) or face or edge centres.' });
   });
 });
 
@@ -364,5 +364,228 @@ describe('an edited statement', () => {
     expect(picker.value).toHaveLength(3);
     picker.setScene(inPart(scene()), { dropEntities: true });
     expect(picker.value.map(e => e.kind)).toEqual(['keep', 'keep']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Locations: connectors, points, anchors — and values of several kinds.
+// ---------------------------------------------------------------------------
+
+const ORIGIN = { x: 0, y: 0, z: 10 };
+const Z = { x: 0, y: 0, z: 1 };
+const X = { x: 1, y: 0, z: 0 };
+const Y = { x: 0, y: 1, z: 0 };
+
+/**
+ * The scene plus a connector on the plate's top (line 14) and its copy (slot
+ * 1, made by the copy statement at line 15); `suffix` renames the rows' ids
+ * the way a new render mints new ones.
+ */
+function connectorScene(suffix = ''): SceneObjectRender[] {
+  const frame = { origin: ORIGIN, xDirection: X, yDirection: Y, normal: Z };
+  return [
+    ...scene(),
+    {
+      id: `bolt${suffix}`, type: 'connector', name: 'bolt', parentId: 'part', ownShapes: [], sceneShapes: [], sourceLocation: at(14, 15),
+      object: { name: 'bolt', ...frame },
+    },
+    {
+      id: `copy${suffix}`, type: 'copy', name: 'Copy', parentId: 'part', ownShapes: [], sceneShapes: [], sourceLocation: at(15, 2),
+      object: { connectorCopies: { seeds: [{ id: `bolt${suffix}` }] } },
+    },
+    {
+      id: `bolt-1${suffix}`, type: 'connector', name: 'bolt', parentId: `copy${suffix}`, ownShapes: [], sceneShapes: [], sourceLocation: at(15, 2),
+      object: { name: 'bolt', ...frame, origin: { x: 15, y: 0, z: 10 }, copy: { seedId: `bolt${suffix}`, slot: 1 } },
+    },
+  ] as SceneObjectRender[];
+}
+
+function mountAt(spec: Partial<FeaturePickerParam> & { picker: FeaturePickerParam['picker'] }, objects = connectorScene()): SchemaPicker {
+  const picker = new SchemaPicker('at', { label: 'At', ...spec } as FeaturePickerParam);
+  document.body.appendChild(picker.row);
+  picker.setScene(inPart(objects), { dropEntities: true });
+  picker.reset();
+  return picker;
+}
+
+const vertex = (index: number, shapeId = 'plate-solid') => ({ shapeId, sub: { type: 'vertex' as const, index } });
+
+/** A face's centre, as the suggestion rail locks it. */
+function faceCentre(index = 4, kind: 'center' | 'start' = 'center') {
+  const entity = { shapeId: 'plate-solid', sub: { type: 'face' as const, index } };
+  const frame = { origin: ORIGIN, xDirection: X, yDirection: Y, normal: Z };
+  return {
+    entity,
+    key: `plate-solid:face:${index}`,
+    anchors: [{ anchor: { kind }, suffix: `.${kind}()`, frame }],
+    anchorIndex: 0,
+    args: null,
+    inPart: true,
+    defaultName: null,
+  } as Parameters<SchemaPicker['takeAnchor']>[0];
+}
+
+describe('connector values', () => {
+  it('take a gizmo or a timeline row, a copy by its seed statement and slot', () => {
+    const picker = mountAt({ picker: 'connector', multiple: true });
+    expect(picker.channels()).toMatchObject({ pickFilter: 'none', connectors: true, vertices: false, anchors: false });
+    expect(picker.takeConnector('bolt')).toBe('taken');
+    expect(picker.takeRow(row('bolt-1', connectorScene()))).toBe('taken');
+    expect(picker.takeConnector('nowhere')).toEqual({ message: 'That connector cannot be referenced — only connector() features and their copies can be picked.' });
+    expect(chips(picker)).toEqual(['Connector bolt', 'Connector bolt.instance(1)']);
+    expect(picker.request()).toEqual([
+      { kind: 'statement', filePath: FILE, line: 14, column: 15 },
+      { kind: 'statement', filePath: FILE, line: 14, column: 15, slot: 1 },
+    ]);
+    expect(picker.ghostRefs()).toEqual([
+      { kind: 'connector', filePath: FILE, line: 14 },
+      { kind: 'connector', filePath: FILE, line: 14, slot: 1 },
+    ]);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.connectorIds).toEqual(['bolt', 'bolt-1']);
+  });
+
+  it('survive a render: each connector re-matched by its statement and slot', () => {
+    const picker = mountAt({ picker: 'connector', multiple: true });
+    picker.takeConnector('bolt-1');
+    expect(picker.setScene(inPart(connectorScene('#2')), { dropEntities: true })).toBe(false);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.connectorIds).toEqual(['bolt-1#2']);
+    expect(picker.request()).toEqual([{ kind: 'statement', filePath: FILE, line: 14, column: 15, slot: 1 }]);
+  });
+});
+
+describe('point values', () => {
+  it('take vertices only — offered alone, a face click passes — and drop them on a render', () => {
+    const picker = mountAt({ picker: 'point', multiple: true });
+    expect(picker.channels()).toMatchObject({ pickFilter: 'vertex', vertices: true, connectors: false });
+    expect(picker.takeClick('plate-solid', face(4).sub)).toBe('ignored');
+    expect(picker.takeClick('plate-solid', vertex(3).sub)).toBe('taken');
+    expect(picker.takeClick('plate-solid', vertex(5).sub)).toBe('taken');
+    expect(chips(picker)).toEqual(['Extrude vertex', 'Extrude vertex']);
+    expect(picker.request()).toEqual([
+      { kind: 'point', entity: vertex(3) },
+      { kind: 'point', entity: vertex(5) },
+    ]);
+    expect(picker.ghostRefs()).toEqual([
+      { kind: 'point', shapeId: 'plate-solid', index: 3 },
+      { kind: 'point', shapeId: 'plate-solid', index: 5 },
+    ]);
+    expect(picker.hasPickedGeometry).toBe(true);
+    expect(picker.setScene(inPart(connectorScene()), { dropEntities: true })).toBe(true);
+    expect(picker.isEmpty).toBe(true);
+  });
+
+  it("name a custom feature's vertex by its row's name — its id is no word", () => {
+    const objects = [...connectorScene(), {
+      id: 'b', type: 'acme.boss', name: 'Boss', parentId: 'part', ownShapes: [], sourceLocation: at(16, 2),
+      sceneShapes: [{ shapeId: 'boss-body', shapeType: 'solid', meshes: MESH }],
+    }] as SceneObjectRender[];
+    const picker = mountAt({ picker: 'point' }, objects);
+    picker.takeClick('boss-body', vertex(0, 'boss-body').sub);
+    expect(chips(picker)).toEqual(['Boss vertex']);
+  });
+});
+
+describe('anchor values', () => {
+  it('lock a face centre the rail suggests, only the anchors the value offers', () => {
+    const picker = mountAt({ picker: 'anchor', anchors: ['center'] });
+    expect(picker.channels()).toMatchObject({ pickFilter: 'all', anchors: true });
+    // A face click is the rail's to lock, never a pick of its own.
+    expect(picker.clickKind(face(4).sub)).toBe('anchor');
+    expect(picker.takeClick('plate-solid', face(4).sub)).toBe('ignored');
+    expect(picker.offersAnchor({ kind: 'start' })).toBe(false);
+    expect(picker.takeAnchor(faceCentre(4, 'start'))).toEqual({ message: 'At takes anchors at center().' });
+
+    expect(picker.takeAnchor(faceCentre(4))).toBe('taken');
+    expect(picker.holdsAnchor('plate-solid:face:4', 0)).toBe(true);
+    expect(chips(picker)).toEqual(['Face center']);
+    expect(picker.request()).toEqual([{ kind: 'anchor', entity: face(4), anchor: { kind: 'center' } }]);
+    expect(picker.ghostRefs()).toEqual([
+      { kind: 'anchor', entity: { shapeId: 'plate-solid', index: 4, kind: 'face' }, anchor: { kind: 'center' } },
+    ]);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.entities).toEqual([face(4)]);
+    // Picking it again undoes it; a render drops it.
+    picker.takeAnchor(faceCentre(4));
+    expect(picker.isEmpty).toBe(true);
+    picker.takeAnchor(faceCentre(4));
+    expect(picker.setScene(inPart(connectorScene()), { dropEntities: true })).toBe(true);
+    expect(picker.isEmpty).toBe(true);
+  });
+});
+
+describe('a value of several kinds', () => {
+  it('routes each pick to the kind that takes it, and writes them in the order they were picked', () => {
+    const picker = mountAt({ picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'] });
+    expect(picker.isUnion).toBe(true);
+    expect(picker.channels()).toEqual({
+      pickFilter: 'all', sketchWires: false, axes: false, planes: false, standardAxes: false, standardPlanes: false,
+      connectors: true, vertices: true, anchors: true,
+    });
+    expect(picker.clickKind(vertex(1).sub)).toBe('point');
+    expect(picker.clickKind(edge(2).sub)).toBe('anchor');
+
+    picker.takeConnector('bolt');
+    picker.takeClick('plate-solid', vertex(1).sub);
+    picker.takeAnchor(faceCentre(4));
+    picker.takeRow(row('bolt-1', connectorScene()));
+    expect(picker.request()).toEqual([
+      { kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector' },
+      { kind: 'point', entity: vertex(1) },
+      { kind: 'anchor', entity: face(4), anchor: { kind: 'center' } },
+      { kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector', slot: 1 },
+    ]);
+    expect(picker.ghostRefs()!.map(ref => ref.kind)).toEqual(['connector', 'point', 'anchor', 'connector']);
+  });
+
+  it('takes a solid by a face click and a connector by its row, naming the kind each was picked as', () => {
+    const picker = mountAt({ picker: ['solid', 'connector'], multiple: true });
+    expect(picker.channels()).toMatchObject({ pickFilter: 'all', connectors: true, vertices: false, anchors: false });
+    expect(picker.clickKind(face(1).sub)).toBe('solid');
+    expect(picker.takeClick('boss-solid', face(1, 'boss-solid').sub)).toBe('taken');
+    expect(picker.takeRow(row('bolt', connectorScene()))).toBe('taken');
+    expect(picker.request()).toEqual([
+      { kind: 'statement', filePath: FILE, line: 12, column: 15, picker: 'solid' },
+      { kind: 'statement', filePath: FILE, line: 14, column: 15, picker: 'connector' },
+    ]);
+    expect(picker.ghostRefs()).toEqual([
+      { kind: 'statement', filePath: FILE, line: 12 },
+      { kind: 'connector', filePath: FILE, line: 14 },
+    ]);
+  });
+
+  it('keeps an edited statement\'s own locations, a copy by its slot, and draws them from the feature itself', () => {
+    const picker = mountAt({ picker: ['connector', 'point', 'anchor'], multiple: true });
+    picker.seedKeeps([
+      { text: 'bolt', start: 0, end: 4, ref: { line: 14, column: 15 } },
+      { text: 'bolt.instance(1)', start: 6, end: 22, ref: { line: 14, column: 15, slot: 1 } },
+      { text: 'e.endFaces().center()', start: 24, end: 45 },
+    ], FILE);
+    picker.setSources([
+      { kind: 'sketch', filePath: FILE, line: 14, column: 15 },
+      { kind: 'opaque' },
+      { kind: 'entities', entities: [face(4)] },
+    ]);
+    expect(chips(picker)).toEqual(['Connector bolt', 'Connector bolt.instance(1)', 'Current: e.endFaces().center()']);
+    expect(picker.request()).toBeUndefined();
+    expect(picker.ghostRefs()).toEqual([{ kind: 'kept', index: 0 }, { kind: 'kept', index: 1 }, { kind: 'kept', index: 2 }]);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.connectorIds).toEqual(['bolt', 'bolt-1']);
+    expect(lit.entities).toEqual([face(4)]);
+
+    // A connector pick of a kept one is no new pick; a new point joins the keeps.
+    picker.takeClick('plate-solid', vertex(2).sub);
+    expect(picker.request()).toEqual([
+      { kind: 'verbatim', sourceIndex: 0 },
+      { kind: 'verbatim', sourceIndex: 1 },
+      { kind: 'verbatim', sourceIndex: 2 },
+      { kind: 'point', entity: vertex(2) },
+    ]);
+    expect(picker.hasPickedGeometry).toBe(true);
   });
 });

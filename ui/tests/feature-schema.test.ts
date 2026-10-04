@@ -13,6 +13,7 @@ function meta(params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaS
     group: 'create',
     kind: 'tool',
     operations: [],
+    defaultOperation: null,
     params,
     call: [],
     hasOnChange: false,
@@ -28,7 +29,7 @@ const STANDOFF = meta({
   height: { type: 'length', default: 10, min: 0, label: 'Height' },
   outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
-}, { id: 'acme.standoff', label: 'Standoff', operations: ['add', 'new'] });
+}, { id: 'acme.standoff', label: 'Standoff', operations: ['add', 'new'], defaultOperation: 'add' });
 
 /** A vent: tabs, groups and rows that come and go. */
 const VENT = meta({
@@ -54,13 +55,22 @@ describe('FeatureSchema', () => {
     expect(schema.scalarNames).toEqual(['height', 'outer', 'hole']);
   });
 
-  it('offers the operation tabs in the product order, opening on Add', () => {
+  it('offers the operations in the product order, opening on the default the engine names', () => {
     expect(new FeatureSchema(STANDOFF).operations.map(o => o.label)).toEqual(['Add', 'New']);
     expect(new FeatureSchema(STANDOFF).defaultOperation).toBe('add');
-    const cutOnly = new FeatureSchema(meta({}, { operations: ['new', 'remove'] }));
-    expect(cutOnly.operations.map(o => o.op)).toEqual(['remove', 'new']);
-    expect(cutOnly.defaultOperation).toBe('remove');
+    // The engine's rule (Add when offered, else the first listed), not the tabs' order.
+    const newFirst = new FeatureSchema(meta({}, { operations: ['new', 'remove'], defaultOperation: 'new' }));
+    expect(newFirst.operations.map(o => o.op)).toEqual(['remove', 'new']);
+    expect(newFirst.defaultOperation).toBe('new');
     expect(new FeatureSchema(meta({})).defaultOperation).toBeNull();
+  });
+
+  it('offers a choice of operations only when there are two or more', () => {
+    expect(new FeatureSchema(STANDOFF).offersOperationChoice).toBe(true);
+    const cutOnly = new FeatureSchema(meta({}, { operations: ['remove'], defaultOperation: 'remove' }));
+    expect(cutOnly.offersOperationChoice).toBe(false);
+    expect(cutOnly.defaultOperation).toBe('remove');
+    expect(new FeatureSchema(meta({})).offersOperationChoice).toBe(false);
   });
 
   it('gathers grouped rows under their heading and tabbed rows on their pane', () => {

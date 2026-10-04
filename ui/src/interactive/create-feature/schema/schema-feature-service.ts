@@ -514,12 +514,14 @@ export class SchemaFeatureService implements FeatureDialogService {
     if ('error' in picks) {
       return picks;
     }
+    // The operation travels whatever it is; the engine writes the
+    // feature's default without a chain.
     const operation = this.panel.operation;
     return {
       id: this.schema.id,
       values: values.values,
       picks: picks.picks,
-      ...(operation && operation !== 'add' ? { operation } : {}),
+      ...(operation ? { operation } : {}),
       ...(operation !== 'new' && !this.scope.isEmpty ? { scope: this.scope.createRefs() } : {}),
       ...(values.newVariables ? { newVariables: values.newVariables } : {}),
     };

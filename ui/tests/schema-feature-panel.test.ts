@@ -18,6 +18,7 @@ const VENT: FeatureMetaSnapshot = {
   group: 'create',
   kind: 'tool',
   operations: ['remove'],
+  defaultOperation: 'remove',
   params: {
     face: { picker: 'face', label: 'On face' },
     style: { type: 'select', label: 'Style', options: [{ label: 'Slots', value: 'slot' }, { label: 'Holes', value: 'hole' }] },
@@ -35,13 +36,15 @@ const VENT: FeatureMetaSnapshot = {
   contexts: ['part'],
 };
 
-function mount(): { panel: SchemaFeaturePanel; root: HTMLElement } {
+function mount(meta: FeatureMetaSnapshot = VENT): { panel: SchemaFeaturePanel; root: HTMLElement } {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const panel = new SchemaFeaturePanel(container, new FeatureSchema(VENT), 'icon.svg');
+  const panel = new SchemaFeaturePanel(container, new FeatureSchema(meta), 'icon.svg');
   panel.show();
-  return { panel, root: container.querySelector<HTMLElement>('#fluidcad-feature-acme-vent')! };
+  return { panel, root: container.querySelector<HTMLElement>(`#fluidcad-feature-${meta.id.replace('.', '-')}`)! };
 }
+
+const opTabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('[data-role="op-tabs"] button')];
 
 const shown = (el: Element | null) => el !== null && !el.closest('.hidden');
 
@@ -56,7 +59,6 @@ describe('the schema dialog', () => {
     expect(value('rounded').checked).toBe(true);
     expect(value('note').value).toBe('vent');
     expect(root.querySelector('[data-param="angle"] span')!.textContent).toBe('Angle (°)');
-    expect([...root.querySelectorAll('[data-role="op-tabs"] button')].map(b => b.textContent)).toEqual(['Remove']);
   });
 
   it('gathers grouped rows under their heading and puts tabbed rows on their pane', () => {
@@ -100,5 +102,41 @@ describe('the schema dialog', () => {
     expect(panel.scopeSlot!.visible).toBe(true);
     panel.armSlot('scope');
     expect(panel.armedSlot).toBe('scope');
+  });
+
+  it('shows no operation tabs for a feature with one operation, and still writes it', () => {
+    const { panel, root } = mount();
+    expect(root.querySelector('[data-role="op-tabs"]')).toBeNull();
+    expect(panel.operation).toBe('remove');
+    panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
+    expect(root.querySelector('[data-role="op-tabs"]')).toBeNull();
+    expect(panel.operation).toBe('remove');
+
+    // A feature that only makes separate bodies has nothing to scope either.
+    const apart = mount({ ...VENT, id: 'acme.apart', operations: ['new'], defaultOperation: 'new' });
+    expect(apart.root.querySelector('[data-role="op-tabs"]')).toBeNull();
+    expect(apart.panel.operation).toBe('new');
+    expect(apart.panel.scopeSlot!.visible).toBe(false);
+
+    const plain = mount({ ...VENT, id: 'acme.plain', operations: [], defaultOperation: null });
+    expect(plain.panel.operation).toBeNull();
+    expect(plain.panel.scopeSlot).toBeNull();
+  });
+
+  it('shows the tabs for two operations or more, preselected on the default', () => {
+    const { panel, root } = mount({ ...VENT, id: 'acme.pocket', operations: ['new', 'remove'], defaultOperation: 'new' });
+    expect(opTabs(root).map(b => b.textContent)).toEqual(['Remove', 'New']);
+    const active = () => opTabs(root).filter(b => b.classList.contains('btn-primary')).map(b => b.textContent);
+    expect(active()).toEqual(['New']);
+    expect(panel.operation).toBe('new');
+    expect(panel.scopeSlot!.visible).toBe(false);
+    opTabs(root)[0].click();
+    expect(panel.operation).toBe('remove');
+    expect(panel.scopeSlot!.visible).toBe(true);
+    // A fresh dialog opens on the default again; an edit on the statement's own.
+    panel.show();
+    expect(active()).toEqual(['New']);
+    panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
+    expect(active()).toEqual(['Remove']);
   });
 });

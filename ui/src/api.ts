@@ -6064,8 +6064,14 @@ export type FeatureMetaSnapshot = {
   icon?: string;
   group: 'create' | 'modify';
   kind: 'tool' | 'modifier';
-  /** The operation tabs to offer; empty for none. */
+  /** The operations the feature offers; empty for none. */
   operations: FeatureOpKind[];
+  /**
+   * What a statement without an operation chain does — Add when offered,
+   * else the first operation listed; null without operations. The dialog
+   * opens on it.
+   */
+  defaultOperation: FeatureOpKind | null;
   /** Every value, in declaration order. */
   params: Record<string, FeatureParam>;
   call: unknown;

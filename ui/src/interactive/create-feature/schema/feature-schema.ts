@@ -74,20 +74,30 @@ export class FeatureSchema {
     return DIALOG_PICKERS.has(kind);
   }
 
-  /** The operation tabs, in the product's order (Add, Remove, New), or none. */
+  /** The operations the feature offers, in the product's order (Add, Remove, New), or none. */
   get operations(): { op: FeatureOpKind; label: string; title: string }[] {
     return (['add', 'remove', 'new'] as const)
       .filter(op => this.meta.operations.includes(op))
       .map(op => ({ op, ...OPERATION_LABELS[op] }));
   }
 
-  /** The operation a fresh dialog opens on: Add when offered, else the first. */
+  /**
+   * Whether the dialog shows operation tabs: only when there is a choice.
+   * A feature with one operation always applies it, so the dialog says
+   * nothing about it — a bolt circle that only cuts shows no Remove tab.
+   */
+  get offersOperationChoice(): boolean {
+    return this.operations.length > 1;
+  }
+
+  /**
+   * The operation a fresh dialog opens on — what a statement without an
+   * operation chain does, as the engine's metadata says (Add when offered,
+   * else the first the feature lists) — or null for a feature without
+   * operations.
+   */
   get defaultOperation(): FeatureOpKind | null {
-    const ops = this.operations;
-    if (ops.length === 0) {
-      return null;
-    }
-    return ops.some(o => o.op === 'add') ? 'add' : ops[0].op;
+    return this.meta.defaultOperation ?? null;
   }
 
   /**

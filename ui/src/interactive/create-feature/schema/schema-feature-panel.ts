@@ -14,10 +14,11 @@ const GROUP_HEADING_CLASS = 'text-[10px] uppercase tracking-wide text-base-conte
 
 /**
  * The dialog a custom feature's metadata describes, rendered from its
- * {@link FeatureSchema}: the operation tabs when the feature has operations,
- * then every value in declaration order — typed-in rows (expression fields,
- * selects, toggles, text) and pick slots — under their group headings, the
- * tabbed ones on their tab's pane, and the framework's `.scope(…)` row last.
+ * {@link FeatureSchema}: the operation tabs when the feature offers a choice
+ * of operations, then every value in declaration order — typed-in rows
+ * (expression fields, selects, toggles, text) and pick slots — under their
+ * group headings, the tabbed ones on their tab's pane, and the framework's
+ * `.scope(…)` row last, for any feature with operations.
  * Rows whose `visibleWhen` fails hide. Pure DOM and form state: the service
  * owns the scene, the picks' routing, the previews and the apply.
  */
@@ -48,7 +49,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     });
 
     const operations = schema.operations;
-    if (operations.length > 0) {
+    if (schema.offersOperationChoice) {
       const host = this.append('op-tabs', 'join w-full');
       this.opTabs = new ChoiceTabs(host,
         operations.map(o => ({ key: o.op, label: o.label, title: o.title })),
@@ -82,9 +83,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
-  /** The operation tab, or null for a feature without operations. */
+  /**
+   * The operation the dialog writes: the tab chosen, or a feature's one
+   * operation when it offers no choice; null for a feature without operations.
+   */
   get operation(): FeatureOpKind | null {
-    return this.opTabs?.value ?? null;
+    return this.opTabs?.value ?? this.schema.defaultOperation;
   }
 
   get armedSlot(): ArmedSlot {

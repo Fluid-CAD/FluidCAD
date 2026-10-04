@@ -59,7 +59,7 @@ const MESH = [{ vertices: [], indices: [] }] as never;
 
 function meta(id: string, label: string, params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaSnapshot> = {}): FeatureMetaSnapshot {
   return {
-    id, label, group: 'create', kind: 'tool', operations: [], params, call: [],
+    id, label, group: 'create', kind: 'tool', operations: [], defaultOperation: null, params, call: [],
     hasOnChange: false, ghost: true, contexts: ['part'], ...extra,
   };
 }
@@ -69,7 +69,7 @@ const STANDOFF = meta('acme.standoff', 'Standoff', {
   height: { type: 'length', default: 10, min: 0, label: 'Height' },
   outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
-}, { description: 'A boss with a bore', icon: './standoff.svg', operations: ['add', 'new'] });
+}, { description: 'A boss with a bore', icon: './standoff.svg', operations: ['add', 'new'], defaultOperation: 'add' });
 
 /** A feature reading a sketch, a face and an axis, with a depth it can't do without. */
 const BRACKET = meta('acme.bracket', 'Bracket', {
@@ -79,7 +79,18 @@ const BRACKET = meta('acme.bracket', 'Bracket', {
   depth: { type: 'length', label: 'Depth' },
   style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }, { label: 'Gusset', value: 'gusset' }] },
   gusset: { type: 'length', label: 'Gusset size', default: 4, visibleWhen: { style: 'gusset' } },
-}, { operations: ['add', 'remove', 'new'] });
+}, { operations: ['add', 'remove', 'new'], defaultOperation: 'add' });
+
+/** A ring of holes that only cuts: remove is its one operation, and its default. */
+const BOLT_CIRCLE = meta('acme.boltCircle', 'Bolt circle', {
+  around: { picker: 'axis', label: 'Around axis' },
+  count: { type: 'integer', default: 4, min: 1, label: 'Holes' },
+}, { operations: ['remove'], defaultOperation: 'remove' });
+
+/** A pocket that cuts by default and may make a separate body: new is listed first, remove is not. */
+const POCKET = meta('acme.pocket', 'Pocket', {
+  depth: { type: 'length', default: 2, label: 'Depth' },
+}, { operations: ['new', 'remove'], defaultOperation: 'new' });
 
 /** A part holding a plate, a sketch, a boss and a standoff row. */
 function scene(): SceneObjectRender[] {
@@ -205,7 +216,7 @@ describe('a custom feature dialog', () => {
       id: 'acme.standoff', values: {}, picks: { face: [{ kind: 'entities', entities: [faceOf('plate-solid', 4)] }] }, preview: true,
     });
     expect(lastCreate()!.values).toEqual({});
-    expect(lastCreate()!.operation).toBeUndefined();
+    expect(lastCreate()!.operation).toBe('add');
 
     type('height', '12');
     opTab('New');
@@ -329,6 +340,66 @@ describe('a custom feature dialog', () => {
     expect(service.dialogPanel.pickers.get('profile')!.isEmpty).toBe(false);
     expect(service.dialogPanel.pickers.get('base')!.isEmpty).toBe(true);
     expect(lastCreate()).toBeUndefined();
+  });
+});
+
+describe("a custom feature's operations in its dialog", () => {
+  it('shows no tabs for a feature with one operation, and its requests still carry it', async () => {
+    const { service, panel, container, state, type, lastCreate } = mount(BOLT_CIRCLE);
+    service.enter();
+    expect(panel().querySelector('[data-role="op-tabs"]')).toBeNull();
+    expect(service.dialogPanel.armedSlot).toBe('around');
+    state.axisPick!('z');
+    type('count', '6');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({
+      id: 'acme.boltCircle', operation: 'remove', values: { count: 6 }, picks: { around: [{ kind: 'standard', name: 'z' }] },
+    });
+
+    // It cuts, so the scope row still narrows what it cuts.
+    const scopeRow = container.querySelector<HTMLElement>('[data-role="scope-slot"]')!;
+    expect(scopeRow.classList.contains('hidden')).toBe(false);
+    (scopeRow.lastElementChild as HTMLElement).click();
+    service.handleClick('boss-solid', faceOf('boss-solid', 0).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({ operation: 'remove', scope: [{ filePath: FILE, line: 9, column: 15 }] });
+  });
+
+  it('keeps the tabs for two operations, opening on the default the metadata names', async () => {
+    const { service, panel, opTab, lastCreate } = mount(POCKET);
+    service.enter();
+    const tabs = () => [...panel().querySelectorAll<HTMLButtonElement>('[data-role="op-tabs"] button')];
+    expect(tabs().map(b => b.textContent)).toEqual(['Remove', 'New']);
+    expect(tabs().filter(b => b.classList.contains('btn-primary')).map(b => b.textContent)).toEqual(['New']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.operation).toBe('new');
+    opTab('Remove');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.operation).toBe('remove');
+  });
+
+  it('edits a statement of a one-operation feature with no tabs, writing only what changed', async () => {
+    const { service, panel, type, lastEdit } = mount(BOLT_CIRCLE);
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom',
+      id: 'acme.boltCircle',
+      callee: 'boltCircle',
+      values: { count: 8 },
+      picks: { around: [{ text: "'z'", start: 200, end: 203 }] },
+      operation: 'remove',
+      scopeTexts: [],
+      scopeRefs: [],
+    };
+    service.enterEdit(at(11, 15), parsed, { index: 5, type: 'acme.boltCircle', expectedStatement: "boltCircle('z', { count: 8 }).remove()" });
+    // The rollback lands before the bolt circle's row, where the standoff's stands in scene().
+    service.handleSceneRendered(scene().map(o => o.id === 'post' ? { ...o, type: 'acme.boltCircle' as never } : o), 4, true);
+    expect(panel().querySelector('[data-role="title"]')!.textContent).toBe('Edit bolt circle');
+    expect(panel().querySelector('[data-role="op-tabs"]')).toBeNull();
+    type('count', '6');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()).toMatchObject({ id: 'acme.boltCircle', values: { count: 6 }, picks: {} });
+    expect(lastEdit()!.operation).toBeUndefined();
+    expect(lastEdit()!.scope).toBeUndefined();
   });
 });
 

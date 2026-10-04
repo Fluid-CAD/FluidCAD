@@ -145,6 +145,22 @@ describe("custom feature picked values", () => {
     expect(list).toMatchObject({ ok: true, slots: { rims: { args: ["e.endEdges()"] } } });
   });
 
+  it("names an edge value's picks as picked — a tangent chain is no part of a custom feature's request", () => {
+    plate();
+    const scene = render();
+    const edge = edgeRefsWhere(solidAt(scene, 2), mid => top(mid) && Math.abs(mid.y + 20) < 1e-6);
+    const plain = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { rims: { picker: "edge", entities: edge, options: { multiple: true } } },
+    });
+    expect(plain.ok).toBe(true);
+    // One that still carries a chain, as fillet's "Select with tangents" sends it, names the same picks — never `.withTangents()`.
+    const chained = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { rims: { picker: "edge", entities: edge, chains: [{ seed: edge[0], members: edge }], options: { multiple: true } } as never },
+    });
+    expect(chained).toEqual(plain);
+    expect(JSON.stringify(chained)).not.toContain("withTangents");
+  });
+
   it("wraps an axis edge in axis() and a plane face in plane()", () => {
     plate();
     const scene = render();

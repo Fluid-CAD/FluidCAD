@@ -92,8 +92,6 @@ export type EdgePickerSpec = ParamCommon & ListPicker & {
   picker: 'edge';
   /** Only edges of this curve; checked by the engine. */
   curve?: 'line' | 'circle' | 'arc';
-  /** Picks extend along tangent edges (`.withTangents()`). */
-  tangents?: boolean;
   /** A picked face stands for all of its edges. */
   facesAsEdges?: boolean;
 };
@@ -142,7 +140,6 @@ export type UnionPickerSpec = ParamCommon & ListPicker & {
   surface?: FacePickerSpec['surface'];
   sameFile?: boolean;
   curve?: EdgePickerSpec['curve'];
-  tangents?: boolean;
   facesAsEdges?: boolean;
   types?: readonly string[];
   anchors?: AnchorPickerSpec['anchors'];
@@ -262,6 +259,11 @@ class FeatureMetaValidator {
     ['onChange', "onChange hooks aren't supported (custom controls are planned)"],
   ];
 
+  /** A value's fields refused by name rather than as unknown, each with why it is left out. */
+  private static readonly PARAM_LEFT_OUT: [string, string][] = [
+    ['tangents', 'tangent chains are for fillet and chamfer only'],
+  ];
+
   private static readonly ID_SEGMENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
   private static readonly NAME = /^[A-Za-z_$][\w$]*$/;
@@ -286,7 +288,7 @@ class FeatureMetaValidator {
   private static readonly PICKERS: Record<PickerKind, { list: boolean; fields: string[] }> = {
     sketch: { list: true, fields: ['implicitDefault', 'hasGeometry', 'wire'] },
     face: { list: true, fields: ['surface', 'sameFile'] },
-    edge: { list: true, fields: ['curve', 'tangents', 'facesAsEdges'] },
+    edge: { list: true, fields: ['curve', 'facesAsEdges'] },
     axis: { list: false, fields: [] },
     plane: { list: false, fields: [] },
     solid: { list: true, fields: [] },
@@ -302,7 +304,7 @@ class FeatureMetaValidator {
   };
 
   private static readonly BOOLEAN_FIELDS = new Set([
-    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'tangents', 'facesAsEdges',
+    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges',
   ]);
 
   /** A picker kind's fields refused by name rather than as unknown, each with why it is left out. */
@@ -345,11 +347,7 @@ class FeatureMetaValidator {
       this.fail('the feature is described by an object: { class, label, group, kind, params, call, … }');
     }
     const meta = this.meta as Record<string, unknown>;
-    for (const [field, why] of FeatureMetaValidator.LEFT_OUT) {
-      if (field in meta) {
-        this.fail(`leave '${field}' out — ${why}`);
-      }
-    }
+    this.leftOut(meta, FeatureMetaValidator.LEFT_OUT);
     for (const field of Object.keys(meta)) {
       if (!FeatureMetaValidator.FIELDS.has(field)) {
         this.fail(`unknown field '${field}' — the fields are ${[...FeatureMetaValidator.FIELDS].join(', ')}`);
@@ -493,6 +491,7 @@ class FeatureMetaValidator {
     if (('type' in spec) === ('picker' in spec)) {
       this.fail(`${where} declares ${'type' in spec ? "both a 'type' and a 'picker'" : "neither a 'type' nor a 'picker'"}`);
     }
+    this.leftOut(spec, FeatureMetaValidator.PARAM_LEFT_OUT, `${where}: `);
     const fields = 'type' in spec ? this.scalarFields(where, spec) : this.pickerFields(where, spec);
     for (const field of Object.keys(spec)) {
       if (field !== 'type' && field !== 'picker' && !fields.includes(field)) {
@@ -736,6 +735,15 @@ class FeatureMetaValidator {
       this.fail(`the rest value '...${call.rest}' must be a list — a picker with 'multiple: true'`);
     }
     return FeatureMetaValidator.frozenCopy(value) as CallShape;
+  }
+
+  /** Refuse each field `table` leaves out, by name and why — even one left undefined. */
+  private leftOut(fields: Record<string, unknown>, table: [string, string][], prefix = ''): void {
+    for (const [field, why] of table) {
+      if (field in fields) {
+        this.fail(`${prefix}leave '${field}' out — ${why}`);
+      }
+    }
   }
 
   // The checks below name what they check as `subject`: the field, quoted,

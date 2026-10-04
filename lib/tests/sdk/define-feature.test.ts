@@ -172,6 +172,17 @@ describe("defineFeature()", () => {
     expect(() => defineFeature(postClass(), { label: 'Post', group: 'create', call: [{ height: 'height' }], onChange: () => undefined } as never))
       .toThrow("feature metadata: leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)");
   });
+
+  it("refuses an edge value's tangents by name: tangent chains are for fillet and chamfer only", () => {
+    class Rim extends Feature.with({ edges: { picker: 'edge', multiple: true, tangents: true } as never }) {
+      static id = 'acme.rim';
+      buildTool(): Shape[] {
+        return [];
+      }
+    }
+    expect(() => defineFeature(Rim, { label: 'Rim', group: 'create', call: ['...edges'] as never }))
+      .toThrow("feature 'acme.rim': param 'edges': leave 'tangents' out — tangent chains are for fillet and chamfer only");
+  });
 });
 
 /** Both ways of writing the standoff, each held to the same behaviour. */

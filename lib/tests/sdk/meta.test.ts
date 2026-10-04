@@ -144,6 +144,16 @@ describe("feature metadata refusals", () => {
     refuses(bossMeta({ lable: 'Boss' }), /the fields are class, label, description, icon, group, kind, operations, params, call, ghost, contexts$/);
   });
 
+  it("refuse an edge value's tangents by name: tangent chains are for fillet and chamfer only", () => {
+    refuses(withParam('face', { picker: 'edge', multiple: true, tangents: true }),
+      "feature 'acme.boss': param 'face': leave 'tangents' out — tangent chains are for fillet and chamfer only");
+    // Even false or undefined, and on a value of several kinds: the field is named, so it is refused rather than passed over.
+    refuses(withParam('face', { picker: 'edge', tangents: false }), /param 'face': leave 'tangents' out/);
+    refuses(withParam('face', { picker: 'edge', tangents: undefined }), /param 'face': leave 'tangents' out/);
+    refuses(withParam('face', { picker: ['edge', 'connector'], multiple: true, tangents: true }), /param 'face': leave 'tangents' out/);
+    refuses(withParam('face', { picker: 'edge', tangent: true }), /unknown field 'tangent' for an edge picker — its fields are .*, curve, facesAsEdges$/);
+  });
+
   it("refuse a missing label, an unknown group or kind", () => {
     refuses(bossMeta({ label: '' }), "feature 'acme.boss': 'label' must be a non-empty string, got ''");
     refuses(bossMeta({ label: undefined }), "feature 'acme.boss': 'label' must be a non-empty string, got nothing");
@@ -176,7 +186,7 @@ describe("feature metadata refusals", () => {
 
   it("refuse a field the picker kind doesn't have, and a list where one thing is picked", () => {
     refuses(withParam('face', { picker: 'edge', surface: 'planar' }),
-      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, visibleWhen, optional, multiple, max, ordered, curve, tangents, facesAsEdges");
+      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, visibleWhen, optional, multiple, max, ordered, curve, facesAsEdges");
     refuses(withParam('face', { picker: 'axis', multiple: true }), "feature 'acme.boss': param 'face': an axis picker picks one axis, so it takes no 'multiple'");
     refuses(withParam('face', { picker: 'plane', ordered: true }), "feature 'acme.boss': param 'face': a plane picker picks one plane, so it takes no 'ordered'");
     refuses(withParam('face', { picker: 'face', default: 'top' }), /param 'face': a picker takes no default/);

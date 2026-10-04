@@ -6,14 +6,14 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { anchorFromShape, type VertexAnchorSpec } from "../features/shape-anchor.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
-import { synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
+import { synthesizeSelectors, SelectorPart } from "./synthesis.js";
 import {
   allocateNames, collectImports, makeStatementBindable, rehomePlaneFacePick, renderPartArgs,
 } from "./explain.js";
 import { VertexPointSynthesizer } from "./vertex-synthesis.js";
 import { renderSolvedTarget, type SolvedEmissionTarget } from "./sketch-target.js";
 import {
-  ApplyFeatureEditSpec, nameHintFor, PickChain, PickRef, renderConnectorAnchorSuffix, SelectionScene, SynthesizeOptions,
+  ApplyFeatureEditSpec, nameHintFor, PickRef, renderConnectorAnchorSuffix, SelectionScene, SynthesizeOptions,
 } from "./types.js";
 
 /**
@@ -45,8 +45,6 @@ export type FeatureSlotOptions = {
 export type FeatureSlotPicks = {
   picker: FeatureSlotPicker;
   entities: PickRef[];
-  /** Tangent chains ("Select with tangents"), an edge picker's only. */
-  chains?: PickChain[];
   /** An anchor picker's: the well-known point of each picked face or edge, in pick order. */
   anchors?: VertexAnchorSpec[];
   options?: FeatureSlotOptions;
@@ -266,34 +264,21 @@ export class FeatureSlotSynthesizer {
     if (kind !== 'face' && kind !== 'edge' && kind !== 'axis' && kind !== 'plane') {
       throw new SlotRefusal(`${label}: the ${String(kind)} picker names no geometry to synthesize`, name);
     }
-    const chains = picks.chains ?? [];
     const refs = picks.entities ?? [];
-    if (refs.length === 0 && chains.length === 0) {
+    if (refs.length === 0) {
       throw new SlotRefusal(`${label}: nothing picked`, name);
     }
-    if (chains.length > 0 && kind !== 'edge') {
-      throw new SlotRefusal(`${label}: only an edge picker takes tangent chains`, name, chains[0].seed);
-    }
     const isList = options.multiple === true || options.max !== undefined;
-    const pickCount = refs.length + chains.length;
     if (kind === 'axis' || kind === 'plane' || !isList) {
-      if (pickCount !== 1) {
+      if (refs.length !== 1) {
         throw new SlotRefusal(`${label}: pick exactly one ${kind === 'axis' ? 'edge' : kind === 'plane' ? 'face or edge' : kind}`, name, refs[1] ?? refs[0]);
       }
-    } else if (options.max !== undefined && pickCount > options.max) {
-      throw new SlotRefusal(`${label}: takes at most ${options.max} ${kind}s, got ${pickCount}`, name, refs[options.max]);
+    } else if (options.max !== undefined && refs.length > options.max) {
+      throw new SlotRefusal(`${label}: takes at most ${options.max} ${kind}s, got ${refs.length}`, name, refs[options.max]);
     }
 
-    // Chain members are routed through their chain, never as free picks.
-    const chained = new Set(chains.flatMap(chain => chain.members.map(FeatureSlotSynthesizer.refKey)));
-    const attributions = refs
-      .filter(ref => !chained.has(FeatureSlotSynthesizer.refKey(ref)))
-      .map(ref => attributePick(this.scene, this.index, ref));
-    const chainInputs: SelectorChain[] = chains.map(chain => ({
-      seed: attributePick(this.scene, this.index, chain.seed),
-      members: chain.members.map(member => attributePick(this.scene, this.index, member)),
-    }));
-    for (const attr of [...attributions, ...chainInputs.flatMap(chain => [chain.seed, ...chain.members])]) {
+    const attributions = refs.map(ref => attributePick(this.scene, this.index, ref));
+    for (const attr of attributions) {
       if (attr.error) {
         throw new SlotRefusal(`${label}: ${attr.error}`, name, attr.ref);
       }
@@ -309,7 +294,7 @@ export class FeatureSlotSynthesizer {
       }
     }
     const synthesis = synthesizeSelectors(
-      this.scene, this.index, attributions, chainInputs, this.options.params ?? [], kind === 'plane', this.stmtBindable,
+      this.scene, this.index, attributions, [], this.options.params ?? [], kind === 'plane', this.stmtBindable,
     );
     if (synthesis.ok === false) {
       throw new SlotRefusal(`${label}: ${synthesis.reason}`, name, synthesis.pick);
@@ -480,9 +465,5 @@ export class FeatureSlotSynthesizer {
       return 'planar';
     }
     return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`;
-  }
-
-  private static refKey(ref: PickRef): string {
-    return `${ref.shapeId}:${ref.sub.type}:${ref.sub.index}`;
   }
 }

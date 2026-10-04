@@ -47,7 +47,7 @@ export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } 
 export type { FeatureValue, FeatureValues, FeatureScalar, FeatureReferenceSummary } from "./feature-inputs.js";
 export { parseCall } from "./meta.js";
 export type {
-  FeatureMeta, FeatureChange, FeatureGroup, FeatureKind, FeatureContext, ParamSpec, ScalarParamSpec, ScalarParamType,
+  FeatureMeta, FeatureGroup, FeatureKind, FeatureContext, ParamSpec, ScalarParamSpec, ScalarParamType,
   NumberParamSpec, BooleanParamSpec, SelectParamSpec, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen,
   SketchPickerSpec, FacePickerSpec, EdgePickerSpec, AxisPickerSpec, PlanePickerSpec, SolidPickerSpec, FeaturePickerSpec,
   ConnectorPickerSpec, PointPickerSpec, AnchorPickerSpec, UnionPickerSpec,

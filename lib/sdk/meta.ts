@@ -154,16 +154,6 @@ export type PickerParamSpec =
 /** One value of a feature, as its dialog shows it: typed in (`type`) or picked (`picker`). */
 export type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
-/** What an `onChange` hook hands back to the dialog. */
-export type FeatureChange = {
-  /** Values to set, by name. */
-  values?: Record<string, FeatureScalar | null>;
-  /** A select value's options, replaced. */
-  options?: Record<string, SelectOption[]>;
-  /** Notes shown in the dialog. */
-  messages?: string[];
-};
-
 /**
  * A custom feature, described for the editor: the toolbar button, the
  * dialog's values, and the call the dialog writes. Passed to
@@ -202,10 +192,6 @@ export type FeatureMeta = {
   params: Record<string, ParamSpec>;
   /** How the builder's call lays the values out (see `CallShape`). */
   call: CallShape;
-  /** An SVG next to the module, by relative path, shown beside the dialog. */
-  illustration?: string;
-  /** Runs in the engine when a dialog value changes. */
-  onChange?: (values: Record<string, unknown>) => FeatureChange | void;
   /**
    * Whether the dialog draws a preview of the feature while its values are
    * typed: on by default for a tool, and for a modifier whose class
@@ -232,8 +218,7 @@ export type ParamSpecSnapshot = ParamSpec & { label: string };
 
 /**
  * A feature's metadata as plain JSON — what the editor's catalog sends the
- * UI, which never runs feature code. Functions are left out: the class
- * becomes its id, the `onChange` hook a flag.
+ * UI, which never runs feature code. The class is left out: it becomes its id.
  */
 export type FeatureMetaSnapshot = {
   id: string;
@@ -247,8 +232,6 @@ export type FeatureMetaSnapshot = {
   defaultOperation: FeatureOperation | null;
   params: Record<string, ParamSpecSnapshot>;
   call: CallShape;
-  illustration?: string;
-  hasOnChange: boolean;
   /** Whether the dialog draws a preview — the UI asks for none when false. */
   ghost: boolean;
   contexts: FeatureContext[];
@@ -266,8 +249,16 @@ class FeatureMetaValidator {
 
   private static readonly FIELDS = new Set([
     'class', 'label', 'description', 'icon', 'group', 'kind', 'operations',
-    'params', 'call', 'illustration', 'onChange', 'ghost', 'contexts',
+    'params', 'call', 'ghost', 'contexts',
   ]);
+
+  /** Fields refused by name rather than as unknown, each with why it is left out. */
+  private static readonly LEFT_OUT: [string, string][] = [
+    ['id', "the feature's id is its class's static id"],
+    ['defaultOperation', "a feature adds by default when it offers 'add', else it applies the first of its 'operations'"],
+    ['illustration', "illustrations aren't supported (custom controls are planned)"],
+    ['onChange', "onChange hooks aren't supported (custom controls are planned)"],
+  ];
 
   private static readonly ID_SEGMENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
@@ -347,11 +338,10 @@ class FeatureMetaValidator {
       this.fail('the feature is described by an object: { class, label, group, kind, params, call, … }');
     }
     const meta = this.meta as Record<string, unknown>;
-    if ('id' in meta) {
-      this.fail("leave 'id' out — the feature's id is its class's static id");
-    }
-    if ('defaultOperation' in meta) {
-      this.fail("leave 'defaultOperation' out — a feature adds by default when it offers 'add', else it applies the first of its 'operations'");
+    for (const [field, why] of FeatureMetaValidator.LEFT_OUT) {
+      if (field in meta) {
+        this.fail(`leave '${field}' out — ${why}`);
+      }
     }
     for (const field of Object.keys(meta)) {
       if (!FeatureMetaValidator.FIELDS.has(field)) {
@@ -366,24 +356,18 @@ class FeatureMetaValidator {
     const label = this.text(meta.label, "'label'");
     const description = meta.description === undefined ? undefined : this.text(meta.description, "'description'", true);
     const icon = meta.icon === undefined ? undefined : this.assetPath(meta.icon, 'icon', FeatureMetaValidator.IMAGE, 'an image (.svg, .png, .jpg or .webp)');
-    const illustration = meta.illustration === undefined ? undefined : this.assetPath(meta.illustration, 'illustration', /\.svg$/i, 'an SVG file');
     const group = this.oneOf(meta.group, "'group'", ['create', 'modify']) as FeatureGroup;
     const kind = this.oneOf(meta.kind, "'kind'", ['tool', 'modifier']) as FeatureKind;
     this.checkKind(featureClass as typeof Feature, kind);
     const operations = this.operations(meta.operations, kind);
     const params = this.params(meta.params);
     const call = this.call(meta.call, operations, params, id);
-
-    if (meta.onChange !== undefined && typeof meta.onChange !== 'function') {
-      this.fail(`'onChange' must be a function, got ${FeatureMetaValidator.describe(meta.onChange)}`);
-    }
     const ghost = this.ghost(meta.ghost, featureClass as typeof Feature);
     const contexts = this.contexts(meta.contexts);
 
     const resolved: Record<string, unknown> = {
       id, class: featureClass, label, description, icon, group, kind, operations,
-      defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, illustration,
-      onChange: meta.onChange, ghost, contexts,
+      defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, ghost, contexts,
     };
     return Object.freeze(FeatureMetaValidator.defined(resolved)) as ResolvedFeatureMeta;
   }
@@ -1003,10 +987,10 @@ export class FeatureMetas {
   }
 
   /**
-   * The metadata as plain JSON: functions left out (the class becomes its
-   * id, `onChange` the `hasOnChange` flag), every default filled, each
-   * value's label filled from its name when it declares none. Reads any
-   * metadata object, checked or not, and whichever kernel checked it.
+   * The metadata as plain JSON: the class left out (it becomes its id),
+   * every default filled, each value's label filled from its name when it
+   * declares none. Reads any metadata object, checked or not, and
+   * whichever kernel checked it.
    */
   static snapshot(meta: FeatureMeta | ResolvedFeatureMeta): FeatureMetaSnapshot {
     const resolved = meta as Partial<ResolvedFeatureMeta>;
@@ -1026,8 +1010,6 @@ export class FeatureMetas {
       defaultOperation: FeatureCall.defaultOperationOf(meta.operations ?? []),
       params,
       call: FeatureMetas.json(meta.call ?? []),
-      illustration: meta.illustration,
-      hasOnChange: typeof meta.onChange === 'function',
       ghost: FeatureMetas.ghostOf(meta),
       contexts: [...(meta.contexts ?? ['part'])],
     }) as FeatureMetaSnapshot;

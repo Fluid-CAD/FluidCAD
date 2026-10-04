@@ -167,6 +167,10 @@ describe("defineFeature()", () => {
     const Shared = postClass();
     expect(() => defineFeature(Shared, { label: 'Post', group: 'create', call: [{ height: 'height' }], operations: ['cut' as never] }))
       .toThrow("feature 'acme.post': 'operations' must be one of add, new, remove, got 'cut'");
+    expect(() => defineFeature(postClass(), { label: 'Post', group: 'create', call: [{ height: 'height' }], illustration: './post.svg' } as never))
+      .toThrow("feature metadata: leave 'illustration' out — illustrations aren't supported (custom controls are planned)");
+    expect(() => defineFeature(postClass(), { label: 'Post', group: 'create', call: [{ height: 'height' }], onChange: () => undefined } as never))
+      .toThrow("feature metadata: leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)");
   });
 });
 

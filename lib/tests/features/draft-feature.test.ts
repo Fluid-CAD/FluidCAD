@@ -114,7 +114,6 @@ describe("draft, written on the Feature base", () => {
         faces: { picker: 'face', label: 'Faces', multiple: true },
       },
       call: ['angle', '...faces'],
-      hasOnChange: false,
       ghost: true,
       contexts: ['part'],
     });

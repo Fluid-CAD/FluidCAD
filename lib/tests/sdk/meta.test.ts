@@ -136,6 +136,14 @@ describe("feature metadata refusals", () => {
       "feature metadata: leave 'defaultOperation' out — a feature adds by default when it offers 'add', else it applies the first of its 'operations'");
   });
 
+  it("refuse an illustration or an onChange hook by name: neither is supported, custom controls are planned", () => {
+    refuses(bossMeta({ illustration: './boss.svg' }), "feature metadata: leave 'illustration' out — illustrations aren't supported (custom controls are planned)");
+    refuses(bossMeta({ onChange: () => undefined }), "feature metadata: leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)");
+    // Even left undefined: the field is named, so it is refused rather than passed over.
+    refuses(taperMeta({ illustration: undefined }), /leave 'illustration' out/);
+    refuses(bossMeta({ lable: 'Boss' }), /the fields are class, label, description, icon, group, kind, operations, params, call, ghost, contexts$/);
+  });
+
   it("refuse a missing label, an unknown group or kind", () => {
     refuses(bossMeta({ label: '' }), "feature 'acme.boss': 'label' must be a non-empty string, got ''");
     refuses(bossMeta({ label: undefined }), "feature 'acme.boss': 'label' must be a non-empty string, got nothing");
@@ -228,17 +236,15 @@ describe("feature metadata refusals", () => {
     refuses(bossMeta({ call: undefined }), /feature 'acme\.boss': the call shape must be a list of slots/);
   });
 
-  it("refuse an icon or illustration outside the module's directory or of the wrong kind", () => {
+  it("refuse an icon outside the module's directory or of the wrong kind", () => {
     for (const icon of ['/abs/boss.svg', '../boss.svg', 'icons/../../boss.svg', 'https://example.com/boss.svg', 'data:image/svg+xml,<svg/>', 'icons\\boss.svg', 'icons//boss.svg']) {
       refuses(bossMeta({ icon }), `feature 'acme.boss': 'icon' must be a relative path inside the module's directory, such as './icon.svg', got '${icon}'`);
     }
     refuses(bossMeta({ icon: './boss.gif' }), "feature 'acme.boss': 'icon' must be an image (.svg, .png, .jpg or .webp), got './boss.gif'");
-    refuses(bossMeta({ illustration: './boss.png' }), "feature 'acme.boss': 'illustration' must be an SVG file, got './boss.png'");
-    expect(() => register(bossMeta({ icon: './icons/boss.svg', illustration: 'boss.svg' }))).not.toThrow();
+    expect(() => register(bossMeta({ icon: './icons/boss.svg' }))).not.toThrow();
   });
 
-  it("refuse an onChange that is not a function, a ghost that is not a flag, and contexts beyond parts", () => {
-    refuses(bossMeta({ onChange: 'refresh' }), "feature 'acme.boss': 'onChange' must be a function, got 'refresh'");
+  it("refuse a ghost that is not a flag, and contexts beyond parts", () => {
     refuses(bossMeta({ ghost: 'yes' }), "feature 'acme.boss': 'ghost' must be true or false, got 'yes'");
     refuses(bossMeta({ contexts: ['assembly'] }), "feature 'acme.boss': custom features run in parts only for now — 'contexts' takes 'part'");
     refuses(bossMeta({ contexts: ['sketch'] }), "feature 'acme.boss': 'contexts' must be one of part, got 'sketch'");
@@ -286,7 +292,7 @@ describe("a feature metadata snapshot", () => {
     return [];
   }
 
-  it("is plain JSON: the class becomes its id, the onChange hook a flag", () => {
+  it("is plain JSON: the class becomes its id", () => {
     const { standoff } = defineStandoff();
     const snapshot = snapshotFeatureMeta(getFeatureMeta(standoff)!);
 
@@ -308,23 +314,21 @@ describe("a feature metadata snapshot", () => {
         hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
       },
       call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-      hasOnChange: false,
       ghost: true,
       contexts: ['part'],
     });
     expect(Object.keys(snapshot.params)).toEqual(['face', 'height', 'outer', 'hole']);
   });
 
-  it("records an onChange hook, and reads metadata nobody checked yet", () => {
+  it("reads metadata nobody checked yet", () => {
     const meta = taperMeta({
-      onChange: (values: Record<string, unknown>) => ({ values: { angle: Number(values.angle) * 2 } }),
       ghost: false,
       params: { angle: { type: 'angle', default: 5 }, draftFaces: { picker: 'face', multiple: true } },
       call: ['angle', '...draftFaces'],
     });
     const snapshot = snapshotFeatureMeta(meta);
     expect(functionsIn(snapshot)).toEqual([]);
-    expect(snapshot).toMatchObject({ id: 'acme.taper', hasOnChange: true, ghost: false, operations: [], defaultOperation: null, contexts: ['part'] });
+    expect(snapshot).toMatchObject({ id: 'acme.taper', ghost: false, operations: [], defaultOperation: null, contexts: ['part'] });
     expect(snapshot.params.draftFaces.label).toBe('Draft faces');
     expect(snapshotFeatureMeta(getFeatureMeta(register(meta))!)).toEqual(snapshot);
   });

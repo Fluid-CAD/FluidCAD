@@ -212,7 +212,7 @@ export function registerBuilder<T extends Function>(
 
 export { getFeatureMeta, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
 export type {
-  FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureChange, FeatureGroup, FeatureKind, FeatureContext,
+  FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureGroup, FeatureKind, FeatureContext,
   ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
   UnionPickerSpec,
 } from './sdk/meta.js';

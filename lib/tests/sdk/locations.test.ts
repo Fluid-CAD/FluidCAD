@@ -124,8 +124,8 @@ describe("location pickers: metadata", () => {
     });
     // Copy targets: a solid or a connector.
     expect(() => FeatureMetas.resolve(meta({ targets: { picker: ["solid", "connector"], multiple: true } }))).not.toThrow();
-    // An axis or a connector picks one thing.
-    expect(() => FeatureMetas.resolve(meta({ around: { picker: ["axis", "connector"] } }))).not.toThrow();
+    // An axis or a point picks one thing.
+    expect(() => FeatureMetas.resolve(meta({ around: { picker: ["axis", "point"] } }))).not.toThrow();
   });
 
   it("refuses kinds that take the same click, and the fields no kind owns", () => {
@@ -147,9 +147,14 @@ describe("location pickers: metadata", () => {
     );
     expect(refusal({ at: { picker: ["point", "pointy"] } })).toContain("unknown picker 'pointy'");
     expect(refusal({ at: { picker: ["point", "point"] } })).toContain(`'picker' lists "point" twice`);
-    expect(refusal({ at: { picker: ["axis", "connector"], multiple: true } })).toBe(
+    expect(refusal({ at: { picker: ["axis", "point"], multiple: true } })).toBe(
       "feature 'acme.probe': param 'at': a picker that takes an axis picks one thing, so it takes no 'multiple'",
     );
+    // An axis takes connectors already — their Z axis.
+    expect(refusal({ around: { picker: ["axis", "connector"] } })).toBe(
+      "feature 'acme.probe': param 'around': an axis picker already takes connectors (a connector's Z axis) — leave 'connector' out of the list",
+    );
+    expect(refusal({ around: { picker: ["connector", "axis"], multiple: true } })).toContain("an axis picker already takes connectors");
     expect(refusal({ at: { picker: ["connector", "point"], curve: "line" } })).toContain(
       "unknown field 'curve' for a picker of connector or point",
     );

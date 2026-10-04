@@ -6,6 +6,8 @@ import { FeatureCall, type CallShape, type FeatureOperation } from "./call-shape
 import { Axis, isStandardAxis } from "../math/axis.js";
 import { Plane, isPlaneLike } from "../math/plane.js";
 import { AxisObject } from "../features/axis.js";
+import { AxisFromConnector } from "../features/axis-from-connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { PlaneObject } from "../features/plane.js";
 import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { Locations, type LocationKind } from "../features/locations.js";
@@ -96,11 +98,12 @@ export type EdgePickerSpec = ParamCommon & ListPicker & {
   facesAsEdges?: boolean;
 };
 
-export type AxisPickerSpec = ParamCommon & {
-  picker: 'axis';
-  /** A connector's Z axis too. */
-  connector?: boolean;
-};
+/**
+ * An axis: a world axis, an `axis()` statement, a straight edge — or a
+ * connector, standing for its Z axis through its origin. Every axis picker
+ * takes all of them; the feature reads each the same way, with `axisOf()`.
+ */
+export type AxisPickerSpec = ParamCommon & { picker: 'axis' };
 
 export type PlanePickerSpec = ParamCommon & { picker: 'plane' };
 
@@ -141,7 +144,6 @@ export type UnionPickerSpec = ParamCommon & ListPicker & {
   curve?: EdgePickerSpec['curve'];
   tangents?: boolean;
   facesAsEdges?: boolean;
-  connector?: boolean;
   types?: readonly string[];
   anchors?: AnchorPickerSpec['anchors'];
 };
@@ -285,7 +287,7 @@ class FeatureMetaValidator {
     sketch: { list: true, fields: ['implicitDefault', 'hasGeometry', 'wire'] },
     face: { list: true, fields: ['surface', 'sameFile'] },
     edge: { list: true, fields: ['curve', 'tangents', 'facesAsEdges'] },
-    axis: { list: false, fields: ['connector'] },
+    axis: { list: false, fields: [] },
     plane: { list: false, fields: [] },
     solid: { list: true, fields: [] },
     feature: { list: true, fields: ['types'] },
@@ -300,8 +302,13 @@ class FeatureMetaValidator {
   };
 
   private static readonly BOOLEAN_FIELDS = new Set([
-    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'tangents', 'facesAsEdges', 'connector',
+    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'tangents', 'facesAsEdges',
   ]);
+
+  /** A picker kind's fields refused by name rather than as unknown, each with why it is left out. */
+  private static readonly PICKER_LEFT_OUT: Partial<Record<PickerKind, [string, string][]>> = {
+    axis: [['connector', 'an axis picker always takes connectors']],
+  };
 
   private static readonly ANCHORS = ['center', 'start', 'end', 'offset'];
 
@@ -314,7 +321,7 @@ class FeatureMetaValidator {
     sketch: ['a sketch wire', 'a sketch row'],
     face: ['a face'],
     edge: ['an edge'],
-    axis: ['an edge', 'an axis line', 'a world axis', 'an axis row'],
+    axis: ['an edge', 'an axis line', 'a world axis', 'an axis row', 'a connector', 'a connector row'],
     plane: ['a face', 'a plane quad', 'an origin plane', 'a plane row'],
     solid: ['a face', 'an edge', 'a feature row'],
     feature: ['a feature row'],
@@ -520,6 +527,13 @@ class FeatureMetaValidator {
 
   private pickerFields(where: string, spec: Record<string, unknown>): string[] {
     const kinds = this.pickerKinds(where, spec);
+    for (const kind of kinds) {
+      for (const [field, why] of FeatureMetaValidator.PICKER_LEFT_OUT[kind] ?? []) {
+        if (field in spec) {
+          this.fail(`${where}: leave '${field}' out — ${why}`);
+        }
+      }
+    }
     if ('default' in spec) {
       this.fail(`${where}: a picker takes no default — its value is what the user picks`);
     }
@@ -554,6 +568,9 @@ class FeatureMetaValidator {
     }
     const kinds = listed as PickerKind[];
     this.distinct(kinds, `${where}: 'picker'`);
+    if (kinds.includes('axis') && kinds.includes('connector')) {
+      this.fail(`${where}: an axis picker already takes connectors (a connector's Z axis) — leave 'connector' out of the list`);
+    }
     if (kinds.length > 1) {
       if (spec.implicitDefault !== undefined) {
         this.fail(`${where}: only a picker that takes sketches alone can default to the active sketch — leave 'implicitDefault' out`);
@@ -1216,7 +1233,7 @@ export class FeatureMetas {
         : FeatureMetas.LOCATION_NAMES[kind as LocationKind]));
     }
     const datums = [
-      ...(kinds.includes('axis') ? ['an axis or a world axis'] : []),
+      ...(kinds.includes('axis') ? ['an axis, a world axis or a connector'] : []),
       ...(kinds.includes('plane') ? ['a plane or an origin plane'] : []),
     ];
     return `a scene object (a selection, a sketch, a feature${datums.map(datum => `, ${datum}`).join('')})`;
@@ -1242,18 +1259,26 @@ export class FeatureMetas {
   }
 
   /**
-   * An axis value may name a world axis (`'z'`) and a plane value an origin
-   * plane (`'xy'`, `'front'`) — the way every built-in takes them, and what
-   * the dialog writes for one picked in the viewport; a resolved `Axis` or
-   * `Plane` works too. Each becomes the scene object `axis('z')` or
-   * `plane('xy')` would build, so the feature reads every axis and every
-   * plane one way ({@link Feature.axisOf}, {@link Feature.planeOf}) and the
-   * builder's `addTo()` puts it in the scene ahead of the feature. It
-   * serves the feature's statement alone, so the timeline leaves it out, as
-   * it does the plane `sketch('xy', …)` makes itself.
+   * An axis value may name a world axis (`'z'`) or a connector (`bolt`,
+   * `bolt.instance(2)` — its Z axis through its origin) and a plane value
+   * an origin plane (`'xy'`, `'front'`) — the way every built-in takes them,
+   * and what the dialog writes for one picked in the viewport; a resolved
+   * `Axis` or `Plane` works too. Each becomes the scene object `axis('z')`,
+   * `revolve(bolt, …)` or `plane('xy')` would build, so the feature reads
+   * every axis and every plane one way ({@link Feature.axisOf}, {@link
+   * Feature.planeOf}) and the builder's `addTo()` puts it in the scene ahead
+   * of the feature. It serves the feature's statement alone, so the
+   * timeline leaves it out, as it does the plane `sketch('xy', …)` makes
+   * itself.
    */
   private static datum(kinds: PickerKind[], value: unknown): unknown {
     let datum: SceneObject | null = null;
+    const connector = kinds.includes('axis') ? ConnectorAxis.connectorOf(value) : null;
+    if (connector) {
+      // A connector is an axis — its Z axis through its origin — read the
+      // way every built-in reads one (`resolveAxis`); internal already.
+      return AxisFromConnector.inline(connector);
+    }
     if (kinds.includes('axis') && (isStandardAxis(value) || value instanceof Axis)) {
       datum = new AxisObject(value instanceof Axis ? value : normalizeAxis(value));
     } else if (kinds.includes('plane') && (value instanceof Plane || (typeof value === 'string' && isPlaneLike(value)))) {

@@ -192,6 +192,15 @@ describe("feature metadata refusals", () => {
     refuses(withParam('face', { picker: 'face', label: '' }), "feature 'acme.boss': param 'face': 'label' must be a non-empty string, got ''");
   });
 
+  it("refuse an axis picker's connector option by name — every axis picker takes connectors", () => {
+    refuses(withParam('face', { picker: 'axis', connector: true }),
+      "feature 'acme.boss': param 'face': leave 'connector' out — an axis picker always takes connectors");
+    refuses(withParam('face', { picker: 'axis', connector: false }), /param 'face': leave 'connector' out/);
+    refuses(withParam('face', { picker: ['axis', 'point'], connector: true }), /leave 'connector' out — an axis picker always takes connectors/);
+    // A kind that never had it: an unknown field, as before.
+    refuses(withParam('face', { picker: 'face', connector: true }), /param 'face': unknown field 'connector' for a face picker/);
+  });
+
   it("refuse a typed-in value whose default, range or options don't hold together", () => {
     refuses(withParam('height', { type: 'length', default: 50, min: 0, max: 20 }), "feature 'acme.boss': param 'height': the default (50) is outside 0 to 20");
     refuses(withParam('height', { type: 'length', default: -1, min: 0 }), /the default \(-1\) is outside 0 and up/);

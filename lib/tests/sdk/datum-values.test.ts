@@ -125,7 +125,7 @@ describe("world axes and origin planes as picked values", () => {
   });
 
   it("refuses a name that is no world axis or origin plane, and a datum in the wrong kind of value", () => {
-    expect(() => parseCall(pinMeta, ['w'])).toThrow(/'along' must be a scene object \(.*an axis or a world axis\), got 'w'/);
+    expect(() => parseCall(pinMeta, ['w'])).toThrow(/'along' must be a scene object \(.*an axis, a world axis or a connector\), got 'w'/);
     expect(() => parseCall(pinMeta, ['xy'])).toThrow(/'along' must be/);
     expect(() => parseCall(discMeta, ['z'])).toThrow(/'on' must be a scene object \(.*a plane or an origin plane\), got 'z'/);
   });

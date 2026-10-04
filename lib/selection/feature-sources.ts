@@ -32,6 +32,8 @@ import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
 import { Hole, type HolePlacement } from "../features/hole/hole.js";
 import { Connector } from "../features/connector.js";
+import { ConnectorCopy } from "../features/connector-copy.js";
+import { AxisFromConnector } from "../features/axis-from-connector.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
 import { SolvedPoint } from "../features/2d/solved/point.js";
@@ -48,13 +50,16 @@ import {
  * One source slot of a feature statement, resolved for edit-dialog seeding:
  * a sketch input by call site, a selection input as viewport entities on the
  * pre-statement solids (what a rollback to just before the statement
- * displays), or `opaque` — real but not representable as picks (inline
- * sketches, clones, loop call sites, to-face targets, unmappable shapes), so
- * the dialog keeps that slot's verbatim text.
+ * displays), an axis that is a connector by the connector's site (its
+ * `connector()` statement, plus the slot of one of its copies:
+ * `bolt.instance(2)`), or `opaque` — real but not representable as picks
+ * (inline sketches, clones, loop call sites, to-face targets, unmappable
+ * shapes), so the dialog keeps that slot's verbatim text.
  */
 export type SourceSlot =
   | { kind: 'sketch'; filePath: string; line: number; column: number }
   | { kind: 'entities'; entities: PickRef[] }
+  | { kind: 'connector'; filePath: string; line: number; column: number; slot?: number }
   | { kind: 'opaque' };
 
 export type FeatureSources =
@@ -431,7 +436,7 @@ class SourceResolver {
    * A revolve's axis input, by call site — an axis statement the dialog can
    * point at and highlight. An axis built inline in the revolve's own
    * arguments captures a line on the statement itself: see
-   * {@link axisObjectSlot} for the one inline form that still resolves.
+   * {@link axisObjectSlot} for the inline forms that still resolve.
    */
   axisSlot(obj: SceneObject | null): SourceSlot {
     return obj instanceof AxisObjectBase ? this.axisObjectSlot(obj) : OPAQUE;
@@ -441,13 +446,11 @@ class SourceResolver {
    * A repeat's or a copy's axis input. A world-axis literal
    * (`repeat('linear', 'x', …)`) builds no scene object at all and stays
    * opaque — nothing to re-target, and the dialog reads `'x'` straight off the
-   * argument text. A copy's connector axis resolves to its `connector()`
-   * statement; a connector copy (`bolt.instance(2)`) has none of its own and
-   * stays opaque, its text kept verbatim.
+   * argument text. A copy's connector axis resolves to the connector's site.
    */
   axisSourceSlot(source: RepeatAxisSource | CopyAxisSource): SourceSlot {
     if (source instanceof ConnectorAxis) {
-      return source.connector.copySlot() === undefined ? this.callSiteSlot(source.connector) : OPAQUE;
+      return this.connectorSlot(source.connector);
     }
     return source instanceof AxisObjectBase ? this.axisObjectSlot(source) : OPAQUE;
   }
@@ -456,10 +459,12 @@ class SourceResolver {
    * An axis object by call site — the axis sibling of {@link planeSlot}. An
    * axis built inline in the statement's own arguments (`revolve('z')`,
    * `copy('linear', axis(…), …)`) has no standalone statement to re-target,
-   * but one inline form still resolves: the bare `axis(<edge>)` a dialog's
-   * edge pick writes resolves to that edge, the pick the slot holds. An axis
-   * carrying its own offset or rotation does not — the edge alone would name a
-   * different line than the statement builds.
+   * but two inline forms still resolve: the bare `axis(<edge>)` a dialog's
+   * edge pick writes resolves to that edge, the pick the slot holds, and a
+   * connector handed in where the axis goes (`revolve(bolt, s)`) to the
+   * connector's site. An axis carrying its own offset or rotation does not —
+   * the edge or connector alone would name a different line than the
+   * statement builds.
    */
   private axisObjectSlot(obj: AxisObjectBase): SourceSlot {
     const slot = this.callSiteSlot(obj);
@@ -469,7 +474,29 @@ class SourceResolver {
     if (obj instanceof AxisFromEdge && obj.options == null && !(obj.source instanceof AxisObjectBase)) {
       return this.entitiesSlot([obj.source]);
     }
+    if (obj instanceof AxisFromConnector && obj.options == null) {
+      return this.connectorSlot(obj.connector);
+    }
     return OPAQUE;
+  }
+
+  /**
+   * A connector standing for an axis, by its site: the `connector()`
+   * statement that declares it — the seed's, for one of its copies, with
+   * the copy's slot (`bolt.instance(2)`). The dialog shows it as that
+   * connector's chip and the ghost turns its Z axis.
+   */
+  private connectorSlot(connector: Connector): SourceSlot {
+    const seed = connector instanceof ConnectorCopy ? connector.seed : connector;
+    const site = this.callSiteSlot(seed);
+    if (site.kind !== 'sketch') {
+      return OPAQUE;
+    }
+    const slot = connector.copySlot();
+    return {
+      kind: 'connector', filePath: site.filePath, line: site.line, column: site.column,
+      ...(slot !== undefined ? { slot } : {}),
+    };
   }
 
   /**

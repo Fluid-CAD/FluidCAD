@@ -8,6 +8,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Connector } from "../features/connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { FixedLocation, Locations, type LocationKind } from "../features/locations.js";
 import { anchorFrameFromShape, type VertexAnchorSpec } from "../features/shape-anchor.js";
 import { toAxis } from "../math/axis.js";
@@ -40,7 +41,11 @@ export type GhostCustomRef =
   | { kind: 'statement'; filePath: string; line: number }
   | { kind: 'entities'; entities: GhostEntityRef[] }
   | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
-  /** A connector by its `connector()` statement — a copy by its seed's statement and its slot. */
+  /**
+   * A connector by its `connector()` statement — a copy by its seed's
+   * statement and its slot — at its frame, or, for an axis value, as its Z
+   * axis through its origin.
+   */
   | { kind: 'connector'; filePath: string; line: number; slot?: number }
   /** A vertex picked in the viewport, as the point its value writes stands. */
   | { kind: 'point'; shapeId: string; index: number }
@@ -272,7 +277,8 @@ export class CustomFeatureGhost {
       case 'entities':
         return this.entities(CustomFeatureGhost.geometryKind(kinds, ref.entities[0]?.kind), spec, ref.entities);
       case 'connector':
-        return kinds.includes('connector') ? this.connector(ref) : null;
+        // An axis takes a connector too: its Z axis through its origin.
+        return kinds.includes('connector') ? this.connector(ref) : kinds.includes('axis') ? this.connectorAxis(ref) : null;
       case 'point':
         return kinds.includes('point') ? this.located('point', VertexPointSynthesizer.frameOf(this.scene, {
           shapeId: ref.shapeId, sub: { type: 'vertex', index: ref.index },
@@ -305,16 +311,43 @@ export class CustomFeatureGhost {
    * slot — stood in at its frame.
    */
   private connector(ref: { filePath: string; line: number; slot?: number }): SceneObject | null {
+    const connector = this.findConnector(ref);
+    if (!connector) {
+      return null;
+    }
+    try {
+      return this.located('connector', connector.getFrame());
+    } catch {
+      // A connector that did not build.
+      return null;
+    }
+  }
+
+  /** A connector picked for an axis value, stood in as its Z axis — as `ConnectorAxis` reads it. */
+  private connectorAxis(ref: { filePath: string; line: number; slot?: number }): SceneObject | null {
+    const connector = this.findConnector(ref);
+    if (!connector) {
+      return null;
+    }
+    try {
+      return new AxisObject(ConnectorAxis.axisOf(connector));
+    } catch {
+      // A connector that did not build.
+      return null;
+    }
+  }
+
+  /** The connector a ref names — a copy by its seed's statement and slot — or null when the scene no longer holds it. */
+  private findConnector(ref: { filePath: string; line: number; slot?: number }): Connector | null {
     const seed = GhostScene.objectsAt(this.scene, ref)
       .find(obj => obj instanceof Connector && obj.copySlot() === undefined && !this.edited.includes(obj)) as Connector | undefined;
     if (!seed) {
       return null;
     }
     try {
-      const connector = ref.slot === undefined ? seed : seed.instance(ref.slot);
-      return this.located('connector', connector.getFrame());
+      return ref.slot === undefined ? seed : seed.instance(ref.slot);
     } catch {
-      // A slot the copy skipped, or a connector that did not build.
+      // A slot the copy skipped, or never made.
       return null;
     }
   }

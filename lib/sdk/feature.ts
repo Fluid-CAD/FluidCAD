@@ -316,8 +316,9 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
 
   /**
    * The axis an axis value stands for: an `axis()` statement's, a world
-   * axis's (`'z'`), a picked edge's (`axis(<edge>)`) — where it stands now,
-   * a repeat's copy included.
+   * axis's (`'z'`), a picked edge's (`axis(<edge>)`), a connector's — its Z
+   * axis through its origin (`bolt`, `bolt.instance(2)`) — where it stands
+   * now, a repeat's copy included.
    */
   protected axisOf(ref: ISceneObject): Axis {
     if (!(ref instanceof AxisObjectBase)) {

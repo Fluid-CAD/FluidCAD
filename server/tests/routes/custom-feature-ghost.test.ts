@@ -24,7 +24,7 @@ const STANDOFF_META = {
     hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
   },
   call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 const BOLT_CIRCLE_META = {
@@ -39,7 +39,7 @@ const BOLT_CIRCLE_META = {
     anchor: { picker: 'point', optional: true, label: 'Anchor' },
   },
   call: ['around', { count: 'count', size: 'size', through: 'through', targets: 'targets', profile: 'profile', anchor: 'anchor' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 const QUIET_META = { ...STANDOFF_META, id: 'acme.quiet', label: 'Quiet', ghost: false } as unknown as ScannedFeature['meta'];

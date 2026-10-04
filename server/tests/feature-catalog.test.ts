@@ -20,7 +20,7 @@ import { getFeatureMeta } from '../../lib/dist/index.js';
 const FIXTURES = path.resolve(__dirname, 'fixtures/custom-features');
 
 /** A minimal tool feature module: the class, its metadata and the builder. */
-function featureModule(options: { id: string; exportName: string; icon?: string; header?: string; label?: string }): string {
+function featureModule(options: { id: string; exportName: string; icon?: string; header?: string; label?: string; field?: string }): string {
   return [
     `import { Feature, parseCall, registerBuilder } from 'fluidcad/sdk';`,
     options.header ?? '',
@@ -31,6 +31,7 @@ function featureModule(options: { id: string; exportName: string; icon?: string;
     `const meta = {`,
     `  class: F, label: ${options.label ?? `'${options.exportName}'`}, group: 'create', kind: 'tool',`,
     options.icon ? `  icon: '${options.icon}',` : '',
+    options.field ? `  ${options.field},` : '',
     `  params: { size: { type: 'length', default: 4 } },`,
     `  call: ['size'],`,
     `};`,
@@ -147,7 +148,6 @@ describe('the feature catalog over a workspace', () => {
         kind: 'tool',
         operations: ['add', 'new'],
         call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-        hasOnChange: false,
         ghost: true,
         contexts: ['part'],
       },
@@ -230,6 +230,23 @@ describe('the feature catalog over a workspace', () => {
       remove('copy.feature.js');
     }
     expect((await list()).find(entry => entry.id === 'acme.standoff')!.error).toBeUndefined();
+  });
+
+  it('turns a module whose metadata declares an illustration or an onChange hook into an error entry saying why', async () => {
+    write('sketchy.feature.js', featureModule({ id: 'acme.sketchy', exportName: 'sketchy', field: `illustration: './sketchy.svg'` }));
+    write('hooked.feature.js', featureModule({ id: 'acme.hooked', exportName: 'hooked', field: 'onChange: values => ({ values })' }));
+    try {
+      const entries = await list();
+      expect(entries.find(entry => entry.modulePath === at('sketchy.feature.js'))).toMatchObject({
+        id: null, meta: null, error: expect.stringContaining("leave 'illustration' out — illustrations aren't supported (custom controls are planned)"),
+      });
+      expect(entries.find(entry => entry.modulePath === at('hooked.feature.js'))).toMatchObject({
+        id: null, meta: null, error: expect.stringContaining("leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)"),
+      });
+    } finally {
+      remove('sketchy.feature.js');
+      remove('hooked.feature.js');
+    }
   });
 
   it('answers null while the engine is not up', async () => {

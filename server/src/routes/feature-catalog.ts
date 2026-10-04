@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import type { FeatureCatalog } from '../feature-catalog/catalog.ts';
 
-/** The image types a feature's icon and illustration may be (the metadata check admits no others). */
+/** The image types a feature's icon may be (the metadata check admits no others). */
 const ASSET_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -15,8 +15,7 @@ const ASSET_TYPES: Record<string, string> = {
 /**
  * The feature catalog's backend: the features the workspace offers (its
  * `*.feature.js` modules' builders and the engine's own, as metadata
- * snapshots — the UI never runs feature code), and each feature's icon and
- * illustration files.
+ * snapshots — the UI never runs feature code), and each feature's icon.
  */
 export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePath: string): Router {
   const router = Router();

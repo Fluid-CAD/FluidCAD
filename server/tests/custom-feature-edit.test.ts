@@ -26,7 +26,7 @@ const STANDOFF_META = {
     hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
   },
   call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 /** A modifier in the draft shape: an angle, then the faces spread. */
@@ -37,7 +37,7 @@ const TAPER_META = {
     faces: { picker: 'face', multiple: true, label: 'Faces' },
   },
   call: ['angle', '...faces'],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 /** Every other kind of value: a sketch, an axis, a list of solids, text, a flag, a choice. */
@@ -53,7 +53,7 @@ const GUSSET_META = {
     style: { type: 'select', options: [{ label: 'Flat', value: 'flat' }, { label: 'Round', value: 'round' }], default: 'flat', label: 'Style' },
   },
   call: ['profile', 'axis', { width: 'width', targets: 'targets', tag: 'tag', flip: 'flip', style: 'style' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 /** A ring of holes around an axis that only cuts: remove is its default, written without a chain. */
@@ -65,7 +65,7 @@ const BOLT_CIRCLE_META = {
     count: { type: 'integer', default: 4, min: 1, label: 'Holes' },
   },
   call: ['around', { count: 'count' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 /** A pocket that cuts by default and may keep its tool apart instead. */
@@ -74,7 +74,7 @@ const POCKET_META = {
   defaultOperation: 'remove',
   params: { depth: { type: 'length', default: 2, label: 'Depth' } },
   call: [{ depth: 'depth' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 const MODULES: Record<string, ScannedFeature[]> = {

@@ -39,7 +39,7 @@ const FILLET_SPEC = {
 
 const STANDOFF_META = {
   id: 'acme.standoff', label: 'Standoff', group: 'create', kind: 'tool', operations: ['add', 'new'],
-  params: {}, call: [], hasOnChange: false, ghost: true, contexts: ['part'],
+  params: {}, call: [], ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 function standoffCatalog(): FeatureCatalog {

@@ -22,7 +22,7 @@ function snapshot(id: string, kind: 'tool' | 'modifier'): ScannedFeature['meta']
   return {
     id, label: id, group: 'create', kind, operations: kind === 'tool' ? ['add', 'new'] : [],
     params: { height: { type: 'length', default: 10, label: 'Height' } },
-    call: [{ height: 'height' }], hasOnChange: false, ghost: true, contexts: ['part'],
+    call: [{ height: 'height' }], ghost: true, contexts: ['part'],
   } as ScannedFeature['meta'];
 }
 

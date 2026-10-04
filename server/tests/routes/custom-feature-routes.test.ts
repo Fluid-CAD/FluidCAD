@@ -23,7 +23,7 @@ const STANDOFF_META = {
     hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
   },
   call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 const GUSSET_META = {
@@ -36,7 +36,7 @@ const GUSSET_META = {
     anchor: { picker: 'point', optional: true, label: 'Anchor' },
   },
   call: ['profile', 'axis', { targets: 'targets', style: 'style', anchor: 'anchor' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 /** Bosses at connectors, points and face centres: a picker of three kinds. */

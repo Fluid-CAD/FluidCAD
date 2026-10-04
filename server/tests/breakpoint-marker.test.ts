@@ -320,7 +320,7 @@ const BOLT_CIRCLE_META = {
     count: { type: 'integer', default: 4, min: 1, label: 'Holes' },
   },
   call: ['around', { count: 'count' }],
-  hasOnChange: false, ghost: true, contexts: ['part'],
+  ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
 function boltCatalog(): FeatureCatalog {

@@ -46,7 +46,7 @@ export type FeatureCatalogOptions = {
   hasLiveBuffer?: (absPath: string) => boolean;
 };
 
-/** Where a feature's icon or illustration is served from, or why it isn't. */
+/** Where a feature's icon is served from, or why it isn't. */
 export type FeatureAssetLookup = { file: string } | { status: number; error: string };
 
 /**
@@ -124,11 +124,10 @@ export class FeatureCatalog implements FeatureCalleeSource {
   }
 
   /**
-   * The file behind one of a feature's declared assets. `path` must be
-   * exactly the feature's `icon` or `illustration`, and the file must stay
-   * inside the module's directory once symlinks are resolved — the
-   * metadata check refuses `..` already, so this guards the request and
-   * the links on disk.
+   * The file behind a feature's declared icon. `path` must be exactly the
+   * feature's `icon`, and the file must stay inside the module's directory
+   * once symlinks are resolved — the metadata check refuses `..` already,
+   * so this guards the request and the links on disk.
    */
   async asset(id: string, path: string): Promise<FeatureAssetLookup> {
     const entries = await this.list();
@@ -139,7 +138,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     if (!entry || !entry.meta) {
       return { status: 404, error: `no feature '${id}' in this workspace` };
     }
-    if (path !== entry.meta.icon && path !== entry.meta.illustration) {
+    if (path !== entry.meta.icon) {
       return { status: 404, error: `feature '${id}' declares no asset '${path}'` };
     }
     const directory = dirname(entry.modulePath);

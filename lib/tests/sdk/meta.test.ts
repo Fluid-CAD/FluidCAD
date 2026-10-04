@@ -151,7 +151,13 @@ describe("feature metadata refusals", () => {
     refuses(withParam('face', { picker: 'edge', tangents: false }), /param 'face': leave 'tangents' out/);
     refuses(withParam('face', { picker: 'edge', tangents: undefined }), /param 'face': leave 'tangents' out/);
     refuses(withParam('face', { picker: ['edge', 'connector'], multiple: true, tangents: true }), /param 'face': leave 'tangents' out/);
+    refuses(withParam('face', { picker: ['point', 'edge'], tangents: false }),
+      "feature 'acme.boss': param 'face': leave 'tangents' out — tangent chains are for fillet and chamfer only");
+    refuses(withParam('face', { picker: ['point', 'edge'], tangents: undefined }), /param 'face': leave 'tangents' out/);
     refuses(withParam('face', { picker: 'edge', tangent: true }), /unknown field 'tangent' for an edge picker — its fields are .*, curve, facesAsEdges$/);
+    // A value that takes no edge never had it: an unknown field, like any other.
+    refuses(withParam('face', { picker: 'face', tangents: true }), /param 'face': unknown field 'tangents' for a face picker/);
+    refuses(withParam('face', { type: 'length', tangents: true }), /param 'face': unknown field 'tangents' for/);
   });
 
   it("refuse a missing label, an unknown group or kind", () => {
@@ -207,6 +213,9 @@ describe("feature metadata refusals", () => {
       "feature 'acme.boss': param 'face': leave 'connector' out — an axis picker always takes connectors");
     refuses(withParam('face', { picker: 'axis', connector: false }), /param 'face': leave 'connector' out/);
     refuses(withParam('face', { picker: ['axis', 'point'], connector: true }), /leave 'connector' out — an axis picker always takes connectors/);
+    refuses(withParam('face', { picker: ['point', 'axis'], connector: false }),
+      "feature 'acme.boss': param 'face': leave 'connector' out — an axis picker always takes connectors");
+    refuses(withParam('face', { picker: ['point', 'axis'], connector: undefined }), /param 'face': leave 'connector' out/);
     // A kind that never had it: an unknown field, as before.
     refuses(withParam('face', { picker: 'face', connector: true }), /param 'face': unknown field 'connector' for a face picker/);
   });

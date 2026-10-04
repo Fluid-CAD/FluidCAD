@@ -259,10 +259,14 @@ class FeatureMetaValidator {
     ['onChange', "onChange hooks aren't supported (custom controls are planned)"],
   ];
 
-  /** A value's fields refused by name rather than as unknown, each with why it is left out. */
-  private static readonly PARAM_LEFT_OUT: [string, string][] = [
-    ['tangents', 'tangent chains are for fillet and chamfer only'],
-  ];
+  /**
+   * A picker kind's fields refused by name rather than as unknown, each with
+   * why it is left out — on that kind and on every union that takes it.
+   */
+  private static readonly PICKER_LEFT_OUT: Partial<Record<PickerKind, [string, string][]>> = {
+    edge: [['tangents', 'tangent chains are for fillet and chamfer only']],
+    axis: [['connector', 'an axis picker always takes connectors']],
+  };
 
   private static readonly ID_SEGMENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
@@ -306,11 +310,6 @@ class FeatureMetaValidator {
   private static readonly BOOLEAN_FIELDS = new Set([
     'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges',
   ]);
-
-  /** A picker kind's fields refused by name rather than as unknown, each with why it is left out. */
-  private static readonly PICKER_LEFT_OUT: Partial<Record<PickerKind, [string, string][]>> = {
-    axis: [['connector', 'an axis picker always takes connectors']],
-  };
 
   private static readonly ANCHORS = ['center', 'start', 'end', 'offset'];
 
@@ -491,7 +490,6 @@ class FeatureMetaValidator {
     if (('type' in spec) === ('picker' in spec)) {
       this.fail(`${where} declares ${'type' in spec ? "both a 'type' and a 'picker'" : "neither a 'type' nor a 'picker'"}`);
     }
-    this.leftOut(spec, FeatureMetaValidator.PARAM_LEFT_OUT, `${where}: `);
     const fields = 'type' in spec ? this.scalarFields(where, spec) : this.pickerFields(where, spec);
     for (const field of Object.keys(spec)) {
       if (field !== 'type' && field !== 'picker' && !fields.includes(field)) {
@@ -527,11 +525,7 @@ class FeatureMetaValidator {
   private pickerFields(where: string, spec: Record<string, unknown>): string[] {
     const kinds = this.pickerKinds(where, spec);
     for (const kind of kinds) {
-      for (const [field, why] of FeatureMetaValidator.PICKER_LEFT_OUT[kind] ?? []) {
-        if (field in spec) {
-          this.fail(`${where}: leave '${field}' out — ${why}`);
-        }
-      }
+      this.leftOut(spec, FeatureMetaValidator.PICKER_LEFT_OUT[kind] ?? [], `${where}: `);
     }
     if ('default' in spec) {
       this.fail(`${where}: a picker takes no default — its value is what the user picks`);

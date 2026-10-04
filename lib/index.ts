@@ -214,6 +214,7 @@ export { getFeatureMeta, listFeatureExports, snapshotFeatureMeta } from './sdk/m
 export type {
   FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureChange, FeatureGroup, FeatureKind, FeatureContext,
   ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
+  UnionPickerSpec,
 } from './sdk/meta.js';
 export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
 export type {
@@ -240,6 +241,7 @@ export type {
 } from './selection/synthesize-selection.js';
 export type {
   FeatureSlotRequest, FeatureSlotPicks, FeatureSlotOptions, FeatureSlotPicker, FeatureSlotResult, FeatureSlotSynthesis,
+  FeatureSlotPoint,
 } from './selection/feature-slots.js';
 export type { FeatureSourcesResult, FeatureSources, SourceSlot } from './selection/feature-sources.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';

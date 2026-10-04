@@ -8,6 +8,8 @@ import { Plane, isPlaneLike } from "../math/plane.js";
 import { AxisObject } from "../features/axis.js";
 import { PlaneObject } from "../features/plane.js";
 import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
+import { Locations, type LocationKind } from "../features/locations.js";
+import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
 
 /** Where a feature's button sits: with the features that make solids, or those that change them. */
 export type FeatureGroup = 'create' | 'modify';
@@ -120,9 +122,34 @@ export type AnchorPickerSpec = ParamCommon & ListPicker & {
   anchors?: readonly ('center' | 'start' | 'end' | 'offset')[];
 };
 
+/**
+ * A value that takes more than one kind of pick, routed by what was
+ * clicked: `{ picker: ['connector', 'point', 'anchor'], multiple: true }`
+ * places a feature at connectors, points and anchors alike, and
+ * `['solid', 'connector']` copies either. The kinds must take different
+ * clicks — a face click can't be both a face and an anchor — so each pick
+ * lands in exactly one of them. Each kind reads its own fields (`surface`
+ * for a face, `anchors` for an anchor); a value whose kinds include an axis
+ * or a plane picks one thing.
+ */
+export type UnionPickerSpec = ParamCommon & ListPicker & {
+  picker: readonly PickerKind[];
+  hasGeometry?: boolean;
+  wire?: boolean;
+  surface?: FacePickerSpec['surface'];
+  sameFile?: boolean;
+  curve?: EdgePickerSpec['curve'];
+  tangents?: boolean;
+  facesAsEdges?: boolean;
+  connector?: boolean;
+  types?: readonly string[];
+  anchors?: AnchorPickerSpec['anchors'];
+};
+
 export type PickerParamSpec =
   | SketchPickerSpec | FacePickerSpec | EdgePickerSpec | AxisPickerSpec | PlanePickerSpec
-  | SolidPickerSpec | FeaturePickerSpec | ConnectorPickerSpec | PointPickerSpec | AnchorPickerSpec;
+  | SolidPickerSpec | FeaturePickerSpec | ConnectorPickerSpec | PointPickerSpec | AnchorPickerSpec
+  | UnionPickerSpec;
 
 /** One value of a feature, as its dialog shows it: typed in (`type`) or picked (`picker`). */
 export type ParamSpec = ScalarParamSpec | PickerParamSpec;
@@ -286,6 +313,24 @@ class FeatureMetaValidator {
   ]);
 
   private static readonly ANCHORS = ['center', 'start', 'end', 'offset'];
+
+  /**
+   * The clicks each picker kind takes — in the viewport, or a timeline row.
+   * The kinds of a union must take different ones, so every pick lands in
+   * exactly one of them.
+   */
+  private static readonly CLICKS: Record<PickerKind, string[]> = {
+    sketch: ['a sketch wire', 'a sketch row'],
+    face: ['a face'],
+    edge: ['an edge'],
+    axis: ['an edge', 'an axis line', 'a world axis', 'an axis row'],
+    plane: ['a face', 'a plane quad', 'an origin plane', 'a plane row'],
+    solid: ['a face', 'an edge', 'a feature row'],
+    feature: ['a feature row'],
+    connector: ['a connector', 'a connector row'],
+    point: ['a vertex'],
+    anchor: ['a face', 'an edge'],
+  };
 
   private static readonly IMAGE = /\.(svg|png|jpe?g|webp)$/i;
 
@@ -490,21 +535,58 @@ class FeatureMetaValidator {
   }
 
   private pickerFields(where: string, spec: Record<string, unknown>): string[] {
-    const kind = spec.picker as PickerKind;
-    if (typeof kind !== 'string' || !FeatureMetaValidator.owns(FeatureMetaValidator.PICKERS, kind)) {
-      this.fail(`${where}: unknown picker ${FeatureMetaValidator.describe(spec.picker)} — the pickers are ${Object.keys(FeatureMetaValidator.PICKERS).join(', ')}`);
-    }
-    const picker = FeatureMetaValidator.PICKERS[kind];
+    const kinds = this.pickerKinds(where, spec);
     if ('default' in spec) {
       this.fail(`${where}: a picker takes no default — its value is what the user picks`);
     }
-    if (!picker.list) {
+    const single = kinds.find(kind => !FeatureMetaValidator.PICKERS[kind].list);
+    if (single) {
       const listField = FeatureMetaValidator.LIST_FIELDS.find(field => field in spec);
       if (listField) {
-        this.fail(`${where}: ${FeatureMetaValidator.article(kind)} ${kind} picker picks one ${kind}, so it takes no '${listField}'`);
+        this.fail(kinds.length === 1
+          ? `${where}: ${FeatureMetaValidator.article(single)} ${single} picker picks one ${single}, so it takes no '${listField}'`
+          : `${where}: a picker that takes ${FeatureMetaValidator.article(single)} ${single} picks one thing, so it takes no '${listField}'`);
       }
     }
-    return [...FeatureMetaValidator.COMMON_FIELDS, ...(picker.list ? FeatureMetaValidator.LIST_FIELDS : []), ...picker.fields];
+    const fields = kinds.flatMap(kind => FeatureMetaValidator.PICKERS[kind].fields);
+    return [...new Set([...FeatureMetaValidator.COMMON_FIELDS, ...(single ? [] : FeatureMetaValidator.LIST_FIELDS), ...fields])];
+  }
+
+  /**
+   * The kinds a picker takes: one, or a union of several (`['connector',
+   * 'point', 'anchor']`) whose kinds take different clicks — each pick is
+   * routed to the one kind that takes it.
+   */
+  private pickerKinds(where: string, spec: Record<string, unknown>): PickerKind[] {
+    const known = Object.keys(FeatureMetaValidator.PICKERS);
+    const listed = Array.isArray(spec.picker) ? spec.picker as unknown[] : [spec.picker];
+    if (Array.isArray(spec.picker) && listed.length < 2) {
+      this.fail(`${where}: a picker that takes several kinds lists at least two, such as ['connector', 'point', 'anchor']${listed.length === 1 ? ` — for one, write picker: ${FeatureMetaValidator.describe(listed[0])}` : ''}`);
+    }
+    for (const kind of listed) {
+      if (typeof kind !== 'string' || !FeatureMetaValidator.owns(FeatureMetaValidator.PICKERS, kind)) {
+        this.fail(`${where}: unknown picker ${FeatureMetaValidator.describe(kind)} — the pickers are ${known.join(', ')}`);
+      }
+    }
+    const kinds = listed as PickerKind[];
+    this.distinct(kinds, `${where}: 'picker'`);
+    if (kinds.length > 1) {
+      if (spec.implicitDefault !== undefined) {
+        this.fail(`${where}: only a picker that takes sketches alone can default to the active sketch — leave 'implicitDefault' out`);
+      }
+      const taken = new Map<string, PickerKind>();
+      for (const kind of kinds) {
+        const clicks = [...FeatureMetaValidator.CLICKS[kind], ...(kind === 'edge' && spec.facesAsEdges === true ? ['a face'] : [])];
+        for (const click of clicks) {
+          const other = taken.get(click);
+          if (other && other !== kind) {
+            this.fail(`${where}: both '${other}' and '${kind}' take ${click} click — a picker of several kinds routes each click to the one kind that takes it; leave one out, or declare two values`);
+          }
+          taken.set(click, kind);
+        }
+      }
+    }
+    return kinds;
   }
 
   private checkScalar(where: string, spec: Record<string, unknown>): void {
@@ -564,7 +646,7 @@ class FeatureMetaValidator {
   }
 
   private checkPicker(where: string, spec: Record<string, unknown>): void {
-    const kind = spec.picker as PickerKind;
+    const kinds = Array.isArray(spec.picker) ? spec.picker as PickerKind[] : [spec.picker as PickerKind];
     const isList = spec.multiple === true || spec.max !== undefined;
     if (spec.max !== undefined) {
       if (!(typeof spec.max === 'number' && Number.isInteger(spec.max) && spec.max >= 2)) {
@@ -577,7 +659,7 @@ class FeatureMetaValidator {
     if (spec.ordered === true && !isList) {
       this.fail(`${where}: only a list can be 'ordered' — add 'multiple: true'`);
     }
-    if (kind === 'sketch' && spec.implicitDefault === true && isList) {
+    if (kinds.includes('sketch') && spec.implicitDefault === true && isList) {
       this.fail(`${where}: only a single sketch can default to the active one`);
     }
     for (const [field, values] of Object.entries(FeatureMetaValidator.ENUMS)) {
@@ -722,11 +804,19 @@ class FeatureMetaValidator {
   }
 
   private static kindName(spec: Record<string, unknown>): string {
+    if (Array.isArray(spec.picker)) {
+      return `a picker of ${FeatureMetaValidator.listed(spec.picker.map(String))}`;
+    }
     const name = String('type' in spec ? spec.type : spec.picker);
     return `${FeatureMetaValidator.article(name)} ${name} ${'type' in spec ? 'value' : 'picker'}`;
   }
 
-  private static article(word: string): string {
+  /** `a, b or c`. */
+  static listed(words: string[]): string {
+    return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
+  }
+
+  static article(word: string): string {
     return /^[aeiou]/i.test(word) ? 'an' : 'a';
   }
 
@@ -1080,24 +1170,27 @@ export class FeatureMetas {
   }
 
   private static pickedValue(callee: string, name: string, spec: PickerParamSpec, value: unknown): FeatureValues[string] {
+    const kinds = FeatureMetas.kindsOf(spec);
     const required = !spec.optional && !(spec.picker === 'sketch' && spec.implicitDefault);
-    const takes = `a scene object (a selection, a sketch, a feature${spec.picker === 'axis' ? ', an axis or a world axis' : spec.picker === 'plane' ? ', a plane or an origin plane' : ''})`;
+    const picked = (entry: unknown, subject: string): SceneObject => {
+      const datum = FeatureMetas.datum(kinds, entry);
+      const refusal = FeatureMetas.refusal(kinds, spec, datum);
+      if (refusal) {
+        throw new Error(`${callee}(): ${subject} must be ${refusal}, got ${FeatureMetas.describeValue(entry)}`);
+      }
+      return datum as SceneObject;
+    };
     if (FeatureMetas.isList(spec)) {
       const list = (value === undefined || value === null ? [] : Array.isArray(value) ? value : [value])
-        .map(entry => FeatureMetas.datum(spec, entry));
-      for (const entry of list) {
-        if (!(entry instanceof SceneObject)) {
-          throw new Error(`${callee}(): each of '${name}' must be ${takes}, got ${FeatureMetaValidator.describe(entry)}`);
-        }
-      }
+        .map(entry => picked(entry, `each of '${name}'`));
       if (required && list.length === 0) {
-        throw new Error(`${callee}(): '${name}' is required — pick at least one ${spec.picker}`);
+        throw new Error(`${callee}(): '${name}' is required — pick at least one ${FeatureMetaValidator.listed(kinds)}`);
       }
       const max = (spec as ListPicker).max;
       if (max !== undefined && list.length > max) {
         throw new Error(`${callee}(): '${name}' takes at most ${max}, got ${list.length}`);
       }
-      return list as SceneObject[];
+      return list;
     }
     if (value === undefined || value === null) {
       if (required) {
@@ -1105,11 +1198,65 @@ export class FeatureMetas {
       }
       return value as null | undefined;
     }
-    const picked = FeatureMetas.datum(spec, value);
-    if (!(picked instanceof SceneObject)) {
-      throw new Error(`${callee}(): '${name}' must be ${takes}, got ${FeatureMetaValidator.describe(value)}`);
+    return picked(value, `'${name}'`);
+  }
+
+  /** The kinds a picked value takes: its picker's one kind, or each of a union's. */
+  static kindsOf(spec: PickerParamSpec): PickerKind[] {
+    return Array.isArray(spec.picker) ? [...spec.picker as readonly PickerKind[]] : [spec.picker as PickerKind];
+  }
+
+  /**
+   * Why a value can't be picked for a value of `kinds`, as what it must be
+   * instead — or null when one of the kinds takes it. A connector, a point
+   * and an anchor are read as locations, so each must be one; every other
+   * kind takes any scene object (its picker in the dialog is what tells
+   * them apart).
+   */
+  private static refusal(kinds: PickerKind[], spec: PickerParamSpec, value: unknown): string | null {
+    const anchors = (spec as { anchors?: readonly ('center' | 'start' | 'end' | 'offset')[] }).anchors;
+    if (!(value instanceof SceneObject)) {
+      return FeatureMetas.takes(kinds, anchors);
     }
-    return picked;
+    const fits = kinds.some(kind => !FeatureMetas.isLocation(kind) || Locations.accepts(kind as LocationKind, value, anchors));
+    return fits ? null : FeatureMetas.takes(kinds, anchors);
+  }
+
+  private static isLocation(kind: PickerKind): boolean {
+    return kind === 'connector' || kind === 'point' || kind === 'anchor';
+  }
+
+  /** What a value of `kinds` takes, as a refusal names it — an anchor at the points `anchors` lists, when it lists some. */
+  private static takes(kinds: PickerKind[], anchors?: readonly string[]): string {
+    if (kinds.every(kind => FeatureMetas.isLocation(kind))) {
+      return FeatureMetaValidator.listed(kinds.map(kind => kind === 'anchor' && anchors && anchors.length > 0
+        ? `an anchor at ${FeatureMetaValidator.listed(anchors.map(anchor => `${anchor}()`))} (e.endFaces().center())`
+        : FeatureMetas.LOCATION_NAMES[kind as LocationKind]));
+    }
+    const datums = [
+      ...(kinds.includes('axis') ? ['an axis or a world axis'] : []),
+      ...(kinds.includes('plane') ? ['a plane or an origin plane'] : []),
+    ];
+    return `a scene object (a selection, a sketch, a feature${datums.map(datum => `, ${datum}`).join('')})`;
+  }
+
+  private static readonly LOCATION_NAMES: Record<LocationKind, string> = {
+    connector: 'a connector (bolt, bolt.instance(2))',
+    point: 'a point (s.geometries.c.center(), e.endEdges(0).start())',
+    anchor: 'an anchor (e.endFaces().center())',
+  };
+
+  /** What a refused value was, for the message: a location's kind, or what the value is. */
+  private static describeValue(value: unknown): string {
+    if (value instanceof AnchoredLazyVertex) {
+      return `an anchor at ${value.getAnchorSpec().kind}()`;
+    }
+    if (value instanceof SceneObject) {
+      const kinds = Locations.kindsOf(value);
+      const kind = kinds.length > 0 ? kinds[kinds.length - 1] : value.getType();
+      return `${FeatureMetaValidator.article(kind)} ${kind}`;
+    }
+    return FeatureMetaValidator.describe(value);
   }
 
   /**
@@ -1123,11 +1270,11 @@ export class FeatureMetas {
    * serves the feature's statement alone, so the timeline leaves it out, as
    * it does the plane `sketch('xy', …)` makes itself.
    */
-  private static datum(spec: PickerParamSpec, value: unknown): unknown {
+  private static datum(kinds: PickerKind[], value: unknown): unknown {
     let datum: SceneObject | null = null;
-    if (spec.picker === 'axis' && (isStandardAxis(value) || value instanceof Axis)) {
+    if (kinds.includes('axis') && (isStandardAxis(value) || value instanceof Axis)) {
       datum = new AxisObject(value instanceof Axis ? value : normalizeAxis(value));
-    } else if (spec.picker === 'plane' && (value instanceof Plane || (typeof value === 'string' && isPlaneLike(value)))) {
+    } else if (kinds.includes('plane') && (value instanceof Plane || (typeof value === 'string' && isPlaneLike(value)))) {
       datum = new PlaneObject(normalizePlane(value));
     }
     if (!datum) {

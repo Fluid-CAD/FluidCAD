@@ -72,6 +72,34 @@ export const standoff = defineFeature(Standoff, {
 });
 `;
 
+/** A boss standing at connectors, points and anchors: a picker of several kinds. */
+const BOSS_MODULE = `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { Primitives } from 'fluidcad/sdk/kernel';
+
+export class Boss extends Feature.with({
+  at: { picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'] },
+  pin: { picker: 'connector', optional: true },
+  sides: { picker: ['face', 'edge'], multiple: true },
+  height: { type: 'length', default: 6 },
+}) {
+  static id = 'acme.boss';
+
+  buildTool() {
+    const { at, pin, sides, height } = this.values;
+    const frames = at.map(location => this.frameOf(location));
+    const origin = this.pointOf(at[0]);
+    return frames.map(() => Primitives.makeCylinder(4 + origin.x * 0 + sides.length * 0 + (pin ? 0 : 0), height));
+  }
+}
+
+export const boss = defineFeature(Boss, {
+  label: 'Boss',
+  group: 'create',
+  call: ['at', { height: 'height', pin: 'pin', sides: 'sides' }],
+});
+`;
+
 function errorsOf(check: CheckJs): string[] {
   return check.diagnostics().map(d => `${d.file}:${d.line}: ${d.message}`);
 }
@@ -115,6 +143,39 @@ describe("a feature module's types, in plain JavaScript", () => {
     expect(builder).toContain('targets?: ISceneObject | ISceneObject[] | undefined;');
     expect(builder).toContain('rims?: ISelection | ISelection[] | undefined;');
     expect(builder).toMatch(/ on\?: (ISceneObject|Plane|StandardPlane)( \| (ISceneObject|Plane|StandardPlane)){2} \| undefined;/);
+  });
+
+  it("types location values and pickers of several kinds, and the calls that place them", () => {
+    const check = CheckJs.check({
+      'boss.feature.js': BOSS_MODULE,
+      'plate.part.js': `
+import { extrude, connector, part, sketch, circle } from 'fluidcad/core';
+import { boss } from './boss.feature.js';
+
+part('plate', () => {
+  const plate = extrude(5);
+  const bolt = connector('bolt', plate.endFaces());
+  const marks = sketch(plate.endFaces(), () => ({ c: circle([10, 0], 4) }));
+  boss([bolt, marks.geometries.c.center(), plate.sideFaces().center(), plate.endEdges(0).start()], { height: 8 });
+  boss(bolt, { pin: bolt });
+  boss(bolt, { height: 'tall' });
+});
+`,
+    });
+    expect(errorsOf(check)).toEqual([
+      expect.stringContaining(`plate.part.js:11: Type 'string' is not assignable to type 'number'.`),
+    ]);
+    expect(check.typeOf('boss.feature.js', 'at')).toBe('ISceneObject[]');
+    expect(check.typeOf('boss.feature.js', 'pin')).toBe('ISceneObject | undefined');
+    expect(check.typeOf('boss.feature.js', 'sides')).toBe('ISelection[]');
+    expect(check.typeOf('boss.feature.js', 'origin')).toBe('Point');
+  });
+
+  it("marks a picker of several kinds that names a kind there isn't", () => {
+    const check = CheckJs.check({
+      'boss.feature.js': BOSS_MODULE.replace("picker: ['connector', 'point', 'anchor']", "picker: ['connector', 'pointy', 'anchor']"),
+    });
+    expect(errorsOf(check)[0]).toMatch(/^boss\.feature\.js:6: .*Type '"pointy"' is not assignable to type 'PickerKind'/s);
   });
 
   it("marks a misspelled value in this.values", () => {

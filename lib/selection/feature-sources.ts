@@ -32,6 +32,9 @@ import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
 import { Hole, type HolePlacement } from "../features/hole/hole.js";
 import { Connector } from "../features/connector.js";
+import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
+import { LazyVertex } from "../features/lazy-vertex.js";
+import { SolvedPoint } from "../features/2d/solved/point.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
@@ -136,7 +139,9 @@ export type FeatureSources =
    * per element, in its order. A statement (a sketch, a helix, an axis or
    * plane statement, a solid or feature) resolves by call site; a face or
    * edge selection as viewport entities on the pre-statement solids; an
-   * inline `axis(<edge>)` or `plane(<face>)` as the geometry it names.
+   * inline `axis(<edge>)` or `plane(<face>)` as the geometry it names; a
+   * connector by its statement (a copy opaque), an anchor as the face or
+   * edge it is taken on, a point opaque.
    * Typed-in values, and picked ones left out, have no slot.
    */
   | { feature: 'custom'; id: string; slots: Record<string, SourceSlot | SourceSlot[]> };
@@ -539,6 +544,19 @@ class SourceResolver {
   private referenceSlot(obj: SceneObject): SourceSlot {
     if (obj instanceof Sketch || obj instanceof Helix) {
       return this.callSiteSlot(obj);
+    }
+    // Locations, the way a hole's placements resolve: a declared connector
+    // by its statement — a copy (`bolt.instance(2)`) has none of its own —
+    // an anchor as the face or edge it is taken on, a point as nothing to
+    // re-pick: the dialog keeps its text.
+    if (obj instanceof Connector) {
+      return this.placementSlot(obj);
+    }
+    if (obj instanceof AnchoredLazyVertex) {
+      return this.entitiesSlot([obj.getSourceSelection()]);
+    }
+    if (obj instanceof LazyVertex || obj instanceof SolvedPoint) {
+      return OPAQUE;
     }
     if (obj instanceof AxisObjectBase) {
       return this.axisObjectSlot(obj);

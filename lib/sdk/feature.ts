@@ -6,7 +6,10 @@ import { Plane } from "../math/plane.js";
 import { Axis } from "../math/axis.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
+import { Locations } from "../features/locations.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { Point } from "../math/point.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
@@ -331,6 +334,39 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     return ref.getPlane();
   }
 
+  /**
+   * The frame a location value stands on, where it stands now — a repeat's
+   * copy moves the tool the feature builds there, not the location: its
+   * origin is the location, its Z points out of the material. A connector
+   * gives its own frame; an anchor its face's normal (`e.endFaces().center()`),
+   * its circle's axis or its edge's tangent; a sketch point its sketch's
+   * plane; a vertex named by an edge's end (`e.endEdges(0).start()`) that
+   * edge's tangent there.
+   */
+  protected frameOf(ref: ISceneObject): Plane {
+    if (Locations.kindsOf(ref).length === 0) {
+      throw new Error(`${this.getType()}: ${Feature.describeReference(ref)} is not a location — declare the value as a connector, point or anchor picker`);
+    }
+    return Locations.frameOf(ref);
+  }
+
+  /**
+   * Whether a value's element is a location — a connector, a point, an
+   * anchor — which {@link frameOf} reads; a value of several kinds
+   * (`['solid', 'connector']`) tells its elements apart by it.
+   */
+  protected isLocation(ref: ISceneObject): boolean {
+    return Locations.kindsOf(ref).length > 0;
+  }
+
+  /** The world position a location value names: a connector's origin, a point, an anchor. */
+  protected pointOf(ref: ISceneObject): Point {
+    if (Locations.kindsOf(ref).length === 0) {
+      throw new Error(`${this.getType()}: ${Feature.describeReference(ref)} is not a location — declare the value as a connector, point or anchor picker`);
+    }
+    return Locations.pointOf(ref);
+  }
+
   private static describeReference(ref: ISceneObject): string {
     return ref instanceof SceneObject ? `a ${ref.getType()}` : 'the value';
   }
@@ -423,16 +459,28 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * them from anything that reads them after: a face selection's highlight
    * goes, but the selection stays readable — a repeat's copies read it
    * again. Sketches, planes and axes go the same way, as they do for every
-   * feature. A referenced feature or solid is read, never consumed, so it
-   * stays.
+   * feature, and so do the selection an anchor stands on and the sketch a
+   * point is drawn in. A referenced feature, solid or connector is read,
+   * never consumed, so it stays.
    */
   protected consumeReferences(): void {
     for (const ref of this.inputs.references()) {
-      if (ref.consumedForDisplayOnly()) {
-        ref.removeShapes(this);
-      } else if (ref.isLazy() || ref.isSelection()) {
-        ref.removeShapesFromDisplay(this);
+      Feature.hideForDisplay(ref, this);
+      if (ref instanceof AnchoredLazyVertex) {
+        // The selection an anchor stands on only located it: its highlight goes too.
+        Feature.hideForDisplay(ref.getSourceSelection(), this);
       }
+      // A sketch a point stands in leaves the screen, as a hole's does.
+      Locations.sketchOf(ref)?.removeShapes(this);
+    }
+  }
+
+  /** Take one reference off the screen from `consumer` on, leaving it readable. */
+  private static hideForDisplay(ref: SceneObject, consumer: SceneObject): void {
+    if (ref.consumedForDisplayOnly()) {
+      ref.removeShapes(consumer);
+    } else if (ref.isLazy() || ref.isSelection()) {
+      ref.removeShapesFromDisplay(consumer);
     }
   }
 

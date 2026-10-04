@@ -3,16 +3,25 @@ import { Shape } from "../common/shape.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import { anchorFromShape, type VertexAnchorSpec } from "../features/shape-anchor.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
 import { synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
 import {
   allocateNames, collectImports, makeStatementBindable, rehomePlaneFacePick, renderPartArgs,
 } from "./explain.js";
-import { ApplyFeatureEditSpec, nameHintFor, PickChain, PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
+import { VertexPointSynthesizer } from "./vertex-synthesis.js";
+import { renderSolvedTarget, type SolvedEmissionTarget } from "./sketch-target.js";
+import {
+  ApplyFeatureEditSpec, nameHintFor, PickChain, PickRef, renderConnectorAnchorSuffix, SelectionScene, SynthesizeOptions,
+} from "./types.js";
 
-/** The picker kinds whose picks are geometry: a selector names them. */
-export type FeatureSlotPicker = 'face' | 'edge' | 'axis' | 'plane';
+/**
+ * The picker kinds whose picks are geometry: a selector names them — a
+ * point as the end of an edge or a sketch point, an anchor as a face's or
+ * an edge's well-known point.
+ */
+export type FeatureSlotPicker = 'face' | 'edge' | 'axis' | 'plane' | 'point' | 'anchor';
 
 /** What a slot's picker declares that the picks must honour — the value's spec, as the feature's metadata states it. */
 export type FeatureSlotOptions = {
@@ -28,6 +37,8 @@ export type FeatureSlotOptions = {
   curve?: 'line' | 'circle' | 'arc';
   /** A picked face stands for all of its edges. */
   facesAsEdges?: boolean;
+  /** An anchor picker's: the well-known points it takes; every one when left out. */
+  anchors?: readonly VertexAnchorSpec['kind'][];
 };
 
 /** One picked value of a feature: its picker and what was picked for it. */
@@ -36,8 +47,20 @@ export type FeatureSlotPicks = {
   entities: PickRef[];
   /** Tangent chains ("Select with tangents"), an edge picker's only. */
   chains?: PickChain[];
+  /** An anchor picker's: the well-known point of each picked face or edge, in pick order. */
+  anchors?: VertexAnchorSpec[];
   options?: FeatureSlotOptions;
 };
+
+/**
+ * One element of a point or anchor value: a point a selector names, with
+ * what follows it (`e.endFaces()` + `.center()`, `e.endEdges(0)` +
+ * `.start()`), or a point of a sketch the sketch must export before a
+ * statement outside it can name it.
+ */
+export type FeatureSlotPoint =
+  | { part: number; suffix: string }
+  | { sketch: number; target: SolvedEmissionTarget };
 
 /** Every picked value of one statement, by value name. */
 export type FeatureSlotRequest = { slots: Record<string, FeatureSlotPicks> };
@@ -50,6 +73,12 @@ export type FeatureSlotResult = {
   args: string[];
   /** The call each element's selector is wrapped in: an axis picker's `axis(…)`, a plane picker's `plane(…)`. */
   wrap: 'axis' | 'plane' | null;
+  /**
+   * A point or anchor picker's elements, one per pick in pick order — the
+   * sketch a sketch point stands in indexing `producers`. `parts` lists the
+   * selectors they use; `args` one text per element.
+   */
+  points?: FeatureSlotPoint[];
 };
 
 export type FeatureSlotSynthesis =
@@ -67,8 +96,13 @@ export type FeatureSlotSynthesis =
   }
   | { ok: false; reason: string; slot?: string; pick?: PickRef };
 
+/** A point or anchor element before the producers are named: a winner's index and its suffix, or a sketch point. */
+type SlotPoint =
+  | { winner: number; suffix: string }
+  | { sketch: SceneObject; target: SolvedEmissionTarget; entity: SceneObject | null };
+
 /** A slot checked and synthesized, waiting for the producers every slot shares to be named. */
-type SynthesizedSlot = { name: string; winners: SelectorPart[]; wrap: 'axis' | 'plane' | null };
+type SynthesizedSlot = { name: string; winners: SelectorPart[]; wrap: 'axis' | 'plane' | null; points?: SlotPoint[] };
 
 /** A refusal while synthesizing one slot. */
 class SlotRefusal extends Error {
@@ -84,12 +118,15 @@ class SlotRefusal extends Error {
  * oracle verification every dialog's picks go through — and checked against
  * what the picker declares: the kind of sub-shape, how many, and the
  * `surface`/`curve` filters, which run the language's own face and edge
- * filters on the picked shape.
+ * filters on the picked shape. A point value's vertices are named the way
+ * every vertex pick is ({@link VertexPointSynthesizer}), an anchor value's
+ * faces and edges each by a selector of its own with the anchor after it.
  *
  * Kind-agnostic: a slot is described by its picker, never by the feature
  * that declares it, so a new feature needs nothing here. Statement-backed
- * picks (a sketch, an axis or plane statement, a solid, a feature) name no
- * geometry and never come here — the editor binds them by call site.
+ * picks (a sketch, an axis or plane statement, a solid, a feature, a
+ * connector) name no geometry and never come here — the editor binds them
+ * by call site. A value of several kinds arrives as one slot per kind.
  */
 export class FeatureSlotSynthesizer {
 
@@ -154,8 +191,10 @@ export class FeatureSlotSynthesizer {
     const parts: ApplyFeatureEditSpec['parts'] = [];
     const results: Record<string, FeatureSlotResult> = {};
     const imports = new Set<string>();
+    const entityNames = new Set(names.values());
     for (const slot of slots) {
       const result: FeatureSlotResult = { parts: [], args: [], wrap: slot.wrap };
+      const selectors: string[] = [];
       for (const part of slot.winners) {
         result.parts.push(parts.length);
         parts.push({
@@ -166,7 +205,24 @@ export class FeatureSlotSynthesizer {
           refs: part.refs && part.refs.length > 0 ? part.refs.map(producerIndex) : null,
         });
         const selector = renderPartArgs(part, names);
-        result.args.push(slot.wrap ? `${slot.wrap}(${selector})` : selector);
+        selectors.push(selector);
+        if (!slot.points) {
+          result.args.push(slot.wrap ? `${slot.wrap}(${selector})` : selector);
+        }
+      }
+      if (slot.points) {
+        result.points = [];
+        for (const point of slot.points) {
+          if ('winner' in point) {
+            result.points.push({ part: result.parts[point.winner], suffix: point.suffix });
+            result.args.push(`${selectors[point.winner]}${point.suffix}`);
+            continue;
+          }
+          result.points.push({ sketch: producerIndex(point.sketch), target: point.target });
+          const sketchName = names.get(point.sketch) ?? 's';
+          const entityName = point.entity ? VertexPointSynthesizer.entityName(point.entity, entityNames) : 'e';
+          result.args.push(renderSolvedTarget(point.target, () => `${sketchName}.geometries.${entityName}`));
+        }
       }
       for (const symbol of collectImports(slot.winners)) {
         imports.add(symbol);
@@ -201,6 +257,12 @@ export class FeatureSlotSynthesizer {
     const options = picks.options ?? {};
     const label = options.label ?? name;
     const kind = picks.picker;
+    if (kind === 'point') {
+      return this.pointSlot(name, label, picks, options);
+    }
+    if (kind === 'anchor') {
+      return this.anchorSlot(name, label, picks, options);
+    }
     if (kind !== 'face' && kind !== 'edge' && kind !== 'axis' && kind !== 'plane') {
       throw new SlotRefusal(`${label}: the ${String(kind)} picker names no geometry to synthesize`, name);
     }
@@ -269,8 +331,117 @@ export class FeatureSlotSynthesizer {
     return { name, winners, wrap: kind === 'axis' || kind === 'plane' ? kind : null };
   }
 
+  /**
+   * A point value's picks, each a vertex: a solid's written as the end of an
+   * edge that names it (`e.endEdges(0).start()`), a sketch's as a point the
+   * sketch exports (`s.geometries.l1.start()`) — the vertex synthesis every
+   * point pick goes through.
+   */
+  private pointSlot(name: string, label: string, picks: FeatureSlotPicks, options: FeatureSlotOptions): SynthesizedSlot {
+    const refs = picks.entities ?? [];
+    this.checkCount(name, label, 'point', options, refs);
+    for (const ref of refs) {
+      if (ref.sub.type !== 'vertex') {
+        throw new SlotRefusal(`${label}: takes points — a vertex of a solid or a sketch, not ${ref.sub.type === 'edge' ? 'an edge' : `a ${ref.sub.type}`}`, name, ref);
+      }
+    }
+    const best = VertexPointSynthesizer.best(this.scene, this.index, refs, this.options);
+    if (best.ok === false) {
+      throw new SlotRefusal(`${label}: ${best.reason}`, name, best.pick);
+    }
+    const winners: SelectorPart[] = [];
+    const points: SlotPoint[] = [];
+    for (const part of best.parts) {
+      if (part.kind === 'edge') {
+        winners.push(part.selector);
+        points.push({ winner: winners.length - 1, suffix: `.${part.role}()` });
+        this.bind([part.selector.producer, ...part.selector.refs ?? []]);
+        continue;
+      }
+      this.bind([part.sketch]);
+      const target = part.request.target;
+      points.push({ sketch: part.sketch, target, entity: target.line !== undefined ? part.entities.get(target.line) ?? null : null });
+    }
+    return { name, winners, wrap: null, points };
+  }
+
+  /**
+   * An anchor value's picks, each a face or an edge with the well-known
+   * point taken on it (`e.endFaces().center()`): each named by a selector of
+   * its own, which must name exactly that face or edge — an anchor reads the
+   * first shape of its selection. Never a connector: the statement writes
+   * the bare anchor.
+   */
+  private anchorSlot(name: string, label: string, picks: FeatureSlotPicks, options: FeatureSlotOptions): SynthesizedSlot {
+    const refs = picks.entities ?? [];
+    const anchors = picks.anchors ?? [];
+    this.checkCount(name, label, 'anchor', options, refs);
+    if (anchors.length !== refs.length) {
+      throw new SlotRefusal(`${label}: each picked face or edge needs the anchor taken on it`, name);
+    }
+    const winners: SelectorPart[] = [];
+    const points: SlotPoint[] = [];
+    refs.forEach((ref, i) => {
+      const spec = anchors[i];
+      if (ref.sub.type !== 'face' && ref.sub.type !== 'edge') {
+        throw new SlotRefusal(`${label}: takes anchors on faces and edges, not ${ref.sub.type === 'vertex' ? 'a vertex' : `a ${ref.sub.type}`}`, name, ref);
+      }
+      if (options.anchors && options.anchors.length > 0 && !options.anchors.includes(spec?.kind)) {
+        throw new SlotRefusal(`${label}: takes anchors at ${options.anchors.map(anchor => `${anchor}()`).join(', ')} — not ${spec?.kind}()`, name, ref);
+      }
+      const attribution = attributePick(this.scene, this.index, ref);
+      if (attribution.error || !attribution.picked) {
+        throw new SlotRefusal(`${label}: ${attribution.error ?? 'the pick does not resolve in the current scene'}`, name, ref);
+      }
+      try {
+        anchorFromShape(attribution.picked, spec);
+      } catch (error) {
+        throw new SlotRefusal(`${label}: ${(error as Error).message}`, name, ref);
+      }
+      const synthesis = synthesizeSelectors(
+        this.scene, this.index, [attribution], [], this.options.params ?? [], false, this.stmtBindable,
+      );
+      if (synthesis.ok === false) {
+        throw new SlotRefusal(`${label}: ${synthesis.reason}`, name, synthesis.pick);
+      }
+      if (synthesis.groups.length !== 1) {
+        throw new SlotRefusal(`${label}: the anchor's ${ref.sub.type} needs ${synthesis.groups.length} selectors — pick it on one feature`, name, ref);
+      }
+      winners.push(synthesis.groups[0].winner);
+      points.push({ winner: winners.length - 1, suffix: renderConnectorAnchorSuffix(spec) });
+      this.bind(synthesis.producers);
+      if (synthesis.anchor && !this.anchors.includes(synthesis.anchor)) {
+        this.anchors.push(synthesis.anchor);
+      }
+    });
+    return { name, winners, wrap: null, points };
+  }
+
+  /** How many picks a point or anchor value takes: one for a single value, up to its `max` for a list. */
+  private checkCount(name: string, label: string, kind: 'point' | 'anchor', options: FeatureSlotOptions, refs: PickRef[]): void {
+    const isList = options.multiple === true || options.max !== undefined;
+    if (refs.length === 0) {
+      throw new SlotRefusal(`${label}: nothing picked`, name);
+    }
+    if (!isList && refs.length !== 1) {
+      throw new SlotRefusal(`${label}: pick exactly one ${kind}`, name, refs[1]);
+    }
+    if (options.max !== undefined && refs.length > options.max) {
+      throw new SlotRefusal(`${label}: takes at most ${options.max} ${kind}s, got ${refs.length}`, name, refs[options.max]);
+    }
+  }
+
+  /** Bind the producers a selector or a sketch point names, each once. */
+  private bind(producers: (SceneObject | null | undefined)[]): void {
+    for (const producer of producers) {
+      if (producer && !this.producers.includes(producer)) {
+        this.producers.push(producer);
+      }
+    }
+  }
+
   /** The picked sub-shape is of the kind the picker takes, and passes its declared filter. */
-  private check(name: string, label: string, kind: FeatureSlotPicker, options: FeatureSlotOptions, attr: PickAttribution): void {
+  private check(name: string, label: string, kind: 'face' | 'edge' | 'axis' | 'plane', options: FeatureSlotOptions, attr: PickAttribution): void {
     const type = attr.ref.sub.type;
     const takes = kind === 'face' ? type === 'face'
       : kind === 'edge' ? type === 'edge' || (type === 'face' && options.facesAsEdges === true)

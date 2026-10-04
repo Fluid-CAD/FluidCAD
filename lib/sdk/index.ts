@@ -50,7 +50,7 @@ export type {
   FeatureMeta, FeatureChange, FeatureGroup, FeatureKind, FeatureContext, ParamSpec, ScalarParamSpec, ScalarParamType,
   NumberParamSpec, BooleanParamSpec, SelectParamSpec, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen,
   SketchPickerSpec, FacePickerSpec, EdgePickerSpec, AxisPickerSpec, PlanePickerSpec, SolidPickerSpec, FeaturePickerSpec,
-  ConnectorPickerSpec, PointPickerSpec, AnchorPickerSpec,
+  ConnectorPickerSpec, PointPickerSpec, AnchorPickerSpec, UnionPickerSpec,
 } from "./meta.js";
 export type { CallShape, CallShapeSlot, FeatureOperation } from "./call-shape.js";
 export type { SelectOption } from "../param-registry.js";

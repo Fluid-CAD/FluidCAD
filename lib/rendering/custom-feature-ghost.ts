@@ -7,15 +7,19 @@ import { AxisObject } from "../features/axis.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { Connector } from "../features/connector.js";
+import { FixedLocation, Locations, type LocationKind } from "../features/locations.js";
+import { anchorFrameFromShape, type VertexAnchorSpec } from "../features/shape-anchor.js";
 import { toAxis } from "../math/axis.js";
-import { toPlane } from "../math/plane.js";
+import { Plane, toPlane } from "../math/plane.js";
 import type { MeshSettings } from "../oc/mesh.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { Feature } from "../sdk/feature.js";
 import type { FeatureOperation } from "../sdk/call-shape.js";
 import type { FeatureScalar } from "../sdk/feature-inputs.js";
-import { FeatureMetas, type PickerParamSpec, type ResolvedFeatureMeta } from "../sdk/meta.js";
+import { FeatureMetas, type PickerKind, type PickerParamSpec, type ResolvedFeatureMeta } from "../sdk/meta.js";
+import { VertexPointSynthesizer } from "../selection/vertex-synthesis.js";
 import type { FeatureGhostResult, GhostEntityRef, GhostSolid } from "./feature-ghost.js";
 import { GhostScene } from "./ghost-scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
@@ -28,12 +32,27 @@ import { SceneDisposal } from "./scene-disposal.js";
  * it for the ghost: a statement by call site (a sketch, an axis or plane
  * statement, a solid, a feature), faces or edges picked in the viewport
  * (several of them one element, as the dialog writes them in one selector),
- * or a world axis or an origin plane.
+ * a world axis or an origin plane — or a location: a connector, a picked
+ * vertex, an anchor on a picked face or edge, or (edit mode) the edited
+ * statement's own element. A location stands in at the frame it names.
  */
 export type GhostCustomRef =
   | { kind: 'statement'; filePath: string; line: number }
   | { kind: 'entities'; entities: GhostEntityRef[] }
-  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' };
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** A connector by its `connector()` statement — a copy by its seed's statement and its slot. */
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
+  /** A vertex picked in the viewport, as the point its value writes stands. */
+  | { kind: 'point'; shapeId: string; index: number }
+  /** A face or edge picked in the viewport and the well-known point taken on it. */
+  | { kind: 'anchor'; entity: GhostEntityRef; anchor: VertexAnchorSpec }
+  /**
+   * Edit mode: the edited statement's own element of this value, by
+   * position, read off the statement's feature as it built — what an
+   * untouched location (a connector copy, a sketch point, an anchor) still
+   * stands at.
+   */
+  | { kind: 'kept'; index: number };
 
 /**
  * A custom feature dialog's live geometry request: the feature's builder —
@@ -221,7 +240,7 @@ export class CustomFeatureGhost {
       }
       const objects: SceneObject[] = [];
       for (const ref of refs) {
-        const object = this.reference(spec, ref);
+        const object = this.reference(name, spec, ref);
         if (!object) {
           return { reason: `${FeatureMetas.labelOf(name, spec)}: that pick is not in the rendered scene.` };
         }
@@ -239,20 +258,116 @@ export class CustomFeatureGhost {
   }
 
   /** The stand-in for one element of a picked value, or null when the scene no longer holds it. */
-  private reference(spec: PickerParamSpec, ref: GhostCustomRef): SceneObject | null {
-    if (ref.kind === 'standard') {
-      if (spec.picker === 'axis' && ref.name.length === 1) {
-        return new AxisObject(toAxis(ref.name as 'x' | 'y' | 'z'));
-      }
-      if (spec.picker === 'plane' && ref.name.length === 2) {
-        return new PlaneObject(toPlane(ref.name as 'xy' | 'xz' | 'yz'));
-      }
+  private reference(name: string, spec: PickerParamSpec, ref: GhostCustomRef): SceneObject | null {
+    const kinds = FeatureMetas.kindsOf(spec);
+    switch (ref.kind) {
+      case 'standard':
+        if (kinds.includes('axis') && ref.name.length === 1) {
+          return new AxisObject(toAxis(ref.name as 'x' | 'y' | 'z'));
+        }
+        if (kinds.includes('plane') && ref.name.length === 2) {
+          return new PlaneObject(toPlane(ref.name as 'xy' | 'xz' | 'yz'));
+        }
+        return null;
+      case 'entities':
+        return this.entities(CustomFeatureGhost.geometryKind(kinds, ref.entities[0]?.kind), spec, ref.entities);
+      case 'connector':
+        return kinds.includes('connector') ? this.connector(ref) : null;
+      case 'point':
+        return kinds.includes('point') ? this.located('point', VertexPointSynthesizer.frameOf(this.scene, {
+          shapeId: ref.shapeId, sub: { type: 'vertex', index: ref.index },
+        })) : null;
+      case 'anchor':
+        return kinds.includes('anchor') ? this.anchor(ref) : null;
+      case 'kept':
+        return this.kept(name, ref.index);
+      default:
+        return this.statement(CustomFeatureGhost.statementKind(kinds), spec, ref);
+    }
+  }
+
+  /** The kind faces or edges are picked as in a value of `kinds`: a face for a face picker, and so on. */
+  private static geometryKind(kinds: PickerKind[], sub: 'face' | 'edge' | undefined): PickerKind {
+    if (kinds.length === 1) {
+      return kinds[0];
+    }
+    return kinds.find(kind => kind === sub) ?? kinds.find(kind => kind === 'axis' || kind === 'plane') ?? kinds[0];
+  }
+
+  /** The kind a statement is picked as in a value of `kinds`: the one kind that takes statements. */
+  private static statementKind(kinds: PickerKind[]): PickerKind {
+    return kinds.find(kind => kind === 'sketch' || kind === 'axis' || kind === 'plane' || kind === 'solid' || kind === 'feature')
+      ?? kinds[0];
+  }
+
+  /**
+   * A connector, by its statement — a copy by its seed's statement and
+   * slot — stood in at its frame.
+   */
+  private connector(ref: { filePath: string; line: number; slot?: number }): SceneObject | null {
+    const seed = GhostScene.objectsAt(this.scene, ref)
+      .find(obj => obj instanceof Connector && obj.copySlot() === undefined && !this.edited.includes(obj)) as Connector | undefined;
+    if (!seed) {
       return null;
     }
-    if (ref.kind === 'entities') {
-      return this.entities(spec, ref.entities);
+    try {
+      const connector = ref.slot === undefined ? seed : seed.instance(ref.slot);
+      return this.located('connector', connector.getFrame());
+    } catch {
+      // A slot the copy skipped, or a connector that did not build.
+      return null;
     }
-    return this.statement(spec, ref);
+  }
+
+  /** The face or edge an anchor is taken on, stood in at the anchor's frame. */
+  private anchor(ref: { entity: GhostEntityRef; anchor: VertexAnchorSpec }): SceneObject | null {
+    const shape = ref.entity.kind === 'face'
+      ? GhostScene.pickedFace(this.scene, ref.entity, this.scratch)
+      : GhostScene.pickedEdge(this.scene, ref.entity, this.scratch);
+    if (!shape) {
+      return null;
+    }
+    try {
+      return this.located('anchor', anchorFrameFromShape(shape, ref.anchor));
+    } catch {
+      // That shape has no such anchor (start() of a closed edge).
+      return null;
+    }
+  }
+
+  /**
+   * One element of the edited statement's own value, as its feature built
+   * it — a location stood in at the frame it stood at then, an axis or a
+   * plane at its own, anything else by its shapes as they stood before the
+   * statement.
+   */
+  private kept(name: string, index: number): SceneObject | null {
+    const feature = this.edited.find(obj => obj instanceof Feature && !obj.getCloneSource()) as Feature | undefined;
+    const value = feature?.values[name];
+    const element = Array.isArray(value) ? value[index] : index === 0 ? value : undefined;
+    if (!(element instanceof SceneObject)) {
+      return null;
+    }
+    const kinds = Locations.kindsOf(element);
+    try {
+      if (kinds.length > 0) {
+        return this.located(kinds[kinds.length - 1], Locations.frameOf(element));
+      }
+      if (element instanceof AxisObjectBase) {
+        return new AxisObject(element.getAxis());
+      }
+      if (element instanceof PlaneObjectBase) {
+        return new PlaneObject(element.getPlane());
+      }
+    } catch {
+      return null;
+    }
+    return new GhostReference(element.getType(), element.getShapes(undefined, undefined, this.before), element.isSelection());
+  }
+
+  /** A location stood in at `frame`, or null when nothing stands there. */
+  private located(kind: LocationKind, frame: Plane | null): SceneObject | null {
+    return frame ? new FixedLocation(frame, kind) : null;
   }
 
   /**
@@ -260,7 +375,7 @@ export class CustomFeatureGhost {
    * or, for an axis or a plane value, the axis of the one edge or the plane
    * of the one face, as `axis(<edge>)` and `plane(<face>)` read them.
    */
-  private entities(spec: PickerParamSpec, entities: GhostEntityRef[]): SceneObject | null {
+  private entities(kind: PickerKind, spec: PickerParamSpec, entities: GhostEntityRef[]): SceneObject | null {
     if (entities.length === 0) {
       return null;
     }
@@ -274,7 +389,7 @@ export class CustomFeatureGhost {
       }
       shapes.push(shape);
     }
-    if (spec.picker === 'axis') {
+    if (kind === 'axis') {
       if (shapes.length !== 1 || !(shapes[0] instanceof Edge)) {
         return null;
       }
@@ -285,7 +400,7 @@ export class CustomFeatureGhost {
         return null;
       }
     }
-    if (spec.picker === 'plane') {
+    if (kind === 'plane') {
       if (shapes.length !== 1 || !(shapes[0] instanceof Face) || !FaceQuery.isPlanarFace(shapes[0])) {
         return null;
       }
@@ -300,19 +415,19 @@ export class CustomFeatureGhost {
    * edit mode, read as they stood before the edited statement took or
    * consumed them.
    */
-  private statement(spec: PickerParamSpec, ref: { filePath: string; line: number }): SceneObject | null {
+  private statement(kind: PickerKind, spec: PickerParamSpec, ref: { filePath: string; line: number }): SceneObject | null {
     const candidates = GhostScene.objectsAt(this.scene, ref)
       .filter(obj => !obj.isLazy() && !obj.getCloneSource() && !this.edited.includes(obj));
-    if (spec.picker === 'axis') {
+    if (kind === 'axis') {
       const axis = candidates.find(obj => obj instanceof AxisObjectBase) as AxisObjectBase | undefined;
       return axis ? new AxisObject(axis.getAxis()) : null;
     }
-    if (spec.picker === 'plane') {
+    if (kind === 'plane') {
       const plane = candidates.find(obj => obj instanceof PlaneObjectBase) as PlaneObjectBase | undefined;
       return plane ? new PlaneObject(plane.getPlane()) : null;
     }
-    const object = spec.picker === 'sketch'
-      ? candidates.find(obj => obj.getType() === 'sketch' || (spec.wire === true && obj.getType() === 'helix'))
+    const object = kind === 'sketch'
+      ? candidates.find(obj => obj.getType() === 'sketch' || ((spec as { wire?: boolean }).wire === true && obj.getType() === 'helix'))
       : candidates.find(obj => !obj.isInternal() && !(obj instanceof AxisObjectBase) && !(obj instanceof PlaneObjectBase));
     if (!object) {
       return null;

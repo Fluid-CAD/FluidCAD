@@ -41,12 +41,15 @@ type ScalarValueOf<S> =
 /**
  * The value one spec gives the feature when the call passes it: a number, a
  * boolean, a string, a select's option values, the picked selection of a
- * face or edge picker, the picked scene object of any other picker — a list
- * of them for a list picker.
+ * face or edge picker, the picked scene object of any other picker — a
+ * connector, a point, an anchor among them — or of a picker of several kinds
+ * (a selection when every kind is a face or an edge); a list of them for a
+ * list picker.
  */
 type PassedValueOf<S> =
   S extends { picker: 'face' | 'edge' } ? Picked<S, ISelection>
   : S extends { picker: string } ? Picked<S, ISceneObject>
+  : S extends { picker: readonly (infer K)[] } ? Picked<S, [K] extends ['face' | 'edge'] ? ISelection : ISceneObject>
   : ScalarValueOf<S>;
 
 /**
@@ -106,10 +109,16 @@ type ArgOf<S> =
   : S extends { picker: 'axis' } ? ISceneObject | StandardAxis | Axis
   : S extends { picker: 'plane' } ? ISceneObject | StandardPlane | Plane
   : S extends { picker: string } ? (S extends ListSpec ? ISceneObject | ISceneObject[] : ISceneObject)
+  : S extends { picker: readonly (infer K)[] } ? (S extends ListSpec ? ISceneObject | ISceneObject[] : ISceneObject | UnionDatumArg<K>)
   : ScalarValueOf<S>;
 
+/** What a single value whose kinds include an axis or a plane also takes: a world axis or an origin plane. */
+type UnionDatumArg<K> = ('axis' extends K ? StandardAxis | Axis : never) | ('plane' extends K ? StandardPlane | Plane : never);
+
 /** One element of a spread rest value. */
-type RestArgOf<S> = S extends { picker: 'face' | 'edge' } ? ISelection : ISceneObject;
+type RestArgOf<S> = S extends { picker: 'face' | 'edge' } ? ISelection
+  : S extends { picker: readonly (infer K)[] } ? ([K] extends ['face' | 'edge'] ? ISelection : ISceneObject)
+  : ISceneObject;
 
 /** `T` flattened into one object type, so an editor shows its keys rather than an intersection. */
 type Flat<T> = { [K in keyof T]: T[K] } & {};

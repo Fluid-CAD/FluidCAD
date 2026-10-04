@@ -3,6 +3,11 @@ import type { ParamDefinition, SelectOption } from "../param-registry.js";
 import { Feature, type FeatureClass } from "./feature.js";
 import type { FeatureScalar, FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type CallShape, type FeatureOperation } from "./call-shape.js";
+import { Axis, isStandardAxis } from "../math/axis.js";
+import { Plane, isPlaneLike } from "../math/plane.js";
+import { AxisObject } from "../features/axis.js";
+import { PlaneObject } from "../features/plane.js";
+import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 
 /** Where a feature's button sits: with the features that make solids, or those that change them. */
 export type FeatureGroup = 'create' | 'modify';
@@ -970,9 +975,10 @@ export class FeatureMetas {
 
   private static pickedValue(callee: string, name: string, spec: PickerParamSpec, value: unknown): FeatureValues[string] {
     const required = !spec.optional && !(spec.picker === 'sketch' && spec.implicitDefault);
-    const takes = `a scene object (a selection, a sketch, a feature${spec.picker === 'axis' || spec.picker === 'plane' ? `, an ${spec.picker}` : ''})`;
+    const takes = `a scene object (a selection, a sketch, a feature${spec.picker === 'axis' ? ', an axis or a world axis' : spec.picker === 'plane' ? ', a plane or an origin plane' : ''})`;
     if (FeatureMetas.isList(spec)) {
-      const list = value === undefined || value === null ? [] : Array.isArray(value) ? value : [value];
+      const list = (value === undefined || value === null ? [] : Array.isArray(value) ? value : [value])
+        .map(entry => FeatureMetas.datum(spec, entry));
       for (const entry of list) {
         if (!(entry instanceof SceneObject)) {
           throw new Error(`${callee}(): each of '${name}' must be ${takes}, got ${FeatureMetaValidator.describe(entry)}`);
@@ -993,10 +999,36 @@ export class FeatureMetas {
       }
       return value as null | undefined;
     }
-    if (!(value instanceof SceneObject)) {
+    const picked = FeatureMetas.datum(spec, value);
+    if (!(picked instanceof SceneObject)) {
       throw new Error(`${callee}(): '${name}' must be ${takes}, got ${FeatureMetaValidator.describe(value)}`);
     }
-    return value;
+    return picked;
+  }
+
+  /**
+   * An axis value may name a world axis (`'z'`) and a plane value an origin
+   * plane (`'xy'`, `'front'`) — the way every built-in takes them, and what
+   * the dialog writes for one picked in the viewport; a resolved `Axis` or
+   * `Plane` works too. Each becomes the scene object `axis('z')` or
+   * `plane('xy')` would build, so the feature reads every axis and every
+   * plane one way ({@link Feature.axisOf}, {@link Feature.planeOf}) and the
+   * builder's `addTo()` puts it in the scene ahead of the feature. It
+   * serves the feature's statement alone, so the timeline leaves it out, as
+   * it does the plane `sketch('xy', …)` makes itself.
+   */
+  private static datum(spec: PickerParamSpec, value: unknown): unknown {
+    let datum: SceneObject | null = null;
+    if (spec.picker === 'axis' && (isStandardAxis(value) || value instanceof Axis)) {
+      datum = new AxisObject(value instanceof Axis ? value : normalizeAxis(value));
+    } else if (spec.picker === 'plane' && (value instanceof Plane || (typeof value === 'string' && isPlaneLike(value)))) {
+      datum = new PlaneObject(normalizePlane(value));
+    }
+    if (!datum) {
+      return value;
+    }
+    datum.markInternal();
+    return datum;
   }
 
   private static json(value: unknown): unknown {

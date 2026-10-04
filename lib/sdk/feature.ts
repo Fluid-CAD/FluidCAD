@@ -3,6 +3,9 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Plane } from "../math/plane.js";
+import { Axis } from "../math/axis.js";
+import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
@@ -170,6 +173,30 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   /** Every edge a reference holds: an edge selection's edges, a face's or a solid's edges. */
   protected edgesOf(ref: ISceneObject | ISceneObject[]): Edge[] {
     return this.shapesOf(ref).flatMap(shape => shape.isEdge() ? [shape] : shape.getSubShapes('edge')) as Edge[];
+  }
+
+  /**
+   * The axis an axis value stands for: an `axis()` statement's, a world
+   * axis's (`'z'`), a picked edge's (`axis(<edge>)`) — where it stands now,
+   * a repeat's copy included.
+   */
+  protected axisOf(ref: ISceneObject): Axis {
+    if (!(ref instanceof AxisObjectBase)) {
+      throw new Error(`${this.getType()}: ${Feature.describeReference(ref)} is not an axis — declare the value as an axis picker`);
+    }
+    return ref.getAxis();
+  }
+
+  /** The plane a plane value stands for: a `plane()` statement's, an origin plane's (`'xy'`), a picked face's. */
+  protected planeOf(ref: ISceneObject): Plane {
+    if (!(ref instanceof PlaneObjectBase)) {
+      throw new Error(`${this.getType()}: ${Feature.describeReference(ref)} is not a plane — declare the value as a plane picker`);
+    }
+    return ref.getPlane();
+  }
+
+  private static describeReference(ref: ISceneObject): string {
+    return ref instanceof SceneObject ? `a ${ref.getType()}` : 'the value';
   }
 
   /**

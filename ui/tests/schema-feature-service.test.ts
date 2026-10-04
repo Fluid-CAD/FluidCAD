@@ -95,6 +95,12 @@ const POCKET = meta('acme.pocket', 'Pocket', {
   depth: { type: 'length', default: 2, label: 'Depth' },
 }, { operations: ['new', 'remove'], defaultOperation: 'new' });
 
+/** The engine's own Draft, as the catalog snapshots its metadata: a modifier taking an angle, then the faces. */
+const DRAFT = meta('draft', 'Draft', {
+  angle: { type: 'angle', default: 5, label: 'Angle' },
+  faces: { picker: 'face', multiple: true, label: 'Faces' },
+}, { group: 'modify', kind: 'modifier', call: ['angle', '...faces'] });
+
 /** A part holding a plate, a sketch, a boss and a standoff row. */
 function scene(): SceneObjectRender[] {
   return [
@@ -473,6 +479,52 @@ describe('editing a custom feature statement', () => {
     expect(lastEdit()).toMatchObject({ operation: 'new', scope: [], values: { height: null } });
   });
 
+  it("edits a draft of the last selection over the faces it took — an angle change leaves them out, a re-pick writes them", async () => {
+    vi.mocked(api.fetchFeatureSources).mockResolvedValue({
+      ok: true, feature: 'custom', id: 'draft',
+      slots: { faces: [{ kind: 'entities', entities: [faceOf('plate-solid', 2)] }] },
+    } as never);
+    try {
+      const { service, panel, type, lastEdit, lastGhost } = mount(DRAFT);
+      const draft: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+        feature: 'custom', id: 'draft', callee: 'draft',
+        values: { angle: 5 }, picks: {}, operation: 'add', scopeTexts: [], scopeRefs: [],
+      };
+      // The draft's row follows the standoff's.
+      const rendered = [...scene(), {
+        id: 'dr', type: 'draft', name: 'Draft', parentId: 'part', ownShapes: [], sourceLocation: at(12, 2),
+        sceneShapes: [{ shapeId: 'drafted-solid', shapeType: 'solid', meshes: MESH }],
+      }] as SceneObjectRender[];
+      service.enterEdit(at(12, 2), draft, { index: 6, type: 'draft', expectedStatement: 'draft(5)' });
+      service.handleSceneRendered(rendered, 5, true);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(panel().querySelector('[data-role="title"]')!.textContent).toBe('Edit draft');
+      expect([...panel().querySelectorAll('span.truncate[title]')].map(el => el.textContent))
+        .toEqual(['Current: last selected face']);
+      expect(lastEdit()).toMatchObject({ id: 'draft', values: {}, picks: {} });
+      expect(lastEdit()!.before).toBeUndefined();
+      expect(lastGhost()![0]).toMatchObject({
+        id: 'draft', values: { angle: 5 },
+        refs: { faces: [{ kind: 'entities', entities: [{ shapeId: 'plate-solid', index: 2, kind: 'face' }] }] },
+      });
+
+      type('angle', '8');
+      await vi.advanceTimersByTimeAsync(300);
+      expect(lastEdit()).toMatchObject({ values: { angle: 8 }, picks: {} });
+
+      service.handleClick('boss-solid', faceOf('boss-solid', 1).sub);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(lastEdit()).toMatchObject({
+        picks: { faces: [{ kind: 'entities', entities: [faceOf('plate-solid', 2), faceOf('boss-solid', 1)] }] },
+        before: { index: 6, type: 'draft', line: 12, column: 2 },
+      });
+    } finally {
+      vi.mocked(api.fetchFeatureSources).mockReset();
+      vi.mocked(api.fetchFeatureSources).mockImplementation(async () => ({ ok: false, reason: 'none' }) as never);
+    }
+  });
+
   it('is the dialog the registry hands a parsed statement of its feature', () => {
     const registry = new FeatureDialogRegistry();
     const { service } = mount();
@@ -683,6 +735,22 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('api/features/asset?id=acme.standoff&path=.%2Fstandoff.svg');
     expect(ObjectIcons.srcFor(undefined, 'acme.bracket')).toContain('solid');
     expect(ObjectIcons.srcFor(undefined, 'extrude')).toBe('icons/extrude.png');
+  });
+
+  it("offers a built-in that describes itself — Draft — in its group, with the product's own icon", () => {
+    const { registry, dialogs, built, container, navbar } = catalog();
+    dialogs.apply([{ id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: DRAFT }]);
+    expect(registry.ids).toEqual(['feature:draft']);
+    expect(registry.editsRowType('draft')).toBe(true);
+    const wrap = container.querySelector<HTMLElement>('[data-tool="feature:draft"]')!;
+    expect(wrap.querySelector('img')!.getAttribute('src')).toBe('icons/draft.png');
+    expect(navbar.getGroup('modify')!.contains(wrap)).toBe(true);
+    expect(built[0].toolbarButton).toBeNull();
+    // Its timeline rows read the product's icon by their type, as they always did.
+    expect(ObjectIcons.srcFor(undefined, 'draft')).toBe('icons/draft.png');
+    dialogs.apply([]);
+    expect(registry.ids).toEqual([]);
+    expect(ObjectIcons.srcFor(undefined, 'draft')).toBe('icons/draft.png');
   });
 
   it('rebuilds a dialog whose metadata changed, closing it, and leaves the others open', () => {

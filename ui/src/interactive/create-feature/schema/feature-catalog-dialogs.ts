@@ -1,6 +1,7 @@
 import {
   featureAssetUrl, getFeatureCatalog, type FeatureCatalogEntry, type FeatureMetaSnapshot,
 } from '../../../api';
+import { iconUrl } from '../../../ui/icon-url';
 import { DEFAULT_ICON_SRC, ObjectIcons } from '../../../ui/object-icons';
 import type { Navbar } from '../../../ui/navbar';
 import type { FeatureDialogRegistry } from '../../feature-dialog-registry';
@@ -15,8 +16,10 @@ export type SchemaDialogFactory = (schema: FeatureSchema, iconSrc: string) => Sc
 type OfferedEntry = FeatureCatalogEntry & { id: string; meta: FeatureMetaSnapshot };
 
 /**
- * The workspace's custom features on the page: one schema dialog (with its
- * toolbar button and its timeline rows) per feature the catalog offers,
+ * The catalog's features on the page — the workspace's custom features and
+ * the engine's own that describe themselves the same way (Draft): one
+ * schema dialog (with its toolbar button and its timeline rows) per feature
+ * the catalog offers,
  * registered with the page's dialog registry like the built-ins, and each
  * feature's icon for its timeline rows. A refresh (the engine coming up, a
  * `features-changed`) rebuilds only the dialogs whose metadata changed, so a
@@ -30,7 +33,7 @@ export class FeatureCatalogDialogs {
   /** What the page offers changed — the Finish Sketch swap and the timeline re-read it. */
   onChange?: () => void;
 
-  private readonly dialogs = new Map<string, { service: SchemaFeatureService; signature: string }>();
+  private readonly dialogs = new Map<string, { service: SchemaFeatureService; signature: string; builtIn: boolean }>();
   private readonly broken = new Map<string, { button: FeatureButton; error: string }>();
   /** Bumped on every module change, so a rebuilt dialog's icon is fetched fresh. */
   private revision = 0;
@@ -89,11 +92,14 @@ export class FeatureCatalogDialogs {
       if (this.dialogs.has(id)) {
         continue;
       }
-      const icon = entry.meta.icon ? featureAssetUrl(id, entry.meta.icon, this.revision) : DEFAULT_ICON_SRC;
+      const icon = FeatureCatalogDialogs.iconOf(entry, this.revision);
       const service = this.create(new FeatureSchema(entry.meta), icon);
       this.registry.register(service);
-      ObjectIcons.register(id, icon);
-      this.dialogs.set(id, { service, signature: FeatureCatalogDialogs.signatureOf(entry) });
+      // A built-in's rows already read the product's own icon by their type.
+      if (!entry.builtIn) {
+        ObjectIcons.register(id, icon);
+      }
+      this.dialogs.set(id, { service, signature: FeatureCatalogDialogs.signatureOf(entry), builtIn: entry.builtIn });
       changed = true;
     }
     changed = this.syncBroken(broken) || changed;
@@ -109,8 +115,22 @@ export class FeatureCatalogDialogs {
     }
     this.registry.unregister(held.service.id);
     held.service.destroy();
-    ObjectIcons.unregister(id);
+    if (!held.builtIn) {
+      ObjectIcons.unregister(id);
+    }
     this.dialogs.delete(id);
+  }
+
+  /**
+   * A feature's icon: a built-in's is the product's own artwork, by its id
+   * (`icons/draft.png`); a workspace feature's is the file its metadata
+   * names, served from its module's directory; the generic icon otherwise.
+   */
+  private static iconOf(entry: OfferedEntry, revision: number): string {
+    if (entry.builtIn) {
+      return iconUrl(entry.id);
+    }
+    return entry.meta.icon ? featureAssetUrl(entry.id, entry.meta.icon, revision) : DEFAULT_ICON_SRC;
   }
 
   /** One greyed button per entry that can't be offered; answers whether the set changed. */

@@ -299,6 +299,63 @@ describe('an edited statement', () => {
     expect(axes.standardAxes).toEqual(['y']);
   });
 
+  it('stands on what its feature took for a value the statement leaves out — draft(5) drafts the last selection', () => {
+    const picker = mount({ picker: 'face', multiple: true, label: 'Faces' });
+    picker.seedKeeps(undefined, FILE);
+    expect(chips(picker)).toEqual([]);
+    picker.setSources([{ kind: 'entities', entities: [face(3), face(5)] }]);
+    expect(chips(picker)).toEqual(['Current: last selected face', 'Current: last selected face']);
+    expect(picker.touched).toBe(false);
+    // Untouched, the statement keeps leaving it out.
+    expect(picker.request()).toBeUndefined();
+    expect(picker.hasPickedGeometry).toBe(false);
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.entities).toEqual([face(3), face(5)]);
+    expect(picker.ghostRefs()).toEqual([{ kind: 'entities', entities: [
+      { shapeId: 'plate-solid', index: 3, kind: 'face' }, { shapeId: 'plate-solid', index: 5, kind: 'face' },
+    ] }]);
+
+    // Changed, the faces it took are written with the new pick; a click on one takes it off.
+    picker.takeClick('plate-solid', face(8).sub);
+    picker.takeClick('plate-solid', face(3).sub);
+    expect(picker.touched).toBe(true);
+    expect(picker.request()).toEqual([{ kind: 'entities', entities: [face(5), face(8)] }]);
+    expect(picker.hasPickedGeometry).toBe(true);
+    removeChip(picker, 0);
+    removeChip(picker, 0);
+    expect(picker.request()).toEqual({ error: 'Faces: pick faces.' });
+  });
+
+  it("re-reads what its feature took after a stale render, and a single value's re-pick undoes back to it", () => {
+    const picker = mount({ picker: 'face', multiple: true });
+    picker.seedKeeps([], FILE);
+    picker.setSources([{ kind: 'entities', entities: [face(3)] }]);
+    // A stale render's new ids: the faces drop quietly, untouched, until the sources come back.
+    expect(picker.setScene(inPart(scene()), { dropEntities: true })).toBe(false);
+    expect(picker.value).toEqual([]);
+    expect(picker.touched).toBe(false);
+    picker.setSources([{ kind: 'entities', entities: [face(4)] }]);
+    expect(picker.value).toEqual([{ kind: 'entity', entity: face(4) }]);
+    expect(picker.request()).toBeUndefined();
+
+    const single = mount({ picker: 'face', label: 'On face' });
+    single.seedKeeps(undefined, FILE);
+    single.setSources({ kind: 'entities', entities: [face(2)] });
+    expect(single.row.querySelector('button[title="Remove this selection"]')).toBeNull();
+    single.takeClick('plate-solid', face(6).sub);
+    removeChip(single, 0);
+    expect(single.value).toEqual([{ kind: 'entity', entity: face(2) }]);
+    expect(single.touched).toBe(false);
+
+    // Nothing to stand on: an opaque source, or none.
+    const opaque = mount({ picker: 'face', multiple: true });
+    opaque.seedKeeps(undefined, FILE);
+    opaque.setSources([{ kind: 'opaque' }]);
+    expect(opaque.isEmpty).toBe(true);
+    expect(opaque.request()).toBeUndefined();
+  });
+
   it('keeps its elements through a render, and a stale one drops only the re-picks', () => {
     const picker = mount({ picker: 'face', multiple: true });
     picker.seedKeeps(picks, FILE);

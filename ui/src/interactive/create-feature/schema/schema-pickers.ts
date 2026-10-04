@@ -124,8 +124,14 @@ export class SchemaPicker {
   readonly row: HTMLElement;
   private readonly slot: PickSlot;
   private elements: PickElement[] = [];
-  /** An edit's own elements, in order — what an untouched value still is. */
+  /**
+   * An edit's own elements, in order — what an untouched value still is:
+   * the statement's elements, or — for a value the statement leaves out
+   * that its feature holds anyway — what the engine reports it holds.
+   */
   private keeps: PickElement[] = [];
+  /** The edited statement writes elements of its own for this value (else its keeps are what its feature took). */
+  private written = false;
   private options: PickerOption[] = [];
   private scene: PickerScene = { objects: [], partLoc: null };
   private editing = false;
@@ -206,6 +212,7 @@ export class SchemaPicker {
    */
   reset(): void {
     this.editing = false;
+    this.written = false;
     this.keeps = [];
     this.elements = [];
     if (this.kind === 'sketch' && !this.isList && this.spec.implicitDefault !== true) {
@@ -224,6 +231,7 @@ export class SchemaPicker {
    */
   seedKeeps(picks: readonly ParsedCustomPick[] | undefined, filePath: string): void {
     this.editing = true;
+    this.written = (picks ?? []).length > 0;
     this.keeps = (picks ?? []).map((pick, sourceIndex) => ({
       kind: 'keep',
       sourceIndex,
@@ -241,9 +249,19 @@ export class SchemaPicker {
    * What the engine resolved the edited statement's elements to — one slot
    * per element, in order. A kept statement learns its call site; a kept
    * selection, the faces or edges it lights up.
+   *
+   * A value the statement leaves out may still hold something: its builder
+   * filled it in — `draft(5)` drafts the last selection. Those elements
+   * stand as the value, as the built-in dialogs seed an implicit selection:
+   * untouched, the statement keeps leaving it out; changed, the dialog
+   * writes them with the rest of the picks.
    */
   setSources(slots: SourceSlotRef | SourceSlotRef[] | undefined): void {
     const list = Array.isArray(slots) ? slots : slots ? [slots] : [];
+    if (this.editing && !this.written) {
+      this.seedTaken(list);
+      return;
+    }
     this.keeps.forEach((keep, index) => {
       if (keep.kind !== 'keep') {
         return;
@@ -262,27 +280,33 @@ export class SchemaPicker {
    * A new scene: the offered statements rebuild, picked statements re-match
    * theirs by `(filePath, line)` (and drop when it is gone), and — when
    * `dropEntities` — picked faces and edges drop, since the render minted
-   * new ids. Answers whether a pick was dropped.
+   * new ids. Answers whether a pick the user made was dropped.
    */
   setScene(scene: PickerScene, opts: { dropEntities: boolean }): boolean {
     this.scene = scene;
     this.options = this.collectOptions();
     let dropped = false;
-    this.elements = this.elements.flatMap((element): PickElement[] => {
+    const rematch = (element: PickElement): PickElement[] => {
       if (element.kind === 'statement') {
         const match = this.optionAt(element.option);
-        if (!match) {
-          dropped = true;
-          return [];
-        }
-        return [{ kind: 'statement', option: match }];
+        return match ? [{ kind: 'statement', option: match }] : [];
       }
-      if (element.kind === 'entity' && opts.dropEntities) {
-        dropped = true;
-        return [];
+      return element.kind === 'entity' && opts.dropEntities ? [] : [element];
+    };
+    // A value the statement leaves out holds what its feature took: those
+    // elements re-match (or drop) with the scene, and come back with the
+    // sources the next boundary resolves.
+    const keeps = new Map(this.keeps.map(keep => [keep, rematch(keep)[0] ?? null]));
+    this.elements = this.elements.flatMap((element): PickElement[] => {
+      if (keeps.has(element)) {
+        const kept = keeps.get(element);
+        return kept ? [kept] : [];
       }
-      return [element];
+      const next = rematch(element);
+      dropped = dropped || next.length === 0;
+      return next;
     });
+    this.keeps = this.keeps.flatMap(keep => keeps.get(keep) ?? []);
     this.resolveKeeps();
     this.render();
     return dropped;
@@ -528,7 +552,7 @@ export class SchemaPicker {
 
   /** Whether the request carries viewport geometry — an edit then needs its boundary. */
   get hasPickedGeometry(): boolean {
-    return this.elements.some(e => e.kind === 'entity');
+    return (!this.editing || this.touched) && this.elements.some(e => e.kind === 'entity');
   }
 
   /** Light up what the value holds. */
@@ -613,7 +637,7 @@ export class SchemaPicker {
     }
     if (this.isList) {
       this.elements.splice(index, 1);
-    } else if (element.kind === 'keep') {
+    } else if (this.keeps.includes(element)) {
       this.elements = [];
     } else {
       this.elements = [...this.keeps];
@@ -634,6 +658,41 @@ export class SchemaPicker {
 
   private optionAt(loc: { filePath: string; line: number }): PickerOption | undefined {
     return this.options.find(o => o.filePath === loc.filePath && o.line === loc.line);
+  }
+
+  /**
+   * The elements a value the statement leaves out holds, from the engine's
+   * sources — faces and edges, a statement — as the value's keeps; an
+   * untouched value shows them, one the user already changed keeps the
+   * change. An element nothing can address (opaque) is left out.
+   */
+  private seedTaken(list: readonly SourceSlotRef[]): void {
+    const untouched = !this.touched;
+    const taken: PickElement[] = [];
+    for (const source of list) {
+      if (source.kind === 'entities') {
+        for (const entity of source.entities) {
+          if (entity.sub.type === 'face' || entity.sub.type === 'edge') {
+            taken.push({ kind: 'entity', entity: { shapeId: entity.shapeId, sub: entity.sub } as SelectedEntity });
+          }
+        }
+      } else if (source.kind === 'sketch') {
+        const option = this.optionAt(source);
+        if (option) {
+          taken.push({ kind: 'statement', option });
+        }
+      }
+    }
+    this.keeps = taken;
+    if (untouched) {
+      this.elements = [...taken];
+    }
+    this.render();
+  }
+
+  /** Whether an element is one the edited statement holds already: its own, or what its feature took. */
+  private isKept(element: PickElement): boolean {
+    return element.kind === 'keep' || this.keeps.includes(element);
   }
 
   /** A kept element that names a statement, as this scene offers it. */
@@ -724,7 +783,16 @@ export class SchemaPicker {
 
   private chipFor(element: PickElement, index: number): PickSlotChip {
     const badge = this.isList ? (this.spec.ordered ? String(index + 1) : undefined) : '●';
-    const removable = this.isList || element.kind !== 'keep' || this.spec.optional === true;
+    const removable = this.isList || !this.isKept(element) || this.spec.optional === true;
+    if (element.kind === 'entity' && this.keeps.includes(element)) {
+      // What the feature took for a value its statement leaves out — the last selection.
+      return {
+        label: `Current: last selected ${element.entity.sub.type}`,
+        title: 'Not written in the statement: its feature takes the last selection',
+        badge,
+        removable,
+      };
+    }
     switch (element.kind) {
       case 'keep': {
         if (element.option) {

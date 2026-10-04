@@ -10,6 +10,7 @@ import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { EdgeQuery } from "./edge-query.js";
 import { mmTol } from "../units/tolerance.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export class EdgeOps {
   // Wrapper methods (public API for external callers)
@@ -652,9 +653,7 @@ export class EdgeOps {
       return live;
     } finally {
       args.delete();
-      if (builder) {
-        builder.delete();
-      }
+      BooleanBuilders.release(builder);
       if (progress) {
         progress.delete();
       }

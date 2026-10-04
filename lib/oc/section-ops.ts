@@ -5,6 +5,7 @@ import { Explorer } from "./explorer.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export class SectionOps {
 
@@ -17,7 +18,7 @@ export class SectionOps {
     section.Build(progress);
 
     if (!section.IsDone()) {
-      section.delete();
+      BooleanBuilders.release(section);
       progress.delete();
       disposePln();
       return [];
@@ -27,7 +28,7 @@ export class SectionOps {
     const rawEdges = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
     const edges = rawEdges.map(e => Edge.fromTopoDSEdge(Explorer.toEdge(e)));
 
-    section.delete();
+    BooleanBuilders.release(section);
     progress.delete();
     disposePln();
 

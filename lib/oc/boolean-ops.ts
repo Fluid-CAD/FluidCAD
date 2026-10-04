@@ -14,6 +14,7 @@ import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
 import { SameDomainMerge, SameDomainMergeResult } from "./same-domain-merge.js";
 import { requireValidSolid } from "./solid-validation.js";
 import { ShapeValidator } from "./shape-validator.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -85,7 +86,7 @@ export class BooleanOps {
       },
       Generated: (s: TopoDS_Shape) => builder.Generated(through(s)),
       IsDeleted: (s: TopoDS_Shape) => builder.IsDeleted(through(s)),
-      delete: () => builder.delete(),
+      delete: () => BooleanBuilders.release(builder),
     };
   }
 
@@ -109,14 +110,14 @@ export class BooleanOps {
     }
 
     if (!cutter.IsDone() || cutter.HasErrors()) {
-      cutter.delete();
+      BooleanBuilders.release(cutter);
       progress.delete();
       inputs.direct?.dispose();
       throw new Error("Cut failed");
     }
 
     const result = cutter.Shape();
-    cutter.delete();
+    BooleanBuilders.release(cutter);
     progress.delete();
     inputs.direct?.dispose();
     return result;
@@ -137,7 +138,7 @@ export class BooleanOps {
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      builder.delete(); progress.delete(); stockList.delete(); toolList.delete(); inputs.direct?.dispose();
+      BooleanBuilders.release(builder); progress.delete(); stockList.delete(); toolList.delete(); inputs.direct?.dispose();
     };
     let result: TopoDS_Shape | undefined;
     try {
@@ -481,7 +482,7 @@ export class BooleanOps {
         return;
       }
       disposed = true;
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       inputs.direct?.dispose();
     };
@@ -612,7 +613,7 @@ export class BooleanOps {
         return;
       }
       disposed = true;
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       inputs.direct?.dispose();
     };
@@ -772,6 +773,8 @@ export class BooleanOps {
     const rawShapes = Explorer.findAllShapes(mergedShape);
 
     if (rawShapes.length === args.length || rawShapes.length === 0) {
+      BooleanBuilders.release(builder);
+      progress.delete();
       return {
         result: args,
         newShapes: [],
@@ -790,7 +793,7 @@ export class BooleanOps {
       }
     }
 
-    builder.delete();
+    BooleanBuilders.release(builder);
     progress.delete();
 
     const newShapes: Shape[] = [];
@@ -811,23 +814,31 @@ export class BooleanOps {
 
   static splitShape(shape: Shape, tool: Shape): Shape[] {
     const oc = getOC();
-    const splitter = new oc.BOPAlgo_Splitter();
+    // The API splitter, not BOPAlgo_Splitter: that one keeps its
+    // intersection data on the heap however it is released (BooleanBuilders).
+    const splitter = new oc.BRepAlgoAPI_Splitter();
     splitter.SetRunParallel(true);
     splitter.SetNonDestructive(true);
-    splitter.AddTool(tool.getShape());
-    splitter.AddArgument(shape.getShape());
+    const args = new oc.TopTools_ListOfShape();
+    args.Append(shape.getShape());
+    const tools = new oc.TopTools_ListOfShape();
+    tools.Append(tool.getShape());
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
 
     const progress = new oc.Message_ProgressRange();
-    splitter.Perform(progress);
+    splitter.Build(progress);
     progress.delete();
+    args.delete();
+    tools.delete();
 
-    if (splitter.HasErrors()) {
-      splitter.delete();
+    if (!splitter.IsDone() || splitter.HasErrors()) {
+      BooleanBuilders.release(splitter);
       throw new Error("Splitter failed");
     }
 
     const resultShape = splitter.Shape();
-    splitter.delete();
+    BooleanBuilders.release(splitter);
 
     if (Explorer.isSolid(resultShape)) {
       return [ShapeFactory.fromShape(resultShape)];
@@ -863,7 +874,7 @@ export class BooleanOps {
     builder.Perform(progress);
 
     if (builder.HasErrors()) {
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       list.delete();
       throw new Error('Common operation failed');
@@ -899,7 +910,7 @@ export class BooleanOps {
       }
     });
 
-    builder.delete();
+    BooleanBuilders.release(builder);
     progress.delete();
     inputs.direct?.dispose();
 
@@ -967,7 +978,7 @@ export class BooleanOps {
     common.Build(new oc.Message_ProgressRange());
 
     if (!common.IsDone()) {
-      common.delete();
+      BooleanBuilders.release(common);
       console.log(`Intersection test: Boolean common operation failed.`);
       return false;
     }
@@ -977,7 +988,7 @@ export class BooleanOps {
     const volume = props.Mass();
 
     props.delete();
-    common.delete();
+    BooleanBuilders.release(common);
 
     return volume > mmTol3(1e-9);
   }

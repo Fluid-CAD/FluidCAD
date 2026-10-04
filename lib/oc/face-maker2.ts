@@ -10,6 +10,7 @@ import { FaceOps } from "./face-ops.js";
 import { Face } from "../common/face.js";
 import { ShapeOps } from "./shape-ops.js";
 import { debug } from '../common/log.js';
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export class FaceMaker2 {
 
@@ -134,7 +135,7 @@ export class FaceMaker2 {
     });
 
     progress.delete();
-    splitter.delete();
+    BooleanBuilders.release(splitter);
     dispose();
 
     return filtered.map(f => Face.fromTopoDSFace(this.stripDanglingWires(oc.TopoDS.Face(f))));
@@ -233,31 +234,34 @@ export class FaceMaker2 {
       }
     }
 
-    const cellsBuilder = new oc.BOPAlgo_CellsBuilder();
+    // The general fuse of the shapes is every piece they split each other
+    // into — what a cells builder's parts are with all of them kept — run
+    // through the API algorithm, which releases its intersection data
+    // (BooleanBuilders); BOPAlgo_CellsBuilder never does.
+    const generalFuse = new oc.BRepAlgoAPI_BuilderAlgo();
     const argsList = new oc.TopTools_ListOfShape();
 
     for (const shape of shapes) {
       argsList.Append(shape.getShape());
     }
 
-    cellsBuilder.SetArguments(argsList);
-    cellsBuilder.SetNonDestructive(true);
+    generalFuse.SetArguments(argsList);
+    generalFuse.SetNonDestructive(true);
 
     const progress = new oc.Message_ProgressRange();
-    cellsBuilder.Perform(progress);
-
-    if (cellsBuilder.HasErrors()) {
-      cellsBuilder.delete();
+    try {
+      generalFuse.Build(progress);
+      if (!generalFuse.IsDone() || generalFuse.HasErrors()) {
+        return shapes;
+      }
+      const allParts = generalFuse.Shape();
+      return Explorer.findShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE).map(e =>
+        Edge.fromTopoDSEdge(oc.TopoDS.Edge(e))
+      );
+    } finally {
+      BooleanBuilders.release(generalFuse);
       argsList.delete();
       progress.delete();
-
-      return shapes;
     }
-
-    cellsBuilder.AddAllToResult(0, false);
-    const allParts = cellsBuilder.GetAllParts();
-    return Explorer.findShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE).map(e =>
-      Edge.fromTopoDSEdge(oc.TopoDS.Edge(e))
-    );
   }
 }

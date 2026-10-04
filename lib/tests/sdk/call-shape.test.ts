@@ -70,6 +70,27 @@ describe("a call shape", () => {
     expect(call.parse([undefined, 2, { size: undefined }])).toEqual({ b: 2 });
   });
 
+  it("keeps a positional value's place when a rest element follows it, writing its placeholder there", () => {
+    const call = new FeatureCall(DRAFT, [], 'draft');
+    const [a, b] = [new Ref('a'), new Ref('b')];
+
+    // Dropping the angle's place would hand the first face to the angle.
+    expect(argsOf(call.layout<unknown>({ faces: [a, b] }))).toEqual([undefined, a, b]);
+    expect(call.parse(argsOf(call.layout<unknown>({ faces: [a, b] })))).toEqual({ faces: [a, b] });
+    // A trailing one still goes when nothing follows it.
+    expect(argsOf(call.layout<unknown>({ faces: [] }))).toEqual([]);
+
+    const placeholder = (param: string) => (param === 'angle' ? '5' : undefined);
+    expect(argsOf(call.layout({ faces: ['e.sideFaces()'] }, undefined, { placeholder }))).toEqual(['5', 'e.sideFaces()']);
+    expect(argsOf(call.layout({ angle: '8', faces: ['f'] }, undefined, { placeholder }))).toEqual(['8', 'f']);
+    expect(argsOf(call.layout({}, undefined, { placeholder }))).toEqual([]);
+
+    const options = new FeatureCall(['a', 'b', { size: 'size' }]);
+    const fill = (param: string) => (param === 'a' ? 'A' : undefined);
+    expect(argsOf(options.layout<unknown>({ size: 3 }, undefined, { placeholder: fill }))).toEqual(['A', undefined, { size: 3 }]);
+    expect(argsOf(options.layout<unknown>({ b: 2 }, undefined, { placeholder: fill }))).toEqual(['A', 2]);
+  });
+
   it("tells an object of options from a rest value's scene objects", () => {
     const call = new FeatureCall(['angle', { neutral: 'neutral' }, '...faces']);
     const [a, b] = [new Ref('a'), new Ref('b')];

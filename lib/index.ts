@@ -217,7 +217,8 @@ export type {
 } from './sdk/meta.js';
 export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
 export type {
-  CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallOperation, CallReader, ChainReading, FeatureOperation,
+  CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallLayoutOptions, CallOperation, CallReader, ChainReading,
+  FeatureOperation,
 } from './sdk/call-shape.js';
 
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';

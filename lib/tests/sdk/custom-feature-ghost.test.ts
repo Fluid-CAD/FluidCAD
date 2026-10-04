@@ -121,6 +121,16 @@ class Mark extends Feature.with({ faces: { picker: 'face', multiple: true } }) {
 }
 const mark = defineFeature(Mark, { label: 'Mark', group: 'modify', call: ['...faces'] });
 
+/** A modifier whose preview is the outline of the faces it would change. */
+class Trace extends Feature.with({ faces: { picker: 'face', multiple: true } }) {
+  static id = 'acme.trace';
+  override build(_ctx: FeatureBuildContext): void {}
+  override ghost(): Shape[] {
+    return this.edgesOf(this.values.faces).map(e => ShapeOps.transform(e, Matrix4.fromTranslation(0, 0, 1)));
+  }
+}
+const trace = defineFeature(Trace, { label: 'Trace', group: 'modify', call: ['...faces'] });
+
 /** A 60 × 40 × 10 plate centred on the origin (line 2), its top face at z = 10. */
 function plate(): SceneObject {
   sketch('xy', () => {
@@ -366,9 +376,19 @@ describe("a custom feature's ghost", () => {
 
     expect(ghost(scene, taper, { refs: { faces: [{ kind: 'entities', entities: [top] }] } }))
       .toEqual({ ok: false, reason: 'Taper draws no preview.' });
-    const marked = zRange(ghost(scene, mark, { refs: { faces: [{ kind: 'entities', entities: [top] }] } }));
+    const markedFace = ghost(scene, mark, { refs: { faces: [{ kind: 'entities', entities: [top] }] } });
+    const marked = zRange(markedFace);
     expect(marked.min).toBeCloseTo(11, 4);
     expect(marked.max).toBeCloseTo(11, 4);
+    // A face comes labelled as the overlay draws a body — unlabelled, it would draw nothing.
+    const labels = solidsOf(markedFace)[0].meshes.map(mesh => (mesh as { label?: string }).label);
+    expect(labels[0]).toBe('solid-faces');
+    expect(labels.slice(1).length).toBeGreaterThan(0);
+    expect(labels.slice(1).every(label => label === 'solid-edges')).toBe(true);
+    // Edges come as outline alone.
+    const traced = solidsOf(ghost(scene, trace, { refs: { faces: [{ kind: 'entities', entities: [top] }] } }));
+    expect(traced).toHaveLength(4);
+    expect(traced.flatMap(body => body.meshes.map(mesh => (mesh as { label?: string }).label)).every(label => label === 'solid-edges')).toBe(true);
   });
 
   it("turns the preview off when the metadata says so, and refuses one a modifier can't draw", () => {

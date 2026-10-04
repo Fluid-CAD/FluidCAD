@@ -47,6 +47,17 @@ export type CallChain<T> = { method: 'add' | 'new' | 'remove' | 'scope'; args: T
 /** A statement's arguments and the operation chains after them. */
 export type CallLayout<T> = { args: CallArgument<T>[]; chains: CallChain<T>[] };
 
+/** How {@link FeatureCall.layout} writes what the values leave out. */
+export type CallLayoutOptions<T> = {
+  /**
+   * What a positional value left out writes when a later argument is
+   * written — its default, typically: `draft(5, e.sideFaces())` reads
+   * better than `draft(undefined, e.sideFaces())`. Undefined writes the
+   * `undefined` placeholder.
+   */
+  placeholder?: (param: string) => T | undefined;
+};
+
 /** The operation a statement applies, as the dialog sets it. */
 export type CallOperation<T> = {
   operation: FeatureOperation;
@@ -280,11 +291,16 @@ export class FeatureCall {
   /**
    * Named values laid out as arguments, and the operation as chains — none
    * for the default operation unless `explicit` asks for it. A value that
-   * is `undefined` is left out: a trailing one is dropped, an earlier
-   * positional one holds its place as `undefined`, an option loses its
-   * entry, and an object left with none is dropped.
+   * is `undefined` is left out: a trailing one is dropped, an option loses
+   * its entry, and an object left with none is dropped. A positional one
+   * that a later argument follows — an option, a rest element — keeps its
+   * place: it writes what `placeholder` gives for it, else `undefined`.
    */
-  layout<T>(values: Readonly<Record<string, T | T[] | undefined>>, operation?: CallOperation<T>): CallLayout<T> {
+  layout<T>(
+    values: Readonly<Record<string, T | T[] | undefined>>,
+    operation?: CallOperation<T>,
+    options: CallLayoutOptions<T> = {},
+  ): CallLayout<T> {
     const args: CallArgument<T>[] = [];
     for (const param of this.positional) {
       args.push({ kind: 'positional', param, value: values[param] });
@@ -300,19 +316,24 @@ export class FeatureCall {
         args.push({ kind: 'options', entries });
       }
     }
-    while (args.length > 0) {
+    const restValue = this.rest === null ? undefined : values[this.rest];
+    const rest = restValue === undefined ? [] : Array.isArray(restValue) ? restValue : [restValue];
+    // Trailing positionals left out go, unless a rest element follows them:
+    // dropping their places would hand the rest to the positionals.
+    while (rest.length === 0 && args.length > 0) {
       const last = args[args.length - 1];
       if (last.kind !== 'positional' || last.value !== undefined) {
         break;
       }
       args.pop();
     }
-    if (this.rest !== null) {
-      const value = values[this.rest];
-      const list = value === undefined ? [] : Array.isArray(value) ? value : [value];
-      for (const element of list) {
-        args.push({ kind: 'rest', param: this.rest, value: element });
+    for (const arg of args) {
+      if (arg.kind === 'positional' && arg.value === undefined) {
+        arg.value = options.placeholder?.(arg.param);
       }
+    }
+    for (const element of rest) {
+      args.push({ kind: 'rest', param: this.rest!, value: element });
     }
     return { args, chains: operation ? this.chainsFor(operation) : [] };
   }

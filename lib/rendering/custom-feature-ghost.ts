@@ -19,7 +19,8 @@ import { FeatureMetas, type PickerParamSpec, type ResolvedFeatureMeta } from "..
 import type { FeatureGhostResult, GhostEntityRef, GhostSolid } from "./feature-ghost.js";
 import { GhostScene } from "./ghost-scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
-import { Scene } from "./scene.js";
+import { renderFacePatch } from "./render-face.js";
+import { Scene, type SceneObjectMesh } from "./scene.js";
 import { SceneDisposal } from "./scene-disposal.js";
 
 /**
@@ -180,8 +181,8 @@ export class CustomFeatureGhost {
       if (!(shape instanceof Shape)) {
         return { ok: false, reason: `${this.meta.id}: ghost() returned something that is not a shape` };
       }
-      const meshes = builder.build(shape);
-      if (meshes) {
+      const meshes = CustomFeatureGhost.meshesOf(shape, builder);
+      if (meshes.length > 0) {
         solids.push({ meshes });
       }
     }
@@ -375,6 +376,25 @@ export class CustomFeatureGhost {
    */
   private dispose(): void {
     SceneDisposal.releaseDetached([...this.built, ...this.scratch], GhostScene.allObjects(this.scene));
+  }
+
+  /**
+   * One returned shape's meshes, labelled the way the dialog's overlay draws
+   * a ghost body — its triangles as `solid-faces`, its outline as
+   * `solid-edges`. A solid comes out of the mesh builder labelled; a lone
+   * face (a modifier's preview of the faces it changes) is meshed as a patch
+   * with its outline, and an edge or a wire as outline alone: unlabelled,
+   * the overlay would skip them.
+   */
+  private static meshesOf(shape: Shape, builder: MeshBuilder): SceneObjectMesh[] {
+    if (shape.isFace()) {
+      return renderFacePatch(shape, builder.resolveConfig(shape));
+    }
+    const meshes = builder.build(shape) ?? [];
+    if (shape.isEdge() || shape.isWire()) {
+      return meshes.map(mesh => ({ ...mesh, label: 'solid-edges' }));
+    }
+    return meshes;
   }
 
   private static messageOf(error: unknown): string {

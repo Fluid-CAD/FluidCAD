@@ -3,7 +3,7 @@ id: concepts/scene-graph
 title: The scene graph and feature tree
 summary: Each call to a feature (sketch, extrude, fillet, …) appends a SceneObject to an ordered feature tree. The tree drives history, rollback, and shape reuse across re-renders.
 tags: [concept, architecture]
-seeAlso: [concepts/last-selection, concepts/history-and-rollback, api/sketch, api/extrude]
+seeAlso: [concepts/last-selection, concepts/history-and-rollback, api/sketch, api/extrude, concepts/custom-features]
 ---
 
 # The scene graph
@@ -19,6 +19,10 @@ source for everything that happens later:
 
 Containers (like `part(...)`) introduce a sub-tree: their children only
 auto-fuse with each other, not with the outside world.
+
+A custom feature's statement (`standoff(…)` from a `*.feature.js` module)
+is one object in the tree like a built-in's; a re-render reuses it when its
+id and values match ([[concepts/custom-features]]).
 
 ## Implicit consumption
 

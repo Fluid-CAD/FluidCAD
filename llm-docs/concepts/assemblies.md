@@ -3,7 +3,7 @@ id: concepts/assemblies
 title: "Parts and assemblies — files, inserting, grounding, mating"
 summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit."
 tags: [concept, assembly, part]
-seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units]
+seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/custom-features]
 ---
 
 # Parts and assemblies
@@ -15,6 +15,10 @@ seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly
 | `.part.js` | part | modelling statements; optionally `export const x = part('X', () => { … })` |
 | `.assembly.js` | assembly | `export const x = assembly('x', () => { insert(); mate(); … })` |
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
+
+A `*.feature.js` file is not a model: it defines a custom feature that part
+files import and call ([[concepts/custom-features]]). Custom features run in
+part bodies and part files, never at the top level of an assembly file.
 
 A part file renders every part it declares. Only an **exported** `part()`
 can be inserted elsewhere. A new assembly file is scaffolded as one exported

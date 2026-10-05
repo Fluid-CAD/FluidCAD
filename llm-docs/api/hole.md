@@ -32,16 +32,18 @@ exported from a sketch (`s.geometries.c.center()`, `s.geometries.p` for a
   (a numeric size needs explicit values).
 - `.depth(distance, tipAngle?)` — blind hole: depth to the shoulder, plus a
   drill point of that included angle (118 is a standard drill); omitted = through all.
-- `.fasten(target, pitch?, depth?, tipAngle?)` — clearance holes
-  of a string size only (not a numeric size, not `.tapped()`). `target` is the
-  other solid the fastener threads into: it gets the matching tapped hole on
-  the same axis, at the tap-drill diameter for the size, and is left out of the
-  clearance cut whatever `.scope()` says. `pitch` in mm / threads per inch,
-  omitted or `null` = coarse (write `null` when a depth follows). `depth` =
-  blind depth to the shoulder, measured from the face where the axis enters
-  `target` (not from the placement); omitted = through the whole solid.
-  `tipAngle` = drill point below a blind depth (118), only with a depth. Errors
-  if the axis never reaches `target`.
+- `.fasten(pitch?, depth?, tipAngle?)` — clearance holes of a string size
+  only (not a numeric size, not `.tapped()`). The clearance hole cuts the solid
+  the hole sits on (or the `.scope()` solids); the next solid the hole axis
+  enters past them — the one the fastener threads into — gets the matching
+  tapped hole on the same axis, at the tap-drill diameter for the size. Each
+  placement taps the solid under its own axis. `pitch` in mm / threads per
+  inch, omitted, `'coarse'` or `null` = the size's coarse pitch (write
+  `'coarse'` when a depth follows). `depth` = blind depth to the shoulder,
+  measured from the face where the axis enters that solid (not from the
+  placement); omitted = through the whole solid. `tipAngle` = drill point
+  below a blind depth (118), only with a depth. It takes no solid (the axis
+  finds it) and errors when the axis enters no solid past the clearance cut.
 - `.scope(...solids)` — which solids are cut (default: all).
 
 Accessors: `faces()` (walls), `edges()` (every rim), `startEdges()` (entry
@@ -133,7 +135,7 @@ const seat = sketch(cover.endFaces(), () => {
   fix(p, [0, 0]);
   return { p };
 });
-hole('M6', seat.geometries.p).fasten(base, 'coarse', 12, 118);
+hole('M6', seat.geometries.p).fasten('coarse', 12, 118);
 ```
 
 See [[api/connector]] for holes at a part's mating frames and [[api/repeat]] for bolt circles.

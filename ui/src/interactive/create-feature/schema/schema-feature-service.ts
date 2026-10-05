@@ -722,9 +722,10 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /**
    * The typed-in values to write: the shown rows the user changed. A create
-   * leaves an untouched row's value to the builder's default (and refuses a
-   * required one never filled in); an edit keeps the statement's own, and a
-   * cleared row drops its value when the builder has something to fall back on.
+   * leaves an untouched row's value to the builder's default — the one the
+   * row shows — and refuses a required one never filled in; an edit keeps
+   * the statement's own, and a cleared row (an empty choice) drops its value
+   * when the builder has something to fall back on.
    */
   private collectValues(editing: boolean): {
     values: Record<string, ValueExpr | boolean | string | null>;
@@ -736,10 +737,10 @@ export class SchemaFeatureService implements FeatureDialogService {
       if (!field.visible) {
         continue;
       }
-      const label = this.schema.param(name).label;
+      const missing = `${this.schema.param(name).label} is required.`;
       if (!field.dirty) {
         if (!editing && this.schema.required(name)) {
-          return { error: `Enter ${label}.` };
+          return { error: missing };
         }
         continue;
       }
@@ -749,7 +750,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       }
       if ('empty' in read) {
         if (this.schema.required(name)) {
-          return { error: `Enter ${label}.` };
+          return { error: missing };
         }
         if (editing) {
           values[name] = null;

@@ -21,7 +21,8 @@ const VENT: FeatureMetaSnapshot = {
   defaultOperation: 'remove',
   params: {
     face: { picker: 'face', label: 'On face' },
-    style: { type: 'select', label: 'Style', options: [{ label: 'Slots', value: 'slot' }, { label: 'Holes', value: 'hole' }] },
+    // No default declared: the engine's snapshot carries its first option.
+    style: { type: 'select', label: 'Style', options: [{ label: 'Slots', value: 'slot' }, { label: 'Holes', value: 'hole' }], default: 'slot' },
     count: { type: 'integer', label: 'Count', default: 5, group: 'Pattern' },
     pitch: { type: 'length', label: 'Pitch', default: 4, group: 'Pattern' },
     width: { type: 'length', label: 'Width', default: 2, visibleWhen: { style: 'slot' }, group: 'Slot' },
@@ -143,5 +144,79 @@ describe('the schema dialog', () => {
     expect(active()).toEqual(['New']);
     panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
     expect(active()).toEqual(['Remove']);
+  });
+
+  it('shows in each row left alone what the builder gets: an empty choice for an optional select without a default, an empty row for a value without one', () => {
+    const { panel, root } = mount({
+      ...VENT,
+      id: 'acme.label',
+      params: {
+        finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }, { label: 'Gloss', value: 'gloss' }] },
+        title: { type: 'text', label: 'Title' },
+        note: { type: 'text', label: 'Note', default: 'vent' },
+        depth: { type: 'length', label: 'Depth' },
+        pitch: { type: 'length', label: 'Pitch', default: 4 },
+      },
+    });
+    const value = (name: string) => root.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
+    const field = (name: string) => panel.fields.get(name)!;
+    const choose = (index: number) => {
+      value('finish').selectedIndex = index;
+      value('finish').dispatchEvent(new Event('change'));
+    };
+    const type = (name: string, text: string) => {
+      value(name).value = text;
+      value(name).dispatchEvent(new Event('input'));
+    };
+
+    // The optional select opens on its empty choice, and holds nothing there.
+    expect([...value('finish').options].map(o => o.textContent)).toEqual(['—', 'Matte', 'Gloss']);
+    expect(value('finish').selectedIndex).toBe(0);
+    expect(panel.scalars().finish).toBeUndefined();
+    expect(field('finish').read()).toEqual({ empty: true });
+    choose(2);
+    expect(field('finish').read()).toEqual({ value: 'gloss' });
+    choose(0);
+    expect(field('finish').read()).toEqual({ empty: true });
+    expect(field('finish').dirty).toBe(true);
+
+    // A text without a default holds nothing while empty, however it got there.
+    expect(field('title').read()).toEqual({ empty: true });
+    expect(panel.scalars().title).toBeUndefined();
+    type('title', 'Rev B');
+    expect(field('title').read()).toEqual({ value: 'Rev B' });
+    type('title', '');
+    expect(field('title').read()).toEqual({ empty: true });
+    // One with a default writes the empty text it is cleared to.
+    type('note', '');
+    expect(field('note').read()).toEqual({ value: '' });
+
+    // An emptied number shows the default the builder falls back on; one without a default shows nothing.
+    expect(value('pitch').placeholder).toBe('4');
+    expect(value('depth').placeholder).toBe('');
+    expect(field('depth').read()).toEqual({ empty: true });
+
+    // An edit seeds the statement's own value, or what the builder fills for one it leaves out.
+    panel.showEdit({ values: { finish: 'matte' }, operation: 'remove', seedPicks: () => {} });
+    expect(value('finish').selectedIndex).toBe(1);
+    expect(field('finish').dirty).toBe(false);
+    panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
+    expect(value('finish').selectedIndex).toBe(0);
+    expect(value('note').value).toBe('vent');
+  });
+
+  it('opens a select and a toggle without a declared default on what the engine resolved — no empty choice', () => {
+    const { root } = mount({
+      ...VENT,
+      id: 'acme.grille',
+      params: {
+        pattern: { type: 'select', label: 'Pattern', options: [{ label: 'Round', value: 'round' }, { label: 'Slot', value: 'slot' }], default: 'round' },
+        chamfered: { type: 'boolean', label: 'Chamfered', default: false },
+      },
+    });
+    const pattern = root.querySelector<HTMLSelectElement>('[data-role="value-pattern"]')!;
+    expect([...pattern.options].map(o => o.textContent)).toEqual(['Round', 'Slot']);
+    expect(pattern.selectedIndex).toBe(0);
+    expect(root.querySelector<HTMLInputElement>('[data-role="value-chamfered"]')!.checked).toBe(false);
   });
 });

@@ -81,9 +81,30 @@ const BRACKET = meta('acme.bracket', 'Bracket', {
   base: { picker: 'face', label: 'Base' },
   hinge: { picker: 'axis', label: 'Hinge', optional: true },
   depth: { type: 'length', label: 'Depth' },
-  style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }, { label: 'Gusset', value: 'gusset' }] },
+  // No default declared: the engine's snapshot carries its first option.
+  style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }, { label: 'Gusset', value: 'gusset' }], default: 'flat' },
   gusset: { type: 'length', label: 'Gusset size', default: 4, visibleWhen: { style: 'gusset' } },
 }, { operations: ['add', 'remove', 'new'], defaultOperation: 'add' });
+
+/**
+ * A grille as the engine's snapshot carries it: its pattern and its chamfer
+ * declare no default, so they resolve to the first option and off; its
+ * finish is optional, so it stays unset.
+ */
+const GRILLE = meta('acme.grille', 'Grille', {
+  face: { picker: 'face', label: 'Panel' },
+  pattern: { type: 'select', label: 'Pattern', options: [{ label: 'Round', value: 'round' }, { label: 'Slot', value: 'slot' }], default: 'round' },
+  chamfered: { type: 'boolean', label: 'Chamfered', default: false },
+  finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }, { label: 'Gloss', value: 'gloss' }] },
+}, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { pattern: 'pattern', chamfered: 'chamfered', finish: 'finish' }] });
+
+/** A name plate engraved into a face: its depth and its text declare no default, so the dialog asks for both. */
+const NAMEPLATE = meta('acme.nameplate', 'Nameplate', {
+  face: { picker: 'face', label: 'On face' },
+  depth: { type: 'length', label: 'Depth' },
+  text: { type: 'text', label: 'Text' },
+  note: { type: 'text', label: 'Note', optional: true },
+}, { operations: ['remove'], defaultOperation: 'remove' });
 
 /** A ring of holes that only cuts: remove is its one operation, and its default. */
 const BOLT_CIRCLE = meta('acme.boltCircle', 'Bolt circle', {
@@ -288,7 +309,7 @@ describe('a custom feature dialog', () => {
     service.enter();
     service.dialogPanel.onApply!();
     await vi.advanceTimersByTimeAsync(0);
-    expect(message()).toBe('Enter Depth.');
+    expect(message()).toBe('Depth is required.');
     type('depth', '-2');
     type('depth', '5');
     service.dialogPanel.onApply!();
@@ -554,6 +575,92 @@ describe("a custom feature's operations in its dialog", () => {
     expect(lastEdit()).toMatchObject({ id: 'acme.boltCircle', values: { count: 6 }, picks: {} });
     expect(lastEdit()!.operation).toBeUndefined();
     expect(lastEdit()!.scope).toBeUndefined();
+  });
+});
+
+describe('a row left alone, as the builder gets it', () => {
+  const apply = async (service: SchemaFeatureService) => {
+    await service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  const created = () => vi.mocked(api.applyCustomFeature).mock.calls.map(call => call[0]).filter(request => !request.preview);
+
+  it('applies an untouched create of a feature whose select and toggle declare no default — each row shows what the builder fills, and nothing is written', async () => {
+    const { service, input, lastCreate, lastGhost } = mount(GRILLE);
+    service.enter();
+    expect([...input('pattern').options].map(o => o.textContent)).toEqual(['Round', 'Slot']);
+    expect(input('pattern').selectedIndex).toBe(0);
+    expect(input('chamfered').checked).toBe(false);
+    expect([...input('finish').options].map(o => o.textContent)).toEqual(['—', 'Matte', 'Gloss']);
+    expect(input('finish').selectedIndex).toBe(0);
+
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({ id: 'acme.grille', values: {}, preview: true });
+    // The ghost draws the values the rows show — what the builder fills for them.
+    expect(lastGhost()![0].values).toEqual({ pattern: 'round', chamfered: false });
+
+    await apply(service);
+    expect(created()).toHaveLength(1);
+    expect(created()[0].values).toEqual({});
+    expect(service.isActive).toBe(false);
+  });
+
+  it("writes the optional select's choice, and nothing for its empty one — an edit choosing it drops the statement's", async () => {
+    const { service, type, input, lastCreate, lastEdit } = mount(GRILLE);
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    type('finish', '2');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ finish: 'gloss' });
+    type('finish', '0');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({});
+    service.exit();
+
+    // The statement chose a finish and left its pattern to the default.
+    const rendered = [...scene(), {
+      id: 'gr', type: 'acme.grille', name: 'Grille', parentId: 'part', ownShapes: [], sourceLocation: at(12, 2),
+      sceneShapes: [{ shapeId: 'grille-solid', shapeType: 'solid', meshes: MESH }],
+    }] as SceneObjectRender[];
+    const statement: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.grille', callee: 'grille',
+      values: { finish: 'matte' }, picks: { face: [{ text: 'pad.endFaces()', start: 0, end: 14 }] },
+      operation: 'remove', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(12, 2), statement, { index: 6, type: 'acme.grille', expectedStatement: "grille(pad.endFaces(), { finish: 'matte' })" });
+    service.handleSceneRendered(rendered, 5, true);
+    // The value it leaves out seeds from the default; untouched, neither is written.
+    expect(input('pattern').selectedIndex).toBe(0);
+    expect(input('finish').selectedIndex).toBe(1);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({});
+
+    type('finish', '0');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ finish: null });
+  });
+
+  it('blocks Apply on a number or a text without a default left empty, and says which — the engine would refuse it', async () => {
+    const { service, type, message } = mount(NAMEPLATE);
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await apply(service);
+    expect(message()).toBe('Depth is required.');
+    type('depth', '0.4');
+    await apply(service);
+    expect(message()).toBe('Text is required.');
+    // Typed, then emptied: still no text.
+    type('text', 'A');
+    type('text', '');
+    await apply(service);
+    expect(message()).toBe('Text is required.');
+    expect(created()).toEqual([]);
+
+    type('text', 'Rev B');
+    await apply(service);
+    expect(created()).toHaveLength(1);
+    expect(created()[0].values).toEqual({ depth: 0.4, text: 'Rev B' });
   });
 });
 

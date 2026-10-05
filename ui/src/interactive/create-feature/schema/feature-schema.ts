@@ -150,24 +150,23 @@ export class FeatureSchema {
     });
   }
 
-  /** What a fresh dialog shows for a typed-in value: its default, or nothing. */
+  /**
+   * What a fresh dialog shows for a typed-in value, and what the builder
+   * fills when a create leaves it out: its default as the engine resolved
+   * it — declared, or a boolean's `false` and a select's first option when
+   * it declares none — or nothing (a number or a text without a default, an
+   * optional select without one). The dialog shows it as it is, so a row
+   * left untouched shows what the builder gets.
+   */
   defaultOf(name: string): FeatureScalarValue | undefined {
     const spec = this.param(name);
-    if (FeatureSchema.isPicker(spec)) {
-      return undefined;
-    }
-    if (spec.type === 'select' && spec.default === undefined) {
-      return spec.options[0]?.value;
-    }
-    if (spec.type === 'boolean' && spec.default === undefined) {
-      return false;
-    }
-    return spec.default;
+    return FeatureSchema.isPicker(spec) ? undefined : spec.default;
   }
 
   /**
    * A create must say this value: nothing stands in for one left out — not
    * optional, no default, and (a sketch) not the active sketch implicitly.
+   * The dialog shows such a row empty and blocks Apply until it holds one.
    */
   required(name: string): boolean {
     const spec = this.param(name);

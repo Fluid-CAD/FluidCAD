@@ -30,18 +30,22 @@ const STANDOFF = meta({
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }, { id: 'acme.standoff', label: 'Standoff', operations: ['add', 'new'], defaultOperation: 'add' });
 
-/** A vent: tabs, groups and rows that come and go. */
+/**
+ * A vent: tabs, groups and rows that come and go. Its style and rounded
+ * ends declare no default: the engine's snapshot carries the ones they
+ * resolve to — the first option, and off.
+ */
 const VENT = meta({
   face: { picker: 'face', label: 'On face' },
   style: {
     type: 'select', label: 'Style', options: [
       { label: 'Slots', value: 'slot' }, { label: 'Holes', value: 'hole' }, { label: 'Hex', value: 6 },
-    ],
+    ], default: 'slot',
   },
   count: { type: 'integer', label: 'Count', default: 5, min: 1, max: 40, group: 'Pattern' },
   pitch: { type: 'length', label: 'Pitch', default: 4, group: 'Pattern' },
   width: { type: 'length', label: 'Width', default: 2, visibleWhen: { style: 'slot' } },
-  rounded: { type: 'boolean', label: 'Rounded ends', tab: 'Finish', visibleWhen: { style: ['slot', 6] } },
+  rounded: { type: 'boolean', label: 'Rounded ends', default: false, tab: 'Finish', visibleWhen: { style: ['slot', 6] } },
   chamfer: { type: 'length', label: 'Chamfer', optional: true, tab: 'Finish', group: 'Edges' },
   label: { type: 'text', label: 'Label', tab: 'Notes' },
 });
@@ -96,13 +100,19 @@ describe('FeatureSchema', () => {
     expect(schema.isVisible('count', {})).toBe(true);
   });
 
-  it('opens each typed-in row on its default — a select on its first option, a toggle off', () => {
+  it('opens each typed-in row on the default the engine resolved, and one without any on nothing', () => {
     const schema = new FeatureSchema(VENT);
     expect(schema.defaultOf('count')).toBe(5);
     expect(schema.defaultOf('style')).toBe('slot');
     expect(schema.defaultOf('rounded')).toBe(false);
     expect(schema.defaultOf('chamfer')).toBeUndefined();
+    expect(schema.defaultOf('label')).toBeUndefined();
     expect(schema.defaultOf('face')).toBeUndefined();
+    // The dialog adds no rule of its own: an optional select without a default opens on nothing.
+    const finish = new FeatureSchema(meta({
+      finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }] },
+    }));
+    expect(finish.defaultOf('finish')).toBeUndefined();
   });
 
   it('knows what a create cannot leave out', () => {
@@ -111,10 +121,15 @@ describe('FeatureSchema', () => {
       spare: { picker: 'edge', label: 'Spare', optional: true },
       profile: { picker: 'sketch', label: 'Profile', implicitDefault: true },
       depth: { type: 'length', label: 'Depth' },
+      count: { type: 'integer', label: 'Count', optional: true },
       angle: { type: 'angle', label: 'Angle', default: 0 },
+      title: { type: 'text', label: 'Title' },
       note: { type: 'text', label: 'Note', optional: true },
+      style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }], default: 'flat' },
+      finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }] },
+      vented: { type: 'boolean', label: 'Vented', default: false },
     }));
-    expect(schema.names.filter(name => schema.required(name))).toEqual(['face', 'depth']);
+    expect(schema.names.filter(name => schema.required(name))).toEqual(['face', 'depth', 'title']);
   });
 
   it('reads the kinds a picked value takes, and asks a create for a required location like any pick', () => {

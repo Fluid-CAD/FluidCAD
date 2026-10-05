@@ -97,7 +97,9 @@ export abstract class SchemaField {
  * A number, integer, length or angle: an expression field, so a variable,
  * an expression or a new `name = value` (or `param()`) declaration works as
  * it does in every built-in dialog. Lengths are the document's unit and
- * angles degrees — the metadata's own numbers, shown as they are.
+ * angles degrees — the metadata's own numbers, shown as they are. Emptied,
+ * a row with a default shows that default greyed — what the builder takes
+ * for a value left out; one without a default holds nothing.
  */
 class NumberField extends SchemaField {
   private readonly field: ExpressionField;
@@ -112,6 +114,9 @@ class NumberField extends SchemaField {
     input.dataset.role = `value-${name}`;
     input.type = 'number';
     input.className = INPUT_CLASS;
+    if (typeof spec.default === 'number') {
+      input.placeholder = String(spec.default);
+    }
     this.row.append(label, input);
     // The field flips the input to text, so identifiers and expressions type in.
     this.field = new ExpressionField(input);
@@ -189,10 +194,19 @@ class BooleanField extends SchemaField {
   }
 }
 
-/** One of a fixed list: a select whose options carry their real values (strings or numbers). */
+/**
+ * One of a fixed list: a select whose options carry their real values
+ * (strings or numbers). A select without a default — the engine leaves only
+ * an optional one without — holds no value until one is chosen, so it
+ * offers that as a choice of its own ("—"), first: chosen, the row writes
+ * nothing.
+ */
 class SelectField extends SchemaField {
+  /** The empty choice's caption. */
+  static readonly NONE = '—';
+
   private readonly select: HTMLSelectElement;
-  private readonly values: (string | number)[];
+  private readonly values: (string | number | undefined)[];
 
   constructor(name: string, spec: FeatureScalarParam) {
     super(name, spec);
@@ -203,7 +217,10 @@ class SelectField extends SchemaField {
     this.select = document.createElement('select');
     this.select.dataset.role = `value-${name}`;
     this.select.className = 'select select-sm select-bordered w-full text-xs';
-    const options = spec.type === 'select' ? spec.options : [];
+    const declared = spec.type === 'select' ? spec.options : [];
+    const options: { label: string; value: string | number | undefined }[] = spec.default === undefined
+      ? [{ label: SelectField.NONE, value: undefined }, ...declared]
+      : [...declared];
     this.values = options.map(o => o.value);
     options.forEach((option, index) => {
       const el = document.createElement('option');
@@ -230,7 +247,11 @@ class SelectField extends SchemaField {
   }
 }
 
-/** Free text, written as a string literal. */
+/**
+ * Free text, written as a string literal. Without a default an empty row
+ * holds no value — a required one asks for text, an optional one writes
+ * nothing; with one, emptying the row writes the empty string.
+ */
 class TextField extends SchemaField {
   private readonly input: HTMLInputElement;
 
@@ -254,15 +275,20 @@ class TextField extends SchemaField {
     });
   }
 
-  current(): FeatureScalarValue {
-    return this.input.value;
+  current(): FeatureScalarValue | undefined {
+    return this.holdsNothing ? undefined : this.input.value;
   }
 
   read(): FieldRead {
-    return { value: this.input.value };
+    return this.holdsNothing ? { empty: true } : { value: this.input.value };
   }
 
   protected show(value: ValueExpr | boolean | string | undefined): void {
     this.input.value = typeof value === 'string' ? value : value === undefined ? '' : String(value);
+  }
+
+  /** The row is empty and the value has no default: there is no text to write. */
+  private get holdsNothing(): boolean {
+    return this.input.value === '' && this.spec.default === undefined;
   }
 }

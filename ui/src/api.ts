@@ -6146,8 +6146,32 @@ export type FeatureCatalogEntry = {
   modulePath: string;
   builtIn: boolean;
   meta: FeatureMetaSnapshot | null;
+  /**
+   * The feature's module reaches raw OpenCascade (`fluidcad/sdk/occt`, or
+   * `this.occ()`): the page marks it. Absent from an older server.
+   */
+  usesOcct?: boolean;
   error?: string;
 };
+
+/**
+ * `POST /api/engine/restart` — end this engine so the host that runs it
+ * starts a fresh one on the same port (`fluidcad serve` does); the page's
+ * socket reconnects to it by itself. `error` says why when this engine
+ * can't restart itself.
+ */
+export async function restartEngine(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('api/engine/restart', { method: 'POST' });
+    if (res.ok) {
+      return { ok: true };
+    }
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    return { ok: false, error: body?.error ?? `The engine answered ${res.status}.` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? String(err) };
+  }
+}
 
 /**
  * `GET /api/features/catalog` — the features the workspace offers. Null

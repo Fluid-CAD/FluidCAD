@@ -1,7 +1,8 @@
 import { setupMonaco, monaco } from './monaco-setup';
 import { EditorPane } from './editor-pane';
 import { WorkspaceModels, type ModelEntry } from './models';
-import { loadEngineTypes } from './engine-types';
+import { loadEngineTypes, loadOcctTypes } from './engine-types';
+import { OcctTypes } from './occt-types';
 import { QuickOpen } from './quick-open';
 import type { FileTab, OtherTabs } from './tabs';
 import {
@@ -110,6 +111,8 @@ export class EditorSurface {
       deps.setWorkspaceName?.(root.split(/[\\/]/).pop() || root);
     }
     void loadEngineTypes();
+    // Raw OpenCascade's declarations (~2 MB) only once a file reaches it.
+    OcctTypes.watch(monaco.editor, loadOcctTypes);
     surface.installEditorCommands();
     await surface.restoreTabs().catch(() => undefined);
     return surface;

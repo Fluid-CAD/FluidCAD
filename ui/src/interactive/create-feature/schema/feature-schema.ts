@@ -26,7 +26,15 @@ const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> 
  * panel renders it and the service drives it.
  */
 export class FeatureSchema {
-  constructor(readonly meta: FeatureMetaSnapshot) {}
+  /**
+   * The feature's module reaches raw OpenCascade (the catalog's
+   * `usesOcct`): its dialog and its menu cell carry the mark.
+   */
+  readonly usesOcct: boolean;
+
+  constructor(readonly meta: FeatureMetaSnapshot, opts: { usesOcct?: boolean } = {}) {
+    this.usesOcct = opts.usesOcct === true;
+  }
 
   get id(): string {
     return this.meta.id;

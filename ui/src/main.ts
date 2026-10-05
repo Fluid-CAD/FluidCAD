@@ -15,6 +15,7 @@ import { PropertyEditorDialog } from './ui/property-editor-dialog';
 import { ExportDialog, exportBaseName } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
+import { EngineSuspectBanner } from './ui/engine-suspect-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
@@ -56,7 +57,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -86,7 +87,7 @@ import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
 import { installHostKeyboardBridge } from './keyboard-bridge';
-import { installDesktopMenu } from './desktop';
+import { desktop, installDesktopMenu } from './desktop';
 import type { EditorSurface } from './editor';
 
 installHostKeyboardBridge();
@@ -1980,6 +1981,13 @@ sketchService.onDofPillVisibilityChange = (visible) => breakpointIndicator.setRa
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });
+// The engine's kernel trapped: its memory may be damaged until it restarts.
+// The desktop shell restarts its own engine; elsewhere the engine ends
+// itself and its host starts a fresh one, or the banner says how.
+const engineSuspectBanner = new EngineSuspectBanner(container, {
+  desktop: desktop() ? () => desktop()!.restartEngine() : null,
+  engine: restartEngine,
+});
 
 // ---------------------------------------------------------------------------
 // Selection handling
@@ -2897,6 +2905,9 @@ function connectWebSocket() {
     // The server drops its host registration when a socket closes, so the
     // hello has to be re-sent on every reconnect, not just the first.
     editorSurface?.onSocketOpen();
+    // A fresh connection: an engine still suspect says so again at once, a
+    // restarted one never does.
+    engineSuspectBanner.hide();
   });
 
   ws.addEventListener('message', (event) => {
@@ -2920,6 +2931,10 @@ function connectWebSocket() {
       case 'features-changed':
         // A feature module (or a file one imports) changed: its dialog follows.
         void featureCatalog.refresh({ changed: true });
+        break;
+      case 'engine-suspect':
+        // The kernel trapped (raw OpenCascade, most likely): offer a restart.
+        engineSuspectBanner.show(msg);
         break;
       case 'processing-file':
         loadingOverlay.show('Loading model...');

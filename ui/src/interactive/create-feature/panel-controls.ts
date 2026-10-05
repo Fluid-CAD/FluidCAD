@@ -610,6 +610,11 @@ export class PanelShell {
   }
 
   /** Retitle the dialog ("Edit extrude"); null restores the create title. */
+  /** Add an element to the end of the title row — a marker beside the title. */
+  addHeaderItem(element: HTMLElement): void {
+    this.root.querySelector<HTMLElement>('[data-role="header"]')!.appendChild(element);
+  }
+
   setTitle(title: string | null): void {
     this.titleText.textContent = title ?? this.defaultTitle;
   }

@@ -1,5 +1,5 @@
 import { javascriptDefaults } from 'monaco-editor/languages/features/typescript/register.js';
-import { fetchEngineTypes } from './editor-api';
+import { fetchEngineTypes, fetchOcctTypes } from './editor-api';
 import { registerAutoImports } from './auto-imports';
 
 /**
@@ -36,4 +36,26 @@ export function loadEngineTypes(): Promise<void> {
       });
   }
   return loading;
+}
+
+/**
+ * Add raw OpenCascade's declarations — the binding the engine runs on,
+ * about 2 MB — to the language service. {@link OcctTypes} calls it the
+ * first time a workspace file reaches raw OpenCascade.
+ */
+export async function loadOcctTypes(): Promise<void> {
+  const started = performance.now();
+  try {
+    const payload = await fetchOcctTypes();
+    for (const file of payload.files) {
+      javascriptDefaults.addExtraLib(file.content, file.uri);
+    }
+    console.info(
+      `FluidCAD: loaded the OpenCascade binding's declarations `
+      + `(${Math.round(payload.bytes / 1024)} KB) in ${Math.round(performance.now() - started)} ms — a file reaches raw OpenCascade`,
+    );
+  } catch (err) {
+    // Raw OpenCascade still builds; its calls just complete as `any`.
+    console.warn('FluidCAD: the OpenCascade binding\'s declarations are unavailable:', err);
+  }
 }

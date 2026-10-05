@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FeatureMetaSnapshot } from '../src/api';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeaturePanel } from '../src/interactive/create-feature/schema/schema-feature-panel';
+import { RawOcctMarker } from '../src/interactive/create-feature/schema/raw-occt-marker';
 
 // The dialog a custom feature's metadata draws: each kind of row, the group
 // headings and tab panes, rows that come and go with `visibleWhen`, and the
@@ -35,10 +36,10 @@ const VENT: FeatureMetaSnapshot = {
   contexts: ['part'],
 };
 
-function mount(meta: FeatureMetaSnapshot = VENT): { panel: SchemaFeaturePanel; root: HTMLElement } {
+function mount(meta: FeatureMetaSnapshot = VENT, opts: { usesOcct?: boolean } = {}): { panel: SchemaFeaturePanel; root: HTMLElement } {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const panel = new SchemaFeaturePanel(container, new FeatureSchema(meta), 'icon.svg');
+  const panel = new SchemaFeaturePanel(container, new FeatureSchema(meta, opts), 'icon.svg');
   panel.show();
   return { panel, root: container.querySelector<HTMLElement>(`#fluidcad-feature-${meta.id.replace('.', '-')}`)! };
 }
@@ -48,6 +49,16 @@ const opTabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElemen
 const shown = (el: Element | null) => el !== null && !el.closest('.hidden');
 
 describe('the schema dialog', () => {
+  it('marks a feature that reaches raw OpenCascade beside its title, and no other', () => {
+    const marked = mount(VENT, { usesOcct: true }).root;
+    const mark = marked.querySelector<HTMLElement>('[data-role="header"] [data-role="raw-occt"]');
+    expect(mark).not.toBeNull();
+    expect(mark!.textContent!.trim()).toBe('Raw OpenCascade');
+    expect(mark!.title).toBe(RawOcctMarker.TIP);
+    document.body.innerHTML = '';
+    expect(mount(VENT).root.querySelector('[data-role="raw-occt"]')).toBeNull();
+  });
+
   it('draws each kind of row with its default', () => {
     const { root } = mount();
     const value = (name: string) => root.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;

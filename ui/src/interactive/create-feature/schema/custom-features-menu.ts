@@ -5,6 +5,7 @@ import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LAB
 import { viewportChrome } from '../../../ui/viewport-chrome';
 import type { FeatureLauncher } from '../feature-button';
 import type { SketchHideable } from '../finish-sketch-button';
+import { RawOcctMarker } from './raw-occt-marker';
 
 /** How one feature shows in the menu. */
 export type CustomFeatureCellSpec = {
@@ -18,6 +19,8 @@ export type CustomFeatureCellSpec = {
   group: 'create' | 'modify';
   /** An entry the catalog can't offer: greyed, and its tooltip says why. */
   disabled?: boolean;
+  /** The feature reaches raw OpenCascade: the cell carries the mark ({@link RawOcctMarker}). */
+  usesOcct?: boolean;
 };
 
 // The dropdown hangs off the button like the sketch toolbar's option menus
@@ -61,7 +64,7 @@ export class CustomFeatureCell implements FeatureLauncher {
     },
   ) {
     this.el = document.createElement('div');
-    this.el.className = 'min-w-0 flex';
+    this.el.className = 'relative min-w-0 flex';
     this.el.title = spec.tip;
     if (spec.id !== null) {
       this.el.dataset.tool = `feature:${spec.id}`;
@@ -74,6 +77,9 @@ export class CustomFeatureCell implements FeatureLauncher {
     label.className = CELL_LABEL;
     label.textContent = spec.label;
     this.button.appendChild(label);
+    if (spec.usesOcct) {
+      this.el.appendChild(RawOcctMarker.element('corner'));
+    }
     this.button.addEventListener('click', () => this.events.press(this));
     this.el.appendChild(this.button);
     this.syncClass();

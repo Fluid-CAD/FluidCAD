@@ -50,6 +50,7 @@ import iconCopyX from '@tabler/icons/outline/copy-x.svg?raw';
 import iconArrowBarToLeft from '@tabler/icons/outline/arrow-bar-to-left.svg?raw';
 import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?raw';
 import iconPuzzle from '@tabler/icons/outline/puzzle.svg?raw';
+import iconAlertHexagon from '@tabler/icons/outline/alert-hexagon.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -102,6 +103,8 @@ export const ICON_FOLDER_UP = iconCornerLeftUp;
 export const ICON_UNDO = iconArrowBackUp;
 /** The toolbar's Custom button — the workspace's own features, under one dropdown. */
 export const ICON_CUSTOM_FEATURES = iconPuzzle;
+/** A custom feature that reaches raw OpenCascade (`fluidcad/sdk/occt`). */
+export const ICON_RAW_OCCT = iconAlertHexagon;
 export const ICON_REDO = iconArrowForwardUp;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 

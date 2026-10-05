@@ -167,6 +167,11 @@ export function fetchEngineTypes(): Promise<EngineTypesPayload> {
   return request('api/engine/types');
 }
 
+/** The declarations of the OpenCascade binding the engine runs on — raw OpenCascade's types (about 2 MB). */
+export function fetchOcctTypes(): Promise<EngineTypesPayload> {
+  return request('api/engine/types/occt');
+}
+
 /**
  * Settle a server-dispatched editor action. `apply-feature-edit` acks through
  * `POST /api/code/apply-feature` like every host; this is the channel for

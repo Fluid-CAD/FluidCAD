@@ -10,6 +10,7 @@ import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
 import { DEFAULT_LENGTH_UNIT, parseLengthUnit, type LengthUnit } from "../units/units.js";
+import { mergeMaterials, resolveMaterial, type Material, type ProjectMaterials } from "../common/materials.js";
 import {
   VIEWER_PROTOCOL_VERSION,
   type BrowserObjectBuildError,
@@ -20,7 +21,7 @@ import {
 
 type SceneManagerInstance = ReturnType<typeof createManager>;
 
-/** The project descriptor the desktop reads at a workspace root; a share link ships `{ "unit" }` of it. */
+/** The project descriptor the desktop reads at a workspace root; a share link ships `{ "unit", "materials" }` of it. */
 const PROJECT_CONFIG_FILENAME = "fluidcad.json";
 
 /**
@@ -50,6 +51,60 @@ export function resolveWorkspaceUnit(
     }
   }
   return fallback;
+}
+
+/**
+ * The project materials for one workspace install — the `materials` map of
+ * `fluidcad.json` as a share link or a package carries it, resolved like the
+ * unit: an explicit map (a package manifest's) wins, else the workspace's
+ * own file, else none. The desktop validates the map and reports a bad
+ * entry as a config error; here, without a channel for it, an entry that is
+ * not `{ name: string, density: number > 0 }` is skipped and the rest
+ * stand, so one typo never hides the whole table from a viewer.
+ * Exported for tests; hosts go through setWorkspace().
+ */
+export function resolveWorkspaceMaterials(
+  explicit: ProjectMaterials | null | undefined,
+  projectConfig: Uint8Array | undefined,
+): ProjectMaterials | null {
+  if (explicit !== undefined && explicit !== null) {
+    return sanitizeProjectMaterials(explicit);
+  }
+  if (projectConfig) {
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(projectConfig)) as { materials?: unknown };
+      if (parsed && typeof parsed === "object") {
+        return sanitizeProjectMaterials(parsed.materials);
+      }
+    } catch {
+      // Not JSON: the desktop warns; here the built-ins alone stand.
+    }
+  }
+  return null;
+}
+
+function sanitizeProjectMaterials(raw: unknown): ProjectMaterials | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const materials: ProjectMaterials = {};
+  let any = false;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const entry = value as { name?: unknown; density?: unknown; densityUnit?: unknown } | null;
+    if (id.trim() === "" || !entry || typeof entry !== "object") {
+      continue;
+    }
+    if (typeof entry.name !== "string" || typeof entry.density !== "number" || !Number.isFinite(entry.density) || entry.density <= 0) {
+      continue;
+    }
+    materials[id] = {
+      name: entry.name,
+      density: entry.density,
+      ...(typeof entry.densityUnit === "string" ? { densityUnit: entry.densityUnit as Material["densityUnit"] } : {}),
+    };
+    any = true;
+  }
+  return any ? materials : null;
 }
 
 /**
@@ -102,6 +157,8 @@ export class BrowserEngineHost {
   private entryPath = "/model.fluid.js";
   /** The project unit init() booted with — what a workspace without its own `fluidcad.json` follows. */
   private bootUnit: LengthUnit = DEFAULT_LENGTH_UNIT;
+  /** The workspace's `materials` map (`fluidcad.json`, or a manifest's) — see {@link setWorkspace}. */
+  private projectMaterials: ProjectMaterials | null = null;
 
   static engineInfo(): EngineInfo {
     const version = (globalThis as { __FLUIDCAD_VERSION__?: string }).__FLUIDCAD_VERSION__;
@@ -133,12 +190,14 @@ export class BrowserEngineHost {
    * (`{ "unit": "in" }`, as a share link carries it), else the unit init()
    * booted with, which is mm unless the host said otherwise. A
    * `fluidcad.json` whose unit is not a length unit is ignored, matching the
-   * desktop's "use mm" fallback. Text values are encoded as UTF-8.
+   * desktop's "use mm" fallback. The project materials follow the same
+   * rule (`options.materials`, else the file's `materials` map, else none —
+   * see {@link resolveWorkspaceMaterials}). Text values are encoded as UTF-8.
    */
   setWorkspace(
     files: Record<string, string | Uint8Array>,
     entryPath: string,
-    options?: { unit?: string | null },
+    options?: { unit?: string | null; materials?: ProjectMaterials | null },
   ): void {
     this.entryPath = entryPath.startsWith("/") ? entryPath : "/" + entryPath;
     const encoder = new TextEncoder();
@@ -151,6 +210,22 @@ export class BrowserEngineHost {
     if (this.manager) {
       this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
     }
+    this.projectMaterials = resolveWorkspaceMaterials(options?.materials, bytes.get(PROJECT_CONFIG_FILENAME));
+  }
+
+  /**
+   * The merged materials list for the installed workspace: the built-ins
+   * followed by the project's own (`source: 'project'`), the same list the
+   * desktop's `GET /api/materials` answers — what a viewer's material
+   * dropdown or mass readout resolves a part's `.material(id)` against.
+   */
+  getMaterials(): Material[] {
+    return mergeMaterials(this.projectMaterials);
+  }
+
+  /** The material a part's `.material(id)` names in this workspace, or undefined for an unknown id. */
+  resolveMaterial(id: string): Material | undefined {
+    return resolveMaterial(id, this.projectMaterials);
   }
 
   /** Swap in a newly compiled model module. The next render() evaluates it. */
@@ -250,19 +325,23 @@ export class BrowserEngineHost {
 
     this.manager.renderScene(scene);
     const result = scene.getRenderedObjects();
-    this.lastRollbackStop = result.length - 1;
+    // The last row, or — paused inside a part — that part's paused row.
+    const { stop, scopePartId } = this.manager.renderStop(scene);
+    this.lastRollbackStop = stop;
     const assembly = this.manager.getAssemblyData(scene);
 
     return {
       sceneKind,
       result,
       rollbackStop: this.lastRollbackStop,
+      ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       unit: scene.unit,
       declaredUnit: scene.declaredUnit,
       projectUnit: this.manager.projectUnit,
       breakpointHit,
       params,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
+      objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
       ...(assembly ? { assembly } : {}),
     };
@@ -336,6 +415,7 @@ export class BrowserEngineHost {
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
+      objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
     };
   }
@@ -392,6 +472,35 @@ export class BrowserEngineHost {
   }
 
   /** Ported from FluidCadServer.collectObjectErrors — see that doc comment. */
+  /**
+   * The render's non-fatal notices, mirroring the desktop's
+   * `objectWarnings`: a `part` row whose `.material(id)` is in neither
+   * the built-in nor the workspace table. The part built; only its mass
+   * is unknown.
+   */
+  private collectObjectWarnings(result: unknown[]): BrowserObjectBuildError[] {
+    const warnings: BrowserObjectBuildError[] = [];
+    for (let index = 0; index < result.length; index++) {
+      const obj = result[index] as {
+        type?: string; id: string; name: string; uniqueType: string;
+        object?: { material?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
+      };
+      const material = obj?.type === "part" ? obj.object?.material : undefined;
+      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+        continue;
+      }
+      warnings.push({
+        index,
+        id: obj.id,
+        name: obj.name,
+        uniqueKind: obj.uniqueType,
+        message: `Unknown material: ${material}`,
+        sourceLocation: obj.sourceLocation,
+      });
+    }
+    return warnings;
+  }
+
   private static collectObjectErrors(result: unknown[]): BrowserObjectBuildError[] {
     const errors: BrowserObjectBuildError[] = [];
     for (let index = 0; index < result.length; index++) {

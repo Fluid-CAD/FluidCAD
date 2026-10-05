@@ -1,10 +1,12 @@
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { SweepOps } from "../oc/sweep-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { WireExtendOps } from "../oc/wire-extend-ops.js";
 
 /** The dialog values a ghost sweep is built from, all resolved. */
 export type SweepGhostOptions = {
@@ -13,6 +15,17 @@ export type SweepGhostOptions = {
   thin: [number] | [number, number] | null;
   /** The spine to run along, already resolved from the dialog's path slot. */
   path: Wire;
+  /** `.extend('start', …)` lead-in along the spine's start tangent, or null. */
+  extendStart?: number | null;
+  /** `.extend('end', …)` run-out along the spine's end tangent, or null. */
+  extendEnd?: number | null;
+  /**
+   * The picked `.region()` faces, already resolved from the profile's
+   * regions — swept in place of the profile's own regions. Ignored by a thin
+   * sweep, which offsets the whole profile (the kernel's own rule). Owned by
+   * the caller, who disposes them with the scratch.
+   */
+  faces?: Face[];
 };
 
 export type SweepGhostSolids = {
@@ -37,10 +50,10 @@ const DRILL_HOLES = true;
  * tool is the same body either way, so only the overlay's color changes.
  *
  * The branching mirrors `Sweep.build` (sweep.ts) minus everything scene-bound
- * — face classification, fusion scope, `removeShapes`, the cut itself. Nothing
- * here honors `.extend()`: the dialog has no field for it, and an edit rewrites
- * the statement without it, so a ghost that ran past the path would show
- * geometry the apply can't produce.
+ * — face classification, fusion scope, `removeShapes`, the cut itself. The
+ * `.extend()` lead-in/run-out is applied to the spine exactly as
+ * `Sweep.getSpineWire` does, so the ghost runs as far past the path as the
+ * statement the dialog writes.
  *
  * The caller owns disposal: every returned shape, `scratch` included, must be
  * `dispose()`d once meshed. None of it is reachable from scene state, so
@@ -78,12 +91,7 @@ function collectSolids(
     return;
   }
 
-  // Thin profiles sweep their offset shell — for a cut too, where the thin
-  // faces are the tool's source (sweep.ts:65).
-  const faces = options.thin
-    ? ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces
-    : FaceMaker2.getRegions(geometries, plane, DRILL_HOLES);
-  scratch.push(...faces);
+  const faces = profileFaces(geometries, plane, options, scratch);
   if (faces.length === 0) {
     return;
   }
@@ -91,5 +99,47 @@ function collectSolids(
   // One body per region, as the kernel builds them (sweep-ops.ts:70) — no fuse
   // here, unlike the revolve: separate regions stay separate bodies through
   // the apply too, so the ghost has no coincident walls to merge away.
-  solids.push(...SweepOps.makeSweep(options.path, faces).solids);
+  solids.push(...SweepOps.makeSweep(extendedSpine(options, scratch), faces, plane).solids);
+}
+
+/**
+ * The faces to sweep: the picked regions when the dialog named some, else
+ * the profile's own regions. Thin profiles sweep their offset shell — for a
+ * cut too, where the thin faces are the tool's source (sweep.ts:65). Faces
+ * made here land in `scratch`; picked ones stay the caller's.
+ */
+function profileFaces(
+  geometries: Edge[],
+  plane: Plane,
+  options: SweepGhostOptions,
+  scratch: Shape[],
+): Face[] {
+  if (options.thin) {
+    const faces = ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces;
+    scratch.push(...faces);
+    return faces;
+  }
+  if (options.faces) {
+    return options.faces;
+  }
+  const faces = FaceMaker2.getRegions(geometries, plane, DRILL_HOLES);
+  scratch.push(...faces);
+  return faces;
+}
+
+/**
+ * The spine with the dialog's lead-in/run-out applied, as `Sweep.getSpineWire`
+ * builds it (sweep.ts). `extendWire` returns its input untouched for a
+ * closed wire or a non-positive length. Newly allocated wires belong to the
+ * scratch list, including their independently owned analytic descriptors.
+ */
+function extendedSpine(options: SweepGhostOptions, scratch: Shape[]): Wire {
+  let wire = options.path;
+  for (const [side, amount] of [["start", options.extendStart], ["end", options.extendEnd]] as const) {
+    if (amount == null) continue;
+    const extended = WireExtendOps.extendWire(wire, side, amount);
+    if (extended !== wire) scratch.push(extended);
+    wire = extended;
+  }
+  return wire;
 }

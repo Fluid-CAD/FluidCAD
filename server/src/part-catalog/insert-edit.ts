@@ -7,7 +7,8 @@ import {
   joinLines,
   splitLines,
   type TSNode,
-} from '../code-editor.ts';
+  walkTree,
+} from '../code-editor/index.ts';
 import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
 
 /** What the chosen catalog export is, deciding the statement rendered for it. */
@@ -63,12 +64,15 @@ export type InsertPartEditSpec = {
  * assembly file, importing each export (and `insert`) as needed:
  *
  *     import { extrusion } from './extrusion.fluid.js';
- *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 });
- *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 });
+ *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion1');
+ *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion2');
  *
  * Every entry is bound to a fresh `const` so the follow-up flows (translate
  * chains, mates, sub-assembly part paths) have a name to reference; names
  * number against the evolving code, so one batch never collides with itself.
+ * The instance is named after its variable, so two inserts of one part read
+ * apart in the parts panel from the start; renaming it there renames the
+ * variable in turn (see `InstanceRename`).
  * Import bindings dodge collisions too: an export whose name is already
  * bound (by another file's import, a local declaration, or a fluidcad/core
  * symbol) is imported under an alias derived from its file
@@ -89,7 +93,7 @@ export type InsertPartEditSpec = {
 export async function applyInsertPartEdit(
   code: string,
   spec: InsertPartEditSpec,
-): Promise<{ newCode: string; error?: string }> {
+): Promise<{ newCode: string; error?: string; statementLine?: number }> {
   const entries = spec.inserts;
   if (!Array.isArray(entries) || entries.length === 0) {
     return { newCode: code, error: 'No inserts in the request.' };
@@ -105,6 +109,7 @@ export async function applyInsertPartEdit(
   }
 
   let out = code;
+  let firstBinding: string | undefined;
   for (const entry of entries) {
     // The name the insert() references is whatever the import BINDS, not
     // the export's name: two files exporting `part`, or an export sharing
@@ -119,10 +124,11 @@ export async function applyInsertPartEdit(
     out = await ensureSymbolImport(out, 'insert');
 
     const varName = pickInstanceName(out, localName);
+    firstBinding ??= varName;
     const callSuffix = entry.kind === 'value' ? '' : '()';
     const paramsLiteral = renderParamsLiteral(entry.params);
     const statement =
-      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''});`;
+      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''}).name('${varName}');`;
 
     const parser = await getJavaScriptParser();
     const tree = parser.parse(out);
@@ -141,7 +147,12 @@ export async function applyInsertPartEdit(
     lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
     out = joinLines(lines);
   }
-  return { newCode: out };
+  // Imports added by later entries may have shifted the first insert.
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(out);
+  const first = [...walkTree(tree.rootNode)].find(node => node.type === 'variable_declarator'
+    && node.childForFieldName('name')?.text === firstBinding);
+  return { newCode: out, statementLine: first ? first.startPosition.row + 1 : undefined };
 }
 
 /** The first param label whose value can't render as a literal, if any. */

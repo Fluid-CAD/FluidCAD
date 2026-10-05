@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyInsertParamsEdit, getInsertParamExpressions } from '../src/insert-params-edit.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 
 describe('applyInsertParamsEdit', () => {
   it('creates the second argument when absent', async () => {

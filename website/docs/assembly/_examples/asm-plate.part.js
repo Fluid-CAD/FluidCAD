@@ -1,5 +1,5 @@
 // @screenshot skip
-import { part, sketch, line, circle, extrude, fillet, select, connector, expose } from 'fluidcad/core';
+import { part, sketch, line, circle, extrude, fillet, select, connector, copy, expose } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 
@@ -42,10 +42,13 @@ export const plate = part('Base plate', () => {
     // world Y, so the offsets read like sketch coordinates.
     connector('top', select(face().planar().onPlane('xy', 10)));
     connector('bore', select(face().planar().onPlane('xy', 10))).offset(20, 0, 0);
-    connector('hole1', select(face().planar().onPlane('xy', 10))).offset(-30, -17.5, 0);
-    connector('hole2', select(face().planar().onPlane('xy', 10))).offset(30, -17.5, 0);
-    connector('hole3', select(face().planar().onPlane('xy', 10))).offset(30, 17.5, 0);
-    connector('hole4', select(face().planar().onPlane('xy', 10))).offset(-30, 17.5, 0);
+    // One connector on the front-left mounting hole, copied onto the other
+    // three: a 2 × 2 grid, 60 apart along X and 35 along Y, the same pitch
+    // as the hole circles. The copies are hole.instance(1) … hole.instance(3),
+    // numbered with X varying slowest: 1 is back left, 2 front right, 3 back
+    // right. An assembly mates them as base.connectors.hole.instance(k).
+    const hole = connector('hole', select(face().planar().onPlane('xy', 10))).offset(-30, -17.5, 0);
+    copy('linear', ['x', 'y'], { count: [2, 2], offset: [60, 35] }, hole);
     // The top face as contact geometry for tangent mates.
     expose('deck', select(face().planar().onPlane('xy', 10)));
 });

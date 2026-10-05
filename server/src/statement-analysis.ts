@@ -10,7 +10,7 @@ import {
   walkTree,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import { isReferenceUse, listEngineSymbols } from './lint-fluid-js.ts';
 
 /** The innermost call of a chain whose callee is a bare identifier, or null. */
@@ -73,6 +73,17 @@ const DEFERRED_SCOPE_TYPES = new Set([
   'generator_function_declaration',
   'method_definition',
   'class_declaration',
+]);
+
+/** Scopes that bind their parameters for the code they contain. */
+const PARAMETER_SCOPE_TYPES = new Set([
+  'arrow_function',
+  'function',
+  'function_expression',
+  'function_declaration',
+  'generator_function',
+  'generator_function_declaration',
+  'method_definition',
 ]);
 
 export class StatementAnalysis {
@@ -335,4 +346,47 @@ export class StatementAnalysis {
     return edits;
   }
 
+  /**
+   * Does the identifier `ref` (named `name`) resolve to the binding
+   * `declStmt` makes? True when the walk up from the reference reaches the
+   * block that holds `declStmt` without passing a closer block or function
+   * that binds the same name.
+   */
+  protected static resolvesTo(ref: TSNode, declStmt: TSNode, name: string): boolean {
+    const declScope = declStmt.parent;
+    if (!declScope) {
+      return false;
+    }
+    for (let cur = ref.parent; cur; cur = cur.parent) {
+      if (cur.type === 'statement_block' || cur.type === 'program') {
+        if (StatementAnalysis.sameSpan(cur, declScope)) {
+          return true;
+        }
+        if (cur.namedChildren.some((child) => StatementAnalysis.declaredNames(child).includes(name))) {
+          return false;
+        }
+      } else if (PARAMETER_SCOPE_TYPES.has(cur.type) && StatementAnalysis.parameterNames(cur).includes(name)) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  protected static parameterNames(fn: TSNode): string[] {
+    const single = fn.childForFieldName('parameter');
+    if (single) {
+      return [single.text];
+    }
+    const params = fn.childForFieldName('parameters');
+    if (!params) {
+      return [];
+    }
+    const out: string[] = [];
+    for (const node of walkTree(params)) {
+      if (node.type === 'identifier' || node.type === 'shorthand_property_identifier_pattern') {
+        out.push(node.text);
+      }
+    }
+    return out;
+  }
 }

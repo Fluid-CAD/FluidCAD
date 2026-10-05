@@ -3,6 +3,7 @@ import { FeatureOp, OpTabs } from './panel-controls';
 import { PlaneOption } from './plane-bases';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { iconUrl } from '../../ui/icon-url';
 
 /** The slot picks land in — the one last clicked (the sweep/loft idiom). */
 export type MirrorArmedSlot = 'targets' | 'plane';
@@ -44,7 +45,7 @@ export class MirrorPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-mirror-panel',
       title: 'Mirror',
-      icon: '/icons/mirror.png',
+      icon: iconUrl('mirror'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>

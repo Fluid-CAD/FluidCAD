@@ -84,7 +84,7 @@ export function basisFunctions(span: number, t: number, degree: number, flatKnot
  * band restriction turns the O(n³) dense solve into O(n·b²), which is what
  * makes dense-sample curve approximation affordable.
  */
-function solveBanded(matrix: number[][], rhsColumns: number[][]): number[][] {
+export function solveBanded(matrix: number[][], rhsColumns: number[][]): number[][] {
   const n = matrix.length;
 
   let lowerBandwidth = 0;

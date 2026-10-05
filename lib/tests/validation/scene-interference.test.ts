@@ -419,3 +419,61 @@ describe("SceneInterference — units and payload", () => {
     expect(bare.length).toBeLessThan(200);
   });
 });
+
+describe("SceneInterference — shared-volume geometry", () => {
+  setupOC();
+
+  it("carries the meshed common solid on a clash only when asked, in world space", () => {
+    const scene = makeOverlappingRootBoxes();
+    const plain = checkReport(scene);
+    expect(plain.clashes[0].meshes).toBeUndefined();
+
+    const bare = checkReport(scene, { includeGeometry: true });
+    // Without a mesher the flag is inert: the report is the verdict alone.
+    expect(bare.clashes[0].meshes).toBeUndefined();
+
+    const report = getSceneManager().interfere(scene, { includeGeometry: true });
+    expect(report.kind).toBe('report');
+    const clash = (report as Extract<SceneInterferenceOutcome, { kind: 'report' }>).report.clashes[0];
+    expect(clash.meshes).toBeDefined();
+    const faces = clash.meshes!.filter(m => m.label !== 'solid-edges');
+    expect(faces.length).toBeGreaterThan(0);
+    // The shared 10×10×10 cube spans [10,20]³.
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const zs: number[] = [];
+    for (const m of faces) {
+      for (let i = 0; i < m.vertices.length; i += 3) {
+        xs.push(m.vertices[i]);
+        ys.push(m.vertices[i + 1]);
+        zs.push(m.vertices[i + 2]);
+      }
+    }
+    expect(Math.min(...xs)).toBeCloseTo(10, 5);
+    expect(Math.max(...xs)).toBeCloseTo(20, 5);
+    expect(Math.min(...ys)).toBeCloseTo(10, 5);
+    expect(Math.max(...ys)).toBeCloseTo(20, 5);
+    expect(Math.min(...zs)).toBeCloseTo(0, 5);
+    expect(Math.max(...zs)).toBeCloseTo(10, 5);
+  });
+
+  it("places an assembly instance's shared volume at its pose", () => {
+    getSceneManager().startAssemblyScene();
+    const def = part("box", () => {
+      sketch("xy", () => {
+        testRect(20, 20);
+      });
+      extrude(10);
+    });
+    insert(def);
+    insert(def).translate(15, 0, 0);
+    const scene = render();
+    assertClean(scene);
+    const outcome = getSceneManager().interfere(scene, { includeGeometry: true });
+    expect(outcome.kind).toBe('report');
+    const clash = (outcome as Extract<SceneInterferenceOutcome, { kind: 'report' }>).report.clashes[0];
+    const xs = clash.meshes!.filter(m => m.label !== 'solid-edges').flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    expect(Math.min(...xs)).toBeCloseTo(15, 5);
+    expect(Math.max(...xs)).toBeCloseTo(20, 5);
+  });
+});

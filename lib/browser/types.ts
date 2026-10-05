@@ -45,10 +45,15 @@ export interface BrowserRenderResult {
   declaredUnit: LengthUnit | null;
   /** The project unit the host was booted with (`options.unit`, else mm) — what an undeclared file follows. */
   projectUnit: LengthUnit;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit: boolean;
   params?: ParamDefinition[];
   objectErrors: BrowserObjectBuildError[];
+  /**
+   * Non-fatal notices per row (`Unknown material: <id>` on a part row),
+   * same shape and numbering as `objectErrors`; absent on a compile error.
+   */
+  objectWarnings?: BrowserObjectBuildError[];
   compileError: { message: string; stack?: string } | null;
 }

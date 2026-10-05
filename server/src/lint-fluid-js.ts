@@ -11,7 +11,7 @@
 // instance is the same singleton the param editor in `code-editor.ts` uses.
 // Doing it that way means we don't double-load the JavaScript wasm grammar.
 
-import { getJavaScriptParser } from './code-editor.ts';
+import { getJavaScriptParser } from './code-editor/index.ts';
 import { lintUnitStatements, type LintDiagnostic } from './unit-lint.ts';
 
 type TSNode = {
@@ -36,12 +36,14 @@ const CORE_SYMBOLS = new Set<string>([
   'axis', 'plane', 'sketch', 'fuse', 'subtract', 'common',
   'cut', 'revolve', 'extrude', 'sphere', 'cylinder', 'select', 'shell',
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
-  'load', 'loft', 'sweep', 'rib', 'color', 'draft', 'remove',
-  'part', 'assembly', 'breakpoint', 'connector', 'expose', 'insert', 'mate', 'replicate',
+  'load', 'loft', 'sweep', 'rib', 'hole', 'color', 'draft', 'remove',
+  'part', 'assembly', 'breakpoint', 'connector', 'expose', 'property', 'insert', 'mate', 'replicate', 'section',
   'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
   'bezier', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
+  // Region declarations inside a sketch and their far-side wrapper.
+  'region', 'far',
   // Document unit declaration — metadata, not a feature (unit-lint.ts).
   'unit',
 ]);
@@ -62,7 +64,7 @@ const CONSTRAINT_SYMBOLS = new Set<string>([
   // Solved-sketch constraint statements (sketch-rewrite P2).
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
   'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',
-  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
+  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix', 'offsetFrom',
 ]);
 
 const SHAPE_SYMBOLS = new Set<string>([

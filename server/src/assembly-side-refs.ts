@@ -1,9 +1,9 @@
 import { basename } from 'path';
 import { readFile } from 'fs/promises';
-import type { FluidCadServer } from './fluidcad-server.ts';
+import type { FluidCadServer } from './fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { resolveExportKey } from './assembly-mate-edit.ts';
-import type { MateConnectorRef, MateFrameRef, MateGeometryRef } from './assembly-chain-tools.ts';
+import { isCopySlot, type MateConnectorRef, type MateFrameRef, type MateGeometryRef } from './assembly-chain-tools.ts';
 import { normalizePath } from './normalize-path.ts';
 
 /**
@@ -28,12 +28,14 @@ export type MateViaEntryBody =
  * The wire form of a connector side: MateConnectorRef with unresolved
  * levels. `replicaRow` addresses a replica: `instanceLine` is then the
  * `replicate()` statement's line and the side lives on its row-th copy.
+ * `slot` addresses a connector copy — `.connectors.<name>.instance(slot)`.
  */
 export type MateConnectorSideBody = {
   instanceLine: number;
   connectorName: string;
   viaParts?: MateViaEntryBody[];
   replicaRow?: number;
+  slot?: number;
 };
 
 /** The wire form of an exposure side addressed by name (no raw pick). */
@@ -66,14 +68,17 @@ export function isConnectorRef(v: unknown): v is MateConnectorSideBody {
     && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0
     && (v as any).exposeName === undefined
     && isReplicaRow((v as any).replicaRow)
+    && isCopySlot((v as any).slot)
     && ((v as any).viaParts === undefined
       || (Array.isArray((v as any).viaParts) && (v as any).viaParts.every(isViaEntry)));
 }
 
+/** An assembly-connector side — a copy of one (`bay.instance(2)`) carries its `slot`. */
 export function isFrameRef(v: unknown): v is MateFrameRef {
   return v !== null && typeof v === 'object'
     && Number.isInteger((v as any).connectorLine) && (v as any).connectorLine >= 1
-    && typeof (v as any).connectorName === 'string';
+    && typeof (v as any).connectorName === 'string'
+    && isCopySlot((v as any).slot);
 }
 
 export function isNamedGeometryRef(v: unknown): v is NamedGeometrySideBody {

@@ -6,12 +6,10 @@ import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
-import { LazyVertex } from "./lazy-vertex.js";
-import { Point2DLike } from "../math/point.js";
 import { Plane } from "../math/plane.js";
-import { normalizePoint2D } from "../helpers/normalize.js";
-import { FaceOps } from "../oc/face-ops.js";
-import { FaceMaker2 } from "../oc/face-maker2.js";
+import { SketchRegion } from "./2d/regions/region-builder.js";
+import { declaredNameOf, sourceRegionContext } from "./2d/regions/source-regions.js";
+import { resolveRegions } from "./2d/regions/region-match.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
@@ -71,14 +69,17 @@ function dedupEdgesByMapExcluding(edges: Edge[], excluded: Edge[]): Edge[] {
   return result;
 }
 
+/** One region of the source in the feature's payload — the picker reads these. */
+type SerializedRegion = { key: string; index: number; name: string | null; selected: boolean };
+
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
   protected _faceSource: SceneObject | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
   protected _drill?: boolean = true;
-  protected _picking: boolean = false;
-  protected _pickPoints: LazyVertex[] = [];
+  protected _regionPicking: boolean = false;
+  protected _regionNames: string[] = [];
   protected _thin?: [number] | [number, number];
 
   constructor(source?: Extrudable | SceneObject) {
@@ -376,7 +377,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     shapes: Shape[],
     classified: ClassifiedFaces,
     context: BuildSceneObjectContext,
-    fuseOpts?: { glue?: 'full' | 'shift'; skipSimplify?: boolean },
+    fuseOpts?: { glue?: 'full' | 'shift'; skipSimplify?: boolean; validateResult?: boolean },
   ) {
     const p = context.getProfiler();
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
@@ -394,7 +395,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, shapes, {
+    const fusionResult = fuseWithSceneObjects(this.resolveFusionStock(context.getSceneObjects()), shapes, {
       ...fuseOpts,
       recordHistoryFor: this,
       profiler: p,
@@ -404,7 +405,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       if (!modifiedShape.object) {
         continue;
       }
-      modifiedShape.object.removeShape(modifiedShape.shape, this);
+      modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
     }
 
     this.addShapes(fusionResult.newShapes);
@@ -546,78 +547,82 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   protected serializePickFields() {
-    const plane = this.getSourcePlane();
+    const regions = this.getState('regions') as SerializedRegion[] | undefined;
     return {
-      picking: this.isPicking() || undefined,
-      pickPoints: this.isPicking()
-        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
-        : undefined,
-      trigger: this.isThin() ? undefined : 'region-picking' as const,
-      pickPlane: plane ? {
-        origin: plane.origin,
-        xDirection: plane.xDirection,
-        yDirection: plane.yDirection,
-        normal: plane.normal,
-      } : undefined,
+      regionPicking: this.isRegionPicking() || undefined,
+      regionNames: this.isRegionPicking() ? [...this._regionNames] : undefined,
+      regions: this.isRegionPicking() ? regions ?? [] : undefined,
     };
   }
 
-  pick(...points: Point2DLike[]): this {
-    this._picking = true;
-    this._pickPoints = points.map(p => normalizePoint2D(p));
+  /**
+   * Restrict the operation to particular regions of the sketch, by the names
+   * their `region()` declarations gave them inside the sketch callback. With
+   * no arguments the operation makes nothing and lists every region.
+   */
+  region(...names: string[]): this {
+    this._regionPicking = true;
+    this._regionNames = names;
     return this;
   }
 
-  isPicking(): boolean {
-    return this._picking;
+  isRegionPicking(): boolean {
+    return this._regionPicking;
   }
 
-  getPickPoints(): LazyVertex[] {
-    return this._pickPoints;
+  getRegionNames(): string[] {
+    return this._regionNames;
   }
 
   /**
-   * Resolves pick mode: partitions sketch into cells via CellsBuilder,
-   * classifies which cells are selected, adds meta shapes for all cells + edges,
-   * and returns the selected faces to extrude.
-   * Returns null if not in pick mode.
+   * The regions of the source sketch. A primitive passed straight to the
+   * operation (`extrude(10, c)`) reads the declarations of the sketch it
+   * belongs to.
    */
-  protected resolvePickedFaces(plane: Plane): Face[] | null {
-    if (!this.isPicking()) {
+  protected buildSourceRegions(plane: Plane): SketchRegion[] {
+    return sourceRegionContext(this.extrudable, plane).regions;
+  }
+
+  /**
+   * Resolves region mode: partitions the sketch into its regions, resolves
+   * the named declarations against them, adds every region and its edges as
+   * meta shapes for the pick overlay (selected ones marked), and returns the
+   * faces to build. Returns null when the operation is not in region mode.
+   * Names that do not resolve become the feature's error; what did resolve
+   * still builds.
+   */
+  protected resolveRegionFaces(plane: Plane): Face[] | null {
+    if (!this.isRegionPicking()) {
       return null;
     }
-
-    const sketchShapes = this.extrudable.getGeometries();
-    const cells = FaceMaker2.getRegions(sketchShapes, plane, false);
-
-    if (cells.length === 0) {
+    if (!this._extrudable) {
+      this.setError('region() needs a sketch source — a face-sourced operation has no sketch regions');
       return [];
     }
 
-    const pickPoints = this.getPickPoints();
-    const selectedCells: Face[] = [];
+    const context = sourceRegionContext(this.extrudable, plane);
+    const { regions, declarations, labels } = context;
+    if (!context.sketch && this._regionNames.length > 0) {
+      this.setError('region() needs a sketch source — the profile is not inside a sketch, so it declares no regions');
+    }
+    const requests = this._regionNames.map(name => ({ name }));
+    const { selected, problems } = resolveRegions(requests, regions, declarations, labels);
+    if (problems.length > 0) {
+      this.setError(problems.join('\n'));
+    }
 
-    for (const cell of cells) {
-      let isSelected = false;
-      let pickPoint: [number, number] | null = null;
-      for (const lazyPt of pickPoints) {
-        const pt2d = lazyPt.asPoint2D();
-        const pt3d = plane.localToWorld(pt2d);
-        if (FaceOps.isPointInsideFace(pt3d, cell)) {
-          isSelected = true;
-          pickPoint = [pt2d.x, pt2d.y];
-          break;
-        }
-      }
+    this.setState('regions', regions.map((region): SerializedRegion => ({
+      key: region.key,
+      index: region.index,
+      name: declaredNameOf(declarations, region.items),
+      selected: selected.includes(region),
+    })));
 
-      if (isSelected) {
-        cell.markAsMetaShape('pick-region-selected');
-        cell.metaData = { pickPoint };
-        selectedCells.push(cell);
-      } else {
-        cell.markAsMetaShape('pick-region');
-      }
-
+    for (const region of regions) {
+      const cell = region.face;
+      const isSelected = selected.includes(region);
+      cell.markAsMetaShape(isSelected ? 'pick-region-selected' : 'pick-region');
+      cell.metaData = { key: region.key, index: region.index };
       this.addShape(cell);
 
       for (const edge of cell.getEdges()) {
@@ -626,11 +631,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }
     }
 
-    return selectedCells;
+    return selected.map(region => region.face);
   }
 
   override clean(allObjects: SceneObject[]): void {
-    if (!this.isPicking()) {
+    if (!this.isRegionPicking()) {
       return;
     }
 
@@ -671,8 +676,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._fusionScope = other._fusionScope;
     this._operationMode = other._operationMode;
     this._symmetric = other._symmetric;
-    this._picking = other._picking;
-    this._pickPoints = other._pickPoints;
+    this._regionPicking = other._regionPicking;
+    this._regionNames = other._regionNames;
     this._thin = other._thin;
     this._drill = other._drill;
     return this;
@@ -748,16 +753,16 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return false;
     }
 
-    if (this._picking !== other._picking) {
+    if (this._regionPicking !== other._regionPicking) {
       return false;
     }
 
-    if (this._pickPoints.length !== other._pickPoints.length) {
+    if (this._regionNames.length !== other._regionNames.length) {
       return false;
     }
 
-    for (let i = 0; i < this._pickPoints.length; i++) {
-      if (!this._pickPoints[i].compareTo(other._pickPoints[i])) {
+    for (let i = 0; i < this._regionNames.length; i++) {
+      if (this._regionNames[i] !== other._regionNames[i]) {
         return false;
       }
     }

@@ -20,6 +20,7 @@ interface RepeatInstance extends Select {
   internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   capFaces(...args: (number | FaceFilter)[]): ISelection;
   capEdges(...args: (number | EdgeFilter)[]): ISelection;
+  faces(...args: (number | FaceFilter)[]): ISelection;
   edges(...indices: number[]): ISelection;
 }
 ```
@@ -136,6 +137,16 @@ The repeated feature's cap edges at this instance (thin-walled extrudes).
 | --- | --- | --- |
 | `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
+### `faces()`
+
+The repeated hole's walls at this instance.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `FaceFilter`)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
 ### `edges()`
 
 The repeated feature's section edges at this instance, by index.
@@ -148,4 +159,4 @@ The repeated feature's section edges at this instance, by index.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

@@ -19,6 +19,9 @@ import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
 import { DirectFaces } from "./direct-faces.js";
+import { SameDomainMerge } from "./same-domain-merge.js";
+import { transformHelixGeometry } from "../math/helix-geometry.js";
+import { RenderSeams } from "./render-seams.js";
 
 /**
  * A cleanShape result that preserves UnifySameDomain lineage so callers can
@@ -46,6 +49,18 @@ export class ShapeOps {
     transformer.Perform(shape.getShape(), true);
     const raw = transformer.Shape();
     const transformed = ShapeFactory.fromShape(raw);
+    RenderSeams.map(transformed, [shape], edge => [transformer.ModifiedShape(edge)]);
+
+    for (const entry of shape.getHelixEdges()) {
+      const geometry = transformHelixGeometry(entry.geometry, matrix);
+      if (!geometry) continue;
+      const edge = transformer.ModifiedShape(entry.edge);
+      try {
+        if (!edge.IsNull()) transformed.recordHelixGeometry(edge, geometry);
+      } finally {
+        edge.delete();
+      }
+    }
 
     if (shape.hasColors()) {
       const sourceFaces = shape.getSubShapes("face");
@@ -209,7 +224,7 @@ export class ShapeOps {
    */
   static cleanShapeWithLineage(
     shape: Shape,
-    opts?: { skipSimplify?: boolean; unifyEdges?: boolean },
+    opts?: { skipSimplify?: boolean; unifyEdges?: boolean; requireLineage?: boolean },
   ): CleanShapeLineage {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
@@ -219,6 +234,7 @@ export class ShapeOps {
     // rebuild the left-handed ones first, and route every remap through the
     // rebuild so callers' pre-clean faces still resolve — see DirectFaces.
     const inputRaw = shape.getShape();
+    const sourceShape = shape;
     const direct = DirectFaces.hasMixedHandedness(inputRaw) ? DirectFaces.applyRaw(inputRaw) : null;
     const through = (raw: TopoDS_Shape): TopoDS_Shape | null => (direct ? direct.modifiedOrNull(raw) : raw);
     if (direct) {
@@ -229,14 +245,14 @@ export class ShapeOps {
     // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
     // It also disables edge unification — delicate tangent geometry opted out
     // of merging entirely.
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(
-      shape.getShape(),
-      opts?.skipSimplify ? false : (opts?.unifyEdges ?? false),
-      opts?.skipSimplify ? false : true,
-      false,
-    );
-    unify.Build();
-    const cleanedRaw = unify.Shape();
+    // Strict callers may reuse validation only for an identical returned
+    // shape (including orientation). Make copying of changed input explicit.
+    const merge = SameDomainMerge.run(shape.getShape(), {
+      unifyEdges: opts?.skipSimplify ? false : (opts?.unifyEdges ?? false),
+      unifyFaces: !opts?.skipSimplify,
+      safeInput: opts?.requireLineage ? true : undefined,
+    });
+    const cleanedRaw = merge.shape;
 
     // Pre-compute which faces/edges this cleanup saw so the remap can
     // distinguish "didn't know about this shape" (return null) from
@@ -250,15 +266,15 @@ export class ShapeOps {
       knownEdges.Add(raw);
     }
 
-    const checker = new oc.BRepCheck_Analyzer(cleanedRaw, true, true);
-    const valid = checker.IsValid();
-    checker.delete();
-
-    if (!valid) {
+    if (!merge.valid) {
+      if (opts?.requireLineage) {
+        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
+        throw new Error("Sweep cleanup validation failed: invalid topology would require ShapeFix without trustworthy history.");
+      }
       // ShapeFix_Shape creates new TShapes without recording history.
       // Lineage is lost here — remap returns [face] best-effort for
       // faces the cleanup saw, null otherwise.
-      unify.delete();
+      merge.dispose();
       const fixer = new oc.ShapeFix_Shape(cleanedRaw);
       const progress = new oc.Message_ProgressRange();
       fixer.Perform(progress);
@@ -267,6 +283,9 @@ export class ShapeOps {
       progress.delete();
 
       const wrapped = ShapeFactory.fromShape(fixed);
+      // ShapeFix supplies no history: only exact surviving identities can
+      // retain display provenance, and their normals are checked again.
+      RenderSeams.map(wrapped, [sourceShape]);
       const fixedFaces = new OrientedFaces(fixed);
       let disposed = false;
       const dispose = () => {
@@ -297,7 +316,7 @@ export class ShapeOps {
       };
     }
 
-    const history = unify.History();
+    const history = merge.history;
     // Unify's history images carry no in-result orientation — every face it
     // hands back is canonicalized to its instance in the cleaned shape.
     const cleanedFaces = new OrientedFaces(cleanedRaw);
@@ -309,15 +328,21 @@ export class ShapeOps {
       }
       disposed = true;
       cleanedFaces.delete();
-      history.delete();
-      unify.delete();
+      merge.dispose();
       knownFaces.delete();
       knownEdges.delete();
       direct?.dispose();
     };
 
+    const wrapped = ShapeFactory.fromShape(cleanedRaw);
+    RenderSeams.map(wrapped, [sourceShape], edge => {
+      const raw = through(edge);
+      if (!raw || history.IsRemoved(raw)) return [];
+      const images = ShapeOps.shapeListToArray(history.Modified(raw));
+      return images.length ? images : [raw.Oriented(raw.Orientation())];
+    });
     return {
-      shape: ShapeFactory.fromShape(cleanedRaw),
+      shape: wrapped,
       remapFace: (face) => {
         if (!knownFaces.Contains(face.getShape())) {
           return null;
@@ -446,22 +471,20 @@ export class ShapeOps {
     // (e.g. boolean output from a profile with reversed face normal).
     // Fall back to the input shape on failure rather than aborting.
     let cleaned: TopoDS_Shape;
+    let valid: boolean;
     try {
-      const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
-      unify.Build();
-      cleaned = unify.Shape();
-      unify.delete();
+      const merge = SameDomainMerge.run(shape, { unifyEdges: false, unifyFaces: true });
+      cleaned = merge.shape;
+      valid = merge.valid;
+      merge.dispose();
     } catch {
       return shape;
     }
 
     // Validate — UnifySameDomain can corrupt periodic surfaces (e.g. cylinders)
-    const checker = new oc.BRepCheck_Analyzer(cleaned, true, true);
-    if (checker.IsValid()) {
-      checker.delete();
+    if (valid) {
       return cleaned;
     }
-    checker.delete();
 
     // Repair with ShapeFix_Shape (fixes seam edges, wire orientation, SameParameter)
     try {
@@ -474,6 +497,24 @@ export class ShapeOps {
       return fixed;
     } catch {
       return cleaned;
+    }
+  }
+
+  /**
+   * The face `face` became after a boolean `op`, oriented as it sits in
+   * `result` (a maker's images carry no in-result orientation). A face the
+   * op left untouched is returned as is.
+   */
+  static trackFace(op: { Modified(shape: TopoDS_Shape): TopTools_ListOfShape }, face: TopoDS_Shape, result: TopoDS_Shape): TopoDS_Shape {
+    const modified = ShapeOps.shapeListToArray(op.Modified(face));
+    if (modified.length === 0) {
+      return face;
+    }
+    const oriented = new OrientedFaces(result);
+    try {
+      return oriented.orient(modified[0]);
+    } finally {
+      oriented.delete();
     }
   }
 

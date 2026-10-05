@@ -82,24 +82,6 @@ export async function handleInsertPoint(client: Client, msg: { point: [number, n
   }
 }
 
-export async function handleAddPick(client: Client, msg: { sourceLocation: { line: number } }) {
-  const editor = findEditorForCurrentFile(client);
-  if (!editor) {
-    client.logger.appendLine(`[add-pick] No editor found for ${client.currentFileName}`);
-    return;
-  }
-  const doc = editor.document;
-  const result = await codeApi.addPick(
-    client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
-  );
-  if (!result) {
-    return;
-  }
-  if (await codeApi.replaceDocument(doc, result.newCode)) {
-    client.updateLiveCode(doc.fileName, doc.getText());
-  }
-}
-
 export async function handleAddGuide(client: Client, msg: { sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -126,24 +108,6 @@ export async function handleRemoveGuide(client: Client, msg: { sourceLocation: {
   }
   const doc = editor.document;
   const result = await codeApi.removeGuide(
-    client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
-  );
-  if (!result) {
-    return;
-  }
-  if (await codeApi.replaceDocument(doc, result.newCode)) {
-    client.updateLiveCode(doc.fileName, doc.getText());
-  }
-}
-
-export async function handleRemovePick(client: Client, msg: { sourceLocation: { line: number } }) {
-  const editor = findEditorForCurrentFile(client);
-  if (!editor) {
-    client.logger.appendLine(`[remove-pick] No editor found for ${client.currentFileName}`);
-    return;
-  }
-  const doc = editor.document;
-  const result = await codeApi.removePick(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
   );
   if (!result) {
@@ -273,23 +237,6 @@ export async function handleUpdateInsertChain(
   const doc = editor.document;
   const result = await codeApi.updateInsertChain(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.edit, client.logger,
-  );
-  if (!result) {
-    return;
-  }
-  if (await codeApi.replaceDocument(doc, result.newCode)) {
-    client.updateLiveCode(doc.fileName, doc.getText());
-  }
-}
-
-export async function handleSetPickPoints(client: Client, msg: { points: [number, number][]; sourceLocation: { line: number } }) {
-  const editor = findEditorForCurrentFile(client);
-  if (!editor) {
-    return;
-  }
-  const doc = editor.document;
-  const result = await codeApi.setPickPoints(
-    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.points, client.logger,
   );
   if (!result) {
     return;

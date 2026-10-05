@@ -6,6 +6,7 @@
 import type { PointRole, SolverRef } from '../../../lib/sketch-solver/types.js';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 import { Vec2, sub, norm } from './resolve';
+import { angleWithinSweep, arcSweep } from './tessellate';
 
 export type SolvedVertexHit = {
   type: 'vertex';
@@ -117,33 +118,11 @@ function distSqToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   return dx * dx + dy * dy;
 }
 
-/** Angular membership on the drawn side of an arc (mirrors the cw/ccw
- * sweep convention in resolve.ts's arcMidPoint). */
+/** Angular membership on the drawn side of an arc (tessellate.ts's
+ * arcSweep convention — a full-turn arc contains every angle). */
 function angleOnArc(e: SolvedEntityView, angle: number): boolean {
-  if (!e.center || !e.start || !e.end) {
-    return false;
-  }
-  const a0 = Math.atan2(e.start[1] - e.center[1], e.start[0] - e.center[0]);
-  const a1 = Math.atan2(e.end[1] - e.center[1], e.end[0] - e.center[0]);
-  let sweep = a1 - a0;
-  if (e.cw) {
-    if (sweep > 0) {
-      sweep -= 2 * Math.PI;
-    }
-  } else if (sweep < 0) {
-    sweep += 2 * Math.PI;
-  }
-  let rel = angle - a0;
-  if (e.cw) {
-    while (rel > 0) {
-      rel -= 2 * Math.PI;
-    }
-    return rel >= sweep - 1e-9;
-  }
-  while (rel < 0) {
-    rel += 2 * Math.PI;
-  }
-  return rel <= sweep + 1e-9;
+  const arc = arcSweep(e);
+  return arc !== null && angleWithinSweep(arc.a0, arc.sweep, angle);
 }
 
 function edgeDistSq(e: SolvedEntityView, p: Vec2): number | null {

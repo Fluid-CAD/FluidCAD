@@ -1,13 +1,15 @@
+import { isEditableTarget } from '../../keyboard-bridge';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
-import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { consumedReveal } from './consumed-reveal';
+import { ExpressionField, ExpressionFieldResult, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { NewVariable, ValueExpr } from '../../api';
 
 export type FeatureOp = 'add' | 'remove' | 'new';
 
-const TAB_BASE = 'btn btn-sm join-item flex-1 font-normal';
-const TAB_ACTIVE = 'btn btn-sm join-item flex-1 btn-soft btn-primary';
+const TAB_BASE = 'btn btn-sm join-item font-normal';
+const TAB_ACTIVE = 'btn btn-sm join-item btn-soft btn-primary';
 
 /**
  * A mutually-exclusive tab row shared by the create-feature dialogs.
@@ -20,12 +22,25 @@ export class ChoiceTabs<T extends string> {
   private current: T;
   private readonly initial: T;
 
-  constructor(host: HTMLElement, choices: { key: T; label: string; title: string; disabled?: boolean }[], initial: T) {
+  /**
+   * Sizing classes every tab wears: equal widths by default; a compact row
+   * takes a smaller face and sizes each tab to its label, so long labels
+   * get the room a short one leaves.
+   */
+  private readonly extra: string;
+
+  constructor(
+    host: HTMLElement,
+    choices: { key: T; label: string; title: string; disabled?: boolean }[],
+    initial: T,
+    options: { compact?: boolean } = {},
+  ) {
     this.initial = initial;
     this.current = initial;
+    this.extra = options.compact ? ' flex-auto text-xs px-2' : ' flex-1';
     for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
-      tab.className = key === this.current ? TAB_ACTIVE : TAB_BASE;
+      tab.className = (key === this.current ? TAB_ACTIVE : TAB_BASE) + this.extra;
       tab.textContent = label;
       tab.title = title;
       if (disabled) {
@@ -48,7 +63,7 @@ export class ChoiceTabs<T extends string> {
   setValue(key: T): void {
     this.current = key;
     for (const [kind, tab] of this.tabs) {
-      tab.className = kind === key ? TAB_ACTIVE : TAB_BASE;
+      tab.className = (kind === key ? TAB_ACTIVE : TAB_BASE) + this.extra;
     }
   }
 
@@ -224,6 +239,144 @@ export class ThinControl {
   }
 }
 
+/** The sweep's `.extend()` amounts: a lead-in before the path, a run-out past it, or both. */
+export type ExtendValues = { extendStart: ValueExpr | null; extendEnd: ValueExpr | null };
+
+/**
+ * The sweep dialog's "Extend" section: a toggle that reveals the Start and
+ * End fields. Each writes an `.extend('start' | 'end', amount)` chain that
+ * runs the swept solid straight past that end of the path along its tangent;
+ * an empty field writes no chain for its end, so the toggle alone changes
+ * nothing until an amount is typed.
+ */
+export class ExtendControl {
+  onChange?: () => void;
+  /** Enter pressed inside a field — the dialogs apply. */
+  onSubmit?: () => void;
+
+  private checkbox: HTMLInputElement;
+  private valuesRow: HTMLElement;
+  private startInput: HTMLInputElement;
+  private endInput: HTMLInputElement;
+  private startField: ExpressionField;
+  private endField: ExpressionField;
+
+  constructor(container: HTMLElement) {
+    const toggle = document.createElement('label');
+    toggle.className = 'flex items-center justify-between cursor-pointer';
+    toggle.title = 'Run the swept solid straight past the ends of the path, along its tangent there';
+    toggle.innerHTML = `
+      <span class="text-base-content/70">Extend</span>
+      <input data-role="extend" type="checkbox" class="toggle toggle-sm toggle-primary" />
+    `;
+    container.appendChild(toggle);
+
+    this.valuesRow = document.createElement('div');
+    this.valuesRow.className = 'hidden gap-2';
+    this.valuesRow.innerHTML = `
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Lead-in before the start of the path — leave empty for none">
+        <span class="text-base-content/70">Start</span>
+        <input data-role="extend-start" data-unit="length" type="number" step="1" min="0" placeholder="off"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Run-out past the end of the path — leave empty for none">
+        <span class="text-base-content/70">End</span>
+        <input data-role="extend-end" data-unit="length" type="number" step="1" min="0" placeholder="off"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
+    `;
+    container.appendChild(this.valuesRow);
+
+    this.checkbox = toggle.querySelector('[data-role="extend"]')!;
+    this.startInput = this.valuesRow.querySelector('[data-role="extend-start"]')!;
+    this.endInput = this.valuesRow.querySelector('[data-role="extend-end"]')!;
+
+    this.checkbox.addEventListener('change', () => {
+      this.sync();
+      this.onChange?.();
+    });
+    // The fields own their inputs' keyboard handling (dropdown navigation,
+    // Enter-to-submit) and flip the inputs to type="text" for identifiers.
+    this.startField = new ExpressionField(this.startInput);
+    this.startField.onSubmit = () => this.onSubmit?.();
+    this.startInput.addEventListener('input', () => this.onChange?.());
+    this.endField = new ExpressionField(this.endInput);
+    this.endField.onSubmit = () => this.onSubmit?.();
+    this.endInput.addEventListener('input', () => this.onChange?.());
+  }
+
+  /** The variables the amount fields' dropdowns offer. */
+  setVariables(variables: VariableInfo[]): void {
+    this.startField.setVariables(variables);
+    this.endField.setVariables(variables);
+  }
+
+  /**
+   * Programmatic amounts (edit-mode prefill); no change event fires. Both
+   * null turns the toggle off and clears the fields — a statement without
+   * `.extend()` must not show stale amounts once re-enabled.
+   */
+  setValues(values: ExtendValues): void {
+    this.checkbox.checked = values.extendStart !== null || values.extendEnd !== null;
+    this.startField.setValue(values.extendStart ?? '');
+    this.endField.setValue(values.extendEnd ?? '');
+    this.sync();
+  }
+
+  /** Back to the defaults: toggle off, both ends empty. */
+  reset(): void {
+    this.setValues({ extendStart: null, extendEnd: null });
+  }
+
+  /** The `.extend()` amounts, both null when off, or the message for a bad value. */
+  values(): (ExtendValues & { newVariables?: NewVariable[] }) | { error: string } {
+    if (!this.checkbox.checked) {
+      return { extendStart: null, extendEnd: null };
+    }
+    const start = readExtendAmount(this.startField, 'Start');
+    if ('error' in start) {
+      return start;
+    }
+    const end = readExtendAmount(this.endField, 'End');
+    if ('error' in end) {
+      return end;
+    }
+    // Both empty is a plain sweep, not an error — the ghost and the preview
+    // keep showing the unextended solid while the amounts are still being typed.
+    return {
+      extendStart: start.value,
+      extendEnd: end.value,
+      newVariables: collectNewVariables([start.read, end.read]),
+    };
+  }
+
+  private sync(): void {
+    const on = this.checkbox.checked;
+    this.valuesRow.classList.toggle('hidden', !on);
+    this.valuesRow.classList.toggle('flex', on);
+  }
+}
+
+/** One extend field: empty is "no chain for this end"; a number must be positive. */
+function readExtendAmount(
+  field: ExpressionField,
+  label: string,
+): { value: ValueExpr | null; read: Exclude<ExpressionFieldResult, { error: string }> | null } | { error: string } {
+  const read = field.read();
+  if ('error' in read) {
+    if (read.error === 'empty') {
+      return { value: null, read: null };
+    }
+    return { error: read.error };
+  }
+  if (typeof read.value === 'number' && read.value <= 0) {
+    return { error: `${label} extension must be greater than zero.` };
+  }
+  return { value: read.value, read };
+}
+
 /**
  * The docked-dialog positioning every create/edit/modify dialog shares. From
  * `sm:` up the dialog floats at top-[196px] right-4 — just below the viewport
@@ -261,6 +414,14 @@ export const DIALOG_BOX_CLASS =
   + 'sm:w-60 sm:border sm:rounded-lg sm:max-h-[calc(100vh-260px)]';
 
 /**
+ * The floats wider than the shared w-60 column a dialog can take (the sheet
+ * is full width anyway): `wide` for crowded tab rows and labels, `wider` for
+ * rows that hold a label and a slot side by side.
+ */
+const DIALOG_WIDTHS = { wide: 'sm:w-68', wider: 'sm:w-72' } as const;
+export type DialogWidth = keyof typeof DIALOG_WIDTHS;
+
+/**
  * The pinned title row. A hairline appears along its bottom edge once the
  * body has scrolled under it — drawn as a shadow so nothing shifts.
  */
@@ -277,6 +438,13 @@ export const DIALOG_BODY_CLASS =
   'flex flex-col items-stretch gap-3.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4';
 
 /**
+ * The box a dialog's direction group wears — the Copy and Repeat dialogs'
+ * Direction 1 and Direction 2, two like groups while the kind is linear.
+ * Toggled class by class (`classList` takes no compound string).
+ */
+export const DIRECTION_GROUP_CLASSES = ['border', 'border-base-content/10', 'rounded-md', 'p-3'] as const;
+
+/**
  * The pinned action row: a raised band under the body (second neutral, top
  * border), with a soft shade along its top edge while more body is hidden
  * beneath it. The bottom padding rides above a phone's home indicator.
@@ -285,6 +453,41 @@ export const DIALOG_FOOTER_CLASS =
   'flex items-center gap-2 shrink-0 border-t border-base-300 bg-base-200 px-4 py-3 '
   + 'pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 transition-shadow duration-150 '
   + 'group-data-overflow:shadow-[0_-6px_8px_-6px_rgba(0,0,0,0.35)]';
+
+/**
+ * Where a dialog hears Escape. `'inside'` closes it only while focus is in
+ * it: the sketch-mode dialogs, whose drawing tools and the sketch toolbar
+ * own the global Escape, and the modify dialogs, whose service listens on
+ * the document itself. `'anywhere'` also closes it from the viewport — a
+ * pick moves focus out of the dialog, and Escape must still dismiss it.
+ */
+export type EscapeScope = 'inside' | 'anywhere';
+
+/**
+ * The dialogs open with `escape: 'anywhere'`, in opening order. One document
+ * listener serves them all: an Escape closes the most recently opened one —
+ * a connector editor docked beside the mate dialog goes first, the mate
+ * dialog on the next press. Escapes another handler already consumed
+ * (`defaultPrevented`) or typed into a foreign input / the code editor stay
+ * theirs; one from inside a dialog never gets here, its shell stops it.
+ */
+const openEscapeAnywhere: PanelShell[] = [];
+let escapeListenerInstalled = false;
+
+function installEscapeListener(): void {
+  if (escapeListenerInstalled) {
+    return;
+  }
+  escapeListenerInstalled = true;
+  document.addEventListener('keydown', (e) => {
+    const top = openEscapeAnywhere[openEscapeAnywhere.length - 1];
+    if (!top || e.key !== 'Escape' || e.defaultPrevented || isEditableTarget(e.target)) {
+      return;
+    }
+    e.preventDefault();
+    top.onEscape?.();
+  });
+}
 
 /**
  * The floating dialog chrome the create-feature panels share: the docked
@@ -311,7 +514,13 @@ export class PanelShell {
   private iconImg: HTMLImageElement;
   private readonly defaultTitle: string;
 
-  constructor(container: HTMLElement, id: string, title: string, iconSrc: string) {
+  constructor(
+    container: HTMLElement,
+    id: string,
+    title: string,
+    iconSrc: string,
+    private readonly escape: EscapeScope,
+  ) {
     this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
@@ -337,8 +546,8 @@ export class PanelShell {
     this.titleText = this.root.querySelector('[data-role="title"]')!;
     this.iconImg = this.root.querySelector('[data-role="icon"]')!;
 
-    // Escape closes the dialog only from inside it — in sketch mode the
-    // drawing tools own the global Escape.
+    // Escape from inside the dialog closes it whatever its scope; stopped
+    // here so the document listener (`'anywhere'`) doesn't close it twice.
     this.root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -410,11 +619,38 @@ export class PanelShell {
     this.iconImg.src = src;
   }
 
+  /** Swap the shared w-60 float for a wider one. */
+  widen(width: DialogWidth): void {
+    this.box.classList.replace('sm:w-60', DIALOG_WIDTHS[width]);
+  }
+
+  /**
+   * A card floated to the left of the box, level with its top, that stays in
+   * view while the body scrolls. Float only: the sheet has no room beside it,
+   * so below `sm:` the card hides and the panel keeps its own copy in the body.
+   */
+  addSideCard(): HTMLDivElement {
+    // The box's own wrapper anchors the card — the column is as wide as its
+    // widest row, and the statement preview runs wider than the box.
+    const anchor = document.createElement('div');
+    anchor.className = 'relative';
+    this.box.replaceWith(anchor);
+    anchor.appendChild(this.box);
+    const card = document.createElement('div');
+    card.dataset.role = 'side-card';
+    card.className = 'max-sm:hidden absolute right-full top-0 mr-2 w-56 p-3 '
+      + 'bg-base-100 text-base-content border border-base-300 rounded-lg shadow-md';
+    anchor.appendChild(card);
+    return card;
+  }
+
   show(): void {
     this.setMessage(null);
     this.setPreview(null);
     this.root.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.root.id, true);
+    this.listenForEscapeAnywhere(true);
+    consumedReveal.refresh();
   }
 
   hide(): void {
@@ -422,12 +658,31 @@ export class PanelShell {
     this.setMessage(null);
     this.setPreview(null);
     viewportChrome.setDialogOpen(this.root.id, false);
+    this.listenForEscapeAnywhere(false);
+    consumedReveal.refresh();
   }
 
   /** Remove the dialog from the DOM (for panels owned by short-lived tools). */
   destroy(): void {
     viewportChrome.setDialogOpen(this.root.id, false);
+    this.listenForEscapeAnywhere(false);
     this.root.remove();
+    consumedReveal.refresh();
+  }
+
+  /** Join (or leave) the open-dialog order the document Escape serves; a re-show moves to the top. */
+  private listenForEscapeAnywhere(open: boolean): void {
+    if (this.escape !== 'anywhere') {
+      return;
+    }
+    const at = openEscapeAnywhere.indexOf(this);
+    if (at !== -1) {
+      openEscapeAnywhere.splice(at, 1);
+    }
+    if (open) {
+      installEscapeListener();
+      openEscapeAnywhere.push(this);
+    }
   }
 
   setPreview(text: string | null): void {

@@ -61,11 +61,12 @@ export class EditParamsDialog {
       }
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
+      // A dialog that has left the document keeps no hold on the keyboard.
+      if (e.key === 'Escape' && this.overlay.isConnected && !this.overlay.classList.contains('hidden')) {
         e.stopPropagation();
         this.hide();
       }
-    }, true);
+    });
   }
 
   /**
@@ -160,9 +161,11 @@ export class EditParamsDialog {
     }
     this.applying = true;
     this.setStatus('');
+    const target = this.target;
     const result = await updateInsertParams(
-      this.target.filePath, this.target.line, set, unset, commit.newVariables,
+      target.filePath, target.line, set, unset, commit.newVariables,
     );
+    if (this.target !== target) return;
     this.applying = false;
     if (!result.success) {
       this.setStatus(result.reason ?? 'Edit failed.');

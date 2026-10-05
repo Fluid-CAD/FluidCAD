@@ -9,7 +9,7 @@ description: "Draws 2D geometry on a standard plane. Geometry statements are ful
 Draws 2D geometry on a standard plane. Geometry statements are
 fully-specified guesses; constraint statements drive the solve.
 
-**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+**Returns**: [**`Sketch`**](/docs/api/types/sketch)
 
 :::tip
 See the [guide](/docs/sketching/introduction) for detailed usage examples.
@@ -18,7 +18,7 @@ See the [guide](/docs/sketching/introduction) for detailed usage examples.
 ## Signatures
 
 ```ts
-sketch(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>
+sketch(plane: PlaneLike, sketcher: () => T): ISketch & Extend<T>
 ```
 
 Draws 2D geometry on a standard plane. Geometry statements are
@@ -32,7 +32,7 @@ fully-specified guesses; constraint statements drive the solve.
 ---
 
 ```ts
-sketch(face: SceneObject, sketcher: () => T): ISceneObject & Extend<T>
+sketch(face: SceneObject, sketcher: () => T): ISketch & Extend<T>
 ```
 
 Draws 2D geometry on a face selection.
@@ -45,7 +45,7 @@ Draws 2D geometry on a face selection.
 ---
 
 ```ts
-sketch(plane: Plane, sketcher: () => T): ISceneObject & Extend<T>
+sketch(plane: Plane, sketcher: () => T): ISketch & Extend<T>
 ```
 
 Draws 2D geometry on an existing Plane object.

@@ -1,16 +1,43 @@
 import type { Geom_BSplineCurve, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { CurveData } from "./curve-data.js";
+import { ConicArc, ConicArcs, ConicFrame } from "./conic-arc.js";
 import { mmTol } from "../../units/tolerance.js";
+import { Point } from "../../math/point.js";
+
+export interface WireSection {
+  curve: Geom_BSplineCurve;
+  /**
+   * Actual wire junctions, at the exact knots used during concatenation —
+   * indexed like `SectionCurve.wireVertices`.
+   */
+  vertices: { point: Point; parameter: number }[];
+  /** The circle or ellipse the whole closed wire traces, if it is one. */
+  conic?: ConicFrame;
+}
+
+/** One stretch of the section curve: a single edge, or a run of edges along one conic. */
+interface SectionPiece {
+  curve: Geom_BSplineCurve;
+  /** Per edge of the piece, in traversal order: its wire index and where on the piece (0..1) it starts. */
+  edges: { index: number; start: number }[];
+}
 
 /**
  * Turns a profile wire into a single clamped B-spline curve, parameterized
- * over [0, 1] with spans proportional to edge arc length. Corners survive as
- * interior knots of multiplicity `degree` (C0), so any planar profile — a
- * polygon, a slot, a circle — becomes exactly one curve. That single-curve
- * form is what makes profiles with different edge counts loftable against
- * each other: compatibility reduces to sharing one degree and one knot
- * vector instead of matching edges pairwise.
+ * over [0, 1] with spans proportional to edge arc length. Wire vertices
+ * survive as interior knots of multiplicity `degree` (C0), so any planar
+ * profile — a polygon, a slot, a circle — becomes exactly one curve. That
+ * single-curve form is what makes profiles with different edge counts
+ * loftable against each other: compatibility reduces to sharing one degree
+ * and one knot vector instead of matching edges pairwise.
+ *
+ * Every knot of full multiplicity is a place the loft wall may have to be
+ * split into faces, so none is made that the profile does not ask for: a
+ * circle or ellipse is one span (`ConicArcs`), and consecutive edges along
+ * one conic are that same span cut at their vertices — a cut that leaves
+ * the curve as smooth as it was, and that the skin undoes wherever nothing
+ * is pinned to the vertex.
  */
 export class SectionCurve {
   // Rational→polynomial section conversion tolerance (mm). Loose enough to
@@ -22,6 +49,8 @@ export class SectionCurve {
     return mmTol(1e-4);
   }
   private static readonly LENGTH_SAMPLES = 32;
+  /** Most segments one knot span of a rational curve is cut into when approximated. */
+  private static readonly MAX_SPAN_PIECES = 4096;
 
   /**
    * With `forcePolynomial`, rational pieces (arcs, circles) are approximated
@@ -30,34 +59,169 @@ export class SectionCurve {
    * must share one surface (see `SectionCompatibility`).
    */
   static fromWire(wire: TopoDS_Wire, forcePolynomial = false): Geom_BSplineCurve {
+    return SectionCurve.fromWireWithVertices(wire, forcePolynomial).curve;
+  }
+
+  /**
+   * The wire's junction vertices in traversal order — entry i is where
+   * non-degenerated edge i starts, so it lines up with piece i of the section
+   * curve. This walk is the one definition of "a vertex a connection can
+   * use": a single closed edge (a full circle/ellipse) yields none, its lone
+   * vertex being an artificial seam rather than a junction.
+   */
+  static wireVertices(wire: TopoDS_Wire): Point[] {
     const oc = getOC();
-    const pieces: Geom_BSplineCurve[] = [];
-
+    const points: Point[] = [];
     const explorer = new oc.BRepTools_WireExplorer(wire);
-    while (explorer.More()) {
-      const edge = explorer.Current();
-      if (!oc.BRep_Tool.Degenerated(edge)) {
-        let piece = SectionCurve.edgeToBSpline(edge);
-        if (forcePolynomial && piece.IsRational()) {
-          const polynomial = SectionCurve.toPolynomial(piece, SectionCurve.APPROX_TOLERANCE);
-          piece.delete();
-          piece = polynomial;
+    try {
+      while (explorer.More()) {
+        if (!oc.BRep_Tool.Degenerated(explorer.Current())) {
+          const vertex = explorer.CurrentVertex();
+          const point = oc.BRep_Tool.Pnt(vertex);
+          points.push(new Point(point.X(), point.Y(), point.Z()));
+          point.delete();
+          vertex.delete();
         }
-        pieces.push(piece);
+        explorer.Next();
       }
-      explorer.Next();
+    } finally {
+      explorer.delete();
     }
-    explorer.delete();
+    if (wire.Closed() && points.length === 1) {
+      return [];
+    }
+    return points;
+  }
 
-    if (pieces.length === 0) {
-      throw new Error("Loft profile wire has no usable edges.");
+  static fromWireWithVertices(wire: TopoDS_Wire, forcePolynomial = false): WireSection {
+    const oc = getOC();
+    const edges: { arc: ConicArc | null; curve: Geom_BSplineCurve | null }[] = [];
+    const pieces: SectionPiece[] = [];
+    const explorer = new oc.BRepTools_WireExplorer(wire);
+    try {
+      while (explorer.More()) {
+        const edge = explorer.Current();
+        if (!oc.BRep_Tool.Degenerated(edge)) {
+          const arc = ConicArcs.ofEdge(edge);
+          edges.push({ arc, curve: arc ? null : SectionCurve.edgeToBSpline(edge) });
+        }
+        explorer.Next();
+      }
+      if (edges.length === 0) {
+        throw new Error("Loft profile wire has no usable edges.");
+      }
+
+      const closed = wire.Closed();
+      const conic = SectionCurve.collectPieces(edges, closed, pieces);
+      if (forcePolynomial) {
+        for (const piece of pieces) {
+          if (piece.curve.IsRational()) {
+            const polynomial = SectionCurve.toPolynomial(piece.curve, SectionCurve.APPROX_TOLERANCE);
+            piece.curve.delete();
+            piece.curve = polynomial;
+          }
+        }
+      }
+
+      const { curve, breaks } = SectionCurve.concatenateWithBreaks(pieces.map(piece => piece.curve), closed);
+      const parameters = new Array<number>(edges.length);
+      for (const [j, piece] of pieces.entries()) {
+        for (const edge of piece.edges) {
+          parameters[edge.index] = breaks[j] + edge.start * (breaks[j + 1] - breaks[j]);
+        }
+      }
+      const vertices = SectionCurve.wireVertices(wire)
+        .map((point, i) => ({ point, parameter: SectionCurve.junctionKnot(curve, parameters[i]) }));
+      return { curve, vertices, conic: conic ?? undefined };
+    } finally {
+      explorer.delete();
+      for (const edge of edges) {
+        edge.curve?.delete();
+      }
+      for (const piece of pieces) {
+        piece.curve.delete();
+      }
+    }
+  }
+
+  /**
+   * Groups the wire's edges into pieces, appended to `pieces` in the order
+   * the section curve runs through them. Edges that carry on along one conic
+   * become one piece; a closed wire starts at the beginning of such a run
+   * rather than in its middle, so no run is cut by the curve's own start.
+   * Edge curves handed to a piece are owned by it from then on. Returns the
+   * conic's frame when the whole closed wire is one conic.
+   */
+  private static collectPieces(
+    edges: { arc: ConicArc | null; curve: Geom_BSplineCurve | null }[],
+    closed: boolean,
+    pieces: SectionPiece[],
+  ): ConicFrame | null {
+    const count = edges.length;
+    const continues = (i: number) => {
+      const previous = edges[(i - 1 + count) % count].arc;
+      const arc = edges[i].arc;
+      return previous !== null && arc !== null && ConicArcs.extend(previous, arc) !== null;
+    };
+    let first = 0;
+    if (closed && count > 1) {
+      const runStart = edges.findIndex((_, i) => !continues(i));
+      first = Math.max(0, runStart);
     }
 
-    const section = SectionCurve.concatenate(pieces, wire.Closed());
-    for (const piece of pieces) {
-      piece.delete();
+    let conic: ConicFrame | null = null;
+    for (let offset = 0; offset < count;) {
+      const index = (first + offset) % count;
+      const edge = edges[index];
+      if (!edge.arc) {
+        pieces.push({ curve: edge.curve!, edges: [{ index, start: 0 }] });
+        edge.curve = null;
+        offset++;
+        continue;
+      }
+
+      // Take every edge that carries on along the same conic, up to one turn.
+      let arc = edge.arc;
+      const members = [{ index, angle: arc.from }];
+      while (offset + members.length < count) {
+        const nextIndex = (first + offset + members.length) % count;
+        const next = edges[nextIndex].arc;
+        const extended = next ? ConicArcs.extend(arc, next) : null;
+        if (!extended) {
+          break;
+        }
+        members.push({ index: nextIndex, angle: arc.to });
+        arc = extended;
+      }
+
+      const curve = CurveData.build(ConicArcs.toBSpline(arc));
+      const starts = members.map((member, m) => m === 0 ? 0 : ConicArcs.parameterAt(arc, member.angle));
+      for (const start of starts.slice(1)) {
+        curve.InsertKnot(start, curve.Degree(), 0, true);
+      }
+      pieces.push({ curve, edges: members.map((member, m) => ({ index: member.index, start: starts[m] })) });
+      if (closed && members.length === count && ConicArcs.isFullTurn(arc)) {
+        conic = arc.frame;
+      }
+      offset += members.length;
     }
-    return section;
+    return conic;
+  }
+
+  /** The knot of full multiplicity standing for a wire vertex computed to sit at `parameter`. */
+  private static junctionKnot(curve: Geom_BSplineCurve, parameter: number): number {
+    const degree = curve.Degree();
+    let nearest = parameter;
+    let gap = 1e-9;
+    for (let i = 1; i <= curve.NbKnots(); i++) {
+      const distance = Math.abs(curve.Knot(i) - parameter);
+      if (curve.Multiplicity(i) >= degree && distance <= gap) {
+        nearest = curve.Knot(i);
+        gap = distance;
+      }
+    }
+    // The closing knot is the curve's own start.
+    return nearest === 1 ? 0 : nearest;
   }
 
   /**
@@ -74,6 +238,12 @@ export class SectionCurve {
    * re-proportions sections so matching features share parameters).
    */
   static concatenate(pieces: Geom_BSplineCurve[], closed: boolean, spans?: number[]): Geom_BSplineCurve {
+    return SectionCurve.concatenateWithBreaks(pieces, closed, spans).curve;
+  }
+
+  private static concatenateWithBreaks(
+    pieces: Geom_BSplineCurve[], closed: boolean, spans?: number[],
+  ): { curve: Geom_BSplineCurve; breaks: number[] } {
     const degree = Math.max(...pieces.map(piece => piece.Degree()));
     for (const piece of pieces) {
       if (piece.Degree() < degree) {
@@ -147,65 +317,74 @@ export class SectionCurve {
       poles[poles.length - 1] = [...poles[0]];
     }
 
-    return CurveData.build({ poles, weights, knots, multiplicities, degree });
+    return { curve: CurveData.build({ poles, weights, knots, multiplicities, degree }), breaks };
   }
 
   /**
    * Approximates any B-spline with a polynomial (non-rational) one within
-   * `tolerance`, as a chain of cubic Hermite segments (position + tangent
-   * matched at the ends of every segment, so the result stays G1). Segments
-   * split at the curve's own knots — rational conversions are typically only
-   * C1 there, and keeping the reduced-continuity points on segment
-   * boundaries preserves O(h⁴) convergence — then subdivide until every
-   * segment fits. Pole count stays proportional to the geometry's curvature
-   * (a circle needs a few dozen poles), never to a sample budget.
+   * `tolerance`, as a chain of cubic Hermite segments: each matches position
+   * and tangent at its ends, so neighbours join C1. Every knot span of the
+   * curve is halved until its segments fit — error falls sixteenfold per
+   * halving — so the pole count follows the curvature of each span, never a
+   * sample budget.
+   *
+   * A knot of full multiplicity in the source is a junction (a wire vertex,
+   * possibly a corner) and stays one: its two sides are fitted with their
+   * own tangents and joined C0. Everything else comes out C1.
    */
   static toPolynomial(curve: Geom_BSplineCurve, tolerance: number): Geom_BSplineCurve {
     const oc = getOC();
     const point = new oc.gp_Pnt();
     const vector = new oc.gp_Vec();
-
-    const spans: [number, number][] = [];
-    for (let i = 1; i < curve.NbKnots(); i++) {
-      spans.push([curve.Knot(i), curve.Knot(i + 1)]);
-    }
+    const sample = (t: number, span: number) => {
+      // One-sided: at a junction the two spans disagree on the tangent.
+      curve.LocalD1(t, span, span + 1, point, vector);
+      return {
+        position: [point.X(), point.Y(), point.Z()],
+        tangent: [vector.X(), vector.Y(), vector.Z()],
+      };
+    };
 
     try {
-      for (let subdivisions = 1; subdivisions <= 64; subdivisions *= 2) {
-        const breakpoints: number[] = [spans[0][0]];
-        for (const [a, b] of spans) {
-          for (let m = 1; m <= subdivisions; m++) {
-            breakpoints.push(a + ((b - a) * m) / subdivisions);
+      const breakpoints: number[] = [curve.Knot(1)];
+      const junctions: boolean[] = [true];
+      const segments: number[][][] = [];
+      for (let span = 1; span < curve.NbKnots(); span++) {
+        const [from, to] = [curve.Knot(span), curve.Knot(span + 1)];
+        let fitted: { ends: number[]; segments: number[][][] } | null = null;
+        for (let pieces = 1; pieces <= SectionCurve.MAX_SPAN_PIECES && !fitted; pieces *= 2) {
+          const ends: number[] = [];
+          const candidate: number[][][] = [];
+          let previous = sample(from, span);
+          for (let m = 1; m <= pieces; m++) {
+            const end = m === pieces ? to : from + ((to - from) * m) / pieces;
+            const start = ends.length ? ends[ends.length - 1] : from;
+            const next = sample(end, span);
+            const h = (end - start) / 3;
+            candidate.push([
+              previous.position,
+              previous.position.map((v, d) => v + previous.tangent[d] * h),
+              next.position.map((v, d) => v - next.tangent[d] * h),
+              next.position,
+            ]);
+            ends.push(end);
+            previous = next;
+          }
+          if (SectionCurve.maxHermiteDeviation(curve, [from, ...ends], candidate) <= tolerance) {
+            fitted = { ends, segments: candidate };
           }
         }
-
-        const samples = breakpoints.map(t => {
-          curve.D1(t, point, vector);
-          return {
-            position: [point.X(), point.Y(), point.Z()],
-            tangent: [vector.X(), vector.Y(), vector.Z()],
-          };
-        });
-
-        // One cubic Bézier per segment in Hermite form.
-        const segments: number[][][] = [];
-        for (let s = 0; s + 1 < breakpoints.length; s++) {
-          const h = (breakpoints[s + 1] - breakpoints[s]) / 3;
-          const from = samples[s];
-          const to = samples[s + 1];
-          segments.push([
-            from.position,
-            from.position.map((v, d) => v + from.tangent[d] * h),
-            to.position.map((v, d) => v - to.tangent[d] * h),
-            to.position,
-          ]);
+        if (!fitted) {
+          throw new Error("Loft could not approximate a rational profile curve within tolerance.");
         }
 
-        if (SectionCurve.maxHermiteDeviation(curve, breakpoints, segments) <= tolerance) {
-          return SectionCurve.assembleCubicSegments(breakpoints, segments);
-        }
+        breakpoints.push(...fitted.ends);
+        segments.push(...fitted.segments);
+        junctions.push(...fitted.ends.map((_, m) =>
+          m === fitted.ends.length - 1 && curve.Multiplicity(span + 1) >= curve.Degree()));
       }
-      throw new Error("Loft could not approximate a rational profile curve within tolerance.");
+      junctions[junctions.length - 1] = true;
+      return SectionCurve.assembleCubicSegments(breakpoints, junctions, segments);
     } finally {
       point.delete();
       vector.delete();
@@ -244,20 +423,35 @@ export class SectionCurve {
     return maxDeviation;
   }
 
-  /** Joins cubic Bézier segments into one B-spline over the original parameter range. */
-  private static assembleCubicSegments(breakpoints: number[], segments: number[][][]): Geom_BSplineCurve {
+  /**
+   * Joins cubic Hermite segments into one B-spline over the original
+   * parameter range. Where neighbours share position and parametric tangent
+   * the join is C1 and its knot needs multiplicity 2 only: the junction
+   * point is implied by the inner poles on either side. A triple knot would
+   * describe the same curve as formally C0, and the loft wall would have to
+   * be split into a face per segment. Junctions keep the triple knot and
+   * their own pole.
+   */
+  private static assembleCubicSegments(
+    breakpoints: number[],
+    junctions: boolean[],
+    segments: number[][][],
+  ): Geom_BSplineCurve {
     const degree = 3;
-    const knots = [...breakpoints];
+    const last = breakpoints.length - 1;
     const multiplicities = breakpoints.map((_, i) =>
-      i === 0 || i === breakpoints.length - 1 ? degree + 1 : degree,
+      i === 0 || i === last ? degree + 1 : junctions[i] ? degree : degree - 1,
     );
 
     const poles: number[][] = [segments[0][0]];
-    for (const segment of segments) {
-      poles.push(segment[1], segment[2], segment[3]);
+    for (const [s, segment] of segments.entries()) {
+      poles.push(segment[1], segment[2]);
+      if (junctions[s + 1]) {
+        poles.push(segment[3]);
+      }
     }
 
-    return CurveData.build({ poles, weights: null, knots, multiplicities, degree });
+    return CurveData.build({ poles, weights: null, knots: [...breakpoints], multiplicities, degree });
   }
 
   /** Curve arc length approximated by chord sampling — used only to proportion knot spans. */

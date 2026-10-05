@@ -1,5 +1,4 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
@@ -12,6 +11,7 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
+import { curveEdgesOf } from "../helpers/scene-helpers.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
 import { mmTol } from "../units/tolerance.js";
@@ -61,8 +61,7 @@ export class Rib extends ExtrudeBase implements IRib {
     const originalSpineWire = p.record('Get spine wire', () => this.getSpineWire(this._spine));
     let spineWire = originalSpineWire;
 
-    const scopeObjects = this.resolveFusionScope(context.getSceneObjects());
-    const scopeShapes = scopeObjects.flatMap(o => o.getShapes({}, 'solid'));
+    const scopeShapes = this.resolveFusionStock(context.getSceneObjects()).map(held => held.solid);
 
     if (scopeShapes.length === 0) {
       throw new Error("Rib requires target solids in the scene or via .scope()");
@@ -262,10 +261,9 @@ export class Rib extends ExtrudeBase implements IRib {
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
-    const shapes = pathObj.getShapes({ excludeMeta: false });
-    const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
-    return WireOps.makeWireFromEdges(edges);
+    return WireOps.makeWireFromEdges(curveEdgesOf(pathObj));
   }
+
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];

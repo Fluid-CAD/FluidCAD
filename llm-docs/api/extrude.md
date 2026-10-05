@@ -30,7 +30,7 @@ its plane normal. With no `target`, auto-fuses with anything it touches.
 - `.endOffset(d)` — shift the end face by `d` along the extrusion direction.
 - `.thin(offset)` / `.thin(o1, o2)` — thin-walled solid from the profile edges.
 - `.drill(bool)` — `true` (default) treats inner closed regions as holes.
-- `.pick(...points)` — restrict to specific regions of a multi-region sketch.
+- `.region(...names)` — restrict to particular regions of a multi-region sketch, by the names their `region()` declarations gave them inside the sketch callback: `region('ring', outer)` declares the ring whose outer loop is the circle `outer` (holes never count), `region('crescent', a, far(b))` the region inside `a` and outside `b` (`far()` = the far side of that edge), `region('plate', b, r, t, l)` the rectangle those four lines close; then `extrude(20, s).region('ring')`. See [[api/region]]. A name nobody declared, or a declaration whose entities bound several regions, fails the feature with the candidates in its error. `.region()` with no names builds nothing and lists every region in the feature's `regions` parameter (`get_scene_summary`), with the name of the declaration describing each when one exists.
 - `.add()` / `.new()` / `.remove()` / `.scope(...)` — boolean scope controls.
 
 ## Direct accessors

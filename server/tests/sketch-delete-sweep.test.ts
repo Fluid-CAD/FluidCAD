@@ -192,4 +192,25 @@ const s = sketch('xy', () => {
 fillet(2, e.edges());
 `);
   });
+
+  it('a removed loft takes the connection selections declared for it', async () => {
+    const code = `const e = extrude(10);
+const sel = select(edge().farthest('x'));
+loft(a, b).connect(sel.end(), e.startEdges(0).start());
+shell(1);
+`;
+    const result = await SketchDeleteSweep.removeStatement(code, lineOf(code, 'loft(a, b)'));
+    expect(result.newCode).toBe(`const e = extrude(10);\nshell(1);\n`);
+  });
+
+  it('a removed projection takes the selection hoisted before its sketch', async () => {
+    const code = `const sel = select(face().onPlane('xy', 10));
+sketch('xy', () => {
+  project(sel);
+  circle([0, 0], 5);
+});
+`;
+    const result = await SketchDeleteSweep.removeStatement(code, lineOf(code, 'project(sel)'));
+    expect(result.newCode).toBe(`sketch('xy', () => {\n  circle([0, 0], 5);\n});\n`);
+  });
 });

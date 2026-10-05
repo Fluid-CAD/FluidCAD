@@ -3,6 +3,11 @@ import { SceneObjectPart } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
 import { createDashDotLine } from '../dash-dot-line';
 
+export interface MetaEdgeOptions {
+  /** False draws the line over the model, as a sketch draws its own edges. */
+  depthTest?: boolean;
+}
+
 /**
  * Renders meta-shape / guide edges as dash-dot light-gray lines.
  *
@@ -11,7 +16,7 @@ import { createDashDotLine } from '../dash-dot-line';
  * `computeLineDistances()` accumulates across the whole curve.
  */
 export class MetaEdgeMesh extends Group {
-  constructor(shape: SceneObjectPart) {
+  constructor(shape: SceneObjectPart, options: MetaEdgeOptions = {}) {
     super();
     this.userData.isMetaShape = true;
 
@@ -37,6 +42,7 @@ export class MetaEdgeMesh extends Group {
       geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
 
       const line = createDashDotLine(geometry, themeColors.metaEdgeColor, {
+        depthTest: options.depthTest ?? true,
         polygonOffset: true,
         polygonOffsetFactor: 2,
         polygonOffsetUnits: 1,

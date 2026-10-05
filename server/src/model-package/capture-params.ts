@@ -1,5 +1,5 @@
 import { LocalSceneHost } from '../host/local-scene-host.ts';
-import { FluidCadServer } from '../fluidcad-server.ts';
+import { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
 
 /**

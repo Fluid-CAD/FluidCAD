@@ -1,9 +1,11 @@
 import { Router, type Response } from 'express';
-import { sceneUnitFields } from '../fluidcad-server.ts';
+import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import { UI_APPLY_WAIT_MS } from './render.ts';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { DeclarationRefactor } from '../declaration-refactor.ts';
+import { DeclarationRewrite } from '../declaration-rewrite.ts';
 import {
   ParamEditor,
   MULTI_CONTROL_TYPES,
@@ -138,8 +140,13 @@ export function createParamsRouter(
   broadcastToUI: (msg: any) => void,
   dispatcher: FeatureEditDispatcher,
   awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
+  workspacePath = '',
 ): Router {
   const router = Router();
+  // A rename or delete reaches every file that reads the declaration, not
+  // just the one on screen: the refactor finds them across the workspace and
+  // sends their edits ahead of the declaring file's.
+  const refactor = new DeclarationRefactor(fluidCadServer, workspacePath, dispatcher);
 
   /**
    * Re-render after a value override and fan the result out to editor and UI.
@@ -158,7 +165,7 @@ export function createParamsRouter(
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
       result: data.result,
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -167,8 +174,9 @@ export function createParamsRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       params: data.params,
+      properties: data.properties,
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     return true;
@@ -221,7 +229,7 @@ export function createParamsRouter(
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
       result: data.result,
-      rollbackStop: data.rollbackStop,
+      ...sceneStopFields(data),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -230,8 +238,10 @@ export function createParamsRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       ...sceneUnitFields(data),
+      ...sceneStopFields(data),
       breakpointHit: data.breakpointHit,
       params: data.params,
+      properties: data.properties,
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     // A recompute that runs to completion can still leave features broken —
@@ -273,32 +283,28 @@ export function createParamsRouter(
 
   /**
    * What the panel needs before offering to edit or delete a declaration: the
-   * variable it binds and how much of the model reads it, so a delete can warn
-   * before it breaks the build.
+   * variable it binds, every file that reads it, and what a delete would put
+   * in place of those reads — or which of them it cannot, so the dialog can
+   * refuse the delete up front.
    */
   router.get('/params/usage', async (req, res) => {
     const label = typeof req.query.label === 'string' ? req.query.label : '';
     const line = Number(req.query.line);
-    const filePath = typeof req.query.filePath === 'string' ? req.query.filePath : '';
+    const filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
+      ? req.query.filePath
+      : fluidCadServer.getCurrentFileName();
     if (label === '') {
       res.status(400).json({ error: 'label is required' });
       return;
     }
-    // Only the file being rendered is readable from here. A param declared in
-    // a sibling `.fluid.js` still edits fine — the host owns that buffer — so
-    // report "nothing known" rather than a refusal the declaration doesn't
-    // deserve; the delete warning degrades to its generic wording.
-    if (filePath !== '' && filePath !== fluidCadServer.getCurrentFileName()) {
-      res.json({ label, variable: null, references: 0, referenceLines: [], editable: true });
-      return;
-    }
-    const code = fluidCadServer.getCurrentCode();
+    const code = filePath ? await refactor.readFile(filePath) : null;
     if (code === null) {
       res.status(404).json({ error: 'No active scene' });
       return;
     }
     try {
-      res.json(await ParamEditor.inspect(code, label, Number.isInteger(line) ? line : undefined));
+      const usage = await ParamEditor.inspect(code, label, Number.isInteger(line) ? line : undefined, filePath);
+      res.json(await refactor.extendReport(usage));
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
@@ -308,6 +314,14 @@ export function createParamsRouter(
     const spec = validParamSpec(req.body?.param);
     if (spec === null) {
       res.status(400).json({ error: 'a well-formed param is required' });
+      return;
+    }
+    if (req.body?.assembly === true) {
+      if (req.body.part != null) {
+        res.status(400).json({ error: 'Choose either assembly or part scope' });
+        return;
+      }
+      await dispatchParamEdit(res, { kind: 'add', param: spec, assembly: true });
       return;
     }
     // The Part dropdown's choice: the declaration goes into that part's
@@ -327,6 +341,7 @@ export function createParamsRouter(
       kind: 'add',
       param: spec,
       part: { line: part.line, column: part.column },
+      ...(req.body?.exposeAsProperty === true ? { exposeAsProperty: true } : {}),
     }, part.filePath);
   });
 
@@ -338,12 +353,43 @@ export function createParamsRouter(
       return;
     }
     const sessionId = fluidCadServer.getCurrentFileName();
+    const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
+    const at = Number.isInteger(line) ? line : undefined;
+    let variable: string | undefined;
+    if (spec.label !== label) {
+      // A new label renames the variable it suggests — derived here, against
+      // the declaring file, the only place that knows which names are free —
+      // and every other file that reads the declaration follows first.
+      const code = declaringFile ? await refactor.readFile(declaringFile) : null;
+      if (code === null) {
+        res.status(404).json({ error: 'No active scene' });
+        return;
+      }
+      const planned = await ParamEditor.plan(code, label, at, declaringFile);
+      if ('error' in planned) {
+        res.status(422).json({ success: false, reason: planned.error });
+        return;
+      }
+      const { plan, tree } = planned;
+      const current = plan.declaration.variable;
+      if (current !== null) {
+        variable = DeclarationRewrite.variableNameFor(spec.label, tree, current);
+      }
+      const renamed = variable !== undefined && variable !== current;
+      const newVariable = renamed ? variable! : null;
+      const newExport = renamed && plan.declaration.variableExport === current ? variable! : plan.declaration.variableExport;
+      const specs = await refactor.renameSpecs(plan.declaration, spec.label, newVariable, newExport);
+      if (!await refactor.dispatchConsumers(res, specs)) {
+        return;
+      }
+    }
     const applied = await dispatchParamEdit(res, {
       kind: 'update',
       expectedLabel: label,
-      line: Number.isInteger(line) ? line : undefined,
+      line: at,
       param: spec,
-    }, typeof filePath === 'string' ? filePath : undefined);
+      ...(variable !== undefined ? { variable } : {}),
+    }, declaringFile);
     // Overrides are keyed by label, so a rename has to carry the user's
     // current value across with it — but only once the edit actually landed.
     if (applied && spec.label !== label) {
@@ -358,11 +404,36 @@ export function createParamsRouter(
       return;
     }
     const sessionId = fluidCadServer.getCurrentFileName();
-    if (await dispatchParamEdit(res, {
-      kind: 'remove',
-      expectedLabel: label,
-      line: Number.isInteger(line) ? line : undefined,
-    }, typeof filePath === 'string' ? filePath : undefined)) {
+    const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
+    const at = Number.isInteger(line) ? line : undefined;
+    // The default value stands in for every read of the parameter, in every
+    // file. Where it cannot — it names things only its own scope has — the
+    // whole delete is refused before any file changes.
+    const code = declaringFile ? await refactor.readFile(declaringFile) : null;
+    if (code === null) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    const planned = await ParamEditor.plan(code, label, at, declaringFile);
+    if ('error' in planned) {
+      res.status(422).json({ success: false, reason: planned.error });
+      return;
+    }
+    const { plan, tree, declaration } = planned;
+    const refusal = DeclarationRewrite.inlineRefusal(tree, 'param', declaration, plan);
+    if (refusal) {
+      res.status(422).json({ success: false, reason: refusal });
+      return;
+    }
+    const consumers = await refactor.inlineSpecs(plan.declaration, plan.value, plan.portable);
+    if ('error' in consumers) {
+      res.status(422).json({ success: false, reason: consumers.error });
+      return;
+    }
+    if (!await refactor.dispatchConsumers(res, consumers.specs)) {
+      return;
+    }
+    if (await dispatchParamEdit(res, { kind: 'remove', expectedLabel: label, line: at }, declaringFile)) {
       fluidCadServer.forgetParam(sessionId, label);
     }
   });

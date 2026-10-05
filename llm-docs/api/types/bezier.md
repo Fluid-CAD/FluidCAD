@@ -53,4 +53,4 @@ Returns the curve's end point — `point(n - 1)`.
 
 From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

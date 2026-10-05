@@ -1,5 +1,7 @@
 import { PanelShell } from './panel-controls';
 import { PickSlot } from '../pick-slot';
+import { iconUrl } from '../../ui/icon-url';
+import { viewerSettings } from '../../scene/viewer-settings';
 
 /** How the dialog opened — see {@link SketchStartPanel.setMode}. */
 export type SketchPanelMode = 'create' | 'adopted' | 'edit';
@@ -48,7 +50,8 @@ export class SketchStartPanel {
   private sectionViewInput: HTMLInputElement;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-sketch-panel', 'Sketch', '/icons/sketch.png');
+    // The modify-pick service hears Escape on the document itself.
+    this.shell = new PanelShell(container, 'fluidcad-sketch-panel', 'Sketch', iconUrl('sketch'), 'inside');
     this.shell.onEscape = () => this.onEscape?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="target-slot"></div>
@@ -115,6 +118,10 @@ export class SketchStartPanel {
     const lockCameraInput = this.shell.body.querySelector('[data-role="lock-camera"]') as HTMLInputElement;
     lockCameraInput.addEventListener('change', () => {
       this.onLockCameraToggle?.(lockCameraInput.checked);
+    });
+    // The projection dialog flips the same setting while this one is hidden.
+    viewerSettings.subscribe((settings) => {
+      lockCameraInput.checked = settings.sketchLockCamera;
     });
     const snapVerticesInput = this.shell.body.querySelector('[data-role="snap-vertices"]') as HTMLInputElement;
     snapVerticesInput.addEventListener('change', () => {

@@ -17,10 +17,12 @@ import type { PickRef } from "../../selection/types.js";
 import { findSolid, setLocation } from "./pick-helpers.js";
 
 // The gear with its vertical flanks already filleted: the prior fillet
-// reshapes the rim arcs (lineage picks) and adds BSpline transition edges
-// (curveType 'other'), so no positive curve-class atom is shared across the
-// rim — and every shared positive property also holds for the coplanar bore
-// circle. Only a negated class atom (.notCircle()) can express the rim.
+// reshapes the rim arcs (lineage picks) and adds BSpline transition edges.
+// Those B-splines stand for circular arcs, and the probe recovers them as
+// such (the same analytical recovery the arc() predicate runs), so the rim
+// shares the positive class atom .arc() — which the coplanar bore circle
+// fails. The negated form (.notCircle()) stays the fallback for transition
+// edges that recover to no analytical curve at all.
 describe("negated class atoms", () => {
   setupOC();
 
@@ -71,7 +73,9 @@ describe("negated class atoms", () => {
     const result = synthesizeApplyFeature(scene, refs, "fillet", 1);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("fillet(1, select(edge().onPlane(e.endFaces()).notCircle()))");
+      // The rim is the top face's outer loop — the bore circle is its hole —
+      // so the loop predicate names it alone, no curve class needed.
+      expect(result.preview).toBe("fillet(1, select(edge().outerOf(e.endFaces())))");
     }
   });
 });

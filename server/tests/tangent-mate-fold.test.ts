@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyFeatureEdit,
   type ApplyFeatureEditSpec,
-} from '../src/apply-feature-edit.ts';
+} from '../src/apply-feature-edit/index.ts';
 
 // The tangent mate's same-file find-or-create fold (17-mate-tangent §7.2):
 // the embedded 'expose' spec lands inside the donor part's body FIRST, the

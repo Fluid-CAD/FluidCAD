@@ -2,6 +2,7 @@ import { AssemblyInstance } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "./connector.js";
 import { BoundExposure } from "./exposed.js";
 import { PoseHandle } from "./pose-handle.js";
+import type { PropertyValues } from "./part-property.js";
 
 /**
  * `Instance.connectors`: every connector the part registered, keyed by the
@@ -21,6 +22,15 @@ export type InstanceConnectors<_P = unknown> = Record<string, BoundConnector>;
 export type InstanceFeatures<_P = unknown> = Record<string, BoundExposure>;
 
 /**
+ * `Instance.properties`: every value the part published with
+ * `property('name', value)`, keyed by name — the values THIS instance's
+ * variant computed from its parameter overrides, verbatim in the part
+ * file's unit. Plain values, so they feed `.translate()`, mate offsets and
+ * other inserts' overrides directly.
+ */
+export type InstanceProperties<_P = unknown> = PropertyValues;
+
+/**
  * `connectors` is a Record keyed by connector name. Part authors register
  * connectors by name inside `part(name, () => { connector('main', …);
  * connector('bore', …); })`, then assembly code references them as
@@ -30,6 +40,16 @@ export type InstanceFeatures<_P = unknown> = Record<string, BoundExposure>;
 export class Instance<P = unknown> extends PoseHandle<AssemblyInstance> {
   readonly connectors: InstanceConnectors<P>;
   readonly features: InstanceFeatures<P>;
+
+  /**
+   * Read through the variant on every access (not snapshotted): a guarded
+   * record, so a typo throws a pointed error naming the declared
+   * properties, and a variant paused at a breakpoint before the statement
+   * ran re-propagates the pause.
+   */
+  get properties(): InstanceProperties<P> {
+    return this.record.part.properties as InstanceProperties<P>;
+  }
 
   constructor(record: AssemblyInstance) {
     super(record);

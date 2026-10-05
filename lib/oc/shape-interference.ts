@@ -85,6 +85,17 @@ export class ShapeInterference {
    * when the boolean fails; the caller decides whether to continue.
    */
   static commonVolume(a: TopoDS_Shape, b: TopoDS_Shape): number {
+    return ShapeInterference.withCommon(a, b, shape => ShapeValidator.signedVolume(shape));
+  }
+
+  /**
+   * Run `use` over the solids' common (`BRepAlgoAPI_Common`) while it is
+   * alive, and return what it produced: the shared volume, its meshes, or
+   * both. The result shape belongs to the boolean builder and is freed on
+   * return, so anything kept must be derived inside `use`. Throws with the
+   * kernel's message when the boolean fails.
+   */
+  static withCommon<T>(a: TopoDS_Shape, b: TopoDS_Shape, use: (shape: TopoDS_Shape) => T): T {
     const oc = getOC();
     const progress = new oc.Message_ProgressRange();
     let common: BRepAlgoAPI_Common | null = null;
@@ -95,7 +106,7 @@ export class ShapeInterference {
       if (!common.IsDone() || common.HasErrors()) {
         throw new Error('Common failed: the boolean operation reported an error.');
       }
-      return ShapeValidator.signedVolume(common.Shape());
+      return use(common.Shape());
     } finally {
       if (common) {
         common.delete();

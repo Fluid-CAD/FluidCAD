@@ -1,8 +1,9 @@
-import type { SourceLocation, UIParamDefinition } from '../types';
+import type { SourceLocation, UIParamDefinition, UIPropertyDefinition } from '../types';
 import type { ParamEditorDialog, PartChoices } from './param-editor-dialog';
+import type { PropertyEditorDialog } from './property-editor-dialog';
 import type { EngineClient } from '../engine-client';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
-import { ICON_PENCIL } from './icons';
+import { ICON_ADJUSTMENTS, ICON_CODE, ICON_PENCIL } from './icons';
 import { AccordionSection } from './accordion-section';
 
 /**
@@ -54,8 +55,8 @@ const PART_SELECT_CLASS =
  * section out from under the dialog the button just opened.
  */
 const HEADER_BUTTONS = `
-  <span class="ml-auto flex items-center">
-    <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Add parameter" data-add-param>
+  <span class="ml-auto flex items-center relative">
+    <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Add parameter or property" data-add-param>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
         <path d="M10 4.25a.75.75 0 01.75.75v4.25H15a.75.75 0 010 1.5h-4.25V15a.75.75 0 01-1.5 0v-4.25H5a.75.75 0 010-1.5h4.25V5a.75.75 0 01.75-.75z" />
       </svg>
@@ -79,8 +80,13 @@ const HEADER_BUTTONS = `
  */
 export class ParamsPanel extends AccordionSection {
   private currentParams: UIParamDefinition[] = [];
+  /** The rendered file's `property()` declarations — a part scene's published values. */
+  private currentProperties: UIPropertyDefinition[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedGroups = new Set<string>();
+  /** The header +'s open menu, while one is open. */
+  private addMenu: HTMLDivElement | null = null;
+  private addMenuCleanup: (() => void) | null = null;
 
   /** The Part dropdown's row, above the controls; its own element so a re-render of the list leaves it be. */
   private partBar: HTMLDivElement;
@@ -88,23 +94,31 @@ export class ParamsPanel extends AccordionSection {
   private list: HTMLDivElement;
   /** The header's +, or null on a host without an editor to open. */
   private addButton: HTMLElement | null = null;
-  /** Where the Part dropdown reads the scene's parts and the active one from. */
+  /** Where the Part dropdown reads the scene's parts and the timeline's selected one from. */
   private partProvider: (() => PartChoices) | null = null;
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
   /**
    * What the user chose in the dropdown: a part, or undefined while nothing
-   * was chosen — the dropdown then follows the active part. A choice lasts
-   * until the active part changes (a timeline click, a new part), which
-   * resets it to that default.
+   * was chosen — the dropdown then follows the timeline's selected part. A
+   * choice lasts until that selection moves (a click on another part row, a
+   * new part), which resets it to that default; stepping out of the selected
+   * part to the file's top level keeps it.
    */
   private pick: PartChoice | undefined = undefined;
   /** True while update() runs syncParts — it decides the redraw itself. */
   private syncing = false;
-  /** File and name of the active part at the last sync — the identity a line shift keeps. */
-  private lastActiveKey: string | null = null;
+  /** File and name of the timeline's selected part at the last sync — the identity a line shift keeps. */
+  private lastSelectedKey: string | null = null;
 
-  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
+  constructor(
+    container: HTMLElement | null,
+    private client: EngineClient,
+    private editor?: ParamEditorDialog,
+    private scope: 'part' | 'assembly' = 'part',
+    /** The property dialog; part scope only — a property lives in a part body. */
+    private propertyEditor?: PropertyEditorDialog,
+  ) {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
     super('Parameters', {
@@ -125,7 +139,13 @@ export class ParamsPanel extends AccordionSection {
       this.addButton = addButton;
       addButton.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.editor!.openForCreate(this.selectedPart);
+        // A part file declares two kinds of thing: the + asks which. An
+        // assembly body only takes parameters, so there its + stays direct.
+        if (this.propertyEditor && this.scope === 'part') {
+          this.toggleAddMenu(addButton);
+        } else {
+          this.editor!.openForCreate(this.selectedPart);
+        }
       });
     } else {
       addButton.remove();
@@ -150,9 +170,11 @@ export class ParamsPanel extends AccordionSection {
     }
   }
 
-  update(params: UIParamDefinition[]): void {
+  update(params: UIParamDefinition[], properties: UIPropertyDefinition[] = []): void {
     const prev = this.visibleParams();
+    const prevProperties = this.visibleProperties();
     this.currentParams = params;
+    this.currentProperties = properties;
     this.syncing = true;
     try {
       this.syncParts();
@@ -160,11 +182,83 @@ export class ParamsPanel extends AccordionSection {
       this.syncing = false;
     }
     const next = this.visibleParams();
-    if (this.canUpdateInPlace(prev, next)) {
+    const nextProperties = this.visibleProperties();
+    if (this.canUpdateInPlace(prev, next) && ParamsPanel.samePropertyRows(prevProperties, nextProperties)) {
       this.updateValuesInPlace(next);
+      this.updatePropertyValuesInPlace(nextProperties);
     } else {
       this.renderParams();
     }
+  }
+
+  /**
+   * The property rows the list shows: the selected part's own declarations,
+   * like {@link visibleParams}; none in assembly scope, where a property has
+   * no home.
+   */
+  private visibleProperties(): UIPropertyDefinition[] {
+    if (this.scope === 'assembly') {
+      return [];
+    }
+    const selected = this.partChoices.length === 0 ? null : this.selectedPart;
+    if (selected === null) {
+      return this.currentProperties;
+    }
+    return this.currentProperties.filter((p) => ActivePartTracker.sameStatement(p.part, selected));
+  }
+
+  /**
+   * The header + as a two-item menu: what to declare. Opens below the button,
+   * inside the header's own layout; a click anywhere else closes it.
+   */
+  private toggleAddMenu(anchor: HTMLElement): void {
+    if (this.addMenu) {
+      this.closeAddMenu();
+      return;
+    }
+    const menu = document.createElement('div');
+    menu.className = 'absolute right-0 top-full mt-1 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+    menu.dataset.addMenu = '';
+    menu.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[160px]">
+        ${ParamsPanel.menuItem('param', ICON_ADJUSTMENTS, 'New parameter')}
+        ${ParamsPanel.menuItem('property', ICON_CODE, 'New property')}
+      </ul>
+    `;
+    // The header collapses the section on click; the menu's clicks are its own.
+    menu.addEventListener('click', (e) => e.stopPropagation());
+    menu.querySelector('[data-add="param"]')!.addEventListener('click', () => {
+      this.closeAddMenu();
+      this.editor!.openForCreate(this.selectedPart);
+    });
+    menu.querySelector('[data-add="property"]')!.addEventListener('click', () => {
+      this.closeAddMenu();
+      this.propertyEditor!.openForCreate(this.selectedPart);
+    });
+    anchor.parentElement!.appendChild(menu);
+    this.addMenu = menu;
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
+        this.closeAddMenu();
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
+    this.addMenuCleanup = () => document.removeEventListener('click', onClickOutside);
+  }
+
+  private closeAddMenu(): void {
+    this.addMenu?.remove();
+    this.addMenu = null;
+    this.addMenuCleanup?.();
+    this.addMenuCleanup = null;
+  }
+
+  private static menuItem(kind: 'param' | 'property', icon: string, label: string): string {
+    return `<li><button data-add="${kind}" class="flex items-center gap-2">`
+      + `<span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${icon}</span>`
+      + `<span>${label}</span>`
+      + `</button></li>`;
   }
 
   /**
@@ -174,6 +268,9 @@ export class ParamsPanel extends AccordionSection {
    * when the scene has no parts to filter by.
    */
   private visibleParams(): UIParamDefinition[] {
+    if (this.scope === 'assembly') {
+      return this.currentParams.filter(p => p.part === undefined);
+    }
     const selected = this.partChoices.length === 0 ? null : this.selectedPart;
     if (selected === null) {
       return this.currentParams;
@@ -183,10 +280,10 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * Where the Part dropdown reads the scene's parts and the active one from —
-   * the timeline's part tracker. Without a provider (a host with no timeline)
-   * the dropdown never shows and, with no part to declare in, neither does
-   * the +, as in a scene with no parts.
+   * Where the Part dropdown reads the scene's parts and the selected one
+   * from — the timeline's part tracker. Without a provider (a host with no
+   * timeline) the dropdown never shows and, with no part to declare in,
+   * neither does the +, as in a scene with no parts.
    */
   setPartProvider(provider: () => PartChoices): void {
     this.partProvider = provider;
@@ -194,22 +291,22 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * The part a new parameter goes into: the dropdown's choice, or the active
-   * part while nothing was chosen. Null only in a scene with no parts, which
-   * has nowhere to declare one.
+   * The part a new parameter goes into: the dropdown's choice, or the
+   * timeline's selected part while nothing was chosen. Null only in a scene
+   * with no parts, which has nowhere to declare one.
    */
   get selectedPart(): SourceLocation | null {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    const choices = this.partProvider?.() ?? { parts: [], selected: null };
     if (this.pick === undefined) {
-      return choices.active;
+      return choices.selected;
     }
-    return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.active;
+    return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.selected;
   }
 
   /**
    * The chosen part as the current render lists it — by statement line, else
    * by file and name: an insert above the statement shifts its line, a rename
-   * keeps the line. Same rule the tracker re-resolves the active part by.
+   * keeps the line. Same rule the tracker re-resolves the selected part by.
    */
   private static resolve(wanted: PartChoice, parts: PartChoice[]): PartChoice | null {
     return parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted.sourceLocation))
@@ -225,25 +322,30 @@ export class ParamsPanel extends AccordionSection {
   /**
    * Redraw the Part dropdown from the provider. Every render calls this
    * through {@link update}; the timeline calls it when a part-row click moves
-   * the active part without a render. The row hides when the scene has no
+   * the selection without a render. The row hides when the scene has no
    * parts, and so does the +: there is no part to declare a parameter in.
    */
   syncParts(): void {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
-    const active = choices.active === null
+    if (this.scope === 'assembly') {
+      this.partBar.hidden = true;
+      if (this.addButton) this.addButton.hidden = false;
+      return;
+    }
+    const choices = this.partProvider?.() ?? { parts: [], selected: null };
+    const timelinePart = choices.selected === null
       ? null
-      : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.active!)) ?? null;
-    const activeKey = ParamsPanel.keyOf(active);
-    const activeMoved = activeKey !== this.lastActiveKey;
-    if (activeMoved) {
+      : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.selected!)) ?? null;
+    const selectedKey = ParamsPanel.keyOf(timelinePart);
+    const selectionMoved = selectedKey !== this.lastSelectedKey;
+    if (selectionMoved) {
       this.pick = undefined;
     }
-    this.lastActiveKey = activeKey;
+    this.lastSelectedKey = selectedKey;
     const hadParts = this.partChoices.length > 0;
     this.partChoices = choices.parts;
     // Called outside update() (a timeline click), a moved selection changes
     // which rows show — redraw the list to match.
-    if (!this.syncing && (activeMoved || hadParts !== choices.parts.length > 0)) {
+    if (!this.syncing && (selectionMoved || hadParts !== choices.parts.length > 0)) {
       this.renderParams();
     }
 
@@ -267,7 +369,7 @@ export class ParamsPanel extends AccordionSection {
     const index = selected === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, selected));
-    // A scene with parts always has an active one among them; the first
+    // A scene with parts always has a selected one among them; the first
     // entry only stands in for a tracker mid-resolution.
     select.value = String(Math.max(index, 0));
     select.addEventListener('change', () => {
@@ -321,6 +423,23 @@ export class ParamsPanel extends AccordionSection {
     ]);
   }
 
+  /** Whether two property lists draw the same rows — only their values may differ. */
+  private static samePropertyRows(prev: UIPropertyDefinition[], next: UIPropertyDefinition[]): boolean {
+    if (prev.length !== next.length) {
+      return false;
+    }
+    return prev.every((p, i) => p.name === next[i].name);
+  }
+
+  private updatePropertyValuesInPlace(properties: UIPropertyDefinition[]): void {
+    for (const p of properties) {
+      const el = this.body.querySelector<HTMLElement>(`[data-property-value="${CSS.escape(p.name)}"]`);
+      if (el) {
+        el.textContent = ParamsPanel.propertyValueText(p.value);
+      }
+    }
+  }
+
   private updateValuesInPlace(params: UIParamDefinition[]): void {
     for (const p of params) {
       const el = this.body.querySelector<HTMLElement>(`[data-param-label="${CSS.escape(p.label)}"]`);
@@ -348,11 +467,12 @@ export class ParamsPanel extends AccordionSection {
 
   private renderParams(): void {
     const params = this.visibleParams();
+    const properties = this.visibleProperties();
 
     // The panel is reachable with nothing in it — adding the model's first
     // parameter is one of the things it is for. With the dropdown filtering,
     // "nothing" is nothing IN THAT PART, and the wording says so.
-    if (params.length === 0) {
+    if (params.length === 0 && properties.length === 0) {
       this.list.innerHTML = AccordionSection.emptyState(this.emptyMessage());
       return;
     }
@@ -395,8 +515,11 @@ export class ParamsPanel extends AccordionSection {
       `;
     }
 
+    html += this.renderProperties(properties);
+
     this.list.innerHTML = html;
     this.bindParamHandlers();
+    this.bindPropertyHandlers();
 
     this.list.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
       const checkbox = el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
@@ -411,7 +534,68 @@ export class ParamsPanel extends AccordionSection {
     });
   }
 
+  /**
+   * The part's published values, below its parameters under a caption of
+   * their own: name on the left, the value the last render computed on the
+   * right. A property is read-only here — its value is an expression the
+   * pencil opens, not a control to drag.
+   */
+  private renderProperties(properties: UIPropertyDefinition[]): string {
+    if (properties.length === 0) {
+      return '';
+    }
+    const rows = properties.map((p) => {
+      const name = this.escapeHtml(p.name);
+      const label = this.escapeHtml(p.label ?? p.name);
+      const editButton = !this.propertyEditor ? '' : `
+        <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
+          data-property-edit="${name}" title="Edit property">
+          <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
+        </button>`;
+      return `
+        <div class="px-3 py-1.5 group flex items-center gap-2" data-property-row="${name}">
+          <span class="text-sm text-base-content/80 flex-1 truncate" title="${name}">${label}</span>
+          <span class="text-sm text-base-content/80 tabular-nums font-mono truncate max-w-[45%]" data-property-value="${name}">${this.escapeHtml(ParamsPanel.propertyValueText(p.value))}</span>
+          ${editButton}
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="mt-2 border-t border-base-content/10" data-properties>
+        <div class="px-3 pt-2 pb-0.5 text-xs font-medium text-base-content/65 uppercase tracking-wider">Properties</div>
+        ${rows}
+      </div>
+    `;
+  }
+
+  /** A computed value as the row prints it. */
+  private static propertyValueText(value: UIPropertyDefinition['value']): string {
+    if (Array.isArray(value)) {
+      return `[${value.join(', ')}]`;
+    }
+    if (typeof value === 'number') {
+      return String(Number.isInteger(value) ? value : Number(value.toFixed(4)));
+    }
+    return String(value);
+  }
+
+  private bindPropertyHandlers(): void {
+    this.list.querySelectorAll<HTMLElement>('[data-property-edit]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const def = this.visibleProperties().find((p) => p.name === el.dataset.propertyEdit);
+        if (def) {
+          this.propertyEditor?.openForEdit(def);
+        }
+      });
+    });
+  }
+
   private emptyMessage(): string {
+    if (this.scope === 'assembly') {
+      return this.editor
+        ? 'No assembly parameters yet. Use + above to add one.'
+        : 'No assembly parameters yet. Declare one with <code>param(...)</code> inside the assembly body.';
+    }
     // A parameter only lives inside a part body: without a part there is no
     // + to offer, only the call to write.
     if (this.partChoices.length === 0) {

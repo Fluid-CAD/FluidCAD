@@ -30,4 +30,4 @@ Returns a lazy-evaluated vertex at the circle's center.
 
 From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

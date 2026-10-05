@@ -9,6 +9,7 @@ import { ShapeType } from "./shape-type.js";
 import { Profiler } from "./profiler.js";
 import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
+import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -24,6 +25,20 @@ export type AdditionRecord<T> = {
 export type RemovalRecord<T> = {
   shape: T;
   removedBy: SceneObject;
+};
+
+/**
+ * A shape taken off the object holding it. A soft removal only hides it from
+ * the display. `successors`, when the remover knows them, are the shapes it
+ * made of this one — the drilled solid a cut keeps, none for a solid cut
+ * away entirely — so a reference to a solid can follow it through the
+ * features after (see `liveSolidsOf`).
+ */
+export type ShapeRemovalRecord = {
+  shape: Shape;
+  removedBy: SceneObject;
+  soft?: boolean;
+  successors?: Shape[];
 };
 
 export type ModificationRecord<T> = {
@@ -66,12 +81,13 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string | null = null;
   private _guide: boolean = false;
-  private _reusable: boolean = false;
   private _internal: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
   private _unit: LengthUnit | null = null;
   private _error: string | null = null;
+  /** Why the statement refused its operands at parse time — see refuse(). */
+  private _refusal: string | null = null;
   private _destroyed: boolean = false;
   protected _fusionScope?: FusionScope = 'all';
   protected _operationMode: OperationMode = 'add';
@@ -145,17 +161,23 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._internal;
   }
 
-  hasShapes(): boolean {
+  /**
+   * Whether this object (or, for a container, any child) still owns shapes.
+   * With a `scope`, removals by any remover in it count — soft ones too —
+   * so a sketch consumed for display reads as shape-less from its consumer
+   * on, exactly as the render sees it (see `getOwnShapes`).
+   */
+  hasShapes(scope?: Set<SceneObject>): boolean {
     if (this.isContainer()) {
       for (const child of this.children) {
-        const ownShapes = child.getOwnShapes();
+        const ownShapes = child.getOwnShapes(undefined, scope);
         if (ownShapes.length > 0) {
           return true;
         }
       }
     }
 
-    return this.getOwnShapes().length > 0;
+    return this.getOwnShapes(undefined, scope).length > 0;
   }
 
   addChildObject(child: SceneObject) {
@@ -258,9 +280,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   compareTo(other: SceneObject): boolean {
-    const match = this._guide === other._guide && this._reusable === other._reusable;
+    const match = this._guide === other._guide;
 
     if (!match) {
+      return false;
+    }
+
+    // A refused statement never stands in for one that builds, or the
+    // reverse: most features compare only their own operands, and a cached
+    // match would carry the refusal's error onto a statement that now builds.
+    if (this._refusal !== other._refusal) {
       return false;
     }
 
@@ -417,10 +446,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   private get removedShapes() {
-    return this.state.get('removedShapes') as { shape: Shape, removedBy: SceneObject, soft?: boolean }[];
+    return this.state.get('removedShapes') as ShapeRemovalRecord[];
   }
 
-  private set removedShapes(shapes: { shape: Shape, removedBy: SceneObject, soft?: boolean }[]) {
+  private set removedShapes(shapes: ShapeRemovalRecord[]) {
     this.state.set('removedShapes', shapes);
   }
 
@@ -498,31 +527,44 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
   }
 
-  removeShape(shape: Shape, removedBy: SceneObject) {
+  /** `successors`: what `removedBy` made of the shape, when it knows — see ShapeRemovalRecord. */
+  removeShape(shape: Shape, removedBy: SceneObject, successors?: Shape[]) {
     if (this.isContainer()) {
       for (const child of this.children) {
         // Meta/guide shapes must be findable too — the default getShapes()
         // filter hides them, which would make their removal a silent no-op.
         const childShapes = child.getShapes({ excludeMeta: false, excludeGuide: false });
         if (childShapes.some(s => s === shape)) {
-          child.removeShape(shape, removedBy);
+          child.removeShape(shape, removedBy, successors);
         }
       }
       return;
     }
 
-    this.removedShapes.push({
-      shape,
-      removedBy
-    })
+    this.removedShapes.push(successors ? { shape, removedBy, successors } : { shape, removedBy });
+  }
+
+  /**
+   * Whether a feature's use of this object hides it from the display instead
+   * of consuming it. Sketches, planes and axes are datums other features are
+   * built against: `removeShapes` takes them off the screen from the
+   * consumer on, but any later feature may take them again (see
+   * `removeShapesFromDisplay`). A selection or a sketch geometry a feature
+   * uses is consumed for good. `remove(obj)` forces the hard removal on
+   * every object.
+   */
+  consumedForDisplayOnly(): boolean {
+    return false;
   }
 
   removeShapes(removedBy: SceneObject, force?: boolean) {
-    if (this._reusable && !force) {
+    if (this.consumedForDisplayOnly() && !force) {
+      this.removeShapesFromDisplay(removedBy);
       return;
     }
 
     if (this.isContainer()) {
+
       for (const child of this.children) {
         child.removeShapes(removedBy, force);
       }
@@ -545,13 +587,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * when the timeline is scrubbed before the publication), while contact
    * classification, pick matching (`sourceServes`) and cross-part
    * consumers — which all read the source without a scope — keep working.
-   * Reusable sources stay fully visible, mirroring `removeShapes`.
+   *
+   * The datums (sketches, planes, axes — see `consumedForDisplayOnly`) route
+   * every plain `removeShapes` here, so a feature's use of one never takes it
+   * away from later features.
    */
   removeShapesFromDisplay(removedBy: SceneObject) {
-    if (this._reusable) {
-      return;
-    }
-
     if (this.isContainer()) {
       for (const child of this.children) {
         child.removeShapesFromDisplay(removedBy);
@@ -656,6 +697,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
@@ -665,10 +707,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     // whose remover is in scope — hard and soft alike. Scope-less reads
     // (feature builds, pick matching, exposure classification) honor only
     // HARD removals: a soft (render-only) removal hides the shape from the
-    // screen, never from readers.
+    // screen, never from readers. `includeDisplayHidden` reads a scope the
+    // same way: its hard removals only.
+    const keepSoft = filter.includeDisplayHidden === true;
     const shapes = this.addedShapes.filter(s =>
       !this.removedShapes.find(r =>
-        r.shape === s && (scope ? scope.has(r.removedBy) : !r.soft)
+        r.shape === s && (scope ? scope.has(r.removedBy) && !(keepSoft && r.soft) : !r.soft)
       )
     );
 
@@ -689,6 +733,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     let shapes: Shape[] = [];
 
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
@@ -702,6 +747,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     filter = {
+      ...filter,
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
@@ -788,15 +834,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._guide;
   }
 
-  reusable(): this {
-    this._reusable = true;
-    return this;
-  }
-
-  isReusable(): boolean {
-    return this._reusable;
-  }
-
   setSourceLocation(loc: SourceLocation) {
     this._sourceLocation = loc;
   }
@@ -850,6 +887,22 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._error;
   }
 
+  /**
+   * Refuse this statement at parse time: its builder was handed operands it
+   * cannot take (a repeat of a connector, a second copy of one). The object
+   * stays in the scene with whatever it already set up, but it never builds —
+   * the renderer reports `message` as its build error instead, so the reason
+   * shows on the statement's own row and the rest of the file still renders.
+   */
+  refuse(message: string): void {
+    this._refusal = message;
+  }
+
+  /** Why the statement was refused at parse time, or null — see refuse(). */
+  getRefusal(): string | null {
+    return this._refusal;
+  }
+
   getFusionScope(): FusionScope | undefined {
     return this._fusionScope || 'all';
   }
@@ -872,6 +925,27 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       return scope;
     }
     return sceneObjects;
+  }
+
+  /**
+   * The solids this feature's boolean runs against, each with the object
+   * holding it now. An explicit `.scope()` names the features that built
+   * them, and a solid moves on to whichever feature changes it next — a cut
+   * keeps the solid it cut — so the scope follows its solids there (see
+   * `liveSolidsOf`): a repeat's copies, and any later statement naming the
+   * same solid, find it where the features before them left it. The default
+   * scope takes every solid the scene's objects hold.
+   */
+  resolveFusionStock(sceneObjects: SceneObject[]): HeldSolid[] {
+    const scope = this.getFusionScope();
+    if (scope === 'none') {
+      return [];
+    } else if (scope instanceof SceneObject) {
+      return liveSolidsIn([scope]);
+    } else if (Array.isArray(scope)) {
+      return liveSolidsIn(scope);
+    }
+    return heldSolidsOf(sceneObjects);
   }
 
   add(): this {

@@ -1,11 +1,13 @@
 import {
   addBreakpoint,
+  moveTimelineBreakpoint,
   editorRedo,
   editorUndo,
   exportShapes,
   getEdgeProperties,
   getFaceProperties,
   getMaterials,
+  getPartProperties,
   getShapeProperties,
   gotoSource,
   loadPreferences,
@@ -16,16 +18,22 @@ import {
   removeFeature,
   removeFeatureCascade,
   renameFeature,
+  renamePart,
   rollback,
   savePreference,
   setDocumentUnit,
+  setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
 class HttpEngineEditorClient implements EngineEditorClient {
+  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
+    return moveTimelineBreakpoint(filePath, before);
+  }
+
   addBreakpoint(sourceLocation: SourceLocationParam): void {
     addBreakpoint(sourceLocation);
   }
@@ -48,6 +56,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
     renameFeature(sourceLocation, name);
+  }
+
+  renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult> {
+    return renamePart(sourceLocation, name);
   }
 
   undo(filePath: string): Promise<EditorHistoryResult> {
@@ -74,6 +86,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
   setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
     return setProjectUnit(unit);
   }
+
+  setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
+    return setPartMaterial(sourceLocation, material);
+  }
 }
 
 /**
@@ -93,7 +109,7 @@ export class HttpEngineClient implements EngineClient {
   }
 
   setParam(label: string, value: unknown): void {
-    fetch('/api/set-param', {
+    fetch('api/set-param', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label, value }),
@@ -101,7 +117,7 @@ export class HttpEngineClient implements EngineClient {
   }
 
   resetParams(): void {
-    fetch('/api/reset-params', { method: 'POST' })
+    fetch('api/reset-params', { method: 'POST' })
       .catch(err => console.error('Reset params failed:', err));
   }
 
@@ -119,6 +135,10 @@ export class HttpEngineClient implements EngineClient {
 
   getMaterials(): Promise<Material[] | null> {
     return getMaterials();
+  }
+
+  getPartProperties(partId: string): Promise<PartProperties | null> {
+    return getPartProperties(partId);
   }
 
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null> {

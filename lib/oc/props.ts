@@ -29,4 +29,25 @@ export class ShapeProps {
 
     return { volumeMm3, surfaceAreaMm2, centroid };
   }
+
+  /**
+   * Volume and centre of mass by the kernel's fixed-order quadrature — several
+   * times cheaper than {@link getProperties}' adaptive pass, and less exact on
+   * the faces that pass exists for. It integrates the same geometry to the
+   * same number every time, which is all telling two bodies apart needs; a
+   * number shown to the user wants `getProperties`.
+   */
+  static getVolumeAndCentroid(shape: TopoDS_Shape): { volume: number; centroid: { x: number; y: number; z: number } } {
+    const oc = getOC();
+    const props = new oc.GProp_GProps();
+    try {
+      oc.BRepGProp.VolumeProperties(shape, props, false, false, false);
+      const cog = props.CentreOfMass();
+      const centroid = { x: cog.X(), y: cog.Y(), z: cog.Z() };
+      cog.delete();
+      return { volume: props.Mass(), centroid };
+    } finally {
+      props.delete();
+    }
+  }
 }

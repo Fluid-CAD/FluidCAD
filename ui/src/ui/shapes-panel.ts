@@ -2,6 +2,7 @@ import type { SceneObjectRender } from '../types';
 import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from './icons';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
+import { iconUrl } from './icon-url';
 
 export class ShapesPanel extends AccordionSection {
   private panel: HTMLElement;
@@ -106,7 +107,7 @@ export class ShapesPanel extends AccordionSection {
           const dotsBtn = `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${ICON_DOTS_VERTICAL}</button>`;
           html += `
             <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
-              <img src="/icons/${shape.shapeType}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+              <img src="${iconUrl(shape.shapeType)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
               <span class="truncate">${label}</span>
               ${eyeBtn}
               ${dotsBtn}

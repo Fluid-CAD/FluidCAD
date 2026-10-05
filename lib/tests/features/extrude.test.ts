@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
+import { rect } from "../../core/shapes/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extruder } from "../../features/simple-extruder.js";
 import { Extrude } from "../../features/extrude.js";
@@ -47,17 +48,20 @@ describe("extrude", () => {
       expect(e.extrudable).toBe(s1);
     });
 
-    it("should remove the extrudable", () => {
+    it("should hide the extrudable from the render, keeping it for readers", () => {
       const s = sketch("xy", () => {
           testRect(100, 50);
         }) as Sketch;
 
       extrude();
 
-      render();
+      const scene = render();
 
-      const sketchShapes = s.getShapes();
-      expect(sketchShapes).toHaveLength(0);
+      // Display-only consumption: the scoped (render) read is empty, the
+      // scope-less (feature) read still serves the wires.
+      expect(s.getShapes(undefined, undefined, new Set(scene.getAllSceneObjects()))).toHaveLength(0);
+      expect(s.getShapes().length).toBeGreaterThan(0);
+      expect(scene.getRenderedObject(s)!.visible).toBe(false);
     });
   });
 
@@ -650,11 +654,12 @@ describe("extrude", () => {
     });
 
     it("should include meta shapes when filter is disabled", () => {
-      sketch("xy", () => {
-          testRect(100, 50);
+      const s = sketch("xy", () => {
+          const r = rect([0, 0], 100, 50);
+          region('r', r);
         });
 
-      const e = extrude(30).pick([50, 25]) as Extrude;
+      const e = extrude(30, s).region('r') as Extrude;
 
       render();
 
@@ -664,15 +669,16 @@ describe("extrude", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      // Pick point inside the first circle only
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      // The first circle's region only
+      const e = extrude(20).region('a') as Extrude;
 
       render();
 
@@ -683,12 +689,14 @@ describe("extrude", () => {
 
     it("should extrude multiple picked regions", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
-          circle([100, 0], 60);
+          const a = circle([0, 0], 60);
+          const b = circle([100, 0], 60);
+          region('a', a);
+          region('b', b);
         });
 
-      // Pick points inside both circles
-      const e = extrude(20).pick([0, 0], [100, 0]) as Extrude;
+      // Both circles' regions
+      const e = extrude(20).region('a', 'b') as Extrude;
 
       render();
 
@@ -698,12 +706,13 @@ describe("extrude", () => {
 
     it("should extrude only the intersection region of two overlapping circles", () => {
       sketch("xy", () => {
-        circle([-20, 0], 80);
-        circle([20, 0], 80);
+        const a = circle([-20, 0], 80);
+        const b = circle([20, 0], 80);
+        region('lens', a, b);
       });
 
-      // Pick at the center — inside the intersection of both circles
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      // The lens: on the left (inside) of both circles
+      const e = extrude(20).region('lens') as Extrude;
 
       render();
 
@@ -716,12 +725,12 @@ describe("extrude", () => {
       expect(solidWidth).toBeLessThan(80);
     });
 
-    it("should produce no solid when pick point is outside all regions", () => {
+    it("should produce no solid when the key names no region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20).pick([500, 500]) as Extrude;
+      const e = extrude(20).region('gone') as Extrude;
 
       render();
 
@@ -731,11 +740,12 @@ describe("extrude", () => {
 
     it("should add meta shapes for all cells", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      const e = extrude(20).pick([0, 0]) as Extrude;
+      const e = extrude(20).region('a') as Extrude;
 
       render();
 

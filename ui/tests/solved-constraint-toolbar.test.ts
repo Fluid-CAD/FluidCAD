@@ -17,7 +17,7 @@ import { ShortcutManager } from '../src/ui/shortcut-manager';
 const LABELS = [
   'Coincident', 'Horizontal', 'Vertical', 'Parallel', 'Perpendicular', 'Tangent',
   'Equal', 'Concentric', 'Collinear', 'Midpoint', 'Symmetric', 'Fix',
-  'Dimension', 'Angle', 'Delete constraint',
+  'Dimension', 'Angle', 'Delete',
 ];
 
 /** The buttons are icon-only; `aria-label` carries the constraint's name. */

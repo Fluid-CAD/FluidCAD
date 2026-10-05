@@ -14,6 +14,7 @@ type PlaneTransformOptions = {
   rotateX?: number;
   rotateY?: number;
   rotateZ?: number;
+  rotationAxes?: 'local' | 'world';
 };
 ```
 
@@ -27,3 +28,4 @@ Options accepted by `plane()` to offset and rotate a plane relative to its own a
 | `rotateX` | `number` | Rotation around the plane's X axis (in degrees) *(optional)* |
 | `rotateY` | `number` | Rotation around the plane's Y axis (in degrees) *(optional)* |
 | `rotateZ` | `number` | Rotation around the plane's Z axis / normal (in degrees) *(optional)* |
+| `rotationAxes` | `'local'` \| `'world'` | The axes the rotations turn around: the plane's own through its origin (`local`, the default — tilts in place) or the world axes through the world origin (`world` — an offset plane orbits) *(optional)* |

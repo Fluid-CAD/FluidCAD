@@ -35,7 +35,14 @@ type Harness = {
   container: HTMLElement;
   track: HTMLElement;
   tabEls(): HTMLElement[];
-  handlers: FileTabsHandlers & { onActivate: ReturnType<typeof vi.fn>; onReorder: ReturnType<typeof vi.fn>; onRename: ReturnType<typeof vi.fn>; onClose: ReturnType<typeof vi.fn> };
+  handlers: FileTabsHandlers & {
+    onActivate: ReturnType<typeof vi.fn>;
+    onReorder: ReturnType<typeof vi.fn>;
+    onRename: ReturnType<typeof vi.fn>;
+    onClose: ReturnType<typeof vi.fn>;
+    onCloseOthers: ReturnType<typeof vi.fn>;
+    onRemove: ReturnType<typeof vi.fn>;
+  };
 };
 
 const mounted: HTMLElement[] = [];
@@ -232,6 +239,169 @@ describe('FileTabs rename', () => {
     bare.tabEls()[0].dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
     expect(bare.container.querySelector('[role="menu"]')).toBeNull();
+  });
+});
+
+describe('FileTabs close other tabs', () => {
+  function hover(el: HTMLElement): void {
+    el.dispatchEvent(new MouseEvent('pointerenter'));
+  }
+
+  function submenuOf(menu: HTMLElement): HTMLElement | null {
+    return menu.querySelector<HTMLElement>('[role="menu"]');
+  }
+
+  it('hovering the row opens a submenu; each of its rows closes tabs around the clicked one', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    for (const [label, which] of [['All other tabs', 'all'], ['Tabs to the left', 'left'], ['Tabs to the right', 'right']]) {
+      const menu = openMenu(h, h.tabEls()[1]);
+      const parent = menuRow(menu, 'Close other tabs');
+      expect(parent.getAttribute('aria-expanded')).toBe('false');
+      expect(submenuOf(menu)).toBeNull();
+      hover(parent);
+      expect(parent.getAttribute('aria-expanded')).toBe('true');
+      menuRow(submenuOf(menu)!, label).click();
+      expect(h.handlers.onCloseOthers).toHaveBeenLastCalledWith('/ws/rig.assembly.js', which);
+      expect(h.container.querySelector('[role="menu"]')).toBeNull();
+    }
+  });
+
+  it('disables the side with no tabs, and the whole row for a lone tab', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const first = openMenu(h, h.tabEls()[0]);
+    hover(menuRow(first, 'Close other tabs'));
+    expect(menuRow(submenuOf(first)!, 'Tabs to the left').disabled).toBe(true);
+    expect(menuRow(submenuOf(first)!, 'Tabs to the right').disabled).toBe(false);
+
+    const last = openMenu(h, h.tabEls()[2]);
+    hover(menuRow(last, 'Close other tabs'));
+    expect(menuRow(submenuOf(last)!, 'Tabs to the left').disabled).toBe(false);
+    expect(menuRow(submenuOf(last)!, 'Tabs to the right').disabled).toBe(true);
+
+    const lone = mount({ onCloseOthers: vi.fn() });
+    const tabs = new FileTabs(lone.container, lone.handlers, true);
+    tabs.setTabs([TABS[0]], TABS[0].absPath, TABS[0].absPath);
+    const track = lone.container.querySelectorAll<HTMLElement>('.w-max')[1];
+    const menu = openMenu(lone, track.children[0] as HTMLElement);
+    expect(menuRow(menu, 'Close other tabs').disabled).toBe(true);
+  });
+
+  it("another row's hover closes the submenu, and a click opens it too", () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[1]);
+    const parent = menuRow(menu, 'Close other tabs');
+    parent.click();
+    expect(submenuOf(menu)).not.toBeNull();
+    // A click on the row opens; it doesn't pick anything or close the menu.
+    expect(h.handlers.onCloseOthers).not.toHaveBeenCalled();
+    expect(menu.isConnected).toBe(true);
+    hover(menuRow(menu, 'Rename'));
+    expect(submenuOf(menu)).toBeNull();
+    expect(parent.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('ArrowRight opens the submenu onto its first row, ArrowLeft goes back', () => {
+    const h = mount({ onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[1]);
+    const parent = menuRow(menu, 'Close other tabs');
+    parent.focus();
+    parent.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    const submenu = submenuOf(menu)!;
+    expect(document.activeElement).toBe(menuRow(submenu, 'All other tabs'));
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(submenuOf(menu)).toBeNull();
+    expect(document.activeElement).toBe(parent);
+  });
+});
+
+describe('FileTabs remove file', () => {
+  it('asks the owner to remove the file, from a row set apart from the rest', () => {
+    const h = mount({ onRemove: vi.fn(), onCloseOthers: vi.fn() });
+    const menu = openMenu(h, h.tabEls()[2]);
+    const labels = Array.from(menu.querySelectorAll(':scope > button')).map((row) => row.textContent?.trim());
+    expect(labels).toEqual(['Rename', 'Close', 'Close other tabs', 'Remove file']);
+    const row = menuRow(menu, 'Remove file');
+    expect(row.previousElementSibling?.getAttribute('role')).toBe('separator');
+    row.click();
+    expect(h.handlers.onRemove).toHaveBeenCalledWith('/ws/init.js');
+    expect(h.container.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('is the only row, with no rule above it, on a host that offers nothing else', () => {
+    const h = mount({ onRemove: vi.fn(), onRename: undefined, onClose: undefined });
+    const menu = openMenu(h, h.tabEls()[0]);
+    expect(menu.querySelector('[role="separator"]')).toBeNull();
+    expect(menuRow(menu, 'Remove file')).toBeDefined();
+  });
+});
+
+describe('FileTabs active-tab reveal', () => {
+  const VIEWPORT_WIDTH = 250;
+  const MANY: FileTab[] = Array.from({ length: 6 }, (_, i) => ({
+    absPath: `/ws/p${i}.part.js`,
+    relPath: `p${i}.part.js`,
+    kind: 'model' as const,
+    dirty: false,
+  }));
+
+  /** A strip too narrow for its tabs; each tab 100px wide, laid out in DOM order. */
+  function narrowStrip(): { tabs: FileTabs; track: HTMLElement; frame(): void } {
+    const h = mount();
+    const rafs: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => rafs.push(cb));
+    const tabs = new FileTabs(h.container, h.handlers, true);
+    const track = h.container.querySelectorAll<HTMLElement>('.w-max')[1];
+    const viewport = track.parentElement!;
+    Object.defineProperty(viewport, 'clientWidth', { get: () => VIEWPORT_WIDTH });
+    Object.defineProperty(track, 'scrollWidth', { get: () => track.children.length * TAB_WIDTH });
+    return {
+      tabs,
+      track,
+      // Lay out the tabs the strip just rendered, then run the measure frame.
+      frame: () => {
+        Array.from(track.children).forEach((child, index) => {
+          Object.defineProperty(child, 'offsetLeft', { get: () => index * TAB_WIDTH });
+          Object.defineProperty(child, 'offsetWidth', { get: () => TAB_WIDTH });
+        });
+        for (const cb of rafs.splice(0)) {
+          cb(0);
+        }
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('scrolls a hidden tab into view when it becomes active, and no further', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('0px');
+    // The server switched to the fifth tab (400..500px) — off the right edge.
+    s.tabs.setTabs(MANY, MANY[4].absPath, MANY[4].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe(`-${500 - VIEWPORT_WIDTH}px`);
+    // Back to the first tab, off the left edge now.
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('0px');
+  });
+
+  it('leaves the strip alone when the active tab is already visible or unchanged', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[4].absPath, MANY[4].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
+    // The fourth tab (300..400px) is inside the 250..500px window: no move.
+    s.tabs.setTabs(MANY, MANY[3].absPath, MANY[3].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
+    // A dirty-dot re-render of the same active tab doesn't scroll either.
+    s.tabs.setTabs(MANY.map((tab, i) => (i === 3 ? { ...tab, dirty: true } : tab)), MANY[3].absPath, MANY[3].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-250px');
   });
 });
 

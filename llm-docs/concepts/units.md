@@ -65,7 +65,9 @@ unit; each file resolves its own.
 
 `npx fluidcad init --unit in` writes it. This is the unit of every part
 file without `unit()` and the unit of assembly space. Edits take effect
-on the next render.
+on the next render. The same file holds the project's own `materials` map
+(see [[api/part]] — `.material(id)`); mass in Shape Properties is always
+reported in grams whatever the document unit.
 
 `init({ unit: 'in' })` in `init.js` is a programmatic override for hosts
 and tests. Do not reach for it in a normal project — use `fluidcad.json`.

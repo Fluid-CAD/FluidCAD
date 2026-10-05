@@ -1,5 +1,46 @@
 import { describe, it, expect } from "vitest";
-import { extractSourceLocation } from "../index.js";
+import { extractErrorSourceLocation, extractSourceLocation } from "../index.js";
+
+// A thrown error's location: the stack's first script frame, the error's own
+// header left out — a message that ends in a script location
+// (`… at flange.part.js:21`) must not read as a frame.
+describe("extractErrorSourceLocation", () => {
+  /** An error whose stack is `stack`, as V8 would print it for `message`. */
+  function thrown(message: string, frames: string): Error {
+    const error = new Error(message);
+    error.stack = `Error: ${message}\n${frames}`;
+    return error;
+  }
+
+  it("skips a message that ends in a script location", () => {
+    const error = thrown(
+      "bolt.instance(4) was skipped by the copy at flange.part.js:21",
+      "    at Connector.instance (/ws/node_modules/fluidcad/lib/dist/features/connector.js:120:19)\n"
+      + "    at eval (virtual:live-render:/ws/rig.assembly.js:12:22)",
+    );
+    expect(extractErrorSourceLocation(error)).toEqual({ filePath: "/ws/rig.assembly.js", line: 12, column: 22 });
+  });
+
+  it("skips a multi-line message", () => {
+    const error = thrown(
+      "first line\nsee widget.part.js:3",
+      "    at Object.<anonymous> (/ws/model.fluid.js:7:1)",
+    );
+    expect(extractErrorSourceLocation(error)).toEqual({ filePath: "/ws/model.fluid.js", line: 7, column: 1 });
+  });
+
+  it("parses a stack without a header as it is", () => {
+    const error = new Error("see widget.part.js:3");
+    error.stack = "instance@virtual:live-render:/ws/rig.assembly.js:12:22";
+    expect(extractErrorSourceLocation(error)).toEqual({ filePath: "/ws/rig.assembly.js", line: 12, column: 22 });
+  });
+
+  it("returns null for a value with no stack", () => {
+    expect(extractErrorSourceLocation("boom")).toBeNull();
+    expect(extractErrorSourceLocation(null)).toBeNull();
+    expect(extractErrorSourceLocation({ message: "x" })).toBeNull();
+  });
+});
 
 describe("extractSourceLocation", () => {
   it("parses Linux virtual:live-render frame", () => {
@@ -81,6 +122,44 @@ describe("extractSourceLocation", () => {
       filePath: "/home/user/project/robot.assembly.js",
       line: 7,
       column: 9,
+    });
+  });
+
+  // The server percent-encodes the sourceURL it hands V8, which drops one
+  // holding whitespace — a workspace under `My Projects` shows up encoded.
+  it("decodes a percent-encoded frame path", () => {
+    const stack = `Error
+    at eval (/home/user/My%20Projects/100%25/widget.part.js:12:3)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/My Projects/100%/widget.part.js",
+      line: 12,
+      column: 3,
+    });
+  });
+
+  it("decodes a file:/// URL", () => {
+    const stack = `Error
+    at Object.<anonymous> (file:///C:/Users/marwan/My%20Projects/test.fluid.js:4:11)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "C:/Users/marwan/My Projects/test.fluid.js",
+      line: 4,
+      column: 11,
+    });
+  });
+
+  it("keeps a path that is not valid percent-encoding as it came", () => {
+    const stack = `Error
+    at Object.<anonymous> (/home/user/50%off/test.fluid.js:4:11)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/50%off/test.fluid.js",
+      line: 4,
+      column: 11,
     });
   });
 

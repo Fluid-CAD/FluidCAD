@@ -46,7 +46,7 @@ export type RepeatGhostSweep = { mode: 'angle' | 'offset'; value: number };
  * moves which cell *is* the original (repeat.ts:172-180).
  *
  * `skip` leaves cells out by index tuple, matched exactly as the statement
- * matches them (repeat.ts:183, copy-linear.ts:82): a tuple is compared only as
+ * matches them (repeat.ts:183, `CopyLayout.linear`): a tuple is compared only as
  * far as it is stated, so `[1]` in a two-direction grid leaves out the whole
  * row at index 1.
  */
@@ -55,7 +55,7 @@ export function buildLinearGhostMatrices(
   centered: boolean,
   skip: number[][] = [],
 ): Matrix4[] {
-  if (directions.length === 0 || !directions.every(isUsableDirection)) {
+  if (directions.length === 0 || !directions.every(isUsableGhostDirection)) {
     return [];
   }
 
@@ -153,12 +153,8 @@ export function linearGhostInstanceCount(directions: { count: number }[]): numbe
   return Math.max(0, cells - 1);
 }
 
-/**
- * One instance's turn about an axis. Exported for the copy ghost, which places
- * its clones with the same three primitives this file's builders do — see
- * `lib/features/copy-ghost.ts`.
- */
-export function ghostRotation(axis: Axis, degrees: number): Matrix4 {
+/** One instance's turn about an axis. */
+function ghostRotation(axis: Axis, degrees: number): Matrix4 {
   return Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(degrees));
 }
 
@@ -175,7 +171,7 @@ function isOriginCell(cell: number[], directions: RepeatGhostDirection[], center
 
 /**
  * Whether a `skip` entry names this cell. A tuple is matched only as far as it
- * is stated (repeat.ts:183, copy-linear.ts:82) — a short one names every cell
+ * is stated (repeat.ts:183, `CopyLayout.linear`) — a short one names every cell
  * whose leading indices agree, so `[1]` in a grid skips a whole row.
  */
 function isSkippedCell(cell: number[], skip: number[][]): boolean {
@@ -183,11 +179,12 @@ function isSkippedCell(cell: number[], skip: number[][]): boolean {
 }
 
 /**
- * A direction the ghost can lay out. A single-instance direction is legal —
- * a 3 × 1 grid is still a pattern — but one that repeats has to say how far
- * apart, and every direction needs a real axis to walk along.
+ * A direction the ghost can lay out — shared with the copy ghost. A
+ * single-instance direction is legal — a 3 × 1 grid is still a pattern — but
+ * one that repeats has to say how far apart, and every direction needs a real
+ * axis to walk along.
  */
-function isUsableDirection(direction: RepeatGhostDirection): boolean {
+export function isUsableGhostDirection(direction: RepeatGhostDirection): boolean {
   if (!Number.isInteger(direction.count) || direction.count < 1 || !isUsableGhostAxis(direction.axis)) {
     return false;
   }

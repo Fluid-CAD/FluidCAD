@@ -1,10 +1,10 @@
 ---
 id: api/repeat
 title: repeat(kind, axis | plane, options, ...features)
-summary: Re-applies a modeling feature (extrude, cut, fillet, …) at multiple positions, producing one solid with N copies of the feature.
+summary: Re-applies a modeling feature (extrude, cut, fillet, …) at multiple positions, producing one solid with N copies of the feature. A repeat can be repeated — repeat("mirror", plane, row) mirrors a whole row. Refuses connectors — copy them with copy(), or follow the repeat with copy(holes, bolt).
 tags: [api, pattern, transform]
 symbols: [repeat]
-seeAlso: [api/extrude, concepts/scene-graph]
+seeAlso: [api/extrude, api/copy, api/connector, concepts/scene-graph]
 ---
 
 # repeat
@@ -35,6 +35,47 @@ argument — each repetition re-executes that operation, so the output is
 Passing `count` alone is not enough — the runtime needs either the
 spacing or the span.
 
+**Circular step.** A full turn (`angle: 360`, or any whole number of
+turns) steps `angle / count`: six instances 60° apart. Any other angle
+steps `angle / (count - 1)`, so the last instance lands on `angle`:
+`{ count: 4, angle: 90 }` puts instances at 0°, 30°, 60° and 90°. `copy()`
+always steps `angle / count` (0°, 22.5°, 45°, 67.5° for the same options) —
+the two differ on partial arcs, by design.
+
+## Repeating a repeat
+
+A `repeat()` is itself a feature another `repeat()` takes. As a target it
+stands for its **whole pattern** — the original and every instance it
+placed — so repeating holes along an axis and then mirroring them to the
+other side is two statements:
+
+```js
+const hole = cut(10);
+const row = repeat("linear", "x", { count: 3, offset: 25 }, hole);
+repeat("mirror", "front", row);       // six holes: the row and its mirror image
+```
+
+- Any kind repeats any other, to any depth (`repeat("mirror", "right",
+  repeat("mirror", "front", row))` reaches all four corners).
+- Pass `row`, not `hole, row.instance(1), row.instance(2)` — the repeat
+  already names every instance. `row.instance(k)` alone repeats that one
+  instance; a feature named twice (`hole, row`) is repeated once.
+- With no targets, a repeat written right after another repeat takes that
+  whole repeat, not its last instance.
+- The outer repeat keeps its own slot numbering; each of its instances is
+  the whole inner pattern. `m.instance(1)` of a mirror of `row` is the
+  mirrored row — a whole geometry and a `from()` scope, with no forwarded
+  accessors (it holds several features).
+- A repeat of a refused repeat is refused too.
+
+**Connectors are refused.** `repeat()` re-applies features, and a
+connector is a frame, not a feature — an explicit connector target, or a
+connector as the implicit last object, refuses the statement on its row:
+`repeat() re-applies features — copy a connector with copy('circular',
+axis, options, bolt), or copy(<this repeat>, bolt) to follow it`. Repeat
+the hole, then lay the connector on its instances with
+`copy(holes, bolt)` (see [[api/copy]]).
+
 ## Examples
 
 ```fluid.js
@@ -58,8 +99,9 @@ sketch("xy", () => {
   distance(b.start(), b.end(), 200);
   distance(r.start(), r.end(), 100);
 });
-extrude(20);
-sketch("xy", () => {
+const plate = extrude(20);
+// On the plate's top face: a cut runs into the solid from the face it is sketched on
+sketch(plate.endFaces(), () => {
   const c = circle([0, 0], 5);
   coincident(c.center(), origin());
   diameter(c, 5);
@@ -90,10 +132,16 @@ repeat("circular", "z", { count: 6, offset: 60 }, spoke);
 | Clone the whole finished shape at new positions (each copy independent) | `copy()` |
 | Many separate solids of the same shape | `copy()` with `.new()` on the original |
 | Mirror a feature across a plane | `repeat("mirror", plane, feature)` |
+| Mirror (or array, or turn) a whole pattern | `repeat("mirror", plane, row)` with `row` the earlier `repeat()` |
+| Copies of a connector (mate frame) in a row or around an axis | `copy("linear" \| "circular", …, bolt)` — `repeat()` refuses connectors |
+| A connector on every instance of a repeated hole | `copy(holes, bolt)` — follows the repeat's own slots and moves when it changes |
+| A partial arc whose last instance lands on `angle` | `repeat()` (`angle / (count - 1)`); `copy()` steps `angle / count` |
 
 The key intuition: `copy()` duplicates a finished shape; `repeat()`
 re-executes a feature. The latter respects auto-fusion semantics, so
-overlapping copies merge rather than producing duplicate geometry.
+overlapping copies merge rather than producing duplicate geometry. A
+connector is neither a shape nor a feature to re-run: only `copy()` takes
+one.
 
 See [[api/extrude]] / [[concepts/scene-graph]] for the underlying feature
 model `repeat` re-applies.

@@ -198,8 +198,15 @@ Verified against `ui/src` at the time of writing. Use these names.
 rename; drag to reorder; **+** = *Open a file* — a quick-open box that opens
 an existing file or creates a new one when the name does not exist),
 **Import** (STEP), **Export** (menu of solids; in an assembly it leads with
-*Whole assembly*), theme toggle. On narrow windows these collapse into one
-**Actions** menu.
+*Whole assembly*), the **Settings** gear (tabs **Appearance / Editor / Sketch /
+Timeline / Units / Materials / Advanced**; every tab is a draft until the
+dialog's **Save**, Cancel drops it; **Materials** = the user's own materials
+kept in the preferences file: list rows name / id / density / unit with pencil
+and bin, an **Add material** form with **Name**, **Density** + **Unit**
+(g/cm³ / kg/m³ / g/mm³ / lbs/in³) and **Id** auto-slugged from the name until
+edited, **Add**; an entry may reuse a built-in id and then overrides it in the
+project it is copied into), theme toggle. On narrow windows these collapse
+into one **Actions** menu.
 
 **Panel rail** (left edge) — latch buttons: **Code editor** (<kbd>Ctrl</kbd>+<kbd>B</kbd>;
 docks left and takes width from the scene) and **Feature tree** (the
@@ -211,9 +218,23 @@ places a breakpoint after it and opens the feature's edit dialog. Right-click
 a row: **Rename** (edits `.name('…')`), **Edit feature**, **Breakpoint here**
 (a `breakpoint()` after the row, so features you add next land there),
 **Remove** (deletes the statement; if later features depend on it, a dialog
-lists them and deletes the closure on confirm). Sketch rows fold their
-constraints behind an *N constraints* toggle row; part rows fold *N
-connectors* and *N exposed*. Feature status glyph: check = served from cache,
+lists them and deletes the closure on confirm); a connector row nothing
+copies yet also offers **Copy…** (the Copy dialog with that connector); a
+part row offers **Set material…** (the **Set material** dialog: a filter box,
+**None**, then **Built-in** and **Custom** groups — the project's
+`fluidcad.json` entries tagged *in project* plus the user's global materials
+from Settings → Materials — current one checked and first in its group,
+density at the right, *Loading materials…* until the list arrives and a
+**Retry** when it fails, **Apply** / double-click / Enter writes
+`.material('id')`, **Manage materials…** bottom-left opens Settings →
+Materials; a global material that the project lacks is copied into
+`fluidcad.json` before the statement is written). A part row also carries a
+**⋮** button at its right edge that opens the same menu under it without
+activating the part. A part row whose material id is unknown carries a
+warning triangle.
+Sketch rows fold their constraints behind an *N constraints* toggle row;
+part rows fold *N connectors* (declared connectors only; a Copy row stays
+among the features) and *N exposed*. Feature status glyph: check = served from cache,
 refresh = recomputed. The panel's **⋯** menu: **Recompute scene** (clears the
 cache and rebuilds everything) and **Show execution time**. **Undo / Redo**
 sit above it.
@@ -221,8 +242,14 @@ sit above it.
 **Shapes panel** — one row per solid; eye toggle, **Transparency**, **Export**
 (row menu). Clicking a row selects the solid.
 
-**Shape properties** (from a shape row) — **Volume**, **Material** (density
-presets) → **Mass**, plus centre of mass; **Calculate** runs it.
+**Shape properties** (scale icon, bottom right) — **Part | Solid** tabs;
+**Length Unit** / **Mass Unit**; **Material** and **Density** are read-only
+rows for a solid inside a part (the part's `.material()`) and in Part mode,
+a **Built-in / Custom** dropdown only for a solid outside any part
+(transient, never written) with a **Manage materials…** link under it that
+opens Settings → Materials;
+**Calculate** → **Volume**, **Surface Area**, **Mass**, **Center of Mass**.
+Part mode sums the part's final solids. There is no density input.
 
 **Parameters panel** — one control per `param()` (number, slider, text,
 select, checkbox, color); **+** adds a parameter through a dialog (writes the
@@ -281,7 +308,12 @@ Dialog fields:
   or the X / Y / Z quick buttons; `axis()` statements with transform options are code-only.
 - **Mirror** (3D): tabs Add / Remove / New; **Solids** slot; **Plane** slot.
 - **Copy / Repeat**: kind (linear / circular / mirror), **Axis** slots,
-  count, offset / length / angle, centered, skip.
+  count, offset / length / angle, centered, skip. Copy's **Type** is
+  **Linear / Circular / Along a repeat**; its targets slot is **Solids &
+  connectors** (connector triads and rows too), and **Along a repeat**
+  (offered while every target is a connector) swaps the axis, count,
+  spacing and skip fields for a **Pattern** slot (a repeat row, or a
+  feature it repeated). Repeat refuses connectors and points to Copy.
 - **Rotate**: tabs **Move** (turn in place) / **Copy** (keep originals, add
   turned copies); **Solids** slot; **Axis** slot; **Angle**.
 - **Boolean**: **Fuse / Subtract / Common**, **Target** and **Tool** solids.
@@ -332,7 +364,10 @@ is solved live as a preview while the dialog is open.
 
 **Assembly rail** — **Parts** (one row per instance; eye toggle; menu: Show
 in source, Toggle grounded, Rename, Delete; sub-assemblies group under a
-header), **Connectors** (assembly-level connectors), **Joints** (one row per
+header), **Connectors** (assembly-level connectors; a copied one heads a
+family — count, chevron, `instance(k)` rows; menu: Show in source,
+Copy… / Edit copy…, Delete; on a copy: Show in source, Edit copy…, Remove
+copies), **Joints** (one row per
 `mate()`; click highlights both connectors; right-click a revolute/slider
 row → **Animate…**).
 

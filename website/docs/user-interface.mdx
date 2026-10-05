@@ -19,14 +19,14 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
     {n: 2, x: 35, y: 2.6, label: '+ (Open a file)', description: 'Opens a box listing every file in the workspace. Pick one to open it as a tab, or type a name that does not exist to create it.'},
     {n: 3, x: 91, y: 2.6, label: 'Import', description: 'Imports a STEP file into imports/ and appends a load() statement.'},
     {n: 4, x: 94, y: 2.6, label: 'Export', description: 'Lists the scene’s solids; pick one for the STEP / STL / PNG dialog. In an assembly the list leads with Whole assembly.'},
-    {n: 5, x: 35, y: 8.3, label: 'Toolbar', description: 'Sketch, the create features (Extrude … Rib), the pick tools (Fillet, Chamfer, Shell, Offset), datums and transforms, Boolean, and the structure tools Part and Connector. Undo / Redo sit at the left end.'},
+    {n: 5, x: 35, y: 8.3, label: 'Toolbar', description: 'Sketch, the create features (Extrude … Hole), the pick tools (Fillet, Chamfer, Shell, Offset), datums and transforms, Boolean, and the structure tools Part and Connector. Undo / Redo sit at the left end.'},
     {n: 6, x: 1.7, y: 14.2, label: 'Feature tree', description: 'Shows or hides the panel column.'},
     {n: 7, x: 1.7, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
     {n: 8, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order. See below for what clicks do.'},
     {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
     {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'One row per solid. Click to select it; the row menu hides it, sets transparency, or exports it.'},
-    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param(). + adds a parameter, the arrow resets all to their defaults.'},
-    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume and mass of the selected solid, for a chosen material.'},
+    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
+    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume, surface area, mass and centre of mass of a solid or of a whole part, from the part’s material.'},
     {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
     {n: 14, x: 96.5, y: 16.5, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: fit to view, and the grid / projection toggles.'},
   ]}
@@ -36,38 +36,97 @@ With the code editor open, the file sits between the rail and the panels. Edits 
 
 ![The workspace with the code editor open](/img/docs/ui/overview-editor.png)
 
+## Settings
+
+The gear in the top bar, just before the light/dark switch, opens the global settings. They are yours rather than the project's, and they apply everywhere FluidCAD runs for you: the browser, the VS Code extension and the desktop app. Edits wait for **Save**; a tab with an unsaved edit shows a dot, and Cancel drops the edits.
+
+| Tab | What it holds |
+|-----|---------------|
+| Appearance | Dark or light theme. The sun and moon button in the top bar switches it too. |
+| Editor | The code editor's font, picked from the monospace fonts installed on the computer, its size, word wrap, and whether the editor pane opens when FluidCAD starts (off by default). |
+| Sketch | The snap radius and the pick radius, in screen pixels: how close the cursor has to be for the sketcher to snap to a vertex, axis or grid line, and for a line, arc or vertex to highlight under it. |
+| Timeline | Which rows the History panel lists under a sketch: all of its children or only the editable features (the ones with an edit dialog, such as offset, projection and intersect), whether its *N constraints* group shows (on by default), and whether its *N regions* group shows (off by default). |
+| Units | The unit new projects are created in. Existing projects keep theirs; change those from the unit chip at the bottom of the viewport. |
+| Materials | Your own materials — name, id, density and unit — kept on this machine and offered beside the built-ins wherever a material is picked. See [Your own materials](#your-own-materials). |
+| Advanced | Reset every setting to its default, after a confirmation. This one acts at once rather than on Save. |
+
+Project settings, such as the engine pin and the project unit in `fluidcad.json`, are not here; see [Project configuration](/docs/project-configuration).
+
 ## The History panel
 
-The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows).
+The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry, an *N constraints* group and an *N regions* group (the [region declarations](/docs/3d-operations/extrude#region-picking) for extrude-family picks; the group is off by default), parts fold their features plus *N connectors* and *N exposed* groups. The Timeline tab of the [settings](#settings) picks which of a sketch's rows are listed. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows). A sketch, plane or axis a feature has used is dimmed — the feature took it off the screen — and carries an eye on hover: click it to draw the object again, and again to hide it. The eye is view state only; nothing in the file changes.
+
 
 - **Single click** a row to roll the model back to that feature. The viewport shows the model as it was right after that row, and the toolbar shrinks to what makes sense there. Click the last row, or edit the file, to come back.
 - **Double-click** a row to edit the feature: a breakpoint is placed after it, so the model rolls back to that point, and the feature's dialog opens with its current values. Apply writes the change into the existing statement.
-- **Right-click** a row for its menu:
+- **Right-click** a row for its menu (a part row also carries a **⋮** button at its right edge that opens the same menu):
 
   ![Row context menu](/img/docs/ui/history-context-menu.png)
 
-  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm.
+  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm. A part row also offers **Set material…**, described under [Shape properties](#setting-a-parts-material).
 - The **⋮** menu on the panel header:
 
   ![History menu](/img/docs/ui/history-menu.png)
 
-  **Recompute scene** clears the geometry cache and rebuilds every feature from scratch. Use it when a cached result looks stale. **Show execution time** annotates each row with its build time.
+  **Recompute scene** clears the geometry cache and rebuilds every feature from scratch. Use it when a cached result looks stale. **Show execution time** annotates each row with its build time, and marks whether it was rebuilt or came from the cache.
 
 ### Breakpoints
 
 A `breakpoint()` statement stops evaluation at that line. The viewport shows the model up to that point, and anything the toolbar writes is inserted before the breakpoint rather than at the end of the file. Remove the statement to resume the full model. Besides the History menu, VS Code inserts one from the gutter and Neovim with `:FluidCadToggleBreakpoint`.
 
+After a complete evaluation, History keeps later features visible when a breakpoint stops the next build. These dimmed rows carry a pause icon: their names and structure come from the last complete evaluation, and they have not been evaluated in the current build. You can expand them and follow their source, but geometry and editing actions become available when they are evaluated again.
+
+Reloading the page preserves this history while the server is running. Opening a file already paused without a previous complete evaluation, or restarting the server, shows only evaluated features until the file completes a build. A source edit that removes a statement or makes its identity ambiguous drops its remembered row.
+
 ## Shapes and shape properties
 
 The **Shapes** panel lists the solids the model produced, grouped by type. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
 
-The scale icon at the bottom right opens **Shape properties**. Select a solid, pick a material (or type a density), and **Calculate** reports its volume and mass in the chosen units.
+The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 
-![Shape properties](/img/docs/ui/shape-properties.png)
+- **Solid** (the default) measures one solid: click a face or edge in the viewport, or a row in the Shapes panel. A solid inside a part that declares a material shows **Material** and **Density** read-only — the part owns them.
+
+  ![Shape properties, Solid tab, a solid inside a part](/img/docs/ui/shape-properties-solid.png)
+
+  A solid outside any part has a **Material** dropdown instead, grouped **Built-in** and **Custom** — the project's `fluidcad.json` entries and your own from Settings → Materials. The pick is for this calculation only; nothing is written to the file. **Manage materials…** under it opens [Settings → Materials](#your-own-materials).
+
+  ![Shape properties, Solid tab, a solid outside any part](/img/docs/ui/shape-properties-top-level.png)
+
+- **Part** measures a whole part: click any of its solids in the viewport — every solid of the part highlights — or click the part's row in the History panel; in an assembly, click an instance. **Calculate** sums the part's final solids, the ones the Shapes panel lists under it. The material is read-only here; it is set from the History panel.
+
+  ![Shape properties, Part tab, the whole part highlighted](/img/docs/ui/shape-properties-part.png)
+
+### Setting a part's material
+
+Click the **⋮** button at the right edge of the part's row in the History panel (or right-click the row) and choose **Set material…**.
+
+![A part row's menu, opened from its ⋮ button](/img/docs/ui/history-context-menu-part.png)
+
+The **Set material** dialog opens. **None** is on top and removes the material; **Built-in** lists the built-in materials and **Custom** the custom ones — the project's own, the `materials` map of `fluidcad.json`, tagged *in project*, followed by yours from [Settings → Materials](#your-own-materials). The current material is checked and sits first in its group; every row shows its density, and the box at the top filters by name or id (the current material stays listed). While the list is on its way the dialog says *Loading materials…*, and if it cannot be fetched it says so with a **Retry**. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>): `.material('<id>')` is written on the `part()` statement — see [Part](/docs/part/part-definition#material) — and the panel picks it up on the next render. **Manage materials…** at the bottom left opens Settings → Materials.
+
+![The Set material dialog](/img/docs/ui/set-material-dialog.png)
+
+A material of yours that the project has not used yet is copied into the `materials` map of `fluidcad.json` the moment it is applied, so the file names an id the project resolves on every machine.
+
+An id that neither list knows — a typo in the file, or a project entry that was removed — is a warning, not an error. The geometry builds, the row carries a warning triangle (hover it for the message), and the panel reads `Unknown material: <id>` with no mass:
+
+![A part row with the unknown-material warning](/img/docs/ui/part-row-warning.png)
+
+![Shape properties reporting an unknown material](/img/docs/ui/shape-properties-unknown-material.png)
+
+### Your own materials
+
+The **Materials** tab of the [settings](#settings) — the gear in the top bar, or **Manage materials…** in the Set material dialog and under the dropdown in Solid mode — holds your own materials. They are kept on this machine, in the preferences file, not in a project.
+
+![Settings, the Materials tab](/img/docs/ui/settings-materials-tab.png)
+
+The list shows each entry's name, id, density and unit; the pencil loads it into the form, the bin removes it. **Add material** takes a **Name**, a **Density** with its **Unit** (g/cm³, kg/m³, g/mm³ or lbs/in³) and an **Id**, filled from the name until you type your own; **Add** puts the entry in the list. Like every settings tab this is a draft: **Save** persists it, **Cancel** drops it. Built-ins are not listed and cannot be edited, but an entry may reuse a built-in's id: set on a part, it overrides that built-in in the project it is copied into.
+
+A project carries exactly the custom materials it uses: applying one of these to a part copies its entry into `materials` in that project's `fluidcad.json`, which is what a teammate's render and the viewer resolve against. Removing an entry here touches no project, and nothing prunes a project's map. Editing `fluidcad.json` by hand works as before; [Project configuration](/docs/project-configuration#materials) has the schema.
 
 ## Parameters
 
-The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. **+** declares a new parameter through a dialog, and the arrow resets every value to its default. See [Param](/docs/part/param).
+The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. Below the controls, a **Properties** list shows each `property()` of the part by its label, with the value the last render computed. **+** opens a menu: **New parameter** or **New property**, each declared through a dialog; the pencil on a row edits or deletes its declaration, and the arrow resets every parameter to its default. Renaming a declaration renames the variable it binds and every read of it, in other files too; deleting one puts its value in place of its reads, or refuses when the value would not mean the same where it is read. See [Param](/docs/part/param) and [Property](/docs/part/property).
 
 ## Edges in the viewport
 
@@ -95,8 +154,8 @@ Opening a `.assembly.js` file swaps the toolbar for the assembly tools and the p
 ![The assembly workspace](/img/docs/ui/assembly-overview.png)
 
 - **Toolbar**: **Insert** (a dialog listing every part and sub-assembly in the workspace), the joints **Fastened**, **Revolute**, **Slider**, **Cylindrical**, **Planar**, **Tangent**, then **Replicate** and **Connector** (a free frame in assembly space).
-- **Parts**: one row per inserted instance; the eye hides it, the menu offers **Show in source**, **Toggle grounded**, **Rename** and **Delete**. Sub-assemblies group their members under a header.
-- **Connectors**: the assembly-level connectors declared in this file.
+- **Parts**: one row per inserted instance, its name over the part it was inserted from; the eye hides it, the menu offers **Show in source**, **Toggle grounded**, **Rename** (which renames the instance's variable too) and **Delete**. Sub-assemblies group their members under a header.
+- **Connectors**: the assembly-level connectors declared in this file. A connector with [copies](/docs/assembly/introduction#copying-an-assembly-connector) heads a family: the row shows its size and a chevron that folds out one `instance(k)` row per copy. The menu offers **Show in source**, **Copy…** (**Edit copy…** once copied) and **Delete**; on a copy, **Show in source**, **Edit copy…** and **Remove copies**.
 - **Joints**: one row per `mate()`, with the two parts and the limits. Click a row to highlight both connectors; the menu offers **Animate…** (revolute and slider), **Edit mate…**, **Suppress**, **Delete** and **Show in source**.
 - Instances are moved by dragging them, or with the gizmo's arrows and rings; the new pose is written back to the `insert()` statement. Dragging a jointed part moves it within the joint's freedom.
 

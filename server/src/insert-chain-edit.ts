@@ -1,4 +1,4 @@
-import { getJavaScriptParser, type TSNode, type TSTree } from './code-editor.ts';
+import { getJavaScriptParser, type TSNode, type TSTree } from './code-editor/index.ts';
 
 export type { TSNode, TSTree };
 

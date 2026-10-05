@@ -20,6 +20,34 @@ const fluidcadEngineVersion: string = process.env.FLUIDCAD_ENGINE_VERSION ?? '0.
 // `docusaurus build` is the only command that should carry analytics.
 const isBuild = process.argv.includes('build');
 
+const DEPLOYED_VIEWER_URL = 'https://viewer.fluidcad.io';
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const {hostname} = new URL(url);
+    return hostname === 'localhost' || hostname === '[::1]' || hostname.startsWith('127.');
+  } catch {
+    return false;
+  }
+}
+
+// A build is what gets deployed, and `.env.local` — which `npm run deploy`
+// reads for the DocSearch keys — also carries the dev server's local viewer.
+// A loopback viewer never reaches a build: it falls back to the deployed one.
+function resolveViewerUrl(): string {
+  const configured = process.env.FLUIDCAD_VIEWER_URL;
+  if (!configured) {
+    return DEPLOYED_VIEWER_URL;
+  }
+  if (isBuild && isLoopbackUrl(configured)) {
+    console.warn(
+      `[fluidcad] FLUIDCAD_VIEWER_URL=${configured} is a loopback address; the build uses ${DEPLOYED_VIEWER_URL}.`,
+    );
+    return DEPLOYED_VIEWER_URL;
+  }
+  return configured;
+}
+
 const config: Config = {
   title: 'FluidCAD',
   tagline: 'Parametric CAD for everyone',
@@ -28,7 +56,7 @@ const config: Config = {
   customFields: {
     fluidcadVersion,
     fluidcadEngineVersion,
-    fluidcadViewerUrl: process.env.FLUIDCAD_VIEWER_URL ?? 'https://viewer.fluidcad.io',
+    fluidcadViewerUrl: resolveViewerUrl(),
   },
 
   future: {

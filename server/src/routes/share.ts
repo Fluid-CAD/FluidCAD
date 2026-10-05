@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { relative } from 'path';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { collectEntryFiles } from '../model-package/entry-files.ts';
 import { normalizePath } from '../normalize-path.ts';
 

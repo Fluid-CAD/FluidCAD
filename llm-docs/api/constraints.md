@@ -77,12 +77,26 @@ radius(c, value)              // arc or circle radius
 radius(e, value, 'x')         // an ellipse's RX semi-radius ('y' for RY) — the
                               // axis is required there, refused on arcs/circles
 diameter(c, value)            // arc or circle diameter
+offsetFrom(o, s, value)       // o held `value` from s: a line parallel to its
+                              // source, an arc/circle concentric at R ± value
+offsetFrom([o1, o2], [s1, s2], value)  // a chain, pairwise; ONE value for all
 ```
 
 Distances involving a circle or arc measure to the **near side of the
 circumference** by default; chain `.max()` to dimension the far side
 (`.min()` restates the default). For a center distance, dimension the
 center accessor instead: `distance(l, a.center(), v)`.
+
+`offsetFrom` is what the Offset tool writes: the offset curves are real
+`line`/`arc`/`circle` statements (their literals are guesses) and this one
+statement holds each at the distance from the source it follows. The value
+is positive — the side comes from where the offset entity is drawn. An
+offset entity's end that a `coincident` joins to an end of another entity
+of the same statement is a sharp corner and slides to where the two rails
+cross; every other end sits straight across from its source's end (open
+ends, tangent junctions — no coincident there). Deleting the statement
+leaves free curves; `offset()` (fluidcad/core) remains the derived op for
+other curves and face outlines.
 
 `angle(a, b, deg)` orients each line toward its **end** unless you pass an
 endpoint accessor — `angle(l1, l2.start(), 45)` points l2 at its start.

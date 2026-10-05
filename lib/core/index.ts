@@ -3,7 +3,7 @@ export type {
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
   IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance,
+  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection,
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
@@ -29,6 +29,7 @@ export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as sweep } from "./sweep.js";
 export { default as rib } from "./rib.js";
+export { default as hole, type HolePlacementLike } from "./hole.js";
 export { default as wrap } from "./wrap.js";
 export { default as helix } from "./helix.js";
 export { default as color } from "./color.js";
@@ -38,6 +39,8 @@ export { default as part } from "./part.js";
 export { default as assembly } from "./assembly.js";
 export { default as connector } from "./connector.js";
 export { default as expose } from "./expose.js";
+export { default as property } from "./property.js";
+export { default as section, type SectionOptions } from "./section.js";
 export { default as insert } from "./insert.js";
 export { default as mate } from "./mate.js";
 export { default as replicate } from "./replicate.js";

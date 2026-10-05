@@ -2,16 +2,17 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import fillet from "../../core/fillet.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import connector from "../../core/connector.js";
 import { circle, line } from "../../core/2d/index.js";
 import { coincident } from "../../core/constraints/index.js";
-import { face } from "../../filters/index.js";
+import { edge, face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { scopedSceneBefore } from "../../selection/types.js";
-import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
+import { suggestConnectorAnchors, suggestConnectorFrames } from "../../selection/connector-anchors.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
 import { Connector } from "../../features/connector.js";
 import { Edge } from "../../common/edge.js";
@@ -264,6 +265,7 @@ describe("connector synthesis", () => {
     const suggestion = suggestConnectorAnchors(scene, topFace);
     expect(suggestion.ok).toBe(true);
     if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(true);
       expect(suggestion.defaultName).toBe('c1');
       expect(suggestion.args.length).toBeGreaterThan(0);
       expect(suggestion.anchors).toHaveLength(1);
@@ -286,6 +288,54 @@ describe("connector synthesis", () => {
       expect(edgeSuggestion.anchors.map(a => a.anchor.kind)).toEqual(['center', 'start', 'end']);
       for (const a of edgeSuggestion.anchors) {
         expect(a.frame.origin.z).toBeCloseTo(30, 5);
+      }
+    }
+  });
+
+  it("an arc's center anchor is hovered at the arc's midpoint, not the off-arc circle center", () => {
+    const p = part("housing", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      const e = extrude(30);
+      setLocation(e, 5);
+      select(edge().verticalTo("xy"));
+      fillet(5);
+    });
+    setLocation(p, 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    // The top quarter-arc at the origin corner: circle center (5, 5, 30).
+    const arcs = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6 && m.x < 5 && m.y < 5);
+    expect(arcs).toHaveLength(1);
+
+    const suggestion = suggestConnectorAnchors(scene, arcs[0]);
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.anchors.map(a => a.anchor.kind)).toEqual(['center', 'start', 'end']);
+      const center = suggestion.anchors[0];
+      // The frame still stands at the circle center…
+      expect(center.frame.origin.x).toBeCloseTo(5, 6);
+      expect(center.frame.origin.y).toBeCloseTo(5, 6);
+      expect(center.frame.origin.z).toBeCloseTo(30, 6);
+      // …but the cursor is measured against the arc's midpoint.
+      const onArc = 5 - 5 * Math.SQRT1_2;
+      expect(center.hoverPoint.x).toBeCloseTo(onArc, 6);
+      expect(center.hoverPoint.y).toBeCloseTo(onArc, 6);
+      expect(center.hoverPoint.z).toBeCloseTo(30, 6);
+      for (const end of suggestion.anchors.slice(1)) {
+        expect(end.hoverPoint).toEqual(end.frame.origin);
+      }
+    }
+
+    // A straight edge measures every anchor at its own frame origin.
+    const straight = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6 && Math.abs(m.y) < 1e-6);
+    expect(straight).toHaveLength(1);
+    const lineSuggestion = suggestConnectorAnchors(scene, straight[0]);
+    expect(lineSuggestion.ok).toBe(true);
+    if (lineSuggestion.ok) {
+      for (const a of lineSuggestion.anchors) {
+        expect(a.hoverPoint).toEqual(a.frame.origin);
       }
     }
   });
@@ -429,6 +479,97 @@ describe("connector synthesis", () => {
     expect(suggestion.ok).toBe(false);
     if (suggestion.ok === false) {
       expect(suggestion.reason).toContain('part()');
+    }
+  });
+
+  it("suggests hole anchors outside a part() as bare anchor expressions", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30);
+    setLocation(e, 3);
+    const scene = render();
+    const solid = findSolid(scene);
+    const tops = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+
+    const suggestion = suggestConnectorAnchors(scene, tops[0], {}, 'hole');
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(false);
+      expect(suggestion.defaultName).toBeNull();
+      expect(suggestion.args.length).toBeGreaterThan(0);
+      expect(suggestion.anchors.map(a => a.anchor.kind)).toEqual(['center']);
+      expect(suggestion.anchors[0].frame.origin.z).toBeCloseTo(30, 5);
+    }
+  });
+
+  it("reports a hole anchor inside a part() as one that creates a connector", () => {
+    const { scene, topFace } = makePartScene();
+
+    const suggestion = suggestConnectorAnchors(scene, topFace, {}, 'hole');
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.inPart).toBe(true);
+      expect(suggestion.defaultName).toBe('c1');
+    }
+  });
+
+  it("suggests the same anchors, name and target file without synthesizing a selector", () => {
+    const { scene, topFace } = makePartScene();
+    const solid = findSolid(scene);
+    const topEdge = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6)[0];
+
+    for (const ref of [topFace, topEdge]) {
+      const frames = suggestConnectorFrames(scene, ref);
+      const full = suggestConnectorAnchors(scene, ref);
+      expect(frames.ok).toBe(true);
+      expect(full.ok).toBe(true);
+      if (frames.ok && full.ok) {
+        expect(frames).not.toHaveProperty('args');
+        expect(frames.anchors).toEqual(full.anchors);
+        expect(frames.defaultName).toBe(full.defaultName);
+        expect(frames.inPart).toBe(full.inPart);
+        // The file a committed statement lands in, known before synthesis.
+        expect(frames.filePath).toBe(full.filePath);
+        expect(frames.filePath).toBe('/ws/model.fluid.js');
+      }
+    }
+  });
+
+  it("refuses connector frames outside a part() and offers hole frames there", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30);
+    setLocation(e, 3);
+    const scene = render();
+    const solid = findSolid(scene);
+    const top = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6)[0];
+
+    const connectorFrames = suggestConnectorFrames(scene, top);
+    expect(connectorFrames.ok).toBe(false);
+    if (connectorFrames.ok === false) {
+      expect(connectorFrames.reason).toContain('part()');
+    }
+
+    const holeFrames = suggestConnectorFrames(scene, top, 'hole');
+    expect(holeFrames.ok).toBe(true);
+    if (holeFrames.ok) {
+      expect(holeFrames.inPart).toBe(false);
+      expect(holeFrames.defaultName).toBeNull();
+      expect(holeFrames.filePath).toBe('/ws/model.fluid.js');
+      expect(holeFrames.anchors.map(a => a.anchor.kind)).toEqual(['center']);
+    }
+  });
+
+  it("reports hole frames inside a part() as ones that create a connector", () => {
+    const { scene, topFace } = makePartScene();
+
+    const frames = suggestConnectorFrames(scene, topFace, 'hole');
+    expect(frames.ok).toBe(true);
+    if (frames.ok) {
+      expect(frames.inPart).toBe(true);
+      expect(frames.defaultName).toBe('c1');
     }
   });
 });

@@ -18,13 +18,9 @@ export function applyBucketFilters<T extends Shape>(
   builders: FilterBuilderBase<T>[],
   owner: SceneObject,
 ): T[] {
-  const hasher = injectFilterScope(builders as unknown as FilterBuilderBase<Shape>[], () => ({
+  injectFilterScope(builders as unknown as FilterBuilderBase<Shape>[], () => ({
     solids: owner.getAddedShapes().filter((s): s is Solid => s instanceof Solid),
     extraFaces: [],
   }));
-  try {
-    return new ShapeFilter(shapes, ...(builders as unknown as FilterBuilderBase<Shape>[])).apply() as T[];
-  } finally {
-    hasher?.delete();
-  }
+  return new ShapeFilter(shapes, ...(builders as unknown as FilterBuilderBase<Shape>[])).apply() as T[];
 }

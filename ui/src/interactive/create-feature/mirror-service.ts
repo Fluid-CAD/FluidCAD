@@ -1,5 +1,5 @@
 import {
-  applyMirror, applyMirrorEdit, FeatureEditTarget, fetchFeatureGhostResult, fetchFeatureSources,
+  applyMirror, applyMirrorEdit, FeatureEditTarget, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
   GhostPlaneRef, GhostSolid, MirrorApplyOptions, MirrorEditOptions, MirrorEditTargetRef,
   MirrorGhostRequest, ParsedFeatureStatement, RepeatEditPlaneRef, SourceSlotRef,
 } from '../../api';
@@ -23,6 +23,7 @@ import {
   resolvePlaneByShapeId, standardPlaneFromText,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** What the seeding hook hands over when the dialog arms. */
 export type MirrorEnterSeed = {
@@ -120,7 +121,7 @@ export class MirrorFeatureService {
     // hides while the exclusive sketch toolbar owns the bar.
     const group = navbar.getGroup('transform') ?? navbar.addGroup('transform', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/mirror.png',
+      icon: iconUrl('mirror'),
       label: 'Mirror',
       tip: 'Mirror solids',
       ariaLabel: 'Mirror solids across a plane',
@@ -653,7 +654,7 @@ export class MirrorFeatureService {
       targets,
       plane,
     };
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, a consumed statement: those just leave the
     // viewport as it was). A superseded fetch says nothing either.

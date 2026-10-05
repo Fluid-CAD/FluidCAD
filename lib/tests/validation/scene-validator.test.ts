@@ -110,7 +110,7 @@ describe("SceneValidator — part files", () => {
       findings: [],
     });
     expect(report.unit).toBe('mm');
-    expect(report.checks).toEqual(['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid']);
+    expect(report.checks).toEqual(['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid', 'nonFiniteGeometry']);
     expect(report.notChecked.selfIntersecting).toContain('not checked');
   });
 

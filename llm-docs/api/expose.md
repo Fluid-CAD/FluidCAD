@@ -29,8 +29,8 @@ through on the next render. A published `select()` stops rendering its
 highlight once the statement has run.
 
 Rules: declare exposures **directly in the part body**; names are unique
-within a part; the source must be a scene object (a sketch consumed by a
-feature needs `.reusable()` to still be there to publish).
+within a part; the source must be a scene object (a sketch a feature used
+is only hidden, so it is still there to publish).
 
 ## Example
 
@@ -62,7 +62,7 @@ const flange = part("Flange", () => {
       distance(origin(), bolt.center(), 22);
       diameter(bolt, 6);
     }
-  }).reusable();
+  });
   cut(-6, holes);
 
   expose("holes", holes);

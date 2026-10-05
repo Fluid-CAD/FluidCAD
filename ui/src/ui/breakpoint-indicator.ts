@@ -8,6 +8,15 @@ const BOTTOM_RAISED = 'bottom-[68px]';
 
 export class BreakpointIndicator {
   private element: HTMLDivElement;
+  /** The build is paused at a breakpoint (the server's last authoritative word). */
+  private active = false;
+  /**
+   * A sketch is being edited. A paused build that ends in a sketch is that
+   * sketch's edit session, and the Finish Sketch button is its one way out —
+   * a second "Continue" beside it would only compete with it, so the chip
+   * stays hidden until the sketch is left.
+   */
+  private sketchActive = false;
 
   constructor(container: HTMLElement, onContinue?: () => void) {
     this.element = document.createElement('div');
@@ -35,7 +44,18 @@ export class BreakpointIndicator {
   }
 
   setActive(active: boolean): void {
-    this.element.classList.toggle('hidden', !active);
+    this.active = active;
+    this.sync();
+  }
+
+  /** Hide the chip while a sketch is being edited (see {@link sketchActive}). */
+  setSketchActive(sketchActive: boolean): void {
+    this.sketchActive = sketchActive;
+    this.sync();
+  }
+
+  private sync(): void {
+    this.element.classList.toggle('hidden', !this.active || this.sketchActive);
   }
 
   /**

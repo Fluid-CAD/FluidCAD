@@ -8,11 +8,11 @@ import {
   removePoint,
   addGuide,
   removeGuide,
-  addPick,
-  removePick,
   removeStatement,
   setFeatureName,
-  setPickPoints,
+  setSketchClosed,
+  setPartMaterial,
+  setSectionOptions,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -20,8 +20,10 @@ import {
   updateDimensionExpression,
   getDimensionExpression,
   getPointExpression,
+  extractVariablesInAssembly,
   extractVariablesInPart,
   extractVariablesInScope,
+  RenderedProperties,
   declareTopLevelVariable,
   readUnitStatement,
   setDocumentUnit,
@@ -30,7 +32,7 @@ import {
   collectBoundNames,
   getJavaScriptParser,
   declareParamStatementsFor,
-} from '../src/code-editor.ts';
+} from '../src/code-editor/index.ts';
 
 describe('addBreakpoint', () => {
   it('adds the import line and inserts breakpoint after the statement', async () => {
@@ -231,20 +233,6 @@ describe('insertPoint', () => {
   });
 });
 
-describe('addPick', () => {
-  it('appends .pick() after the last close paren on the line', async () => {
-    const code = `line([0, 0], [1, 1])\n`;
-    const result = await addPick(code, 1);
-    expect(result.newCode).toBe(`line([0, 0], [1, 1]).pick()\n`);
-  });
-
-  it('is a no-op when .pick( already exists on the line', async () => {
-    const code = `line([0, 0]).pick()\n`;
-    const result = await addPick(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-});
-
 describe('addGuide', () => {
   it('appends .guide() after the last close paren on the line', async () => {
     const code = `ellipse([0, 0], 10, 5)\n`;
@@ -285,26 +273,6 @@ describe('removeGuide', () => {
   });
 });
 
-describe('removePick', () => {
-  it('removes an empty .pick() from the line', async () => {
-    const code = `extrude(sk).pick()\n`;
-    const result = await removePick(code, 1);
-    expect(result.newCode).toBe(`extrude(sk)\n`);
-  });
-
-  it('leaves a .pick() with points untouched', async () => {
-    const code = `extrude(sk).pick([1, 2])\n`;
-    const result = await removePick(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-
-  it('is a no-op when there is no .pick() on the line', async () => {
-    const code = `extrude(sk)\n`;
-    const result = await removePick(code, 1);
-    expect(result.newCode).toBe(code);
-  });
-});
-
 describe('removePoint', () => {
   it('removes the only point from a single-arg call', async () => {
     const code = `line([5, 5])\n`;
@@ -325,24 +293,6 @@ describe('removePoint', () => {
   });
 });
 
-describe('setPickPoints', () => {
-  it('replaces all arguments with the new point list', async () => {
-    const code = `line([0, 0], [1, 1])\n`;
-    const result = await setPickPoints(code, 1, [
-      [2, 2],
-      [3, 3],
-      [4, 4],
-    ]);
-    expect(result.newCode).toBe(`line([2, 2], [3, 3], [4, 4])\n`);
-  });
-
-  it('handles an empty replacement', async () => {
-    const code = `line([0, 0], [1, 1])\n`;
-    const result = await setPickPoints(code, 1, []);
-    expect(result.newCode).toBe(`line()\n`);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Multi-line call coverage — the AST-based editor must handle calls that
 // span several rows (e.g. `offset(\n  edge().circle()\n)`) identically to
@@ -350,113 +300,74 @@ describe('setPickPoints', () => {
 // ---------------------------------------------------------------------------
 
 describe('multi-line calls', () => {
-  describe('addPick', () => {
-    it('appends .pick() after the closing paren on a later line', async () => {
-      const code = `offset(\n  edge().circle()\n)\n`;
-      const result = await addPick(code, 1);
-      expect(result.newCode).toBe(`offset(\n  edge().circle()\n).pick()\n`);
+  describe('addGuide', () => {
+    it('appends .guide() after the closing paren on a later line', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n)\n`;
+      const result = await addGuide(code, 1);
+      expect(result.newCode).toBe(`line(\n  [0, 0], [10, 0]\n).guide()\n`);
     });
 
-    it('is a no-op when .pick() already exists on a later line', async () => {
-      const code = `offset(\n  edge().circle()\n).pick()\n`;
-      const result = await addPick(code, 1);
+    it('is a no-op when .guide() already exists on a later line', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n).guide()\n`;
+      const result = await addGuide(code, 1);
       expect(result.newCode).toBe(code);
     });
 
     it('finds the inner call when it is nested inside sk.add on a different row', async () => {
       const code = `sk.add(\n  offset(\n    edge().circle()\n  )\n)\n`;
-      const result = await addPick(code, 2);
+      const result = await addGuide(code, 2);
       expect(result.newCode).toBe(
-        `sk.add(\n  offset(\n    edge().circle()\n  ).pick()\n)\n`,
+        `sk.add(\n  offset(\n    edge().circle()\n  ).guide()\n)\n`,
       );
     });
   });
 
   describe('insertPoint', () => {
-    it('inserts into an empty multi-line call', async () => {
-      const code = `offset(\n  edge().circle()\n).pick()\n`;
+    it('inserts into an empty multi-line call, closing up the empty parens', async () => {
+      const code = `bezier(\n)\n`;
       const result = await insertPoint(code, 1, [5, 6]);
-      expect(result.newCode).toBe(
-        `offset(\n  edge().circle()\n).pick([5, 6])\n`,
-      );
+      expect(result.newCode).toBe(`bezier([5, 6])\n`);
     });
 
     it('appends to an existing point in a multi-line call', async () => {
-      const code = `offset(\n  edge().circle()\n).pick([1, 2])\n`;
+      const code = `bezier(\n  [1, 2]\n)\n`;
       const result = await insertPoint(code, 1, [3, 4]);
-      expect(result.newCode).toBe(
-        `offset(\n  edge().circle()\n).pick([1, 2], [3, 4])\n`,
-      );
+      expect(result.newCode).toBe(`bezier(\n  [1, 2]\n, [3, 4])\n`);
     });
   });
 
-  describe('removePick', () => {
-    it('strips a trailing .pick() when the chain spans multiple lines', async () => {
-      const code = `extrude(\n  sk\n).pick()\n`;
-      const result = await removePick(code, 1);
-      expect(result.newCode).toBe(`extrude(\n  sk\n)\n`);
-    });
-
-    it('leaves a multi-line .pick() with points untouched', async () => {
-      const code = `offset(\n  edge().circle()\n).pick([1, 2])\n`;
-      const result = await removePick(code, 1);
-      expect(result.newCode).toBe(code);
+  describe('removeGuide', () => {
+    it('strips a trailing .guide() when the chain spans multiple lines', async () => {
+      const code = `line(\n  [0, 0], [10, 0]\n).guide()\n`;
+      const result = await removeGuide(code, 1);
+      expect(result.newCode).toBe(`line(\n  [0, 0], [10, 0]\n)\n`);
     });
   });
 
   describe('removePoint', () => {
     it('removes the closest point when the call spans multiple lines', async () => {
-      const code = `offset(\n  edge().circle()\n).pick([0, 0], [10, 10])\n`;
+      const code = `bezier(\n  [0, 0], [10, 10]\n)\n`;
       const result = await removePoint(code, 1, [10, 10]);
-      expect(result.newCode).toBe(
-        `offset(\n  edge().circle()\n).pick([0, 0])\n`,
-      );
+      expect(result.newCode).toBe(`bezier(\n  [0, 0]\n)\n`);
     });
   });
 
-  describe('setPickPoints', () => {
-    it('replaces the argument span of a multi-line call', async () => {
-      const code = `offset(\n  edge().circle()\n).pick([1, 1])\n`;
-      const result = await setPickPoints(code, 1, [[2, 2], [3, 3]]);
-      expect(result.newCode).toBe(
-        `offset(\n  edge().circle()\n).pick([2, 2], [3, 3])\n`,
-      );
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
-// When `.pick()` is not the last call in the chain (e.g. followed by
-// `.symmetric(...)`), point edits must still target `.pick()` — the
-// outermost call is the wrong destination.
+// Chain-aware edits: a member call is edited where it sits in the chain
+// (`.guide()` ahead of a trailing `.symmetric()`), while point edits go to
+// the outermost call.
 // ---------------------------------------------------------------------------
 
-describe('point edits target .pick() inside a longer chain', () => {
-  it('insertPoint adds to .pick(), not to a trailing .symmetric()', async () => {
-    const code = `extrude(sk).pick([1, 2]).symmetric([5, 6], [7, 8])\n`;
-    const result = await insertPoint(code, 1, [9, 10]);
-    expect(result.newCode).toBe(
-      `extrude(sk).pick([1, 2], [9, 10]).symmetric([5, 6], [7, 8])\n`,
-    );
+describe('edits inside a longer chain', () => {
+  it('removeGuide strips a mid-chain .guide(), keeping a trailing call', async () => {
+    const code = `line([0, 0], [10, 0]).guide().name('base')\n`;
+    const result = await removeGuide(code, 1);
+    expect(result.newCode).toBe(`line([0, 0], [10, 0]).name('base')\n`);
   });
 
-  it('removePoint removes from .pick(), not from a trailing .symmetric()', async () => {
-    const code = `extrude(sk).pick([1, 2], [3, 4]).symmetric([5, 6], [7, 8])\n`;
-    const result = await removePoint(code, 1, [1, 2]);
-    expect(result.newCode).toBe(
-      `extrude(sk).pick([3, 4]).symmetric([5, 6], [7, 8])\n`,
-    );
-  });
-
-  it('setPickPoints replaces .pick() args, not a trailing .symmetric() args', async () => {
-    const code = `extrude(sk).pick([1, 2]).symmetric([5, 6], [7, 8])\n`;
-    const result = await setPickPoints(code, 1, [[9, 9], [10, 10]]);
-    expect(result.newCode).toBe(
-      `extrude(sk).pick([9, 9], [10, 10]).symmetric([5, 6], [7, 8])\n`,
-    );
-  });
-
-  it('insertPoint falls back to the outer call for non-pick chains (e.g. bezier)', async () => {
+  it('point edits go to the outermost call (the bezier draw-mode flow)', async () => {
     const code = `bezier([0, 0], [1, 1])\n`;
     const result = await insertPoint(code, 1, [2, 2]);
     expect(result.newCode).toBe(`bezier([0, 0], [1, 1], [2, 2])\n`);
@@ -464,6 +375,41 @@ describe('point edits target .pick() inside a longer chain', () => {
 });
 
 describe('insertGeometryCall', () => {
+  // Every drawn statement lands bound (`const c1 = circle(…);`): its name is
+  // what constraints and region declarations reference it by.
+  it('binds a drawn circle from the start, past the highest number of its hint', async () => {
+    const code = [
+      `import { sketch, circle } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  const c1 = circle([0, 0], 5);`,
+      `  const c3 = circle([20, 0], 5);`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'circle([40, 0], 16)');
+    // c2 was deleted at some point — a new circle never takes its name.
+    expect(result.newCode).toContain(`  const c3 = circle([20, 0], 5);\n  const c4 = circle([40, 0], 16);\n})`);
+    // The anchor statements bind the same way, chained modifiers and all.
+    const text = await insertGeometryCall(code, 2, 'text("Hi").size(14).bold()');
+    expect(text.newCode).toContain(`  const t1 = text("Hi").size(14).bold();`);
+    const bezier = await insertGeometryCall(code, 2, 'bezier([0, 0], [10, 10]).guide();');
+    expect(bezier.newCode).toContain(`  const bz1 = bezier([0, 0], [10, 10]).guide();`);
+  });
+
+  it('writes an already-bound statement, or one of a kind that takes no name, as given', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const bound = await insertGeometryCall(code, 2, 'const edge = line([10, 10], [20, 20]);');
+    expect(bound.newCode).toContain(`  const edge = line([10, 10], [20, 20]);\n})`);
+    const pen = await insertGeometryCall(code, 2, 'lineTo([20, 20])');
+    expect(pen.newCode).toContain(`  lineTo([20, 20])\n})`);
+  });
+
   it('inserts a geometry call at the end of a sketch body', async () => {
     const code = [
       `import { sketch, line } from 'fluidcad/core';`,
@@ -477,7 +423,7 @@ describe('insertGeometryCall', () => {
       `import { sketch, line } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `})`,
       ``,
     ].join('\n'));
@@ -497,7 +443,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 3, 'circle([0, 0], 5)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  circle([0, 0], 5)`,
+      `  const c1 = circle([0, 0], 5);`,
       `  horizontal(a);`,
     ].join('\n'));
   });
@@ -516,7 +462,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
       `  horizontal(a);`,
-      `  offset(2, a)`,
+      `  const o1 = offset(2, a);`,
     ].join('\n'));
   });
 
@@ -534,7 +480,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 2, 'circle([0, 0], 5)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  circle([0, 0], 5)`,
+      `  const c1 = circle([0, 0], 5);`,
       `  const o = offset(2, a);`,
     ].join('\n'));
   });
@@ -551,7 +497,7 @@ describe('insertGeometryCall', () => {
     const result = await insertGeometryCall(code, 2, 'offset(2, a)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  offset(2, a)`,
+      `  const o1 = offset(2, a);`,
       `  return { a };`,
     ].join('\n'));
   });
@@ -569,7 +515,7 @@ describe('insertGeometryCall', () => {
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'line([10, 0], [20, 0])');
     expect(result.newCode).toContain([
-      `  line([10, 0], [20, 0])`,
+      `  const l1 = line([10, 0], [20, 0]);`,
       `  offset(2, a);`,
     ].join('\n'));
   });
@@ -588,7 +534,7 @@ describe('insertGeometryCall', () => {
       `import { sketch, line, breakpoint } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `  breakpoint()`,
       `})`,
       ``,
@@ -601,7 +547,7 @@ describe('insertGeometryCall', () => {
       `const s = sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
       `  breakpoint()`,
-      `}).reusable();`,
+      `}).name('s');`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
@@ -609,9 +555,9 @@ describe('insertGeometryCall', () => {
       `import { sketch, line, breakpoint } from 'fluidcad/core';`,
       `const s = sketch(XY, () => {`,
       `  line([0, 0], [10, 10])`,
-      `  line([10, 10], [20, 20])`,
+      `  const l1 = line([10, 10], [20, 20]);`,
       `  breakpoint()`,
-      `}).reusable();`,
+      `}).name('s');`,
       ``,
     ].join('\n'));
   });
@@ -627,7 +573,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toBe([
       `import { circle, sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  circle([5, 5], 10)`,
+      `  const c1 = circle([5, 5], 10);`,
       `})`,
       ``,
     ].join('\n'));
@@ -656,7 +602,7 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toBe([
       `import { line } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  line([0, 0], [10, 10])`,
+      `  const l1 = line([0, 0], [10, 10]);`,
       `})`,
       ``,
     ].join('\n'));
@@ -800,6 +746,12 @@ describe('updateDimensionExpression with dimensionOffset', () => {
 });
 
 describe('getDimensionExpression with dimensionOffset', () => {
+  it('reads the offsetFrom distance past its two target arrays', async () => {
+    const code = `offsetFrom([o1, o2], [l1, l2], wall);\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'offsetFrom');
+    expect(result?.expression).toBe('wall');
+  });
+
   it('dimensionCall reads the base scalar past a chained scalar call', async () => {
     const code = `ellipse(30, 20).rotated(tilt)\n`;
     const result = await getDimensionExpression(code, 1, 0, 'ellipse');
@@ -933,6 +885,136 @@ describe('removeStatement', () => {
   });
 });
 
+describe('setSketchClosed', () => {
+  const sketchCode = `const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\nextrude(5);\n`;
+
+  it('appends .close() after a multi-line sketch statement', async () => {
+    const result = await setSketchClosed(sketchCode, 1, true);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n}).close();\nextrude(5);\n`);
+  });
+
+  it('appends after existing chains, keeping them in place', async () => {
+    const code = `sketch('xy', () => {}).name('Profile').guide();\n`;
+    const result = await setSketchClosed(code, 1, true);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile').guide().close();\n`);
+  });
+
+  it('is a no-op when the sketch is already closed', async () => {
+    const code = `sketch('xy', () => {}).close();\n`;
+    const result = await setSketchClosed(code, 1, true);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('removes .close() from the chain', async () => {
+    const code = `sketch('xy', () => {}).close().name('Profile');\n`;
+    const result = await setSketchClosed(code, 1, false);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile');\n`);
+  });
+
+  it('removes a .close() broken onto its own line together with its indentation', async () => {
+    const code = `sketch('xy', () => {\n  line([0, 0], [10, 0]);\n})\n  .close();\n`;
+    const result = await setSketchClosed(code, 1, false);
+    expect(result.newCode).toBe(`sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\n`);
+  });
+
+  it('is a no-op when removing from an open sketch', async () => {
+    const result = await setSketchClosed(sketchCode, 1, false);
+    expect(result.newCode).toBe(sketchCode);
+  });
+
+  it('is a no-op on a line with no statement', async () => {
+    const result = await setSketchClosed(sketchCode, 3, true);
+    expect(result.newCode).toBe(sketchCode);
+  });
+
+  it('refuses a line whose statement is not a sketch', async () => {
+    const result = await setSketchClosed(sketchCode, 4, true);
+    expect(result.newCode).toBe(sketchCode);
+  });
+});
+
+describe('setPartMaterial', () => {
+  const partCode = `const a = part('A', () => {\n  extrude(5);\n}).name('B');\nconst b = part('Bare', () => {});\nextrude(5);\n`;
+
+  it('appends .material() after the existing chains of a part statement', async () => {
+    const result = await setPartMaterial(partCode, 1, 'fluidcad-steel-1020');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-steel-1020');\nconst b = part('Bare', () => {});\nextrude(5);\n`);
+  });
+
+  it('appends .material() to a bare part statement', async () => {
+    const result = await setPartMaterial(partCode, 4, 'alloy-steel');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B');\nconst b = part('Bare', () => {}).material('alloy-steel');\nextrude(5);\n`);
+  });
+
+  it('replaces an existing id in place, wherever the chain sits', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').name('B');\n`;
+    const result = await setPartMaterial(code, 1, 'fluidcad-abs');
+    expect(result.newCode).toBe(`part('A', () => {}).material('fluidcad-abs').name('B');\n`);
+  });
+
+  it('removes the chain with null', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').name('B');\n`;
+    const result = await setPartMaterial(code, 1, null);
+    expect(result.newCode).toBe(`part('A', () => {}).name('B');\n`);
+  });
+
+  it('is a no-op when removing from a part without the chain', async () => {
+    const result = await setPartMaterial(partCode, 4, null);
+    expect(result.newCode).toBe(partCode);
+  });
+
+  it('refuses a line whose statement is not a part', async () => {
+    const result = await setPartMaterial(partCode, 5, 'fluidcad-pla');
+    expect(result.newCode).toBe(partCode);
+  });
+
+  it('refuses when the existing argument is not a string literal', async () => {
+    const code = `const id = 'fluidcad-pla';\npart('A', () => {}).material(id);\n`;
+    expect((await setPartMaterial(code, 2, 'fluidcad-abs')).newCode).toBe(code);
+    expect((await setPartMaterial(code, 2, null)).newCode).toBe(code);
+  });
+
+  it('escapes a quote in the id', async () => {
+    const result = await setPartMaterial(`part('A', () => {});\n`, 1, "o'brien");
+    expect(result.newCode).toBe(`part('A', () => {}).material('o\\'brien');\n`);
+  });
+});
+
+describe('setSectionOptions', () => {
+  it('adds the options object to a bare section statement', async () => {
+    const code = `extrude(10);\nsection('A-A', 'xz');\n`;
+    const result = await setSectionOptions(code, 2, { offset: 12.5, flip: false });
+    expect(result.newCode).toBe(`extrude(10);\nsection('A-A', 'xz', { offset: 12.5 });\n`);
+  });
+
+  it('replaces the offset in place and keeps the other properties verbatim', async () => {
+    const code = `section('A-A', plane(e.endFaces(0)), { flip: true, offset: 3 }).name('x');\n`;
+    const result = await setSectionOptions(code, 1, { offset: -7, flip: true });
+    expect(result.newCode).toBe(`section('A-A', plane(e.endFaces(0)), { flip: true, offset: -7 }).name('x');\n`);
+  });
+
+  it('drops a default and removes an emptied options object', async () => {
+    const code = `section('A-A', 'xy', { offset: 4, flip: true });\n`;
+    expect((await setSectionOptions(code, 1, { offset: 0, flip: true })).newCode).toBe(`section('A-A', 'xy', { flip: true });\n`);
+    expect((await setSectionOptions(code, 1, { offset: 0, flip: false })).newCode).toBe(`section('A-A', 'xy');\n`);
+  });
+
+  it('adds flip beside a kept offset and rounds the offset', async () => {
+    const code = `section('A-A', 'xy', { offset: 4 });\n`;
+    const result = await setSectionOptions(code, 1, { offset: 4.123456, flip: true });
+    expect(result.newCode).toBe(`section('A-A', 'xy', { offset: 4.1235, flip: true });\n`);
+  });
+
+  it('refuses a line that is not a section, a non-literal options argument and a non-numeric offset', async () => {
+    const other = `extrude(10);\n`;
+    expect((await setSectionOptions(other, 1, { offset: 1, flip: false })).newCode).toBe(other);
+    const expr = `const o = { offset: 2 };\nsection('A', 'xy', o);\n`;
+    expect((await setSectionOptions(expr, 2, { offset: 1, flip: false })).newCode).toBe(expr);
+    const variable = `const d = 2;\nsection('A', 'xy', { offset: d });\n`;
+    expect((await setSectionOptions(variable, 2, { offset: 1, flip: false })).newCode).toBe(variable);
+  });
+});
+
 describe('setFeatureName', () => {
   it('appends .name() to a bare feature statement', async () => {
     const code = `extrude(10);\nfillet(2, e.edges());\n`;
@@ -980,6 +1062,37 @@ describe('setFeatureName', () => {
     const code = `extrude(10);\n`;
     const result = await setFeatureName(code, 1, null);
     expect(result.newCode).toBe(code);
+  });
+
+  it('renames a part through its first argument', async () => {
+    const code = `export const part1 = part('Part 1', () => {\n  extrude(10);\n});\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`export const part1 = part('Fixed leaf', () => {\n  extrude(10);\n});\n`);
+  });
+
+  it('keeps the other chains of a renamed part', async () => {
+    const code = `part("Part 1", () => {}).material('fluidcad-steel-1020');\n`;
+    const result = await setFeatureName(code, 1, "Bob's leaf");
+    expect(result.newCode).toBe(`part('Bob\\'s leaf', () => {}).material('fluidcad-steel-1020');\n`);
+  });
+
+  it('takes the .name() chain off a renamed part, so the argument is what shows', async () => {
+    const code = `part('Part 1', () => {}).name('Leaf').material('fluidcad-steel-1020');\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`part('Fixed leaf', () => {}).material('fluidcad-steel-1020');\n`);
+  });
+
+  it('names a part whose first argument is not a literal through the chain', async () => {
+    const code = `part(label, () => {});\n`;
+    const result = await setFeatureName(code, 1, 'Fixed leaf');
+    expect(result.newCode).toBe(`part(label, () => {}).name('Fixed leaf');\n`);
+  });
+
+  it('leaves a part\'s argument alone when the name is cleared', async () => {
+    const chained = `part('Part 1', () => {}).name('Leaf');\n`;
+    expect((await setFeatureName(chained, 1, null)).newCode).toBe(`part('Part 1', () => {});\n`);
+    const bare = `part('Part 1', () => {});\n`;
+    expect((await setFeatureName(bare, 1, '')).newCode).toBe(bare);
   });
 
   it('no-ops when no call starts on the line', async () => {
@@ -1501,5 +1614,150 @@ describe('declareParamStatementsFor', () => {
     const out = await declareParamStatementsFor(code, 6, ['const span = param("span", 80);']);
     expect(out).toContain(`  const width = param('Width', 80);\n  const span = param("span", 80);\n  sketch('xy', () => {`);
     expect(out).not.toContain(`});\n  const span`);
+  });
+});
+
+// An `insert()` binding is no number, but the instance it holds publishes
+// its part's `property()` values: an insert's expression field offers them
+// as `<binding>.properties.<name>`, the way the assembly body reads them.
+describe('instance properties in scope', () => {
+  const FILE = '/ws/kitchen.assembly.js';
+  const code = [
+    "import { assembly, insert } from 'fluidcad/core';",
+    "import { Drawer } from './drawer.part.js';",
+    '',
+    "export const kitchen = assembly('kitchen', () => {",
+    '  const drawer = insert(Drawer, {',
+    '    Width: 400,',
+    '  });',
+    '  const spare = insert(Drawer);',
+    '  const box1 = insert(Drawer, { Width: 600 }).grounded().translate([0, 0, 10]);',
+    '  return { drawer, spare, box1 };',
+    '});',
+  ].join('\n');
+  const rendered = [
+    // The call's own line, as the render stamps it — the const's, not the closing brace's.
+    { sourceLocation: { filePath: FILE, line: 5, column: 18 }, properties: { frontWidth: 480, finish: 'oak', 'odd name': 1 } },
+    // The spare's render found no `property()` at all.
+    { sourceLocation: { filePath: FILE, line: 8, column: 17 } },
+    // A handle bound through its own methods — the way the catalog's grounded insert reads.
+    { sourceLocation: { filePath: FILE, line: 9, column: 16 }, properties: { frontWidth: 680 } },
+    // Another file's instance — a sub-assembly's — is never this file's binding.
+    { sourceLocation: { filePath: '/ws/other.assembly.js', line: 5, column: 18 }, properties: { frontWidth: 1 } },
+    // A replica shares the statement's shape but not an insert() of its own.
+    { sourceLocation: { filePath: FILE, line: 5, column: 18 }, properties: { frontWidth: 2 }, replica: { of: 'drawer', statement: 'r', row: 0 } },
+  ];
+
+  it('lists each rendered property after its instance, numeric when its value is', async () => {
+    const vars = await extractVariablesInAssembly(code, new RenderedProperties(FILE, { instances: rendered }));
+    const names = vars.map(v => v.name);
+    expect(names.indexOf('drawer.properties.frontWidth')).toBe(names.indexOf('drawer') + 1);
+    expect(vars.find(v => v.name === 'drawer.properties.frontWidth')).toEqual({
+      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true,
+    });
+    expect(vars.find(v => v.name === 'drawer.properties.finish')).toEqual({
+      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false,
+    });
+    // Only an identifier-shaped name spells as a member access.
+    expect(names.some(n => n.includes('odd name'))).toBe(false);
+    expect(names.some(n => n.startsWith('spare.'))).toBe(false);
+    expect(vars.find(v => v.name === 'drawer')!.numeric).toBe(false);
+    expect(vars.find(v => v.name === 'box1.properties.frontWidth')).toMatchObject({ initializer: '680', numeric: true });
+  });
+
+  it('reads the instance the live-render path stamped', async () => {
+    const virtual = rendered.map(r => ({ ...r, sourceLocation: { ...r.sourceLocation, filePath: `virtual:live-render:${r.sourceLocation.filePath}` } }));
+    const vars = await extractVariablesInAssembly(code, new RenderedProperties(FILE, { instances: virtual }));
+    expect(vars.map(v => v.name)).toContain('drawer.properties.frontWidth');
+  });
+
+  it('offers nothing without a render, and nothing to a statement above the insert', async () => {
+    expect((await extractVariablesInAssembly(code)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
+    const instances = new RenderedProperties(FILE, { instances: rendered });
+    // The Edit-parameters dialog of the spare sits below the drawer's insert.
+    expect((await extractVariablesInScope(code, 8, instances)).map(v => v.name)).toContain('drawer.properties.frontWidth');
+    // A top-level statement above the assembly never sees its body.
+    expect((await extractVariablesInScope(code, 2, instances)).map(v => v.name)).not.toContain('drawer.properties.frontWidth');
+  });
+});
+
+// A `part()` binding holds a definition, which publishes its default
+// variant's `property()` values: a second part's sketch (or a top-level
+// statement) offers them as `<definition>.properties.<name>`, the way
+// `def.properties` reads them — the lid of a box reading the box's clearance.
+describe('part definition properties in scope', () => {
+  const FILE = '/ws/box.part.js';
+  const code = [
+    "import { part, param, property, sketch, extrude } from 'fluidcad/core';",
+    '',
+    "export const box = part('Box', () => {",
+    "  const lidClearance = param('Lid Clearance', 1);",
+    "  property('Lid clearance', 'lidClearance', lidClearance);",
+    "  property('Finish', 'finish', 'oak');",
+    '}).name(\'Carcase\');',
+    "export const lid = part('Lid', () => {",
+    "  const s = sketch('xy', () => {",
+    '  });',
+    '  extrude(2, s);',
+    '});',
+    "const gap = box.properties.lidClearance * 2;",
+  ].join('\n');
+  const rendered = [
+    // The call's own line — the const's, whatever the chain after the body.
+    { sourceLocation: { filePath: FILE, line: 3, column: 20 }, properties: { lidClearance: 1, finish: 'oak', 'odd name': 2 } },
+    // The lid declares no property.
+    { sourceLocation: { filePath: FILE, line: 8, column: 20 }, properties: {} },
+    // Another file's definition is never this file's binding.
+    { sourceLocation: { filePath: '/ws/other.part.js', line: 3, column: 20 }, properties: { lidClearance: 9 } },
+  ];
+  const parts = () => new RenderedProperties(FILE, { parts: rendered });
+
+  it('offers a definition\'s properties to another part\'s sketch, numeric when the value is', async () => {
+    const vars = await extractVariablesInScope(code, 9, parts());
+    const names = vars.map(v => v.name);
+    expect(names.indexOf('box.properties.lidClearance')).toBe(names.indexOf('box') + 1);
+    expect(vars.find(v => v.name === 'box.properties.lidClearance')).toEqual({
+      name: 'box.properties.lidClearance', initializer: '1', numeric: true,
+    });
+    expect(vars.find(v => v.name === 'box.properties.finish')).toEqual({
+      name: 'box.properties.finish', initializer: '"oak"', numeric: false,
+    });
+    expect(names.some(n => n.includes('odd name'))).toBe(false);
+    expect(names.some(n => n.startsWith('lid.'))).toBe(false);
+    expect(vars.find(v => v.name === 'box')!.numeric).toBe(false);
+  });
+
+  it('offers them to a statement appended to the other part and to a top-level one', async () => {
+    expect((await extractVariablesInPart(code, 8, parts())).map(v => v.name)).toContain('box.properties.lidClearance');
+    expect((await extractVariablesInScope(code, 13, parts())).map(v => v.name)).toContain('box.properties.lidClearance');
+  });
+
+  it('never offers a definition its own properties inside its body', async () => {
+    // Reading them there would materialize the part that is being built.
+    expect((await extractVariablesInScope(code, 4, parts())).map(v => v.name)).not.toContain('box.properties.lidClearance');
+    expect((await extractVariablesInPart(code, 3, parts())).map(v => v.name)).not.toContain('box.properties.lidClearance');
+  });
+
+  it('offers nothing without a render, and reads the live-render path', async () => {
+    expect((await extractVariablesInScope(code, 9)).map(v => v.name)).not.toContain('box.properties.lidClearance');
+    const virtual = rendered.map(r => ({ ...r, sourceLocation: { ...r.sourceLocation, filePath: `virtual:live-render:${r.sourceLocation.filePath}` } }));
+    const vars = await extractVariablesInScope(code, 9, new RenderedProperties(FILE, { parts: virtual }));
+    expect(vars.map(v => v.name)).toContain('box.properties.lidClearance');
+  });
+
+  it('keeps an instance and a definition on one line apart', async () => {
+    const assembly = [
+      "import { part, property, insert, assembly } from 'fluidcad/core';",
+      "const box = part('Box', () => { property('W', 'w', 1); }); const box1 = insert(box);",
+      "assembly('main', () => {});",
+    ].join('\n');
+    const file = '/ws/main.assembly.js';
+    const both = new RenderedProperties(file, {
+      parts: [{ sourceLocation: { filePath: file, line: 2, column: 13 }, properties: { w: 1 } }],
+      instances: [{ sourceLocation: { filePath: file, line: 2, column: 60 }, properties: { w: 5 } }],
+    });
+    const vars = await extractVariablesInScope(assembly, 3, both);
+    expect(vars.find(v => v.name === 'box.properties.w')).toMatchObject({ initializer: '1' });
+    expect(vars.find(v => v.name === 'box1.properties.w')).toMatchObject({ initializer: '5' });
   });
 });

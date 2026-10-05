@@ -4,6 +4,7 @@ import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
+import { Hole } from "../features/hole/hole.js";
 import { SelectionScene } from "./types.js";
 
 export type SubShapeKind = 'edge' | 'face';
@@ -44,6 +45,26 @@ export const FACE_BUCKETS: BucketDef[] = [
   { key: 'internal-faces', accessor: 'internalFaces', kind: 'face', deriveFromFaceKey: null },
 ];
 
+/**
+ * A hole records a cut's buckets, but every wall it makes is internal: its
+ * `faces()` reads `internal-faces`, and it has no `internalFaces()`. Its edge
+ * buckets keep the cut's accessors.
+ */
+const HOLE_FACE_BUCKETS: BucketDef[] = [
+  { key: 'internal-faces', accessor: 'faces', kind: 'face', deriveFromFaceKey: null },
+];
+
+/**
+ * The buckets `feature` can be addressed through, in preference order: only
+ * those whose accessor it has. A feature that records a cut's buckets with
+ * no accessor for them (a removing mirror) must not have its picks written
+ * as calls it cannot answer.
+ */
+function bucketDefsFor(feature: SceneObject, kind: SubShapeKind): BucketDef[] {
+  const defs = kind === 'edge' ? EDGE_BUCKETS : feature instanceof Hole ? HOLE_FACE_BUCKETS : FACE_BUCKETS;
+  return defs.filter(def => typeof (feature as unknown as Record<string, unknown>)[def.accessor] === 'function');
+}
+
 export type BucketRecord = {
   feature: SceneObject;
   def: BucketDef;
@@ -76,9 +97,10 @@ export class SelectionIndex {
    * Sub-shape key → the feature whose added-face/edge history record claims
    * it. Deliberately OUTSIDE the bucket index: creator records have no public
    * accessor, so they must never feed selector synthesis — only attribution's
-   * "which feature created this?" fallback. Populated earliest-first because
-   * a fusion re-records untouched pass-through sub-shapes as its own
-   * additions; the first recorder is the true creator.
+   * "which feature created this?" fallback. A sub-shape has one such record:
+   * a cut, a fusion or a fillet records what it made, and whatever passes
+   * through it unchanged stays with the feature that added it. Were two
+   * features ever to claim one sub-shape, the earlier one made it.
    */
   private creators = new Map<number, SceneObject>();
 
@@ -140,13 +162,13 @@ export class SelectionIndex {
   }
 
   private indexObject(feature: SceneObject): void {
-    for (const def of EDGE_BUCKETS) {
+    for (const def of bucketDefsFor(feature, 'edge')) {
       const members = this.resolveEdgeBucket(feature, def);
       if (members && members.length > 0) {
         this.addBucket(feature, def, members);
       }
     }
-    for (const def of FACE_BUCKETS) {
+    for (const def of bucketDefsFor(feature, 'face')) {
       const members = feature.getState(def.key) as Face[] | undefined;
       if (members && members.length > 0) {
         this.addBucket(feature, def, members);

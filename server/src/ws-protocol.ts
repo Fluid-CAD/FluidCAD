@@ -1,4 +1,6 @@
 import type { LengthUnit } from './project-config.ts';
+import type { ObjectBuildWarning } from './fluidcad-server/render-types.ts';
+import type { TimelineEntry } from '../../lib/dist/common/timeline.js';
 
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
@@ -199,7 +201,11 @@ export type SerializedAssemblyReplicate = {
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
-/** One `connector('name', [x, y, z])` declared at assembly level, with its built frame. */
+/**
+ * One `connector('name', [x, y, z])` declared at assembly level, with its
+ * built frame — or a copy a top-level `copy()` made of one: its seed's name,
+ * its copy statement's location, and `copy`.
+ */
 export type SerializedAssemblyConnector = {
   connectorId: string;
   name: string;
@@ -209,6 +215,8 @@ export type SerializedAssemblyConnector = {
   yDirection: { x: number; y: number; z: number };
   normal: { x: number; y: number; z: number };
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a copy (`bay.instance(2)`): its pattern slot and its seed's id. Absent on older engines. */
+  copy?: { slot: number; seedId: string };
 };
 
 export type SerializedAssembly = {
@@ -221,6 +229,9 @@ export type SerializedAssembly = {
 };
 
 export type SceneRenderedMessage = {
+  breakpointHit?: boolean;
+  breakpointStop?: number;
+  timeline?: TimelineEntry[];
   type: 'scene-rendered';
   absPath: string;
   sceneKind: 'part' | 'assembly';
@@ -235,7 +246,7 @@ export type SceneRenderedMessage = {
   projectUnit: LengthUnit;
   result: any[];
   rollbackStop: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
@@ -267,12 +278,6 @@ export type RemovePointMessage = {
   sourceLocation: { line: number; column: number };
 };
 
-export type SetPickPointsMessage = {
-  type: 'set-pick-points';
-  points: [number, number][];
-  sourceLocation: { line: number; column: number };
-};
-
 export type ExportCompleteMessage = {
   type: 'export-complete';
   success: boolean;
@@ -281,16 +286,6 @@ export type ExportCompleteMessage = {
   error?: string;
   /** Assembly exports: whether live or statement poses were written. */
   posesSource?: 'live' | 'statement';
-};
-
-export type AddPickMessage = {
-  type: 'add-pick';
-  sourceLocation: { line: number; column: number };
-};
-
-export type RemovePickMessage = {
-  type: 'remove-pick';
-  sourceLocation: { line: number; column: number };
 };
 
 export type AddBreakpointMessage = {
@@ -431,9 +426,6 @@ export type ServerToExtensionMessage =
   | ImportCompleteMessage
   | InsertPointMessage
   | RemovePointMessage
-  | SetPickPointsMessage
-  | AddPickMessage
-  | RemovePickMessage
   | AddBreakpointMessage
   | RemoveFeatureMessage
   | ClearBreakpointsMessage
@@ -467,7 +459,22 @@ export type UIParamDefinition = {
   multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
+/**
+ * One `property()` of the rendered part file, as the parameters panel lists
+ * it: the value the render computed and the part that declared it (the
+ * panel's Part dropdown filters on it).
+ */
+export type UIPropertyDefinition = {
+  /** What the panel shows for the row. */
+  label: string;
+  name: string;
+  value: string | number | boolean | (string | number)[];
+  sourceLocation?: { filePath: string; line: number; column: number };
+  part: { filePath: string; line: number; column: number };
+};
+
 export type UISceneRenderedMessage = {
+  timeline?: TimelineEntry[];
   type: 'scene-rendered';
   /**
    * Stamped by the server core on every scene it sends (renders and the
@@ -485,12 +492,21 @@ export type UISceneRenderedMessage = {
   /** See `SceneRenderedMessage.projectUnit`. */
   projectUnit: LengthUnit;
   rollbackStop?: number;
-  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  /** Part-scoped stop — a rollback, or a pause inside a part: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
+  breakpointStop?: number;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
   params?: UIParamDefinition[];
+  /** Part scenes only: the file's `property()` declarations. */
+  properties?: UIPropertyDefinition[];
+  /**
+   * Non-fatal notices per row — `Unknown material: <id>` on a part row
+   * whose material is in neither the built-in nor the project table. Same
+   * `index` numbering as `result`; absent on error replays.
+   */
+  objectWarnings?: ObjectBuildWarning[];
 };
 
 export type UIHighlightShapeMessage = {

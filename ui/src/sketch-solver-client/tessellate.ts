@@ -9,8 +9,16 @@ import type { Vec2 } from './resolve';
 const CIRCLE_SEGMENTS = 64;
 const ARC_SEGMENTS = 48;
 
-/** Signed sweep from start to end around the center, on the drawn side
- * (mirrors resolve.ts's arcMidPoint convention). */
+/** Ends closer than this angle (radians) read as coincident. */
+const FULL_TURN_TOL = 1e-9;
+
+/**
+ * Signed sweep from start to end around the center, on the drawn side —
+ * negative for a clockwise arc. The one home of the arc sweep convention
+ * (hit testing, badges and the live drag all read it). Coincident ends are
+ * a FULL turn, never an empty arc: that is the arc the Split tool makes of
+ * a circle, and the kernel renders it as the whole circle.
+ */
 export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | null {
   if (!e.center || !e.start || !e.end) {
     return null;
@@ -25,7 +33,37 @@ export function arcSweep(e: SolvedEntityView): { a0: number; sweep: number } | n
   } else if (sweep < 0) {
     sweep += 2 * Math.PI;
   }
+  if (Math.abs(sweep) < FULL_TURN_TOL) {
+    sweep = e.cw ? -2 * Math.PI : 2 * Math.PI;
+  }
   return { a0, sweep };
+}
+
+/**
+ * Whether `angle` lies on the arc sweeping `sweep` (signed radians —
+ * negative clockwise, see {@link arcSweep}) from `a0`, within `tol` of its
+ * ends. A hair before the start reads as the start rather than as a full
+ * turn away from it; a full-turn arc contains every angle.
+ */
+export function angleWithinSweep(a0: number, sweep: number, angle: number, tol = 1e-9): boolean {
+  const tau = 2 * Math.PI;
+  let rel = (angle - a0) % tau;
+  if (sweep >= 0) {
+    if (rel < 0) {
+      rel += tau;
+    }
+    if (rel > tau - tol) {
+      rel -= tau;
+    }
+    return rel <= sweep + tol;
+  }
+  if (rel > 0) {
+    rel -= tau;
+  }
+  if (rel < tol - tau) {
+    rel += tau;
+  }
+  return rel >= sweep - tol;
 }
 
 /**
@@ -101,6 +139,39 @@ export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): 
       return points;
     }
   }
+}
+
+/**
+ * Polyline along a Bézier curve of any degree through its control points
+ * (de Casteljau), `segments + 1` points from the first control point to
+ * the last. Null below two points — no curve yet.
+ */
+export function tessellateBezier(controls: Vec2[], segments: number): Vec2[] | null {
+  if (controls.length < 2 || segments < 1) {
+    return null;
+  }
+  const points: Vec2[] = [];
+  for (let i = 0; i <= segments; i++) {
+    points.push(bezierPointAt(controls, i / segments));
+  }
+  points[0] = controls[0];
+  points[segments] = controls[controls.length - 1];
+  return points;
+}
+
+function bezierPointAt(controls: Vec2[], t: number): Vec2 {
+  let level = controls;
+  while (level.length > 1) {
+    const next: Vec2[] = [];
+    for (let i = 0; i + 1 < level.length; i++) {
+      next.push([
+        level[i][0] + (level[i + 1][0] - level[i][0]) * t,
+        level[i][1] + (level[i + 1][1] - level[i][1]) * t,
+      ]);
+    }
+    level = next;
+  }
+  return level[0];
 }
 
 /** `ellipse(center, rx, ry, rotation)`: semi-radii along the ellipse's own

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeTwoDistances } from "../../features/extrude-two-distances.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -33,9 +33,8 @@ describe("extrude two distances", () => {
 
       extrude(20, 10);
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
   });
 
@@ -362,14 +361,15 @@ describe("extrude two distances", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      const e = extrude(20, 10).pick([0, 0]) as ExtrudeTwoDistances;
+      const e = extrude(20, 10).region('a') as ExtrudeTwoDistances;
 
       render();
 
@@ -378,12 +378,12 @@ describe("extrude two distances", () => {
       expect(shapes[0].getType()).toBe("solid");
     });
 
-    it("should produce no solid when pick point is outside all regions", () => {
+    it("should produce no solid when the key names no region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20, 10).pick([500, 500]) as ExtrudeTwoDistances;
+      const e = extrude(20, 10).region('gone') as ExtrudeTwoDistances;
 
       render();
 

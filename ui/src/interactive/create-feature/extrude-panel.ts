@@ -8,6 +8,8 @@ import { ExtrudeFaceTarget, ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { PickSlotChip } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * How the extrusion distributes around the sketch plane. The last three end
@@ -35,7 +37,12 @@ export class ExtrudePanel extends FeaturePanel {
   onRemoveFace?: () => void;
   /** The scope chip at `index` was removed — the service owns the choices. */
   onRemoveScope?: (index: number) => void;
-  /** The armed solid-pick slot moved — the service re-aims its pick channels. */
+  /**
+   * A solid slot took the viewport — the service ends region picking and
+   * re-aims its pick channels. Fires when a face or scope slot is clicked and
+   * when the direction enters the picked up-to-face mode, but only when that
+   * changes who owns the viewport (the other slot, or region picking).
+   */
   onArmedPickChange?: () => void;
 
   /**
@@ -44,6 +51,13 @@ export class ExtrudePanel extends FeaturePanel {
    * clicking either slot moves the border.
    */
   private armedSolidSlot: 'face' | 'scope' = 'face';
+  /**
+   * Region picking holds the viewport (the service mirrors its picker's
+   * state here). The solid slots draw quiet until one of them claims the
+   * viewport back — a click, or the direction entering the picked
+   * up-to-face mode.
+   */
+  private regionPickLive = false;
 
   private tabs: OpTabs;
   private thin: ThinControl;
@@ -69,7 +83,7 @@ export class ExtrudePanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-extrude-panel',
       title: 'Extrude',
-      icon: '/icons/extrude.png',
+      icon: iconUrl('extrude'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>
@@ -136,7 +150,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'));
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { regions: true });
     this.profileSlot.onChange = () => this.onChange?.();
 
     this.faceSlotWrap = this.role('face-slot-wrap');
@@ -162,10 +176,10 @@ export class ExtrudePanel extends FeaturePanel {
     this.drillCheckbox = this.role('drill');
 
     this.directionSelect.addEventListener('change', () => {
-      // Entering the picked up-to-face mode re-arms its slot — the next face
-      // click is the target, not a scope solid.
+      // Entering the picked up-to-face mode arms its slot — the next face
+      // click is the target, not a scope solid or a region.
       if (this.isToFace()) {
-        this.armedSolidSlot = 'face';
+        this.armSolidSlot('face');
       }
       this.syncControls();
       this.onChange?.();
@@ -271,6 +285,11 @@ export class ExtrudePanel extends FeaturePanel {
     return this.profileSlot.selectedOption();
   }
 
+  /** The region row under the profile slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.profileSlot.regions!;
+  }
+
   /** The profile slot's state, `keep` included (edit mode only). */
   profileSelection(): SketchSlotSelection | null {
     return this.profileSlot.selection();
@@ -323,9 +342,26 @@ export class ExtrudePanel extends FeaturePanel {
     return this.scopeSlot.visible && this.armedSolidSlot === 'scope';
   }
 
-  /** A slot was clicked — move the armed border and re-aim the pick channels. */
+  /**
+   * Region picking turned on or off in the viewport. While it is on, the
+   * solid slots wear no armed border — their clicks would go nowhere.
+   */
+  setRegionPickLive(live: boolean): void {
+    if (this.regionPickLive === live) {
+      return;
+    }
+    this.regionPickLive = live;
+    this.syncControls();
+  }
+
+  /**
+   * A slot claims the viewport (a click, or the direction entering the
+   * picked up-to-face mode): move the armed border and tell the service to
+   * re-aim its pick channels. Nothing fires when the slot already owns the
+   * viewport — the same slot, with no region pick in the way.
+   */
   private armSolidSlot(slot: 'face' | 'scope'): void {
-    if (this.armedSolidSlot === slot) {
+    if (this.armedSolidSlot === slot && !this.regionPickLive) {
       return;
     }
     this.armedSolidSlot = slot;
@@ -443,8 +479,10 @@ export class ExtrudePanel extends FeaturePanel {
     if (!this.scopeSlot.visible) {
       this.armedSolidSlot = 'face';
     }
-    this.faceSlot.setArmed(toFace && this.armedSolidSlot === 'face');
-    this.scopeSlot.setArmed(this.scopeSlot.visible && this.armedSolidSlot === 'scope');
+    // A live region pick owns the viewport — neither solid slot is armed.
+    const solidArmed = !this.regionPickLive;
+    this.faceSlot.setArmed(solidArmed && toFace && this.armedSolidSlot === 'face');
+    this.scopeSlot.setArmed(solidArmed && this.scopeSlot.visible && this.armedSolidSlot === 'scope');
   }
 }
 

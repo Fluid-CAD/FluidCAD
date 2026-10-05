@@ -39,6 +39,6 @@ describe('icon artwork', () => {
   });
 
   it('has the default icon on disk, since it backstops every missing PNG', () => {
-    expect(existsSync(fileURLToPath(new URL(`../public${DEFAULT_ICON_SRC}`, import.meta.url)))).toBe(true);
+    expect(existsSync(fileURLToPath(new URL(`../public/${DEFAULT_ICON_SRC}`, import.meta.url)))).toBe(true);
   });
 });

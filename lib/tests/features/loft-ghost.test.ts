@@ -5,7 +5,7 @@ import plane from "../../core/plane.js";
 import { bezier, circle, line } from "../../core/2d/index.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import {
-  buildLoftGhostSolids, LoftGhostOptions, LoftGhostProfile, LoftGhostSolids,
+  buildLoftGhostSolids, loftMatchLines, LoftGhostOptions, LoftGhostProfile, LoftGhostSolids,
 } from "../../features/loft-ghost.js";
 import { Shape } from "../../common/shape.js";
 import { Wire } from "../../common/wire.js";
@@ -16,6 +16,10 @@ import { ShapeProps } from "../../oc/props.js";
 import { getBoundingBoxOfShapes } from "../utils.js";
 import { vertical } from "../../core/constraints/index.js";
 import { testRect } from "../helpers/profiles.js";
+import { Point } from "../../math/point.js";
+import { Solid } from "../../common/solid.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import { Explorer } from "../../oc/explorer.js";
 
 const BASE: LoftGhostOptions = {
   op: 'add',
@@ -97,6 +101,55 @@ function withGhost<T>(
 
 describe("loft ghost", () => {
   setupOC();
+
+  it('classifies automatic match lines, including a smooth side-face seam', () => {
+    const profiles = sectionsOf([...rectStack(), ...circleStack()]);
+    for (const [pair, expected] of [[profiles.slice(0, 2), 4], [profiles.slice(2), 1]] as const) {
+      withGhost(pair, {}, solids => {
+        const lines = loftMatchLines(solids[0] as Solid, pair[0], pair[1]);
+        expect(lines).toHaveLength(expected);
+        for (const line of lines) {
+          expect(line.length).toBeGreaterThanOrEqual(6);
+          const start = Point.fromArray(line.slice(0, 3) as [number, number, number]);
+          const end = Point.fromArray(line.slice(-3) as [number, number, number]);
+          expect(Math.abs(start.z - end.z)).toBeGreaterThan(30);
+        }
+      });
+    }
+  });
+
+  it('builds connected ghosts with the same vertex guarantee and draws their matching', () => {
+    const profiles = sectionsOf(rectStack());
+    const connections = [[new Point(0, 0, 0), new Point(100, 0, 40)]];
+    withGhost(profiles, { connections }, solids => {
+      const edges = Explorer.findEdgesWrapped(solids[0]);
+      expect(edges.some(edge => connections[0].every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
+      // Turning the 100 × 50 rectangle by one corner leaves six distinct
+      // face columns: the unconnected corners retain automatic matching.
+      expect(loftMatchLines(solids[0] as Solid, profiles[0], profiles[1])).toHaveLength(6);
+    });
+  });
+
+  it('surfaces invalid connections instead of returning an unconnected ghost', () => {
+    const profiles = sectionsOf(rectStack());
+    expect(() => ghost(profiles, { connections: [[new Point(0, 0, 0)]] })).toThrow(/connect expects 2 points/);
+    expect(() => ghost(profiles, { thin: [2], connections: [[new Point(50, 0, 0), new Point(0, 0, 40)]] }))
+      .toThrow(/connection 1: the point for profile 1 is not a corner/);
+  });
+
+  it('carries connections onto both walls of a thin ghost', () => {
+    const profiles = sectionsOf(rectStack());
+    const connections = [[new Point(0, 0, 0), new Point(100, 0, 40)]];
+    withGhost(profiles, { thin: [2], connections }, solids => {
+      expect(solids).toHaveLength(1);
+      const edges = Explorer.findEdgesWrapped(solids[0]);
+      // A positive offset grows outward, so the inner wall is the profile itself.
+      expect(edges.some(edge => connections[0].every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
+      // The outer wall rounds the corner; the connection runs along the crest of that arc.
+      const outer = [new Point(-Math.SQRT2, -Math.SQRT2, 0), new Point(100 + Math.SQRT2, -Math.SQRT2, 40)];
+      expect(edges.some(edge => outer.every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
+    });
+  });
 
   describe("add", () => {
     it("skins through the sections", () => {

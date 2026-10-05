@@ -1,0 +1,55 @@
+---
+sidebar_position: 19
+title: "hole"
+description: "Cuts a drilled hole of the given diameter at each placement, through all the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole, `.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the entry, and `.scope(...)` to restrict which solids are cut."
+---
+
+# hole()
+
+Cuts a drilled hole of the given diameter at each placement, through all
+the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole,
+`.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the
+entry, and `.scope(...)` to restrict which solids are cut.
+
+**Returns**: [**`Hole`**](/docs/api/types/hole)
+
+:::tip
+See the [guide](/docs/3d-operations/hole) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+hole(diameter: NumberParam, ...placements: HolePlacementLike[]): Hole
+```
+
+Cuts a drilled hole of the given diameter at each placement, through all
+the solids in scope. Chain `.depth(d[, tipAngle])` for a blind hole,
+`.counterbore(diameter, depth)` or `.countersink(diameter, angle)` for the
+entry, and `.scope(...)` to restrict which solids are cut.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | NumberParam | The hole diameter |
+| `...placements` | HolePlacementLike[] | One or more connectors, sketch points or anchored vertices *(optional)* |
+
+---
+
+```ts
+hole(size: string, ...placements: HolePlacementLike[]): Hole
+```
+
+Cuts a fastener hole for the given size ('M6', 'M2.5', '1/4', '#10') at
+each placement. The diameter comes from the standard tables: a clearance
+hole (`.clearance('close' | 'normal' | 'loose')`, normal fit by default)
+or a tap drill (`.tapped()` for the coarse pitch, `.tapped(0.75)` for a
+fine one). `.counterbore()` and `.countersink()` without values read the
+socket-head and flat-head tables for that size. `.fasten()` on a
+clearance hole cuts the matching tapped hole into the next solid along
+the hole axis, the one the fastener threads into. Threads are not modelled
+yet; the size and pitch stay in the statement for a later thread feature.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `size` | string | A metric or inch fastener size label |
+| `...placements` | HolePlacementLike[] | One or more connectors, sketch points or anchored vertices *(optional)* |

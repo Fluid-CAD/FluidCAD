@@ -1,4 +1,4 @@
-import { ensureSymbolImport, spliceCode, splitLines, type TSNode } from './code-editor.ts';
+import { ensureSymbolImport, spliceCode, splitLines, type TSNode } from './code-editor/index.ts';
 import {
   appendChainCall, callArguments, chainMembers, findChainAt, formatTranslateNumber, getBaseCallName,
   getChainCalls, getInsertChainParser, isRewritableRotate, removeChainCalls, renderRotateCalls,

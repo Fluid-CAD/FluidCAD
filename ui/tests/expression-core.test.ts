@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  resolveExpressionValue, trailingIdentifier,
+  resolveExpressionValue, suggestionItemHtml, suggestionKind, suggestsExistingName,
+  suggestionValueHint, trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -123,12 +124,105 @@ describe('filterSuggestions', () => {
   });
 });
 
+describe('suggestsExistingName', () => {
+  it('holds while the dropdown lists an existing variable for the bare name', () => {
+    expect(suggestsExistingName('hei', filterSuggestions('hei', VARS, 'hei', '25'))).toBe(true);
+  });
+
+  it('clears once only the new-variable offer is left, or nothing is listed', () => {
+    expect(suggestsExistingName('depth', filterSuggestions('depth', VARS, 'depth', '25'))).toBe(false);
+    expect(suggestsExistingName('hei', [])).toBe(false);
+  });
+
+  it('ignores matches that complete the value of an explicit declaration', () => {
+    const value = 'depth = hei';
+    expect(suggestsExistingName(value, filterSuggestions('hei', VARS, value, '25'))).toBe(false);
+  });
+});
+
+describe('suggestionKind', () => {
+  it('reads param(), plain values and computed expressions off the initializer', () => {
+    expect(suggestionKind({ name: 'w', initializer: 'param("w", 40)' }, false)).toBe('param');
+    expect(suggestionKind({ name: 'w', initializer: "param('w', 40, 'number', { min: 1 })" }, false))
+      .toBe('param');
+    expect(suggestionKind({ name: 'height', initializer: '30' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'offset', initializer: '-2.5' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'scale', initializer: '1e3' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'half', initializer: 'w / 2' }, false)).toBe('expression');
+    expect(suggestionKind({ name: 'alias', initializer: 'w' }, false)).toBe('expression');
+    expect(suggestionKind({ name: 'angle', initializer: 'Math.PI / 4' }, false)).toBe('expression');
+  });
+
+  it('treats an import, whose value the file does not show, as a variable', () => {
+    expect(suggestionKind({ name: 'thickness' }, false)).toBe('variable');
+  });
+
+  it('chips the new-variable offer as what its commit would declare', () => {
+    const [offer] = filterSuggestions('depth', VARS, 'depth', '25');
+    expect(offer).toMatchObject({ isNew: true });
+    expect(suggestionKind(offer, true)).toBe('param');
+    expect(suggestionKind(offer, false)).toBe('variable');
+  });
+});
+
+describe('suggestionItemHtml', () => {
+  it('leads with the kind chip and shows no initializer preview', () => {
+    const html = suggestionItemHtml({ name: 'half', initializer: 'w / 2' }, 0, false, false);
+    expect(html.indexOf('>E</span>')).toBeGreaterThan(-1);
+    expect(html.indexOf('>E</span>')).toBeLessThan(html.indexOf('>half</span>'));
+    expect(html).not.toContain('w / 2');
+    expect(html).not.toContain('= ');
+  });
+
+  it('wears the P toggle blue for params and the variable pink for plain values', () => {
+    expect(suggestionItemHtml({ name: 'w', initializer: 'param("w", 40)' }, 0, false, false))
+      .toContain('bg-primary/20 text-primary border-primary/40');
+    expect(suggestionItemHtml({ name: 'height', initializer: '30' }, 0, false, false))
+      .toContain('bg-variable/20 text-variable border-variable/40');
+  });
+});
+
 describe('trailing identifier helpers', () => {
   it('finds the identifier being typed and replaces it on fill', () => {
     expect(trailingIdentifier('2 * hei')).toBe('hei');
     expect(trailingIdentifier('25')).toBeNull();
     expect(applyVariableName('2 * hei', 'height')).toBe('2 * height');
     expect(applyVariableName('2 * ', 'height')).toBe('2 * height');
+  });
+
+  // An inserted instance's property is spelled `drawer.properties.width`:
+  // the token being typed keeps its dots, so the dropdown matches the whole
+  // spelling and a fill replaces all of it.
+  it('reads a dotted name as one token', () => {
+    expect(trailingIdentifier('2 * drawer.prop')).toBe('drawer.prop');
+    expect(trailingIdentifier('drawer.')).toBe('drawer.');
+    expect(trailingIdentifier('2.5')).toBeNull();
+    expect(applyVariableName('2 * drawer.prop', 'drawer.properties.width')).toBe('2 * drawer.properties.width');
+    expect(applyVariableName('drawer.', 'drawer.properties.width')).toBe('drawer.properties.width');
+  });
+
+  it('offers an instance property while its binding stays hidden', () => {
+    const vars = [
+      ...VARS,
+      { name: 'drawer', initializer: 'insert(Drawer, { Width: 400 })', numeric: false },
+      { name: 'drawer.properties.frontWidth', initializer: '480', numeric: true },
+      { name: 'drawer.properties.finish', initializer: '"oak"', numeric: false },
+    ];
+    expect(filterSuggestions('drawer', vars, 'drawer', '25').map(s => s.name)).toEqual(['drawer.properties.frontWidth']);
+    expect(filterSuggestions('drawer.', vars, '2 * drawer.', '25').map(s => s.name)).toEqual(['drawer.properties.frontWidth']);
+    expect(filterSuggestions('drawer.properties.frontWidth', vars, 'drawer.properties.frontWidth', '25').some(s => s.isNew)).toBe(false);
+    expect(classifyCommit('drawer.properties.frontWidth - 36', vars, '25'))
+      .toEqual({ kind: 'expression', expression: 'drawer.properties.frontWidth - 36' });
+  });
+
+  it("shows an instance property's rendered value beside its name, and nothing for other rows", () => {
+    const property = { name: 'drawer.properties.frontWidth', initializer: '480', numeric: true };
+    expect(suggestionValueHint(property)).toBe('480');
+    expect(suggestionItemHtml(property, 0, false, false)).toContain('>480</span>');
+    expect(suggestionValueHint({ name: 'drawer.properties.finish', initializer: '"oak"' })).toBeNull();
+    expect(suggestionValueHint(VARS[0])).toBeNull();
+    expect(suggestionItemHtml(VARS[0], 0, false, false)).not.toContain('>30</span>');
+    expect(suggestionValueHint({ name: 'x.properties.y', initializer: '12', isNew: true })).toBeNull();
   });
 });
 

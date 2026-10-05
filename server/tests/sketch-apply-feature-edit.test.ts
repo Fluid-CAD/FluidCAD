@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 
 // Stage 3 (plans/sketch-edge-selection): the 2D branch of the pick → code
 // pipeline reuses the 3D ApplyFeatureEditSpec — producers are statements

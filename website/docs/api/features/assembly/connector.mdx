@@ -16,7 +16,7 @@ selection (e.g., `rect.edge('top')`), a `LazyVertex`, or a plane object.
 Raw points are intentionally not allowed — the frame must be tied to
 real geometry so it re-derives correctly on every render.
 
-**Returns**: **`IConnector`**
+**Returns**: [**`Connector`**](/docs/api/types/connector)
 
 :::tip
 See the [guide](/docs/part/connector) for detailed usage examples.
@@ -25,7 +25,7 @@ See the [guide](/docs/part/connector) for detailed usage examples.
 ## Signatures
 
 ```ts
-connector(name: string, source: SceneObject, options?: ConnectorOptions): IConnector
+connector(name: string, source: SceneObject, options?: ConnectorOptions): Connector
 ```
 
 Creates a named mate connector — a coordinate frame attached to real
@@ -47,7 +47,7 @@ real geometry so it re-derives correctly on every render.
 ---
 
 ```ts
-connector(name: string, position: AssemblyConnectorPoint): IConnector
+connector(name: string, position: AssemblyConnectorPoint): Connector
 ```
 
 Creates an assembly connector — a mate frame placed freely in the

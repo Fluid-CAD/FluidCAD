@@ -1,6 +1,7 @@
 import { FeaturePanel } from '../create-feature/feature-panel';
 import { PickSlot } from '../pick-slot';
 import type { AssemblyMateType } from '../../api';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Which of the two connector slots picks land in. */
 export type MateSlotKey = 'a' | 'b';
@@ -84,7 +85,7 @@ export class MatePanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-mate-panel',
       title: 'Mate',
-      icon: '/icons/joint-fastened.png',
+      icon: iconUrl('joint-fastened'),
       bodyHtml: `
         <label class="flex flex-col gap-1.5" title="The joint type — how the two connectors constrain each other">
           <span class="text-base-content/70">Type</span>

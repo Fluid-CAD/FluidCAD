@@ -16,15 +16,16 @@ import {
   MULTI_CONTROL_CHOICES,
   PARAM_TYPE_CHOICES,
   coerceDefaultValue,
-  describeDeletion,
+  deletionWording,
   specFromDefinition,
 } from './param-spec';
 
 /**
  * What the Add dialog's Part dropdown lists: the scene's parts and the one
- * the timeline has active, which the dropdown opens on.
+ * the timeline has selected — its active part, or the part the user stepped
+ * out of to the file's top level — which the dropdown opens on.
  */
-export type PartChoices = { parts: PartChoice[]; active: SourceLocation | null };
+export type PartChoices = { parts: PartChoice[]; selected: SourceLocation | null };
 
 /**
  * The parameters panel's add / edit / delete dialog. Values the panel sets are
@@ -40,7 +41,6 @@ export class ParamEditorDialog {
   private overlay: HTMLDivElement;
   private title: HTMLElement;
   private labelInput: HTMLInputElement;
-  private bindingNote: HTMLElement;
   private partRow: HTMLElement;
   private partSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
@@ -54,6 +54,8 @@ export class ParamEditorDialog {
   private multiToggle: HTMLInputElement;
   private multiControlRow: HTMLElement;
   private multiControlSelect: HTMLSelectElement;
+  private exposeRow: HTMLElement;
+  private exposeToggle: HTMLInputElement;
   private optionalToggle: HTMLInputElement;
   private groupInput: HTMLInputElement;
   private descriptionInput: HTMLInputElement;
@@ -73,7 +75,7 @@ export class ParamEditorDialog {
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, private scope: 'part' | 'assembly' = 'part') {
     this.overlay = document.createElement('div');
     this.overlay.className = 'fixed inset-0 z-[300] bg-black/50 flex items-center justify-center hidden';
     this.overlay.innerHTML = ParamEditorDialog.shellHtml();
@@ -84,7 +86,6 @@ export class ParamEditorDialog {
 
     this.title = ref('title');
     this.labelInput = ref('label');
-    this.bindingNote = ref('binding-note');
     this.partRow = ref('part-row');
     this.partSelect = ref('part');
     this.typeSelect = ref('type');
@@ -98,6 +99,8 @@ export class ParamEditorDialog {
     this.multiToggle = ref('multi');
     this.multiControlRow = ref('multi-control-row');
     this.multiControlSelect = ref('multi-control');
+    this.exposeRow = ref('expose-row');
+    this.exposeToggle = ref('expose');
     this.optionalToggle = ref('optional-toggle');
     this.groupInput = ref('group');
     this.descriptionInput = ref('description');
@@ -119,7 +122,7 @@ export class ParamEditorDialog {
   }
 
   /**
-   * Where the Part dropdown reads the scene's parts and the active one from.
+   * Where the Part dropdown reads the scene's parts and the selected one from.
    * Without a provider the dropdown never shows and the declaration goes out
    * with no part — which the server refuses, a parameter living only inside a
    * part body — as in a scene with no parts.
@@ -131,15 +134,20 @@ export class ParamEditorDialog {
   /**
    * Open on a blank declaration. The Part dropdown opens on `preferredPart`
    * when the caller has one (the panel's own Part dropdown), else on the
-   * timeline's active part.
+   * timeline's selected part.
    */
   openForCreate(preferredPart?: SourceLocation | null): void {
     this.target = null;
     this.usage = null;
     this.title.textContent = 'Add parameter';
     this.seed({ label: '', defaultValue: 0, type: 'number' });
-    this.bindingNote.classList.add('hidden');
     this.populateParts(preferredPart);
+    // Off on every open: exposing is a choice made per parameter, and only a
+    // new one can be exposed from here — a property lives in a part body, so
+    // the toggle has nothing to offer an assembly parameter.
+    this.exposeToggle.checked = false;
+    this.exposeRow.classList.toggle('hidden', this.scope !== 'part');
+    this.exposeRow.classList.toggle('flex', this.scope === 'part');
     this.editActions.classList.add('hidden');
     this.show();
     this.labelInput.focus();
@@ -159,10 +167,12 @@ export class ParamEditorDialog {
     this.usage = null;
     this.title.textContent = 'Edit parameter';
     this.seed(specFromDefinition(def));
-    this.bindingNote.classList.add('hidden');
     // A declaration stays in the part it was written in — moving it is a
-    // code edit, not a dropdown change.
+    // code edit, not a dropdown change. Exposing is an add-time choice: the
+    // property, once declared, is its own row in the panel.
     this.partRow.classList.add('hidden');
+    this.exposeRow.classList.add('hidden');
+    this.exposeRow.classList.remove('flex');
     this.editActions.classList.remove('hidden');
     this.show();
     this.labelInput.focus();
@@ -203,8 +213,6 @@ export class ParamEditorDialog {
         <div class="flex flex-col gap-3">
           ${field('Label', '<input data-ref="label" type="text" class="input input-sm input-bordered w-full" placeholder="Wall thickness" />')}
 
-          <span data-ref="binding-note" class="hidden text-[11px] text-base-content/40 -mt-1"></span>
-
           <div data-ref="part-row" class="hidden flex-col gap-1">
             ${field('Part', '<select data-ref="part" class="select select-sm select-bordered w-full"></select>')}
           </div>
@@ -233,6 +241,11 @@ export class ParamEditorDialog {
               ${field('Shown as', '<select data-ref="multi-control" class="select select-sm select-bordered w-full"></select>')}
             </div>
           </div>
+
+          <label data-ref="expose-row" class="hidden items-center justify-between cursor-pointer">
+            <span class="text-xs text-base-content/70">Expose as property</span>
+            <input data-ref="expose" type="checkbox" class="toggle toggle-sm toggle-primary" />
+          </label>
 
           <div class="collapse collapse-arrow !min-h-0 border border-base-content/10 rounded-md">
             <input data-ref="optional-toggle" type="checkbox" class="!min-h-0 !p-0 !h-8" />
@@ -461,12 +474,13 @@ export class ParamEditorDialog {
 
   /**
    * Fill the Part dropdown from the provider and open it on the preferred
-   * part — the active part when the caller states no preference. The row only
-   * shows when the scene has parts to choose between: a parameter lives in a
-   * part body, so those are the only places it can go.
+   * part — the timeline's selected part when the caller states no
+   * preference. The row only shows when the scene has parts to choose
+   * between: a parameter lives in a part body, so those are the only places
+   * it can go.
    */
   private populateParts(preferredPart?: SourceLocation | null): void {
-    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    const choices = (this.scope === 'part' ? this.partProvider?.() : null) ?? { parts: [], selected: null };
     this.partChoices = choices.parts;
     this.partSelect.replaceChildren();
     this.partRow.classList.toggle('hidden', choices.parts.length === 0);
@@ -477,7 +491,7 @@ export class ParamEditorDialog {
     ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
       this.partSelect.appendChild(ParamEditorDialog.option(String(index), text));
     });
-    const wanted = preferredPart ?? choices.active;
+    const wanted = preferredPart ?? choices.selected;
     const index = wanted === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted));
@@ -605,18 +619,31 @@ export class ParamEditorDialog {
     const target = this.target;
     if (!target) {
       const part = this.chosenPart();
-      await this.commit(() => addParam(spec, part));
+      await this.commit(() => this.scope === 'assembly'
+        ? addParam(spec, null, 'assembly')
+        : addParam(spec, part, 'part', this.exposeToggle.checked));
       return;
     }
     await this.commit(() => updateParam(target, spec));
   }
 
+  /**
+   * Ask before deleting — or refuse: a read the default value cannot
+   * replace would leave the model unbuildable, so the server's plan turns
+   * the confirmation into an error naming the reads to rewrite first.
+   */
   private askToDelete(): void {
     if (!this.target) {
       return;
     }
     this.setMessage(null);
-    this.confirmText.textContent = describeDeletion(this.target.label, this.usage);
+    const wording = deletionWording(this.target.label, this.usage);
+    if (wording.blocked) {
+      this.confirmRow.classList.add('hidden');
+      this.setMessage(wording.text);
+      return;
+    }
+    this.confirmText.textContent = wording.text;
     this.confirmRow.classList.remove('hidden');
   }
 
@@ -661,13 +688,6 @@ export class ParamEditorDialog {
     this.usage = usage;
     if (usage && !usage.editable) {
       this.setMessage(usage.reason ?? 'This parameter has to be edited in the code.');
-    }
-    // Naming the variable is what makes "the label is not the variable" plain
-    // before the user renames anything.
-    if (usage?.variable) {
-      this.bindingNote.textContent =
-        `Bound to ${usage.variable} — renaming the label leaves the code alone.`;
-      this.bindingNote.classList.remove('hidden');
     }
   }
 

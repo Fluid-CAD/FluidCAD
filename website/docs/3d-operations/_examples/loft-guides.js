@@ -26,7 +26,7 @@ const p2 = sketch(plane("top", 80), () => {
 const g1 = sketch("right", () => {
     bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80])
     mirror(yAxis())
-}).reusable()
+})
 
 // highlight-next-line
 loft(p1, p2).guides(g1)

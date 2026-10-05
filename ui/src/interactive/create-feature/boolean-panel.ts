@@ -2,6 +2,7 @@ import { FeaturePanel } from './feature-panel';
 import { ChoiceTabs } from './panel-controls';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { BooleanKind } from '../../api';
+import { iconUrl } from '../../ui/icon-url';
 
 /** The slot picks land in — subtract splits into base and tool. */
 export type BooleanArmedSlot = 'targets' | 'base' | 'tool';
@@ -42,7 +43,7 @@ export class BooleanPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-boolean-panel',
       title: 'Boolean',
-      icon: '/icons/fuse.png',
+      icon: iconUrl('fuse'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>

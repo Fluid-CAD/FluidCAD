@@ -56,4 +56,4 @@ Returns a lazy-evaluated vertex at the end point of this geometry element.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

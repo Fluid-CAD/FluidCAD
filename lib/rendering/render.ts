@@ -8,6 +8,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { Exposed } from "../features/exposed.js";
+import { SelectSceneObject } from "../features/select.js";
 import type { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { transformMeshes } from "./mesh-transform.js";
@@ -18,18 +19,31 @@ import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig }
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { BuildError } from "../common/build-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
 import { debug } from "../common/log.js";
+import { topologyFaceVertices, topologyVertices } from "../selection/vertex-pick.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
+  /** Shapes a display-only consumer hid in this world — see `SceneObjectRender.hiddenShapes`. */
+
+  hiddenShapes?: RenderedShape[];
   visible: boolean;
   hasError: boolean;
   errorMessage?: string;
   buildDurationMs?: number;
   profiler?: Profiler;
   scope?: Set<SceneObject>;
+};
+
+/** One object's drawn shapes for the payload, plus the hidden ones it would draw when shown again. */
+type PreparedShapes = {
+  renderedSceneShapes: RenderedShape[];
+  hiddenShapes?: RenderedShape[];
+  ownShapeCount: number;
+  prepError?: string;
 };
 
 // 0-based execution index per object for call sites that ran more than once
@@ -65,8 +79,7 @@ function computeCallSiteOccurrences(sceneObjects: SceneObject[]): Map<SceneObjec
  * The parts in this render whose definition unit differs from the unit they
  * are consumed in, keyed by the scene index of their LAST member — where the
  * renderer rescales them. Members are found by enclosing part, not by
- * position: a donor definition materialized mid-body interleaves with the
- * consumer's children in the flat list.
+ * position.
  */
 function collectForeignParts(
   scene: Scene,
@@ -185,7 +198,7 @@ export class SceneRenderer {
     // which call getShapes() scope-less, keep seeing those shapes.
     const renderScope = new Set<SceneObject>(sceneObjects);
 
-    const prepared = new Map<SceneObject, { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string }>();
+    const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
       const profiler = profilers.get(object);
       const start = performance.now();
@@ -199,13 +212,16 @@ export class SceneRenderer {
 
     this.aggregateContainerDurations(sceneObjects, scene, buildDurations);
 
-    for (const object of sceneObjects) {
+    // Built in build order, listed in timeline order — the rows hosts show
+    // and count rollbacks in (Scene.getTimelineObjects).
+    for (const object of scene.getTimelineObjects()) {
       this.emitRenderObject(
         object,
         scene,
         prepared.get(object) ?? { renderedSceneShapes: [], ownShapeCount: 0 },
         buildDurations.get(object),
         profilers.get(object),
+        renderScope,
       );
     }
 
@@ -219,24 +235,22 @@ export class SceneRenderer {
    * Re-emit the scene restricted to `scope` — the view-only rollback pass
    * (nothing rebuilds; consumed shapes whose consumer is out of scope
    * reappear via the membership rule in getOwnShapes). Without an explicit
-   * scope the classic prefix `[0..rollbackIndex]` is used; callers that
-   * want a non-prefix view (part-scoped rollback) pass their own set.
+   * scope the classic prefix `[0..rollbackIndex]` of the timeline rows is
+   * used; callers that want a non-prefix view (part-scoped rollback) pass
+   * their own set.
    */
   renderRollback(scene: Scene, rollbackIndex: number, scope?: Set<SceneObject>): Scene {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
 
-    const allObjects = scene.getAllSceneObjects();
-    this.occurrenceIndexes = computeCallSiteOccurrences(allObjects);
+    this.occurrenceIndexes = computeCallSiteOccurrences(scene.getAllSceneObjects());
+    const rows = scene.getTimelineObjects();
     if (!scope) {
-      scope = new Set<SceneObject>();
-      for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
-        scope.add(allObjects[i]);
-      }
+      scope = new Set<SceneObject>(rows.slice(0, rollbackIndex + 1));
     }
 
     scene.clearRenderedObjects();
 
-    for (const obj of allObjects) {
+    for (const obj of rows) {
       if (!scope.has(obj) || obj.isLazy()) {
         this.emitRendered(obj, scene, {
           sceneShapes: [],
@@ -249,6 +263,8 @@ export class SceneRenderer {
 
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
       const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj.getUnit()));
+      const hiddenShapes = this.hiddenShapes(obj, sceneShapes)
+        .map(s => this.toRenderedShape(s, obj.getUnit()));
 
       // A rollback re-emits already-built objects rather than rebuilding them,
       // but an object that failed to build still carries its error — dropping
@@ -257,6 +273,7 @@ export class SceneRenderer {
       const errorMessage = obj.getError();
       this.emitRendered(obj, scene, {
         sceneShapes: renderedSceneShapes,
+        hiddenShapes: hiddenShapes.length > 0 ? hiddenShapes : undefined,
         visible: this.computeVisibility(obj, scene, sceneShapes.length, scope),
         hasError: !!errorMessage,
         errorMessage: errorMessage || undefined,
@@ -340,7 +357,7 @@ export class SceneRenderer {
     obj: SceneObject,
     profiler: Profiler | undefined,
     renderScope: Set<SceneObject>,
-  ): { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string } {
+  ): PreparedShapes {
     const renderedSceneShapes: RenderedShape[] = [];
     if (obj.isLazy()) {
       return { renderedSceneShapes, ownShapeCount: 0 };
@@ -353,7 +370,11 @@ export class SceneRenderer {
           renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
         }
       }
-      return { renderedSceneShapes, ownShapeCount: sceneShapes.length };
+      const hidden = this.hiddenShapes(obj, sceneShapes);
+      const hiddenShapes = hidden.length > 0
+        ? hidden.map(shape => this.toRenderedShape(shape, obj.getUnit(), profiler))
+        : undefined;
+      return { renderedSceneShapes, hiddenShapes, ownShapeCount: sceneShapes.length };
     } catch (error) {
       const message = describeError(error);
       console.error(`Error rendering object ${obj.getUniqueType()}:`, message);
@@ -364,9 +385,10 @@ export class SceneRenderer {
   private emitRenderObject(
     obj: SceneObject,
     scene: Scene,
-    prepared: { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string },
+    prepared: PreparedShapes,
     buildDurationMs: number | undefined,
     profiler: Profiler | undefined,
+    renderScope: Set<SceneObject>,
   ): void {
     if (prepared.prepError) {
       this.emitRendered(obj, scene, {
@@ -383,7 +405,11 @@ export class SceneRenderer {
     const errorMessage = obj.getError();
     this.emitRendered(obj, scene, {
       sceneShapes: prepared.renderedSceneShapes,
-      visible: this.computeVisibility(obj, scene, prepared.ownShapeCount),
+      hiddenShapes: prepared.hiddenShapes,
+      // The same scope the shapes were collected through: a container whose
+      // children were soft-consumed (a sketch after its extrude) rendered
+      // nothing, and its row must say so.
+      visible: this.computeVisibility(obj, scene, prepared.ownShapeCount, renderScope),
       hasError: !!errorMessage,
       errorMessage: errorMessage || undefined,
       buildDurationMs,
@@ -397,6 +423,15 @@ export class SceneRenderer {
     const profiler = new Profiler();
 
     try {
+      // Ahead of validate(): an unresolved late selection would otherwise
+      // surface as its symptom ("guide 1 (select) has no shapes").
+      this.assertSelectionsPrecede(object, scene);
+      // A statement its builder refused never builds — the refusal is its
+      // build error (SceneObject.refuse).
+      const refusal = object.getRefusal();
+      if (refusal) {
+        throw new BuildError(refusal);
+      }
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).
@@ -435,6 +470,42 @@ export class SceneRenderer {
     return { totalMs, profiler };
   }
 
+  /**
+   * A `select()` registers in the scene where its call runs, and the scene
+   * builds in that order. One written inside a chained call —
+   * `loft(a, b).connect(select(…).end(), …)` — runs after `loft(…)`, so the
+   * feature would build against a selection that has not resolved yet.
+   * Reported as the misordering it is rather than as whatever the feature
+   * trips over reading the empty selection. References reached through
+   * objects outside the scene (lazy accessors, anchored vertices) count.
+   */
+  private assertSelectionsPrecede(object: SceneObject, scene: Scene): void {
+    const position = scene.indexOf(object);
+    if (position < 0 || object.isContainer()) {
+      return;
+    }
+    const seen = new Set<SceneObject>();
+    const pending = [...object.getDependencies()];
+    while (pending.length > 0) {
+      const dependency = pending.pop()!;
+      if (seen.has(dependency)) {
+        continue;
+      }
+      seen.add(dependency);
+      const index = scene.indexOf(dependency);
+      if (index < 0) {
+        pending.push(...dependency.getDependencies());
+        continue;
+      }
+      if (index > position && dependency instanceof SelectSceneObject) {
+        throw new Error(
+          `${object.getType()}() uses a select() that runs after it — a selection written inside a chained call `
+          + `(.connect(select(…)), .guides(select(…))) is created after the feature. Declare it before the statement: const sel = select(…);`,
+        );
+      }
+    }
+  }
+
   // Meshing runs outside the object's build scope, so the owning object's
   // unit travels explicitly: the deflection is resolved in that unit.
   private getOrBuildMeshes(shape: Shape, unit: LengthUnit, profiler?: Profiler): SceneObjectMesh[] | null {
@@ -468,6 +539,11 @@ export class SceneRenderer {
   private toRenderedShape(shape: Shape, unit: LengthUnit, profiler?: Profiler): RenderedShape {
     return {
       shapeId: shape.id,
+      // Meta shapes carry no topology vertices — except a lone vertex (a
+      // circle's centre mark, a point entity's guide), which IS its position:
+      // the vertex pick channel offers it as a sketch point.
+      vertices: shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape),
+      faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
       meshes: this.getOrBuildMeshes(shape, unit, profiler),
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
@@ -490,16 +566,10 @@ export class SceneRenderer {
       return true;
     }
     if (obj.isContainer()) {
-      const children = scene.getChildren(obj);
-      return children.some(child => {
-        if (scope && !scope.has(child)) {
-          return false;
-        }
-        const shapes = scope
-          ? child.getOwnShapes({ excludeMeta: true }, scope)
-          : child.getOwnShapes();
-        return shapes.length > 0;
-      });
+      // Guides count: they alone keep a sketch on screen (a layout of hole
+      // centres), and a consumer hides them with the rest of the sketch.
+      return scene.getChildren(obj).some(child => (!scope || scope.has(child))
+        && child.getOwnShapes({ excludeMeta: true, excludeGuide: false }, scope).length > 0);
     }
     return ownShapeCount > 0;
   }
@@ -528,6 +598,52 @@ export class SceneRenderer {
       durations.set(object, total);
     }
   }
+
+  /**
+   * The shapes a display-only consumer hid in this world: what the scope-less
+   * read (hard removals only) still serves beyond the scoped one the render
+   * drew. Only the objects consumed for display carry these — a plane, an
+   * axis, a sketch's entities (the sketch's removal lands on them) — since the
+   * payload exists for the viewer to draw a consumed datum again on request;
+   * an exposure's hidden selection already rides `referencedShapes`.
+   */
+  private hiddenShapes(obj: SceneObject, drawn: Shape[]): Shape[] {
+    if (!SceneRenderer.drawsForDisplayConsumer(obj)) {
+      return [];
+    }
+    const shown = new Set(drawn);
+    return obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }).filter(s => !shown.has(s));
+  }
+
+  /** Whether `obj` draws the shapes of an object consumed for display only: itself, or its sketch. */
+  private static drawsForDisplayConsumer(obj: SceneObject): boolean {
+    if (obj.consumedForDisplayOnly()) {
+      return !obj.isContainer();
+    }
+    return obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch;
+  }
+
+  /**
+   * The feature that hid an object consumed for display only in this world:
+   * the remover of the first display-only removal the scope holds — on the
+   * object itself (a plane, an axis) or on any of its children (a sketch).
+   * Undefined for an object that still renders, or that a hard removal took.
+   */
+  private displayConsumer(obj: SceneObject, opts: RenderEmit): string | undefined {
+    if (!obj.consumedForDisplayOnly() || opts.visible) {
+      return undefined;
+    }
+    const owners = obj.isContainer() ? obj.getChildren() : [obj];
+    for (const owner of owners) {
+      for (const record of owner.getRemovedShapes()) {
+        if (record.soft && (!opts.scope || opts.scope.has(record.removedBy))) {
+          return record.removedBy.id;
+        }
+      }
+    }
+    return undefined;
+  }
+
 
   /**
    * An exposure's published shapes (its source selection, hidden from the
@@ -587,6 +703,8 @@ export class SceneRenderer {
       object: serialized,
       sceneShapes: opts.sceneShapes,
       referencedShapes: this.referencedShapes(obj, opts),
+      hiddenShapes: opts.hiddenShapes,
+      consumedBy: this.displayConsumer(obj, opts),
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
       interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch
@@ -595,7 +713,7 @@ export class SceneRenderer {
       unit: obj.getUnit(),
       fromCache: scene.isCached(obj),
       visible: opts.visible,
-      reusable: obj.isReusable() || undefined,
+      closed: obj instanceof Sketch && obj.isClosed() ? true : undefined,
       internal: obj.isInternal() || undefined,
       isContainer: obj.isContainer(),
       hideChildren: obj.hidesChildren() || undefined,

@@ -71,6 +71,13 @@ export type GizmoOptions = {
   pixelSize?: number;
   /** Identifiers the value input may reference; default none. */
   variables?: () => VariableInfo[];
+  /**
+   * Value-input captions per handle, replacing the axis names — a host
+   * whose one arrow means something other than a coordinate (a section
+   * view's offset) names it. `delta` captions the drag/typed-delta pill,
+   * `absolute` the click-to-type one.
+   */
+  labels?: Partial<Record<GizmoHandleId, { delta?: string; absolute?: string }>>;
 };
 
 const INPUT_LABELS: Record<GizmoHandleId, string> = {
@@ -106,6 +113,7 @@ export class TransformGizmo {
   private readonly handleOptions: GizmoHandleOptions;
   private readonly pixelSize: number;
   private readonly variables: () => VariableInfo[];
+  private readonly labels: NonNullable<GizmoOptions['labels']>;
   private readonly valueInput: GizmoValueInput;
 
   private built: GizmoHandleSet | null = null;
@@ -128,6 +136,7 @@ export class TransformGizmo {
     this.handleOptions = options.handles ?? {};
     this.pixelSize = options.pixelSize ?? 96;
     this.variables = options.variables ?? (() => []);
+    this.labels = options.labels ?? {};
     this.valueInput = new GizmoValueInput(host.overlayContainer);
     this.attachListeners();
   }
@@ -425,7 +434,7 @@ export class TransformGizmo {
   private showValueInput(session: GizmoDragSession, initial: number): void {
     const projected = this.projectOriginToClient();
     this.valueInput.show({
-      label: INPUT_LABELS[session.handle],
+      label: this.labels[session.handle]?.delta ?? INPUT_LABELS[session.handle],
       unit: session.inputKind,
       clientX: projected.clientX,
       clientY: projected.clientY,
@@ -452,7 +461,7 @@ export class TransformGizmo {
     }
     const projected = this.projectOriginToClient();
     this.valueInput.showAbsolute({
-      label: ABSOLUTE_INPUT_LABELS[handle],
+      label: this.labels[handle]?.absolute ?? ABSOLUTE_INPUT_LABELS[handle],
       unit: session.inputKind,
       clientX: projected.clientX,
       clientY: projected.clientY,

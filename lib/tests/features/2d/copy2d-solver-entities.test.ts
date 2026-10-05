@@ -126,6 +126,26 @@ describe("copy 2D solver instances (constraint targeting)", () => {
       expect(dup1[2]).toBeCloseTo(5, 6);
     });
 
+    it("a named .guide() source registers duplicates like any solver entity", () => {
+      let src: ISolvedLine;
+      let cp: ICopy;
+      sketch('xy', () => {
+        src = line([0, 0], [20, 0]);
+        src.guide();
+        cp = copy('linear', 'x', { count: 3, offset: 40 }, src);
+      });
+      render();
+
+      const payload = payloadOf(cp!);
+      expect(payload.entities!.map(e => ({ slot: e.slot, shapeIndex: e.shapeIndex, kind: e.kind })))
+        .toEqual([
+          { slot: 1, shapeIndex: 0, kind: 'line' },
+          { slot: 2, shapeIndex: 1, kind: 'line' },
+        ]);
+      expect(payload.sourceEntities).toEqual([entityIdOf(src!)]);
+      expect(payload.sourcesSolved).toBe(true);
+    });
+
     it("a non-solver source registers nothing but keeps the source-verdict keys", () => {
       let cp: ICopy;
       sketch('xy', () => {

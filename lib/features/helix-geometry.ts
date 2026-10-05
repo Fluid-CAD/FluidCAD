@@ -10,6 +10,8 @@ import { CoordinateSystem } from "../math/coordinate-system.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Axis } from "../math/axis.js";
 import { mmTol } from "../units/tolerance.js";
+import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
+export type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
 const DEFAULT_RADIUS = 20;
 const DEFAULT_HEIGHT = 50;
@@ -67,6 +69,22 @@ export function buildHelixEdge(
   dimensions: HelixDimensions,
   warn?: (message: string) => void,
 ): Edge {
+  return buildResolvedHelixEdge(resolveHelixGeometry(source, dimensions, warn));
+}
+
+/** Build exactly the dimensions that were resolved for this source. */
+export function buildResolvedHelixEdge(geometry: ResolvedHelixGeometry): Edge {
+  const { frame, startRadius, endRadius, zStart, zEnd, turns, winding } = geometry;
+  const edge = HelixOps.makeHelix(frame, startRadius, endRadius, zStart, zEnd, turns, winding === 1);
+  edge.recordHelixGeometry(edge.getShape(), geometry);
+  return edge;
+}
+
+export function resolveHelixGeometry(
+  source: HelixSourceKind,
+  dimensions: HelixDimensions,
+  warn?: (message: string) => void,
+): ResolvedHelixGeometry {
   const { pitch, turns: requestedTurns, height, radius, endRadius: requestedEndRadius } = dimensions;
   const startOffset = dimensions.startOffset ?? 0;
   const endOffset = dimensions.endOffset ?? 0;
@@ -203,7 +221,11 @@ export function buildHelixEdge(
     );
   }
 
-  return HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns, dimensions.ccw ?? false);
+  return {
+    frame: cs, startRadius, endRadius, zStart, zEnd, turns,
+    winding: dimensions.ccw ? 1 : -1,
+    parameterEnd: 2 * Math.PI * turns,
+  };
 }
 
 /** A cylindrical or conical face, read as the frame a helix coils around. */

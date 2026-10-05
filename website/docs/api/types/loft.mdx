@@ -77,23 +77,29 @@ Sets a custom display name for this object, overriding the default type-based na
 |-----------|------|-------------|
 | `value` | string | The display name to assign. |
 
----
-
-### reusable()
-
-```ts
-reusable(): this
-```
-
-Marks this object as reusable. Reusable objects retain their shapes when
-consumed by features (e.g., extrude, revolve), allowing multiple features
-to reference the same source geometry. Use `remove(obj)` to force-remove
-shapes from a reusable object.
-
 
 </details>
 
 ## Methods
+
+### connect()
+
+```ts
+connect(...points: (Vertex | PointLike)[]): this
+```
+
+Joins one vertex on each profile, in profile order. Repeat `.connect()`
+for additional connections. Each connection becomes an edge of the loft.
+Points may be world coordinates or sketch/selection point references.
+Requires closed, planar profiles with one region each. Full circles and
+ellipses must be split into arcs to supply vertices. Connections compose
+with start/end conditions; guides and thin walls are not yet supported.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | ([Vertex](/docs/api/types/vertex) \| [PointLike](/docs/api/types/point-like))[] | One profile vertex per section, in the loft's profile order. *(optional)* |
+
+---
 
 ### guides()
 
@@ -148,7 +154,7 @@ Constrains how the surface arrives at the last profile.
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+startFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces on the first profile plane of the loft.
@@ -157,14 +163,14 @@ Selects faces on the first profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+endFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces on the last profile plane of the loft.
@@ -173,14 +179,14 @@ Selects faces on the last profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+sideFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the lateral faces generated between loft profiles.
@@ -189,14 +195,14 @@ Selects the lateral faces generated between loft profiles.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+startEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the first profile plane of the loft.
@@ -205,14 +211,14 @@ Selects edges on the first profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+endEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the last profile plane of the loft.
@@ -221,14 +227,14 @@ Selects edges on the last profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+sideEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
@@ -237,7 +243,7 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -277,7 +283,7 @@ the second offset is automatically flipped.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+internalFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects faces created inside the solid during loft (e.g., the inner
@@ -287,14 +293,14 @@ wall of a thin-walled loft from closed profiles).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+internalEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges bounding the internal geometry created during loft.
@@ -303,14 +309,14 @@ Selects edges bounding the internal geometry created during loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+capFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the cap faces at the open ends of a thin-walled loft from open profiles.
@@ -320,14 +326,14 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+capEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges on the cap faces of a thin-walled loft from open profiles.
@@ -336,5 +342,5 @@ Selects edges on the cap faces of a thin-walled loft from open profiles.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 

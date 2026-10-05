@@ -8,7 +8,7 @@ import { postCodeEdit } from './host/transforms';
  * only ever a **view of the code**.
  *
  * The source of truth is the `breakpoint()` call in the file: toggling POSTs
- * `/api/code/toggle-breakpoint` and the `newCode` that comes back is what
+ * `api/code/toggle-breakpoint` and the `newCode` that comes back is what
  * actually contains the marker. So the dots are re-derived after every change
  * rather than tracked, and an edit that moves a line can't desynchronise them.
  */
@@ -49,7 +49,7 @@ export class Breakpoints {
   /**
    * Toggle at `line` (1-based). The server decides where the marker really
    * goes — a click between statements resolves to the next one — so the
-   * cursor row it takes is 0-based, matching `/api/code/toggle-breakpoint`.
+   * cursor row it takes is 0-based, matching `api/code/toggle-breakpoint`.
    */
   async toggle(absPath: string, line: number): Promise<void> {
     const entry = this.deps.models.get(absPath);

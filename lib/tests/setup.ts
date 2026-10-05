@@ -27,3 +27,20 @@ export function render(): Scene {
 export function addToScene(obj: SceneObject): void {
   getCurrentScene().addSceneObject(obj);
 }
+
+/**
+ * A sketch, plane or axis its consumer took for display only: the render's
+ * scoped read is empty, the scope-less feature read still serves the shapes.
+ * `scene` is the full render. Meta shapes count — a plane's quad and an
+ * axis's line are nothing else.
+ */
+export function expectDisplayConsumed(scene: Scene, obj: SceneObject): void {
+  const all = { excludeMeta: false, excludeGuide: false };
+  if (obj.getShapes(all, undefined, new Set(scene.getAllSceneObjects())).length !== 0) {
+    throw new Error(`${obj.getType()} still renders after its consumer`);
+  }
+  if (obj.getShapes(all).length === 0) {
+    throw new Error(`${obj.getType()} was taken from feature reads — a display-only consumer must keep it`);
+  }
+}
+

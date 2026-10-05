@@ -61,9 +61,14 @@ export type PendingEmission = {
   constraints: SolvedConstraintParam[];
 };
 
-/** Every emitted statement kind is a solver entity of the same name. */
-export function solverEntityKind(kind: SolvedGeometryParam['kind']): EntityKind {
-  return kind;
+/**
+ * The solver entity an emitted statement IS — every entity kind by its own
+ * name; null for the bezier, which is no single entity (its control points
+ * are n anchor points the trial has no stand-in for, so constraints on an
+ * emitted bezier stay unverified — conservative, never dropped).
+ */
+export function solverEntityKind(kind: SolvedGeometryParam['kind']): EntityKind | null {
+  return kind === 'bezier' ? null : kind;
 }
 
 function isPair(v: unknown): v is [number, number] {
@@ -77,9 +82,10 @@ function isPair(v: unknown): v is [number, number] {
  * rendered text — `line([0, 0], [40, 0])`, `arc(s, e, c).cw()`,
  * `circle([1, 2], 30)`, `point([3, 4])`, `ellipse([1, 2], 30, 20[, rot])`
  * (rotation in degrees, radians in the layout). Null when any argument is
- * not a plain numeric literal (a typed expression such as `[w / 2, 10]`):
- * the trial has no value for it, so the entity stays out and every
- * constraint on it is kept unverified.
+ * not a plain numeric literal (a typed expression such as `[w / 2, 10]`),
+ * and for a bezier (no single solver entity — see solverEntityKind): the
+ * trial has no value for it, so the entity stays out and every constraint
+ * on it is kept unverified.
  */
 export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: string): number[] | null {
   const m = /^([a-z]+)\((.*?)\)((?:\.[A-Za-z]+\(\))*)$/s.exec(text.trim());
@@ -128,6 +134,8 @@ export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: st
       const theta = args.length === 4 ? ((rotation as number) * Math.PI) / 180 : 0;
       return [c[0], c[1], rx, ry, theta];
     }
+    case 'bezier':
+      return null;
   }
 }
 
@@ -145,8 +153,9 @@ export function pendingEmissionOf(
   request.geometry.forEach((g, i) => {
     const line = geometryLines[i];
     const params = parseEmittedGeometry(g.kind, g.text);
-    if (line !== undefined && params) {
-      geometry.push({ line, kind: solverEntityKind(g.kind), params });
+    const kind = solverEntityKind(g.kind);
+    if (line !== undefined && params && kind) {
+      geometry.push({ line, kind, params });
     }
   });
   const constraints = request.constraints.map(c => ({
@@ -160,7 +169,14 @@ export function pendingEmissionOf(
       if (kind === undefined || line === undefined) {
         return t;
       }
-      return { line, featureType: kind, ...(t.role !== undefined ? { role: t.role } : {}) };
+      return {
+        line,
+        featureType: kind,
+        ...(t.role !== undefined ? { role: t.role } : {}),
+        // A bezier control point keeps its index — the rendered anchor
+        // view answers to line + pointIndex.
+        ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
+      };
     }),
   }));
   return { geometry, constraints };
@@ -307,6 +323,15 @@ function emissionSpec(
       return refs.length === 3 ? { kind: 'symmetric', a, b, l: d } : null;
     case 'fix':
       return refs.length === 1 ? { kind: 'fix', p: a } : null;
+    case 'offsetFrom': {
+      // The offset entities first, then one source each; the value positive.
+      const value = numericValue(c.valueExpr);
+      if (refs.length < 2 || refs.length % 2 !== 0 || value === null) {
+        return null;
+      }
+      const half = refs.length / 2;
+      return { kind: 'offset-from', targets: refs.slice(0, half), sources: refs.slice(half), value };
+    }
     case 'angle': {
       const deg = numericValue(c.valueExpr);
       return refs.length === 2 && deg !== null ? { kind: 'angle', a, b, value: (deg * Math.PI) / 180 } : null;
@@ -405,7 +430,8 @@ export function pruneRedundantInferred(
     }
     for (const g of request.geometry) {
       const params = parseEmittedGeometry(g.kind, g.text);
-      trial.newIds.push(params ? live.addEntity(solverEntityKind(g.kind), params) : null);
+      const kind = solverEntityKind(g.kind);
+      trial.newIds.push(params && kind ? live.addEntity(kind, params) : null);
     }
     for (const c of explicit) {
       tryConstrain(c);

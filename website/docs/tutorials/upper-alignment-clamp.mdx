@@ -63,7 +63,7 @@ One gesture, and the outline arrives fully described: four lines and four corner
 
 ### Extrude the plate
 
-Click **Finish Sketch ▾** and choose **Extrude**. The dialog opens with the sketch already in its Sketch slot. Set **Distance** to `13`. The green ghost is a live preview of the solid, and the statement under the dialog reads `extrude(13)`.
+Click **Extrude** on the toolbar. The dialog opens with the sketch already in its Sketch slot. Set **Distance** to `13`. The green ghost is a live preview of the solid, and the statement under the dialog reads `extrude(13)`.
 
 ![Extrude dialog with the 13 mm ghost preview](/img/docs/tutorials/upper-alignment-clamp-ui-07-plate-extrude.png)
 
@@ -101,7 +101,7 @@ Notice that the right-hand half of the slot sticks out past the edge of the plat
 
 ### Cut it, then mirror the cut
 
-Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab and switch on **Through all**. The red ghost is the material about to disappear, and the statement is simply `cut()`.
+Click **Extrude** on the toolbar. Select the **Remove** tab and switch on **Through all**. The red ghost is the material about to disappear, and the statement is simply `cut()`.
 
 ![Extrude dialog on the Remove tab with Through all](/img/docs/tutorials/upper-alignment-clamp-ui-13-notch-cut.png)
 
@@ -137,7 +137,7 @@ Click the arc and click **Dimension**; type `31` for the radius. Then pick the *
 
 ### Extrude it symmetrically
 
-Click **Finish Sketch ▾** and choose **Extrude**. Set **Direction** to **Symmetric** and **Total distance** to `66`. Symmetric splits the distance evenly across the sketch plane, so 33 mm goes each way and the barrel matches the 66 mm depth of the plate exactly. The statement reads `extrude(66).symmetric()`.
+Click **Extrude** on the toolbar. Set **Direction** to **Symmetric** and **Total distance** to `66`. Symmetric splits the distance evenly across the sketch plane, so 33 mm goes each way and the barrel matches the 66 mm depth of the plate exactly. The statement reads `extrude(66).symmetric()`.
 
 ![Extrude dialog with the symmetric 66 mm ghost](/img/docs/tutorials/upper-alignment-clamp-ui-20-dome-extrude.png)
 
@@ -151,7 +151,7 @@ Click **Sketch**, pick the **XZ** plane again, and pick the **Circle** tool. Cli
 
 ![A 36 mm circle on the barrel axis](/img/docs/tutorials/upper-alignment-clamp-ui-22-bore-circle.png)
 
-**Finish Sketch ▾ → Extrude**, **Remove** tab, **Symmetric**, `66` again: `cut(66).symmetric()`.
+**Extrude**, **Remove** tab, **Symmetric**, `66` again: `cut(66).symmetric()`.
 
 ![The symmetric bore cut](/img/docs/tutorials/upper-alignment-clamp-ui-23-bore-cut.png)
 
@@ -203,7 +203,7 @@ Nothing here says *which* tangent line you meant — a line tangent to two circl
 
 ### Extrude the web
 
-**Finish Sketch ▾ → Extrude**, **Distance** `11`.
+**Extrude**, **Distance** `11`.
 
 ![Extrude dialog with the 11 mm web ghost](/img/docs/tutorials/upper-alignment-clamp-ui-29-web-extrude.png)
 
@@ -223,7 +223,7 @@ Pick **Circle**, click on the vertical axis and type `16`; dimension its centre 
 
 ### Extrude it back toward the web
 
-**Finish Sketch ▾ → Extrude**, **Distance** `-15`. A negative distance runs the other way along the plane's normal, back from y = 35 to the web at y = 20. The ring profile extrudes as a tube.
+**Extrude**, **Distance** `-15`. A negative distance runs the other way along the plane's normal, back from y = 35 to the web at y = 20. The ring profile extrudes as a tube.
 
 ![Extrude dialog with the -15 mm pipe ghost](/img/docs/tutorials/upper-alignment-clamp-ui-32-pipe-extrude.png)
 
@@ -259,7 +259,7 @@ Click **Apply**. Two fully-placed holes from one constrained circle.
 
 ![Two 7 mm circles, fully constrained](/img/docs/tutorials/upper-alignment-clamp-ui-37-bolt-sketch.png)
 
-**Finish Sketch ▾ → Extrude**, **Remove**, **Through all**, **Apply**.
+**Extrude**, **Remove**, **Through all**, **Apply**.
 
 ### The counterbores
 
@@ -267,7 +267,7 @@ Do the same again with a bigger circle: **Sketch** on the top face, **Circle** �
 
 ![Two 15 mm circles over the bolt holes](/img/docs/tutorials/upper-alignment-clamp-ui-38-counterbore-sketch.png)
 
-**Finish Sketch ▾ → Extrude**, **Remove** tab, **Depth** `4` — a shallow recess for the bolt head rather than a through hole.
+**Extrude**, **Remove** tab, **Depth** `4` — a shallow recess for the bolt head rather than a through hole.
 
 ![Extrude dialog with the 4 mm counterbore ghost](/img/docs/tutorials/upper-alignment-clamp-ui-39-counterbore-cut.png)
 
@@ -285,7 +285,7 @@ Click **Apply**.
 
 One cut finishes both mounts at once. Click **Sketch**, pick the **XZ** plane, draw a **Circle** on the vertical axis, type `10`, and dimension its centre `45` from the horizontal axis — the same place the pipe sits.
 
-**Finish Sketch ▾ → Extrude**, **Remove** tab, **Symmetric**, **Through all**. Symmetric runs the cut both ways from the XZ plane, so one feature drills both pipes and the web behind each of them.
+**Extrude**, **Remove** tab, **Symmetric**, **Through all**. Symmetric runs the cut both ways from the XZ plane, so one feature drills both pipes and the web behind each of them.
 
 ![The symmetric through-bore for both pipes](/img/docs/tutorials/upper-alignment-clamp-ui-41-pipe-bore-cut.png)
 

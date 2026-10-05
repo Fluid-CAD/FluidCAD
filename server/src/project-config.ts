@@ -34,6 +34,34 @@ export type LengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
 export const LENGTH_UNITS: readonly LengthUnit[] = ['mm', 'cm', 'm', 'in', 'ft'];
 
 /**
+ * The density units a project material may declare — the lib's
+ * `DensityUnit` verbatim, local for the same dependency-free reason as
+ * `LengthUnit`.
+ */
+export type DensityUnit = 'g/cm³' | 'kg/m³' | 'g/mm³' | 'lbs/in³';
+
+export const DENSITY_UNITS: readonly DensityUnit[] = ['g/cm³', 'kg/m³', 'g/mm³', 'lbs/in³'];
+
+/**
+ * One entry of the `materials` map (the lib's `ProjectMaterial`):
+ *
+ * ```json
+ * { "materials": { "alloy-steel": { "name": "Alloy Steel", "density": 7.7, "densityUnit": "g/cm³" } } }
+ * ```
+ *
+ * `densityUnit` is optional and defaults to g/cm³ downstream. The map is
+ * keyed by the id `part(...).material(id)` refers to; an entry reusing a
+ * built-in `fluidcad-…` id overrides that built-in.
+ */
+export type ProjectMaterial = {
+  name: string;
+  density: number;
+  densityUnit?: DensityUnit;
+};
+
+export type ProjectMaterials = Record<string, ProjectMaterial>;
+
+/**
  * Accepted spellings, lower-cased. The long forms exist because a config file
  * is typed by hand; the short codes are what everything downstream stores.
  */
@@ -66,15 +94,21 @@ export type ProjectConfig = {
    */
   unit: LengthUnit | null;
   /**
+   * The project's own materials (`materials` map), or null when it declares
+   * none. A map with any invalid entry is dropped as a whole and reported
+   * in `error`, so a typo never resolves half a table.
+   */
+  materials: ProjectMaterials | null;
+  /**
    * Why a config file that exists was not usable (unparseable JSON, an
-   * `engine` that isn't a string, a `unit` that isn't one of ours). A
-   * workspace with no config at all leaves this undefined — that is the
-   * normal case, not a problem.
+   * `engine` that isn't a string, a `unit` that isn't one of ours, a
+   * `materials` entry that isn't a material). A workspace with no config
+   * at all leaves this undefined — that is the normal case, not a problem.
    */
   error?: string;
 };
 
-const EMPTY: ProjectConfig = { engine: null, source: null, filePath: null, unit: null };
+const EMPTY: ProjectConfig = { engine: null, source: null, filePath: null, unit: null, materials: null };
 
 export const PROJECT_CONFIG_FILENAME = 'fluidcad.json';
 
@@ -120,10 +154,71 @@ function readUnitField(
 }
 
 /**
+ * Validate a `materials` map wherever it comes from (a config file, the
+ * preferences file's global list, a pick copied into the project): a map keyed by non-empty ids whose
+ * values carry a non-empty string `name`, a finite positive `density` and,
+ * when present, a `densityUnit` from `DENSITY_UNITS`. One bad entry rejects
+ * the map; `problem` is a clause the caller prefixes with its subject.
+ */
+export function parseProjectMaterials(raw: unknown): { materials: ProjectMaterials } | { problem: string } {
+  const map = asRecord(raw);
+  if (map === null) {
+    return { problem: 'is not a map of id → { name, density, densityUnit? }' };
+  }
+  const materials: ProjectMaterials = {};
+  for (const [id, value] of Object.entries(map)) {
+    const entry = asRecord(value);
+    if (id.trim() === '') {
+      return { problem: 'has an entry with an empty id' };
+    }
+    if (entry === null) {
+      return { problem: `has an entry ${JSON.stringify(id)} that is not an object` };
+    }
+    if (typeof entry.name !== 'string' || entry.name.trim() === '') {
+      return { problem: `has an entry ${JSON.stringify(id)} without a "name" string` };
+    }
+    if (typeof entry.density !== 'number' || !Number.isFinite(entry.density) || entry.density <= 0) {
+      return { problem: `has an entry ${JSON.stringify(id)} whose "density" is not a positive number` };
+    }
+    if (entry.densityUnit !== undefined && !(DENSITY_UNITS as readonly unknown[]).includes(entry.densityUnit)) {
+      return {
+        problem: `has an entry ${JSON.stringify(id)} with a "densityUnit" that is not one of: ${DENSITY_UNITS.join(', ')}`,
+      };
+    }
+    materials[id] = {
+      name: entry.name,
+      density: entry.density,
+      ...(entry.densityUnit !== undefined ? { densityUnit: entry.densityUnit as DensityUnit } : {}),
+    };
+  }
+  return { materials };
+}
+
+/**
+ * Read a `materials` field: absent is fine (null, no error); otherwise
+ * `parseProjectMaterials` decides, and a bad map is reported rather than
+ * silently defaulted, mirroring how a bad `unit` is handled.
+ */
+function readMaterialsField(
+  record: Record<string, unknown> | null,
+  fileName: string,
+): { materials: ProjectMaterials | null } | { error: string } {
+  const raw = record?.materials;
+  if (raw === undefined || raw === null) {
+    return { materials: null };
+  }
+  const parsed = parseProjectMaterials(raw);
+  if ('problem' in parsed) {
+    return { error: `${fileName} has a "materials" that ${parsed.problem}.` };
+  }
+  return { materials: parsed.materials };
+}
+
+/**
  * Read the workspace's project config. `fluidcad.json` wins over
- * `package.json`'s `{ "fluidcad": { "engine": "…", "unit": "…" } }` key by
- * key; a workspace with neither reads back as an empty config, which every
- * caller must treat as "behave exactly as before the config existed".
+ * `package.json`'s `{ "fluidcad": { "engine": "…", "unit": "…", "materials": {…} } }`
+ * key by key; a workspace with neither reads back as an empty config, which
+ * every caller must treat as "behave exactly as before the config existed".
  */
 export function readProjectConfig(workspacePath: string): ProjectConfig {
   if (!workspacePath) {
@@ -133,6 +228,8 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
   let engine: Pick<ProjectConfig, 'engine' | 'source' | 'filePath'> | null = null;
   let unit: LengthUnit | null = null;
   let unitError: string | undefined;
+  let materials: ProjectMaterials | null = null;
+  let materialsError: string | undefined;
 
   const configPath = path.join(workspacePath, PROJECT_CONFIG_FILENAME);
   const config = readJson(configPath);
@@ -159,6 +256,12 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
     } else {
       unit = unitField.unit;
     }
+    const materialsField = readMaterialsField(record, PROJECT_CONFIG_FILENAME);
+    if ('error' in materialsField) {
+      materialsError = materialsField.error;
+    } else {
+      materials = materialsField.materials;
+    }
   }
 
   const pkgPath = path.join(workspacePath, 'package.json');
@@ -177,13 +280,23 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
         unit = unitField.unit;
       }
     }
+    if (materials === null && materialsError === undefined) {
+      const materialsField = readMaterialsField(record, 'package.json');
+      if ('error' in materialsField) {
+        materialsError = materialsField.error;
+      } else {
+        materials = materialsField.materials;
+      }
+    }
   }
   // An unparseable workspace `package.json` is not ours to complain about.
 
+  const errors = [unitError, materialsError].filter((e): e is string => e !== undefined);
   return {
     ...(engine ?? EMPTY),
     unit,
-    ...(unitError !== undefined ? { error: unitError } : {}),
+    materials,
+    ...(errors.length > 0 ? { error: errors.join(' ') } : {}),
   };
 }
 
@@ -194,6 +307,20 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
  */
 export function isProjectUnitError(config: ProjectConfig): boolean {
   return typeof config.error === 'string' && config.error.includes('"unit"');
+}
+
+/** True when `config.error` is about the `materials` key — same independence rule as the unit. */
+export function isProjectMaterialsError(config: ProjectConfig): boolean {
+  return typeof config.error === 'string' && config.error.includes('"materials"');
+}
+
+/**
+ * True when `config.error` concerns the engine pin itself (unparseable
+ * file, a non-string `engine`) rather than the unit or materials keys,
+ * which are read from the same file but fail on their own.
+ */
+function isEnginePinError(config: ProjectConfig): boolean {
+  return typeof config.error === 'string' && !isProjectUnitError(config) && !isProjectMaterialsError(config);
 }
 
 /**
@@ -221,6 +348,11 @@ export function writeProjectUnit(workspacePath: string, unit: LengthUnit): strin
   return mergeIntoProjectConfig(workspacePath, { unit });
 }
 
+/** Write the whole `materials` map into the workspace's `fluidcad.json`, keeping every other key. */
+export function writeProjectMaterials(workspacePath: string, materials: ProjectMaterials): string {
+  return mergeIntoProjectConfig(workspacePath, { materials });
+}
+
 /**
  * The one-line warning for a project whose pin doesn't match the engine that
  * is actually running, or null when they agree (or there is no pin). Kept here
@@ -230,7 +362,7 @@ export function describeEnginePinMismatch(
   config: ProjectConfig,
   runningVersion: string,
 ): string | null {
-  if (config.error && !isProjectUnitError(config)) {
+  if (isEnginePinError(config)) {
     return `FluidCAD: ${config.error} Ignoring the engine pin.`;
   }
   if (!config.engine || config.engine === runningVersion) {
@@ -253,4 +385,16 @@ export function describeProjectUnitProblem(config: ProjectConfig): string | null
     return null;
   }
   return `FluidCAD: ${config.error} Using mm.`;
+}
+
+/**
+ * The one-line warning for a project whose `materials` map could not be
+ * read (the map is ignored, built-ins alone remain), or null when it is
+ * fine or unset.
+ */
+export function describeProjectMaterialsProblem(config: ProjectConfig): string | null {
+  if (!isProjectMaterialsError(config)) {
+    return null;
+  }
+  return `FluidCAD: ${config.error} Ignoring the project materials.`;
 }

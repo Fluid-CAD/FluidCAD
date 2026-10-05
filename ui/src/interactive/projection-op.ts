@@ -1,4 +1,5 @@
 import type { ProjectionOp } from '../api';
+import { iconUrl } from '../ui/icon-url';
 
 /**
  * What tells the projection dialog's two statements apart in the UI. Both
@@ -32,26 +33,34 @@ export interface ProjectionOpSpec {
   picks: readonly ('edge' | 'face')[];
   /** The viewer's pick filter while armed, matching `picks`. */
   pickFilter: 'all' | 'face';
+  /**
+   * Whether a click on a previous sketch's geometry takes that whole sketch
+   * as a source (`project(s1)`). Flattening does; sectioning a sketch with
+   * a plane yields points, never sketch geometry, so intersect leaves the
+   * sketch-wire channel off.
+   */
+  pickSketches: boolean;
 }
 
 export const PROJECTION_OP_SPECS: Record<ProjectionOp, ProjectionOpSpec> = {
   project: {
     title: 'Project',
     editTitle: 'Edit projection',
-    icon: '/icons/projection.png',
-    pickPrompt: 'Pick edges or faces',
-    repickPrompt: 'Pick edges or faces to re-source',
-    emptyMessage: 'Pick the edges or faces to project.',
+    icon: iconUrl('projection'),
+    pickPrompt: 'Pick edges, faces or sketches',
+    repickPrompt: 'Pick edges, faces or sketches to re-source',
+    emptyMessage: 'Pick the edges, faces or sketches to project.',
     failMessage: 'Could not apply the projection.',
     confirmLabel: 'Expose and project',
     foreign: { verb: 'projects', gerund: 'Projecting' },
     picks: ['edge', 'face'],
     pickFilter: 'all',
+    pickSketches: true,
   },
   intersect: {
     title: 'Intersect',
     editTitle: 'Edit intersection',
-    icon: '/icons/intersect.png',
+    icon: iconUrl('intersect'),
     pickPrompt: 'Pick faces',
     repickPrompt: 'Pick faces to re-source',
     emptyMessage: 'Pick the faces to intersect with the sketch plane.',
@@ -60,5 +69,6 @@ export const PROJECTION_OP_SPECS: Record<ProjectionOp, ProjectionOpSpec> = {
     foreign: { verb: 'intersects', gerund: 'Intersecting' },
     picks: ['face'],
     pickFilter: 'face',
+    pickSketches: false,
   },
 };

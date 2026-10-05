@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The Add-parameter dialog's Part dropdown: a new declaration goes into a
-// part's callback body, the timeline's active part by default. The dropdown
+// part's callback body, the timeline's selected part by default. The dropdown
 // lists parts only — a parameter lives inside a part body — shows only when
 // the scene has parts, and never while editing an existing declaration.
 
@@ -13,6 +13,7 @@ vi.mock('../src/api', () => ({
   getParamUsage: vi.fn(async () => null),
 }));
 
+import * as api from '../src/api';
 import { addParam } from '../src/api';
 import { ParamEditorDialog } from '../src/ui/param-editor-dialog';
 import type { UIParamDefinition } from '../src/types';
@@ -50,9 +51,21 @@ afterEach(() => {
 });
 
 describe('ParamEditorDialog part dropdown', () => {
-  it('lists the parts and opens on the active part', () => {
+  it('creates assembly parameters without showing a part selector', async () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const dialog = new ParamEditorDialog(root, 'assembly');
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    expect(partRow(root).classList.contains('hidden')).toBe(true);
+    labelInput(root).value = 'Assembly width';
+    await save(root);
+    expect(addParam).toHaveBeenCalledWith(expect.objectContaining({ label: 'Assembly width' }), null, 'assembly');
+  });
+
+  it('lists the parts and opens on the selected part', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
 
     expect(partRow(root).classList.contains('hidden')).toBe(false);
@@ -61,9 +74,9 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
   });
 
-  it('sends the active part with the new declaration', async () => {
+  it('sends the selected part with the new declaration', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
     labelInput(root).value = 'Depth';
     await save(root);
@@ -71,45 +84,47 @@ describe('ParamEditorDialog part dropdown', () => {
     expect(vi.mocked(addParam)).toHaveBeenCalledWith(
       expect.objectContaining({ label: 'Depth' }),
       lid.sourceLocation,
+      'part',
+      false,
     );
   });
 
   it('sends whichever part the user picks instead', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
 
     dialog.openForCreate();
     labelInput(root).value = 'Depth';
     partSelect(root).value = '0';
     await save(root);
-    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), bracket.sourceLocation);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), bracket.sourceLocation, 'part', false);
   });
 
   it('opens on the part the panel hands it', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate(bracket.sourceLocation);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Bracket');
   });
 
   it('hides the dropdown when the scene has no parts and sends no part, which the server refuses', async () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [], active: null }));
+    dialog.setPartProvider(() => ({ parts: [], selected: null }));
     dialog.openForCreate();
     expect(partRow(root).classList.contains('hidden')).toBe(true);
     labelInput(root).value = 'Depth';
     await save(root);
-    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), null);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), null, 'part', false);
   });
 
   it('re-reads the parts on every open, so a re-render is reflected', () => {
     const { dialog, root } = mount();
-    let choices = { parts: [bracket], active: bracket.sourceLocation };
+    let choices = { parts: [bracket], selected: bracket.sourceLocation };
     dialog.setPartProvider(() => choices);
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket']);
 
-    choices = { parts: [bracket, lid], active: lid.sourceLocation };
+    choices = { parts: [bracket, lid], selected: lid.sourceLocation };
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket', 'Lid']);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
@@ -118,7 +133,7 @@ describe('ParamEditorDialog part dropdown', () => {
   it('tells two parts with the same name apart by line', () => {
     const { dialog, root } = mount();
     const twin = { name: 'Bracket', sourceLocation: { filePath: FILE, line: 20, column: 0 } };
-    dialog.setPartProvider(() => ({ parts: [bracket, twin], active: bracket.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, twin], selected: bracket.sourceLocation }));
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent))
       .toEqual(['Bracket (line 3)', 'Bracket (line 20)']);
@@ -126,7 +141,7 @@ describe('ParamEditorDialog part dropdown', () => {
 
   it('never shows the dropdown while editing an existing declaration', () => {
     const { dialog, root } = mount();
-    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     dialog.openForCreate();
     expect(partRow(root).classList.contains('hidden')).toBe(false);
 
@@ -136,5 +151,127 @@ describe('ParamEditorDialog part dropdown', () => {
     };
     dialog.openForEdit(def);
     expect(partRow(root).classList.contains('hidden')).toBe(true);
+  });
+});
+
+// "Expose as property": a new part parameter can also be published as a
+// property of the same name in the same edit. Off by default, an add-time
+// choice only — never offered while editing, never in assembly scope.
+describe('ParamEditorDialog expose-as-property toggle', () => {
+  function exposeRow(root: HTMLElement): HTMLElement {
+    return root.querySelector<HTMLElement>('[data-ref="expose-row"]')!;
+  }
+  function exposeToggle(root: HTMLElement): HTMLInputElement {
+    return root.querySelector<HTMLInputElement>('[data-ref="expose"]')!;
+  }
+
+  it('shows the toggle off when adding a part parameter', () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    expect(exposeRow(root).classList.contains('hidden')).toBe(false);
+    expect(exposeToggle(root).checked).toBe(false);
+  });
+
+  it('sends the flag with the new declaration when switched on', async () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    labelInput(root).value = 'Wall thickness';
+    exposeToggle(root).checked = true;
+    await save(root);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ label: 'Wall thickness' }),
+      bracket.sourceLocation,
+      'part',
+      true,
+    );
+  });
+
+  it('resets to off on the next open', async () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    labelInput(root).value = 'A';
+    exposeToggle(root).checked = true;
+    await save(root);
+    dialog.openForCreate();
+    expect(exposeToggle(root).checked).toBe(false);
+  });
+
+  it('is absent while editing an existing declaration', () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForEdit({ label: 'Width', value: 100, defaultValue: 100, type: 'number', sourceLocation: bracket.sourceLocation } as UIParamDefinition);
+    expect(exposeRow(root).classList.contains('hidden')).toBe(true);
+  });
+
+  it('is absent in assembly scope, where a property has no home', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const dialog = new ParamEditorDialog(root, 'assembly');
+    dialog.openForCreate();
+    expect(exposeRow(root).classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('ParamEditorDialog delete', () => {
+  const def: UIParamDefinition = {
+    label: 'Width', defaultValue: 100, currentValue: 100, controlType: 'number',
+    sourceLocation: { filePath: FILE, line: 4, column: 2 }, part: bracket.sourceLocation,
+  };
+  const usage = {
+    label: 'Width', variable: 'width', references: 2, referenceLines: [8, 11], editable: true,
+    value: '100', portable: true,
+    usages: [{ filePath: FILE, count: 2, lines: [8, 11] }, { filePath: '/ws/frame.assembly.js', count: 1, lines: [5] }],
+  };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const ref = <T extends HTMLElement>(root: HTMLElement, name: string) => root.querySelector<T>(`[data-ref="${name}"]`)!;
+
+  it('confirms a delete with the plan', async () => {
+    vi.mocked(api.getParamUsage).mockResolvedValue({
+      ...usage,
+      deletion: {
+        value: '100',
+        replaced: [{ filePath: FILE, count: 2, lines: [8, 11] }],
+        dropped: [{ filePath: '/ws/frame.assembly.js', count: 1, lines: [5] }],
+        blocked: [],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-row').classList.contains('hidden')).toBe(false);
+    expect(ref(root, 'confirm-text').textContent).toBe(
+      'Delete “Width”? Its 2 reads in model.fluid.js (lines 8, 11) become its default value 100, '
+      + 'and the Width override on one insert in frame.assembly.js (line 5) is dropped.',
+    );
+    ref<HTMLButtonElement>(root, 'confirm-delete').click();
+    await vi.waitFor(() => expect(vi.mocked(api.removeParam)).toHaveBeenCalled());
+  });
+
+  it('refuses the delete, naming the reads to rewrite, when the default cannot replace them', async () => {
+    vi.mocked(api.getParamUsage).mockResolvedValue({
+      ...usage,
+      value: 'base * 2',
+      portable: false,
+      deletion: {
+        value: 'base * 2',
+        replaced: [],
+        dropped: [],
+        blocked: [{ filePath: '/ws/plug.part.js', count: 3, lines: [8, 12] }],
+      },
+    });
+    const { dialog, root } = mount();
+    dialog.openForEdit(def);
+    await flush();
+    ref<HTMLButtonElement>(root, 'delete').click();
+    expect(ref(root, 'confirm-row').classList.contains('hidden')).toBe(true);
+    expect(ref(root, 'message').textContent).toBe(
+      '“Width” cannot be deleted yet. Its value (base * 2) reads names that are out of scope in plug.part.js (lines 8, 12, …). '
+      + 'Rewrite those reads by hand, then delete the parameter.',
+    );
+    expect(vi.mocked(api.removeParam)).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Explorer } from "../explorer.js";
+import { EdgeQuery } from "../edge-query.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
 import { cross, dist, dot, len, projectPointOnLine, scale, sub } from "./vec.js";
 import { mmTol } from "../../units/tolerance.js";
@@ -46,6 +47,10 @@ function vecFromPnt(p: gp_Pnt): MeasureVec {
   const v = { x: p.X(), y: p.Y(), z: p.Z() };
   p.delete();
   return v;
+}
+
+function vecFromPoint(p: { x: number; y: number; z: number }): MeasureVec {
+  return { x: p.x, y: p.y, z: p.z };
 }
 
 function vecFromDir(d: gp_Dir): MeasureVec {
@@ -174,14 +179,11 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
       edgeShape.delete();
       continue;
     }
-    const adaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edgeShape));
-    let rim: { center: MeasureVec; radius: number } | null = null;
-    if (adaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      const circle = adaptor.Circle();
-      rim = { center: vecFromPnt(circle.Location()), radius: circle.Radius() };
-      circle.delete();
-    }
-    adaptor.delete();
+    // Native circles, and the B-splines a loft's round ends are made of.
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edgeShape);
+    const rim = geometry.kind === 'circle'
+      ? { center: vecFromPoint(geometry.center), radius: geometry.radius }
+      : null;
     edgeShape.delete();
     if (!rim) {
       consistent = false;
@@ -347,6 +349,19 @@ export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
       result.point = straight.point;
       result.dir = straight.dir;
       result.dirKind = 'axis';
+    } else {
+      // A B-spline standing for a circle or an arc of one: the rim of a
+      // loft's round end measures like the circle it was sketched as.
+      const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+      if (geometry.kind === 'circle') {
+        const center = vecFromPoint(geometry.center);
+        result.form = geometry.closed ? 'circle' : 'arc';
+        result.radius = geometry.radius;
+        result.point = center;
+        result.center = center;
+        result.dir = { x: geometry.axisDirection.x, y: geometry.axisDirection.y, z: geometry.axisDirection.z };
+        result.dirKind = 'normal';
+      }
     }
   }
 

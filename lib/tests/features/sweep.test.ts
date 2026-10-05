@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
@@ -211,9 +211,8 @@ describe("sweep", () => {
 
       sweep(path, profile);
 
-      render();
-
-      expect(profile.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, profile);
     });
 
     it("should remove path shapes", () => {
@@ -228,9 +227,11 @@ describe("sweep", () => {
 
       sweep(path, profile);
 
-      render();
+      const scene = render();
 
-      expect(path.getShapes()).toHaveLength(0);
+      // Display-only consumption: hidden from the render, kept for readers.
+      expect(path.getShapes(undefined, undefined, new Set(scene.getAllSceneObjects()))).toHaveLength(0);
+      expect(path.getShapes().length).toBeGreaterThan(0);
     });
   });
 
@@ -560,7 +561,7 @@ describe("sweep", () => {
     // A tapered helical spine (endRadius ≠ radius) produces a swept surface
     // that needs many approximation spans; at MakePipeShell's small default
     // segment budget the build silently fails (PipeNotDone). SweepOps raises
-    // the budget (MAX_PIPE_SEGMENTS), so these build with the fixed binormal.
+    // the budget (resolved sweep tolerances), so these build with the fixed binormal.
     it("sweeps a circle along an outward-tapering helix", () => {
       const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
       const profile = sketch("left", () => {
@@ -623,6 +624,36 @@ describe("sweep", () => {
       // A real groove was carved: less than the full cylinder, but most remains.
       expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
       expect(vol).toBeLessThan(CYL_VOL - 100);
+    });
+
+    it("removes the groove from a cylinder that stands on another body", () => {
+      // A plate under the cylinder: a body of its own, in scope of the cut.
+      // Each body is cut on its own. Handed to one boolean together, the two
+      // are first intersected with each other where they touch, and the
+      // grooved result failed validation with an open shell.
+      sketch("xy", () => {
+          testRect(60, 60, { at: [-30, -30] });
+        });
+      extrude(-10).new();
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => {
+          circle([15, 0], 3);
+        });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const volumes = s.getShapes()
+        .map(shape => ShapeProps.getProperties(shape.getShape()).volumeMm3)
+        .sort((a, b) => a - b);
+      // The cylinder lost its groove, and the plate the stretch of it that
+      // runs on below the cylinder's foot.
+      expect(volumes).toHaveLength(2);
+      expect(volumes[0]).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(volumes[0]).toBeLessThan(CYL_VOL - 100);
+      expect(volumes[1]).toBeGreaterThan(60 * 60 * 10 * 0.95);
+      expect(volumes[1]).toBeLessThan(60 * 60 * 10);
     });
 
     it("fuses a helical thread onto the cylinder surface", () => {

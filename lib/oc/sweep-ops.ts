@@ -1,281 +1,155 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir } from "ocjs-fluidcad";
+import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
-import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
-import { OrientedFaces } from "./oriented-faces.js";
 import { ShapeOps } from "./shape-ops.js";
 import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
-import { Plane } from "../math/plane.js";
-import { Vector3d } from "../math/vector3d.js";
+import type { SpineAnalysis, SpineTrihedron } from "./sweep/spine-analysis.js";
+import { PipeRun, type PipeRunResult, type PipeRunDiagnostics } from "./sweep/pipe-run.js";
+import { CorneredSweep } from "./sweep/cornered-sweep.js";
+import { resolveSweepSpec, type ResolvedSweepSpec, type SweepPlacement, type SweepTolerancePolicy } from "./sweep/sweep-spec.js";
+import type { Plane } from "../math/plane.js";
+import type { Matrix4 } from "../math/matrix4.js";
+import type { Point } from "../math/point.js";
+import { BooleanOps } from "./boolean-ops.js";
+import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
+import { RenderSeams } from "./render-seams.js";
+
+export interface SweepFaceRole {
+  solidIndex: number;
+  faceIndex: number;
+  kind: "start" | "end" | "side" | "inner";
+  profileMidpoint?: Point;
+}
 
 export interface SweepResult {
   solids: Solid[];
   firstShape: TopoDS_Shape;
   lastShape: TopoDS_Shape;
-}
-
-interface WireSweep {
-  solid: TopoDS_Shape;
-  firstFace: TopoDS_Shape;
-  lastFace: TopoDS_Shape;
+  /** Mapping from drawn profile geometry to the start cap, for thin-wall classification. */
+  profileTransform?: Matrix4;
+  /** Numeric references into the returned solids; no additional native handles. */
+  faceRoles: SweepFaceRole[];
+  /** Fit evidence for each outer/inner run, before hole cuts or corner joins. */
+  diagnostics: PipeRunDiagnostics[];
 }
 
 export class SweepOps {
-  // Ceiling for MakePipeShell's swept-surface approximation. OCCT's default
-  // (~30) is too small for tapered or tightly-coiled helical spines, whose
-  // swept surfaces need many spans to fit within tolerance — at the default the
-  // build silently fails (BRepBuilderAPI_PipeNotDone). This only caps the
-  // adaptive fit; simple spines converge far below it at no extra cost.
-  private static readonly MAX_PIPE_SEGMENTS = 1000;
+  static makeSweep(spineWire: Wire, profileFaces: Face[], profilePlane?: Plane): SweepResult {
+    return SweepOps.buildResolved(resolveSweepSpec(spineWire, profileFaces, { profilePlane }));
+  }
 
-  // How nearly a candidate binormal may line up with the spine's tangent
-  // before `Normal = BiNormal × Tangent` stops being a usable direction:
-  // |cos| = 0.999 is 2.6° apart. Anything looser would swap the section's
-  // roll out from under sweeps that build correctly today.
-  private static readonly MAX_BINORMAL_ALIGNMENT = 0.999;
-
-  static makeSweep(spineWire: Wire, profileFaces: Face[]): SweepResult {
+  static buildResolved(spec: ResolvedSweepSpec): SweepResult {
     const oc = getOC();
 
     const allSolids: Solid[] = [];
+    const faceRoles: SweepFaceRole[] = [];
+    const diagnostics: PipeRunDiagnostics[] = [];
     let firstShape: TopoDS_Shape | null = null;
     let lastShape: TopoDS_Shape | null = null;
 
-    const profilePlane = profileFaces[0].getPlane();
+    const { spine, profileFaces, transport, placement, tolerances, helixGeometry } = spec;
 
-    // Fixed binormal for MakePipeShell's `SetMode`: it locks the section's
-    // "up", so the profile keeps a constant angle to it instead of twisting
-    // along the spine. The correct direction is the axis the spine's tangent
-    // rotates around — the plane normal for a planar spine, the coil axis for a
-    // helix. The tangent keeps a constant, non-zero angle to that axis, so the
-    // section never flips and the result is a clean coil.
-    //
-    // The profile plane's own "up" (used previously) only works when it happens
-    // to equal that axis — true for a profile sketched on a world plane, but
-    // NOT for a plane built off a helix, whose in-plane axes are arbitrary.
-    // A wrong (e.g. roughly horizontal) binormal lets the helix tangent rotate
-    // into it, collapsing `Normal = BiNormal × Tangent` ~twice per turn and
-    // shredding the section into a self-intersecting ribbon. A straight spine
-    // has no rotation axis (the cross products vanish); its binormal is picked
-    // off the profile plane instead — see `straightSpineBinormal`.
-    const spineTangent = SweepOps.getSpineTangent(spineWire.getShape() as TopoDS_Wire);
-    const spineAxis = SweepOps.tangentRotationAxis(spineWire.getShape() as TopoDS_Wire);
-    const binormalVec = spineAxis ?? SweepOps.straightSpineBinormal(profilePlane, spineTangent);
-    const [binormalDir, disposeBinormal] = Convert.toGpDir(binormalVec);
-
-    // `Add(_, false, true)` (no contact, with correction) rotates the profile
-    // to sit perpendicular to the spine tangent, about an axis given by
-    // `profile.normal × spine.tangent`. That axis is undefined when the two are
-    // anti-parallel — but then the profile plane is *already* perpendicular to
-    // the spine (its normal is ∥ -tangent), so no correction is needed: skip it
-    // and keep the profile's drawn position.
-    const isAntiParallel = profilePlane.normal.dot(spineTangent) < -0.999;
-    const withCorrection = !isAntiParallel;
-
+    // Every temporary native handle is owned here, including abandoned
+    // regions when a later hole or validation fails. Returned solids/caps
+    // receive independent handles before this scope releases its copies.
+    const owned = new Set<TopoDS_Shape>();
+    const own = <T extends TopoDS_Shape>(shape: T): T => { owned.add(shape); return shape; };
+    const ownPipe = (pipe: PipeRunResult) => {
+      own(pipe.solid); own(pipe.firstFace); own(pipe.lastFace);
+      pipe.generatedFaces?.forEach(entry => entry.faces.forEach(own));
+      diagnostics.push(...pipe.diagnostics);
+      return pipe;
+    };
     try {
       for (const face of profileFaces) {
-        const ocFace = oc.TopoDS.Face(face.getShape());
-        const outerWire = oc.BRepTools.OuterWire(ocFace);
-        const innerWires = face.getWires()
-          .map(w => w.getShape())
-          .filter(w => !w.IsSame(outerWire));
-
-        const outer = SweepOps.sweepWire(spineWire.getShape(), outerWire, binormalDir, withCorrection);
-
+        const ocFace = own(oc.TopoDS.Face(face.getShape()));
+        const outerWire = own(oc.BRepTools.OuterWire(ocFace));
+        const innerWires = face.getWires().map(w => w.getShape()).filter(w => !w.IsSame(outerWire));
+        const outer = ownPipe(SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances, helixGeometry));
+        let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
         let resultSolid = outer.solid;
         let resultFirst = outer.firstFace;
         let resultLast = outer.lastFace;
 
         for (const innerWire of innerWires) {
-          const inner = SweepOps.sweepWire(spineWire.getShape(), oc.TopoDS.Wire(innerWire), binormalDir, withCorrection);
-
-          const stockList = new oc.TopTools_ListOfShape();
-          stockList.Append(resultSolid);
-          const toolList = new oc.TopTools_ListOfShape();
-          toolList.Append(inner.solid);
-
-          const cut = new oc.BRepAlgoAPI_Cut();
-          cut.SetArguments(stockList);
-          cut.SetTools(toolList);
-
-          const progress = new oc.Message_ProgressRange();
-          cut.Build(progress);
-          progress.delete();
-
-          if (!cut.IsDone()) {
-            cut.delete();
-            stockList.delete();
-            toolList.delete();
-            throw new Error("Sweep hole cut failed.");
-          }
-
-          const newSolid = cut.Shape();
-
-          // Track first/last faces through the cut. The outer's start/end
-          // face becomes a hole-bearing face after cutting through it. The
-          // cut's images carry no in-result orientation — take the instance
-          // the new solid contains.
-          const resultFaces = new OrientedFaces(newSolid);
-          const modFirst = ShapeOps.shapeListToArray(cut.Modified(resultFirst));
-          const modLast = ShapeOps.shapeListToArray(cut.Modified(resultLast));
-          if (modFirst.length > 0) {
-            resultFirst = resultFaces.orient(modFirst[0]);
-          }
-          if (modLast.length > 0) {
-            resultLast = resultFaces.orient(modLast[0]);
-          }
-          resultFaces.delete();
-
-          cut.delete();
-          stockList.delete();
-          toolList.delete();
-
-          resultSolid = newSolid;
+          const inner = ownPipe(SweepOps.sweepWire(spine, own(oc.TopoDS.Wire(innerWire)), transport, placement, tolerances, helixGeometry));
+          origins.push(...(inner.generatedFaces ?? []).map(entry => ({ ...entry, internal: true })));
+          const hole = BooleanOps.cutWithHistory([resultSolid], [inner.solid], { validate: true, stage: "Sweep hole cut" });
+          const newSolid = own(hole.result);
+          try {
+            if (hole.empty) throw new Error("Sweep hole cut removed the entire profile.");
+            resultFirst = own(ShapeOps.trackFace(hole.maker, resultFirst, newSolid));
+            resultLast = own(ShapeOps.trackFace(hole.maker, resultLast, newSolid));
+            // Carry every lateral span through the hole cut, including reversed
+            // tool walls. Start-cap adjacency loses the later bounded spans.
+            origins = origins.map(entry => ({ ...entry, faces: entry.faces.flatMap(face => {
+              const modified = ShapeOps.shapeListToArray(hole.maker.Modified(face)).map(own);
+              if (modified.length > 0) return modified;
+              return hole.maker.IsDeleted(face) ? [] : [face];
+            }) }));
+            resultSolid = newSolid;
+          } finally { hole.dispose(); }
         }
 
-        if (!firstShape) {
-          firstShape = resultFirst;
-          lastShape = resultLast;
-        }
-
-        const solids = Explorer.findShapes(resultSolid, Explorer.getOcShapeType("solid"));
-        for (const s of solids) {
-          allSolids.push(Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+        if (!firstShape) { firstShape = resultFirst; lastShape = resultLast; }
+        const solids = Explorer.findShapes(resultSolid, Explorer.getOcShapeType("solid")).map(own);
+        for (const solid of solids) {
+          const faces = Explorer.findShapes(solid, Explorer.getOcShapeType("face")).map(own);
+          faces.forEach((face, faceIndex) => {
+            const origin = origins.find(entry => entry.faces.some(generated => generated.IsSame(face)));
+            faceRoles.push({
+              solidIndex: allSolids.length, faceIndex,
+              kind: face.IsSame(resultFirst) ? "start" : face.IsSame(resultLast) ? "end"
+                : origin?.internal ? "inner" : "side",
+              profileMidpoint: origin?.profileMidpoint,
+            });
+          });
+          const wrapped = Solid.fromTopoDSSolid(Explorer.toSolid(solid));
+          allSolids.push(wrapped);
+          RenderSeams.fromFaceGroups(wrapped, origins.map(origin => origin.faces));
         }
       }
-    } finally {
-      disposeBinormal();
-    }
 
-    if (allSolids.length === 0) {
-      throw new Error("Sweep produced no solids.");
-    }
-
-    return {
-      solids: allSolids,
-      firstShape: firstShape!,
-      lastShape: lastShape!,
-    };
+      if (allSolids.length === 0) throw new Error("Sweep produced no solids.");
+      return {
+        solids: allSolids,
+        firstShape: firstShape!.Oriented(firstShape!.Orientation()),
+        lastShape: lastShape!.Oriented(lastShape!.Orientation()),
+        profileTransform: placement.kind === "atStart" ? placement.transform : undefined,
+        faceRoles, diagnostics,
+      };
+    } catch (error) {
+      allSolids.forEach(solid => solid.dispose());
+      throw error;
+    } finally { owned.forEach(shape => shape.delete()); }
   }
 
-  /** Sweep a single wire along the spine with a fixed binormal. */
+  /**
+   * Sweeps a single wire along the spine. A G1 spine is one pipe; a spine
+   * with sharp corners is swept run by run and joined at the corners.
+   */
   private static sweepWire(
-    spine: TopoDS_Wire,
+    spine: SpineAnalysis,
     profile: TopoDS_Wire,
-    binormalDir: gp_Dir,
-    withCorrection: boolean,
-  ): WireSweep {
-    const oc = getOC();
-    const pipe = new oc.BRepOffsetAPI_MakePipeShell(spine);
-    // Fixed binormal (the spine's tangent-rotation axis; see makeSweep): keeps
-    // the swept section from twisting — a clean coil rather than a wobbling
-    // ribbon — and is well-defined on straight spines, where Frenet is not
-    // (zero curvature ⇒ undefined normal).
-    pipe.SetMode(binormalDir);
-    // Give the swept-surface approximation enough spans for tapered/tight
-    // helical spines (see MAX_PIPE_SEGMENTS) — at OCCT's default budget the
-    // build fails on, e.g., a conical helix or a many-turn helix on a cone face.
-    pipe.SetMaxSegments(SweepOps.MAX_PIPE_SEGMENTS);
-    pipe.Add(profile, false, withCorrection);
-
-    const progress = new oc.Message_ProgressRange();
-    pipe.Build(progress);
-    progress.delete();
-
-    if (!pipe.IsDone()) {
-      pipe.delete();
-      throw new Error("Sweep operation failed.");
+    trihedron: SpineTrihedron,
+    placement: SweepPlacement,
+    tolerances: SweepTolerancePolicy,
+    helixGeometry?: ResolvedHelixGeometry,
+  ): PipeRunResult {
+    const withCorrection = placement.kind === "legacyAutomatic" && placement.withCorrection;
+    if (!spine.hasCorners) {
+      return PipeRun.sweep(spine.wire, {
+        wire: profile, placed: placement.kind !== "legacyAutomatic", withCorrection,
+        location: placement.kind === "atVertex" ? placement.vertex : undefined,
+        atStart: placement.kind === "atStart",
+        transform: placement.kind === "atStart" ? placement.transform : undefined,
+      }, trihedron, tolerances, helixGeometry);
     }
-
-    if (!pipe.MakeSolid()) {
-      pipe.delete();
-      throw new Error("Sweep failed to produce a solid.");
+    if (placement.kind !== "legacyAutomatic") {
+      throw new Error("Explicit sweep stations are currently supported only on smooth paths.");
     }
-
-    const firstFace = pipe.FirstShape();
-    const lastFace = pipe.LastShape();
-    const solid = pipe.Shape();
-    pipe.delete();
-
-    return { solid, firstFace, lastFace };
-  }
-
-  /**
-   * The axis the spine's tangent rotates around, = normalize(Σ Tᵢ × Tᵢ₊₁) over
-   * tangents sampled along the spine. For a planar spine this is the plane
-   * normal; for a helix it is the coil axis. For a straight spine the tangent
-   * is constant, every cross product vanishes, and it returns null.
-   */
-  private static tangentRotationAxis(spine: TopoDS_Wire): Vector3d | null {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_CompCurve(spine, false);
-    const u0 = adaptor.FirstParameter();
-    const u1 = adaptor.LastParameter();
-    const SAMPLES = 64;
-
-    const tangents: Vector3d[] = [];
-    const pnt = new oc.gp_Pnt();
-    const vec = new oc.gp_Vec();
-    for (let i = 0; i <= SAMPLES; i++) {
-      const u = u0 + ((u1 - u0) * i) / SAMPLES;
-      adaptor.D1(u, pnt, vec);
-      const t = new Vector3d(vec.X(), vec.Y(), vec.Z());
-      if (t.length() > 1e-9) {
-        tangents.push(t.normalize());
-      }
-    }
-    pnt.delete();
-    vec.delete();
-    adaptor.delete();
-
-    let axis = new Vector3d(0, 0, 0);
-    for (let i = 0; i + 1 < tangents.length; i++) {
-      axis = axis.add(tangents[i].cross(tangents[i + 1]));
-    }
-    // unit: dimensionless (sum of unit-tangent cross products)
-    if (axis.length() < 1e-6) {
-      return null;
-    }
-    return axis.normalize();
-  }
-
-  /**
-   * The fixed binormal for a straight spine, whose constant tangent turns
-   * around nothing and so names no axis of its own. Any direction the tangent
-   * isn't parallel to will serve, since OCC only needs `Normal = BiNormal ×
-   * Tangent` to be a direction — so the profile plane's own "up" is kept
-   * wherever it works, leaving the section's roll where every sweep built so
-   * far has had it.
-   *
-   * It stops working when the spine runs along that very "up" — a profile
-   * sketched on xy and swept along the y axis, say. The cross product then
-   * vanishes, and rather than fail, MakePipeShell returns a flat zero-volume
-   * sliver. The plane's normal takes over there, and is guaranteed to work:
-   * it is perpendicular to the "up" the tangent has just proved itself
-   * parallel to. It also keeps the drawn profile's footprint — its own "up"
-   * leaves the section plane along with the spine, and the normal is what
-   * arrives to replace it.
-   */
-  private static straightSpineBinormal(plane: Plane, tangent: Vector3d): Vector3d {
-    const up = plane.yDirection;
-    return Math.abs(up.dot(tangent)) < SweepOps.MAX_BINORMAL_ALIGNMENT ? up : plane.normal;
-  }
-
-  /** Unit tangent of the spine wire at its first parameter. */
-  private static getSpineTangent(spine: TopoDS_Wire): Vector3d {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_CompCurve(spine, false);
-    const u0 = adaptor.FirstParameter();
-    const pnt = new oc.gp_Pnt();
-    const tan = new oc.gp_Vec();
-    adaptor.D1(u0, pnt, tan);
-    tan.Normalize();
-    const tangent = new Vector3d(tan.X(), tan.Y(), tan.Z());
-    pnt.delete();
-    tan.delete();
-    adaptor.delete();
-    return tangent;
+    return CorneredSweep.build(spine, profile, trihedron, withCorrection, tolerances);
   }
 }

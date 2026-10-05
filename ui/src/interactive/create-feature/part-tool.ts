@@ -1,6 +1,7 @@
 import { createNewPart } from '../../api';
 import { Navbar } from '../../ui/navbar';
 import { FeatureButton } from './feature-button';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Part tool: a one-shot button that appends an empty
@@ -26,7 +27,7 @@ export class PartToolButton {
   }) {
     const group = navbar.getGroup('part') ?? navbar.addGroup('part', { mode: 'part' });
     this.button = new FeatureButton(group, {
-      icon: '/icons/box-blue.png',
+      icon: iconUrl('box-blue'),
       label: 'Part',
       tip: 'Create a new part',
       ariaLabel: 'Create a new part',

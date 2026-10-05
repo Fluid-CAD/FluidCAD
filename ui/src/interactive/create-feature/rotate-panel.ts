@@ -6,6 +6,7 @@ import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** The slot picks land in — the one last clicked (the sweep/loft idiom). */
 export type RotateArmedSlot = 'targets' | 'axis';
@@ -56,7 +57,7 @@ export class RotatePanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-rotate-panel',
       title: 'Rotate',
-      icon: '/icons/rotate.png',
+      icon: iconUrl('rotate'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import plane from "../../core/plane.js";
 import { circle, line } from "../../core/2d/index.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
@@ -260,7 +261,9 @@ describe("thin extrude", () => {
 
       render();
 
-      sketch("xy", () => {
+      // Sketched on the top plane, the cut runs into the block; from "xy" it
+      // would run away from it and take nothing.
+      sketch(plane("xy", { offset: 50 }), () => {
           testRect(100, 100);
         });
       const e = extrude(50).thin(10).remove() as ExtrudeBase;

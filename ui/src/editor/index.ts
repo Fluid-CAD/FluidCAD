@@ -3,9 +3,11 @@ import { EditorPane } from './editor-pane';
 import { WorkspaceModels, type ModelEntry } from './models';
 import { loadEngineTypes } from './engine-types';
 import { QuickOpen } from './quick-open';
-import type { FileTab } from './tabs';
+import type { FileTab, OtherTabs } from './tabs';
 import {
   createWorkspaceFile,
+  createWorkspaceFolder,
+  deleteWorkspaceFile,
   fetchWorkspaceEditorState,
   closeWorkspaceFile,
   openWorkspaceFile,
@@ -72,6 +74,7 @@ export class EditorSurface {
     this.quickOpen = new QuickOpen({
       onOpen: (entry) => void this.openFile(entry.absPath),
       onCreate: (relPath) => void this.createFile(relPath),
+      onCreateFolder: (relPath) => this.createFolder(relPath),
     });
     this.diagnostics = new Diagnostics(this.models);
     this.breakpoints = new Breakpoints({
@@ -223,27 +226,53 @@ export class EditorSurface {
     if (index === -1) {
       return;
     }
-    this.openTabs.splice(index, 1);
+    // Never orphan the scene: prefer another model tab, then anything.
+    this.dropTabs([absPath], (remaining) =>
+      remaining.find((path) => this.models.get(path)?.kind === 'model') ??
+      remaining[Math.min(index, remaining.length - 1)] ??
+      null);
+  }
+
+  /**
+   * The tab menu's Close other tabs: close every tab but `absPath`, or only
+   * those on one side of it. If the active tab is among them, `absPath` takes
+   * over — it is the tab the user is pointing at.
+   */
+  closeOtherTabs(absPath: string, which: OtherTabs): void {
+    const index = this.openTabs.indexOf(absPath);
+    if (index === -1) {
+      return;
+    }
+    const closing = this.openTabs.filter((_, i) =>
+      which === 'left' ? i < index : which === 'right' ? i > index : i !== index);
+    if (closing.length > 0) {
+      this.dropTabs(closing, () => absPath);
+    }
+  }
+
+  /**
+   * Take `closing` off the strip. When the active tab goes, `successor` names
+   * the tab to activate from the ones that remain.
+   */
+  private dropTabs(closing: string[], successor: (remaining: string[]) => string | null): void {
+    const current = this.currentModelPath;
+    this.openTabs = this.openTabs.filter((path) => !closing.includes(path));
     this.persistTabs();
 
     // The scene shows an open model tab, or nothing. Closing the file it was
     // rendered from, with no other model tab to fall back on, empties it —
     // a viewport still showing a file nobody has open would be a lie.
-    const entry = this.models.get(absPath);
+    const entry = current && closing.includes(current) ? this.models.get(current) : undefined;
     const modelTabRemains = this.openTabs.some((path) => this.models.get(path)?.kind === 'model');
-    if (entry && absPath === this.currentModelPath && !modelTabRemains) {
+    if (entry && !modelTabRemains) {
       this.currentModelPath = null;
       void closeWorkspaceFile(entry.relPath).catch((err) => {
         console.warn(`FluidCAD: could not close ${entry.relPath}:`, err);
       });
     }
 
-    if (this.activePath === absPath) {
-      // Never orphan the scene: prefer another model tab, then anything.
-      const next =
-        this.openTabs.find((path) => this.models.get(path)?.kind === 'model') ??
-        this.openTabs[Math.min(index, this.openTabs.length - 1)] ??
-        null;
+    if (this.activePath && closing.includes(this.activePath)) {
+      const next = successor(this.openTabs);
       this.activePath = next;
       if (next) {
         void this.activateTab(next, { reveal: this.pane.isOpen() });
@@ -253,6 +282,42 @@ export class EditorSurface {
     // Closing a tab does not dispose its model — the language service still
     // needs it to cross-complete.
     this.renderTabs();
+  }
+
+  /**
+   * Delete the file behind a tab from disk — the tab menu's Remove file, once
+   * the user has confirmed it. The tab closes and the buffer goes with it,
+   * unsaved edits included.
+   */
+  async removeFile(absPath: string): Promise<void> {
+    const entry = this.models.get(absPath);
+    if (!entry) {
+      return;
+    }
+    try {
+      await deleteWorkspaceFile(entry.relPath);
+    } catch (err) {
+      this.deps.onEditRefused?.(`Could not remove ${entry.relPath}: ${(err as Error).message}`);
+      return;
+    }
+    const wasActive = this.activePath === absPath;
+    this.closeTab(absPath);
+    // Closing re-targets the scene through the tab it activates, or empties
+    // it when no model tab is left. A scene rendered from this file while
+    // another tab was active would keep showing a file that no longer
+    // exists: hand it to the first model tab still open.
+    if (!wasActive && this.currentModelPath === absPath) {
+      const next = this.openTabs.map((path) => this.models.get(path)).find((open) => open?.kind === 'model');
+      if (next) {
+        void openWorkspaceFile(next.relPath).catch((err) => {
+          console.warn(`FluidCAD: could not render ${next.relPath}:`, err);
+        });
+      }
+    }
+    // Gone from the language service too: its importers now report the
+    // missing file, as they would after any deletion.
+    this.breakpoints.forget(absPath);
+    this.models.forget(absPath);
   }
 
   /** The strip was dragged into a new order. Only a permutation of the open tabs is accepted. */
@@ -343,6 +408,15 @@ export class EditorSurface {
     // from disk, keeps whatever is unsaved on screen.
     if (wasCurrentModel) {
       this.host.scheduleLiveRender(next.absPath);
+    }
+  }
+
+  private async createFolder(relPath: string): Promise<void> {
+    try {
+      await createWorkspaceFolder(relPath);
+    } catch (err) {
+      console.warn(`FluidCAD: could not create folder ${relPath}:`, err);
+      throw err;
     }
   }
 

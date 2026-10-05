@@ -9,7 +9,7 @@ import {
   type CodeEditResult,
   type TSNode,
   type TSTree,
-} from './code-editor.ts';
+} from './code-editor/index.ts';
 import {
   CONNECTOR_NAME,
   EXPORT_KEY,
@@ -21,6 +21,7 @@ import {
   findBaseStatement,
   findChainAt,
   insertStatementAfter,
+  isCopySlot,
   replicateSeedName,
   resolveInstanceBinding,
   resolveSideExpression,
@@ -34,10 +35,11 @@ import {
 
 /**
  * A replicate target or row cell: the same three side shapes a mate side
- * takes — an instance connector (`MateConnectorRef`, `viaParts` and
- * `replicaRow` included), an assembly connector (`MateFrameRef`) or an
- * exposure (`MateGeometryRef`, by name only: a raw pick has no exposure to
- * reference yet — expose it through the mate dialog first).
+ * takes — an instance connector (`MateConnectorRef`, `viaParts`,
+ * `replicaRow` and a copy's `slot` included), an assembly connector
+ * (`MateFrameRef`) or an exposure (`MateGeometryRef`, by name only: a raw
+ * pick has no exposure to reference yet — expose it through the mate dialog
+ * first).
  */
 export type ReplicateSideRef = SideRef;
 
@@ -94,6 +96,9 @@ function validateSideRef(side: ReplicateSideRef, where: string): string | null {
     if (!CONNECTOR_NAME.test(side.connectorName)) {
       return `${where}: "${side.connectorName}" is not a valid connector name`;
     }
+    if (!isCopySlot(side.slot)) {
+      return `${where}: a connector copy's slot must be a non-negative integer, got ${side.slot}`;
+    }
     return null;
   }
   if (!Number.isInteger(side.instanceLine) || side.instanceLine < 1) {
@@ -110,6 +115,9 @@ function validateSideRef(side: ReplicateSideRef, where: string): string | null {
   }
   if (!CONNECTOR_NAME.test(side.connectorName)) {
     return `${where}: "${side.connectorName}" is not a valid connector name`;
+  }
+  if (!isCopySlot(side.slot)) {
+    return `${where}: a connector copy's slot must be a non-negative integer, got ${side.slot}`;
   }
   for (const key of (side.viaParts ?? []).flat()) {
     if (!EXPORT_KEY.test(key)) {

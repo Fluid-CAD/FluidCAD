@@ -137,8 +137,10 @@ describe("anchor entities (bezier / text in the solver) and the ellipse center",
 
     it("rides another entity's point when a control point is an accessor", () => {
       let bz: unknown;
+      let ln: unknown;
       sketch('xy', () => {
         const l = line([1, -2], [48, 3]);
+        ln = l;
         fix(l.start(), [0, 0]);
         horizontal(l);
         distance(l.start(), l.end(), 50);
@@ -152,6 +154,14 @@ describe("anchor entities (bezier / text in the solver) and the ellipse center",
       expect(payload.startPoint[1]).toBeCloseTo(0, 6);
       expect(payload.anchors).toHaveLength(2);
       expect(payload.anchors.map((a: any) => a.pointIndex)).toEqual([1, 2]);
+      // Per control point, the solver point it rides — the UI redraws the
+      // curve from these mid-drag: the line's end, then the two anchors.
+      const linePayload = payloadOf(scene, ln);
+      expect(payload.controlSources).toEqual([
+        { entityId: linePayload.entityId, role: 'end' },
+        { entityId: payload.anchors[0].entityId, role: null },
+        { entityId: payload.anchors[1].entityId, role: null },
+      ]);
     });
 
     it("constrains through point(i) on a middle control point", () => {

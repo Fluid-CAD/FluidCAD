@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { defaultMaxWorkers, logicalCpuCount } from '../../lib/dist/oc/workers.js';
+import { parseProjectMaterials, type ProjectMaterials } from './project-config.ts';
 
 export type MeasureLengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
 export type GridFixedSpacing = Record<MeasureLengthUnit, number>;
@@ -9,6 +11,13 @@ export const MEASURE_LENGTH_UNITS: MeasureLengthUnit[] = ['mm', 'cm', 'm', 'in',
 /** Bounds the POST guard clamps to (no UI edits these; they only arrive from a hand-edited file). */
 export const GRID_MIN_CELL_PX_RANGE: [number, number] = [8, 80];
 export const GRID_MAJOR_EVERY_RANGE: [number, number] = [2, 100];
+/** Editor font size bounds, px. */
+export const EDITOR_FONT_SIZE_RANGE: [number, number] = [8, 40];
+/** Sketch snap and pick radius bounds, screen px. */
+export const SNAP_RADIUS_PX_RANGE: [number, number] = [2, 80];
+export const PICK_RADIUS_PX_RANGE: [number, number] = [2, 80];
+/** Kernel worker count bounds: at least one, at most one per logical CPU of this machine. */
+export const MAX_WORKERS_RANGE: [number, number] = [1, logicalCpuCount()];
 
 export interface Preferences {
   theme: string;
@@ -33,7 +42,37 @@ export interface Preferences {
   editorOpen: boolean;
   /** Code-editor pane width, in px. */
   editorWidth: number;
+  /** Code-editor font family; empty means the editor's own default stack. */
+  editorFontFamily: string;
+  /** Code-editor font size, px. */
+  editorFontSize: number;
+  /** Code-editor lines wrap at the pane edge instead of scrolling sideways. */
+  editorWordWrap: boolean;
+  /** Sketch snapping: how close (screen px) the cursor must be to a vertex, axis or grid line to snap. */
+  snapRadiusPx: number;
+  /** Sketch picking: how close (screen px) the cursor must be to an entity or vertex to hover or select it. */
+  pickRadiusPx: number;
+  /** The unit `fluidcad init` writes into a new project when none is asked for. */
+  defaultProjectUnit: MeasureLengthUnit;
+  /** Which of a sketch's children the timeline lists: every row, or only the features that have an edit dialog. */
+  timelineSketchChildren: TimelineSketchChildren;
+  /** The timeline lists a sketch's constraints (behind their "N constraints" group). Default true. */
+  timelineShowConstraints: boolean;
+  /** The timeline lists a sketch's region declarations (behind their "N regions" group). Default false. */
+  timelineShowRegions: boolean;
+  /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
+  maxWorkers: number;
+  /**
+   * The user's own materials (Settings → Materials), keyed by the id
+   * `part(...).material(id)` takes, in the same shape as a project's
+   * `fluidcad.json` map. Picking one for a part copies that entry into the
+   * project, so a model file never depends on this machine's list.
+   */
+  materials: ProjectMaterials;
 }
+
+export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
+export type TimelineSketchChildren = (typeof TIMELINE_SKETCH_CHILDREN)[number];
 
 const DEFAULTS: Preferences = {
   theme: 'fluidcad-dark',
@@ -49,7 +88,23 @@ const DEFAULTS: Preferences = {
   dimTangentEdges: false,
   editorOpen: false,
   editorWidth: 420,
+  editorFontFamily: '',
+  editorFontSize: 13,
+  editorWordWrap: false,
+  snapRadiusPx: 15,
+  pickRadiusPx: 12,
+  defaultProjectUnit: 'mm',
+  timelineSketchChildren: 'all',
+  timelineShowConstraints: true,
+  timelineShowRegions: false,
+  maxWorkers: defaultMaxWorkers(),
+  materials: {},
 };
+
+/** A fresh copy of the defaults — what "Reset all to defaults" writes. */
+export function defaultPreferences(): Preferences {
+  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {} };
+}
 
 function getConfigDir(): string {
   const platform = process.platform;
@@ -74,13 +129,17 @@ export async function loadPreferences(): Promise<Preferences> {
     const parsed = JSON.parse(data);
     // The spacing record is the one nested value: merge it per key so a
     // file written before a unit existed still yields a pitch for it.
+    // A hand-edited map that fails the fluidcad.json rules is dropped whole,
+    // like a bad project map: nothing downstream re-validates entries.
+    const materials = parseProjectMaterials(parsed.materials);
     return {
       ...DEFAULTS,
       ...parsed,
       gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
+      materials: 'materials' in materials ? materials.materials : {},
     };
   } catch {
-    return { ...DEFAULTS };
+    return defaultPreferences();
   }
 }
 
@@ -88,4 +147,25 @@ export async function savePreferences(prefs: Preferences): Promise<void> {
   const dir = getConfigDir();
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(getPreferencesPath(), JSON.stringify(prefs, null, 2), 'utf-8');
+}
+
+/** Put every preference back to its default and persist that. */
+export async function resetPreferences(): Promise<Preferences> {
+  const prefs = defaultPreferences();
+  await savePreferences(prefs);
+  return prefs;
+}
+
+/**
+ * The unit a new project starts in when `fluidcad init` is given none: the
+ * stored preference, or null when it is the built-in mm (a project without
+ * the key is an mm project, so nothing needs writing).
+ */
+export async function preferredNewProjectUnit(): Promise<MeasureLengthUnit | null> {
+  const prefs = await loadPreferences();
+  const unit = prefs.defaultProjectUnit;
+  if (!MEASURE_LENGTH_UNITS.includes(unit) || unit === 'mm') {
+    return null;
+  }
+  return unit;
 }

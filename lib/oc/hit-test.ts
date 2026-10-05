@@ -6,6 +6,49 @@ import { mmTol } from "../units/tolerance.js";
 export type HitTestResult = { type: 'face'; index: number } | { type: 'edge'; index: number } | null;
 
 export class OccHitTest {
+  /**
+   * How far along the ray (unit `rayDir`) it first enters `shape`'s material:
+   * the nearest face ahead of the origin, 0 when the origin already sits in
+   * or on the solid (an odd number of faces lie ahead), null when the ray
+   * misses it.
+   */
+  static entryDistance(
+    shape: TopoDS_Shape,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+  ): number | null {
+    const oc = getOC();
+    const origin = new oc.gp_Pnt(rayOrigin[0], rayOrigin[1], rayOrigin[2]);
+    const dir = new oc.gp_Dir(rayDir[0], rayDir[1], rayDir[2]);
+    const ray = new oc.gp_Lin(origin, dir);
+    const intersector = new oc.IntCurvesFace_ShapeIntersector();
+    intersector.Load(shape, 1e-7);
+    const tol = mmTol(1e-6);
+    intersector.Perform(ray, -tol, mmTol(1e10));
+    const ahead: number[] = [];
+    if (intersector.IsDone()) {
+      for (let i = 1; i <= intersector.NbPnt(); i++) {
+        const w = intersector.WParameter(i);
+        // One crossing can be reported on each face sharing an edge.
+        if (!ahead.some(other => Math.abs(other - w) < tol)) {
+          ahead.push(w);
+        }
+      }
+    }
+    intersector.delete();
+    ray.delete();
+    dir.delete();
+    origin.delete();
+    if (ahead.length === 0) {
+      return null;
+    }
+    const strictlyAhead = ahead.filter(w => w > tol);
+    if (strictlyAhead.length % 2 === 1) {
+      return 0;
+    }
+    return Math.max(0, Math.min(...ahead));
+  }
+
   static hitTest(
     shape: TopoDS_Shape,
     rayOrigin: [number, number, number],

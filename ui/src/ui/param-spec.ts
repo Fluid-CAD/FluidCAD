@@ -8,6 +8,7 @@
 
 import type { ParamSelectOption, ParamSpec, ParamType, ParamUsage } from '../api';
 import type { UIParamDefinition } from '../types';
+import { describeDeletionPlan, type DeletionWording } from './declaration-usage';
 
 /** The control types the editor offers, in the order the dropdown lists them. */
 export const PARAM_TYPE_CHOICES: { type: ParamType; label: string }[] = [
@@ -130,10 +131,23 @@ export function coerceDefaultValue(
 }
 
 /**
- * What the user is about to break by deleting a parameter. A declaration
- * nothing reads is a clean removal; one the model reads leaves those
- * references undefined, and the next render is where they blow up — so the
- * warning names the variable and where it is read.
+ * The delete prompt for a parameter. With the server's plan, the wording
+ * says what the reads become and which overrides go, or why the delete is
+ * refused; without one (an older server) it degrades to naming the
+ * variable and where it is read, which the next render will find undefined.
+ */
+export function deletionWording(label: string, usage: ParamUsage | null): DeletionWording {
+  if (usage?.deletion) {
+    return describeDeletionPlan('parameter', label, usage.deletion);
+  }
+  return { blocked: false, text: describeDeletion(label, usage) };
+}
+
+/**
+ * What the user is about to break by deleting a parameter, without a plan.
+ * A declaration nothing reads is a clean removal; one the model reads
+ * leaves those references undefined, and the next render is where they
+ * blow up — so the warning names the variable and where it is read.
  */
 export function describeDeletion(label: string, usage: ParamUsage | null): string {
   const base = `Delete “${label}”?`;

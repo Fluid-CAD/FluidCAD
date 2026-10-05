@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { getOC } from '../../../lib/dist/oc/init.js';
 import { FontRegistry } from '../../../lib/dist/io/font-registry.js';
 import { TextOutline, type TextAlign } from '../../../lib/dist/oc/text-outline.js';

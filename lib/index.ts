@@ -24,6 +24,38 @@ export function captureSourceLocation(): SourceLocation | null {
   return extractSourceLocation(stack);
 }
 
+/**
+ * Where a thrown error came from in a fluid script: the first script frame
+ * of its stack. A V8 stack opens with the error's own header (`Error:
+ * <message>`), which is left out — a message that names a script location
+ * (`bolt.instance(4) was skipped by the copy at flange.part.js:21`) reads
+ * like a frame to the parser, but it is not where anything was thrown.
+ * Stacks without the header (Firefox, Safari) parse as they are.
+ */
+export function extractErrorSourceLocation(error: unknown): SourceLocation | null {
+  const stack = (error as { stack?: unknown } | null)?.stack;
+  if (typeof stack !== 'string' || stack === '') {
+    return null;
+  }
+  const message = (error as { message?: unknown }).message;
+  const header = typeof message === 'string' && message !== '' ? stack.indexOf(message) : -1;
+  return extractSourceLocation(header >= 0 ? stack.slice(header + (message as string).length) : stack);
+}
+
+/**
+ * A script frame's path arrives percent-encoded: `file://` URLs always are,
+ * and the server encodes the `sourceURL` it hands V8 because V8 drops one
+ * holding whitespace (a workspace under `My Projects`). A path that is not
+ * valid percent-encoding is kept as it came.
+ */
+function decodeFramePath(filePath: string): string {
+  try {
+    return decodeURIComponent(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
 export function extractSourceLocation(stack: string): SourceLocation | null {
   const frames = parseStackTrace(stack);
   for (const frame of frames) {
@@ -49,7 +81,7 @@ export function extractSourceLocation(stack: string): SourceLocation | null {
       continue;
     }
 
-    filePath = filePath.replace(/\\/g, '/');
+    filePath = decodeFramePath(filePath).replace(/\\/g, '/');
 
     return {
       filePath,
@@ -77,7 +109,9 @@ export type RegisterBuilderOptions = {
    * Allow the command at the top level of an *.assembly.js file (outside any
    * part() block). Almost every command is part-design only; `connector()`
    * opts in so its own part-scope check can raise a pointed error (declare
-   * inside the part) instead of the generic part-design-only one.
+   * inside the part) instead of the generic part-design-only one, and
+   * `copy()` so it can copy the assembly's own connectors under its own
+   * rules there.
    */
   allowAssemblyTopLevel?: boolean;
 };

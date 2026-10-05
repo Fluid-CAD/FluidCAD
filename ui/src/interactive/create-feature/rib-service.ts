@@ -1,5 +1,5 @@
 import {
-  applyRib, applyRibEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget, GhostSolid,
+  applyRib, applyRibEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget, GhostSolid,
   ParsedFeatureStatement, RibApplyOptions, RibEditOptions, SourceSlotRef,
 } from '../../api';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
@@ -19,6 +19,7 @@ import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Rib dialog on the create rails: extrude a wall from an open sketch
@@ -84,7 +85,7 @@ export class RibFeatureService {
     // Extrude in main.ts, so the group exists and the button lands beside it.
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/rib.png',
+      icon: iconUrl('rib'),
       label: 'Rib',
       tip: 'Rib from a sketch spine',
       ariaLabel: 'Rib from a sketch spine',
@@ -162,7 +163,7 @@ export class RibFeatureService {
     return this.armed;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }
@@ -445,9 +446,9 @@ export class RibFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen spine's (producers win:
-   * the statement inserts in the spine's scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen spine (see {@link scopePartLocation}): the spine's own
+   * part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {
@@ -570,7 +571,7 @@ export class RibFeatureService {
       exclude: this.editTarget
         ? { filePath: this.editTarget.filePath, line: this.editTarget.line }
         : undefined,
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost ribs from, or null while there is nothing to build. */

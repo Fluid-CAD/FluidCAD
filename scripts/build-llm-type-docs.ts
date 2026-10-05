@@ -112,6 +112,7 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   Shell: ['api/shell'],
   Draft: ['api/draft'],
   Rib: ['api/rib'],
+  Hole: ['api/hole'],
   SolvedLine: ['api/line'],
   SolvedArc: ['api/arc'],
   SolvedCircle: ['api/circle'],

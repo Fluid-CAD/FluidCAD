@@ -19,7 +19,7 @@ export const INCH_PART_FILE = "/ws/fixtures/inch-block.fluid.js";
  * z∈[0,size] — in the defining file's unit — with:
  *  - its top face coloured red,
  *  - a part-owned connector 'top' at the top-face centre (size/2, 0, size),
- *  - exposures 'profile' (the reusable base sketch) and 'top' (the top face).
+ *  - exposures 'profile' (the base sketch) and 'top' (the top face).
  * `size` is a `param('size', 1)`, so `insert(def, { size: 2 })` doubles it.
  * With `tagBottom`, the bottom face is coloured blue as a trailing statement.
  */
@@ -28,7 +28,7 @@ const SOURCE = `
     const size = param('size', 1);
     const s = sketch('xy', () => {
       testRect(size, size, { at: [0, -size / 2] });
-    }).reusable();
+    });
     const e = extrude(size);
     color('red', e.endFaces());
     connector('top', e.endFaces());

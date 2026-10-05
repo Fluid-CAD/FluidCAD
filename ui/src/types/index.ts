@@ -28,9 +28,17 @@ export type PlaneData = {
   yDirection: Vec3Data;
 };
 
+/**
+ * Where a connector copy sits: the pattern slot the `copy()` statement put it
+ * at, and the scene id of the connector it copies (its seed). Code names the
+ * copy `<seed name>.instance(<slot>)`.
+ */
+export type ConnectorCopyRef = { slot: number; seedId: string };
+
 export type ConnectorData = {
   /** The identifier registered by `connector('name', …)` — absent only on
-   *  a connector whose build failed before its frame was derived. */
+   *  a connector whose build failed before its frame was derived. A copy
+   *  carries its seed's name (and `copy`). */
   name?: string;
   origin: Vec3Data;
   xDirection: Vec3Data;
@@ -43,7 +51,42 @@ export type ConnectorData = {
    * The viewer hides the connector with its host (shapes panel eye toggle).
    */
   hostShapeIds?: string[];
+  /**
+   * Present on a copy made by a `copy()` statement listing the connector:
+   * its row sits under that statement's row, not under the part, and it has
+   * no statement of its own — edits go to the seed.
+   */
+  copy?: ConnectorCopyRef;
 };
+
+/**
+ * A `copy()` statement row that copies connectors (`object.connectorCopies`):
+ * the connectors it copies, the pattern's numbering — the slot the originals
+ * hold and how many slots it numbers — the slots its copies sit at, and
+ * whether connectors are all it copies (absent on older engines).
+ */
+export type ConnectorCopiesData = {
+  seeds: { id: string; name: string }[];
+  originalSlot: number;
+  slotCount: number;
+  slots: number[];
+  connectorsOnly?: boolean;
+};
+
+/**
+ * How code addresses a part connector on its instance: the registered name,
+ * plus the pattern slot for a copy (`instance.connectors.name.instance(slot)`).
+ * Stable across renders, unlike scene ids — picks re-find themselves by it.
+ */
+export type ConnectorAddress = { name: string; slot?: number };
+
+/**
+ * How code names a connector: `bolt`, or a copy of it `bolt.instance(3)` —
+ * the one spelling chips, previews and rails show.
+ */
+export function connectorLabel(name: string, slot?: number): string {
+  return slot === undefined ? name : `${name}.instance(${slot})`;
+}
 
 /**
  * Serialized `expose('name', …)` payload: the exposure name plus the
@@ -66,6 +109,8 @@ export type ObjectType =
   | 'sketch'
   | 'plane'
   | 'axis'
+  /** A saved section view — never a timeline row. */
+  | 'section'
   // Selection overlay
   | 'select'
   // Primitives
@@ -90,6 +135,16 @@ export type ObjectType =
   | 'thickness'
   | 'mirror'
   | 'linear-pattern'
+  // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
+  // following a repeat
+  | 'copy-linear'
+  | 'copy-circular'
+  | 'copy-pattern'
+  // 3D repeats — `repeat('linear' | 'circular', …)`, and the rotate/matrix
+  // forms (`repeat('mirror', …)` rows carry the mirror type)
+  | 'repeat-linear'
+  | 'repeat-circular'
+  | 'repeat-matrix'
   | 'boolean'
   // Direct solid reference
   | 'solid'
@@ -98,13 +153,15 @@ export type ObjectType =
   // Assembly mate connectors
   | 'connector'
   // Named geometry publications (`expose('name', …)`) — shapeless pass-throughs
-  | 'exposed';
+  | 'exposed'
+  // A sketch's region declarations (`region('name', …)`) — shapeless names for region picks
+  | 'region';
 
 // ---------------------------------------------------------------------------
 // Shape types — the geometric representation of a scene object
 // ---------------------------------------------------------------------------
 
-export type ShapeType = 'solid' | 'face' | 'wire' | 'edge';
+export type ShapeType = 'solid' | 'face' | 'wire' | 'edge' | 'vertex';
 
 // ---------------------------------------------------------------------------
 // Mesh render options
@@ -153,6 +210,12 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  | {
+    type: 'vertex'; index: number;
+    position: { x: number; y: number; z: number };
+    /** Other topological vertices at this same world position. */
+    alternates?: { shapeId: string; index: number; instanceId?: string | null }[];
+  }
   /**
    * A sketch wire hit — only produced while a create dialog has enabled
    * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
@@ -182,6 +245,10 @@ export type SubSelection =
 
 export type SceneObjectPart = {
   shapeId?: string;
+  /** Packed xyz per topological vertex, before any assembly instance pose. */
+  vertices?: number[];
+  /** Vertex indices belonging to each face, in the viewport's topology order. */
+  faceVertices?: number[][];
   meshes: SceneObjectMesh[];
   shapeType?: ShapeType;
   isMetaShape?: boolean;
@@ -201,6 +268,21 @@ export type CompileError = {
   sourceLocation?: SourceLocation;
 };
 
+/**
+ * A non-fatal per-object notice on the `scene-rendered` message
+ * (`objectWarnings`, the same shape as `objectErrors`): the row built, but
+ * something about it is off — a part naming a material id the merged list
+ * lacks (`Unknown material: <id>`). `index` numbers the `result` array.
+ */
+export type ObjectBuildWarning = {
+  index: number;
+  id?: string;
+  name?: string;
+  uniqueKind?: string;
+  message: string;
+  sourceLocation?: SourceLocation;
+};
+
 export type SceneObjectRender = {
   id?: string;
   name?: string;
@@ -216,10 +298,26 @@ export type SceneObjectRender = {
    * row's source selection) — shown on demand as a highlight.
    */
   referencedShapes?: SceneObjectPart[];
+  /**
+   * The shapes a consumer hid (display-only consumption) — a plane's quad, an
+   * axis's line, a sketch entity's wires: off the screen in this world, still
+   * readable by later features. Drawn when the object is shown again (the
+   * timeline eye, a dialog revealing its pick). Absent when nothing is hidden.
+   */
+  hiddenShapes?: SceneObjectPart[];
+  /**
+   * On the row of a sketch, plane or axis its consumer hid: the id of the
+   * feature that took it first in this world. Absent while it still renders.
+   */
+  consumedBy?: string;
+
   ownShapes: SceneObjectPart[];
   visible?: boolean;
-  /** The object carries a `.reusable()` chain — kept visible when consumed. */
-  reusable?: boolean;
+  /**
+   * A sketch carrying a `.close()` chain: finished, so a scope ending in it
+   * does not enter sketch mode. Only ever set on sketch rows.
+   */
+  closed?: boolean;
   /**
    * The object serves another statement's build (a sketch's own plane) rather
    * than being a feature the code wrote — the timeline leaves it out. Absent
@@ -273,6 +371,22 @@ export type UIParamDefinition = {
    * dropdown filters on. Absent for a top-level declaration.
    */
   part?: SourceLocation;
+};
+
+/**
+ * One `property()` of the rendered part file, as the Parameters panel lists
+ * it: the value the last render computed, where the call was authored
+ * (what the editor addresses, beside the name) and the `part()`
+ * statement whose body declared it (what the Part dropdown filters on).
+ */
+export type UIPropertyDefinition = {
+  /** What the panel shows for the row. */
+  label: string;
+  /** The identifier the code reads the property by. */
+  name: string;
+  value: string | number | boolean | (string | number)[];
+  sourceLocation?: SourceLocation;
+  part: SourceLocation;
 };
 
 // ---------------------------------------------------------------------------
@@ -339,6 +453,8 @@ export type SerializedAssemblyInstance = {
   name: string;
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The variant's `property()` values as the assembly reads them; absent when the part declares none. */
+  properties?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
   /**
    * Present on a replica produced by a `replicate()` statement. Its
@@ -445,6 +561,8 @@ export type SerializedAssemblyConnector = {
   yDirection: Vec3Data;
   normal: Vec3Data;
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a copy of an assembly connector — see ConnectorData.copy. */
+  copy?: ConnectorCopyRef;
 };
 
 export type SerializedAssembly = {

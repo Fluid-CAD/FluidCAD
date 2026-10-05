@@ -128,3 +128,133 @@ describe('ConnectorsPanel', () => {
     expect(host.querySelector<HTMLElement>('[data-connector-id="w1"]')!.title).toBe('Edit this connector');
   });
 });
+
+// The rail groups an assembly connector's copies (a top-level `copy()`)
+// under it: the seed row carries the family's count and a chevron, each
+// copy folds out as `instance(k)`, eyes key by label, a copy's row edits
+// its copy statement (or picks), and the ⋮ menu names each row's actions.
+describe('ConnectorsPanel — copy families', () => {
+  const frame = {
+    origin: { x: 0, y: 0, z: 0 }, xDirection: { x: 1, y: 0, z: 0 },
+    yDirection: { x: 0, y: 1, z: 0 }, normal: { x: 0, y: 0, z: 1 },
+  };
+  const FILE = '/ws/rack.assembly.js';
+  const bay = { connectorId: 'w-bay', name: 'bay', owner: '', ...frame, sourceLocation: { filePath: FILE, line: 4, column: 12 } };
+  const hinge = { connectorId: 'w-hinge', name: 'hinge', owner: '', ...frame, sourceLocation: { filePath: FILE, line: 5, column: 14 } };
+  // Listed out of slot order, as nothing promises the payload's order.
+  const copies = [3, 1, 2].map(slot => ({
+    connectorId: `w-bay-${slot}`, name: 'bay', owner: '', ...frame,
+    sourceLocation: { filePath: FILE, line: 7, column: 0 },
+    copy: { slot, seedId: 'w-bay' },
+  }));
+
+  function mountPanel() {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const hidden = new Set<string>();
+    const calls: string[] = [];
+    const panel = new ConnectorsPanel(host, {
+      onEdit: (c) => calls.push(`edit ${c.connectorId}`),
+      onEditCopy: (c) => calls.push(`edit-copy ${c.connectorId}`),
+      onPick: (c) => calls.push(`pick ${c.connectorId}`),
+      onCopy: (c) => calls.push(`copy ${c.connectorId}`),
+      onShowInSource: (c) => calls.push(`source ${c.sourceLocation?.line}`),
+      onDelete: (c) => calls.push(`delete ${c.connectorId}`),
+      onRemoveCopies: (c) => calls.push(`remove-copies ${c.sourceLocation?.line}`),
+      onToggleVisibility: (label, visible) => { if (visible) hidden.delete(label); else hidden.add(label); },
+      isHidden: (label) => hidden.has(label),
+    });
+    panel.update([bay, hinge, ...copies]);
+    const rows = () => [...host.querySelectorAll<HTMLElement>('[data-connector-id]')];
+    const rowText = () => rows().map(r => r.querySelector('span.truncate')!.textContent);
+    const row = (id: string) => host.querySelector<HTMLElement>(`[data-connector-id="${id}"]`)!;
+    const openMenu = (id: string) => {
+      row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+      return [...host.querySelectorAll<HTMLButtonElement>('[data-action]')];
+    };
+    return { host, panel, hidden, calls, rows, rowText, row, openMenu };
+  }
+
+  it('heads a family with the seed: its count and a chevron folding out instance(k) rows in slot order', () => {
+    const { host, rowText, row } = mountPanel();
+    expect(host.querySelector('[data-ref="count"]')!.textContent).toBe('5');
+    expect(rowText()).toEqual(['bay', 'hinge']);
+    expect(row('w-bay').querySelector('[data-family-count]')!.textContent).toBe('4');
+    expect(row('w-hinge').querySelector('[data-chevron]')).toBeNull();
+
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    expect(rowText()).toEqual(['bay', 'instance(1)', 'instance(2)', 'instance(3)', 'hinge']);
+    // The fold survives the per-render id re-mint: it is keyed by the seed's name.
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    expect(rowText()).toEqual(['bay', 'hinge']);
+  });
+
+  it('keys eyes by label: a copy hides alone, the seed row hides the whole family', () => {
+    const { host, hidden, row } = mountPanel();
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    host.querySelector<HTMLButtonElement>('[data-eye="bay.instance(2)"]')!.click();
+    expect([...hidden]).toEqual(['bay.instance(2)']);
+
+    host.querySelector<HTMLButtonElement>('[data-eye="bay.instance(2)"]')!.click();
+    host.querySelector<HTMLButtonElement>('[data-eye="bay"]')!.click();
+    expect([...hidden].sort()).toEqual(['bay', 'bay.instance(1)', 'bay.instance(2)', 'bay.instance(3)']);
+    host.querySelector<HTMLButtonElement>('[data-eye="bay"]')!.click();
+    expect([...hidden]).toEqual([]);
+  });
+
+  it('a copy row edits the statement that made it, and is a pick while a dialog picks', () => {
+    const { panel, calls, row } = mountPanel();
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    row('w-bay-2').click();
+    row('w-bay').click();
+    expect(calls).toEqual(['edit-copy w-bay-2', 'edit w-bay']);
+
+    panel.setPickMode(true, 'Pick as the copy axis');
+    expect(row('w-bay-2').title).toBe('Pick as the copy axis');
+    row('w-bay-2').click();
+    row('w-hinge').click();
+    expect(calls.slice(2)).toEqual(['pick w-bay-2', 'pick w-hinge']);
+  });
+
+  it('sits its copy rows out while the picking dialog takes no copies — a click does nothing, the tooltip says why', () => {
+    const { panel, calls, row } = mountPanel();
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    panel.setPickMode(true, 'Pick for the copy', 'inert');
+
+    expect(row('w-bay-2').title).toBe('A copy is never copied again — pick bay');
+    expect(row('w-bay-2').classList.contains('text-primary')).toBe(false);
+    expect(row('w-bay-2').classList.contains('cursor-default')).toBe(true);
+    expect(row('w-hinge').title).toBe('Pick for the copy');
+    expect(row('w-hinge').classList.contains('text-primary')).toBe(true);
+
+    row('w-bay-2').click();
+    row('w-hinge').click();
+    row('w-bay').click();
+    expect(calls).toEqual(['pick w-hinge', 'pick w-bay']);
+
+    // The same dialog arming an axis slot takes copies again.
+    panel.setPickMode(true, 'Pick as the copy axis');
+    row('w-bay-2').click();
+    expect(calls.at(-1)).toBe('pick w-bay-2');
+  });
+
+  it('offers Copy… on a connector nothing copies, Edit copy… once one does, and a copy\'s own actions', () => {
+    const { calls, row, openMenu } = mountPanel();
+    const labels = (items: HTMLButtonElement[]) => items.map(item => item.textContent!.trim());
+
+    expect(labels(openMenu('w-hinge'))).toEqual(['Show in source', 'Copy…', 'Delete']);
+    openMenu('w-hinge').find(item => item.dataset.action === 'copy')!.click();
+    expect(calls).toEqual(['copy w-hinge']);
+
+    expect(labels(openMenu('w-bay'))).toEqual(['Show in source', 'Edit copy…', 'Delete']);
+    openMenu('w-bay').find(item => item.dataset.action === 'edit-copy')!.click();
+    expect(calls.at(-1)).toMatch(/^edit-copy w-bay-\d$/);
+
+    row('w-bay').querySelector<HTMLButtonElement>('[data-chevron]')!.click();
+    expect(labels(openMenu('w-bay-1'))).toEqual(['Show in source', 'Edit copy…', 'Remove copies']);
+    openMenu('w-bay-1').find(item => item.dataset.action === 'show-in-source')!.click();
+    openMenu('w-bay-1').find(item => item.dataset.action === 'remove-copies')!.click();
+    openMenu('w-bay').find(item => item.dataset.action === 'delete')!.click();
+    expect(calls.slice(-3)).toEqual(['source 7', 'remove-copies 7', 'delete w-bay']);
+  });
+});

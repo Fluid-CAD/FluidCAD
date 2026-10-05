@@ -21,10 +21,7 @@ import {
   handleInsertPoint,
   handleAddGuide,
   handleRemoveGuide,
-  handleAddPick,
-  handleRemovePick,
   handleRemovePoint,
-  handleSetPickPoints,
   handleGotoSource,
   handleUpdateInsertChain,
   handleInsertGeometry,
@@ -165,18 +162,10 @@ export class Client {
         });
         break;
       }
-      case 'set-pick-points': {
-        handleSetPickPoints(this, msg);
-        break;
-      }
       case 'update-insert-chain': {
         handleUpdateInsertChain(this, msg).catch((err) => {
           this.logger.appendLine(`[update-insert-chain] error: ${err?.stack || err}`);
         });
-        break;
-      }
-      case 'add-pick': {
-        handleAddPick(this, msg);
         break;
       }
       case 'add-guide': {
@@ -185,10 +174,6 @@ export class Client {
       }
       case 'remove-guide': {
         handleRemoveGuide(this, msg);
-        break;
-      }
-      case 'remove-pick': {
-        handleRemovePick(this, msg);
         break;
       }
       case 'insert-geometry': {

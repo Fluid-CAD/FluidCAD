@@ -1,4 +1,5 @@
 import { setupMonaco, EDITOR_OPTIONS, monaco } from './monaco-setup';
+import { editorPrefOptions, editorPrefs } from './editor-prefs';
 
 /**
  * The code editor's surface: a pane docked to the left of the scene, hidden by
@@ -73,10 +74,15 @@ export class EditorPane {
   ensureEditor(): monaco.editor.IStandaloneCodeEditor {
     if (!this.editor) {
       setupMonaco();
-      this.editor = monaco.editor.create(this.editorHost, {
+      const editor = monaco.editor.create(this.editorHost, {
         ...EDITOR_OPTIONS,
+        ...editorPrefOptions(editorPrefs.current),
         overflowWidgetsDomNode: overflowWidgetsHost(),
       });
+      // The Settings dialog's font edits land while the editor is up.
+      const unsubscribe = editorPrefs.subscribe((prefs) => editor.updateOptions(editorPrefOptions(prefs)));
+      editor.onDidDispose(unsubscribe);
+      this.editor = editor;
     }
     return this.editor;
   }

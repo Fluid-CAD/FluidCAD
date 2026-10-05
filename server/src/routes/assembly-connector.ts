@@ -1,15 +1,20 @@
 import { Router } from 'express';
 import { basename } from 'path';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
-import { isExpressionText } from '../apply-feature-edit.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { isExpressionText } from '../apply-feature-edit/index.ts';
 import {
   getAssemblyConnectorExpressions, listAssemblyConnectorNames, validateAssemblyConnectorSpec,
   type AssemblyConnectorEditSpec,
 } from '../assembly-connector-edit.ts';
+import { AssemblyConnectorCopyEdit, type AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
 
 function isVec3(v: unknown): v is [number, number, number] {
   return Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n));
@@ -31,7 +36,10 @@ function isNewVariables(v: unknown): v is { name: string; initializer: string }[
  * or rewrites a `connector('name', [x, y, z])<rotates>` statement through
  * the shared edit dispatcher; `/assembly-connector-expressions` reads the
  * exact tuple and angle texts to seed the dialog; `/assembly-connector-names`
- * lists the declared names for default-name allocation.
+ * lists the declared names for default-name allocation. The assembly Copy
+ * dialog's `/assembly-connector-copy` writes, rewrites or removes a `copy()`
+ * of the assembly's own connectors — or, with `preview`, answers the
+ * statement it would write without touching the file.
  */
 export function createAssemblyConnectorRouter(
   fluidCadServer: FluidCadServer,
@@ -106,6 +114,74 @@ export function createAssemblyConnectorRouter(
       newVariables: newVariables ?? undefined,
     };
     await dispatcher.dispatch(res, edit_spec, { success: true });
+  });
+
+  router.post('/assembly-connector-copy', async (req, res) => {
+    const { filePath, create, edit, remove, newVariables, preview } = req.body ?? {};
+    const parts = [create, edit, remove].filter(part => part !== undefined);
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || parts.length !== 1 || !parts.every(isObject)
+      || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
+      || (preview !== undefined && typeof preview !== 'boolean')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const spec: AssemblyConnectorCopyEditSpec = { create, edit, remove };
+    const invalid = AssemblyConnectorCopyEdit.validate(spec);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (detectKind(currentFile) !== 'assembly') {
+      res.status(422).json({ success: false, reason: 'Assembly connector copies live in an assembly — open a *.assembly.js file first.' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this copy belongs to ${basename(filePath)} — open that file to edit it there.`,
+      });
+      return;
+    }
+    if (preview === true) {
+      // The statement the transform would write over the live buffer —
+      // pre-Apply refusals (a stale line, a connector gone) surface here.
+      const code = fluidCadServer.getCurrentCode();
+      if (!code) {
+        res.status(422).json({ success: false, reason: 'No live code buffer' });
+        return;
+      }
+      if (spec.remove) {
+        res.status(400).json({ error: 'a removal has no statement to preview' });
+        return;
+      }
+      const result = await AssemblyConnectorCopyEdit.apply(code, spec);
+      if (result.error !== undefined) {
+        res.status(422).json({ success: false, reason: result.error });
+        return;
+      }
+      res.json({ success: true, preview: result.statement });
+      return;
+    }
+    const editSpec: ApplyFeatureEditSpec = {
+      // Placeholder feature, as the connector route's: the
+      // assemblyConnectorCopy side-channel supersedes every other field.
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      assemblyConnectorCopy: spec,
+      newVariables: newVariables ?? undefined,
+    };
+    await dispatcher.dispatch(res, editSpec, { success: true });
   });
 
   router.post('/assembly-connector-expressions', async (req, res) => {

@@ -1,0 +1,40 @@
+---
+sidebar_position: 13
+title: "region"
+description: "Declares a named region of the sketch: the closed area bounded by the listed entities, which a 3D operation on the sketch selects with `.region(name)`. List the entities on the region's outer loop (holes never count); wrap an entity in `far()` when the region lies on its far side — outside a circle, or on the right of a line's own direction. The Pick regions link of the extrude, revolve, sweep and wrap dialogs writes these declarations."
+---
+
+# region()
+
+Declares a named region of the sketch: the closed area bounded by the
+listed entities, which a 3D operation on the sketch selects with
+`.region(name)`. List the entities on the region's outer loop (holes
+never count); wrap an entity in `far()` when the region lies on its far
+side — outside a circle, or on the right of a line's own direction.
+The Pick regions link of the extrude, revolve, sweep and wrap dialogs
+writes these declarations.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/3d-operations/extrude#region-picking) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+region(name: string, ...entities: IRegionTarget[]): SceneObject
+```
+
+Declares a named region of the sketch: the closed area bounded by the
+listed entities, which a 3D operation on the sketch selects with
+`.region(name)`. List the entities on the region's outer loop (holes
+never count); wrap an entity in `far()` when the region lies on its far
+side — outside a circle, or on the right of a line's own direction.
+The Pick regions link of the extrude, revolve, sweep and wrap dialogs
+writes these declarations.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | The region's name, unique within the sketch |
+| `...entities` | IRegionTarget[] | The sketch entities (or edges: `r.top()`, `p.ref(i)`) on the region's outer loop, each optionally wrapped in `far()` *(optional)* |

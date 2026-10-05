@@ -17,14 +17,14 @@
  */
 
 // --- Engine -----------------------------------------------------------------
-export { FluidCadServer } from './fluidcad-server.ts';
+export { FluidCadServer } from './fluidcad-server/index.ts';
 export type {
   SceneRenderedData,
   SceneSummary,
   SceneSummaryObject,
   ShapeList,
   ShapeListEntry,
-} from './fluidcad-server.ts';
+} from './fluidcad-server/index.ts';
 
 // --- SceneHost extension point ---------------------------------------------
 // Third parties (e.g. a hub runtime) implement `SceneHost` to feed scene code

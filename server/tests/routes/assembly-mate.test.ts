@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createAssemblyMateRouter } from '../../src/routes/assembly-mate.ts';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 
 // The mate dialog's commit endpoint: validation, the preflight refusing bad
@@ -155,6 +155,56 @@ describe('assembly-mate route', () => {
     const { status, body } = await applied;
     expect(status).toBe(200);
     expect(body).toMatchObject({ success: true });
+  });
+
+  it('carries a connector copy\'s slot through the wire and rejects a bad one', async () => {
+    const bad = await postMate({
+      ...CREATE_BODY,
+      create: { ...CREATE_BODY.create, connectorA: { instanceLine: 5, connectorName: 'tip', slot: -1 } },
+    });
+    expect(bad.status).toBe(400);
+    expect(relayed).toEqual([]);
+
+    const applied = postMate({
+      ...CREATE_BODY,
+      create: { ...CREATE_BODY.create, connectorA: { instanceLine: 5, connectorName: 'tip', slot: 2 } },
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.assemblyMate.create.connectorA).toEqual({ instanceLine: 5, connectorName: 'tip', slot: 2 });
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(`mate('fastened', arm1.connectors.tip.instance(2), base1.connectors.slot);`);
+    const { status, body } = await applied;
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true });
+  });
+
+  it('carries an assembly connector copy\'s slot on a frame side and rejects a bad one', async () => {
+    const bad = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'revolute',
+        frameA: { connectorLine: 10, connectorName: 'pivot', slot: 1.5 },
+        connectorB: { instanceLine: 5, connectorName: 'tip' },
+      },
+    });
+    expect(bad.status).toBe(400);
+    expect(relayed).toEqual([]);
+
+    const applied = postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'revolute',
+        frameA: { connectorLine: 10, connectorName: 'pivot', slot: 1 },
+        connectorB: { instanceLine: 5, connectorName: 'tip' },
+      },
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.assemblyMate.create.frameA).toEqual({ connectorLine: 10, connectorName: 'pivot', slot: 1 });
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(`mate('revolute', pivot.instance(1), arm1.connectors.tip);`);
+    expect((await applied).status).toBe(200);
   });
 
   it('rejects malformed assembly-connector sides at the wire', async () => {

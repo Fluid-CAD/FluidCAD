@@ -5,10 +5,15 @@ import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
-import { circle } from "../../core/2d/index.js";
+import plane from "../../core/plane.js";
+import loft from "../../core/loft.js";
+import { circle, bezier } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Shell } from "../../features/shell.js";
+import { Loft } from "../../features/loft.js";
+import { ShapeValidator } from "../../oc/shape-validator.js";
+import { FaceOps } from "../../oc/face-ops.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -146,6 +151,83 @@ describe("shell", () => {
 
       // Hollow cylinder has more faces than a solid cylinder (3)
       expect(solid.getFaces().length).toBeGreaterThan(3);
+    });
+  });
+
+  describe("shell on a round loft", () => {
+    // OCC's offset refuses a face whose surface is formally C0. A loft wall
+    // skinned through a circle stored as three arcs was one, and no
+    // thickness or join type could hollow it.
+    function hollowed(s: Shell): Solid {
+      expect(s.getError()).toBeNull();
+      const solid = s.getShapes()[0] as Solid;
+      expect(ShapeValidator.validate(solid.getShape()).findings).toEqual([]);
+      return solid;
+    }
+
+    it.each([-2, 2])("should hollow out a loft between two circles (thickness %d)", thickness => {
+      const s1 = sketch("xy", () => {
+          circle([0, 0], 40);
+        });
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          circle([0, 0], 60);
+        });
+      const l = loft(s1, s2) as Loft;
+      const s = shell(thickness, l.endFaces()) as Shell;
+
+      render();
+
+      const solid = hollowed(s);
+      // Frustum r 20 → 30 over 50, with a 2mm wall and floor.
+      const frustum = (Math.PI * 50 / 3) * (20 * 20 + 20 * 30 + 30 * 30);
+      const volume = ShapeProps.getProperties(solid.getShape()).volumeMm3;
+      expect(volume).toBeGreaterThan(frustum * 0.1);
+      expect(volume).toBeLessThan(frustum * 0.3);
+
+      // One wall outside and one inside — nothing splits a round loft.
+      const walls = solid.getFaces().filter(f => !FaceOps.tryGetPlane(f));
+      expect(walls.length).toBe(thickness < 0 ? 2 : 3);
+    });
+
+    it("should hollow out a loft bulged by two guides", () => {
+      const s1 = sketch("xy", () => {
+          circle([0, 0], 20);
+        });
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          circle([0, 0], 20);
+        });
+      const guides = sketch("xz", () => {
+          bezier([10, 0], [35.45, 20], [0, 31.61], [10, 50]);
+          bezier([-10, 0], [-35.45, 20], [0, 31.61], [-10, 50]);
+        });
+      const l = loft(s1, s2).guides(guides) as Loft;
+      const sides = l.sideFaces();
+      addToScene(sides);
+      const s = shell(-2, l.endFaces()) as Shell;
+
+      render();
+
+      expect(sides.getShapes()).toHaveLength(1);
+      // Outer wall, inner wall, floor outside and inside, and the rim.
+      expect(hollowed(s).getFaces()).toHaveLength(5);
+    });
+
+    it("should hollow out a loft from a circle to a square, opened at the square", () => {
+      const s1 = sketch("xy", () => {
+          circle([0, 0], 30);
+        });
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          testRect(40, 40, { at: [-20, -20] });
+        });
+      const l = loft(s1, s2) as Loft;
+      const s = shell(-2, l.endFaces()) as Shell;
+
+      render();
+
+      // Four walls outside and four inside: the square's corners are the
+      // only splits, though the circle is approximated on this path.
+      const walls = hollowed(s).getFaces().filter(f => !FaceOps.tryGetPlane(f));
+      expect(walls).toHaveLength(8);
     });
   });
 
@@ -387,6 +469,34 @@ describe("shell", () => {
         expect(s.getError()).toContain("matched no solid");
       } finally {
         spy.mockRestore();
+      }
+    });
+
+    it("flags an error when the kernel hands the solid back un-hollowed", () => {
+      // Opened at its round end, a square-to-circle loft has walls that meet
+      // at an angle below and tangentially above. OCC's offset cannot join
+      // their inner copies; it glues the input back together and reports
+      // success. That is the solid un-hollowed, not a shell.
+      const s1 = sketch("xy", () => {
+          testRect(40, 40, { at: [-20, -20] });
+        });
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          circle([0, 0], 30);
+        });
+      const l = loft(s1, s2) as Loft;
+      const s = shell(-2, l.endFaces()) as Shell;
+
+      render();
+
+      const solid = s.getShapes()[0] as Solid;
+      const volume = ShapeProps.getProperties(solid.getShape()).volumeMm3;
+      if (s.getError() === null) {
+        // A kernel that can hollow it is welcome to.
+        expect(volume).toBeLessThan(40 * 40 * 50 * 0.5);
+        expect(ShapeValidator.validate(solid.getShape()).findings).toEqual([]);
+      } else {
+        expect(s.getError()).toContain("could not hollow the solid");
+        expect(volume).toBeGreaterThan(Math.PI * 15 * 15 * 50);
       }
     });
 

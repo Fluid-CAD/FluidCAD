@@ -5,17 +5,25 @@ import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { Connector } from "../features/connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
+import { CopyLayout } from "../features/copy-layout.js";
+import { CopyPattern } from "../features/copy-pattern.js";
+import { RepeatBase } from "../features/repeat-base.js";
 import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
+import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
+import { liveSolidsIn } from "../helpers/live-solids.js";
+import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
-import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
+import { buildLoftGhostSolids, loftMatchLines, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildOffsetGhostWires } from "../features/2d/offset-ghost.js";
 import { buildFillet2DGhostArcs } from "../features/fillet2d-ghost.js";
 import { Sketch } from "../features/2d/sketch.js";
@@ -27,11 +35,14 @@ import {
 } from "../features/repeat-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
-import { Extrudable } from "../helpers/types.js";
+import { BoundingBox, Extrudable } from "../helpers/types.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
+import type { RegionPick } from "../features/2d/regions/region-wire.js";
+import { resolveRegionPicks, sourceRegionContext } from "../features/2d/regions/source-regions.js";
 import { throughAllLength } from "../helpers/through-all.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { Plane, toPlane } from "../math/plane.js";
+import { Plane, PlaneRotationAxes, toPlane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -40,13 +51,15 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import type { LoftEndCondition } from "../oc/loft-ops.js";
 import type { MeshSettings } from "../oc/mesh.js";
+import { ShapeProps } from "../oc/props.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
-import { withUnit } from "../units/registry.js";
+import { getActiveUnit, withUnit } from "../units/registry.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * A dialog's live geometry request, every value already resolved to a number
@@ -56,6 +69,7 @@ import { withUnit } from "../units/registry.js";
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RibGhostRequest
+  | HoleGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -84,6 +98,12 @@ export type ExtrudeGhostRequest = {
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
+  /**
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 export type RibGhostRequest = {
@@ -111,6 +131,29 @@ export type RibGhostRequest = {
   exclude?: { filePath: string; line: number };
 };
 
+export type HoleGhostRequest = {
+  feature: 'hole';
+  /** One frame per placement: the surface point and the outward normal, world space. */
+  frames: { origin: [number, number, number]; normal: [number, number, number] }[];
+  diameter: number;
+  /** Blind depth to the shoulder; null is through all. */
+  depth: number | null;
+  tipAngle: number | null;
+  counterbore: { diameter: number; depth: number } | null;
+  countersink: { diameter: number; angle: number } | null;
+  /** The `.scope(…)` solids by producing statement; empty sizes a through hole to every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
+  exclude?: { filePath: string; line: number };
+  /**
+   * `.fasten(…)`: the tap-drill diameter of one more bore per placement, into
+   * the next solid along its axis past the clearance (see fastenedAxis) —
+   * through that solid, or to `depth` from the face the axis enters it
+   * through. The clearance tool stops where that solid begins.
+   */
+  fasten?: { diameter: number; depth?: number | null; tipAngle?: number | null } | null;
+};
+
 export type RevolveGhostRequest = {
   feature: 'revolve';
   op: 'add' | 'remove' | 'new';
@@ -122,6 +165,12 @@ export type RevolveGhostRequest = {
   /** The producing statement of the profile to revolve. */
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
+  /**
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 /**
@@ -130,11 +179,17 @@ export type RevolveGhostRequest = {
  * viewport — the three things the slot can hold, mirrored from the apply
  * request's own axis ref. "Keep the current axis" never reaches here; the
  * client resolves it to the statement's own `axis()` call site first.
+ *
+ * The copy's axis slot takes a fourth: a connector, by its `connector()`
+ * statement's call site — plus the pattern slot for one of its copies
+ * (`bolt.instance(2)`) — standing for its Z axis through its origin
+ * ({@link ConnectorAxis}).
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: StandardAxis }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -143,6 +198,16 @@ export type SweepGhostRequest = {
   /** The producing statement of the profile to sweep. */
   profile: { filePath: string; line: number };
   path: GhostPathRef;
+  /** `.extend('start', …)` lead-in before the path, or null. */
+  extendStart?: number | null;
+  /** `.extend('end', …)` run-out past the path, or null. */
+  extendEnd?: number | null;
+  /**
+   * The dialog's region picks: the declared names and/or boundaries of the
+   * regions to build. Absent builds every region; an empty list is the
+   * argument-less `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 /**
@@ -166,6 +231,8 @@ export type LoftGhostRequest = {
   guides: { filePath: string; line: number }[];
   startCondition: GhostLoftCondition | null;
   endCondition: GhostLoftCondition | null;
+  /** World-space points, one per profile in each connection. */
+  connections?: [number, number, number][][];
 };
 
 /**
@@ -287,7 +354,7 @@ export type GhostRepeatDirection = {
  * builds no geometry of its own.
  *
  * Where a repeat *replays* the features it names, `copy()` clones the shapes
- * its targets already hold and moves them (copy-linear.ts:32-97): what an
+ * its targets already hold and moves them (`CopyBase.build`): what an
  * instance puts on screen IS the target's body, no boolean and no re-run. So
  * the ghost stamps that body — whole, a boss fused into its plate included,
  * because that whole fused body is precisely what the apply will clone.
@@ -298,11 +365,19 @@ export type GhostRepeatDirection = {
  * transform. Per keystroke that is N array transforms and no OCC work.
  *
  * The origin instance is never drawn — it is the geometry already on screen.
+ *
+ * A copy that follows a repeat (`kind: 'pattern'`, `copy(holes, bolt)`)
+ * states no instances of its own: they are the repeat's, read off it at its
+ * call site, and its targets are connectors only — the ghost answers frames.
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /**
+   * The statements being copied, by call site: solid-bearing ones, whose
+   * bodies are stamped, and `connector()` statements, whose frames come back
+   * as {@link GhostFrame}s — a connector copy is its seed's frame moved.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -316,10 +391,16 @@ export type CopyGhostRequest = {
   sweep: RepeatGhostSweep | null;
   /**
    * Instances the copy leaves out, one index per direction — the statement's
-   * own `skip` option (copy-linear.ts:82, copy-circular.ts:55). A circular
+   * own `skip` option (`CopyLayout.linear`, `CopyLayout.circular`). A circular
    * copy's entries carry a single index each; absent skips none.
    */
   skip?: number[][];
+  /**
+   * Pattern: the `repeat()` the copies follow, by call site — each copy lands
+   * where the repeat put its instance (`CopyLayout.follow`). Only the pattern
+   * kind carries one, and it carries no axes, directions, count or sweep.
+   */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -390,6 +471,8 @@ export type PlaneGhostRequest = {
   rotateX: number | null;
   rotateY: number | null;
   rotateZ: number | null;
+  /** The axes the rotations turn around: the plane's own, or the world's. */
+  rotationAxes: PlaneRotationAxes;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: number | null;
 };
@@ -532,6 +615,8 @@ export type Mirror2DGhostRequest = {
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
   kind?: 'add' | 'remove';
+  /** Loft side-edge polylines, packed xyz. */
+  matchLines?: number[][];
   /**
    * A construction plane's own frame: its normal, and the point its quad is
    * centered on. Only the plane ghost carries it — the overlay draws the
@@ -543,8 +628,25 @@ export type GhostSolid = {
 /** A point or direction on the wire, in the shape the scene already sends. */
 type Vector3Wire = { x: number; y: number; z: number };
 
+/**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it. The same four vectors a rendered connector serializes, so the
+ * overlay draws it with the connector's own triad.
+ */
+export type GhostFrame = {
+  origin: Vector3Wire;
+  xDirection: Vector3Wire;
+  yDirection: Vector3Wire;
+  normal: Vector3Wire;
+};
+
 export type FeatureGhostResult =
-  | { ok: true; solids: GhostSolid[] }
+  | {
+    ok: true;
+    solids: GhostSolid[];
+    /** Connector frames the ghost places — only a copy of connectors has any. */
+    frames?: GhostFrame[];
+  }
   | {
     ok: false;
     reason: string;
@@ -598,6 +700,9 @@ function buildFeatureGhostInUnit(
   if (request.feature === 'rib') {
     return meshGhostBodies(buildRibGhost(scene, request), meshConfig);
   }
+  if (request.feature === 'hole') {
+    return meshGhostBodies(buildHoleGhost(scene, request), meshConfig);
+  }
   if (request.feature === 'sweep') {
     return meshGhostBodies(buildSweepGhost(scene, request), meshConfig);
   }
@@ -643,7 +748,7 @@ function buildFeatureGhostInUnit(
  */
 function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGhostResult {
   if ('reason' in built) {
-    return { ok: false, reason: built.reason };
+    return { ok: false, reason: built.reason, ...(built.surface ? { surface: true } : {}) };
   }
 
   try {
@@ -652,7 +757,7 @@ function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGh
     for (const solid of built.solids) {
       const meshes = builder.build(solid);
       if (meshes) {
-        solids.push({ meshes });
+        solids.push({ meshes, ...(built.matchLines ? { matchLines: built.matchLines(solid) } : {}) });
       }
     }
     return { ok: true, solids };
@@ -821,6 +926,7 @@ function buildPlaneGhost(
       rotateX: request.rotateX ?? 0,
       rotateY: request.rotateY ?? 0,
       rotateZ: request.rotateZ ?? 0,
+      rotationAxes: request.rotationAxes,
     });
     try {
       const meshes = new MeshBuilder(meshConfig).build(quad.face);
@@ -1014,7 +1120,10 @@ function buildCopy2DGhost(
   if (total > MAX_GHOST_INSTANCES) {
     return { ok: false, reason: `${total} instances is more than the preview draws.`, surface: true };
   }
-  const resolved = resolveSketchOpTargets(scene, request.entities);
+  // Picked targets are named ones, and a copy stamps a named target's
+  // `.guide()` shapes; the whole-sketch form copies real geometry only.
+  const includeGuides = request.entities.length > 0;
+  const resolved = resolveSketchOpTargets(scene, request.entities, { includeGuides });
   if ('reason' in resolved) {
     return { ok: false, reason: resolved.reason };
   }
@@ -1027,7 +1136,7 @@ function buildCopy2DGhost(
     // passes through while the user types. Nothing to draw, nothing wrong.
     return { ok: true, solids: [] };
   }
-  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges, { includeGuides });
   const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
   if (meshes.length === 0) {
     return { ok: false, reason: 'That selection has no curves to copy.' };
@@ -1055,7 +1164,10 @@ function buildMirror2DGhost(
   request: Mirror2DGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
-  const resolved = resolveSketchOpTargets(scene, request.entities);
+  // Picked targets are named ones, and a mirror reflects a named target's
+  // `.guide()` shapes.
+  const includeGuides = request.entities.length > 0;
+  const resolved = resolveSketchOpTargets(scene, request.entities, { includeGuides });
   if ('reason' in resolved) {
     return { ok: false, reason: resolved.reason };
   }
@@ -1063,7 +1175,7 @@ function buildMirror2DGhost(
   if ('reason' in axis) {
     return { ok: false, reason: axis.reason };
   }
-  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges, { includeGuides });
   const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
   if (meshes.length === 0) {
     return { ok: false, reason: 'That selection has no curves to mirror.' };
@@ -1079,10 +1191,15 @@ function buildMirror2DGhost(
  * bare variable, and the copy's build clones all of that object's shapes
  * (copy-linear2d.ts:25-31) — so one picked rect edge stamps the whole rect.
  * The whole-sketch form arrives holding every edge already and expands to
- * itself.
+ * itself. `includeGuides` reads the owners' construction edges too (the 2D
+ * copy's and mirror's named targets).
  */
-function expandToOwnerEdges(sketch: Sketch, picked: Edge[]): Edge[] {
-  const withOwner = sketch.getEdgesWithOwner();
+function expandToOwnerEdges(
+  sketch: Sketch,
+  picked: Edge[],
+  options: { includeGuides?: boolean } = {},
+): Edge[] {
+  const withOwner = sketch.getEdgesWithOwner({ excludeGuide: !options.includeGuides });
   const pickedIds = new Set(picked.map(edge => edge.id));
   const owners = new Set<SceneObject>();
   for (const [edge, owner] of withOwner) {
@@ -1174,8 +1291,9 @@ function resolveSketchAxis(
  * Resolve a sketch-op dialog's picks to their edges and sketch plane, shared
  * by every 2D ghost. Resolution mirrors the apply's own (`resolvePicks`,
  * sketch-apply.ts): each shapeId names one edge in one sketch's
- * `getEdgesWithOwner` index — guides excluded, as on the apply path — and
- * picks straddling two sketches refuse, because the apply refuses them too.
+ * `getEdgesWithOwner` index — guides excluded unless `includeGuides` (the 2D
+ * copy's and mirror's picks), as on the apply path — and picks straddling two
+ * sketches refuse, because the apply refuses them too.
  *
  * An empty pick list is the target-less statement form (`offset(d)`,
  * `fillet(r)`): the whole active (last) sketch, the same edge set the builds
@@ -1184,9 +1302,10 @@ function resolveSketchAxis(
  * empty-removal-scope fallback — the statement's own consumption hasn't
  * happened yet.
  */
-function resolveSketchOpTargets(
+export function resolveSketchOpTargets(
   scene: Scene,
   entities: { shapeId: string }[],
+  options: { includeGuides?: boolean } = {},
 ): { sketch: Sketch; edges: Edge[]; plane: Plane } | { reason: string } {
   // The registration list, NOT `allObjects` — its stack walk reorders, and
   // the whole-sketch form needs "last" to mean last in the document, the way
@@ -1210,7 +1329,7 @@ function resolveSketchOpTargets(
         continue;
       }
       seen.add(entity.shapeId);
-      const hit = findSketchEdge(sketches, entity.shapeId);
+      const hit = findSketchEdge(sketches, entity.shapeId, options.includeGuides === true);
       if (!hit) {
         return { reason: 'That edge is not in the rendered scene.' };
       }
@@ -1238,9 +1357,10 @@ function resolveSketchOpTargets(
 function findSketchEdge(
   sketches: Sketch[],
   shapeId: string,
+  includeGuides: boolean,
 ): { sketch: Sketch; edge: Edge } | null {
   for (const sketch of sketches) {
-    for (const edge of sketch.getEdgesWithOwner().keys()) {
+    for (const edge of sketch.getEdgesWithOwner({ excludeGuide: !includeGuides }).keys()) {
       if (edge.id === shapeId) {
         return { sketch, edge };
       }
@@ -1281,11 +1401,18 @@ function buildRepeatGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That feature is not in the rendered scene.' };
     }
-    const runs = repeatChainRuns(scene, targets);
-    if (runs.length === 0) {
+    // A repeat among the targets is its whole pattern, the original included
+    // — the features the statement clones (RepeatBase.patternFeatures).
+    const features = RepeatBase.patternFeatures(targets);
+    const total = requestedInstanceCount(request) * patternInstanceCount(features);
+    if (total > MAX_GHOST_INSTANCES) {
+      return { ok: false, reason: `${total} instances is more than the preview draws.`, surface: true };
+    }
+    const flow = repeatChainFlow(scene, features);
+    if (flow.outputs.size === 0) {
       return { ok: false, reason: 'That feature has no solid to preview.' };
     }
-    const stamps = repeatStamps(runs, meshConfig, scratch);
+    const stamps = repeatStamps(flow, meshConfig, scratch);
     return {
       ok: true,
       solids: placed.matrices.flatMap(matrix => stamps.map(stamp => ({
@@ -1358,6 +1485,23 @@ function repeatGhostMatrices(
 }
 
 /**
+ * How many instances of one feature the targets already hold: 1, unless a
+ * target is itself a repeat — then every instance the statement places is
+ * that many features, and the cap counts them all.
+ */
+function patternInstanceCount(features: SceneObject[]): number {
+  const counts = new Map<SceneObject, number>();
+  let most = 1;
+  for (const feature of features) {
+    const original = feature.getCloneSource() ?? feature;
+    const count = (counts.get(original) ?? 0) + 1;
+    counts.set(original, count);
+    most = Math.max(most, count);
+  }
+  return most;
+}
+
+/**
  * A direction's step between neighbours. The dialog's Total spacing mode
  * states the whole span instead, which `repeat()` divides across the gaps
  * (repeat.ts:153) — one fewer than the instances, the original holding the
@@ -1391,14 +1535,15 @@ function requestedInstanceCount(
  * The objects a target ref names — a repeat's timeline row, a copy's picked
  * solid. Two wrinkles no other ghost has:
  *
- * - **A clone stamps its original's call site** (repeat-targets.ts:20-24), so
- *   a line an earlier repeat already replayed holds the original *and* every
- *   clone of it. The original alone is the target: a new repeat replays the
- *   statement, and a new copy clones the body that statement bound to its
- *   variable — neither takes the pattern that came out of it.
+ * - **A clone carries the call site of the repeat that made it** (the
+ *   builder stamps what it registers, index.ts), so a repeat's line holds the
+ *   repeat *and* every clone under it — and the original too, when the
+ *   target was written inline (`repeat(…, extrude(10))`). The objects that
+ *   are no clone are the target: the statement the line binds to a variable.
  * - **A target can be a container** — repeating or copying a `repeat()` or a
- *   `part()` row is legal, and `getShapes` gathers a container's children for
- *   us.
+ *   `part()` row is legal. A copy reads its bodies through `getShapes`, which
+ *   gathers a container's children; a repeat of a repeat takes the whole
+ *   pattern, its original included (`RepeatBase.patternFeatures`).
  */
 function targetObjectsAt(
   scene: Scene,
@@ -1427,30 +1572,37 @@ type RepeatStamp = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
  * one already there). Stamping the fused body would draw a plate per instance —
  * geometry the apply never produces.
  *
- * So each {@link RepeatChainRun} is stamped as the *difference* between what
- * came out of it and what went in: material the chain adds (green) and material
- * it takes away (red — a repeated cut previews as the pockets it will open). A
- * run that consumed nothing is a standalone body and needs no boolean at all,
+ * So the chain is stamped as the *difference* between what came out of it and
+ * what went in ({@link RepeatChainFlow}): material the chain adds (green) and
+ * material it takes away (red — a repeated cut previews as the pockets it will
+ * open). A body made from nothing stands alone and needs no boolean at all,
  * which keeps the common case on the scene's cached meshes.
  *
  * A difference OCC refuses to compute draws nothing rather than falling back to
  * the whole body — being silent beats being wrong about what an apply does.
  */
 function repeatStamps(
-  runs: RepeatChainRun[],
+  flow: RepeatChainFlow,
   meshConfig: MeshSettings,
   scratch: Shape[],
 ): RepeatStamp[] {
+  const untouched = untouchedBodies(flow);
+  const changed = (bodies: Shape[]) => bodies.filter(body => !untouched.has(body));
   const added: Shape[] = [];
   const removed: Shape[] = [];
   try {
-    for (const run of runs) {
-      if (run.inputs.length === 0) {
-        added.push(...run.outputs);
+    for (const [output, inputs] of flow.outputs) {
+      if (untouched.has(output)) {
         continue;
       }
-      added.push(...solidDifference(run.outputs, run.inputs, scratch));
-      removed.push(...solidDifference(run.inputs, run.outputs, scratch));
+      const from = changed(inputs);
+      added.push(...(from.length === 0 ? [output] : solidDifference([output], from, scratch)));
+    }
+    for (const [input, outputs] of flow.inputs) {
+      if (untouched.has(input)) {
+        continue;
+      }
+      removed.push(...solidDifference([input], changed(outputs), scratch));
     }
   } catch {
     return [];
@@ -1467,26 +1619,34 @@ function repeatStamps(
 }
 
 /**
- * One unbroken stretch of the cloned chain: the bodies it hands on, and the
- * bodies it took in from outside itself.
+ * The solids passing through the chain a repeat clones, read both ways: each
+ * body the chain hands on with the bodies it took in to make it, and each body
+ * it took in with the bodies handed on in its place.
  */
-type RepeatChainRun = { outputs: Shape[]; inputs: Shape[] };
+type RepeatChainFlow = { outputs: Map<Shape, Shape[]>; inputs: Map<Shape, Shape[]> };
 
 /**
- * How the solids flow through the chain a repeat clones, split into runs.
+ * How the solids flow through the chain a repeat clones.
  *
  * A chain is rarely one feature. `repeat('mirror', 'front', e, f, c1, f2)`
  * replays four of them, and the model may well have built something else in
- * between — so the chain reaches the scene as separate stretches, each taking a
- * body in and handing one on. A run's boundary is exactly that: an input owned
- * by an object the chain doesn't hold, an output no chain member consumed.
+ * between — so the chain reaches the scene as separate stretches, each taking
+ * bodies in and handing bodies on. A stretch's boundary is exactly that: an
+ * input owned by an object the chain doesn't hold, an output no chain member
+ * consumed.
  *
- * Pairing every output with *its own* run's input is what keeps the difference
- * honest. Lumping them together would subtract a later stretch's input from an
- * earlier stretch's output and attribute the features in between — which the
- * repeat does not replay — to the pattern.
+ * Pairing every output with the inputs of *its own* stretch is what keeps the
+ * difference honest. Lumping them together would subtract a later stretch's
+ * input from an earlier stretch's output and attribute the features in between
+ * — which the repeat does not replay — to the pattern.
+ *
+ * Nor is a stretch one body. A hole drilled through two solids takes both in
+ * and hands both back, so the pairing runs both ways: a body handed on is set
+ * against all that was taken in to make it, a body taken in against all that
+ * was handed on in its place. Setting a single output against the feature's
+ * inputs instead would report every *other* body it took in as removed whole.
  */
-function repeatChainRuns(scene: Scene, targets: SceneObject[]): RepeatChainRun[] {
+function repeatChainFlow(scene: Scene, targets: SceneObject[]): RepeatChainFlow {
   const chain = repeatCloneSet(targets);
   const objects = allObjects(scene);
   // Both directions of every solid consumption in the scene: who ate a body,
@@ -1505,32 +1665,41 @@ function repeatChainRuns(scene: Scene, targets: SceneObject[]): RepeatChainRun[]
     }
   }
 
-  const runs: RepeatChainRun[] = [];
-  // A container reports its children's solids as its own, so the same body
-  // reaches this loop through both — it may only be stamped once.
-  const stamped = new Set<Shape>();
+  const flow: RepeatChainFlow = { outputs: new Map(), inputs: new Map() };
   for (const member of chain) {
-    for (const solid of memberSolids(member)) {
-      // A body another chain member went on to consume is internal — the run
-      // it belongs to hands on whatever that member produced instead.
+    // A container reports its children's solids as its own. The children are
+    // chain members too, and each answers for the bodies it built — only the
+    // builder's own consumption says what was taken in to make them.
+    if (member.isContainer()) {
+      continue;
+    }
+    // A body another chain member went on to consume is internal — the
+    // stretch it belongs to hands on whatever that member produced instead.
+    const outputs = memberSolids(member).filter(solid => {
       const consumer = consumers.get(solid);
-      if (stamped.has(solid) || (consumer && chain.has(consumer))) {
-        continue;
-      }
-      stamped.add(solid);
-      runs.push({ outputs: [solid], inputs: runInputs(member, chain, eaten) });
+      return !consumer || !chain.has(consumer);
+    });
+    if (outputs.length === 0) {
+      continue;
+    }
+    const inputs = chainInputs(member, chain, eaten);
+    for (const output of outputs) {
+      flow.outputs.set(output, inputs);
+    }
+    for (const input of inputs) {
+      flow.inputs.set(input, [...(flow.inputs.get(input) ?? []), ...outputs]);
     }
   }
-  return runs;
+  return flow;
 }
 
 /**
- * The bodies a run took in: walk back from its last member through everything
- * the chain consumed, and stop at the first body built outside it. A chain that
- * consumed nothing at all — a `.new()` extrude, a primitive — takes nothing in,
- * and its output stands alone.
+ * The bodies a chain member's outputs were made from: walk back from the member
+ * through everything the chain consumed, and stop at the first body built
+ * outside it. A chain that consumed nothing at all — a `.new()` extrude, a
+ * primitive — takes nothing in, and its output stands alone.
  */
-function runInputs(
+function chainInputs(
   member: SceneObject,
   chain: Set<SceneObject>,
   eaten: Map<SceneObject, { shape: Shape; owner: SceneObject }[]>,
@@ -1553,6 +1722,76 @@ function runInputs(
     }
   }
   return [...inputs];
+}
+
+/**
+ * The bodies that came out of the chain exactly as they went in — the input
+ * and its output both.
+ *
+ * A feature can take a body in and hand it back the same shape: a colour laid
+ * on its faces re-issues the solid with its geometry untouched. Such a body is
+ * no part of the material the chain adds or takes away, and setting it against
+ * itself would spend two booleans between identical solids to learn that.
+ */
+function untouchedBodies(flow: RepeatChainFlow): Set<Shape> {
+  const untouched = new Set<Shape>();
+  const measured = new Map<Shape, BodyMeasure | null>();
+  for (const [output, inputs] of flow.outputs) {
+    const twin = inputs.find(input => !untouched.has(input) && sameBody(input, output, measured));
+    if (twin) {
+      untouched.add(output);
+      untouched.add(twin);
+    }
+  }
+  return untouched;
+}
+
+/** Where a solid sits and how much of it there is. */
+type BodyMeasure = { box: BoundingBox; volume: number; centroid: { x: number; y: number; z: number } };
+
+/**
+ * Whether two solids are one body: the same extents, the same volume, the same
+ * centre of mass. A boolean that changes a body changes its volume, so a cut
+ * or a fuse is never mistaken for nothing; the extents and the centre tell a
+ * body that was moved from one left where it stood.
+ *
+ * The volume is compared relative to itself, a part in ten billion — far above
+ * what integrating the same geometry twice can differ by, far below any cut
+ * worth drawing. A solid the kernel can't measure is nobody's twin, which only
+ * costs the booleans the answer would have saved.
+ */
+function sameBody(a: Shape, b: Shape, measured: Map<Shape, BodyMeasure | null>): boolean {
+  const first = bodyMeasure(a, measured);
+  const second = bodyMeasure(b, measured);
+  if (!first || !second) {
+    return false;
+  }
+  const length = mmTol(1e-6);
+  const near = (p: number, q: number) => Math.abs(p - q) <= length;
+  return near(first.box.minX, second.box.minX) && near(first.box.maxX, second.box.maxX)
+    && near(first.box.minY, second.box.minY) && near(first.box.maxY, second.box.maxY)
+    && near(first.box.minZ, second.box.minZ) && near(first.box.maxZ, second.box.maxZ)
+    && near(first.centroid.x, second.centroid.x)
+    && near(first.centroid.y, second.centroid.y)
+    && near(first.centroid.z, second.centroid.z)
+    // unit: dimensionless
+    && Math.abs(first.volume - second.volume) <= 1e-10 * Math.max(Math.abs(first.volume), Math.abs(second.volume));
+}
+
+function bodyMeasure(solid: Shape, measured: Map<Shape, BodyMeasure | null>): BodyMeasure | null {
+  if (!measured.has(solid)) {
+    let measure: BodyMeasure | null = null;
+    try {
+      measure = {
+        box: ShapeOps.getExactBoundingBox(solid),
+        ...ShapeProps.getVolumeAndCentroid(solid.getShape()),
+      };
+    } catch {
+      // Nothing to bound, or nothing to integrate.
+    }
+    measured.set(solid, measure);
+  }
+  return measured.get(solid)!;
 }
 
 /**
@@ -1638,8 +1877,8 @@ function solidDifference(stocks: Shape[], tools: Shape[], scratch: Shape[]): Sha
       break;
     }
   }
-  // `current` is still `stocks` only when there was nothing to cut with, and
-  // callers never reach that: a run with no inputs is stamped whole instead.
+  // `current` is still `stocks` only when there was nothing to cut with: a
+  // body taken in with nothing handed on in its place is gone whole.
   return current;
 }
 
@@ -1665,7 +1904,7 @@ function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
  * The copy branch: no geometry is built here either, and unlike the repeat
  * none has to be worked out. A repeat replays the features it names, so what
  * one instance contributes is the *difference* its chain makes; a copy clones
- * the bodies its targets already hold and moves them (copy-linear.ts:32-97),
+ * the bodies its targets already hold and moves them (`CopyBase.build`),
  * so what one instance contributes is those bodies, unchanged. The stamp is
  * therefore the targets' own meshes — a boss fused into its plate stamps the
  * fused body, because that is exactly what the apply will clone.
@@ -1692,15 +1931,62 @@ function buildCopyGhost(
   if (targets.length === 0) {
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
-  const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
-  if (meshes.length === 0) {
-    return { ok: false, reason: 'That statement has no solid to copy.' };
+  const seeds = copyTargetFrames(targets);
+  // A copy that follows a repeat copies connectors only — the statement
+  // refuses anything else, so nothing else is ever stamped.
+  const following = request.kind === 'pattern';
+  const meshes = following ? [] : stampMeshes(
+    copyTargetSolids(targets.filter(target => !(target instanceof Connector))),
+    new MeshBuilder(meshConfig),
+  );
+  if (meshes.length === 0 && seeds.length === 0) {
+    return {
+      ok: false,
+      reason: following ? 'That statement has no connector to copy.' : 'That statement has no solid to copy.',
+    };
   }
   // Every target rides in one body per instance: they move together, and the
-  // overlay draws a mesh list whatever it was gathered from.
+  // overlay draws a mesh list whatever it was gathered from. A connector
+  // target comes back as frames instead — each copy is its seed's frame
+  // moved by the slot's matrix, exactly what `ConnectorCopy.build` does.
   return {
     ok: true,
-    solids: placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+    solids: meshes.length === 0
+      ? []
+      : placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+    frames: placed.matrices.flatMap(matrix => seeds.map(frame => toGhostFrame(frame.applyMatrix(matrix)))),
+  };
+}
+
+/**
+ * The frames of the connectors a copy's targets name — the declared
+ * connectors at those call sites, as they built. A connector copy never
+ * counts: the copy statement refuses one as a target, and it shares its copy
+ * statement's call site rather than naming one of its own. A connector whose
+ * build failed has no frame to move and draws nothing.
+ */
+function copyTargetFrames(targets: SceneObject[]): Plane[] {
+  const frames: Plane[] = [];
+  for (const target of targets) {
+    if (!(target instanceof Connector) || target.copySlot() !== undefined) {
+      continue;
+    }
+    try {
+      frames.push(target.getFrame());
+    } catch {
+      // Unbuilt — nothing to place.
+    }
+  }
+  return frames;
+}
+
+/** A built frame in the wire shape a rendered connector serializes. */
+function toGhostFrame(frame: Plane): GhostFrame {
+  return {
+    origin: toVector3Wire(frame.origin),
+    xDirection: toVector3Wire(frame.xDirection),
+    yDirection: toVector3Wire(frame.yDirection),
+    normal: toVector3Wire(frame.normal),
   };
 }
 
@@ -1713,6 +1999,9 @@ function copyGhostMatrices(
   scene: Scene,
   request: CopyGhostRequest,
 ): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  if (request.kind === 'pattern') {
+    return followedRepeatMatrices(scene, request.pattern);
+  }
   const total = requestedInstanceCount(request);
   if (total > MAX_GHOST_INSTANCES) {
     // The one refusal here the user can do something about, and the one where
@@ -1754,6 +2043,36 @@ function copyGhostMatrices(
     offset: directionOffset(direction),
   }));
   return { matrices: buildLinearCopyGhostMatrices(directions, request.centered, request.skip ?? []) };
+}
+
+/**
+ * Where a copy that follows a repeat puts its copies: the rendered repeat's
+ * own slot moves, read at its call site through the rule the statement
+ * builds with (`CopyLayout.follow`). A repeat the statement would refuse —
+ * a mirror, rotate or matrix one, a centered circular one, a refused one —
+ * is refused here in the statement's words and surfaced, so the dialog says
+ * why before the apply writes a row that would.
+ */
+function followedRepeatMatrices(
+  scene: Scene,
+  ref: { filePath: string; line: number } | undefined,
+): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  // The repeat, never a clone of one it repeated — those share its line.
+  const repeat = ref
+    ? findByLocation(scene, ref, obj => obj instanceof RepeatBase && obj.getCloneSource() === null)
+    : null;
+  if (!(repeat instanceof RepeatBase)) {
+    return { reason: 'That repeat is not in the rendered scene.' };
+  }
+  const refusal = CopyPattern.followRefusal(repeat);
+  if (refusal) {
+    return { reason: refusal, surface: true };
+  }
+  const { slots } = CopyLayout.follow(repeat);
+  if (slots.length > MAX_GHOST_INSTANCES) {
+    return { reason: `${slots.length} instances is more than the preview draws.`, surface: true };
+  }
+  return { matrices: slots.map(slot => slot.matrix.resolve()) };
 }
 
 /**
@@ -1872,7 +2191,7 @@ function buildRotateGhost(
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */
-type GhostBuild = { solids: Shape[]; scratch: Shape[] } | { reason: string };
+type GhostBuild = { solids: Shape[]; scratch: Shape[]; matchLines?: (solid: Shape) => number[][] } | { reason: string; surface?: boolean };
 
 /** The single-profile features: one sketch in, its swept body out. */
 function buildProfileGhost(
@@ -1890,31 +2209,83 @@ function buildProfileGhost(
 
   const geometries = profileEdges(profile);
   const source = { getGeometries: () => geometries, getPlane: () => plane };
+  const picked = pickedRegionFaces(profile, plane, request.regions);
 
-  if (request.feature === 'revolve') {
-    const axis = resolveGhostAxis(scene, request.axis);
-    if (!axis) {
-      return { reason: 'That axis is not in the rendered scene.' };
+  try {
+    if (request.feature === 'revolve') {
+      const axis = resolveGhostAxis(scene, request.axis);
+      if (!axis) {
+        return { reason: 'That axis is not in the rendered scene.' };
+      }
+      return withPickedScratch(buildRevolveGhostSolids(source, {
+        op: request.op,
+        angle: request.angle,
+        symmetric: request.symmetric,
+        thin: request.thin,
+        axis,
+        faces: picked?.faces,
+      }), picked);
     }
-    return buildRevolveGhostSolids(source, {
+    return withPickedScratch(buildExtrudeGhostSolids(source, {
       op: request.op,
-      angle: request.angle,
+      distance: request.distance,
+      distance2: request.distance2,
       symmetric: request.symmetric,
+      draft: request.draft,
+      endOffset: request.endOffset,
+      drill: request.drill,
       thin: request.thin,
-      axis,
-    });
+      throughAllLength: throughAllGhostLength(scene, geometries, plane),
+      faces: picked?.faces,
+    }), picked);
+  } catch (err) {
+    disposePicked(picked);
+    throw err;
   }
-  return buildExtrudeGhostSolids(source, {
-    op: request.op,
-    distance: request.distance,
-    distance2: request.distance2,
-    symmetric: request.symmetric,
-    draft: request.draft,
-    endOffset: request.endOffset,
-    drill: request.drill,
-    thin: request.thin,
-    throughAllLength: throughAllGhostLength(scene, geometries, plane),
-  });
+}
+
+/** The region faces a `.region()` pick resolved to, plus every other region face to free. */
+type PickedRegions = { faces: Face[]; scratch: Shape[] };
+
+/**
+ * Resolve the dialog's region picks against the profile's regions, the way
+ * `ExtrudeBase.resolveRegionFaces` does for the applied statement: the
+ * picks that match are the faces to build, the rest of the arrangement is
+ * scratch. Picks that do not resolve are dropped — the apply reports them,
+ * the ghost just shows what resolved. Null when the dialog picked nothing
+ * (every region builds, the kernel's default).
+ */
+function pickedRegionFaces(
+  profile: Extrudable,
+  plane: Plane,
+  picks: RegionPick[] | undefined,
+): PickedRegions | null {
+  if (picks === undefined) {
+    return null;
+  }
+  const context = sourceRegionContext(profile, plane, profileEdgesWithOwner(profile));
+  const regions = context.regions;
+  const { selected } = resolveRegionPicks(context, picks);
+  const faces = selected.map(region => region.face);
+  const scratch = regions.map(region => region.face).filter(face => !faces.includes(face));
+  return { faces, scratch };
+}
+
+/** Hand the picked regions' shapes to the build's scratch, so one disposal frees them all. */
+function withPickedScratch(
+  built: { solids: Shape[]; scratch: Shape[] },
+  picked: PickedRegions | null,
+): { solids: Shape[]; scratch: Shape[] } {
+  if (picked) {
+    built.scratch.push(...picked.faces, ...picked.scratch);
+  }
+  return built;
+}
+
+function disposePicked(picked: PickedRegions | null): void {
+  for (const shape of picked ? [...picked.faces, ...picked.scratch] : []) {
+    shape.dispose();
+  }
 }
 
 /**
@@ -1925,6 +2296,156 @@ function buildProfileGhost(
  * being edited has already fused with (and consumed) the very solids its
  * scope names.
  */
+/**
+ * The hole tools — one revolved profile per placement — as a remove ghost.
+ * No boolean runs: the tools alone show where the holes go and how deep.
+ * A through hole is sized to the scope stock the way the feature sizes it.
+ */
+function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
+  if (request.frames.length === 0) {
+    return { reason: 'Pick where the holes go.' };
+  }
+  let dims: HoleDimensions;
+  try {
+    dims = resolveHoleDimensions({
+      size: request.diameter,
+      fastener: null,
+      style: request.counterbore
+        ? { kind: 'counterbore', diameter: request.counterbore.diameter, depth: request.counterbore.depth }
+        : request.countersink
+          ? { kind: 'countersink', diameter: request.countersink.diameter, angle: request.countersink.angle }
+          : null,
+      depth: request.depth,
+      tipAngle: request.tipAngle,
+    }, getActiveUnit());
+  } catch (error) {
+    return { reason: error instanceof Error ? error.message : String(error), surface: true };
+  }
+
+  const stock = request.depth === null ? ghostStockSolids(scene, request.scope, request.exclude) : [];
+  if ('reason' in stock) {
+    return stock;
+  }
+
+  // A fastened hole reads each axis against every solid it may meet: the
+  // next one past the clearance takes its own tap-drill bore.
+  let fastenDims: HoleDimensions | null = null;
+  let axisSolids: Shape[] = [];
+  let scoped: Shape[] | null = null;
+  if (request.fasten) {
+    const every = ghostStockSolids(scene, [], request.exclude);
+    if ('reason' in every) {
+      return every;
+    }
+    if (request.scope.length > 0) {
+      const named = ghostScopedSolids(scene, request.scope, request.exclude);
+      if ('reason' in named) {
+        return named;
+      }
+      scoped = named;
+    }
+    axisSolids = [...new Set([...(scoped ?? []), ...every])];
+    try {
+      fastenDims = resolveHoleDimensions({
+        size: request.fasten.diameter, fastener: null, style: null,
+        depth: request.fasten.depth ?? null,
+        tipAngle: (request.fasten.depth ?? null) === null ? null : request.fasten.tipAngle ?? null,
+      }, getActiveUnit());
+    } catch (error) {
+      return { reason: error instanceof Error ? error.message : String(error), surface: true };
+    }
+  }
+
+  const solids: Shape[] = [];
+  try {
+    for (const frame of request.frames) {
+      const origin = Point.fromArray(frame.origin);
+      const direction = Vector3d.fromArray(frame.normal).normalize().negate();
+      const plane = Plane.fromPointAndNormal(origin, direction);
+      // Where the axis enters the solid it taps: a through clearance tool is
+      // drawn up to that face — never into the solid it leaves alone — and the
+      // tapped bore from it. An axis with nothing to tap draws the clearance alone.
+      const axis = fastenDims ? fastenedAxis(axisSolids, scoped, origin, direction) : null;
+      const entry = axis?.tapped ? axis.entry : null;
+      const through = entry !== null && entry > mmTol(1e-6)
+        ? entry
+        : throughAllLength(axis ? axis.clearance : stock, [], plane);
+      solids.push(buildHoleTool(origin, direction, dims, dims.depth ?? through));
+      if (fastenDims && axis?.tapped && entry !== null) {
+        const length = fastenDims.depth ?? throughAllLength([axis.tapped], [], plane) - entry;
+        solids.push(buildHoleTool(origin.add(direction.multiply(entry)), direction, fastenDims, length));
+      }
+    }
+  } catch (error) {
+    for (const solid of solids) {
+      solid.dispose();
+    }
+    return { reason: error instanceof Error ? error.message : String(error) };
+  }
+  return { solids, scratch: [] };
+}
+
+/**
+ * The solids a through hole is sized against: the `.scope(…)` statements'
+ * solids, or every solid in the scene. In edit mode the edited statement's
+ * own cut is unwound (its removal scope drops it) so the stock reads as the
+ * feature will see it.
+ */
+/**
+ * A fastened hole's `.scope(…)` solids, as the very solids the every-solid
+ * read lists so the axis can tell them apart: the removal-scoped read in edit
+ * mode, otherwise each statement's solids followed to wherever the scene
+ * holds them now (see liveSolidsOf).
+ */
+function ghostScopedSolids(
+  scene: Scene,
+  scope: { filePath: string; line: number }[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] | { reason: string } {
+  if (exclude) {
+    return ghostStockSolids(scene, scope, exclude);
+  }
+  const targets: SceneObject[] = [];
+  for (const ref of scope) {
+    const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
+    if (objects.length === 0) {
+      return { reason: 'That scope solid is not in the rendered scene.' };
+    }
+    targets.push(...objects);
+  }
+  return liveSolidsIn(targets).map(held => held.solid);
+}
+
+function ghostStockSolids(
+  scene: Scene,
+  scope: { filePath: string; line: number }[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] | { reason: string } {
+  const excluded = exclude ? new Set(objectsAt(scene, exclude)) : null;
+  const removalScope = excluded && excluded.size > 0
+    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
+    : undefined;
+  if (scope.length > 0) {
+    const targets: SceneObject[] = [];
+    for (const ref of scope) {
+      const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
+      if (objects.length === 0) {
+        return { reason: 'That scope solid is not in the rendered scene.' };
+      }
+      targets.push(...objects);
+    }
+    return removalScope
+      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
+      : copyTargetSolids(targets);
+  }
+  if (removalScope) {
+    return scene.getSceneObjects()
+      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
+      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
+  }
+  return sceneSolids(scene);
+}
+
 function buildRibGhost(scene: Scene, request: RibGhostRequest): GhostBuild {
   const spine = findProfile(scene, request.spine);
   if (!spine) {
@@ -2007,9 +2528,20 @@ function buildSweepGhost(scene: Scene, request: SweepGhostRequest): GhostBuild {
       return { reason: 'That path is not in the rendered scene.' };
     }
     const geometries = profileEdges(profile);
+    const picked = pickedRegionFaces(profile, plane, request.regions);
+    if (picked) {
+      scratch.push(...picked.faces, ...picked.scratch);
+    }
     const built = buildSweepGhostSolids(
       { getGeometries: () => geometries, getPlane: () => plane },
-      { op: request.op, thin: request.thin, path },
+      {
+        op: request.op,
+        thin: request.thin,
+        path,
+        extendStart: request.extendStart ?? null,
+        extendEnd: request.extendEnd ?? null,
+        faces: picked?.faces,
+      },
     );
     scratch.push(...built.scratch);
     solids = built.solids;
@@ -2073,7 +2605,7 @@ function buildLoftGhost(scene: Scene, request: LoftGhostRequest): GhostBuild {
   try {
     const profiles = resolveSections(scene, request.profiles, scratch);
     if (!profiles) {
-      return { reason: 'That profile is not in the rendered scene.' };
+      return { reason: 'That profile is not in the rendered scene.', surface: !!request.connections?.length };
     }
     const guides = resolveGuideWires(scene, request.guides, scratch);
     if (!guides) {
@@ -2083,12 +2615,19 @@ function buildLoftGhost(scene: Scene, request: LoftGhostRequest): GhostBuild {
       op: request.op,
       thin: request.thin,
       guides,
+      connections: request.connections?.map(connection => connection.map(point => new Point(...point))),
       startCondition: toEndCondition(request.startCondition),
       endCondition: toEndCondition(request.endCondition),
     });
     scratch.push(...built.scratch);
     solids = built.solids;
-    return { solids, scratch };
+    return { solids, scratch, matchLines: solid => solid instanceof Solid
+      ? loftMatchLines(solid, profiles[0], profiles[profiles.length - 1]) : [] };
+  } catch (error) {
+    if (request.connections?.length) {
+      return { reason: error instanceof Error ? error.message : String(error), surface: true };
+    }
+    throw error;
   } finally {
     // Set only on the one path that hands the scratch on; a refusal or a
     // throw leaves it null and frees everything resolved so far.
@@ -2305,7 +2844,7 @@ function orUndefined(value: number | null): number | undefined {
  * never share a line, but a container's children are walked too — a sketch
  * nested in a `part()` is only reachable through its parent in some scenes.
  */
-function findProfile(
+export function findProfile(
   scene: Scene,
   ref: { filePath: string; line: number },
 ): Extrudable | null {
@@ -2386,6 +2925,18 @@ function resolveGhostAxis(scene: Scene, ref: GhostAxisRef): Axis | null {
     const obj = findByLocation(scene, ref, o => o instanceof AxisObjectBase);
     return (obj as AxisObjectBase | null)?.getAxis() ?? null;
   }
+  if (ref.kind === 'connector') {
+    const connector = findConnector(scene, ref);
+    if (!connector) {
+      return null;
+    }
+    try {
+      return ConnectorAxis.of(connector);
+    } catch {
+      // Unbuilt — no frame, so no axis.
+      return null;
+    }
+  }
   const shape = findShapeById(scene, ref.shapeId);
   if (!shape) {
     return null;
@@ -2437,6 +2988,24 @@ function resolveGhostPlane(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): 
   }
 }
 
+/**
+ * The connector a ref names: the declared connector its `connector()`
+ * statement built — never a copy, which reports its copy statement's call
+ * site — or, with a slot, that member of the family its `copy()` made (the
+ * connector itself at the original's slot). Null when the scene no longer
+ * holds it, or the slot is one the copy skipped or never made.
+ */
+function findConnector(
+  scene: Scene,
+  ref: { filePath: string; line: number; slot?: number },
+): Connector | null {
+  const seed = findByLocation(scene, ref, o => o instanceof Connector && o.copySlot() === undefined);
+  if (!(seed instanceof Connector) || ref.slot === undefined) {
+    return seed as Connector | null;
+  }
+  return seed.getFamily()?.memberAt(ref.slot) ?? null;
+}
+
 /** The scene object at a `{filePath, line}` ref matching `accept`. */
 function findByLocation(
   scene: Scene,
@@ -2468,9 +3037,23 @@ function findShapeById(scene: Scene, shapeId: string): Shape | null {
  * dedupes the lazy-accessor and `select()` children, which share `Edge`
  * instances with the primitive that built them.
  */
-function profileEdges(profile: Extrudable): Edge[] {
+export function profileEdges(profile: Extrudable): Edge[] {
   const edges = profile.getGeometries();
   return edges.length > 0 ? edges : unconsumedEdges(profile);
+}
+
+/**
+ * The profile's edges with the statements that drew them — what a region
+ * arrangement is keyed on — read through the same blind spot as
+ * {@link profileEdges}: a sketch the edited statement has already consumed
+ * reads as if nothing had.
+ */
+export function profileEdgesWithOwner(profile: Extrudable): Map<Edge, GeometrySceneObject> {
+  const edges = profile.getGeometriesWithOwner();
+  if (edges.size > 0 || !(profile instanceof Sketch)) {
+    return edges;
+  }
+  return profile.getEdgesWithOwner(undefined, new Set<SceneObject>());
 }
 
 /**

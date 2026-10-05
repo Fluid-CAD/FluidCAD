@@ -32,4 +32,4 @@ or when narrowing an explicit target list.
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

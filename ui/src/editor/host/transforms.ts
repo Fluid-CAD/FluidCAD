@@ -2,7 +2,7 @@
  * The host contract's source transforms, as a table.
  *
  * Every one of them has the same shape — read the buffer, POST it to the
- * matching `/api/code/<transform>` with a couple of arguments, apply the
+ * matching `api/code/<transform>` with a couple of arguments, apply the
  * `newCode` that comes back — so what actually differs is captured here as
  * data rather than as two dozen near-identical functions
  * (`feedback_reusable_helpers`). The parsing, the AST rewrite and the
@@ -35,7 +35,7 @@ export function targetPathOf(spec: TransformSpec, msg: any): string | null {
 }
 
 export type TransformSpec = {
-  /** The `/api/code/<endpoint>` route. */
+  /** The `api/code/<endpoint>` route. */
   endpoint: string;
   target: EditTarget;
   /** Everything the route wants besides `code`. */
@@ -58,15 +58,8 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
     target: 'current',
     body: (msg) => ({ ...atSourceLine(msg), point: msg.point }),
   },
-  'add-pick': { endpoint: 'add-pick', target: 'current', body: atSourceLine },
-  'remove-pick': { endpoint: 'remove-pick', target: 'current', body: atSourceLine },
   'add-guide': { endpoint: 'add-guide', target: 'current', body: atSourceLine },
   'remove-guide': { endpoint: 'remove-guide', target: 'current', body: atSourceLine },
-  'set-pick-points': {
-    endpoint: 'set-pick-points',
-    target: 'current',
-    body: (msg) => ({ ...atSourceLine(msg), points: msg.points }),
-  },
   'insert-geometry': {
     endpoint: 'insert-geometry',
     target: 'current',
@@ -204,7 +197,7 @@ export async function postCodeEdit(
   body: Record<string, unknown>,
 ): Promise<CodeEditResult | null> {
   try {
-    const res = await fetch(`/api/code/${endpoint}`, {
+    const res = await fetch(`api/code/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

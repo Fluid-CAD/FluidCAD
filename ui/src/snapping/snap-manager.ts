@@ -3,6 +3,7 @@ import { Snapper, SnapResult, SolvedVertexRef } from './types';
 import { VertexSnapper, VertexCandidate } from './vertex-snapper';
 import { AxisSnapper } from './axis-snapper';
 import { GridSnapper } from './grid-snapper';
+import { viewerSettings } from '../scene/viewer-settings';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneIndex } from '../helpers/scene-index';
 import { SceneContext } from '../scene/scene-context';
@@ -14,7 +15,8 @@ import { currentGridPrefs } from '../grid/grid-prefs';
 import { sceneUnit } from '../units/scene-unit';
 import { worldFromMm } from '../units/scene-scale';
 
-const DEFAULT_SNAP_THRESHOLD_PX = 15;
+/** The live snap radius, so a change in Settings applies to the sketch already open. */
+const liveSnapThresholdPx = (): number => viewerSettings.current.snapRadiusPx;
 
 /**
  * The wire address of a rendered entity view's OWNER statement: the entity
@@ -54,18 +56,23 @@ function entityAddress(
 
 export class SnapManager {
   private snappers: Snapper[] = [];
-  private threshold: number;
+  private threshold: number | (() => number);
   private ctx: SceneContext | null;
 
   /**
    * `threshold` is a screen-pixel radius when a SceneContext is provided —
    * converted to sketch units at the current zoom on every snap. Without a
-   * context it is used as-is in sketch units.
+   * context it is used as-is in sketch units. A function is read on every
+   * snap, so the radius can follow a preference edited mid-sketch.
    */
-  constructor(snappers: Snapper[], threshold: number = DEFAULT_SNAP_THRESHOLD_PX, ctx: SceneContext | null = null) {
+  constructor(snappers: Snapper[], threshold: number | (() => number) = liveSnapThresholdPx, ctx: SceneContext | null = null) {
     this.snappers = snappers;
     this.threshold = threshold;
     this.ctx = ctx;
+  }
+
+  private thresholdValue(): number {
+    return typeof this.threshold === 'function' ? this.threshold() : this.threshold;
   }
 
   setExcludedVertices(excluded: [number, number][]): void {
@@ -77,10 +84,10 @@ export class SnapManager {
   }
 
   snap(point2d: [number, number], plane: PlaneData): SnapResult {
-    let threshold = this.threshold;
+    let threshold = this.thresholdValue();
     if (this.ctx) {
       const worldUnitsPerPixel = this.worldUnitsPerPixel();
-      threshold = this.threshold * worldUnitsPerPixel;
+      threshold = this.thresholdValue() * worldUnitsPerPixel;
       this.updateGridSpacing(worldUnitsPerPixel);
     }
 
@@ -270,7 +277,7 @@ export class SnapManager {
       new GridSnapper(plane, initialGrid.minor),
     ];
 
-    return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD_PX, ctx ?? null);
+    return new SnapManager(snappers, liveSnapThresholdPx, ctx ?? null);
   }
 
   private static worldToPlane2d(wx: number, wy: number, wz: number, plane: PlaneData): [number, number] {

@@ -5,11 +5,17 @@
 
 export {
   buildSolvedSketchModel,
+  bezierControlPoints,
+  bezierViewForShape,
+  entityPickAddress,
   isSolvedSketch,
+  pickForEntity,
   specEntityIds,
 } from './model';
 export type {
+  BezierControlSource,
   ConstraintStatus,
+  SolvedBezierView,
   SolvedConstraintView,
   SolvedEntityView,
   SolvedEntityKind,
@@ -29,7 +35,7 @@ export { LiveSolvedSystem } from './live-system';
 export type { LiveEntityGeometry } from './live-system';
 export { solvedHitTest, datumHitTest, refFor } from './hit-test';
 export type { SolvedHit, SolvedVertexHit, SolvedEdgeHit, SolvedDatumHit, SketchDatumName } from './hit-test';
-export { tessellateSolvedEntity, arcSweep } from './tessellate';
-export { buildPositionWriteBack } from './write-back';
+export { tessellateSolvedEntity, tessellateBezier, arcSweep } from './tessellate';
+export { buildPositionWriteBack, buildSettleWriteBack } from './write-back';
 export { updateDragTargets } from './drag-targets';
 export type { SolvedDragMode, SolvedDragTarget } from './drag-targets';

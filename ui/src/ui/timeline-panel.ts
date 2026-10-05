@@ -1,13 +1,18 @@
-import type { SceneObjectRender } from '../types';
+import type { ObjectBuildWarning, SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
-import { findActiveObject, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow } from '../helpers/scene-utils';
+import { TimelineView } from '../helpers/timeline-view';
+import type { TimelineEntry } from '../../../lib/dist/common/timeline';
+import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
 import { RAIL_PANEL_CLASS } from './rail-styles';
+import { viewerSettings, type ViewerSettings } from '../scene/viewer-settings';
+import { iconUrl } from './icon-url';
+import { TimelineBreakpointBar, type BreakpointStop } from './timeline-breakpoint-bar';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -33,36 +38,71 @@ function isConstraintRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType?.startsWith('constraint-') === true;
 }
 
+/** A sketch's `region('name', …)` declarations: names for the extrude-family region picks, no geometry of their own. */
+function isRegionRow(obj: SceneObjectRender): boolean {
+  return obj.type === 'region';
+}
+
 /**
- * Child rows a part folds into their own sub-container instead of listing
- * inline with its features: mate connectors (`connector(…)`) and published
- * selections (`expose(…)`). Both are references rather than geometry, so a
- * part with a dozen of them would otherwise bury its modeling history. Each
- * kind renders behind one "N connectors" / "N exposed" toggle row, collapsed
- * by default — the same shape the solved-sketch constraint group uses.
+ * Child rows a container folds into their own sub-container instead of
+ * listing inline: a part's declared mate connectors (`connector(…)`) and
+ * published selections (`expose(…)`), a sketch's region declarations
+ * (`region(…)`). All are references rather than geometry, so a container
+ * with a dozen of them would otherwise bury its modeling history. Each kind
+ * renders behind one "N connectors" / "N exposed" / "N regions" toggle row,
+ * collapsed by default — the same shape the solved-sketch constraint group
+ * uses. A `copy()` of connectors is one statement however many copies it
+ * makes, so it lists among the features like any pattern.
  */
-interface PartGroupKind {
-  /** Key into expandedGroupKeys (`<partId>:<key>`). */
+interface GroupKind {
+  /** Key into expandedGroupKeys (`<containerId>:<key>`). */
   key: string;
-  type: string;
+  /** The container type the group sits under. */
+  parent: 'part' | 'sketch';
+  /** Whether a child row files into the group. */
+  holds: (obj: SceneObjectRender) => boolean;
   label: (count: number) => string;
   icon: string;
 }
 
-const PART_GROUP_KINDS: readonly PartGroupKind[] = [
-  { key: 'connectors', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
-  { key: 'exposed', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+const GROUP_KINDS: readonly GroupKind[] = [
+  {
+    key: 'connectors',
+    parent: 'part',
+    holds: (obj) => obj.type === 'connector',
+    label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`,
+    icon: 'mate-connector',
+  },
+  { key: 'exposed', parent: 'part', holds: (obj) => obj.type === 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+  { key: 'regions', parent: 'sketch', holds: (obj) => obj.type === 'region', label: (n) => `${n} region${n === 1 ? '' : 's'}`, icon: 'region' },
 ];
 
-function partGroupOf(obj: SceneObjectRender): PartGroupKind | undefined {
-  return PART_GROUP_KINDS.find((kind) => obj.type === kind.type);
+function groupOf(parent: SceneObjectRender | undefined, obj: SceneObjectRender): GroupKind | undefined {
+  return GROUP_KINDS.find((kind) => parent?.type === kind.parent && kind.holds(obj));
+}
+
+/**
+ * The display settings that decide which child rows the timeline lists —
+ * the Settings dialog's Timeline tab. Read from the live store on every
+ * render; a change re-renders.
+ */
+function timelineDisplayOf(s: ViewerSettings): Pick<ViewerSettings, 'timelineSketchChildren' | 'timelineShowConstraints' | 'timelineShowRegions'> {
+  return { timelineSketchChildren: s.timelineSketchChildren, timelineShowConstraints: s.timelineShowConstraints, timelineShowRegions: s.timelineShowRegions };
 }
 
 /** Per-render inputs shared by every renderSubtree call. */
+/** A row's toggle state, held by the row's source identity while a pause hides the row. */
+interface ParkedRowState {
+  row: SceneObjectRender;
+  state: 'collapsed' | 'constraints' | 'group';
+  /** The `:<groupKey>` tail of an expanded group key; empty for the id-keyed states. */
+  suffix: string;
+}
+
 interface RenderContext {
   items: SceneObjectRender[];
   rollbackStop: number;
-  /** Ids of every non-hidden object that has at least one non-hidden child. */
+  /** Ids of every object that has at least one listed child (see listsRow). */
   parentIds: Set<string>;
   /** Ids of every container with an errored descendant at any depth. */
   erroredIds: Set<string>;
@@ -86,9 +126,10 @@ export interface TimelinePanelOptions {
   /** The "Shapes" accordion below the feature rows. */
   shapes?: boolean;
   /**
-   * The per-row rebuild marks (cached vs rebuilt this render). They answer a
-   * question only someone editing the model is asking; a host showing the
-   * tree as a picture of the build turns them off.
+   * The per-row rebuild marks (cached vs rebuilt this render), drawn while
+   * "Show execution time" is on. They answer a question only someone editing
+   * the model is asking; a host showing the tree as a picture of the build
+   * turns them off.
    */
   status?: boolean;
   /**
@@ -124,12 +165,15 @@ export class TimelinePanel {
   onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
 
   /**
-   * A part row was clicked. Part rows don't navigate: instead of the
-   * rollback preview they toggle the timeline's ACTIVE part — the part whose
-   * callback body receives newly created statements. The source jump stays.
-   * Unset (a host without the tracker), part rows keep the default rollback.
+   * Point the timeline's ACTIVE part — the part whose callback body receives
+   * newly created statements — at a part row, or with null step out of it to
+   * the file's top level. Part rows don't navigate: instead of the rollback
+   * preview a click toggles the active part, and the pause gestures point it
+   * at the paused row's scope. The source jump stays. Returns whether the
+   * active part changed. Unset (a host without the tracker), part rows keep
+   * the default rollback.
    */
-  onPartActivate?: (obj: SceneObjectRender) => void;
+  setActivePart?: (part: SceneObjectRender | null) => boolean;
 
   /**
    * A connector or exposed row was clicked. These rows are references, not
@@ -137,8 +181,24 @@ export class TimelinePanel {
    * what they publish (the connector's gizmo, the exposure's faces).
    */
   onFeatureShow?: (obj: SceneObjectRender) => void;
-  /** Whether this part row is the active part (drives its highlight). */
+  /**
+   * A connector row's "Copy…": open the Copy dialog with that connector
+   * already in its targets. Unset, connector rows offer no such item.
+   */
+  onCopyConnector?: (obj: SceneObjectRender) => void;
+  /** A part row's Set material…: open the pick dialog for that part. */
+  onSetMaterial?: (obj: SceneObjectRender) => void;
+  /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
+
+  /**
+   * The eye on a consumed row (a sketch, plane or axis a feature used):
+   * whether the viewer draws that object again, and the toggle. View state
+   * only — the file never changes. Unset, consumed rows carry no eye.
+   */
+  isRowShown?: (obj: SceneObjectRender) => boolean;
+  onToggleRowShown?: (obj: SceneObjectRender) => void;
+
 
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
@@ -185,6 +245,10 @@ export class TimelinePanel {
 
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
+  private breakpointBar: TimelineBreakpointBar | null = null;
+  private breakpointFilePath: string | undefined;
+  private breakpointStop = -1;
+  private sceneRevision = 0;
   private contentWrapper: HTMLDivElement;
   private historySection: AccordionSection;
   private shapesPanel: ShapesPanel;
@@ -199,6 +263,7 @@ export class TimelinePanel {
   private loaded = false;
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
+  private timelineView = new TimelineView([]);
 
   /**
    * The feature row the timeline shows for a source line, or null. A
@@ -212,6 +277,12 @@ export class TimelinePanel {
       && !isHiddenRow(obj) && !isConstraintRow(obj)) ?? null;
   }
   private rollbackStop = -1;
+  /** The displayed scene stopped early on a breakpoint — see update(). */
+  private paused = false;
+  /** The scene the pause interrupted: the rows it cut off are still known from here. */
+  private sceneBeforePause: SceneObjectRender[] = [];
+  /** Toggle state of rows the pause cut off, waiting for them to return — see carryRowStateOver(). */
+  private parkedRowState: ParkedRowState[] = [];
   /**
    * Set while the displayed render is a part-scoped rollback (the server
    * derived it from the clicked row): only that part's rows past the stop
@@ -251,9 +322,17 @@ export class TimelinePanel {
   private dragIndices: number[] | null = null;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
+  /**
+   * Non-fatal notices per row id from the render's `objectWarnings` (a part
+   * naming an unknown material). Kept across a render that carries none —
+   * a compile-error replay re-serves the same rows.
+   */
+  private rowWarnings = new Map<string, string[]>();
   private showBuildTimings = false;
   private readonly showStatusMarks: boolean;
   private readonly showChildren: boolean;
+  private timelineDisplay = timelineDisplayOf(viewerSettings.current);
+  private readonly unsubscribeSettings: () => void;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
 
@@ -271,6 +350,19 @@ export class TimelinePanel {
   ) {
     this.showStatusMarks = options.status !== false;
     this.showChildren = options.children !== false;
+    this.unsubscribeSettings = viewerSettings.subscribe((s) => {
+      const next = timelineDisplayOf(s);
+      const prev = this.timelineDisplay;
+      if (next.timelineSketchChildren === prev.timelineSketchChildren
+        && next.timelineShowConstraints === prev.timelineShowConstraints
+        && next.timelineShowRegions === prev.timelineShowRegions) {
+        return;
+      }
+      this.timelineDisplay = next;
+      if (this.loaded) {
+        this.renderTimeline();
+      }
+    });
     this.panel = document.createElement('div');
     // Docked in the scene's left gutter, below the host chrome and any inset
     // an embedding host has claimed (see RAIL_PANEL_CLASS).
@@ -297,6 +389,14 @@ export class TimelinePanel {
       this.contentWrapper.appendChild(this.historySection.body);
     }
     this.timelineBody = this.historySection.body;
+    this.timelineBody.classList.add('relative');
+    if (this.client.editor?.moveTimelineBreakpoint) {
+      this.breakpointBar = new TimelineBreakpointBar(this.timelineBody, async stop => {
+        const row = stop.before ? this.timelineView.rows[Number(stop.before.dataset.displayIndex)] : undefined;
+        if (row) this.enterScopeOf(row);
+        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source);
+      });
+    }
     this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
     const historyDotsBtn = this.historySection.header.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
     historyDotsBtn.addEventListener('click', (e) => {
@@ -364,21 +464,71 @@ export class TimelinePanel {
     };
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {
+  /**
+   * `paused` marks a scene the build stopped early on (a breakpoint): the
+   * module threw out at the breakpoint, so every statement after it is
+   * missing from `sceneObjects` rather than deleted from the source.
+   *
+   * The render that leaves the pause brings those rows back. It is not a
+   * scene of new features, so the panel keeps resting on the row it was
+   * paused on instead of following the current row to the tip, returning
+   * parts are not "new" (focusNewParts), and the row state the pause cut
+   * off is re-adopted (carryRowStateOver).
+   */
+  update(
+    sceneObjects: SceneObjectRender[],
+    rollbackStop: number,
+    rollbackScopePartId: string | null = null,
+    options: { paused?: boolean; warnings?: ObjectBuildWarning[]; timeline?: TimelineEntry[]; filePath?: string; breakpointStop?: number } = {},
+  ): void {
+    const paused = options.paused === true;
+    const view = new TimelineView(sceneObjects, paused ? options.timeline : undefined);
+    if (options.warnings !== undefined) {
+      this.rowWarnings = TimelinePanel.warningsByRow(sceneObjects, options.warnings);
+    }
+    const leavingPause = this.paused && !paused;
+    if (paused && !this.paused) {
+      this.sceneBeforePause = this.timelineView.rows;
+    }
+    const heldRow = leavingPause ? this.currentRowObject() : undefined;
+    const heldMatch = heldRow ? findMatchingRow(heldRow, sceneObjects) : undefined;
     this.pickedFeatureId = null;
     this.selectedIndices.clear();
     this.selectionAnchor = null;
     this.dragIndices = null;
-    this.carryRowStateOver(sceneObjects);
-    this.focusNewParts(sceneObjects);
+    this.carryRowStateOver(view.rows, paused);
+    this.focusNewParts(view.rows);
+    if (!paused) {
+      this.sceneBeforePause = [];
+    }
+    this.paused = paused;
     this.sceneObjects = sceneObjects;
+    this.timelineView = view;
+    this.breakpointFilePath = options.filePath ?? view.rows.find(row => row.sourceLocation?.filePath)?.sourceLocation?.filePath;
+    this.breakpointStop = options.breakpointStop ?? rollbackStop;
+    this.sceneRevision++;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
     this.syncVisibility();
-    this.renderTimeline(true);
+    this.renderTimeline(true, heldMatch);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /** Group a render's warnings by the row they name — by id, else by `index` into the scene. */
+  private static warningsByRow(sceneObjects: SceneObjectRender[], warnings: ObjectBuildWarning[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const warning of warnings) {
+      const id = warning.id ?? sceneObjects[warning.index]?.id;
+      if (id == null) {
+        continue;
+      }
+      const list = out.get(id) ?? [];
+      list.push(warning.message);
+      out.set(id, list);
+    }
+    return out;
   }
 
   /**
@@ -387,13 +537,15 @@ export class TimelinePanel {
    * part in the previous scene re-adopts it by source identity
    * (findMatchingRow) — a part whose body merely changed keeps its state.
    * The first load and scenes with no new part leave collapse state alone.
+   * A part the pause cut off is known from the scene before it — returning
+   * on Continue doesn't make it new.
    */
   private focusNewParts(next: SceneObjectRender[]): void {
     if (!this.loaded) {
       return;
     }
     const survivors = new Set<string>();
-    for (const prev of this.sceneObjects) {
+    for (const prev of [...this.timelineView.rows, ...this.sceneBeforePause]) {
       if (prev.type === 'part') {
         const match = findMatchingRow(prev, next);
         if (match?.id != null) {
@@ -431,11 +583,25 @@ export class TimelinePanel {
    * whose body changed) arrives with a fresh id — and its open constraint
    * group would snap shut. Each remembered row is re-adopted by source
    * identity (findMatchingRow); rows that no longer resolve are dropped.
+   *
+   * Except into a paused scene: a row missing there was cut off by the
+   * breakpoint, not deleted. Its state is parked with the row's source
+   * identity and re-adopted by the first scene that has the row again, so a
+   * part collapsed before the pause is still collapsed after Continue. The
+   * first complete scene discards whatever is still parked — those rows
+   * really are gone.
    */
-  private carryRowStateOver(next: SceneObjectRender[]): void {
-    if (this.collapsedIds.size === 0 && this.expandedConstraintIds.size === 0 && this.expandedGroupKeys.size === 0) {
+  private carryRowStateOver(next: SceneObjectRender[], paused: boolean): void {
+    if (this.collapsedIds.size === 0 && this.expandedConstraintIds.size === 0 && this.expandedGroupKeys.size === 0 && this.parkedRowState.length === 0) {
       return;
     }
+    const stillParked: ParkedRowState[] = [];
+    const park = (id: string, state: ParkedRowState['state'], suffix = ''): void => {
+      const row = SceneIndex.of(this.timelineView.rows).byId(id);
+      if (paused && row) {
+        stillParked.push({ row, state, suffix });
+      }
+    };
     const nextIds = new Set<string>();
     for (const obj of next) {
       if (obj.id != null) {
@@ -450,34 +616,57 @@ export class TimelinePanel {
       if (resolved.has(id)) {
         return resolved.get(id)!;
       }
-      const prev = SceneIndex.of(this.sceneObjects).byId(id);
+      const prev = SceneIndex.of(this.timelineView.rows).byId(id);
       const match = prev ? findMatchingRow(prev, next) : undefined;
       const out = match?.id ?? null;
       resolved.set(id, out);
       return out;
     };
-    const remapIds = (ids: Set<string>): Set<string> => {
+    const remapIds = (ids: Set<string>, state: ParkedRowState['state']): Set<string> => {
       const out = new Set<string>();
       for (const id of ids) {
         const to = resolve(id);
         if (to !== null) {
           out.add(to);
+        } else {
+          park(id, state);
         }
       }
       return out;
     };
-    this.collapsedIds = remapIds(this.collapsedIds);
-    this.expandedConstraintIds = remapIds(this.expandedConstraintIds);
+    this.collapsedIds = remapIds(this.collapsedIds, 'collapsed');
+    this.expandedConstraintIds = remapIds(this.expandedConstraintIds, 'constraints');
     const groupKeys = new Set<string>();
     for (const key of this.expandedGroupKeys) {
       // `<partId>:<groupKey>` — ids are UUIDs, so the first colon splits.
       const sep = key.indexOf(':');
-      const to = sep < 0 ? null : resolve(key.slice(0, sep));
+      if (sep < 0) {
+        continue;
+      }
+      const to = resolve(key.slice(0, sep));
       if (to !== null) {
         groupKeys.add(`${to}${key.slice(sep)}`);
+      } else {
+        park(key.slice(0, sep), 'group', key.slice(sep));
       }
     }
     this.expandedGroupKeys = groupKeys;
+
+    for (const parked of this.parkedRowState) {
+      const to = findMatchingRow(parked.row, next)?.id;
+      if (to == null) {
+        if (paused) {
+          stillParked.push(parked);
+        }
+      } else if (parked.state === 'collapsed') {
+        this.collapsedIds.add(to);
+      } else if (parked.state === 'constraints') {
+        this.expandedConstraintIds.add(to);
+      } else {
+        this.expandedGroupKeys.add(`${to}${parked.suffix}`);
+      }
+    }
+    this.parkedRowState = stillParked;
   }
 
   /**
@@ -511,7 +700,7 @@ export class TimelinePanel {
         if (isConstraintRow(row)) {
           this.expandedConstraintIds.add(row.parentId);
         }
-        const group = partGroupOf(row);
+        const group = groupOf(SceneIndex.of(this.sceneObjects).parent(row), row);
         if (group) {
           this.expandedGroupKeys.add(`${row.parentId}:${group.key}`);
         }
@@ -548,13 +737,39 @@ export class TimelinePanel {
   }
 
   /**
+   * Whether the timeline lists `obj` at all. The scene's own hidden rows
+   * never show. A constraint or region row shows while its Timeline setting
+   * is on. Any other child of a sketch shows unless only editable features
+   * are wanted and this one has no edit dialog — a host that never says
+   * which rows are editable keeps listing them all. Errors still climb out
+   * of an unlisted row (see erroredAncestorIds), so a failing hidden
+   * constraint keeps flagging its sketch.
+   */
+  private listsRow(obj: SceneObjectRender, parent: SceneObjectRender | undefined): boolean {
+    if (isHiddenRow(obj)) {
+      return false;
+    }
+    if (isConstraintRow(obj)) {
+      return this.timelineDisplay.timelineShowConstraints;
+    }
+    if (isRegionRow(obj)) {
+      return this.timelineDisplay.timelineShowRegions;
+    }
+    if (parent?.type === 'sketch' && this.timelineDisplay.timelineSketchChildren === 'editable' && this.isFeatureEditable) {
+      return this.isFeatureEditable(obj);
+    }
+    return true;
+  }
+
+  /**
    * Nesting depth at which renderTimeline emits a row for this object
-   * (0 = top level), or null when it never gets one: hidden rows, rows under
-   * a hidden or hide-children ancestor, and rows nested deeper than
-   * MAX_RENDER_DEPTH. Collapse state is not considered.
+   * (0 = top level), or null when it never gets one: hidden and unlisted
+   * rows, rows under a hidden or hide-children ancestor, and rows nested
+   * deeper than MAX_RENDER_DEPTH. Collapse state is not considered.
    */
   private renderedDepth(obj: SceneObjectRender): number | null {
-    if (isHiddenRow(obj)) {
+    const index = SceneIndex.of(this.timelineView.rows);
+    if (!this.listsRow(obj, index.parent(obj))) {
       return null;
     }
     const visited = new Set<string>();
@@ -565,8 +780,8 @@ export class TimelinePanel {
         return null;
       }
       visited.add(cur.parentId);
-      const parent = SceneIndex.of(this.sceneObjects).parent(cur);
-      if (!parent || isHiddenRow(parent) || parent.hideChildren === true) {
+      const parent = index.parent(cur);
+      if (!parent || !this.listsRow(parent, index.parent(parent)) || parent.hideChildren === true) {
         return null;
       }
       depth++;
@@ -580,7 +795,32 @@ export class TimelinePanel {
 
   /** Every ancestor of `obj` in the scene list, nearest first. */
   private ancestorsOf(obj: SceneObjectRender): SceneObjectRender[] {
-    return SceneIndex.of(this.sceneObjects).ancestors(obj);
+    return SceneIndex.of(this.timelineView.rows).ancestors(obj);
+  }
+
+  /**
+   * The object behind the current row. A container that rolls back to its
+   * last descendant is current together with the child the stop lands on, so
+   * the deepest current row is the precise one.
+   */
+  private currentRowObject(): SceneObjectRender | undefined {
+    const rows = this.timelineBody.querySelectorAll<HTMLElement>('[data-current="true"]');
+    const el = rows[rows.length - 1];
+    return el ? this.sceneObjects[parseInt(el.dataset.index!, 10)] : undefined;
+  }
+
+  /** The rendered row for `obj`, or for its nearest ancestor when a collapsed group hides it. */
+  private rowElementFor(obj: SceneObjectRender): HTMLElement | null {
+    const index = SceneIndex.of(this.timelineView.rows);
+    for (const candidate of [obj, ...index.ancestors(obj)]) {
+      const liveIndex = this.timelineView.sceneIndex(candidate);
+      const selector = liveIndex < 0 ? `[data-history-index="${index.position(candidate)}"]` : `[data-index="${liveIndex}"]`;
+      const el = this.timelineBody.querySelector<HTMLElement>(selector);
+      if (el) {
+        return el;
+      }
+    }
+    return null;
   }
 
   private scrollPickedIntoView(): void {
@@ -655,22 +895,24 @@ export class TimelinePanel {
   // Timeline rendering
   // ---------------------------------------------------------------------------
 
-  private renderTimeline(scrollToCurrent = false): void {
-    const items = this.sceneObjects;
+  private renderTimeline(scrollToCurrent = false, heldRow?: SceneObjectRender): void {
+    const items = this.timelineView.rows;
     const rollbackStop = this.rollbackStop;
 
     // Mirrors the viewer's sketch-mode derivation: a non-truncated render
-    // whose active scope ends in a sketch — including a part-scoped stop on
-    // the active part's tip sketch, which hides nothing and DOES enter
-    // sketch editing. Derived here rather than in update() so a part-row
-    // click — which repoints the active part and re-renders without a new
-    // scene — reads the new scope's state.
-    this.sketchActive = !isRollbackViewTruncated(items, rollbackStop, this.rollbackScopePartId)
-      && findActiveObject(items)?.type === 'sketch';
+    // whose active scope ends in an open sketch — including a part-scoped
+    // stop on the active part's tip sketch, which hides nothing and DOES
+    // enter sketch editing; a `.close()`d tip sketch does not. Derived here
+    // rather than in update() so a part-row click — which repoints the
+    // active part and re-renders without a new scene — reads the new
+    // scope's state.
+    this.sketchActive = !isRollbackViewTruncated(this.sceneObjects, rollbackStop, this.rollbackScopePartId)
+      && findActiveSketch(this.sceneObjects) !== undefined;
 
     const parentIds = new Set<string>();
+    const sceneIndex = SceneIndex.of(items);
     for (const obj of items) {
-      if (!isHiddenRow(obj) && obj.parentId) {
+      if (obj.parentId && this.listsRow(obj, sceneIndex.parent(obj))) {
         parentIds.add(obj.parentId);
       }
     }
@@ -680,7 +922,7 @@ export class TimelinePanel {
       rollbackStop,
       parentIds,
       erroredIds: this.erroredAncestorIds(items),
-      scopedIds: rollbackScopeIds(items, this.rollbackScopePartId),
+      scopedIds: rollbackScopeIds(this.sceneObjects, this.rollbackScopePartId),
       pickedRowId: this.resolvePickedRowId(),
     };
 
@@ -695,8 +937,22 @@ export class TimelinePanel {
     // Rebuilding the rows discards the hovered one along with its mouseleave
     // listener, so a popover anchored to it would otherwise outlive it.
     this.closeProfilePopover();
+    this.breakpointBar?.prepareRender();
     this.timelineBody.innerHTML = html
       || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
+
+    // Historical rows never join the live row handlers below. In particular,
+    // double-click, modifier-click and dialog interception cannot edit or
+    // select geometry that this evaluation did not produce.
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-history-index]').forEach(el => {
+      const row = items[Number(el.dataset.historyIndex)];
+      el.addEventListener('click', e => {
+        if (!(e.target as HTMLElement).closest('[data-toggle]')) this.goToSource(row);
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); this.goToSource(row); }
+      });
+    });
 
     this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -706,6 +962,23 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         const rollbackIndex = parseInt(el.dataset.rollbackIndex ?? el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
+        if ((e.target as HTMLElement).closest('[data-show-eye]')) {
+          // The eye is its own control: no rollback, no selection change.
+          if (obj) {
+            this.onToggleRowShown?.(obj);
+
+            this.renderTimeline();
+          }
+          return;
+        }
+        const dots = (e.target as HTMLElement).closest<HTMLElement>('[data-row-menu]');
+        if (dots) {
+          // A part row's dots open its action menu under the button — the
+          // same menu as a right-click — without activating the part.
+          const rect = dots.getBoundingClientRect();
+          this.showRowContextMenu({ clientX: rect.left, clientY: rect.bottom }, index);
+          return;
+        }
         // Ctrl/meta toggles a row into the drag-to-part selection, shift
         // extends it as a range; a plain click anywhere drops the selection
         // and keeps its normal meaning.
@@ -716,17 +989,28 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
-        if (obj && obj.type === 'part' && this.onPartActivate) {
-          // Part rows toggle the active part instead of rolling back; the
-          // re-render repaints the highlight from the tracker's new state.
-          this.onPartActivate(obj);
+        if (obj && obj.type === 'part' && this.setActivePart) {
+          // Part rows toggle the active part instead of rolling back: an
+          // inactive row becomes the active part, the active one steps out to
+          // the file's top level. A double-click's second click only
+          // activates, so that gesture always ends inside the part. The
+          // re-render repaints the rows from the tracker's state.
+          const stepOut = e.detail < 2 && this.isPartRowActive?.(obj) === true;
+          const changed = this.setActivePart(stepOut ? null : obj);
           this.goToSource(obj);
-          this.renderTimeline();
+          if (changed) {
+            this.renderTimeline();
+          }
           return;
         }
-        if (obj && partGroupOf(obj) && this.onFeatureShow) {
+        const publishes = obj !== undefined && (SceneIndex.copiesOnlyConnectors(obj)
+          || groupOf(SceneIndex.of(this.sceneObjects).parent(obj), obj)?.parent === 'part');
+        if (obj && publishes && this.onFeatureShow) {
           // Connector / exposed rows show what they publish instead of
-          // rolling back — they are references, not modeling steps.
+          // rolling back — they are references, not modeling steps — and so
+          // does a copy of connectors, listed among the features: it shows
+          // its whole family. (A region row is a statement of its sketch and
+          // rolls back like one.)
           this.onFeatureShow(obj);
           this.goToSource(obj);
           return;
@@ -740,15 +1024,15 @@ export class TimelinePanel {
         this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
-        if ((e.target as HTMLElement).closest('[data-toggle]')) {
+        if ((e.target as HTMLElement).closest('[data-toggle], [data-show-eye], [data-row-menu]')) {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
         if (obj && obj.type === 'part') {
-          // Parts have no edit dialog and their single click already toggles
-          // activation — a double-click must not place a breakpoint. The
-          // context menu's "Breakpoint here" stays the explicit path.
+          // Parts have no edit dialog and their clicks already activated the
+          // part — a double-click must not place a breakpoint. The context
+          // menu's "Breakpoint here" stays the explicit path.
           return;
         }
         if (this.sketchActive && !(obj && this.isFeatureEditable?.(obj))) {
@@ -881,12 +1165,52 @@ export class TimelinePanel {
       });
     }
 
+    this.syncBreakpointBar();
+
     if (scrollToCurrent) {
-      const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
-      if (currentEl) {
-        this.revealRow(currentEl, false);
+      const revealEl = (heldRow ? this.rowElementFor(heldRow) : null)
+        ?? this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
+      if (revealEl) {
+        this.revealRow(revealEl, false);
       }
     }
+  }
+
+  /** The bar snaps before source statements, including retained unevaluated rows. */
+  private syncBreakpointBar(): void {
+    if (!this.breakpointBar || !this.breakpointFilePath) return;
+    const rows = this.timelineView.rows;
+    const stops: BreakpointStop[] = [];
+    const seen = new Set<string>();
+    const normalize = (path: string | undefined) => path?.replace('virtual:live-render:', '').replaceAll('\\', '/');
+    this.breakpointFilePath = normalize(this.breakpointFilePath);
+    for (const el of this.timelineBody.querySelectorAll<HTMLElement>('[data-display-index]')) {
+      const row = rows[Number(el.dataset.displayIndex)];
+      const loc = row.sourceLocation;
+      if (!loc || normalize(loc.filePath) !== this.breakpointFilePath || (loc.occurrence ?? 0) > 0) continue;
+      const key = `${loc.line}:${loc.column}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      stops.push({ before: el, label: `Before ${row.name || row.type || 'feature'}`, source: { line: loc.line, column: loc.column } });
+    }
+    if (!stops.length && !this.paused) return;
+    stops.push({ before: null, label: 'End of history', source: null });
+    const currentRow = this.sceneObjects[this.breakpointStop];
+    const currentDisplayIndex = currentRow ? rows.indexOf(currentRow) : -1;
+    // Unrelated parts can still evaluate after a pause. The render's stop,
+    // rather than the last evaluated row, is the authoritative boundary.
+    let current = stops.length - 1;
+    if (this.paused) {
+      const next = stops.findIndex(stop => stop.before && Number(stop.before.dataset.displayIndex) > currentDisplayIndex);
+      if (next >= 0) current = next;
+    }
+    this.breakpointBar.update({
+      stops, current, paused: this.paused, revision: this.sceneRevision,
+      // A running sketch owns navigation until Finish Sketch. A breakpoint
+      // preview may itself expose an open sketch; the bar must remain usable
+      // so dragging back and forward cannot strand the user there.
+      disabled: this.sketchActive && !this.paused,
+    });
   }
 
   /**
@@ -901,7 +1225,7 @@ export class TimelinePanel {
     }
     const obj = this.sceneObjects[index];
     if (obj) {
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
     }
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
@@ -913,33 +1237,34 @@ export class TimelinePanel {
   }
 
   /**
-   * The pause gestures work "here": pausing a build inside a part makes that
-   * part the user's working scope, so an inactive enclosing part is activated
-   * first — the same path as clicking its row. Without this the breakpoint
-   * render derives sketch-mode entry (and every scope-sensitive service) from
-   * the previously active part — whose build the pause never touches, since
-   * the leftover-definitions pass still materializes it fully — and a paused
-   * tip sketch never opens for editing. Skipped while sketching: the only
-   * gestures allowed then either stay inside the active part or open an edit
-   * dialog that suspends the active sketch and restores it on exit, which a
-   * scope switch would close for good instead.
+   * The pause gestures work "here": pausing a build makes the paused row's
+   * scope the user's working scope — the part around a row inside one is
+   * activated, the same path as clicking its row, and a top-level row steps
+   * out of the active part to the file's top level. Without this the
+   * breakpoint render derives sketch-mode entry (and every scope-sensitive
+   * service) from the previously active scope — whose build the pause never
+   * touches, since the leftover-definitions pass still materializes every
+   * part fully — and a paused tip sketch never opens for editing. A part row
+   * picks no scope: its statement only declares the part, whose body builds
+   * after the pause either way. Skipped while sketching: the only gestures
+   * allowed then either stay inside the active scope or open an edit dialog
+   * that suspends the active sketch and restores it on exit, which a scope
+   * switch would close for good instead.
    */
-  private activateEnclosingPart(obj: SceneObjectRender): void {
-    if (this.sketchActive || !this.onPartActivate) {
+  private enterScopeOf(obj: SceneObjectRender): void {
+    if (this.sketchActive || !this.setActivePart || obj.type === 'part') {
       return;
     }
-    const part = findEnclosingPartRow(obj, this.sceneObjects);
-    if (!part || this.isPartRowActive?.(part) === true) {
-      return;
+    if (this.setActivePart(findEnclosingPartRow(obj, this.sceneObjects) ?? null)) {
+      this.renderTimeline();
     }
-    this.onPartActivate(part);
-    this.renderTimeline();
   }
 
   /**
    * Ids of every container with an errored descendant (own error excluded,
    * any depth). A failing constraint marks its sketch AND the part around
-   * it, so a collapsed ancestor still flags the failure.
+   * it, so a collapsed ancestor still flags the failure — and so does a
+   * row the Timeline settings leave unlisted, which is otherwise invisible.
    */
   private erroredAncestorIds(items: SceneObjectRender[]): Set<string> {
     const out = new Set<string>();
@@ -958,8 +1283,9 @@ export class TimelinePanel {
 
   /**
    * The row for the object at `index` plus, when it is an expanded container
-   * above the depth cap, its children — constraints and part sub-groups
-   * behind their summary rows, everything else recursing one level deeper.
+   * above the depth cap, its listed children — constraints and the grouped
+   * kinds behind their summary rows, everything else recursing one level
+   * deeper.
    * A hide-children container (e.g. a repeat) always shows as a single leaf
    * row; a container at the last rendered depth does too, with no chevron.
    */
@@ -971,9 +1297,11 @@ export class TimelinePanel {
     const hasChildren = canExpand && obj.id != null && ctx.parentIds.has(obj.id);
     const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
     const effectiveError = obj.hasError === true || (obj.id != null && ctx.erroredIds.has(obj.id));
-    const rollbackIndex = TimelinePanel.rollsBackToLastDescendant(obj) || !this.showChildren ? this.lastDescendantIndex(items, index) : index;
+    const liveIndex = this.timelineView.sceneIndex(obj);
+    const rollbackIndex = liveIndex >= 0 && (TimelinePanel.rollsBackToLastDescendant(obj) || !this.showChildren)
+      ? this.lastDescendantIndex(this.sceneObjects, liveIndex) : liveIndex;
 
-    let html = this.renderTimelineItem(obj, index, rollbackStop, depth, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
+    let html = this.renderTimelineItem(obj, liveIndex, rollbackStop, depth, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId, index);
     if (!hasChildren || isCollapsed || obj.id == null) {
       return html;
     }
@@ -983,7 +1311,7 @@ export class TimelinePanel {
     const grouped = new Map<string, number[]>();
     const sceneIndex = SceneIndex.of(items);
     for (const child of sceneIndex.children(obj.id)) {
-      if (isHiddenRow(child)) {
+      if (!this.listsRow(child, obj)) {
         continue;
       }
       const j = sceneIndex.position(child);
@@ -991,7 +1319,7 @@ export class TimelinePanel {
         constraintRows.push(j);
         continue;
       }
-      const group = obj.type === 'part' ? partGroupOf(items[j]) : undefined;
+      const group = groupOf(obj, items[j]);
       if (group) {
         const list = grouped.get(group.key) ?? [];
         list.push(j);
@@ -1010,7 +1338,7 @@ export class TimelinePanel {
         }
       }
     }
-    for (const kind of PART_GROUP_KINDS) {
+    for (const kind of GROUP_KINDS) {
       const rows = grouped.get(kind.key);
       if (!rows || rows.length === 0) {
         continue;
@@ -1032,9 +1360,9 @@ export class TimelinePanel {
    * Rows whose one-click rollback targets their last descendant instead of
    * themselves: hide-children containers (a repeat stands in for its hidden
    * clones) and sketches — a sketch's geometry lives in its element children,
-   * so stopping ON the sketch row would render its constraint glyphs (drawn
-   * from the row's own solved snapshot) with no curves under them. Clicking
-   * either previews the scene with the whole feature applied.
+   * so stopping ON the sketch row would show the sketch with none of its
+   * curves. Clicking either previews the scene with the whole feature
+   * applied.
    */
   private static rollsBackToLastDescendant(obj: SceneObjectRender): boolean {
     return obj.hideChildren === true || obj.type === 'sketch';
@@ -1081,19 +1409,19 @@ export class TimelinePanel {
           ${ICON_CHEVRON_RIGHT}
         </span>
         ${errorDot}
-        <img src="/icons/${CONSTRAINT_KIND_ICONS.horizontal}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+        <img src="${iconUrl(CONSTRAINT_KIND_ICONS.horizontal)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
         <span class="truncate">${count} constraint${count === 1 ? '' : 's'}</span>
       </div>
     `;
   }
 
   /**
-   * The "N connectors" / "N exposed" toggle row of a part sub-container.
-   * Carries no data-index on purpose: it is not a statement — no rollback,
-   * rename or context menu — only the show/hide toggle for the grouped rows
-   * below it.
+   * The "N connectors" / "N exposed" / "N regions" toggle row of a
+   * sub-container. Carries no data-index on purpose: it is not a statement —
+   * no rollback, rename or context menu — only the show/hide toggle for the
+   * grouped rows below it.
    */
-  private renderGroupSummaryRow(groupKey: string, kind: PartGroupKind, count: number, shown: boolean, anyError: boolean, depth: number): string {
+  private renderGroupSummaryRow(groupKey: string, kind: GroupKind, count: number, shown: boolean, anyError: boolean, depth: number): string {
     const rotation = shown ? 'rotate-90' : '';
     const textClass = anyError ? 'text-error' : 'text-base-content/60';
     const errorDot = anyError
@@ -1105,16 +1433,17 @@ export class TimelinePanel {
           ${ICON_CHEVRON_RIGHT}
         </span>
         ${errorDot}
-        <img src="/icons/${kind.icon}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+        <img src="${iconUrl(kind.icon)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
         <span class="truncate">${kind.label(count)}</span>
       </div>
     `;
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, depth: number, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, depth: number, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean, displayIndex: number): string {
+    const unevaluated = index < 0;
     // Rows outside a part-scoped rollback's part are fully rendered — they
     // never read as past or current, whatever their flat index.
-    const inRollbackScope = scopedIds === null || (obj.id != null && scopedIds.has(obj.id));
+    const inRollbackScope = !unevaluated && (scopedIds === null || (obj.id != null && scopedIds.has(obj.id)));
     // A row that stands in for hidden descendants (rollbackIndex > index) is
     // current whenever the rollback stop lands anywhere inside its range.
     const isCurrent = inRollbackScope && rollbackStop >= index && rollbackStop <= rollbackIndex;
@@ -1124,18 +1453,22 @@ export class TimelinePanel {
     // "hidden shape" about something that cannot be shown or hidden and
     // grayscale the constraint artwork out of the row it labels. An exposure
     // is likewise a reference, not geometry — dimming it would read as
-    // "consumed" about something nothing can consume.
-    const isInvisible = obj.visible === false && !isConstraintRow(obj) && obj.type !== 'exposed';
+    // "consumed" about something nothing can consume. A region declaration
+    // is a name for a pick, with no shapes of its own, so it stays lit too.
+    const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
-    const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
+    const isActivePart = !unevaluated && isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
-    const isDraggable = !this.sketchActive && this.isMovableRow(obj);
-    const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
+    const isDraggable = !unevaluated && !this.sketchActive && this.isMovableRow(obj);
+    const isDropTarget = !unevaluated && this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
-    const iconSrc = obj.type === 'part' ? '/icons/box-blue.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
+    let iconSrc = iconUrl(resolveIconName(obj.uniqueType, obj.type));
+    if (obj.type === 'part') {
+      iconSrc = isActivePart ? iconUrl('box-blue') : iconUrl('box');
+    }
 
-    let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
+    let itemClass = 'group flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
     const indent = TimelinePanel.indentClass(depth);
     if (indent) {
       itemClass += ` ${indent}`;
@@ -1144,7 +1477,9 @@ export class TimelinePanel {
     // Part rows opt out of the "current" navigation highlight: with part
     // clicks toggling activation instead of rolling back, a current-tinted
     // part next to the active one would read as two active parts. Only the
-    // active part row is tinted (and carries the dot).
+    // active part row is highlighted — tint, blue cube, bold name and dot.
+    // Every other part row stays plain with the white cube, the one just
+    // stepped out of included: a click on any of them activates it.
     const highlightCurrent = isCurrent && obj.type !== 'part';
     // A viewer pick outranks the navigation tints: the picked row answers
     // "which feature made this face?", so it must read distinctly even when
@@ -1168,15 +1503,21 @@ export class TimelinePanel {
       itemClass += ' text-error';
     } else if (highlightCurrent || isActivePart) {
       itemClass += ' text-primary';
-    } else if (isPast || isInvisible) {
+    } else if (unevaluated || isPast || isInvisible) {
       itemClass += ' text-base-content/60';
     } else {
       itemClass += ' text-base-content/80';
     }
 
-    const imgClass = isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
+    const imgClass = unevaluated || isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
     const errorDot = effectiveError
       ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
+      : '';
+    // A non-fatal notice (an unknown material id) — the row built, so it
+    // keeps its colour and gets a warning triangle carrying the message.
+    const warnings = !unevaluated && obj.id != null ? this.rowWarnings.get(obj.id) : undefined;
+    const warningMark = !effectiveError && warnings && warnings.length > 0
+      ? `<span class="text-warning shrink-0 [&>svg]:w-3 [&>svg]:h-3" data-warning="${this.escapeHtml(warnings.join('\n'))}" title="${this.escapeHtml(warnings.join('\n'))}">${ICON_ALERT_TRIANGLE}</span>`
       : '';
 
     let chevron = '';
@@ -1189,16 +1530,44 @@ export class TimelinePanel {
       chevron = '<span class="w-4"></span>';
     }
 
+    // A consumed sketch, plane or axis (one a feature hid in this world)
+    // carries an eye: shown ones wear it always, hidden ones reveal it on
+    // hover — the shapes panel's own eye convention.
+    let eyeBtn = '';
+    if (!unevaluated && isShowableConsumedRow(obj) && this.onToggleRowShown) {
+      const shown = this.isRowShown?.(obj) === true;
+      const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
+      const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
+      const eyeTitle = shown ? `Hide the ${obj.type} again` : `Show the ${obj.type} (a feature used it)`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+    }
+
+
+    // A part row carries a dots button opening its action menu (Rename, Set
+    // material…, Remove) so the menu is discoverable without a right-click;
+    // an editor-less host has no actions to offer, so no button.
+    let menuBtn = '';
+    if (!unevaluated && isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
+      menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
+    }
+
+    // The eye or the dots, when present, is what pushes the right-aligned
+    // cluster over; otherwise the duration (or the status mark) does.
+    const pushRight = eyeBtn || menuBtn ? '' : 'ml-auto ';
     const showDuration = this.showBuildTimings && !obj.fromCache && obj.buildDurationMs != null;
     const durationSpan = showDuration
-      ? `<span class="ml-auto shrink-0 text-xs text-base-content/40 tabular-nums">${formatDuration(obj.buildDurationMs!)}</span>`
+      ? `<span class="${pushRight}shrink-0 text-xs text-base-content/40 tabular-nums">${formatDuration(obj.buildDurationMs!)}</span>`
       : '';
 
     const statusIconClass = showDuration
       ? 'shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4'
-      : 'ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4';
+      : `${pushRight}shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4`;
+    // The marks ride along with "Show execution time": a cached row's check
+    // explains why it carries no duration, and off the toggle they are noise.
     let statusIcon = '';
-    if (this.showStatusMarks) {
+    if (unevaluated) {
+      statusIcon = `<span class="${statusIconClass}" aria-label="Not evaluated">${ICON_PAUSE}</span>`;
+    } else if (this.showStatusMarks && this.showBuildTimings) {
       statusIcon = obj.fromCache
         ? `<span class="${statusIconClass}">${ICON_CIRCLE_CHECK}</span>`
         : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
@@ -1207,14 +1576,19 @@ export class TimelinePanel {
     const activeDot = isActivePart
       ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
       : '';
+    const nameClass = isActivePart ? 'truncate font-semibold' : 'truncate';
+    const rowTarget = unevaluated
+      ? `data-history-index="${displayIndex}" data-evaluated="false" tabindex="0" title="Not evaluated. Name and structure are from the last complete evaluation."`
+      : `data-index="${index}" data-rollback-index="${rollbackIndex}"`;
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
+      <div class="${itemClass}" ${rowTarget} data-display-index="${displayIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
-        ${errorDot}
+        ${errorDot}${warningMark}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
-        <span class="truncate">${name}</span>
+        <span class="${nameClass}">${this.escapeHtml(name)}</span>
         ${activeDot}
+        ${eyeBtn}${menuBtn}
         ${durationSpan}
         ${statusIcon}
       </div>
@@ -1257,6 +1631,8 @@ export class TimelinePanel {
   }
 
   dispose(): void {
+    this.breakpointBar?.dispose();
+    this.unsubscribeSettings();
     if (this.activeDropdown) {
       this.activeDropdown.remove();
       this.activeDropdown = null;
@@ -1346,13 +1722,14 @@ export class TimelinePanel {
   /**
    * Right-click menu on a timeline row: "Rename" swaps the menu for an
    * inline input editing the feature's chained `.name('…')`, "Edit feature"
-   * runs the double-click gesture (breakpoint after the row plus the
-   * feature's edit dialog), "Breakpoint here" places the breakpoint after
+   * (or "Edit sketch") runs the double-click gesture (breakpoint after the
+   * row plus the feature's edit dialog), "Breakpoint here" places the breakpoint after
    * the row without opening a dialog and "Remove" deletes the feature's
    * statement from the code. Rows without a source location get no menu —
    * none of the actions can target them.
    */
-  private showRowContextMenu(e: MouseEvent, index: number): void {
+  /** Open the row's action menu at `position` (the right-click, or the row's dots button). */
+  private showRowContextMenu(position: { clientX: number; clientY: number }, index: number): void {
     this.closeDropdown();
     // Every menu action edits or navigates source — nothing to offer
     // without an editor-backed host.
@@ -1368,26 +1745,40 @@ export class TimelinePanel {
     dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 
     const panelRect = this.panel.getBoundingClientRect();
-    dropdown.style.left = `${e.clientX - panelRect.left}px`;
-    dropdown.style.top = `${e.clientY - panelRect.top}px`;
+    dropdown.style.left = `${position.clientX - panelRect.left}px`;
+    dropdown.style.top = `${position.clientY - panelRect.top}px`;
 
-    // The edit action mirrors double-click: only rows with an edit dialog
-    // offer it, and those work even while sketching — the dialog suspends
-    // the sketch UI itself and restores it on exit.
-    const editItem = this.isFeatureEditable?.(obj) !== true ? '' : `
+    // The edit action mirrors double-click: rows with an edit dialog offer
+    // it, and those work even while sketching — the dialog suspends the
+    // sketch UI itself and restores it on exit. A sketch row offers it too
+    // (the gesture pauses the build after the sketch and opens it, taking a
+    // `.close()` chain off first), but only outside sketch mode: editing one
+    // sketch from inside another would replace the active one, not suspend it.
+    const sketchRow = obj.type === 'sketch' && !this.sketchActive;
+    const editItem = !(sketchRow || this.isFeatureEditable?.(obj) === true) ? '' : `
         <li><button data-action="edit" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_ADJUSTMENTS}</span>
-          <span>Edit feature</span>
+          <span>${sketchRow ? 'Edit sketch' : 'Edit feature'}</span>
         </button></li>`;
     // The breakpoint action is timeline navigation — absent while sketching,
     // except on the active sketch's own children: a breakpoint there replays
     // the sketch up to that shape without leaving sketch mode.
     const activeSketchChild = this.sketchActive && obj.parentId != null
-      && findActiveObject(this.sceneObjects)?.id === obj.parentId;
+      && findActiveSketch(this.sceneObjects)?.id === obj.parentId;
     const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
+        </button></li>`;
+    // A declared connector copies from its own menu — the Copy dialog opens
+    // with it already in the targets. A copy of one is never copied again,
+    // and one a copy() already copies is edited on that copy's row.
+    const copyConnectorItem = !this.onCopyConnector || this.sketchActive || obj.type !== 'connector'
+      || SceneIndex.isConnectorCopy(obj) || SceneIndex.of(this.sceneObjects).copyStatementOf(obj.id)
+      ? '' : `
+        <li><button data-action="copy-connector" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_COPY}</span>
+          <span>Copy…</span>
         </button></li>`;
     const tangencyAction = this.distanceTangencyAction(obj);
     const tangencyItem = !tangencyAction ? '' : `
@@ -1395,12 +1786,19 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
           <span>${tangencyAction.label}</span>
         </button></li>`;
+    // A part's material is set here and nowhere else: the Shape Properties
+    // panel only reads it, and an assembly instance shows its part's.
+    const materialItem = obj.type !== 'part' ? '' : `
+        <li><button data-action="set-material" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_SCALE}</span>
+          <span>Set material…</span>
+        </button></li>`;
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${materialItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -1424,11 +1822,21 @@ export class TimelinePanel {
       this.enterBreakpointAt(index);
     });
 
+    dropdown.querySelector('[data-action="copy-connector"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.onCopyConnector?.(obj);
+    });
+
+    dropdown.querySelector<HTMLButtonElement>('[data-action="set-material"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.onSetMaterial?.(obj);
+    });
+
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
-      // Same scope rule as the edit gesture: the pause makes this row's part
+      // Same scope rule as the edit gesture: the pause makes this row's scope
       // the working scope, so a paused tip sketch actually enters sketch mode.
-      this.activateEnclosingPart(obj);
+      this.enterScopeOf(obj);
       this.addBreakpointAfter(index);
       this.goToSource(obj);
     });
@@ -1500,7 +1908,8 @@ export class TimelinePanel {
    * Swap the row context menu's content for an inline rename input. The
    * input edits the feature's chained `.name('…')`: Enter commits (an empty
    * value clears the chain, reverting to the default name), Escape or the
-   * menu's click-outside handler dismisses without committing.
+   * menu's click-outside handler dismisses without committing. A part is
+   * renamed in its `part('…', …)` statement instead, and its variable with it.
    */
   private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
     const type = obj.type ?? '';
@@ -1525,7 +1934,11 @@ export class TimelinePanel {
       if (e.key === 'Enter') {
         const next = input.value.trim();
         if (next !== currentName) {
-          this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
+          if (obj.type === 'part' && next) {
+            void this.client.editor?.renamePart(obj.sourceLocation!, next);
+          } else {
+            this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
+          }
         }
         this.closeDropdown();
       } else if (e.key === 'Escape') {

@@ -27,6 +27,7 @@ const BASE: Omit<PlaneGhostRequest, 'bases'> = {
   rotateX: null,
   rotateY: null,
   rotateZ: null,
+  rotationAxes: 'local',
   position: null,
 };
 
@@ -179,6 +180,32 @@ describe("plane ghost", () => {
     // two horizontal directions.
     expect(box.maxZ - box.minZ).toBeCloseTo(200, 6);
     expect(Math.min(box.maxX - box.minX, box.maxY - box.minY)).toBeCloseTo(0, 6);
+  });
+
+  it("turns the quad around the world axes with rotationAxes: 'world'", () => {
+    const scene = render();
+
+    // XZ stands in the world XZ plane; a Y turn around its own Y (world Z)
+    // swings it to stand in YZ, while around the world Y it stays in a
+    // vertical plane through the Z axis — collapsed in X instead of Y.
+    const local = bounds(planeGhost(scene, [{ kind: 'standard', plane: 'xz' }], { rotateY: 90 }));
+    expect(local.maxX - local.minX).toBeCloseTo(0, 6);
+
+    const world = bounds(planeGhost(scene, [{ kind: 'standard', plane: 'xz' }], { rotateY: 90, rotationAxes: 'world' }));
+    expect(world.maxY - world.minY).toBeCloseTo(0, 6);
+    expect(world.maxZ - world.minZ).toBeCloseTo(200, 6);
+    expect(world.maxX - world.minX).toBeCloseTo(200, 6);
+  });
+
+  it("orbits an offset quad around the world axis line", () => {
+    const scene = render();
+
+    // XY raised 20, then swung 90° around the world X axis: the quad stands
+    // in XZ at y = -20, exactly where the settled plane() lands.
+    const box = bounds(planeGhost(scene, [{ kind: 'standard', plane: 'xy' }], { offset: 20, rotateX: 90, rotationAxes: 'world' }));
+    expect(box.minY).toBeCloseTo(-20, 6);
+    expect(box.maxY).toBeCloseTo(-20, 6);
+    expect(box.maxZ - box.minZ).toBeCloseTo(200, 6);
   });
 
   it("stands normal to a helix at the requested position", () => {

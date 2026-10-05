@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getJavaScriptParser, spliceCode, walkTree, type TSNode } from '../code-editor.ts';
+import { getJavaScriptParser, spliceCode, walkTree, type TSNode } from '../code-editor/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { listWorkspaceFiles } from './file-tree.ts';
 import { relativeSpecifierFromDir } from './relative-specifier.ts';

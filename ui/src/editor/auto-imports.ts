@@ -14,7 +14,7 @@ type WorkspaceExport = { name: string; kind: monaco.languages.CompletionItemKind
  *
  * So instead of forking that worker, this provider offers the engine symbols
  * itself. The table comes from the server's import linter via
- * `/api/engine/types`, which means what the editor suggests and what the
+ * `api/engine/types`, which means what the editor suggests and what the
  * `missing-imports` write guard accepts are the same list by construction.
  * Each suggestion carries an `additionalTextEdits` that either merges the
  * name into an existing `import { … } from "fluidcad/…"` or adds a new

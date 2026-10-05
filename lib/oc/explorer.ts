@@ -15,6 +15,7 @@ import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
 import { Vertex } from "../common/vertex.js";
+import { inheritHelixGeometry } from "./helix-metadata.js";
 
 export class Explorer {
   static isWire(shape: TopoDS_Shape): boolean {
@@ -176,7 +177,7 @@ export class Explorer {
   static findEdgesWrapped(shape: Shape): Edge[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-    return raw.map((e: TopoDS_Shape) => Edge.fromTopoDSEdge(Explorer.toEdge(e)));
+    return raw.map((e: TopoDS_Shape) => inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(e)), [shape]));
   }
 
   static findEdgesInWireOrderWrapped(wire: Wire): Edge[] {
@@ -184,7 +185,7 @@ export class Explorer {
     const result: Edge[] = [];
     const explorer = new oc.BRepTools_WireExplorer(wire.getShape());
     while (explorer.More()) {
-      result.push(Edge.fromTopoDSEdge(Explorer.toEdge(explorer.Current())));
+      result.push(inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(explorer.Current())), [wire]));
       explorer.Next();
     }
     explorer.delete();
@@ -206,7 +207,7 @@ export class Explorer {
   static findWiresWrapped(shape: Shape): Wire[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-    return raw.map((w: TopoDS_Shape) => Wire.fromTopoDSWire(Explorer.toWire(w)));
+    return raw.map((w: TopoDS_Shape) => inheritHelixGeometry(Wire.fromTopoDSWire(Explorer.toWire(w)), [shape]));
   }
 
   static getShapeTypeFromWrapper(shape: Shape): string {

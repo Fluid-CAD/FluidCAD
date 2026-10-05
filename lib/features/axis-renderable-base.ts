@@ -1,6 +1,7 @@
 import { Axis } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
 import { IAxis } from "../core/interfaces.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 
 export abstract class AxisObjectBase extends SceneObject implements IAxis {
 
@@ -24,5 +25,29 @@ export abstract class AxisObjectBase extends SceneObject implements IAxis {
 
   getType(): string {
     return 'axis';
+  }
+
+  /**
+   * A feature consumes an axis for display only: the dashed line leaves the
+   * rendered scene from the consumer on (a revolve, a circular repeat, a
+   * rotation), but any later feature may take the same axis again.
+   * `remove(a)` drops it for good.
+   */
+  override consumedForDisplayOnly(): boolean {
+    return true;
+  }
+
+
+  /**
+   * Emits the axis's display edge. The edge is a meta shape: it renders as
+   * the axis line but is never geometry. An axis written inside a sketch
+   * callback (`copy('linear', axis(l), …)`) becomes a sketch child, and the
+   * sketch's profile read excludes meta shapes — a plain edge would enter
+   * the extrude profile as a 600 mm line slicing every region it crosses.
+   */
+  protected addAxisEdge(axis: Axis): void {
+    const edge = EdgeOps.axisToEdge(axis);
+    edge.markAsMetaShape();
+    this.addShape(edge);
   }
 }

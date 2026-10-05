@@ -55,7 +55,55 @@ export type EdgeProperties = {
   unit?: LengthUnit;
 };
 
-export type Material = { name: string; density: number; densityUnit: string };
+/**
+ * One entry of the merged materials list: the built-ins, the project's
+ * `fluidcad.json` map, then the user's global list (Settings → Materials)
+ * for the ids the project does not hold yet.
+ */
+export type Material = {
+  /** The id `.material('…')` takes — `fluidcad-…` for a built-in, the map key for a custom entry. */
+  id: string;
+  name: string;
+  density: number;
+  /** One of g/cm³, kg/m³, g/mm³, lbs/in³. */
+  densityUnit: string;
+  /** `global`: not in the project yet — picking it for a part copies it into `fluidcad.json`. */
+  source: 'builtin' | 'project' | 'global';
+};
+
+/**
+ * A part's material as `GET /api/part-properties` reports it: the resolved
+ * entry (with `densityGcm3`), or just `{ id }` when the id is not in the
+ * merged list (then `PartProperties.warning` says so).
+ */
+export type PartMaterialSummary = {
+  id: string;
+  name?: string;
+  density?: number;
+  densityUnit?: string;
+  source?: 'builtin' | 'project';
+  densityGcm3?: number;
+};
+
+/**
+ * The aggregate over a part's final solids. Like {@link ShapeProperties},
+ * `volumeMm3` / `surfaceAreaMm2` are field NAMES: the values are in `unit`.
+ * `massG` is always grams, present only with a resolvable material.
+ */
+export type PartProperties = {
+  partId: string;
+  name: string;
+  shapeIds: string[];
+  solidCount: number;
+  volumeMm3: number;
+  surfaceAreaMm2: number;
+  centroid: { x: number; y: number; z: number };
+  material: PartMaterialSummary | null;
+  massG?: number;
+  /** `Unknown material: <id>` when the part names an id the list lacks. */
+  warning?: string;
+  unit?: LengthUnit;
+};
 
 /**
  * Values are in the document's unit (`unit` names it): `volumeMm3` /
@@ -194,7 +242,32 @@ export interface UserPreferences {
   editorOpen?: boolean;
   /** Code-editor pane width, in px. */
   editorWidth?: number;
+  /** Code-editor font family; empty or absent means the editor's own default stack. */
+  editorFontFamily?: string;
+  /** Code-editor font size, px. Default 13. */
+  editorFontSize?: number;
+  /** Code-editor lines wrap at the pane edge. Default false. */
+  editorWordWrap?: boolean;
+  /** Sketch snap radius, screen px. Default 15. */
+  snapRadiusPx?: number;
+  /** Sketch hover/pick radius, screen px. Default 12. */
+  pickRadiusPx?: number;
+  /** The unit a new project is scaffolded in. Default mm. */
+  defaultProjectUnit?: LengthUnit;
+  /** Which of a sketch's children the timeline lists. Default 'all'. */
+  timelineSketchChildren?: TimelineSketchChildren;
+  /** The timeline lists a sketch's constraints. Default true. */
+  timelineShowConstraints?: boolean;
+  /** The timeline lists a sketch's region declarations. Default false. */
+  timelineShowRegions?: boolean;
+  /** Most threads the kernel runs a boolean or a mesh on, which is also how many workers it starts with. Default: one per CPU, at most 8. */
+  maxWorkers?: number;
+  /** The user's own materials (Settings → Materials), in the `fluidcad.json` map shape; a pick copies one into the project. */
+  materials?: ProjectMaterials;
 }
+
+/** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
+export type TimelineSketchChildren = 'all' | 'editable';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -262,30 +335,17 @@ async function getJson<T>(
 // ---------------------------------------------------------------------------
 
 export function insertPoint(point: [number, number], sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/insert-point', { point, sourceLocation });
-}
-
-export function setPickPoints(points: [number, number][], sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/set-pick-points', { points, sourceLocation });
-}
-
-export function addPick(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-pick', { sourceLocation });
-}
-
-
-export function removePick(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-pick', { sourceLocation });
+  postFireAndForget('api/insert-point', { point, sourceLocation });
 }
 
 /** Append `.guide()` to the statement at `sourceLocation` (Guide toggle). */
 export function addGuide(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-guide', { sourceLocation });
+  postFireAndForget('api/add-guide', { sourceLocation });
 }
 
 /** Strip the `.guide()` from the statement at `sourceLocation` (Guide toggle). */
 export function removeGuide(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-guide', { sourceLocation });
+  postFireAndForget('api/remove-guide', { sourceLocation });
 }
 
 export function insertGeometry(
@@ -301,7 +361,7 @@ export function insertGeometry(
   const normalized = Array.isArray(newVariable)
     ? (newVariable.length === 0 ? null : newVariable.length === 1 ? newVariable[0] : newVariable)
     : newVariable ?? null;
-  postFireAndForget('/api/insert-geometry', {
+  postFireAndForget('api/insert-geometry', {
     statement,
     sketchSourceLocation,
     newVariable: normalized,
@@ -368,7 +428,7 @@ export interface ShareFiles {
  * import, a file outside the workspace) — the share dialog shows it.
  */
 export async function getShareFiles(): Promise<ShareFiles> {
-  const res = await fetch('/api/share-files');
+  const res = await fetch('api/share-files');
   const body = (await res.json().catch(() => null)) as (ShareFiles & { error?: string }) | null;
   if (!res.ok || !body) {
     throw new Error(body?.error ?? `Share failed (${res.status})`);
@@ -376,8 +436,14 @@ export async function getShareFiles(): Promise<ShareFiles> {
   return body;
 }
 
+/** The version of the engine serving this page, or null when the server doesn't answer. */
+export async function getEngineVersion(): Promise<string | null> {
+  const data = await getJson<{ version?: string }>('api/health');
+  return typeof data?.version === 'string' ? data.version : null;
+}
+
 export async function getFontFamilies(): Promise<string[]> {
-  const data = await getJson<{ families: string[] }>('/api/fonts');
+  const data = await getJson<{ families: string[] }>('api/fonts');
   return data?.families ?? [];
 }
 
@@ -389,7 +455,7 @@ export async function getTextPreview(
   request: TextPreviewRequest,
   signal?: AbortSignal,
 ): Promise<{ polylines: number[][] } | null> {
-  return postJson('/api/text-preview', request, signal);
+  return postJson('api/text-preview', request, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +474,7 @@ export async function getTextPreview(
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RibGhostRequest
+  | HoleGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -423,6 +490,27 @@ export type FeatureGhostRequest =
   | Copy2DGhostRequest
   | Mirror2DGhostRequest;
 
+/** One half-edge of a region's boundary, by the source line of the statement that drew it. */
+export type RegionItemRef = {
+  line: number;
+  /** 0-based run index when a loop executed the statement more than once. */
+  occurrence?: number;
+  /** The statement's callee (`line`, `circle`, `rect`, `project`). */
+  callee: string;
+  /** Sub-edge of a multi-edge statement: a macro slot (`top`) or `e<n>`. */
+  edge?: string;
+  /** The region lies on the far side of the edge — written `far(entity)`. */
+  far: boolean;
+};
+
+/**
+ * One region a dialog picked: by the name a `region()` declaration of the
+ * sketch already gives it, by its boundary (a clicked region, declared or
+ * not), or both. Apply declares the boundaries that have no declaration
+ * yet and writes the names into `.region(…)`.
+ */
+export type RegionPick = { name?: string; items?: RegionItemRef[] };
+
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
   op: 'add' | 'remove' | 'new';
@@ -436,6 +524,11 @@ export type ExtrudeGhostRequest = {
   drill: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
+  /**
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 export type RibGhostRequest = {
@@ -457,6 +550,26 @@ export type RibGhostRequest = {
   exclude?: { filePath: string; line: number };
 };
 
+export type HoleGhostRequest = {
+  feature: 'hole';
+  /** One frame per placement: the surface point and the outward normal, world space. */
+  frames: { origin: [number, number, number]; normal: [number, number, number] }[];
+  diameter: ValueExpr;
+  depth: ValueExpr | null;
+  tipAngle: ValueExpr | null;
+  counterbore: { diameter: ValueExpr; depth: ValueExpr } | null;
+  countersink: { diameter: ValueExpr; angle: ValueExpr } | null;
+  /** The `.scope(…)` solids by producing statement; empty sizes a through hole to every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited hole's own call site — its cut is unwound before the stock is measured. */
+  exclude?: { filePath: string; line: number };
+  /**
+   * `.fasten(…)`: the tap-drill diameter of the bore drawn into the next solid
+   * along each hole's axis, its blind depth (null is through) and tip angle.
+   */
+  fasten?: { diameter: number; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+};
+
 export type RevolveGhostRequest = {
   feature: 'revolve';
   op: 'add' | 'remove' | 'new';
@@ -467,6 +580,11 @@ export type RevolveGhostRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
+  /**
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 /**
@@ -474,12 +592,15 @@ export type RevolveGhostRequest = {
  * {@link RevolveAxisRef} flattened to what the kernel can resolve without
  * reading code: a world axis, an `axis()` statement's call site, or the
  * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
- * before it ships, so "keep" itself never travels.
+ * before it ships, so "keep" itself never travels. The copy's axis slot also
+ * takes a connector — its `connector()` call site, plus a copy's slot —
+ * standing for its Z axis through its origin.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
-  | { kind: 'edge'; shapeId: string; index: number };
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number };
 
 export type SweepGhostRequest = {
   feature: 'sweep';
@@ -487,6 +608,15 @@ export type SweepGhostRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   path: GhostPathRef;
+  /** `.extend('start', …)` lead-in before the path, or null. */
+  extendStart?: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null. */
+  extendEnd?: ValueExpr | null;
+  /**
+   * The dialog's region picks — the regions to build. Absent builds every
+   * region; an empty list is the bare `.region()`, which builds nothing.
+   */
+  regions?: RegionPick[];
 };
 
 /**
@@ -516,6 +646,8 @@ export type LoftGhostRequest = {
   guides: { filePath: string; line: number }[];
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
+  /** World-space points, one per profile in each connection. */
+  connections?: [number, number, number][][];
 };
 
 /** One loft section: a sketch by call site, or faces picked in the viewport. */
@@ -640,8 +772,17 @@ export type GhostRepeatDirection = {
  */
 export type CopyGhostRequest = {
   feature: 'copy';
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being cloned, by call site. */
+  /**
+   * `pattern` is "Along a repeat" (`copy(holes, bolt)`): the copies land on
+   * the repeat's own instances, read off it by the kernel — the axes,
+   * directions, count, sweep and skip stay empty.
+   */
+  kind: 'linear' | 'circular' | 'pattern';
+  /**
+   * The statements being copied, by call site: solid-bearing ones, stamped,
+   * and `connector()` statements, whose copies come back as
+   * {@link GhostFrame}s.
+   */
   targets: { filePath: string; line: number }[];
   /** Linear: one per direction (1–2). Circular: one. */
   axes: GhostAxisRef[];
@@ -659,6 +800,8 @@ export type CopyGhostRequest = {
    * — the dialog's Skip field takes literal positions.
    */
   skip: number[][];
+  /** Pattern only: the `repeat()` the copies follow, by call site. */
+  pattern?: { filePath: string; line: number };
 };
 
 /**
@@ -724,9 +867,17 @@ export type PlaneGhostRequest = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around: the plane's own, or the world's. */
+  rotationAxes: PlaneRotationAxes;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: ValueExpr | null;
 };
+
+/**
+ * The axes a plane's rotations turn around: its own X, Y and normal (`local`,
+ * the statement's default) or the fixed world X, Y and Z (`world`).
+ */
+export type PlaneRotationAxes = 'local' | 'world';
 
 /**
  * The plane dialog's base slot on the wire. The first three are the mirror
@@ -852,6 +1003,8 @@ export type Mirror2DGhostRequest = {
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
   kind?: 'add' | 'remove';
+  /** Loft side-edge polylines, packed xyz. */
+  matchLines?: number[][];
   /**
    * A construction plane's own frame — its normal, and the point its quad is
    * centered on. Only the plane ghost carries it; the overlay draws the normal
@@ -861,6 +1014,73 @@ export type GhostSolid = {
 };
 
 /**
+ * One connector frame a ghost places — a copy of a connector, where the copy
+ * would put it — in the four vectors a rendered connector serializes, so the
+ * overlay draws it with the connector's own triad.
+ */
+export type GhostFrame = {
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
+};
+
+/** Everything one ghost answer draws: bodies, and the connector frames a copy places. */
+export type GhostGeometry = {
+  solids: GhostSolid[];
+  frames: GhostFrame[];
+};
+
+/**
+ * Where a ghost's dialog values are read. A value names variables the way
+ * its statement will: an edited statement at its own call site
+ * (`'statement'`), a created one at the end of the callback body it lands in
+ * (`'append'`, at the site of that `part()` or `sketch()` call). So `depth`
+ * resolves to the `param()` of the part the statement lives in, and a
+ * sketch's own `const`s shadow the part's. Null reads the file's top level.
+ */
+export type GhostValueScope = {
+  kind: 'statement' | 'append';
+  filePath: string;
+  line: number;
+  column: number;
+};
+
+/**
+ * A feature dialog's value scope: the statement it edits, or — creating —
+ * the end of the timeline's active part, where the new statement lands. The
+ * same part {@link getScopeVariables} lists the value fields' variables
+ * from, so every name a field offers resolves in the ghost too. Null with no
+ * part active: the statement lands at the file's top level.
+ */
+export function featureGhostScope(editTarget: FeatureEditTarget | null): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  const part = activePartProvider?.() ?? null;
+  return part ? { kind: 'append', filePath: part.filePath, line: part.line, column: part.column } : null;
+}
+
+/**
+ * A sketch op's value scope: the statement it edits, or — creating — the end
+ * of the active sketch's body, where the sketch's own names are visible
+ * too. Null with no sketch to append to.
+ */
+export function sketchGhostScope(
+  editTarget: FeatureEditTarget | null,
+  sketch: SketchSourceRef | null,
+): GhostValueScope | null {
+  if (editTarget) {
+    return statementGhostScope(editTarget);
+  }
+  return sketch ? { kind: 'append', filePath: sketch.filePath, line: sketch.line, column: sketch.column } : null;
+}
+
+function statementGhostScope(target: FeatureEditTarget): GhostValueScope {
+  return { kind: 'statement', filePath: target.filePath, line: target.line, column: target.column };
+}
+
+/**
  * The bodies the dialog's current values would produce, meshed server-side.
  * Null whenever there is nothing to draw — an unresolvable expression, an
  * empty profile, a scene that moved on — so callers just clear the overlay.
@@ -868,9 +1088,10 @@ export type GhostSolid = {
  */
 export async function fetchFeatureGhost(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<GhostSolid[] | null> {
-  return (await fetchFeatureGhostResult(request, signal)).solids;
+  return (await fetchFeatureGhostResult(request, valueScope, signal)).solids;
 }
 
 /**
@@ -885,26 +1106,120 @@ export async function fetchFeatureGhost(
  */
 export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; notice: string | null }> {
+): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
   try {
-    const res = await fetch('/api/feature-ghost', {
+    const res = await fetch('api/feature-ghost', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal,
+      body: JSON.stringify({ ...request, valueScope }),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body?.success === true) {
+      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
+    }
+    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
+    return { solids: null, frames: [], notice };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return { solids: null, frames: [], notice: null };
+  }
+}
+
+/** One region of a profile as the picker draws it: its label, name, boundary, pick state and mesh. */
+export type SketchRegionEntry = {
+  /** A readable label of the boundary — the overlay's toggle key, display only. */
+  key: string;
+  /** Position in the canonical region list. */
+  index: number;
+  /** The name a `region()` declaration of the sketch already gives this boundary, or null. */
+  name: string | null;
+  /** The boundary a pick writes into a declaration; empty when the region cannot be declared from the dialog. */
+  items: RegionItemRef[];
+  /** One of the request's picks resolved to this region. */
+  selected: boolean;
+  meshes: SceneObjectMesh[];
+};
+
+/**
+ * Every closed region of a profile, meshed server-side, with the dialog's
+ * current picks marked — the faces the region picker draws over the sketch.
+ * Null whenever there is nothing to draw (a profile no longer in the scene);
+ * an abort propagates, matching the ghost fetch.
+ */
+export async function fetchSketchRegions(
+  request: { profile: { filePath: string; line: number }; picks: RegionPick[] },
+  signal: AbortSignal,
+): Promise<SketchRegionEntry[] | null> {
+  try {
+    const res = await fetch('api/sketch-regions', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
       body: JSON.stringify(request),
     });
     const body = await res.json().catch(() => null);
-    if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], notice: null };
-    }
-    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, notice };
+    return res.ok && body?.success === true ? body.regions ?? [] : null;
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, notice: null };
+    return null;
+  }
+}
+
+/** One primitive of the constrained Offset plan, sketch-local, walked along the chain. */
+export type SketchOffsetPlanEdge =
+  | { kind: 'line'; source: number; start: [number, number]; end: [number, number]; joinNext: 'corner' | 'tangent' | null }
+  | {
+    kind: 'arc'; source: number; start: [number, number]; end: [number, number]; center: [number, number];
+    radius: number; cw: boolean; joinNext: 'corner' | 'tangent' | null;
+  }
+  | { kind: 'circle'; source: number; center: [number, number]; radius: number; joinNext: null };
+
+/** One connected chain of the plan — `source` indexes the request's entities. */
+export type SketchOffsetPlanChain = {
+  closed: boolean;
+  edges: SketchOffsetPlanEdge[];
+  /** Close-ends caps of an open chain: source end → offset end, offset start → source start. */
+  caps?: { start: [number, number]; end: [number, number] }[];
+};
+
+export type SketchOffsetPlanResult =
+  | { ok: true; chains: SketchOffsetPlanChain[]; solids: GhostSolid[] }
+  | { ok: false; reason: string };
+
+/**
+ * The constrained Offset dialog's plan: the picked edges offset by OCCT with
+ * sharp corners, each result edge as the primitive the tool writes (mapped to
+ * the pick it follows), and the wires meshed as the ghost. A refusal carries
+ * the reason the dialog shows; a network failure is a refusal too.
+ */
+export async function fetchSketchOffsetPlan(
+  request: { entities: SketchApplyEntity[]; distance: number; close: boolean },
+  signal: AbortSignal,
+): Promise<SketchOffsetPlanResult> {
+  try {
+    const res = await fetch('api/sketch-offset-plan', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal,
+      body: JSON.stringify(request),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.ok && body?.success === true && Array.isArray(body.chains)) {
+      return { ok: true, chains: body.chains, solids: body.solids ?? [] };
+    }
+    return { ok: false, reason: body?.reason ?? `Could not plan the offset (${res.status})` };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
   }
 }
 
@@ -944,7 +1259,7 @@ export async function updateSketchPositions(
   filePath?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/update-sketch-positions', {
+    const res = await fetch('api/update-sketch-positions', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ edits, filePath }),
@@ -975,7 +1290,7 @@ export function updateDimensionExpression(
   dimensionOffset?: number,
   dimensionCall?: string | null,
 ): void {
-  postFireAndForget('/api/update-dimension-expression', {
+  postFireAndForget('api/update-dimension-expression', {
     expression,
     sourceLocation,
     sketchSourceLine,
@@ -993,7 +1308,7 @@ export async function getPointExpression(
   sourceLine: number,
   pointIndex?: number,
 ): Promise<{ x: string; y: string } | null> {
-  const result = await postJson('/api/point-expression', {
+  const result = await postJson('api/point-expression', {
     sourceLine,
     pointIndex: pointIndex ?? 0,
   }) as { point: { x: string; y: string } | null };
@@ -1005,7 +1320,7 @@ export async function getDimensionExpression(
   dimensionOffset?: number,
   dimensionCall?: string | null,
 ): Promise<{ expression: string | null }> {
-  return (await postJson('/api/dimension-expression', {
+  return (await postJson('api/dimension-expression', {
     sourceLine,
     dimensionOffset: dimensionOffset ?? 0,
     dimensionCall: dimensionCall ?? null,
@@ -1017,15 +1332,22 @@ export async function getDimensionExpression(
  * dialogs' create mode: the statement lands in the timeline's active part
  * (attached here from the provider the apply payloads read), so the scope is
  * that part's body — its `param()`s included, never another part's — or the
- * whole file when no part is active.
+ * whole file when no part is active. Explicit assembly scope uses the catalog
+ * insertion point inside the assembly body, ignoring the active part.
  */
 export async function getScopeVariables(
   sketchSourceLine: number | null,
+  scope?: 'assembly',
+  explicitPart?: SourceLocation | null,
 ): Promise<VariableInfo[]> {
-  const part = sketchSourceLine === null ? activePartProvider?.() ?? null : null;
+  // A dialog that lets the user choose the part (the Properties editor's Part
+  // dropdown) names it outright; the feature dialogs follow the active part.
+  const part = sketchSourceLine === null && scope !== 'assembly'
+    ? (explicitPart ?? activePartProvider?.() ?? null)
+    : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
-    '/api/scope-variables',
-    part ? { sketchSourceLine, part } : { sketchSourceLine },
+    'api/scope-variables',
+    scope === 'assembly' ? { sketchSourceLine, assembly: true } : part ? { sketchSourceLine, part } : { sketchSourceLine },
   );
   return data?.variables ?? [];
 }
@@ -1035,7 +1357,7 @@ export function getFaceProperties(
   faceIndex: number,
   signal?: AbortSignal,
 ): Promise<FaceProperties | null> {
-  return getJson('/api/face-properties', { shapeId, faceIndex }, signal);
+  return getJson('api/face-properties', { shapeId, faceIndex }, signal);
 }
 
 export function getEdgeProperties(
@@ -1043,18 +1365,23 @@ export function getEdgeProperties(
   edgeIndex: number,
   signal?: AbortSignal,
 ): Promise<EdgeProperties | null> {
-  return getJson('/api/edge-properties', { shapeId, edgeIndex }, signal);
+  return getJson('api/edge-properties', { shapeId, edgeIndex }, signal);
 }
 
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
-  return getJson('/api/shape-properties', { shapeId });
+  return getJson('api/shape-properties', { shapeId });
+}
+
+/** The aggregate of a part row's final solids — `partId` is the part row's scene id. */
+export function getPartProperties(partId: string): Promise<PartProperties | null> {
+  return getJson('api/part-properties', { partId });
 }
 
 export function measureEntities(
   entities: MeasureEntityRef[],
   signal?: AbortSignal,
 ): Promise<MeasureResult | null> {
-  return postJson('/api/measure', { entities }, signal);
+  return postJson('api/measure', { entities }, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -1063,7 +1390,7 @@ export function measureEntities(
 
 export type ApplyFeatureEntity = {
   shapeId: string;
-  sub: { type: 'edge' | 'face'; index: number };
+  sub: { type: 'edge' | 'face' | 'vertex'; index: number };
 };
 
 /** A tangent chain: the right-clicked pick plus its full expansion. */
@@ -1188,6 +1515,12 @@ export async function applyProject(
     /** The statement's callee; defaults to `project`. */
     op?: ProjectionOp;
     chains?: ApplyFeatureChain[];
+    /**
+     * Previous sketches projected whole (`project(s1)`), by call site —
+     * bound like an extrude's profile. Either this or `entities` may be
+     * empty, not both.
+     */
+    sketches?: SketchSourceRef[];
     selectorOverride?: string;
     /**
      * The user confirmed the cross-part sources the preview reported: Apply
@@ -1205,6 +1538,7 @@ export async function applyProject(
     sketch,
     op: options.op,
     chains: options.chains,
+    sketches: options.sketches,
     selectorOverride: options.selectorOverride,
     confirmForeign: options.confirmForeign,
     preview: options.preview,
@@ -1293,37 +1627,59 @@ export type ConnectorAnchorCandidate = {
   /** `.center()` etc. — appended to `args` for the full source expression. */
   suffix: string;
   frame: { origin: Vec3Data; xDirection: Vec3Data; yDirection: Vec3Data; normal: Vec3Data };
+  /**
+   * The point the cursor is measured against to pick this anchor — an arc's
+   * center() stands in at the arc's midpoint. Absent from older kernels,
+   * which mean the frame origin.
+   */
+  hoverPoint?: Vec3Data;
 };
 
 export type ConnectorAnchorsResult =
   | {
     ok: true;
-    /** A connector name unique within the enclosing part (`c1`, `c2`, …). */
-    defaultName: string;
-    /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
-    args: string;
+    /** Whether committing the anchor creates a connector in its part (always, for a connector). */
+    inPart: boolean;
+    /** A connector name unique within the enclosing part (`c1`, `c2`, …); null outside a part. */
+    defaultName: string | null;
+    /**
+     * Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`;
+     * null on a frames-only answer.
+     */
+    args: string | null;
     anchors: ConnectorAnchorCandidate[];
   }
   | { ok: false; reason: string | null };
 
+/** What a picked anchor becomes: a connector (inside a part only) or a hole placement (anywhere). */
+export type AnchorPurpose = 'connector' | 'hole';
+
 /**
  * The connector anchors a hovered face/edge supports — the suggestion the
- * tool draws before the user clicks. Refusals (geometry outside a part(),
- * an unresolvable pick) come back as `ok: false` with the reason to show.
+ * tool draws before the user clicks. `framesOnly` skips the source
+ * expression (`args` comes back null): the anchors answer in milliseconds,
+ * where the expression is a selector search over the whole part. Refusals
+ * (geometry outside a part() for a connector, an unresolvable pick) come
+ * back as `ok: false` with the reason to show.
  */
 export async function fetchConnectorAnchors(
   entity: ApplyFeatureEntity,
   signal?: AbortSignal,
+  purpose: AnchorPurpose = 'connector',
+  framesOnly = false,
 ): Promise<ConnectorAnchorsResult> {
-  const res = await fetch('/api/selection/connector-anchors', {
+  const res = await fetch('api/selection/connector-anchors', {
     method: 'POST',
     headers: JSON_HEADERS,
     signal,
-    body: JSON.stringify({ entity }),
+    body: JSON.stringify({ entity, purpose, ...(framesOnly ? { frames: true } : {}) }),
   });
   const body = await res.json().catch(() => null);
   if (res.ok && body?.success === true) {
-    return { ok: true, defaultName: body.defaultName, args: body.args, anchors: body.anchors ?? [] };
+    return {
+      ok: true, inPart: body.inPart ?? true, defaultName: body.defaultName ?? null,
+      args: body.args ?? null, anchors: body.anchors ?? [],
+    };
   }
   return { ok: false, reason: body?.reason ?? body?.error ?? null };
 }
@@ -1331,9 +1687,15 @@ export async function fetchConnectorAnchors(
 export type ProjectEditOptions = EditSessionFields & {
   /** Edited source argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
-  /** Re-picked 3D sources; omitted keeps the statement's own arguments. */
+  /**
+   * Re-picked 3D sources; omitted (together with `sketches`) keeps the
+   * statement's own arguments. A re-sourced edit sends both lists, either
+   * of which may be empty.
+   */
   entities?: ApplyFeatureEntity[];
   chains?: ApplyFeatureChain[];
+  /** Re-picked whole-sketch sources (`project(s1)`), by call site. */
+  sketches?: SketchSourceRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -1350,6 +1712,7 @@ export async function applyProjectEdit(
     before: options.before,
     entities: options.entities,
     chains: options.chains,
+    sketches: options.sketches,
     selectorOverride: options.selectorOverride,
     preview: options.preview,
   }, options.signal);
@@ -1581,7 +1944,7 @@ export async function fetchSketchFeatureSources(
   expectedStatement?: string,
 ): Promise<{ ok: true; shapeIds: string[] } | { ok: false; reason: string }> {
   try {
-    const res = await fetch('/api/sketch/feature-sources', {
+    const res = await fetch('api/sketch/feature-sources', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ edit, expectedStatement }),
@@ -1706,7 +2069,7 @@ export async function applySketchConstraint(options: {
   newVariables?: { name: string; initializer: string }[];
 }): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/sketch/add-constraint', {
+    const res = await fetch('api/sketch/add-constraint', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -1732,7 +2095,7 @@ export async function setDistanceTangency(options: {
   tangency: 'min' | 'max';
 }): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/sketch/set-distance-tangency', {
+    const res = await fetch('api/sketch/set-distance-tangency', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -1779,8 +2142,10 @@ export type SolvedEmissionTargetParam = {
 
 export type SolvedGeometryParam = {
   /** An entity statement — the ellipse included: a solver entity whose
-   * `center` role is its one point accessor. */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
+   * `center` role is its one point accessor — or a bezier, addressed only
+   * through its literal control points (`featureType: 'bezier'` +
+   * `pointIndex` on a `newIndex` target). */
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;
@@ -1807,8 +2172,8 @@ export async function insertSolvedGeometry(options: {
   constraints: SolvedConstraintParam[];
   newVariables?: { name: string; initializer: string }[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
-   * the constraint-native fillet removes each corner's coincident as it
-   * emits the replacing arc. */
+   * the constraint bar swaps out a replaced orientation and deletes the
+   * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
 }): Promise<{
   success: boolean;
@@ -1820,7 +2185,7 @@ export async function insertSolvedGeometry(options: {
   sketchLine?: number;
 }> {
   try {
-    const res = await fetch('/api/sketch/insert-solved', {
+    const res = await fetch('api/sketch/insert-solved', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
@@ -1832,6 +2197,183 @@ export async function insertSolvedGeometry(options: {
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** The solved geometry of the entity the Split tool cuts (sketch-local). */
+export type SplittableEntityParam =
+  | { kind: 'line'; start: [number, number]; end: [number, number] }
+  | { kind: 'arc'; start: [number, number]; end: [number, number]; center: [number, number]; cw: boolean }
+  | { kind: 'circle'; center: [number, number]; radius: number };
+
+export type SplitSketchEntityResult = {
+  success: boolean;
+  reason?: string;
+  /** The split point on the entity. */
+  at?: [number, number];
+  /** Constraint statements the split deleted — nothing could carry them. */
+  removed?: { line: number; kind: string }[];
+  /** The pieces' binding names, first piece first. */
+  names?: string[];
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Split tool: cut the entity statement at `line` where the click
+ * projects onto it. The kernel does the geometry; the route resolves each
+ * hint (where a whole-entity constraint touches the entity) to the piece
+ * that keeps it, and the statement transform rewrites the source.
+ */
+export function splitSketchEntity(options: {
+  sketchLine: number;
+  filePath?: string;
+  line: number;
+  entity: SplittableEntityParam;
+  at: [number, number];
+  hints?: { line: number; locus: [number, number] }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<SplitSketchEntityResult> {
+  return postSketchCut('api/sketch/split', options);
+}
+
+export type TrimSketchEntityResult = {
+  success: boolean;
+  reason?: string;
+  /** Constraint statements the trim deleted — their geometry is gone. */
+  removed?: { line: number; kind: string }[];
+  /** The surviving pieces' binding names, in travel order. */
+  names?: string[];
+  /** The entity statement itself was deleted (nothing survived). */
+  deleted?: boolean;
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Trim tool: cut the entity statement at `line` at `cuts` (the
+ * nearest crossings around the click, in travel order — none deletes the
+ * whole entity) and delete piece `removed` of the result. The kernel does
+ * the geometry; the route resolves each hint to the piece it touches (a
+ * constraint on the removed piece goes with it); the statement transform
+ * rewrites the source as what survives.
+ */
+export function trimSketchEntity(options: {
+  sketchLine: number;
+  filePath?: string;
+  line: number;
+  entity: SplittableEntityParam;
+  cuts: [number, number][];
+  /** Per cut, the entity crossing there — the cut end is pinned to it — or null. */
+  cutters?: (SolvedEmissionTargetParam | null)[];
+  removed: number;
+  hints?: { line: number; locus: [number, number] }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<TrimSketchEntityResult> {
+  return postSketchCut('api/sketch/trim', options);
+}
+
+/** One edge's end at a fillet corner, by the edge statement's line. */
+export type SketchFilletEndParam = {
+  line: number;
+  featureType: 'line' | 'arc';
+  /** The end that sits at the corner. */
+  role: 'start' | 'end';
+};
+
+/** A corner the Fillet tool rounds, planned on the solved sketch. */
+export type SketchFilletCornerParam = {
+  /** The edge the arc starts on. */
+  a: SketchFilletEndParam;
+  /** The edge the arc ends on. */
+  b: SketchFilletEndParam;
+  /** The corner itself — where a virtual sharp keeps whatever pinned it. */
+  at: [number, number];
+  /** The arc's guess: `start` is the tangent point on `a`, `end` the one on `b`. */
+  start: [number, number];
+  end: [number, number];
+  center: [number, number];
+  cw: boolean;
+};
+
+export type FilletSketchCornersResult = {
+  success: boolean;
+  reason?: string;
+  /** The fillet arcs' binding names, in corner order. */
+  names?: string[];
+  /** The virtual sharps' binding names. */
+  sharps?: string[];
+  /** The sketch statement's post-edit line (an added import shifts it). */
+  sketchLine?: number;
+};
+
+/**
+ * Sketch Fillet tool (constraint-native): round `corners` with arcs of the
+ * dimensioned radius. The statement transform moves each edge's corner end
+ * to its tangent point, swaps the corner coincident for the arc recipe and
+ * keeps every other constraint on the corner through a virtual sharp — the
+ * rounded shape keeps its size and place.
+ */
+export function filletSketchCorners(options: {
+  sketchLine: number;
+  filePath?: string;
+  corners: SketchFilletCornerParam[];
+  radiusExpr: string;
+  newVariables?: NewVariable[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<FilletSketchCornersResult> {
+  return postSketchCut('api/sketch/fillet', options);
+}
+
+/** A statement the delete took along, by its line in the source BEFORE the edit. */
+export type SweptStatementParam = { line: number; kind: string };
+
+export type DeleteSketchEntitiesResult = {
+  success: boolean;
+  reason?: string;
+  /** Constraint statements deleted because they named a deleted entity. */
+  removed?: SweptStatementParam[];
+  /** Statements deleted because they consumed a deleted entity (a derived op, text on a path). */
+  dependents?: SweptStatementParam[];
+};
+
+/**
+ * Sketcher Delete key: remove the entity statements at `lines` from the
+ * sketch in one edit, with the constraints naming them and the statements
+ * that consumed them; geometry that borrowed one of their points keeps its
+ * place. The statement transform rewrites the source as what survives.
+ */
+export function deleteSketchEntities(options: {
+  sketchLine: number;
+  filePath?: string;
+  lines: number[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
+}): Promise<DeleteSketchEntitiesResult> {
+  return postSketchCut('api/sketch/delete', options);
+}
+
+/** The Split/Trim round trip: the route's body, or a `reason` for a refusal or a failed request. */
+async function postSketchCut<Result extends { success: boolean; reason?: string }>(
+  path: string,
+  options: object,
+): Promise<Result> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` } as Result;
+    }
+    return body ?? ({ success: false, reason: 'Empty server response' } as Result);
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' } as Result;
   }
 }
 
@@ -1888,6 +2430,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   toFace?: ApplyFeatureEntity | ExtrudeFaceTarget;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1914,6 +2458,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     profile: options.profile,
     toFace: options.toFace,
     scope: options.scope,
+    regions: options.regions,
     preview: options.preview,
   }, options.signal);
 }
@@ -1966,6 +2511,127 @@ export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureRe
   }, options.signal);
 }
 
+// ---------------------------------------------------------------------------
+// Hole
+// ---------------------------------------------------------------------------
+
+/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10'). */
+export type HoleSizeSpec =
+  | { kind: 'diameter'; value: ValueExpr }
+  | { kind: 'fastener'; label: string };
+
+/** How a fastener size becomes a diameter: a clearance fit, or the tap drill for a pitch (null = coarse). */
+export type HoleFastenerSpec =
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' }
+  | { type: 'tapped'; pitch: number | null };
+
+/** The entry of the hole; null values read the fastener tables. */
+export type HoleStyleSpec =
+  | { kind: 'counterbore'; diameter: ValueExpr | null; depth: ValueExpr | null }
+  | { kind: 'countersink'; diameter: ValueExpr | null; angle: ValueExpr | null };
+
+/** The hole options the dialog edits, shared by create and edit applies. */
+export type HoleOptionValues = {
+  size: HoleSizeSpec;
+  fastener: HoleFastenerSpec | null;
+  style: HoleStyleSpec | null;
+  /** Blind depth to the shoulder, or null for through all. */
+  depth: ValueExpr | null;
+  /** Drill point included angle below the shoulder; null is a flat bottom. */
+  tipAngle: ValueExpr | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+};
+
+/**
+ * Where a hole starts: an existing connector statement (plus `slot` for one
+ * of its copies, `bolt.instance(2)`), a picked vertex (a sketch point
+ * exported from its sketch, or a solid vertex named through an edge
+ * endpoint), or a face/edge anchor — a new connector inside a part, the
+ * bare anchor expression outside one.
+ */
+export type HolePlacementRef =
+  | ({ kind: 'connector'; slot?: number } & SketchSourceRef)
+  | { kind: 'vertex'; entity: ApplyFeatureEntity }
+  | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor; name: string };
+
+/**
+ * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
+ * into the next solid along each hole's axis — its pitch (null is the coarse
+ * pitch), its blind depth from the face it enters that solid through (null
+ * is through all) and the drill point angle below that depth (null is a
+ * flat bottom).
+ */
+export type HoleFastenRef = { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
+
+export type HoleApplyOptions = HoleOptionValues & {
+  placements: HolePlacementRef[];
+  /** The solid statements the hole's `.scope(…)` names; empty writes no chain. */
+  scope: SketchSourceRef[];
+  /** The `.fasten(…)` chain; null writes none. */
+  fasten?: HoleFastenRef | null;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Ask the server to write (or, with `preview`, just render) a hole statement. */
+export async function applyHole(options: HoleApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'hole',
+    size: options.size,
+    fastener: options.fastener,
+    style: options.style,
+    depth: options.depth,
+    tipAngle: options.tipAngle,
+    newVariables: options.newVariables,
+    placements: options.placements,
+    scope: options.scope,
+    fasten: options.fasten ?? null,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** An edited placement: a kept argument by position, or a new pick. */
+export type HoleEditPlacementRef = { kind: 'verbatim'; sourceIndex: number } | HolePlacementRef;
+
+export type HoleEditOptions = HoleOptionValues & EditSessionFields & {
+  /** Full replacement placement list; omitted keeps the statement's own. */
+  placements?: HoleEditPlacementRef[];
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene cutting).
+   */
+  scope?: ScopeTargetRef[];
+  /** The `.fasten(…)` chain; omitted keeps the statement's own, null drops it. */
+  fasten?: HoleFastenRef | null;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the hole statement at `edit` in place. */
+export async function applyHoleEdit(
+  edit: FeatureEditTarget,
+  options: HoleEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'hole',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    size: options.size,
+    fastener: options.fastener,
+    style: options.style,
+    depth: options.depth,
+    tipAngle: options.tipAngle,
+    newVariables: options.newVariables,
+    placements: options.placements,
+    scope: options.scope,
+    fasten: options.fasten,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The revolve options the dialog edits, shared by create and edit applies. */
 export type RevolveOptionValues = {
   op: 'add' | 'remove' | 'new';
@@ -1994,6 +2660,8 @@ export type RevolveApplyOptions = RevolveOptionValues & {
   axis: RevolveAxisRef;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2015,6 +2683,7 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
     profile: options.profile,
     axis: options.axis,
     scope: options.scope,
+    regions: options.regions,
     preview: options.preview,
   }, options.signal);
 }
@@ -2085,6 +2754,10 @@ export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path, or null for none. */
+  extendStart: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null for none. */
+  extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   profile: ExtrudeProfileRef;
@@ -2094,6 +2767,8 @@ export type SweepApplyOptions = {
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] };
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2109,10 +2784,13 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
     feature: 'sweep',
     op: options.op,
     thin: options.thin,
+    extendStart: options.extendStart,
+    extendEnd: options.extendEnd,
     newVariables: options.newVariables,
     profile: options.profile,
     path: options.path,
     scope: options.scope,
+    regions: options.regions,
     preview: options.preview,
   }, options.signal);
 }
@@ -2131,6 +2809,8 @@ export type WrapApplyOptions = WrapOptionValues & {
   sketch: SketchSourceRef;
   /** The target face to wrap onto, synthesized into a face selector. */
   face: ApplyFeatureEntity;
+  /** The picked profile regions — declared in the sketch and named in `.region(…)`; empty writes no chain. */
+  regions?: RegionPick[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2149,6 +2829,7 @@ export async function applyWrap(options: WrapApplyOptions): Promise<ApplyFeature
     newVariables: options.newVariables,
     sketch: options.sketch,
     face: options.face,
+    regions: options.regions,
     preview: options.preview,
   }, options.signal);
 }
@@ -2160,6 +2841,14 @@ export type LoftProfileRef =
 
 /** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
 export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
+
+/** A picked vertex or one point retained from a parsed connection. */
+export type LoftConnectionPointRef =
+  | { kind: 'vertex'; entity: { shapeId: string; sub: { type: 'vertex'; index: number } } }
+  | { kind: 'verbatim'; sourceIndex: number; pointIndex: number };
+export type LoftConnectionRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'points'; points: LoftConnectionPointRef[] };
 
 export type LoftApplyOptions = {
   op: 'add' | 'remove' | 'new';
@@ -2178,6 +2867,8 @@ export type LoftApplyOptions = {
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
+  /** Omitted keeps existing connections on edits; [] removes them. */
+  connections?: LoftConnectionRef[];
 };
 
 /**
@@ -2193,6 +2884,7 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     newVariables: options.newVariables,
     profiles: options.profiles,
     guides: options.guides,
+    connections: options.connections,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
     scope: options.scope,
@@ -2219,10 +2911,12 @@ export type PlaneApplyOptions = {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null renders none. Offset type only. */
   offset: ValueExpr | null;
-  /** Rotation in degrees around the plane's local axes; null renders none. */
+  /** Rotation in degrees around the X/Y/Z axes ({@link axes}); null renders none. */
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around; `local` renders nothing. */
+  rotationAxes: PlaneRotationAxes;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   bases: PlaneBaseRef[];
@@ -2245,6 +2939,7 @@ export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatu
     rotateX: options.rotateX,
     rotateY: options.rotateY,
     rotateZ: options.rotateZ,
+    rotationAxes: options.rotationAxes,
     position: options.position,
     bases: options.bases,
     newVariables: options.newVariables,
@@ -2322,10 +3017,23 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/**
+ * A copy's axis: the revolve axis shapes, or a connector standing for its Z
+ * axis through its origin — its `connector()` statement by call site, plus
+ * the pattern slot for one of its copies (`bolt.instance(2)`).
+ */
+export type CopyAxisRef = RevolveAxisRef | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
+
+/**
+ * A copy target by call site: a solid-bearing statement (the default), or a
+ * `connector()` statement the copy copies as frames.
+ */
+export type CopyTargetRef = SketchSourceRef & { kind?: 'feature' | 'connector' };
+
 /** One linear copy direction: its axis plus that direction's count and value. */
 export type CopyDirectionRef = {
-  /** The direction's axis — the revolve axis shapes. */
-  axis: RevolveAxisRef;
+  /** The direction's axis — the revolve axis shapes, or a connector. */
+  axis: CopyAxisRef;
   /** Instance count along this direction, the original included. */
   count: ValueExpr;
   /** Spacing along this direction, read through the shared `spacingMode`. */
@@ -2333,15 +3041,18 @@ export type CopyDirectionRef = {
 };
 
 export type CopyApplyOptions = {
-  kind: 'linear' | 'circular';
-  /** The solid-bearing statements being copied (whole-solid picks), in order. */
-  targets: SketchSourceRef[];
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /** The statements being copied (whole-solid and connector picks), in order. */
+  targets: CopyTargetRef[];
+  /** Pattern only: the `repeat()` statement the copies follow, by call site. */
+  pattern?: SketchSourceRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: CopyDirectionRef[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** The copy axis (circular) — the revolve axis shapes. */
-  axis?: RevolveAxisRef;
+  /** The copy axis (circular) — the revolve axis shapes, or a connector. */
+  axis?: CopyAxisRef;
   /** Instance count, original included (circular). */
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -2370,6 +3081,7 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
     feature: 'copy',
     kind: options.kind,
     targets: options.targets,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     axis: options.axis,
@@ -2512,13 +3224,28 @@ export type FeatureSourcesResult =
    * — empty when the rib fuses with the whole scene.
    */
   | { ok: true; feature: 'rib'; spine: SourceSlotRef; scope: SourceSlotRef[] }
+  /**
+   * A hole: its placements in argument order — a connector by its statement,
+   * anything else opaque — plus the solid statements its `.scope(…)` names.
+   */
+  | { ok: true; feature: 'hole'; placements: SourceSlotRef[]; scope: SourceSlotRef[] }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
-  | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
+  | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[]; connections: [number, number, number][][] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
-  | { ok: true; feature: 'projection' | 'intersect'; selection: SourceSlotRef }
+  | {
+    ok: true;
+    feature: 'projection' | 'intersect';
+    selection: SourceSlotRef;
+    /**
+     * Whole sketch statements the projection references (`project(s1)`), by
+     * call site, in argument order; `selection` covers the other sources.
+     * Absent on a workspace kernel predating sketch sources.
+     */
+    sketches?: SourceSlotRef[];
+  }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -2530,9 +3257,10 @@ export type FeatureSourcesResult =
    * A copy: the solids it clones, by call site, plus the axis each direction
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all — reports an
-   * empty target list.
+   * empty target list. A copy along a repeat walks no axis: it reports the
+   * repeat it follows as its `pattern`.
    */
-  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[] }
+  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; pattern?: SourceSlotRef }
   /**
    * A standalone mirror: the solids it reflects, by call site, plus the plane
    * it reflects them across. An origin-plane literal is `opaque` as it is for
@@ -2559,7 +3287,7 @@ export type FeatureSourcesResult =
 /** Current sources of the statement at `before`, for edit-dialog seeding. */
 export async function fetchFeatureSources(before: SelectionBoundaryRef): Promise<FeatureSourcesResult> {
   try {
-    const res = await fetch('/api/feature/sources', {
+    const res = await fetch('api/feature/sources', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ before }),
@@ -2618,8 +3346,14 @@ export type ParsedScopeChain = {
  * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
  * paths, selector args) arrive as verbatim source text.
  */
+/** The `.region(…)` chain of a parsed swept statement — the declared region names. */
+export type ParsedRegionChain = {
+  /** Empty when the chain is absent or bare. */
+  regions: string[];
+};
+
 export type ParsedFeatureStatement =
-  | (ParsedScopeChain & {
+  | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'extrude';
       op: FeatureOpKind;
       distance: ValueExpr | null;
@@ -2651,13 +3385,40 @@ export type ParsedFeatureStatement =
       spineText: string | null;
     })
   | (ParsedScopeChain & {
+      feature: 'hole';
+      size: HoleSizeSpec;
+      fastener: HoleFastenerSpec | null;
+      style: HoleStyleSpec | null;
+      depth: ValueExpr | null;
+      tipAngle: ValueExpr | null;
+      /** Placement argument texts, verbatim, in argument order. */
+      placementTexts: string[];
+      /**
+       * The `connector()` statement each placement argument names — plus
+       * `slot` for one of its copies (`bolt.instance(2)`) — or null when it
+       * is neither a bare connector variable nor a copy read off one. Same
+       * length as `placementTexts`.
+       */
+      placementRefs: ({ line: number; column: number; slot?: number } | null)[];
+      /**
+       * The `.fasten(…)` chain: the pitch (null is coarse), the blind depth
+       * (null is through all) and its tip angle (null is a flat bottom); null
+       * without the chain. Absent on older servers.
+       */
+      fasten?: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+    })
+  | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+      /** `.extend('start', …)` lead-in, or null when the chain is absent. */
+      extendStart: ValueExpr | null;
+      /** `.extend('end', …)` run-out, or null when the chain is absent. */
+      extendEnd: ValueExpr | null;
       pathText: string;
       profileText: string | null;
     })
-  | {
+  | (ParsedRegionChain & {
       feature: 'wrap';
       op: FeatureOpKind;
       /** Pad thickness along the surface normal (always positive). */
@@ -2666,8 +3427,8 @@ export type ParsedFeatureStatement =
       sketchText: string;
       /** Target face argument text, verbatim (`e.sideFaces(0)`). */
       faceText: string;
-    }
-  | (ParsedScopeChain & {
+    })
+  | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'revolve';
       op: FeatureOpKind;
       /** Sweep angle in degrees; null = omitted (the 360° API default). */
@@ -2699,6 +3460,8 @@ export type ParsedFeatureStatement =
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileTexts: string[];
       guideTexts: string[];
+      connectionTexts: string[][];
+      connectionArgs: string[];
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
     })
@@ -2803,12 +3566,20 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'copy';
-      kind: 'linear' | 'circular';
+      /** `pattern` is the follow form, `copy(holes, bolt)` — no axis, no options. */
+      kind: 'linear' | 'circular' | 'pattern';
       /**
        * Axis argument texts, verbatim — one per linear direction, a single
-       * entry for circular.
+       * entry for circular, none for the follow form.
        */
       axisTexts: string[];
+      /**
+       * Per-axis source location of the statement an axis names — a bound
+       * `axis()` or `connector()`, plus `slot` for one of a connector's
+       * copies — or null for a world axis or another expression. Absent on
+       * servers predating it; empty for the 2D center form.
+       */
+      axisRefs?: ({ line: number; column: number; slot?: number } | null)[];
       /** Linear per-direction count and value, in axis order. */
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
@@ -2829,6 +3600,14 @@ export type ParsedFeatureStatement =
        * circular copy's entries carry one each); null when it names none.
        */
       skip: number[][] | null;
+      /** The follow form's repeat argument, verbatim (`holes`); null otherwise. Absent on older servers. */
+      patternText?: string | null;
+      /**
+       * The statement the follow form's repeat argument names — the bound
+       * `repeat()` call's own position, its timeline row's location — or
+       * null when it names none.
+       */
+      patternRef?: { line: number; column: number } | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
       targetTexts: string[];
       /**
@@ -2885,6 +3664,8 @@ export type ParsedFeatureStatement =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
+      /** The axes the rotations turn around; `local` when the statement writes none. */
+      rotationAxes: PlaneRotationAxes;
       /** Normalized 0–1 position along the edge; null for the other forms. */
       position: ValueExpr | null;
     }
@@ -2916,7 +3697,7 @@ export type ParseFeatureResult =
  */
 export async function parseFeatureAt(target: { filePath: string; line: number }): Promise<ParseFeatureResult> {
   try {
-    const res = await fetch('/api/feature/parse', {
+    const res = await fetch('api/feature/parse', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath: target.filePath, line: target.line }),
@@ -2965,6 +3746,14 @@ export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
    * an empty list drops it (back to whole-scene fusion).
    */
   scope?: ScopeTargetRef[];
+  /**
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
+   */
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2991,6 +3780,8 @@ export async function applyExtrudeEdit(
     profile: options.profile,
     toFace: options.toFace,
     scope: options.scope,
+    regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3032,6 +3823,10 @@ export async function applyRibEdit(
 export type SweepEditOptions = EditSessionFields & {
   op: FeatureOpKind;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** `.extend('start', …)` lead-in before the path, or null for none. */
+  extendStart: ValueExpr | null;
+  /** `.extend('end', …)` run-out past the path, or null for none. */
+  extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Re-sourced path; omitted keeps the statement's own. */
@@ -3044,6 +3839,14 @@ export type SweepEditOptions = EditSessionFields & {
    * an empty list drops it (back to whole-scene fusion).
    */
   scope?: ScopeTargetRef[];
+  /**
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
+   */
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3060,10 +3863,14 @@ export async function applySweepEdit(
     before: options.before,
     op: options.op,
     thin: options.thin,
+    extendStart: options.extendStart,
+    extendEnd: options.extendEnd,
     newVariables: options.newVariables,
     path: options.path,
     profile: options.profile,
     scope: options.scope,
+    regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3076,6 +3883,14 @@ export type WrapEditOptions = WrapOptionValues & EditSessionFields & {
    * re-picks it. Omitted also keeps the statement's own.
    */
   face?: { kind: 'keep' } | { kind: 'face'; entity: ApplyFeatureEntity };
+  /**
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
+   */
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3095,6 +3910,8 @@ export async function applyWrapEdit(
     newVariables: options.newVariables,
     sketch: options.sketch,
     face: options.face,
+    regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3109,6 +3926,14 @@ export type RevolveEditOptions = RevolveOptionValues & EditSessionFields & {
    * an empty list drops it (back to whole-scene fusion).
    */
   scope?: ScopeTargetRef[];
+  /**
+   * Full replacement region pick list; omitted keeps the statement's own
+   * chain, an empty list drops it (back to every region). New boundaries
+   * are declared in `regionSketch`, the statement's profile sketch.
+   */
+  regions?: RegionPick[];
+  /** The profile sketch the picks belong to — needed when the list changes. */
+  regionSketch?: { filePath: string; line: number };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3131,6 +3956,8 @@ export async function applyRevolveEdit(
     profile: options.profile,
     axis: options.axis,
     scope: options.scope,
+    regions: options.regions,
+    regionSketch: options.regionSketch,
     preview: options.preview,
   }, options.signal);
 }
@@ -3194,6 +4021,8 @@ export type LoftEditOptions = EditSessionFields & {
   scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
+  /** Omitted keeps existing connections on edits; [] removes them. */
+  connections?: LoftConnectionRef[];
 };
 
 /** Rewrite the loft statement at `edit` in place. */
@@ -3213,6 +4042,7 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    connections: options.connections,
     scope: options.scope,
     preview: options.preview,
   }, options.signal);
@@ -3293,19 +4123,28 @@ export async function applyRepeatEdit(
  * position in the parsed `axisTexts`, or re-source it with any create-mode
  * axis shape.
  */
-export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | RevolveAxisRef;
+export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | CopyAxisRef;
 
 /**
  * One target of an edited copy, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
- * statement by call site.
+ * statement or connector by call site.
  */
 export type CopyEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
-  | ({ kind: 'feature' } & SketchSourceRef);
+  | ({ kind: 'feature' | 'connector' } & SketchSourceRef);
+
+/**
+ * The repeat an edited "Along a repeat" copy follows: keep the statement's
+ * own, or a re-picked `repeat()` statement by call site.
+ */
+export type CopyEditPatternRef = { kind: 'keep' } | ({ kind: 'repeat' } & SketchSourceRef);
 
 export type CopyEditOptions = EditSessionFields & {
-  kind: 'linear' | 'circular';
+  /** `pattern` follows a repeat — `copy(holes, bolt)`, connectors only. */
+  kind: 'linear' | 'circular' | 'pattern';
+  /** Pattern only: the repeat the copies follow; omitted keeps the statement's own. */
+  pattern?: CopyEditPatternRef;
   /** Linear directions in axis order — each its own axis, count and value. */
   directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
@@ -3343,6 +4182,7 @@ export async function applyCopyEdit(
     expectedStatement: options.expectedStatement,
     before: options.before,
     kind: options.kind,
+    pattern: options.pattern,
     directions: options.directions,
     spacingMode: options.spacingMode,
     centered: options.centered,
@@ -3490,10 +4330,12 @@ export type PlaneEditOptions = EditSessionFields & {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null renders none. Offset type only. */
   offset: ValueExpr | null;
-  /** Rotation in degrees around the plane's local axes; null renders none. */
+  /** Rotation in degrees around the X/Y/Z axes ({@link axes}); null renders none. */
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
+  /** The axes the rotations turn around; `local` renders nothing. */
+  rotationAxes: PlaneRotationAxes;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   /** Full replacement base list; omitted keeps the statement's own. */
@@ -3519,6 +4361,7 @@ export async function applyPlaneEdit(
     rotateX: options.rotateX,
     rotateY: options.rotateY,
     rotateZ: options.rotateZ,
+    rotationAxes: options.rotationAxes,
     position: options.position,
     bases: options.bases,
     newVariables: options.newVariables,
@@ -3645,10 +4488,10 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' | 'repeat' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
-    const res = await fetch('/api/sketch-names', {
+    const res = await fetch('api/sketch-names', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ lines, callee }),
@@ -3665,10 +4508,12 @@ export async function fetchSketchNames(
 
 /**
  * The timeline's active part, attached to every /api/apply-feature payload.
- * The server forwards it only into the producer-less creates (pick-less
- * sketch, standard-only plane, standard-axis helix) so their statements land
- * inside the part's callback body — everything else inserts in its
- * producers' scope regardless, so the extra field is inert there.
+ * The server forwards it into the creates that can be built from sketches,
+ * planes and axes alone, and lands those inside the part's callback body
+ * whenever no input pins them elsewhere — the pick-less sketch, a standard
+ * plane or helix, an extrude of a sketch drawn before the part. Picked
+ * geometry and solid targets insert in their own scope regardless, so the
+ * extra field is inert there.
  */
 let activePartProvider: (() => SourceLocation | null) | null = null;
 
@@ -3684,7 +4529,7 @@ async function postApplyFeature(
   const activePart = payload.activePart === undefined ? activePartProvider?.() ?? null : null;
   const requestBody = activePart ? { ...payload, activePart } : payload;
   try {
-    const res = await fetch('/api/apply-feature', {
+    const res = await fetch('api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
@@ -3718,7 +4563,7 @@ export async function expandTangents(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-tangents', entity, before);
+  return selectionQuery('api/selection/expand-tangents', entity, before);
 }
 
 /** Expand a picked edge/face to its whole classified bucket. */
@@ -3726,7 +4571,7 @@ export async function expandBucket(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-bucket', entity, before);
+  return selectionQuery('api/selection/expand-bucket', entity, before);
 }
 
 /** Every multi-select group a pick can expand to (the right-click menu). */
@@ -3734,7 +4579,7 @@ export async function fetchSelectionGroups(
   entity: ApplyFeatureEntity,
   before?: SelectionBoundaryRef,
 ): Promise<{ groups: SelectionGroup[] } | { error: string }> {
-  return selectionQuery('/api/selection/groups', entity, before);
+  return selectionQuery('api/selection/groups', entity, before);
 }
 
 async function selectionQuery<T>(
@@ -3784,11 +4629,11 @@ export function explainSelection(
   signal?: AbortSignal,
   before?: SelectionBoundaryRef,
 ): Promise<{ picks: ExplainedPick[] } | null> {
-  return postJson('/api/selection/explain', { entities, before }, signal);
+  return postJson('api/selection/explain', { entities, before }, signal);
 }
 
 export function getMaterials(): Promise<Material[] | null> {
-  return getJson('/api/materials');
+  return getJson('api/materials');
 }
 
 // ---------------------------------------------------------------------------
@@ -3796,19 +4641,23 @@ export function getMaterials(): Promise<Material[] | null> {
 // ---------------------------------------------------------------------------
 
 export function recompute(): void {
-  postFireAndForget('/api/recompute');
+  postFireAndForget('api/recompute');
 }
 
 export function rollback(index: number, scope?: 'part'): void {
-  postFireAndForget('/api/rollback', scope ? { index, scope } : { index });
+  postFireAndForget('api/rollback', scope ? { index, scope } : { index });
 }
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/add-breakpoint', { sourceLocation });
+  postFireAndForget('api/add-breakpoint', { sourceLocation });
+}
+
+export function moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
+  return postAcked('api/timeline-breakpoint', { filePath, before });
 }
 
 export function removeFeature(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/remove-feature', { sourceLocation });
+  postFireAndForget('api/remove-feature', { sourceLocation });
 }
 
 export type RemoveFeatureDependent = { name: string; line: number };
@@ -3818,17 +4667,20 @@ export type RemoveFeaturePreview = {
   reason?: string;
   /** Statements the removal would also delete, in source order. */
   dependents?: RemoveFeatureDependent[];
+  /** Connectors of the removed holes that nothing else reads — they go along, without breaking anything. */
+  connectors?: RemoveFeatureDependent[];
 };
 
 export type RemoveFeatureResult = { success: boolean; reason?: string };
 
 /**
  * Analyze what removing the feature at `sourceLocation` would take along —
- * every later statement that references it, recursively. Nothing is edited.
+ * every later statement that references it, recursively, and the connectors
+ * a removed hole leaves without a reader. Nothing is edited.
  */
 export async function previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview> {
   try {
-    const res = await fetch('/api/remove-feature', {
+    const res = await fetch('api/remove-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ sourceLocation, dryRun: true }),
@@ -3837,16 +4689,20 @@ export async function previewRemoveFeature(sourceLocation: SourceLocationParam):
     if (!res.ok || body?.success !== true) {
       return { success: false, reason: body?.reason ?? `HTTP ${res.status}` };
     }
-    return { success: true, dependents: Array.isArray(body.dependents) ? body.dependents : [] };
+    return {
+      success: true,
+      dependents: Array.isArray(body.dependents) ? body.dependents : [],
+      connectors: Array.isArray(body.connectors) ? body.connectors : [],
+    };
   } catch (err: any) {
     return { success: false, reason: err?.message || String(err) };
   }
 }
 
-/** Remove the feature at `sourceLocation` together with everything that references it. */
+/** Remove the feature at `sourceLocation` together with everything that references it and the connectors it orphans. */
 export async function removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult> {
   try {
-    const res = await fetch('/api/remove-feature', {
+    const res = await fetch('api/remove-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ sourceLocation, cascade: true }),
@@ -3863,11 +4719,42 @@ export async function removeFeatureCascade(sourceLocation: SourceLocationParam):
 
 /** Set (or, with null/empty, clear) the feature's chained `.name('…')`. */
 export function renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
-  postFireAndForget('/api/rename-feature', { sourceLocation, name });
+  postFireAndForget('api/rename-feature', { sourceLocation, name });
+}
+
+/**
+ * Add (`closed: true`) or remove the `.close()` chain on a sketch statement —
+ * the Finish Sketch button and the reopen-for-edit gesture. Acked: the
+ * server answers once the editor host has applied the transform, so a
+ * caller can place or clear a breakpoint afterwards without the two edits
+ * racing on the host's buffer.
+ */
+export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boolean): Promise<SetUnitResult> {
+  return postAcked('api/set-sketch-closed', { sourceLocation, closed });
+}
+
+/**
+ * Set (or, with null, remove) the `.material('id')` chain on the `part(...)`
+ * statement at `sourceLocation` — the timeline row menu's Set material….
+ * Acked like {@link setSketchClosed}: resolves once the host applied the
+ * edit, so the re-render that refreshes the row follows.
+ */
+export function setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
+  return postAcked('api/set-part-material', { sourceLocation, material });
+}
+
+/**
+ * Rename the `part(...)` statement at `sourceLocation` — the timeline row
+ * menu's Rename on a part: the name `part('…', …)` takes, the variable the
+ * part is bound to (named after the new name), and every read of it, in the
+ * files that import the part too. Acked like {@link setSketchClosed}.
+ */
+export function renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult> {
+  return postAcked('api/rename-part', { sourceLocation, name });
 }
 
 export function clearBreakpoints(): void {
-  postFireAndForget('/api/clear-breakpoints');
+  postFireAndForget('api/clear-breakpoints');
 }
 
 /**
@@ -3882,7 +4769,7 @@ export function gotoSource(
   sourceLocation: SourceLocationParam,
   opts: { revealEditor?: boolean } = {},
 ): void {
-  postFireAndForget('/api/code/goto-source', { ...sourceLocation, revealEditor: opts.revealEditor !== false });
+  postFireAndForget('api/code/goto-source', { ...sourceLocation, revealEditor: opts.revealEditor !== false });
 }
 
 // ---------------------------------------------------------------------------
@@ -3894,7 +4781,7 @@ export type EditorHistoryResult = { success: boolean; reason?: string };
 
 async function postEditorHistory(action: 'undo' | 'redo', filePath: string): Promise<EditorHistoryResult> {
   try {
-    const res = await fetch(`/api/editor/${action}`, {
+    const res = await fetch(`api/editor/${action}`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath }),
@@ -3943,13 +4830,32 @@ async function postAcked(url: string, body: unknown): Promise<SetUnitResult> {
  * means "dispatched"; the new unit shows up with the next scene-rendered.
  */
 export function setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult> {
-  return postAcked('/api/set-unit', { filePath, unit });
+  return postAcked('api/set-unit', { filePath, unit });
 }
 
 /** Write the project unit into `fluidcad.json` and recompute the current file. */
 export function setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
-  return postAcked('/api/project/unit', { unit });
+  return postAcked('api/project/unit', { unit });
 }
+
+// ---------------------------------------------------------------------------
+// Project materials (the Manage materials… dialog): the `materials` map of
+// `fluidcad.json`, written whole.
+// ---------------------------------------------------------------------------
+
+export type DensityUnit = 'g/cm³' | 'kg/m³' | 'g/mm³' | 'lbs/in³';
+
+export const DENSITY_UNITS: readonly DensityUnit[] = ['g/cm³', 'kg/m³', 'g/mm³', 'lbs/in³'];
+
+/** One custom material — a `fluidcad.json` entry or a Settings → Materials one; `densityUnit` defaults to g/cm³. */
+export type ProjectMaterial = {
+  name: string;
+  density: number;
+  densityUnit?: DensityUnit;
+};
+
+/** A `materials` map, keyed by the id `part(...).material(id)` refers to. */
+export type ProjectMaterials = Record<string, ProjectMaterial>;
 
 // ---------------------------------------------------------------------------
 // Timeline move-to-part (acked — a dry-run analyzes dependencies against the
@@ -3971,7 +4877,7 @@ export async function moveToPart(
   opts: { dryRun?: boolean } = {},
 ): Promise<MoveToPartResult> {
   try {
-    const res = await fetch('/api/move-to-part', {
+    const res = await fetch('api/move-to-part', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, lines, part, ...(opts.dryRun ? { dryRun: true } : {}) }),
@@ -3998,7 +4904,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
   // A failed import carries the engine's message in the error body; only a
   // request that never reached the server is a network error.
   try {
-    const res = await fetch('/api/import-file', {
+    const res = await fetch('api/import-file', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ fileName, data }),
@@ -4014,7 +4920,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
 }
 
 export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
-  const res = await fetch('/api/export', {
+  const res = await fetch('api/export', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify(body),
@@ -4033,7 +4939,7 @@ export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
  */
 export async function createNewPart(): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
+    const res = await fetch('api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
     const parsed = await res.json().catch(() => null);
     if (!res.ok) {
       return { success: false, reason: parsed?.reason ?? parsed?.error ?? `Request failed (${res.status})` };
@@ -4068,8 +4974,35 @@ export type ParamSpec = {
   multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
-/** What deleting a parameter would cost — see `GET /api/params/usage`. */
-export type ParamUsage = {
+/** How much of one file reads a declaration: the count and the first few 1-indexed lines. */
+export type UsageFileSummary = { filePath: string; count: number; lines: number[] };
+
+/** What deleting a declaration does to the model, by file. */
+export type DeletionPlan = {
+  /** The source text that stands in for every read, or null when the declaration has no value to inline. */
+  value: string | null;
+  /** Reads the value replaces. */
+  replaced: UsageFileSummary[];
+  /** `insert()` overrides that are dropped — the instance falls back to the default. */
+  dropped: UsageFileSummary[];
+  /** Reads the value cannot replace; the server refuses the delete while any remain. */
+  blocked: UsageFileSummary[];
+};
+
+/**
+ * The part of a usage answer parameters and properties share: the value a
+ * delete puts in place of the reads, every file that reads the
+ * declaration, and the delete's plan. Absent on a server predating it.
+ */
+export type DeclarationUsageReport = {
+  value?: string | null;
+  portable?: boolean;
+  usages?: UsageFileSummary[];
+  deletion?: DeletionPlan;
+};
+
+/** What editing or deleting a parameter would do — see `GET /api/params/usage`. */
+export type ParamUsage = DeclarationUsageReport & {
   label: string;
   variable: string | null;
   references: number;
@@ -4102,9 +5035,9 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
 export type ParamTarget = { label: string; line?: number; filePath?: string };
 
 /**
- * The variable a parameter binds and how much of the model reads it — what the
- * dialog warns with before deleting, and how it learns a declaration is one it
- * cannot rewrite.
+ * The variable a parameter binds, every file that reads it, and what a
+ * delete would do to those reads — what the dialog warns or refuses with
+ * before deleting, and how it learns a declaration is one it cannot rewrite.
  */
 export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
   const query: Record<string, string | number> = { label: target.label };
@@ -4114,35 +5047,115 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
   if (target.filePath) {
     query.filePath = target.filePath;
   }
-  return getJson('/api/params/usage', query);
+  return getJson('api/params/usage', query);
 }
 
 /**
  * Declare a new parameter at the top of `part`'s callback body (the Add
  * dialog's Part choice — the file the part lives in takes the edit). A
- * parameter only lives inside a part body, so without one the server refuses
- * and says so. The variable it binds is derived from the label server-side —
+ * parameter requires a part target unless assembly scope is requested; then
+ * it lands in the current file's single assembly callback body. The variable it binds is derived from the label server-side —
  * only the file knows what names are free, so a clashing one gets a numeric
  * suffix rather than a refusal.
+ *
+ * `exposeAsProperty` (part scope only) has the same edit also declare a
+ * `property()` named after that variable and valued with it, at the end of
+ * the part body — one round trip, one render.
  */
-export function addParam(param: ParamSpec, part: SourceLocation | null): Promise<ParamEditResponse> {
-  const body = part
+export function addParam(
+  param: ParamSpec,
+  part: SourceLocation | null,
+  scope: 'part' | 'assembly' = 'part',
+  exposeAsProperty = false,
+): Promise<ParamEditResponse> {
+  const body = scope === 'assembly' ? { param, assembly: true } : part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };
-  return postParamEdit('/api/params/add', body);
+  return postParamEdit('api/params/add', exposeAsProperty && scope === 'part' ? { ...body, exposeAsProperty: true } : body);
 }
 
 /**
- * Rewrite the declaration `target` names. Renaming the label is part of this —
- * the variable the model reads is never touched.
+ * Rewrite the declaration `target` names. A new label renames the variable
+ * the model reads after it, and follows both through every file that reads
+ * them — the `insert()` overrides keyed by the label included.
  */
 export function updateParam(target: ParamTarget, param: ParamSpec): Promise<ParamEditResponse> {
-  return postParamEdit('/api/params/update', { ...target, param });
+  return postParamEdit('api/params/update', { ...target, param });
 }
 
-/** Delete a parameter's declaration; references to its variable stay behind. */
+/**
+ * Delete a parameter's declaration. Its default value stands in for every
+ * read of the variable and its `insert()` overrides are dropped, in every
+ * file; the server refuses when the default cannot replace a read.
+ */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
-  return postParamEdit('/api/params/remove', { ...target });
+  return postParamEdit('api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Property declarations — the panel editing `property()` calls in the source
+// ---------------------------------------------------------------------------
+
+/** One `property()` declaration as the editor dialog wants it written: the value is source text. */
+export type PropertySpec = {
+  /** What the panel shows for the row. */
+  label: string;
+  /** The identifier the code reads the property by — derived from the label. */
+  name: string;
+  expression: string;
+};
+
+/** Which declaration an edit means — the name is the key; the location disambiguates. */
+export type PropertyTarget = { name: string; line?: number; filePath?: string };
+
+/** What the dialog seeds from and warns with — see `GET /api/properties/usage`. */
+export type PropertyUsage = DeclarationUsageReport & {
+  name: string;
+  /** The declaration's label; null when the server could not read it. */
+  label?: string | null;
+  /** The value argument's source text; null when the server could not read it. */
+  expression: string | null;
+  variable: string | null;
+  references: number;
+  referenceLines: number[];
+  editable: boolean;
+  reason?: string;
+};
+
+export function getPropertyUsage(target: PropertyTarget): Promise<PropertyUsage | null> {
+  const query: Record<string, string | number> = { name: target.name };
+  if (target.line != null) {
+    query.line = target.line;
+  }
+  if (target.filePath) {
+    query.filePath = target.filePath;
+  }
+  return getJson('api/properties/usage', query);
+}
+
+/** Declare a new property at the end of `part`'s callback body, in the file the part lives in. */
+export function addProperty(property: PropertySpec, part: SourceLocation): Promise<ParamEditResponse> {
+  return postParamEdit('api/properties/add', {
+    property,
+    part: { filePath: part.filePath, line: part.line, column: part.column },
+  });
+}
+
+/**
+ * Rewrite the declaration `target` names. A new name is followed through
+ * every `.properties.<name>` read of it, in every file, and renames the
+ * variable the declaration binds after it.
+ */
+export function updateProperty(target: PropertyTarget, property: PropertySpec): Promise<ParamEditResponse> {
+  return postParamEdit('api/properties/update', { ...target, property });
+}
+
+/**
+ * Delete a property's declaration. Its value stands in for every read, in
+ * every file; the server refuses when the value cannot replace a read.
+ */
+export function removeProperty(target: PropertyTarget): Promise<ParamEditResponse> {
+  return postParamEdit('api/properties/remove', { ...target });
 }
 
 // ---------------------------------------------------------------------------
@@ -4250,7 +5263,7 @@ export type CatalogScanResult = {
 export async function getPartCatalogFiles(
   signal?: AbortSignal,
 ): Promise<CatalogFileEntry[] | null> {
-  const data = await getJson<{ files: CatalogFileEntry[] }>('/api/part-catalog/files', undefined, signal);
+  const data = await getJson<{ files: CatalogFileEntry[] }>('api/part-catalog/files', undefined, signal);
   return data?.files ?? null;
 }
 
@@ -4259,7 +5272,7 @@ export function scanPartCatalogFile(
   absPath: string,
   signal?: AbortSignal,
 ): Promise<CatalogScanResult | null> {
-  return postJson('/api/part-catalog/scan', { file: absPath }, signal);
+  return postJson('api/part-catalog/scan', { file: absPath }, signal);
 }
 
 /** One entry of the Insert dialog's basket. */
@@ -4268,7 +5281,7 @@ export type CatalogInsertRequest = {
   exportName: string;
   kind: CatalogEntryKind;
   /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
-  params?: Record<string, CatalogParamValue>;
+  params?: Record<string, CatalogParamValue | CatalogParamExpr>;
 };
 
 /**
@@ -4279,12 +5292,41 @@ export type CatalogInsertRequest = {
  */
 export async function insertCatalogParts(
   inserts: CatalogInsertRequest[],
+  newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part-catalog/insert', {
+    const res = await fetch('api/part-catalog/insert', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ inserts }),
+      body: JSON.stringify({ inserts, newVariables }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Rename an inserted instance or occurrence: its `insert()` statement's
+ * `.name('…')` chain, the variable the statement binds — named after the
+ * new name — and every read of it, in the other files of the workspace too.
+ * `defaultName` is what the row shows without a `.name()`; renaming to it
+ * drops the chain.
+ */
+export async function renameInstance(
+  sourceLocation: { filePath: string; line: number },
+  name: string,
+  defaultName: string,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/rename-instance', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -4311,7 +5353,7 @@ export async function updateInsertParams(
   newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/update-insert-params', {
+    const res = await fetch('api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
@@ -4338,7 +5380,7 @@ export async function getInsertParamExpressions(
   sourceLine: number,
 ): Promise<Record<string, string> | null> {
   const data = await postJson<{ expressions: Record<string, string> | null }>(
-    '/api/insert-param-expressions',
+    'api/insert-param-expressions',
     { filePath, sourceLine },
   );
   return data?.expressions ?? null;
@@ -4376,6 +5418,11 @@ export type AssemblyMateConnectorRef = {
    * line and the side lives on its row-th (0-based) copy.
    */
   replicaRow?: number;
+  /**
+   * The side is a copy of the connector, made by the part's `copy()`
+   * statement: the server writes `.connectors.<connectorName>.instance(slot)`.
+   */
+  slot?: number;
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */
@@ -4403,11 +5450,14 @@ export type AssemblyMateGeometryRef = {
 
 /**
  * One assembly-connector side: the `connector('name', [x, y, z])` statement
- * starting on `connectorLine` — the server dereferences its binding.
+ * starting on `connectorLine` — the server dereferences its binding. With
+ * `slot`, one of its copies (`bay.instance(2)`): `connectorLine` stays the
+ * seed's statement.
  */
 export type AssemblyMateFrameRef = {
   connectorLine: number;
   connectorName: string;
+  slot?: number;
 };
 
 export type AssemblyMatePayload = {
@@ -4436,7 +5486,7 @@ export async function applyAssemblyMate(
     | { edit: AssemblyMatePayload & { sourceLine: number } },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-mate', {
+    const res = await fetch('api/assembly-mate', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, ...spec }),
@@ -4477,7 +5527,7 @@ export async function classifyContactPick(
   pick: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } },
 ): Promise<ContactPickResult | { error: string }> {
   try {
-    const res = await fetch('/api/classify-contact', {
+    const res = await fetch('api/classify-contact', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ pick }),
@@ -4508,7 +5558,7 @@ export async function fetchConnectorProperties(
   sourceLocation: { filePath: string; line: number },
 ): Promise<ConnectorProperties | { error: string }> {
   try {
-    const res = await fetch('/api/part-connector-properties', {
+    const res = await fetch('api/part-connector-properties', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line }),
@@ -4532,7 +5582,7 @@ export async function applyConnectorProperties(
   props: ConnectorProperties,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/part-connector-props', {
+    const res = await fetch('api/part-connector-props', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -4580,7 +5630,7 @@ export async function applyInstancePose(
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/instance-pose', {
+    const res = await fetch('api/instance-pose', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -4621,7 +5671,7 @@ export async function getInstancePoseExpressions(
   sourceLocation: { filePath: string; line: number },
 ): Promise<InstancePoseExpressions | null> {
   const data = await postJson<{ expressions: InstancePoseExpressions | null }>(
-    '/api/instance-pose-expressions',
+    'api/instance-pose-expressions',
     { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
   );
   return data?.expressions ?? null;
@@ -4668,7 +5718,7 @@ export async function applyAssemblyReplicate(
     | { removeRow: { sourceLine: number; row: number } },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-replicate', {
+    const res = await fetch('api/assembly-replicate', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, ...spec }),
@@ -4705,7 +5755,7 @@ export async function applyAssemblyConnector(
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-connector', {
+    const res = await fetch('api/assembly-connector', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -4729,6 +5779,77 @@ export async function applyAssemblyConnector(
   }
 }
 
+/**
+ * One axis of an assembly connector copy: a world axis, an assembly
+ * connector's Z axis ({@link AssemblyMateFrameRef}, `slot` for one of its
+ * copies), or — editing — the statement's own axis kept by position.
+ */
+export type AssemblyCopyAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | ({ kind: 'connector' } & AssemblyMateFrameRef)
+  | { kind: 'keep'; sourceIndex: number };
+
+/**
+ * One target of an assembly connector copy: an assembly connector by its
+ * `connector()` statement, or — editing — a statement target kept verbatim.
+ */
+export type AssemblyCopyTargetRef =
+  | { kind: 'connector'; connectorLine: number; connectorName: string }
+  | { kind: 'verbatim'; sourceIndex: number };
+
+/** The assembly Copy dialog's statement, in the part copy's option shapes. */
+export type AssemblyConnectorCopyPayload = {
+  kind: 'linear' | 'circular';
+  targets: AssemblyCopyTargetRef[];
+  directions?: { axis: AssemblyCopyAxisRef; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  axis?: AssemblyCopyAxisRef;
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+};
+
+/**
+ * The assembly Copy dialog's commit: `create` appends a `copy()` of the
+ * assembly's own connectors, `edit` re-renders the one at `sourceLine`,
+ * `remove` deletes it (and every mate or replicate cell on its copies).
+ * With `preview`, the server answers the statement it would write without
+ * touching the file — the dialog's preview row.
+ */
+export async function applyAssemblyConnectorCopy(
+  filePath: string,
+  spec:
+    | { create: AssemblyConnectorCopyPayload }
+    | { edit: AssemblyConnectorCopyPayload & { sourceLine: number } }
+    | { remove: { sourceLine: number } },
+  opts: { newVariables?: NewVariable[]; preview?: boolean; signal?: AbortSignal } = {},
+): Promise<ApplyFeatureResponse> {
+  try {
+    const res = await fetch('api/assembly-connector-copy', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal: opts.signal,
+      body: JSON.stringify({
+        filePath,
+        ...spec,
+        newVariables: opts.newVariables ?? null,
+        ...(opts.preview ? { preview: true } : {}),
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 export type AssemblyConnectorExpressions = {
   /** The point tuple's element texts; null unless a three-element array literal. */
   position: { x: string | null; y: string | null; z: string | null } | null;
@@ -4742,7 +5863,7 @@ export async function getAssemblyConnectorExpressions(
   sourceLocation: { filePath: string; line: number },
 ): Promise<AssemblyConnectorExpressions | null> {
   const data = await postJson<{ expressions: AssemblyConnectorExpressions | null }>(
-    '/api/assembly-connector-expressions',
+    'api/assembly-connector-expressions',
     { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
   );
   return data?.expressions ?? null;
@@ -4750,7 +5871,7 @@ export async function getAssemblyConnectorExpressions(
 
 /** Every connector name the open assembly file declares — for the dialog's default name. */
 export async function listAssemblyConnectorNames(filePath: string): Promise<string[]> {
-  const data = await postJson<{ names: string[] }>('/api/assembly-connector-names', { filePath });
+  const data = await postJson<{ names: string[] }>('api/assembly-connector-names', { filePath });
   return data?.names ?? [];
 }
 
@@ -4759,12 +5880,129 @@ export async function listAssemblyConnectorNames(filePath: string): Promise<stri
 // ---------------------------------------------------------------------------
 
 export async function loadPreferences(): Promise<UserPreferences | null> {
-  return getJson('/api/preferences');
+  return getJson('api/preferences');
 }
 
 export function savePreference<K extends keyof UserPreferences>(
   key: K,
   value: UserPreferences[K],
 ): void {
-  postFireAndForget('/api/preferences', { [key]: value });
+  postFireAndForget('api/preferences', { [key]: value });
+}
+
+/** Put every preference back to its default; resolves to the defaults the server now holds. */
+export async function resetPreferences(): Promise<UserPreferences | null> {
+  return postJson<UserPreferences>('api/preferences/reset', {});
+}
+
+// ---------------------------------------------------------------------------
+// Section views
+// ---------------------------------------------------------------------------
+
+export type SectionApplyOptions = {
+  /** The view's name, as the section menu lists it. */
+  name: string;
+  /** The cut plane — the mirror dialog's plane shapes (standard, plane feature, picked face). */
+  plane: RepeatPlaneRef;
+  offset: number;
+  flip: boolean;
+  /** The file the statement lands in (the scene's own file). */
+  filePath: string;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a
+ * `section('<name>', <plane>, { offset, flip })` statement. Same endpoint
+ * and response shape as {@link applyFeature}.
+ */
+export async function applySection(options: SectionApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'section',
+    name: options.name,
+    plane: options.plane,
+    offset: options.offset,
+    flip: options.flip,
+    filePath: options.filePath,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * The section arrow's commit: rewrite the `offset` and `flip` of the
+ * `section()` statement at `sourceLocation` in place. Acked through the
+ * edit dispatcher like an instance pose — resolves once the edit landed.
+ */
+export async function setSectionOptions(
+  sourceLocation: { filePath: string; line: number },
+  offset: number,
+  flip: boolean,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/section-options', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, offset, flip }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch (err: any) {
+    return { success: false, reason: err?.message ?? String(err) };
+  }
+}
+
+/** One body of an interference pair, as `/api/interfere` addresses it. */
+export type InterferenceBodyRef = {
+  shapeId: string;
+  sceneObjectId: string;
+  sceneObjectName: string;
+  part: string | null;
+  instanceId?: string;
+};
+
+export type InterferencePairData = {
+  a: InterferenceBodyRef;
+  b: InterferenceBodyRef;
+  /** The shared volume in the document unit cubed. */
+  volume: number;
+  /** The shared volume's meshes in world space, when `includeGeometry` was asked. */
+  meshes?: SceneObjectMesh[];
+};
+
+export type InterferenceReport = {
+  ok: boolean;
+  inconclusive?: string;
+  bodies: number;
+  units: number;
+  checked: number;
+  rejectedByBounds: number;
+  clashes: InterferencePairData[];
+  intraPart: InterferencePairData[];
+  failed: { a: InterferenceBodyRef; b: InterferenceBodyRef; message: string }[];
+  tolerance: number;
+  unit: LengthUnit;
+};
+
+export type InterferenceRequestBody = {
+  instanceIds?: string[];
+  shapeIds?: string[];
+  tolerance?: number;
+  /** Assembly files: the live world poses to use instead of the statement poses. */
+  poses?: (MeasurePose & { instanceId: string })[];
+  /** Carry each shared volume's meshes on the pair (what the section view paints red). */
+  includeGeometry?: boolean;
+};
+
+/**
+ * `POST /api/interfere` — the shared volume between the scene's bodies (the
+ * engine's SceneInterference). A clash is a 200 with `ok: false`; a refusal
+ * (no scene, an engine without the checker) is null.
+ */
+export async function fetchInterference(body: InterferenceRequestBody, signal?: AbortSignal): Promise<InterferenceReport | null> {
+  return postJson<InterferenceReport>('api/interfere', body, signal);
 }

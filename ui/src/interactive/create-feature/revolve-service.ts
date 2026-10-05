@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRevolve, applyRevolveEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyRevolve, applyRevolveEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef,
   RevolveEditOptions, SourceSlotRef,
 } from '../../api';
@@ -14,7 +14,9 @@ import { RevolvePanel } from './revolve-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
@@ -22,9 +24,10 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import {
-  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Revolve dialog on the create rails: a profile sketch swept around an
@@ -71,6 +74,8 @@ export class RevolveFeatureService {
   private relabeler: OptionRelabeler<{ profiles: SketchProfileOption[]; axes: AxisOption[] }>;
   /** The translucent body the current values would sweep. */
   private ghost: FeatureGhostOverlay;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
 
   constructor(
     container: HTMLElement,
@@ -86,7 +91,7 @@ export class RevolveFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/revolve.png',
+      icon: iconUrl('revolve'),
       label: 'Revolve',
       tip: 'Revolve a sketch around an axis',
       ariaLabel: 'Revolve a sketch around an axis',
@@ -118,18 +123,32 @@ export class RevolveFeatureService {
       this.axisEdgeEntity = null;
       this.refreshHighlight();
     };
-    this.panel.onArmedSlotChange = () => this.syncPickChannels();
+    this.panel.onArmedSlotChange = () => {
+      this.syncPickChannels();
+      // Another slot took the viewport — region picking hands it over.
+      if (this.panel.armedSlot !== 'profile') {
+        this.regions.stop();
+      }
+    };
     this.panel.onRemoveScope = (index) => {
       this.scope.removeAt(index);
       this.panel.setMessage(null);
       this.refreshScope();
       this.runner.schedulePreview();
     };
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.ghostProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applyRevolveEdit(this.editTarget, { ...(request as Parameters<typeof applyRevolveEdit>[1]), ...extras })
         : applyRevolve({ ...(request as RevolveApplyOptions), ...extras }),
@@ -170,7 +189,7 @@ export class RevolveFeatureService {
     return this.armed;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }
@@ -250,6 +269,7 @@ export class RevolveFeatureService {
     this.refreshLabels();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -293,6 +313,7 @@ export class RevolveFeatureService {
     this.refreshLabels();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -321,6 +342,8 @@ export class RevolveFeatureService {
     // from the pre-rollback scene, where the edited row still renders.
     this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
     this.scope.seedKeeps(parsed, target.filePath);
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -373,6 +396,7 @@ export class RevolveFeatureService {
     this.armed = true;
     this.axisEdgeEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     // Composing a revolve means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
@@ -410,6 +434,7 @@ export class RevolveFeatureService {
     this.editSceneStale = false;
     this.axisEdgeEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     this.solidPick.set([]);
     this.syncButton();
@@ -449,7 +474,7 @@ export class RevolveFeatureService {
     if (sub.type === 'axis') {
       const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return;
       }
       this.pickAxis(option);
@@ -477,7 +502,7 @@ export class RevolveFeatureService {
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return true;
       }
       this.pickAxis(option);
@@ -577,7 +602,8 @@ export class RevolveFeatureService {
       thin: values.thin,
       profile,
       axis,
-    }, signal);
+      regions: this.regions.ghostPicks(),
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost revolves, or null while there is nothing to sweep. */
@@ -624,12 +650,11 @@ export class RevolveFeatureService {
         ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index }
         : null;
     }
-    // Keep: the statement's own axis, which resolves to an `axis()` call site
-    // or to nothing the ghost can address (a standard literal reads as the
-    // standard selection above, never as keep).
-    return this.sourceSlots?.axis.kind === 'sketch'
-      ? { kind: 'axis', filePath: this.sourceSlots.axis.filePath, line: this.sourceSlots.axis.line }
-      : null;
+    // Keep: the statement's own axis, which resolves to an `axis()` call site,
+    // to the edge an inline `axis(<edge>)` was built on, or to nothing the
+    // ghost can address (a standard literal reads as the standard selection
+    // above, never as keep).
+    return KeptAxisSlot.ghostRef(this.sourceSlots?.axis);
   }
 
   /** The axis slot's request field, or the message blocking it. */
@@ -676,6 +701,7 @@ export class RevolveFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
+      regions: this.regions.picks,
     };
   }
 
@@ -721,6 +747,9 @@ export class RevolveFeatureService {
       // The dialog owns the chain it shows: the full list on Add/Remove, an
       // explicit drop on New (`.new()` resets the fusion scope).
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
+      // Likewise the region list: the picks shown are the picks written.
+      regions: this.regions.picks,
+      regionSketch: this.ghostProfile() ?? undefined,
       expectedStatement: this.session.expectedStatement,
       before: axis?.kind === 'edge' ? this.session.boundary ?? undefined : undefined,
     };
@@ -751,9 +780,9 @@ export class RevolveFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen profile's (producers win:
-   * the statement inserts in the profile's scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen profile (see {@link scopePartLocation}): the profile's own
+   * part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

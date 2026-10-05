@@ -68,7 +68,11 @@ Rules that trip up every first attempt:
 - A connector's source must resolve to **exactly one** face, edge or vertex, or be a plane; a raw point is refused inside a part. `resolve_selection` the expression at the part's scope and confirm `count` is 1 before writing it.
 - A face connector sits at the face center with Z along the outward normal; a circular edge gives center plus axis; a straight edge gives midpoint plus tangent. `.offset(x, y, z)` and `.rotate(axis, deg)` move it in its own axes, in call order.
 - Face frames point Z **out of the solid**, and a mate places the second Z against the first by default, so connectors on the touching faces of two parts put the parts on each other with no options.
-- A sketch consumed by a feature must be `.reusable()` to still exist for `expose()`.
+- A sketch a feature used is only hidden, never consumed, so it can still be passed to `expose()`.
+- **A hole pattern gets one connector and a `copy()`**, not one connector per hole. Declare it on the first hole, then copy it in the same part body: `copy(holes, bolt)` follows the `repeat()` that made the holes, so every copy stays on its hole when the repeat's count, spacing or axis changes (partial arcs included); `copy("linear" | "circular", axis, options, bolt)` patterns it on its own. `repeat()` refuses connectors.
+- Copy k of `bolt` is `bolt.instance(k)` in the part file and `instance.connectors.bolt.instance(k)` in an assembly, a mate side and replicate cell like any connector. Slots number like `repeat().instance(k)`: a linear grid with the first axis varying slowest and the original in its own cell, a circular copy by steps from 0, the follow form by the repeat's own slots. `bolt.instance(<original's slot>)` is `bolt`.
+- A copy is the seed's frame moved rigidly, never re-derived from geometry: a linear or circular copy sits on a hole only while its pattern matches the holes', and a circular copy steps `angle / count` where `repeat()` steps a partial arc `angle / (count - 1)`. Follow the repeat when the connector belongs on repeated geometry.
+- Copies are read-only (`.offset()` / `.rotate()` on one throws; edit the seed or the copy statement). One copy statement per connector, no copy of a copy (a grid is one two-axis linear copy), explicit targets only, and no `centered` on a circular copy of a connector. Changing a later grid axis's count, or a `centered` count, renumbers the slots and moves whatever is mated to them. Check the copies with `get_scene_summary`: each is a `connector` object named `bolt.instance(k)` carrying its frame.
 
 A standoff with its mating interface at the origin:
 
@@ -100,14 +104,17 @@ export const standoff = part("Standoff", () => {
 });
 ```
 
-On the plate side, a connector per hole is the top-face frame moved along its own X and Y to the hole center, so the offsets read like the hole sketch coordinates:
+On the plate side, one connector is the top-face frame moved along its own X and Y to the first hole's center (the offsets read like the hole sketch coordinates), and a linear copy with the holes' pitch puts a copy on each of the others:
 
 ```js
 // plate.part.js, inside part("Base plate", () => { … })
 connector("top", select(face().planar().onPlane("xy", plateT)));
-connector("hole1", select(face().planar().onPlane("xy", plateT))).offset(-30, -17.5, 0);
-connector("hole2", select(face().planar().onPlane("xy", plateT))).offset(30, -17.5, 0);
+const hole = connector("hole", select(face().planar().onPlane("xy", plateT))).offset(-30, -17.5, 0);
+// hole.instance(1) (-30, 17.5), hole.instance(2) (30, -17.5), hole.instance(3) (30, 17.5)
+copy("linear", ["x", "y"], { count: [2, 2], offset: [60, 35] }, hole);
 ```
+
+When the holes come from a `repeat()` (`const holes = repeat(...)` of the hole's `cut()`), anchor the connector on the hole itself and follow the repeat instead: `const bolt = connector("bolt", hole.startEdges()); copy(holes, bolt);`.
 
 ## 5. STEP parts via `load()`
 
@@ -145,8 +152,8 @@ Every line that does not add up is a spec conflict under the core skill's rule: 
 - **`insert()`** returns an `Instance` (part) or `Occurrence` (sub-assembly). Chain `.translate(x, y, z)`, `.rotate(axis, deg)`, `.grounded()`, `.name("…")` in any order. The first insert of a variant builds it; repeats with equal overrides share the build.
 - **`mate(type, a, b)`**: `fastened`, `revolute` (rotation about Z), `slider` (travel along Z), `cylindrical`, `planar` on connectors; `tangent` on exposures (`instance.features.name`). The two kinds are not interchangeable. The **first side drives**: options are read in its frame, and the second connector is placed face-to-face on it (origins coincide, second Z against the first).
 - Options: `.flip()` when the parts should stack the other way; `.rotate(deg)` to spin the second frame about the shared Z; `.offset(x, y, z)` in the driver's frame (fastened and revolute any axis; slider, cylindrical and planar Z only); `.limits(min, max)` on revolute (degrees) and slider (project units); `.noPropagate()` on tangent.
-- **`replicate(seed, targets, rows)`** copies a mated instance onto new targets: `targets` are the seed's outer mate sides that vary (connectors on other bodies), `rows` one array per replica. Replicas are never grounded, start at the seed's pose, and are named `<seed> (2)`, `(3)`. It is "copy with mates", not a geometric pattern; `repeat()` and `copy()` stay inside parts.
-- **Sub-assemblies**: an `assembly()` definition can be inserted; its callback's return value is `occurrence.parts` for deep references (`swing.parts.arm.connectors.pivot`). `.grounded()` inside a body anchors within that body's frame; the parent decides whether the occurrence is grounded. Assembly connectors (`connector("name", [x, y, z])`) are root-scope only: declare them in the file that inserts the sub-assembly.
+- **`replicate(seed, targets, rows)`** copies a mated instance onto new targets: `targets` are the seed's outer mate sides that vary (connectors on other bodies), `rows` one array per replica. Replicas are never grounded, start at the seed's pose, and are named `<seed> (2)`, `(3)`. It is "copy with mates", not a geometric pattern: `repeat()` stays inside parts, and at an assembly's top level `copy()` copies only the assembly's own connectors (`copy("linear", "x", { count: 4, offset: 50 }, bay)` makes `bay.instance(1)` … `bay.instance(3)`, about a world axis or another assembly connector). Rows are explicit: nothing follows the part's pattern, so a count change in the part means editing the rows.
+- **Sub-assemblies**: an `assembly()` definition can be inserted; its callback's return value is `occurrence.parts` for deep references (`swing.parts.arm.connectors.pivot`). `.grounded()` inside a body anchors within that body's frame; the parent decides whether the occurrence is grounded. Assembly connectors (`connector("name", [x, y, z])`) and their copies are root-scope only: declare and copy them in the file that inserts the sub-assembly.
 
 A motor-mount plate with four standoffs, one mate and one replicate:
 
@@ -161,13 +168,13 @@ export const motorMount = assembly("motor-mount", () => {
   // Seed: one standoff on the first hole. The starting pose is the pose the
   // mate will produce, so measure and export agree with the viewport.
   const first = insert(standoff, { Height: 10 }).translate(-30, -17.5, 10).name("Standoff 1");
-  mate("fastened", base.connectors.hole1, first.connectors.foot);
+  mate("fastened", base.connectors.hole, first.connectors.foot);
 
-  // Three more, one per remaining hole.
-  replicate(first, [base.connectors.hole1], [
-    [base.connectors.hole2],
-    [base.connectors.hole3],
-    [base.connectors.hole4],
+  // Three more, one per copy of the plate's hole connector.
+  replicate(first, [base.connectors.hole], [
+    [base.connectors.hole.instance(1)],
+    [base.connectors.hole.instance(2)],
+    [base.connectors.hole.instance(3)],
   ]);
 });
 ```
@@ -206,6 +213,7 @@ Everything else follows the core skill: `render.state`, `objectErrors` (a failin
 - **A connector source matching two faces.** The statement fails; `resolve_selection` with the part as scope before writing it, and narrow to one.
 - **Nothing grounded, or two things grounded.** Ground exactly one instance per mechanism; a second ground pins a part the mates were supposed to move.
 - **Replicating before the mates.** Only mates written before `replicate()` are copied; a mate added afterwards applies to the seed only.
+- **A connector copy that does not exist.** A six-hole `copy(holes, bolt)` makes slots 0–5 with `bolt` itself at 0, so `f.connectors.bolt.instance(6)` fails as a compile error at the `mate()` / `replicate()` line: `bolt.instance(6) is out of range — the copy at flange.part.js:40 makes instances 0–5`. A skipped slot and `.instance()` on a connector nothing copies fail the same way. After changing a copied part's grid counts, screenshot the assembly: a renumbered slot shows as a part on a different hole.
 - **Measuring a mated distance from statement poses.** The number is the starting pose, not the solved one; see section 9. `interfere` reads the same poses: a clash it reports between two instances that the mates pull apart is a starting-pose overlap, and a clear result at starting poses says nothing about the mated layout.
 - **`.rotate()` after `.translate()` on an instance.** `rotate(axis, deg)` turns the whole pose about the world axis, position included: `insert(p).translate(10, 0, 0).rotate("z", 90)` lands at `(0, 10, 0)`, not at `(10, 0, 0)` turned in place. Write `.rotate()` first, then `.translate()` (evidence: `lib/features/pose-handle.ts`, and an `interfere` test that expected the in-place turn).
 - **Reading a part file's parameter from outside its body.** The body runs later, per variant; `param()` inside, values from the callback only.

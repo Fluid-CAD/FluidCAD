@@ -143,8 +143,10 @@ export class ShapeHistoryTracker {
     const removed: T[] = [];
 
     // Track which output raws are claimed by a Modified/Generated record so the
-    // remaining outputs can be reported as pure additions. When `skipAdded`,
-    // we don't compute additions, so skip the bookkeeping entirely.
+    // remaining outputs can be reported as pure additions. An input the maker
+    // hands back as it was claims itself: it was there before, and is no more
+    // an addition than its modified neighbours. When `skipAdded`, we don't
+    // compute additions, so skip the bookkeeping entirely.
     const claimed = skipAdded ? null : new oc.TopTools_MapOfShape();
 
     const isOfType = (raw: TopoDS_Shape) => raw.ShapeType() === type;
@@ -153,6 +155,9 @@ export class ShapeHistoryTracker {
       const inputRaws = Explorer.findShapes(input.getShape(), type);
 
       for (const inputRaw of inputRaws) {
+        if (claimed) {
+          claimed.Add(inputRaw);
+        }
         const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(inputRaw)).filter(isOfType);
         const generatedRaws = ShapeOps.shapeListToArray(maker.Generated(inputRaw)).filter(isOfType);
 

@@ -64,4 +64,19 @@ export class HiddenEdges {
     }
     return set;
   }
+
+  /**
+   * The model edges among `edges` — any of `shape`'s edges, typically its
+   * whole explorer-order list — with the hidden ones dropped and the rest in
+   * their original order. For consumers that walk raw explorer edges (pick
+   * indices count seams) but must only ever offer what a user can see.
+   */
+  static visibleOf<T extends { getShape(): TopoDS_Shape }>(shape: TopoDS_Shape, edges: T[]): T[] {
+    const hidden = HiddenEdges.collect(shape);
+    try {
+      return edges.filter(edge => !hidden.Contains(edge.getShape()));
+    } finally {
+      hidden.delete();
+    }
+  }
 }

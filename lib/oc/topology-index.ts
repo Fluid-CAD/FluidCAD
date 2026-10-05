@@ -45,6 +45,47 @@ export class TopologyIndex {
     }
   }
 
+  /**
+   * Group a shape's own `faces` by the slot `index` (its edge→faces index)
+   * gives each edge they bound: the entry for slot `i` lists, in `faces`
+   * order, the faces bounding the edge at slot `i`. With `faces` in explorer
+   * order that is the ancestor order the index records itself, so a lookup
+   * here answers what {@link seekShapes} would — one pass over the face/edge
+   * incidences instead of a native list copy per question.
+   */
+  static groupFacesByEdgeSlot<F extends { getShape(): TopoDS_Shape }>(
+    index: TopTools_IndexedDataMapOfShapeListOfShape,
+    faces: F[],
+  ): Map<number, F[]> {
+    const oc = getOC();
+    const slots = new Map<number, F[]>();
+    for (const face of faces) {
+      const explorer = new oc.TopExp_Explorer(
+        face.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum,
+      );
+      try {
+        while (explorer.More()) {
+          const slot = index.FindIndex(explorer.Current());
+          if (slot > 0) {
+            let bounding = slots.get(slot);
+            if (!bounding) {
+              bounding = [];
+              slots.set(slot, bounding);
+            }
+            // A seam runs through its face twice; the face bounds it once.
+            if (bounding[bounding.length - 1] !== face) {
+              bounding.push(face);
+            }
+          }
+          explorer.Next();
+        }
+      } finally {
+        explorer.delete();
+      }
+    }
+    return slots;
+  }
+
   static seekShapes(index: TopTools_IndexedDataMapOfShapeListOfShape, key: TopoDS_Shape): TopoDS_Shape[] {
     const idx = index.FindIndex(key);
     if (idx === 0) {

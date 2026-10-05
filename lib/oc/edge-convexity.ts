@@ -20,6 +20,15 @@ const SMOOTH_COSINE = 1 - 1e-6;
 /** Below this the normals do not turn about the edge at all — unit: dimensionless. */
 const TURN_EPSILON = 1e-9;
 
+/**
+ * {@link EdgeConvexityOps.classify}'s answers, per solid and edge wrapper.
+ * Both wrappers' OC shapes are fixed for their lifetime, so the corner class
+ * is too — and the `convex()` filter asks it of every edge in scope, once
+ * per candidate atom during selector synthesis and again in the emitted
+ * `select()` on every render.
+ */
+const classified = new WeakMap<Solid, WeakMap<Edge, EdgeConvexity | null>>();
+
 export class EdgeConvexityOps {
   /**
    * Classify `edge` within `solid`, or null when the solid does not own the
@@ -31,12 +40,20 @@ export class EdgeConvexityOps {
    * (n1 × n2) · t > 0 and concave when it is negative.
    */
   static classify(edge: Edge, solid: Solid): EdgeConvexity | null {
+    let perSolid = classified.get(solid);
+    if (!perSolid) {
+      perSolid = new WeakMap();
+      classified.set(solid, perSolid);
+    }
+    const known = perSolid.get(edge);
+    if (known !== undefined) {
+      return known;
+    }
     const raw = edge.getShape() as TopoDS_Edge;
     const faces = TopologyIndex.seekShapes(solid.getEdgeToFacesIndex(), raw);
-    if (faces.length !== 2) {
-      return null;
-    }
-    return EdgeConvexityOps.classifyRaw(raw, faces[0], faces[1]);
+    const result = faces.length === 2 ? EdgeConvexityOps.classifyRaw(raw, faces[0], faces[1]) : null;
+    perSolid.set(edge, result);
+    return result;
   }
 
   static classifyRaw(edge: TopoDS_Edge, face1: TopoDS_Shape, face2: TopoDS_Shape): EdgeConvexity | null {

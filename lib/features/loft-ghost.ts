@@ -3,10 +3,15 @@ import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
-import { BooleanOps } from "../oc/boolean-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { LoftEndCondition, LoftOps, LoftOptions } from "../oc/loft-ops.js";
+import { LoftEndCondition, LoftOps, LoftOptions, ThinLoftWalls } from "../oc/loft-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { Point } from "../math/point.js";
+import { Solid } from "../common/solid.js";
+import { EdgeQuery } from "../oc/edge-query.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { Mesh, MeshConfig } from "../oc/mesh.js";
+import { getOC } from "../oc/init.js";
 
 /**
  * One resolved profile of a ghost loft — the two things a dialog chip can be:
@@ -29,6 +34,8 @@ export type LoftGhostOptions = {
   startCondition: LoftEndCondition | null;
   /** How the surface arrives at the last profile, or null. */
   endCondition: LoftEndCondition | null;
+  /** One resolved world-space vertex per profile for each connection. */
+  connections?: Point[][];
 };
 
 export type LoftGhostSolids = {
@@ -81,8 +88,8 @@ function collectSolids(
   solids: Shape[],
   scratch: Shape[],
 ): void {
-  // A loft needs two sections, and OCC's rails come in ones and twos
-  // (loft.ts:103, :112) — the dialog reaches both states while composing.
+  // A loft needs two sections, and rails come in ones and twos
+  // (loft.ts:131) — the dialog reaches both states while composing.
   if (profiles.length < 2 || options.guides.length > 2) {
     return;
   }
@@ -102,26 +109,76 @@ function collectSolids(
     if (sections.length === 0) {
       return;
     }
-    // Rails and end conditions run the in-house skin, which carries exactly
-    // one section per profile (loft.ts:131).
-    if (loftOptions && sections.length !== 1) {
+    // The skin carries exactly one section per profile (loft.ts:164).
+    if (sections.length !== 1) {
+      if (options.connections?.length) {
+        throw new Error("Loft connections require exactly one region per profile.");
+      }
       return;
     }
-    wires.push(...sections);
+    wires.push(sections[0]);
   }
   solids.push(...LoftOps.makeLoft(wires, loftOptions));
 }
 
-/** Undefined for a plain loft, keeping it on OCC's ThruSections path. */
+/** Undefined for a plain loft. */
 function resolveLoftOptions(options: LoftGhostOptions): LoftOptions | undefined {
-  if (options.guides.length === 0 && !options.startCondition && !options.endCondition) {
+  if (options.guides.length === 0 && !options.startCondition && !options.endCondition && !options.connections?.length) {
     return undefined;
   }
   return {
     startCondition: options.startCondition ?? undefined,
     endCondition: options.endCondition ?? undefined,
     guides: options.guides.length > 0 ? options.guides : undefined,
+    connections: options.connections,
   };
+}
+
+/**
+ * The actual matching of a loft: edges on neither end plane, including the
+ * seam of a smooth closed side face (normally hidden by the solid renderer).
+ * Each returned polyline is packed xyz coordinates, ready for an overlay.
+ */
+export function loftMatchLines(
+  solid: Solid,
+  first: LoftGhostProfile,
+  last: LoftGhostProfile,
+  meshConfig?: MeshConfig,
+): number[][] {
+  const planeOf = (profile: LoftGhostProfile) => profile.kind === 'sketch'
+    ? profile.plane : profile.faces.length ? FaceOps.tryGetPlane(profile.faces[0]) : null;
+  const firstPlane = planeOf(first);
+  const lastPlane = planeOf(last);
+  if (!firstPlane || !lastPlane) {
+    return [];
+  }
+
+  const oc = getOC();
+  Mesh.ensureTriangulated(solid.getShape(), meshConfig);
+  const parents = solid.getEdgeToFacesIndex();
+  const lines: number[][] = [];
+  for (const shape of solid.getIndexedShapes('edge')) {
+    const edge = shape as Edge;
+    if (oc.BRep_Tool.Degenerated(edge.getShape())
+      || EdgeQuery.isEdgeOnPlane(edge, firstPlane)
+      || EdgeQuery.isEdgeOnPlane(edge, lastPlane)) {
+      continue;
+    }
+    const faces = parents.Seek(edge.getShape());
+    if (!faces || faces.IsEmpty()) {
+      continue;
+    }
+    const face = oc.TopoDS.Face(faces.First());
+    try {
+      const mesh = Mesh.discretizeEdgeOnFace(edge.getShape(), face);
+      if (mesh?.vertices.length) {
+        lines.push(mesh.vertices);
+      }
+    } finally {
+      face.delete();
+    }
+  }
+  return lines;
 }
 
 /**
@@ -157,9 +214,8 @@ function outerWires(faces: Face[], scratch: Shape[]): Wire[] {
 
 /**
  * The thin-walled loft, mirroring `Loft.buildThinLoft`: every profile is
- * offset into a ring, and the rings skin into outer and inner walls. With end
- * conditions both walls come from the in-house skin and assemble directly;
- * without them the inner solid is cut out of the outer one.
+ * offset into a ring, and the rings skin into outer and inner walls that
+ * assemble directly with ring caps.
  *
  * Only sketches offset — a picked face has no edges to run `ThinFaceMaker`
  * over, which is exactly the "Thin loft requires all profiles to be sketches"
@@ -174,21 +230,26 @@ function collectThinSolids(
 ): void {
   const outer: Wire[] = [];
   const inner: Wire[] = [];
-  for (const profile of profiles) {
+  const walls: ThinLoftWalls[] = [];
+  for (const [k, profile] of profiles.entries()) {
     if (profile.kind !== 'sketch' || !profile.plane || profile.geometries.length === 0) {
       return;
     }
     const ring = ThinFaceMaker.make(profile.geometries, profile.plane, thin[0], thin[1]);
-    scratch.push(...ring.faces);
-    for (const face of ring.faces) {
+    scratch.push(...ring.faces, ...ring.walls.map(wall => wall.source));
+    for (const [f, face] of ring.faces.entries()) {
       const wires = face.getWires();
       scratch.push(...wires);
       if (wires.length === 0) {
         continue;
       }
+      const { source, outerDistance, innerDistance } = ring.walls[f];
       outer.push(wires[0]);
-      if (wires.length > 1) {
+      if (wires.length > 1 && innerDistance !== null) {
         inner.push(wires[1]);
+        walls.push({ outer: wires[0], inner: wires[1], source, outerDistance, innerDistance });
+      } else if (loftOptions?.connections?.length) {
+        throw new Error(`Loft connections with thin walls require closed profiles; profile ${k + 1} is open.`);
       }
     }
   }
@@ -196,29 +257,10 @@ function collectThinSolids(
     return;
   }
 
-  const walled = inner.length > 0 && inner.length === outer.length;
-  if (loftOptions && walled) {
-    solids.push(...LoftOps.makeThinLoft(outer, inner, loftOptions));
+  if (walls.length > 0 && walls.length === outer.length) {
+    solids.push(...LoftOps.makeThinLoft(walls, loftOptions));
     return;
   }
-
-  const outerSolids = LoftOps.makeLoft(outer, loftOptions);
-  if (!walled) {
-    // An open profile offsets into a single band — its skin is the body.
-    solids.push(...outerSolids);
-    return;
-  }
-  scratch.push(...outerSolids);
-  const innerSolids = LoftOps.makeLoft(inner, loftOptions);
-  scratch.push(...innerSolids);
-
-  const outerFuse = BooleanOps.fuse(outerSolids);
-  const innerFuse = BooleanOps.fuse(innerSolids);
-  scratch.push(...outerFuse.result, ...innerFuse.result);
-  outerFuse.dispose();
-  innerFuse.dispose();
-  if (outerFuse.result.length === 0 || innerFuse.result.length === 0) {
-    return;
-  }
-  solids.push(BooleanOps.cutShapes(outerFuse.result[0], innerFuse.result[0]));
+  // An open profile offsets into a single band — its skin is the body.
+  solids.push(...LoftOps.makeLoft(outer, loftOptions));
 }

@@ -124,7 +124,8 @@ function fakeController() {
     committed: 0,
   };
   const controller = {
-    getConnectorName: (id: string) => CONNECTOR_NAMES[id] ?? null,
+    getConnectorRef: (id: string) => (CONNECTOR_NAMES[id] ? { name: CONNECTOR_NAMES[id] } : null),
+    getConnectorFamily: () => null,
     findConnectorId: (instanceId: string, name: string) => {
       const prefix = instanceId === 'inst-0' ? 'c-crank-' : instanceId.endsWith('inst-2') ? 'c-piston-' : instanceId.endsWith('inst-1') ? 'c-cap-' : 'c-rod-';
       const id = `${prefix}${name}`;
@@ -143,10 +144,11 @@ function fakeController() {
   return { controller, calls };
 }
 
-function mount(assembly: SerializedAssembly = engine()) {
+function mount(assembly: SerializedAssembly = engine(), patch: Record<string, unknown> = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const { controller, calls } = fakeController();
+  Object.assign(controller, patch);
   const viewer = { pickConnectors: false, getAssemblyController: () => controller } as unknown as Viewer;
   const service = new AssemblyReplicateService(container, viewer, { getAssembly: () => assembly });
   const pick = (connectorId: string, instanceId: string | null) =>
@@ -348,7 +350,7 @@ describe('AssemblyReplicateService', () => {
     await vi.waitFor(() => expect(service.isActive).toBe(false));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/assembly-replicate');
+    expect(url).toBe('api/assembly-replicate');
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       filePath: FILE,
       create: {
@@ -442,6 +444,134 @@ describe('AssemblyReplicateService', () => {
     expect(q('[data-role="hint"]')!.textContent).toBe(
       'Copy 4: click a connector on another part in the 3D view for its Slider mate. Or Apply now to add 2 copies.',
     );
+  });
+
+  // The crank's `pin` copied four times (`copy(…, pin)` in its part): a
+  // column on any member of that family proposes the family's other members,
+  // in slot order — never the crank's unrelated connectors (c3, c4, c5).
+  describe('connector families', () => {
+    const PIN = 'c-crank-pin';
+    const pinId = (slot: number) => (slot === 0 ? PIN : `${PIN}-${slot}`);
+    const familyController = {
+      getConnectorRef: (id: string) => {
+        if (id === PIN) {
+          return { name: 'pin' };
+        }
+        if (id.startsWith(`${PIN}-`)) {
+          return { name: 'pin', slot: Number(id.slice(PIN.length + 1)) };
+        }
+        return CONNECTOR_NAMES[id] ? { name: CONNECTOR_NAMES[id] } : null;
+      },
+      findConnectorId: (instanceId: string, name: string, slot?: number) => {
+        if (instanceId === 'inst-0' && name === 'pin') {
+          return slot === undefined ? PIN : pinId(slot);
+        }
+        return null;
+      },
+      getConnectorFamily: (id: string) => (id.startsWith(PIN)
+        ? { seedId: PIN, originalSlot: 0, members: [0, 1, 2, 3, 4].map(slot => ({ connectorId: pinId(slot), slot })) }
+        : null),
+      listInstanceConnectors: (instanceId: string) => (instanceId === 'inst-0'
+        ? [
+          ...['c1', 'c2', 'c3', 'c4', 'c5'].map(n => ({ connectorId: `c-crank-${n}`, name: n })),
+          { connectorId: PIN, name: 'pin' },
+          ...[1, 2, 3, 4].map(slot => ({ connectorId: pinId(slot), name: 'pin', slot, seedId: PIN })),
+        ]
+        : []),
+    };
+
+    /** Each listed cell's chip label — the cell also shows its column's mate and target. */
+    function cellLabels(container: HTMLElement, rows: number[], col: number): string[] {
+      return rows.map(k => container.querySelector(`[data-replica-cell="${k}:${col}"]`)!.textContent!.trim().replace(/✕$/, ''));
+    }
+
+    /** `label` closes the cell's text (its chip), not merely somewhere in it. */
+    const chip = (label: string) => expect.stringMatching(new RegExp(`${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+
+    /** The engine with its revolute on the crank's pin family member `target`. */
+    function pinnedEngine(target: string): SerializedAssembly {
+      const assembly = engine();
+      assembly.mates[3] = mate('mate-2', 'revolute', {
+        connectorA: { instanceId: 'asm-0/inst-1', connectorId: 'c-cap-c2' },
+        connectorB: { instanceId: 'inst-0', connectorId: target },
+      });
+      return assembly;
+    }
+
+    it('suggests the rest of the family in slot order for a column on the connector', () => {
+      const { service, q, qa, container } = mount(pinnedEngine(PIN), familyController);
+      service.begin({ kind: 'occurrence', id: 'asm-0' });
+      expect(qa('[data-target]').map(l => l.textContent!.trim())[1]).toBe('Revolute · on Crank Shaft · pin');
+      const bore = qa('[data-target-toggle]')[0] as HTMLInputElement;
+      bore.checked = false;
+      bore.dispatchEvent(new Event('change'));
+      q<HTMLButtonElement>('[data-role="fill-siblings"]')!.click();
+
+      expect(cellLabels(container, [0, 1, 2, 3], 1))
+        .toEqual([1, 2, 3, 4].map(slot => chip(`Crank Shaft · pin.instance(${slot})`)));
+      expect(service.buildPayload()).toEqual({
+        seed: { instanceLine: 10 },
+        targets: [{ instanceLine: 5, connectorName: 'pin' }],
+        rows: [1, 2, 3, 4].map(slot => [{ instanceLine: 5, connectorName: 'pin', slot }]),
+      });
+      expect(q('[data-role="preview"]')!.textContent).toContain(
+        '[Crank Shaft.connectors.pin.instance(1)], [Crank Shaft.connectors.pin.instance(2)]',
+      );
+    });
+
+    it('suggests the seed among the family for a column on a copy, skipping members in use', () => {
+      const assembly = pinnedEngine(pinId(2));
+      // Copy 3 is already taken by another mate.
+      assembly.mates.push(mate('mate-3', 'fastened', {
+        connectorA: { instanceId: 'inst-0', connectorId: pinId(3) },
+        frameB: { connectorId: 'w-bore3' },
+      }));
+      const { service, q, qa, container } = mount(assembly, familyController);
+      service.begin({ kind: 'occurrence', id: 'asm-0' });
+      const bore = qa('[data-target-toggle]')[0] as HTMLInputElement;
+      bore.checked = false;
+      bore.dispatchEvent(new Event('change'));
+      q<HTMLButtonElement>('[data-role="fill-siblings"]')!.click();
+
+      expect(cellLabels(container, [0, 1, 2], 1)).toEqual([
+        chip('Crank Shaft · pin'), chip('Crank Shaft · pin.instance(1)'), chip('Crank Shaft · pin.instance(4)'),
+      ]);
+      const payload = service.buildPayload();
+      expect('error' in payload ? payload : payload.targets).toEqual([{ instanceLine: 5, connectorName: 'pin', slot: 2 }]);
+    });
+  });
+
+  // The bore copied at the assembly's top level (`copy('linear', 'y', {…},
+  // bore1)`): an assembly-connector column proposes the family's other
+  // members in slot order, written `bore1.instance(k)` through the seed.
+  it('suggests an assembly connector\'s copies in slot order for its column', () => {
+    const assembly = engine();
+    const bore1 = assembly.connectors![0];
+    assembly.connectors!.push(...[2, 1].map(slot => ({
+      ...bore1,
+      connectorId: `w-bore1-${slot}`,
+      sourceLocation: { filePath: FILE, line: 11, column: 0 },
+      copy: { slot, seedId: 'w-bore1' },
+    })));
+    const { service, q, qa, container } = mount(assembly, {
+      getConnectorFamily: (id: string) => (id.startsWith('w-bore1')
+        ? { seedId: 'w-bore1', originalSlot: 0, members: [0, 1, 2].map(slot => ({ connectorId: slot === 0 ? 'w-bore1' : `w-bore1-${slot}`, slot })) }
+        : null),
+    });
+    service.begin({ kind: 'occurrence', id: 'asm-0' });
+    const crank = qa('[data-target-toggle]')[1] as HTMLInputElement;
+    crank.checked = false;
+    crank.dispatchEvent(new Event('change'));
+    q<HTMLButtonElement>('[data-role="fill-siblings"]')!.click();
+
+    expect([0, 1].map(k => container.querySelector(`[data-replica-cell="${k}:0"]`)!.textContent))
+      .toEqual([expect.stringContaining('bore1.instance(1) (assembly)'), expect.stringContaining('bore1.instance(2) (assembly)')]);
+    expect(service.buildPayload()).toEqual({
+      seed: { instanceLine: 10 },
+      targets: [{ connectorLine: 7, connectorName: 'bore1' }],
+      rows: [1, 2].map(slot => [{ connectorLine: 7, connectorName: 'bore1', slot }]),
+    });
+    expect(q('[data-role="preview"]')!.textContent).toContain('[bore1.instance(1)], [bore1.instance(2)]');
   });
 
   it('seed picking: a click on a sub-assembly member opens on its top-level occurrence', () => {

@@ -1,5 +1,5 @@
 import {
-  applyPlane, applyPlaneEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyPlane, applyPlaneEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostPlaneBaseRef, GhostSolid, ParsedFeatureStatement, ParsedPlaneBase, PlaneApplyOptions,
   PlaneBaseRef, PlaneEditBaseRef, PlaneEditOptions, SketchSourceRef, SourceSlotRef,
 } from '../../api';
@@ -23,6 +23,7 @@ import {
   collectWireSources, isSingleEdgeWire, keepChip, labelWithSketchNames, optionsSignature,
   resolveWireByShapeId, resolveWireRow, SketchProfileOption, sketchWireShapeIds, sourceChip,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /** One base in the dialog's list — the chip order is the argument order. */
 type PlaneBaseItem =
@@ -116,7 +117,7 @@ export class PlaneFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/plane.png',
+      icon: iconUrl('plane'),
       label: 'Plane',
       tip: 'Create a construction plane',
       ariaLabel: 'Create a construction plane',
@@ -218,7 +219,7 @@ export class PlaneFeatureService {
     return this.editTarget !== null;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }
@@ -753,8 +754,9 @@ export class PlaneFeatureService {
       rotateX: values.rotateX,
       rotateY: values.rotateY,
       rotateZ: values.rotateZ,
+      rotationAxes: values.rotationAxes,
       position: values.position,
-    }, signal);
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** One chosen base in the form the kernel resolves, or null when unaddressable. */
@@ -802,6 +804,9 @@ export class PlaneFeatureService {
       return null;
     }
     const { shapeId, sub } = slot.entities[0];
+    if (sub.type === 'vertex') {
+      return null;
+    }
     return { kind: sub.type, shapeId, index: sub.index };
   }
 

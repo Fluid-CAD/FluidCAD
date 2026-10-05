@@ -34,6 +34,7 @@ function model(entities: SolvedEntityView[], hasDatums = true): SolvedSketchMode
     plane: {} as any,
     solver: null,
     entities: new Map(entities.map(e => [e.entityId, e])),
+    beziers: new Map(),
     constraints: [],
     hasDatums,
     conflictingEntityIds: new Set(),

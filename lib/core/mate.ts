@@ -124,7 +124,7 @@ function mate(type: MateType, a: MateSide, b: MateSide): MateBuilder {
   for (const side of [a, b]) {
     if (side instanceof Connector && !side.isAssemblyConnector()) {
       throw new Error(
-        `mate(): connector "${side.connectorName}" is a part connector with no instance — pass instance.connectors.${side.connectorName} from an inserted instance.`,
+        `mate(): connector "${side.label()}" is a part connector with no instance — pass instance.connectors.${side.label()} from an inserted instance.`,
       );
     }
   }

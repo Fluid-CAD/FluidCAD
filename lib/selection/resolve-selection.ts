@@ -15,6 +15,13 @@ import type { EntitySummary } from "../oc/measure/entity-summary.js";
 import type { MeasureEntityKind, MeasurePose } from "../oc/measure/measure-types.js";
 import { Convert } from "../oc/convert.js";
 import { getOC } from "../oc/init.js";
+import { Point } from "../math/point.js";
+import { LazyVertex } from '../features/lazy-vertex.js';
+import { SketchPointVertex } from '../features/sketch-point-ref.js';
+import { AnchoredLazyVertex } from '../features/anchored-vertex.js';
+import { PointResolver } from '../features/point-resolver.js';
+import { mmTol } from '../units/tolerance.js';
+import { pickedVertexPoint, topologyVertices } from "./vertex-pick.js";
 import type { LengthUnit } from "../units/units.js";
 import type { PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
 import { scopedSceneBefore } from "./types.js";
@@ -33,10 +40,9 @@ export type ResolvedSelectionScope =
   | { kind: 'sceneObject'; sceneObjectId: string; partId: string | null; part: string | null }
   | { kind: 'instance'; instanceId: string; partId: string; part: string };
 
-/** One matched face or edge, addressed the way `measure` and `hit_test` address entities. */
+/** One matched face, edge or vertex, addressed by its rendered shape and topology index. */
 export type ResolvedSelectionMatch = {
   shapeId: string;
-  kind: MeasureEntityKind;
   index: number;
   /** Assembly instance scope only — the entity feeds `measure` unchanged. */
   instanceId?: string;
@@ -47,7 +53,7 @@ export type ResolvedSelectionMatch = {
   /** The owning part's name (null at root outside any part); the scope carries the part id. */
   part: string | null;
   summary: EntitySummary;
-};
+} & ({ kind: MeasureEntityKind } | { kind: 'vertex' });
 
 /**
  * What to resolve — a filter expression or explicit picks (one of the two) —
@@ -103,6 +109,7 @@ type ScopeResolution =
 /** One evaluated selection: a filter builder or a selection/lazy-accessor object. */
 type EvaluatedItem =
   | { kind: 'filter'; filter: FilterBuilderBase<Shape> }
+  | { kind: 'point'; point: LazyVertex }
   | { kind: 'selection'; object: SceneObject };
 
 /** The expression's value: one selection or a list of them (`[e.endEdges(), edge().circle(5)]`). */
@@ -131,11 +138,17 @@ export class SelectionExpression {
     'globalThis', 'global', 'window', 'self', 'process', 'require', 'module', 'exports', 'Function', 'fetch', 'Buffer',
   ];
 
-  static evaluate(expression: string, objectsById: Record<string, SceneObject>, boundary?: number): EvaluatedExpression {
+  static evaluate(expression: string, objectsById: Record<string, SceneObject>, boundary?: number,
+    candidates = Object.values(objectsById), removalScope?: Set<SceneObject>): EvaluatedExpression {
     const body = `"use strict";\nreturn (\n${expression}\n);`;
-    const fn = new Function('face', 'edge', '$obj', ...SelectionExpression.SHADOWED_GLOBALS, body);
+    const fn = new Function('face', 'edge', '$obj', 'select', ...SelectionExpression.SHADOWED_GLOBALS, body);
     const $obj = SelectionExpression.objectLookup(objectsById, boundary);
-    const value = fn(face, edge, $obj, ...SelectionExpression.SHADOWED_GLOBALS.map(() => undefined));
+    const select = (...filters: FilterBuilderBase<Shape>[]) => {
+      const selection = new SelectSceneObject(filters);
+      selection.addShapes(SelectSceneObject.evaluateFilters(filters, candidates, [], removalScope));
+      return selection;
+    };
+    const value = fn(face, edge, $obj, select, ...SelectionExpression.SHADOWED_GLOBALS.map(() => undefined));
     return SelectionExpression.classify(value);
   }
 
@@ -174,6 +187,9 @@ export class SelectionExpression {
   }
 
   private static classifyItem(value: unknown): EvaluatedItem {
+    if (value instanceof LazyVertex) {
+      return { kind: 'point', point: value };
+    }
     if (value instanceof FilterBuilderBase) {
       return { kind: 'filter', filter: value };
     }
@@ -242,7 +258,9 @@ export class SelectionResolver {
     let matches: ResolvedSelectionMatch[];
     let warning: string | undefined;
     if (hasPicks) {
-      const picked = SelectionResolver.resolvePicks(scene, request.picks!, solids, scope, request.before);
+      const vertexShapes = request.picks!.some(pick => pick.sub.type === 'vertex')
+        ? SelectionResolver.vertexShapesOf(view.objects, view.removalScope) : [];
+      const picked = SelectionResolver.resolvePicks(scene, request.picks!, solids, vertexShapes, scope, request.before);
       if (picked.ok === false) {
         return picked;
       }
@@ -271,17 +289,22 @@ export class SelectionResolver {
   }
 
   /**
-   * The objects the request sees: all of them, or those strictly before the
+   * The objects the request sees: all of them, or those built before the
    * boundary. `before` counts statements the way `rollback_to` does; a value
-   * of `n` shows what `rollback_to(n - 1)` renders.
+   * of `n` shows what `rollback_to(n - 1)` renders, less any part the
+   * timeline lists above the statement that builds after it.
    */
   private static viewBefore(
     scene: Scene,
     before: number | undefined,
-  ): { ok: true; scene: SelectionScene; objects: SceneObject[]; removalScope?: Set<SceneObject> } | { ok: false; code: 'invalid-boundary'; reason: string } {
+  ): { ok: true; scene: SelectionScene; objects: SceneObject[]; removalScope: Set<SceneObject>; bounded: boolean } | { ok: false; code: 'invalid-boundary'; reason: string } {
     const all = scene.getAllSceneObjects();
     if (before === undefined) {
-      return { ok: true, scene, objects: all };
+      // The full render's world: every removal counts, display-only ones
+      // included, so the wires of a sketch its extrude hid are no more
+      // selectable here than they are on screen. Its points are the
+      // exception (see `vertexShapesOf`).
+      return { ok: true, scene, objects: all, removalScope: new Set(all), bounded: false };
     }
     if (!Number.isInteger(before) || before < 1 || before > all.length) {
       return {
@@ -296,20 +319,21 @@ export class SelectionResolver {
     // there, exactly as the rollback render shows it.
     const scoped = scopedSceneBefore(scene, before);
     const objects = scoped.getAllSceneObjects();
-    return { ok: true, scene: scoped, objects, removalScope: new Set(objects) };
+    return { ok: true, scene: scoped, objects, removalScope: new Set(objects), bounded: true };
   }
 
   private static resolveExpression(
     scene: Scene,
     expression: string,
-    view: { objects: SceneObject[]; removalScope?: Set<SceneObject> },
+    view: { objects: SceneObject[]; removalScope: Set<SceneObject>; bounded: boolean },
     scope: Extract<ScopeResolution, { ok: true }>,
     solids: SolidEntry[],
   ): { ok: true; matches: ResolvedSelectionMatch[]; warning?: string } | Extract<ResolveSelectionResult, { ok: false }> {
-    const before = view.removalScope ? view.objects.length : undefined;
+    const before = view.bounded ? view.objects.length : undefined;
     let evaluated: EvaluatedExpression;
     try {
-      evaluated = SelectionExpression.evaluate(expression, SelectionResolver.objectsById(view.objects), before);
+      evaluated = SelectionExpression.evaluate(expression, SelectionResolver.objectsById(view.objects), before,
+        scope.candidates, view.removalScope);
     } catch (e: any) {
       return { ok: false, code: 'evaluation-error', reason: e?.message ?? String(e) };
     }
@@ -323,6 +347,43 @@ export class SelectionResolver {
 
     const owners = SelectionResolver.ownersOf(solids, shapes);
     const matches: ResolvedSelectionMatch[] = [];
+    for (const item of evaluated.items) {
+      if (item.kind !== 'point') {
+        continue;
+      }
+      try {
+        const position = PointResolver.toWorld(item.point);
+        const sketch = item.point instanceof SketchPointVertex ? item.point.getSketch() : null;
+        const anchor = item.point instanceof AnchoredLazyVertex
+          ? SelectionResolver.ownersOf(solids, [item.point.getAnchorShape()])[0] : null;
+        const entries = SelectionResolver.vertexShapesOf(scope.candidates, view.removalScope).filter(entry => {
+          if (sketch) {
+            return entry.object.getParent() === sketch;
+          }
+          return anchor ? entry.solid.id === anchor.solid.id : false;
+        });
+        const found = entries.flatMap(entry => {
+          const points = topologyVertices(entry.solid);
+          const result: ResolvedSelectionMatch[] = [];
+          for (let i = 0; i < points.length; i += 3) {
+            const point = new Point(points[i], points[i + 1], points[i + 2]);
+            if (point.distanceTo(position) <= mmTol(1e-6)) {
+              result.push(SelectionResolver.toVertexMatch(scene, point,
+                { ...entry, index: i / 3 }, scope.instance));
+            }
+          }
+          return result;
+        });
+        // Shared sketch corners have several topology identities; keep one
+        // deterministic representative per point expression.
+        if (found.length === 0) {
+          return { ok: false, code: 'unresolved-pick', reason: 'the point expression does not name a visible profile vertex in this scope' };
+        }
+        matches.push(found[0]);
+      } catch (error) {
+        return { ok: false, code: 'evaluation-error', reason: error instanceof Error ? error.message : String(error) };
+      }
+    }
     let orphaned = 0;
     for (let i = 0; i < shapes.length; i++) {
       const owner = owners[i];
@@ -349,6 +410,7 @@ export class SelectionResolver {
     scene: Scene,
     picks: PickRef[],
     solids: SolidEntry[],
+    vertexShapes: SolidEntry[],
     scope: Extract<ScopeResolution, { ok: true }>,
     before: number | undefined,
   ): { ok: true; matches: ResolvedSelectionMatch[] } | Extract<ResolveSelectionResult, { ok: false }> {
@@ -357,20 +419,26 @@ export class SelectionResolver {
     }
     const matches: ResolvedSelectionMatch[] = [];
     for (const pick of picks) {
-      const entry = solids.find(s => s.solid.id === pick.shapeId);
+      const isVertex = pick.sub.type === 'vertex';
+      const entry = (isVertex ? vertexShapes : solids).find(s => s.solid.id === pick.shapeId);
       if (!entry) {
         const where = before === undefined
           ? 'the scene (ids come from list_shapes / get_scene_summary)'
           : `the world before statement index ${before} (ids come from the rolled-back scene, rollback_to(${before - 1}))`;
-        return { ok: false, code: 'unresolved-pick', reason: `No solid "${pick.shapeId}" in ${where}.`, pick };
-      }
-      const subShapes = SelectionResolver.indexedShapes(entry.solid, pick.sub.type);
-      const shape = subShapes[pick.sub.index];
-      if (!shape) {
         return {
           ok: false,
           code: 'unresolved-pick',
-          reason: `Solid "${pick.shapeId}" has ${subShapes.length} ${pick.sub.type}s; index ${pick.sub.index} does not exist.`,
+          reason: `No ${isVertex ? 'shape' : 'solid'} "${pick.shapeId}" in ${where}.`,
+          pick,
+        };
+      }
+
+      const target = SelectionResolver.pickTarget(entry.solid, pick);
+      if (target.found === false) {
+        return {
+          ok: false,
+          code: 'unresolved-pick',
+          reason: `Shape "${pick.shapeId}" has ${target.count} ${target.plural}; index ${pick.sub.index} does not exist.`,
           pick,
         };
       }
@@ -384,7 +452,13 @@ export class SelectionResolver {
           pick,
         };
       }
-      matches.push(SelectionResolver.toMatch(scene, shape, { object: entry.object, solid: entry.solid, index: pick.sub.index }, scope.instance));
+
+      const owner = { object: entry.object, solid: entry.solid, index: pick.sub.index };
+      if (target.vertex) {
+        matches.push(SelectionResolver.toVertexMatch(scene, target.vertex, owner, scope.instance));
+      } else {
+        matches.push(SelectionResolver.toMatch(scene, target.shape, owner, scope.instance));
+      }
     }
     return { ok: true, matches };
   }
@@ -537,6 +611,71 @@ export class SelectionResolver {
       }
     }
     return solids;
+  }
+
+  /** The sub-shape (face/edge) or the point (vertex) a pick names on its owning shape. */
+  private static pickTarget(owner: Shape, pick: PickRef):
+    | { found: true; shape: Shape; vertex?: undefined }
+    | { found: true; vertex: Point; shape?: undefined }
+    | { found: false; count: number; plural: string } {
+    if (pick.sub.type === 'vertex') {
+      const vertex = pickedVertexPoint(owner, pick.sub.index);
+      if (!vertex) {
+        return { found: false, count: topologyVertices(owner).length / 3, plural: 'vertices' };
+      }
+      return { found: true, vertex };
+    }
+    const subShapes = SelectionResolver.indexedShapes(owner, pick.sub.type);
+    const shape = subShapes[pick.sub.index];
+    if (!shape) {
+      return { found: false, count: subShapes.length, plural: `${pick.sub.type}s` };
+    }
+    return { found: true, shape };
+  }
+
+  /**
+   * Every rendered shape a vertex pick may name. Faces and edges are picked on
+   * solids only; vertices also live on bare sketch edges, so their universe is
+   * wider — the entry's `solid` slot then holds whichever shape owns the vertex.
+   */
+  private static vertexShapesOf(objects: SceneObject[], removalScope?: Set<SceneObject>): SolidEntry[] {
+    // Meta shapes stay out, except a lone meta vertex: a circle's centre mark
+    // is the one pickable stand-in for the centre point (see the render
+    // payload's `vertices`), so a hole or a loft can name it. Guides are in:
+    // construction geometry draws with its sketch and its points are pickable — after
+    // the profile, so a corner both share is still found on the profile.
+    // So are the shapes of a sketch its consumer hid: the timeline eye draws
+    // it again, and a hole is then laid out on its points like any other.
+    return objects.filter(object => !object.isContainer() && !object.isLazy()).flatMap(object =>
+      object.getShapes({ excludeMeta: false, excludeGuide: false, includeDisplayHidden: true }, undefined, removalScope)
+        .filter(shape => !shape.isMetaShape() || shape.getType() === 'vertex')
+        .map(solid => ({ object, solid })),
+    ).sort((a, b) => Number(a.solid.isGuideShape()) - Number(b.solid.isGuideShape()));
+  }
+
+  private static toVertexMatch(
+    scene: Scene, point: Point, owner: EntityOwner,
+    instance: { instanceId: string; pose: MeasurePose } | undefined,
+  ): ResolvedSelectionMatch {
+    if (instance) {
+      const [transform, disposeTransform] = Convert.toGpTrsfPose(instance.pose.position, instance.pose.quaternion);
+      const [native, disposePoint] = Convert.toGpPnt(point);
+      try {
+        native.Transform(transform);
+        point = new Point(native.X(), native.Y(), native.Z());
+      } finally {
+        disposePoint();
+        disposeTransform();
+      }
+    }
+    const decimals = EntitySummaryBuilder.decimalsFor(scene.unit);
+    return {
+      shapeId: owner.solid.id, kind: 'vertex', index: owner.index,
+      sceneObjectId: owner.object.id, sceneObjectName: owner.object.getName(),
+      part: scene.findEnclosingPart(owner.object)?.partName ?? null,
+      summary: { form: 'vertex', center: point.toArray().map(value => EntitySummaryBuilder.round(value, decimals)) as [number, number, number] },
+      ...(instance ? { instanceId: instance.instanceId, pose: instance.pose } : {}),
+    };
   }
 
   /**

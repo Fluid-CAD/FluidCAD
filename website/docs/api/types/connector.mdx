@@ -1,0 +1,92 @@
+---
+sidebar_position: 21
+title: "Connector"
+description: "The Connector type. Extends SceneObject."
+---
+
+# Connector
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### rotate()
+
+```ts
+rotate(axis: "x" | "y" | "z", angle: number): this
+```
+
+Rotate the connector frame around its own local X, Y, or Z axis,
+pivoting at its current origin.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | "x" \| "y" \| "z" | "x", "y", or "z" — the connector's local axis name. |
+| `angle` | number | Rotation in degrees. |
+
+---
+
+### offset()
+
+```ts
+offset(x: number, y?: number, z?: number): this
+```
+
+Translate the connector origin along its own local axes:
+`x · xDirection + y · yDirection + z · normal`. Omitted `y` / `z`
+default to 0. Axes are unchanged.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number |  |
+| `y` | number |  *(optional)* |
+| `z` | number |  *(optional)* |
+
+---
+
+### instance()
+
+```ts
+instance(slot: number): Connector
+```
+
+Copy `slot` of this connector, made by the `copy()` statement that
+copies it: `copy('circular', 'z', { count: 6, angle: 360 }, bolt)` makes
+`bolt.instance(1)` … `bolt.instance(5)`, and an assembly mates one as
+`f.connectors.bolt.instance(3)`.
+
+Slots are numbered like `repeat().instance(k)`: a linear grid counts its
+cells with the first axis varying slowest, the original keeping its own
+cell (0, or the centre cell when `centered`); a circular copy counts
+rotation steps from the original at 0. A copy that follows a repeat —
+`copy(holes, bolt)` — takes the repeat's own slots, so `bolt.instance(k)`
+sits on `holes.instance(k)`. The original's slot is the connector
+itself. A copy is the connector's frame moved by the pattern — it does
+not re-attach to geometry at its new place. A slot the copy skipped, a
+slot out of range, or a connector nothing copies throws.
+
+**Returns**: [`Connector`](/docs/api/types/connector)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `slot` | number | The pattern slot. |
+

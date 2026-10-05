@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAssemblyConnectorEdit, getAssemblyConnectorExpressions, listAssemblyConnectorNames } from '../src/assembly-connector-edit.ts';
-import { applyFeatureEdit } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit } from '../src/apply-feature-edit/index.ts';
 
 const HEADER = `import { insert, mate } from "fluidcad/core";\n`;
 

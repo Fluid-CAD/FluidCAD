@@ -66,7 +66,7 @@ describe("start buckets of a feature fused onto an existing face", () => {
     plate();
     const path = sketch("xz", () => {
       line([50, plateT], [50, 40]);
-    }).reusable();
+    });
     sketch(plane("xy", plateT), () => {
       circle([50, 30], 12);
     });

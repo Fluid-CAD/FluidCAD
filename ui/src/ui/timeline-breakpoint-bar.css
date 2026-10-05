@@ -1,0 +1,110 @@
+/* A draggable boundary in the feature tree. The gap remains in flow during
+   a drag; only its contents move, keeping all snap targets stationary. */
+.timeline-breakpoint {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 28px;
+  /* Keep the hover/focus surface separate from neighboring feature rows. */
+  margin: 4px 8px;
+  color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+  user-select: none;
+  --breakpoint-surface: var(--color-base-200);
+}
+.timeline-breakpoint[data-paused="true"] { color: var(--color-warning); }
+.timeline-breakpoint[data-paused="true"] ~ :is([data-display-index], [data-constraints-toggle], [data-group-toggle]) {
+  font-style: italic;
+}
+.timeline-breakpoint-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+  border-radius: 4px;
+}
+.timeline-breakpoint-handle::before,
+.timeline-breakpoint-handle::after {
+  content: '';
+  height: 2px;
+  min-width: 8px;
+  flex: 1;
+  background: currentColor;
+  opacity: .5;
+}
+.timeline-breakpoint-grip {
+  width: 12px;
+  height: 5px;
+  flex-shrink: 0;
+  border-block: 1px solid currentColor;
+}
+.timeline-breakpoint-label {
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.timeline-breakpoint-handle:hover,
+.timeline-breakpoint-handle:focus-visible {
+  background: color-mix(in srgb, currentColor 10%, var(--breakpoint-surface));
+}
+.timeline-breakpoint-handle:focus-visible,
+.timeline-breakpoint-resume:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+.timeline-breakpoint[data-dragging="true"] { z-index: 3; }
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-handle {
+  cursor: grabbing;
+  outline: none;
+  background: transparent;
+}
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-label,
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-grip {
+  background: var(--breakpoint-surface);
+}
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-resume { visibility: hidden; }
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-handle::before,
+.timeline-breakpoint[data-dragging="true"] .timeline-breakpoint-handle::after { opacity: 1; }
+.timeline-breakpoint-resume {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.timeline-breakpoint-resume[hidden] { display: none; }
+.timeline-breakpoint-resume svg { width: 16px; height: 16px; }
+.timeline-breakpoint-resume:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.timeline-breakpoint[data-disabled="true"] { opacity: .55; }
+.timeline-breakpoint[data-disabled="true"] .timeline-breakpoint-handle,
+.timeline-breakpoint-resume:disabled { cursor: default; }
+.timeline-breakpoint[aria-busy="true"] .timeline-breakpoint-handle { cursor: progress; }
+.timeline-breakpoint-status:not(:empty) {
+  flex-basis: 100%;
+  padding: 8px;
+  background: var(--color-base-200);
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  color: var(--color-base-content);
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 4;
+}
+@media (pointer: coarse) {
+  .timeline-breakpoint, .timeline-breakpoint-handle { min-height: 44px; }
+  .timeline-breakpoint-resume { width: 44px; height: 44px; }
+}

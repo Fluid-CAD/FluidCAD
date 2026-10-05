@@ -68,7 +68,9 @@ export class PlaneFromObject extends PlaneObjectBase {
       // Apply the same transform to the center so the preview face stays on
       // the rotated plane instead of floating at its pre-rotation position.
       const matrix = plane.getTransformMatrix(options);
+      const station = plane.pathStation;
       plane = plane.applyMatrix(matrix);
+      plane.pathStation = station;
       if (center) {
         center = center.transform(matrix);
       }
@@ -125,6 +127,8 @@ export class PlaneFromObject extends PlaneObjectBase {
       plane = plane.applyMatrix(matrix);
       center = center.transform(matrix);
     }
+
+    plane.pathStation = { point: frame.point, tangent: frame.tangent };
 
     const transform = context?.getTransform() ?? null;
     if (transform) {

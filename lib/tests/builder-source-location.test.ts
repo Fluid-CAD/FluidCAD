@@ -13,22 +13,8 @@
 
 import { describe, it, expect } from "vitest";
 import { setupOC } from "./setup.js";
-import * as core from "../core/index.js";
-import * as filters from "../filters/index.js";
-import * as math from "../math/index.js";
-import * as constraints from "../core/constraints/index.js";
 import { SceneObject, SourceLocation } from "../common/scene-object.js";
-
-const FILE = "/ws/model.fluid.js";
-
-function runFluid(code: string): Record<string, SceneObject> {
-  const globals: Record<string, unknown> = { ...core, ...filters, ...math, ...constraints };
-  const paramNames = Object.keys(globals);
-  const paramValues = paramNames.map((n) => globals[n]);
-  const wrapped = `"use strict";\n${code}\n//# sourceURL=${FILE}`;
-  const fn = new Function(...paramNames, wrapped);
-  return fn(...paramValues) as Record<string, SceneObject>;
-}
+import { runFluid, FLUID_FILE as FILE } from "./helpers/run-fluid.js";
 
 function loc(obj: SceneObject): SourceLocation {
   const location = obj.getSourceLocation();
@@ -46,7 +32,7 @@ describe("builder source-location stamping", () => {
       // vertex on +X — a diamond with vertices at radius 25*sqrt(2).
       `const p1 = sketch("top", () => { const s = 25 * Math.SQRT2; const a = line([s, 0], [0, s]); const b = line([0, s], [-s, 0]); const c = line([-s, 0], [0, -s]); const d = line([0, -s], [s, 0]); coincident(a.end(), b.start()); coincident(b.end(), c.start()); coincident(c.end(), d.start()); coincident(d.end(), a.start()); });`,
       `const p2 = sketch(plane("top", 80), () => { circle([0, 0], 30); });`,
-      `const g1 = sketch("right", () => { circle([0, 0], 5); }).reusable();`,
+      `const g1 = sketch("right", () => { circle([0, 0], 5); });`,
       `const lf = loft(p1, p2).guides(g1);`,
       `return { p1, p2, g1, lf };`,
     ].join("\n"));

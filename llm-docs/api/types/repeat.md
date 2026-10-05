@@ -16,7 +16,9 @@ interface Repeat extends SceneObject {
 
 A 3D `repeat()` — linear, circular, mirror, rotate or matrix. Its
 instances are addressable by slot, so one clone of a pattern can be
-selected without describing its position numerically.
+selected without describing its position numerically. It is itself a
+feature another `repeat()` takes, standing for its whole pattern — the
+original and every instance: `repeat('mirror', plane, row)`.
 
 Extends [[api/types/scene-object]].
 
@@ -31,7 +33,8 @@ the original for circular, mirror, rotate and matrix repeats. Linear
 repeats linearize the grid in axis order (the first axis varies
 slowest) with the original at its own slot — 0 when not centered, the
 center slot when centered — the same numbering the `skip` option uses;
-a skipped slot is an error.
+a skipped slot is an error. An instance of a repeat of a repeat is the
+whole inner pattern at that slot.
 
 **Returns**: [[api/types/repeat-instance]].
 
@@ -41,4 +44,4 @@ a skipped slot is an error.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

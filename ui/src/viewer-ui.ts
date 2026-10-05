@@ -7,6 +7,10 @@
  * with an HttpEngineClient.
  */
 import './styles.css';
+import { setIconBase } from './ui/icon-url';
+
+// Embedded anywhere on a docs page, which serves the icons at its root.
+setIconBase('/icons/');
 
 export { Viewer } from './viewer';
 export type { FitPolicy, SelectedEntity } from './viewer';
@@ -22,6 +26,7 @@ export { TimelinePanel } from './ui/timeline-panel';
 export { AccordionSection } from './ui/accordion-section';
 export type { AccordionSectionOptions } from './ui/accordion-section';
 export type { TimelinePanelOptions } from './ui/timeline-panel';
+export type { TimelineEntry, TimelineRow } from '../../lib/dist/common/timeline';
 export { isHiddenTimelineRow, timelineStepIndexes } from './helpers/scene-utils';
 export { ShapesPanel } from './ui/shapes-panel';
 export { ParamsPanel } from './ui/params-panel';

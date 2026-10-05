@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { AssemblyExportPose } from '../../../lib/dist/index.js';
 
 type ExportFormatOptions = {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { ValidateSceneRequest } from '../../../lib/dist/index.js';
 
 const MAX_SHAPE_IDS = 500;

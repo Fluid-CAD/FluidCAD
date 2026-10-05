@@ -43,8 +43,8 @@ export type SolvedEmissionRequest = {
   constraints: SolvedConstraintParam[];
   newVariables?: NewVariable[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
-   * the constraint-native fillet removes each corner's coincident as it
-   * emits the replacing arc. */
+   * the constraint bar swaps out a replaced orientation and deletes the
+   * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
 };
 
@@ -94,21 +94,31 @@ export function circleText(
   return `circle(${solvedPointText(center)}, ${dia})`;
 }
 
-/** `ellipse(center, rx, ry)` — the semi-radii are literals (or typed
- * expressions) the solver never resizes; the center and rotation solve
- * (the tool draws axis-aligned, so no rotation argument is written). */
+/** `ellipse(center, rx, ry[, rotation])` — the semi-radii and the
+ * rotation (DEGREES of the RX axis from the sketch x direction) are the
+ * statement's guesses; the solver moves all of them. The Ellipse tool draws
+ * axis-aligned and writes no rotation; the Mirror tool writes the
+ * reflected one. */
 export function ellipseText(
   center: [number, number] | PickedPoint,
   rxExpr: string | number,
   ryExpr: string | number,
+  rotationDeg?: number,
 ): string {
   const rx = typeof rxExpr === 'number' ? fmt(rxExpr) : rxExpr;
   const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
-  return `ellipse(${solvedPointText(center)}, ${rx}, ${ry})`;
+  const rotation = rotationDeg !== undefined ? `, ${fmt(rotationDeg)}` : '';
+  return `ellipse(${solvedPointText(center)}, ${rx}, ${ry}${rotation})`;
 }
 
 export function pointText(p: [number, number] | PickedPoint): string {
   return `point(${solvedPointText(p)})`;
+}
+
+/** `bezier(p0, p1, …)` — every control point a literal, so each registers
+ * as the statement's own anchor point (`bz.point(i)`). */
+export function bezierText(points: ([number, number] | PickedPoint)[]): string {
+  return `bezier(${points.map(solvedPointText).join(', ')})`;
 }
 
 /** A snap ref as an emission constraint target. Loop-instance refs carry

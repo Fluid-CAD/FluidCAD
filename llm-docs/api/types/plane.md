@@ -32,4 +32,4 @@ The resolved plane (origin, normal, x-direction) this datum stands for.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

@@ -7,6 +7,10 @@ import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { RenderChangeTracker } from "./rendering/render-changes.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
+import { buildSketchRegions } from "./rendering/sketch-regions.js";
+import type { SketchRegionsRequest, SketchRegionsResult } from "./rendering/sketch-regions.js";
+import { planSketchOffset } from "./rendering/offset-plan.js";
+import type { SketchOffsetPlanRequest, SketchOffsetPlanResult } from "./rendering/offset-plan.js";
 import { buildTextPathPreview } from "./rendering/text-path-preview.js";
 import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
 import { MESH_PRESETS, DEFAULT_MESH_QUALITY } from "./oc/mesh.js";
@@ -52,7 +56,9 @@ import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
-import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
+import {
+  AnchorPurpose, ConnectorAnchorFrames, ConnectorAnchorSuggestions, suggestConnectorAnchors, suggestConnectorFrames,
+} from "./selection/connector-anchors.js";
 import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
@@ -68,7 +74,9 @@ import type { ResolveSelectionRequest, ResolveSelectionResult } from "./selectio
 import { SceneValidator } from "./validation/scene-validator.js";
 import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
 import { SceneInterference } from "./validation/scene-interference.js";
-import type { InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import { MeshBuilder } from "./rendering/mesh-builder.js";
+import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
   SelectionBoundary, SelectionScene, SynthesizeOptions,
@@ -165,10 +173,12 @@ class SceneManager {
 
   /**
    * Re-emit the scene rolled back to `rollbackIndex` (view-only — nothing
-   * rebuilds). With `partScoped`, the rollback isolates the target object's
-   * enclosing part: everything outside that part stays fully rendered and
-   * only the part's own features after the index are hidden. Falls back to
-   * the classic global prefix when the index lands outside any part.
+   * rebuilds). The index counts timeline rows, the order a render lists
+   * (Scene.getTimelineObjects). With `partScoped`, the rollback isolates the
+   * target object's enclosing part: everything outside that part stays fully
+   * rendered and only the part's own features after the index are hidden.
+   * Falls back to the classic global prefix when the index lands outside any
+   * part.
    *
    * Returns the stop hosts should echo as `rollbackStop` — the raw index
    * for global rollbacks (preserving the historical echo, which may exceed
@@ -183,25 +193,35 @@ class SceneManager {
     rollbackIndex: number,
     opts?: { partScoped?: boolean },
   ): { stop: number; scopePartId: string | null } {
-    const allObjects = scene.getAllSceneObjects();
-    const lastIndex = allObjects.length - 1;
+    const rows = scene.getTimelineObjects();
+    const lastIndex = rows.length - 1;
     const clamped = Math.min(rollbackIndex, lastIndex);
-    const target = clamped >= 0 ? allObjects[clamped] : undefined;
+    const target = clamped >= 0 ? rows[clamped] : undefined;
     const part = opts?.partScoped && target ? scene.findEnclosingPart(target) : null;
     if (!part) {
       this.renderer.renderRollback(scene, clamped);
       return { stop: rollbackIndex, scopePartId: null };
     }
 
-    // Membership scope, not an index range: lazily materialized donor parts
-    // can interleave with another part's children in the flat list, so "the
-    // rest of the scene" must be selected by findEnclosingPart, never by
-    // position relative to the clicked part.
+    // Membership scope, not an index range: "the rest of the scene" is
+    // selected by findEnclosingPart, never by position relative to the
+    // clicked part.
     const scope = new Set(
-      allObjects.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
+      rows.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
     );
     this.renderer.renderRollback(scene, clamped, scope);
     return { stop: clamped, scopePartId: part.id };
+  }
+
+  /**
+   * The stop a fresh render reports as `rollbackStop`, and the part it is
+   * scoped to: the last row, or the paused row of a part a breakpoint()
+   * stopped (Scene.renderStop). Hosts echo both exactly as a rollback's, so a
+   * pause inside a part marks its row while the rest of the file stays live.
+   */
+  renderStop(scene: Scene): { stop: number; scopePartId: string | null } {
+    const { stop, part } = scene.renderStop();
+    return { stop, scopePartId: part?.id ?? null };
   }
 
   /**
@@ -352,7 +372,24 @@ class SceneManager {
    * than two parts is inconclusive, not a pass.
    */
   interfere(scene: Scene, request: InterferenceRequest = {}): SceneInterferenceOutcome {
-    return SceneInterference.check(scene, request);
+    return SceneInterference.check(scene, request, request.includeGeometry ? this.interferenceMesher(scene) : undefined);
+  }
+
+  /**
+   * Meshes a shared volume at the scene's density, every solid of the
+   * boolean's result (two bodies may meet in more than one place) as the
+   * scene renders its own solids — faces and edges, world space.
+   */
+  interferenceMesher(scene: Scene): InterferenceMesher {
+    const builder = new MeshBuilder(this.meshQuality);
+    return (shape) => {
+      const meshes: SceneObjectMesh[] = [];
+      for (const raw of Explorer.findShapes(shape, Explorer.getOcShapeType('solid'))) {
+        const solid = Solid.fromTopoDSSolid(Explorer.toSolid(raw));
+        meshes.push(...(builder.build(solid, scene.unit) ?? []));
+      }
+      return meshes;
+    };
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
@@ -413,13 +450,26 @@ class SceneManager {
     );
   }
 
-  /** Hover-time connector anchor suggestions for a picked face/edge. */
+  /**
+   * Hover-time connector anchors for a picked face/edge: frames, default name
+   * and the target file, without selector synthesis.
+   */
+  suggestConnectorFrames(
+    scene: Scene,
+    ref: PickRef,
+    purpose: AnchorPurpose = 'connector',
+  ): ConnectorAnchorFrames {
+    return suggestConnectorFrames(scene, ref, purpose);
+  }
+
+  /** Connector anchor suggestions plus the synthesized source expression for a picked face/edge. */
   suggestConnectorAnchors(
     scene: Scene,
     ref: PickRef,
     options: SynthesizeOptions = {},
+    purpose: AnchorPurpose = 'connector',
   ): ConnectorAnchorSuggestions {
-    return suggestConnectorAnchors(scene, ref, options);
+    return suggestConnectorAnchors(scene, ref, options, purpose);
   }
 
   /**
@@ -510,6 +560,25 @@ class SceneManager {
    */
   buildFeatureGhost(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
     return buildFeatureGhost(scene, request, this.meshQuality);
+  }
+
+  /**
+   * The region picker's faces: every closed region of a profile, keyed and
+   * meshed, with the dialog's current picks marked. Read-only over the scene
+   * like the feature ghost; nothing is registered or cached.
+   */
+  buildSketchRegions(scene: Scene, request: SketchRegionsRequest): SketchRegionsResult {
+    return buildSketchRegions(scene, request, this.meshQuality);
+  }
+
+  /**
+   * The sketcher's constrained Offset plan: the picked edges offset by OCCT
+   * (Intersection join), each result edge described as the primitive the
+   * tool writes and mapped to its source, plus the meshed wires for the
+   * dialog's ghost. Read-only over the scene like the feature ghost.
+   */
+  planSketchOffset(scene: Scene, request: SketchOffsetPlanRequest): SketchOffsetPlanResult {
+    return planSketchOffset(scene, request, this.meshQuality);
   }
 
   /** Resolve a 2D statement's target arguments onto the active sketch's edges. */

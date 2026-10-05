@@ -7,7 +7,7 @@
  * index alone: `1, 3`. A grid names a cell as a bracketed pair, the array form
  * the statement itself writes: `[1, 0], [2, 1]`. A bare index inside a grid
  * names a whole row: the kernel matches a coordinate only as far as it is
- * stated (copy-linear.ts:82), so `1` leaves out every cell sitting at index 1
+ * stated (`CopyLayout.linear`), so `1` leaves out every cell sitting at index 1
  * along direction 1.
  *
  * Indices count from the original, which is 0. Expressions are deliberately not

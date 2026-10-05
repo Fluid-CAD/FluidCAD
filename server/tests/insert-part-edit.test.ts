@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyInsertPartEdit } from '../src/part-catalog/insert-edit.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 import { newFileContent } from '../src/file-kind.ts';
 
 /** Single-entry sugar — most cases exercise one insert. */
@@ -33,7 +33,7 @@ describe('applyInsertPartEdit', () => {
       ``,
       `const width = 700;`,
       ``,
-      `const sidePlate1 = insert(sidePlate());`,
+      `const sidePlate1 = insert(sidePlate()).name('sidePlate1');`,
     ].join('\n'));
   });
 
@@ -45,7 +45,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'value',
     }));
     expect(result.newCode).toContain(`import { boxBody } from './box.fluid.js';`);
-    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
+    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody).name('boxBody1');`);
   });
 
   it('adds the insert import when missing', async () => {
@@ -56,7 +56,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'value',
     }));
     expect(result.newCode).toContain(`insert,`);
-    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
+    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody).name('boxBody1');`);
   });
 
   it('merges into an existing import of the same module', async () => {
@@ -88,7 +88,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'value',
     }));
     expect(result.newCode.match(/import /g)).toHaveLength(1);
-    expect(result.newCode).toContain(`const local1 = insert(local);`);
+    expect(result.newCode).toContain(`const local1 = insert(local).name('local1');`);
   });
 
   it('derives the instance name from the export and dodges collisions', async () => {
@@ -103,7 +103,7 @@ describe('applyInsertPartEdit', () => {
       exportName: 'getExtrusion',
       kind: 'factory',
     }));
-    expect(result.newCode).toContain(`const extrusion2 = insert(getExtrusion());`);
+    expect(result.newCode).toContain(`const extrusion2 = insert(getExtrusion()).name('extrusion2');`);
   });
 
   it('renders a sub-assembly with the same insert() shape parts use', async () => {
@@ -120,7 +120,7 @@ describe('applyInsertPartEdit', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { insert, mate } from 'fluidcad/core';`);
     expect(result.newCode).toContain(`import { gantryAssembly } from './gantry.assembly.js';`);
-    expect(result.newCode).toContain(`const gantryAssembly1 = insert(gantryAssembly());`);
+    expect(result.newCode).toContain(`const gantryAssembly1 = insert(gantryAssembly()).name('gantryAssembly1');`);
   });
 
   it('renders non-default params as insert()\'s second argument', async () => {
@@ -133,7 +133,7 @@ describe('applyInsertPartEdit', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
-      `const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540, Capped: true });`,
+      `const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540, Capped: true }).name('extrusion1');`,
     );
   });
 
@@ -146,7 +146,7 @@ describe('applyInsertPartEdit', () => {
       params: { 'Guide Width': 20, Note: "it's", Holes: [1, 2, 'x'] },
     }));
     expect(result.newCode).toContain(
-      `const p1 = insert(p, { 'Guide Width': 20, Note: 'it\\'s', Holes: [1, 2, 'x'] });`,
+      `const p1 = insert(p, { 'Guide Width': 20, Note: 'it\\'s', Holes: [1, 2, 'x'] }).name('p1');`,
     );
   });
 
@@ -158,7 +158,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'factory',
       params: { Thickness: 20 },
     }));
-    expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate(), { Thickness: 20 });`);
+    expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate(), { Thickness: 20 }).name('sidePlate1');`);
   });
 
   it('applies a whole batch in one transform with self-consistent numbering', async () => {
@@ -171,9 +171,9 @@ describe('applyInsertPartEdit', () => {
       ],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const extrusion1 = insert(extrusion, { Length: 540 });`);
-    expect(result.newCode).toContain(`const extrusion2 = insert(extrusion, { Length: 540 });`);
-    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
+    expect(result.newCode).toContain(`const extrusion1 = insert(extrusion, { Length: 540 }).name('extrusion1');`);
+    expect(result.newCode).toContain(`const extrusion2 = insert(extrusion, { Length: 540 }).name('extrusion2');`);
+    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody).name('boxBody1');`);
     const importLines = result.newCode.split('\n').filter(l => l.startsWith('import'));
     expect(importLines).toHaveLength(3);
   });
@@ -189,8 +189,8 @@ describe('applyInsertPartEdit', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { part } from './plate.fluid.js';`);
     expect(result.newCode).toContain(`import { part as bracket } from './bracket.fluid.js';`);
-    expect(result.newCode).toContain(`const part1 = insert(part);`);
-    expect(result.newCode).toContain(`const bracket1 = insert(bracket);`);
+    expect(result.newCode).toContain(`const part1 = insert(part).name('part1');`);
+    expect(result.newCode).toContain(`const bracket1 = insert(bracket).name('bracket1');`);
   });
 
   it('aliases an export whose name a local declaration already takes', async () => {
@@ -205,7 +205,7 @@ describe('applyInsertPartEdit', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { plate as plateV2 } from './plate-v2.fluid.js';`);
-    expect(result.newCode).toContain(`const plateV21 = insert(plateV2);`);
+    expect(result.newCode).toContain(`const plateV21 = insert(plateV2).name('plateV21');`);
     expect(result.newCode.split('\n').filter(l => /^import .*\bplate\b/.test(l))).toHaveLength(1);
   });
 
@@ -218,7 +218,7 @@ describe('applyInsertPartEdit', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { part as sidePlate } from './side-plate.part.js';`);
-    expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate());`);
+    expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate()).name('sidePlate1');`);
   });
 
   it('references the existing alias when the export is already imported under one', async () => {
@@ -234,7 +234,7 @@ describe('applyInsertPartEdit', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode.split('\n').filter(l => l.startsWith('import'))).toHaveLength(2);
-    expect(result.newCode).toContain(`const platePart2 = insert(platePart);`);
+    expect(result.newCode).toContain(`const platePart2 = insert(platePart).name('platePart2');`);
     expect(result.newCode).not.toContain(`insert(part)`);
   });
 
@@ -261,7 +261,7 @@ describe('applyInsertPartEdit', () => {
     // file's top level (module scope runs outside the assembly's frame).
     expect(result.newCode).toContain(
       `        const a = insert(block()).grounded();\n`
-      + `        const block1 = insert(block());\n`,
+      + `        const block1 = insert(block()).name('block1');\n`,
     );
   });
 
@@ -283,7 +283,7 @@ describe('applyInsertPartEdit', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
       `    return assembly("rig", () => {\n`
-      + `        const block1 = insert(block());\n`
+      + `        const block1 = insert(block()).name('block1');\n`
       + `    });`,
     );
   });
@@ -300,7 +300,7 @@ describe('applyInsertPartEdit', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
       `export const gantry = assembly('gantry', () => {\n`
-      + `    const block1 = insert(block());\n`
+      + `    const block1 = insert(block()).name('block1');\n`
       + `});`,
     );
   });
@@ -319,7 +319,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'value',
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode.trimEnd().endsWith(`const boxBody1 = insert(boxBody);`)).toBe(true);
+    expect(result.newCode.trimEnd().endsWith(`const boxBody1 = insert(boxBody).name('boxBody1');`)).toBe(true);
   });
 
   it('refuses a non-identifier export name', async () => {
@@ -359,6 +359,6 @@ describe('applyInsertPartEdit', () => {
     };
     const result = await applyFeatureEdit(`import { mate } from 'fluidcad/core';\n`, spec);
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
+    expect(result.newCode).toContain(`const boxBody1 = insert(boxBody).name('boxBody1');`);
   });
 });

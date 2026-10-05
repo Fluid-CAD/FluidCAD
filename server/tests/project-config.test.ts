@@ -6,10 +6,13 @@ import {
   readProjectConfig,
   writeEnginePin,
   writeProjectUnit,
+  writeProjectMaterials,
   parseProjectUnit,
   describeEnginePinMismatch,
   describeProjectUnitProblem,
+  describeProjectMaterialsProblem,
   isProjectUnitError,
+  isProjectMaterialsError,
   PROJECT_CONFIG_FILENAME,
 } from '../src/project-config.ts';
 
@@ -74,7 +77,7 @@ describe('readProjectConfig', () => {
   it('reads back empty for a workspace with no config at all', () => {
     const config = readProjectConfig(workspace);
 
-    expect(config).toEqual({ engine: null, source: null, filePath: null, unit: null });
+    expect(config).toEqual({ engine: null, source: null, filePath: null, unit: null, materials: null });
   });
 
   it('reads back empty for an empty workspace path', () => {
@@ -351,5 +354,71 @@ describe('describeEnginePinMismatch', () => {
     const warning = describeEnginePinMismatch(readProjectConfig(workspace), '0.0.41');
 
     expect(warning).toContain('Ignoring the engine pin');
+  });
+});
+
+describe('readProjectConfig — materials', () => {
+  it('reads a valid map, leaving densityUnit to the merge default when absent', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, {
+      unit: 'mm',
+      materials: {
+        'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³' },
+        'acme-pla': { name: 'ACME PLA+', density: 1.27 },
+      },
+    });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.error).toBeUndefined();
+    expect(config.unit).toBe('mm');
+    expect(config.materials).toEqual({
+      'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³' },
+      'acme-pla': { name: 'ACME PLA+', density: 1.27 },
+    });
+  });
+
+  it('is null when the project declares none', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in' });
+    expect(readProjectConfig(workspace).materials).toBeNull();
+    expect(readProjectConfig(workspace).error).toBeUndefined();
+  });
+
+  it('falls back to package.json fluidcad.materials', () => {
+    writeJson('package.json', { fluidcad: { materials: { pine: { name: 'Pine', density: 0.5 } } } });
+    expect(readProjectConfig(workspace).materials).toEqual({ pine: { name: 'Pine', density: 0.5 } });
+  });
+
+  it.each([
+    ['a non-object map', { materials: ['x'] }, 'not a map'],
+    ['an empty id', { materials: { '': { name: 'X', density: 1 } } }, 'empty id'],
+    ['a non-object entry', { materials: { x: 7 } }, 'not an object'],
+    ['a missing name', { materials: { x: { density: 1 } } }, 'without a "name"'],
+    ['a non-string name', { materials: { x: { name: 3, density: 1 } } }, 'without a "name"'],
+    ['a zero density', { materials: { x: { name: 'X', density: 0 } } }, '"density" is not a positive number'],
+    ['a non-finite density', { materials: { x: { name: 'X', density: 'lots' } } }, '"density" is not a positive number'],
+    ['a bad density unit', { materials: { x: { name: 'X', density: 1, densityUnit: 'stone/ft³' } } }, '"densityUnit"'],
+  ])('rejects %s, dropping the whole map and reporting it', (_label, json, fragment) => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', unit: 'mm', ...json });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.materials).toBeNull();
+    expect(config.error).toContain('"materials"');
+    expect(config.error).toContain(fragment);
+    expect(isProjectMaterialsError(config)).toBe(true);
+    expect(isProjectUnitError(config)).toBe(false);
+    // The pin and the unit are unaffected by a bad materials map.
+    expect(config.engine).toBe('0.0.41');
+    expect(config.unit).toBe('mm');
+    expect(describeEnginePinMismatch(config, '0.0.41')).toBeNull();
+    expect(describeProjectUnitProblem(config)).toBeNull();
+    expect(describeProjectMaterialsProblem(config)).toContain('Ignoring the project materials');
+  });
+
+  it('writeProjectMaterials keeps every other key', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', unit: 'in', modelId: 'm1' });
+    writeProjectMaterials(workspace, { pine: { name: 'Pine', density: 0.5 } });
+    const stored = JSON.parse(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8'));
+    expect(stored).toEqual({ engine: '0.0.41', unit: 'in', modelId: 'm1', materials: { pine: { name: 'Pine', density: 0.5 } } });
   });
 });

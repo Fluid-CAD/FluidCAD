@@ -22,6 +22,13 @@ export type RevolveGhostOptions = {
   thin: [number] | [number, number] | null;
   /** The axis to sweep around, already resolved from the dialog's slot. */
   axis: Axis;
+  /**
+   * The picked `.region()` faces, already resolved from the profile's
+   * regions — revolved in place of the profile's own regions. Ignored by a
+   * thin revolve, which offsets the whole profile (the kernel's own rule).
+   * Owned by the caller, who disposes them with the scratch.
+   */
+  faces?: Face[];
 };
 
 export type RevolveGhostSolids = {
@@ -79,10 +86,7 @@ function collectSolids(
     return;
   }
 
-  const faces = options.thin
-    ? ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces
-    : FaceMaker2.getRegions(geometries, plane);
-  scratch.push(...faces);
+  const faces = profileFaces(geometries, plane, options, scratch);
   if (faces.length === 0) {
     return;
   }
@@ -101,6 +105,31 @@ function collectSolids(
     }
     solids.push(solid);
   }
+}
+
+/**
+ * The faces to revolve: the picked regions when the dialog named some, else
+ * the profile's own regions. Thin profiles revolve their offset shell (the
+ * kernel's own rule). Faces made here land in `scratch`; picked ones stay
+ * the caller's.
+ */
+function profileFaces(
+  geometries: Edge[],
+  plane: Plane,
+  options: RevolveGhostOptions,
+  scratch: Shape[],
+): Face[] {
+  if (options.thin) {
+    const faces = ThinFaceMaker.make(geometries, plane, options.thin[0], options.thin[1]).faces;
+    scratch.push(...faces);
+    return faces;
+  }
+  if (options.faces) {
+    return options.faces;
+  }
+  const faces = FaceMaker2.getRegions(geometries, plane);
+  scratch.push(...faces);
+  return faces;
 }
 
 /**

@@ -13,13 +13,15 @@ export class ErrorBanner {
   private expanded = false;
   private primaryLoc: SourceLocation | null = null;
   private onGotoSource: (loc: SourceLocation) => void;
+  private sketchActive = false;
 
   constructor(container: HTMLElement, onGotoSource: (loc: SourceLocation) => void) {
     this.onGotoSource = onGotoSource;
 
     this.element = document.createElement('div');
     this.element.id = 'fluidcad-error-banner';
-    this.element.className = 'absolute top-[112px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[1001] pointer-events-auto hidden max-w-[600px]';
+    this.element.className = 'absolute left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[1001] pointer-events-auto hidden max-w-[600px]';
+    this.applyOffset();
     this.element.innerHTML = `
       <div class="panel-bg border border-error/40 rounded-lg shadow-md overflow-hidden">
         <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">
@@ -51,6 +53,20 @@ export class ErrorBanner {
       this.listEl.classList.toggle('hidden', !this.expanded);
       this.toggleEl.classList.toggle('rotate-180', this.expanded);
     });
+  }
+
+  /**
+   * Drop the banner below the constraint mini bar (top-[106px]) while a
+   * sketch is being edited so build errors never cover its buttons.
+   */
+  setSketchActive(sketchActive: boolean): void {
+    this.sketchActive = sketchActive;
+    this.applyOffset();
+  }
+
+  private applyOffset(): void {
+    this.element.classList.toggle('top-[112px]', !this.sketchActive);
+    this.element.classList.toggle('top-[152px]', this.sketchActive);
   }
 
   update(sceneObjects: SceneObjectRender[], compileError: CompileError | null): void {

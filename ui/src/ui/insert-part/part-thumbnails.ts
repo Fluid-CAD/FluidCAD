@@ -197,11 +197,11 @@ export class PartThumbnailRenderer {
   }
 }
 
-/** Connector frames of one part's subtree — same read the assembly view does. */
+/** Connector frames of one part's subtree, copies included — same read the assembly view does. */
 function collectConnectorStates(objects: SceneObjectRender[], partId: string): ConnectorState[] {
   const out: ConnectorState[] = [];
-  for (const obj of SceneIndex.of(objects).children(partId)) {
-    if (obj.type !== 'connector' || !obj.id) {
+  for (const obj of SceneIndex.of(objects).connectorsOf(partId)) {
+    if (!obj.id) {
       continue;
     }
     const data = obj.object as ConnectorData | undefined;

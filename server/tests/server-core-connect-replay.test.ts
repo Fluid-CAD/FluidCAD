@@ -3,6 +3,7 @@ import http from 'http';
 import { WebSocket } from 'ws';
 import { createServerCore } from '../src/server-core.ts';
 import type { ServerCore } from '../src/server-core.ts';
+import { sceneStopFields } from '../src/fluidcad-server/scene-summary.ts';
 
 // What a page is told the moment it connects decides whether it shows a
 // spinner. `fluidcad serve` on a folder with no parts or assemblies used to
@@ -69,6 +70,17 @@ describe('server core connect replay', () => {
     core.broadcastToUI(SCENE);
     const received = await connect();
     expect(received.map((m) => m.type)).toEqual(['init-complete', 'scene-rendered']);
+  });
+
+  it('replays paused history after rollback and compile-error messages to a fresh page', async () => {
+    const stop = sceneStopFields({ rollbackStop: 0, breakpointHit: true, timeline: [
+      { kind: 'evaluated', index: 0 },
+      { kind: 'unevaluated', row: { id: 'later', name: 'Computed name', type: 'extrude' } },
+    ] });
+    core.broadcastToUI({ ...SCENE, ...stop });
+    expect((await connect())[0]).toMatchObject(stop);
+    core.broadcastToUI({ ...SCENE, ...stop, compileError: { message: 'Invalid source' } });
+    expect((await connect())[0]).toMatchObject({ ...stop, compileError: { message: 'Invalid source' } });
   });
 
   it('a closed scene is not replayed — the page lands on an empty scene', async () => {

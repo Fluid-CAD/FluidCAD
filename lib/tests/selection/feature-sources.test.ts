@@ -16,6 +16,11 @@ import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rotate from "../../core/rotate.js";
 import rib from "../../core/rib.js";
+import hole from "../../core/hole.js";
+import part from "../../core/part.js";
+import connector from "../../core/connector.js";
+import select from "../../core/select.js";
+import { face } from "../../filters/index.js";
 import { circle, offset, project, intersect, line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -57,6 +62,20 @@ function planeBoundary(scene: Scene, line: number): SelectionBoundary {
 
 describe("feature sources (edit-dialog seeding)", () => {
   setupOC();
+
+  it('returns built loft connection points in world coordinates', () => {
+    const a = sketch(plane('yz', { offset: 10 }), () => { testRect(20, 20); });
+    const b = sketch(plane('yz', { offset: 50 }), () => { testRect(20, 20); });
+    setLocation(a, 1);
+    setLocation(b, 7);
+    const l = loft(a, b).connect([10, 0, 0], [50, 0, 0]).connect([10, 20, 0], [50, 20, 0]);
+    setLocation(l, 13);
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, 'loft', 13));
+    expect(result).toMatchObject({ ok: true, feature: 'loft', connections: [
+      [[10, 0, 0], [50, 0, 0]], [[10, 20, 0], [50, 20, 0]],
+    ] });
+  });
 
   it("resolves shell faces onto the pre-shell solid", () => {
     sketch("xy", () => {
@@ -216,6 +235,36 @@ describe("feature sources (edit-dialog seeding)", () => {
       expect(result.spine).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
       expect(result.scope).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }]);
     }
+  });
+
+  it("resolves a hole's connector placements and scope by call site, other placements opaque", () => {
+    const made = {} as { hole: unknown };
+    part("plate", () => {
+      sketch("xy", () => {
+        testRect(60, 40, { at: [-30, -20] });
+      });
+      const plate = extrude(10);
+      setLocation(plate as never, 3);
+      const top = connector("top", select(face().planar().onPlane("xy", 10)));
+      setLocation(top as never, 4);
+      const s = sketch(plate.endFaces(), () => ({ c: circle([15, 5], 3) }));
+      setLocation(s as never, 5);
+      made.hole = hole(4, top as never, (s.geometries.c as any).center(), plate.endFaces().center()).scope(plate);
+      setLocation(made.hole as never, 9);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "hole", 9));
+    expect(result).toMatchObject({
+      ok: true,
+      feature: "hole",
+      placements: [
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 },
+        { kind: "opaque" },
+        { kind: "opaque" },
+      ],
+      scope: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }],
+    });
   });
 
   it("reports an empty scope for a whole-scene rib", () => {
@@ -386,6 +435,53 @@ describe("feature sources (edit-dialog seeding)", () => {
           expect(sideFaces.map(r => r.sub.index)).toContain(ref.sub.index);
         }
       }
+    }
+  });
+
+  it("resolves a projection's sketch sources by call site next to its entity picks", () => {
+    const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      });
+    setLocation(s1, 3);
+    const e = extrude(30) as Extrude;
+    setLocation(e, 4);
+    sketch("xz", () => {
+      const p = project(s1, e.endFaces());
+      setLocation(p as any, 8);
+    });
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projection", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projection") {
+      expect(result.sketches).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }]);
+      expect(result.selection.kind).toBe("entities");
+      if (result.selection.kind === "entities") {
+        expect(result.selection.entities.length).toBeGreaterThan(0);
+        expect(result.selection.entities.every(ref => ref.shapeId === box.id)).toBe(true);
+      }
+    }
+  });
+
+  it("resolves a sketch-only projection with an empty entity selection", () => {
+    const s1 = sketch("xy", () => {
+        testRect(100, 50);
+      });
+    setLocation(s1, 3);
+    sketch("xz", () => {
+      const p = project(s1);
+      setLocation(p as any, 8);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projection", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projection") {
+      expect(result.sketches).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 }]);
+      expect(result.selection).toEqual({ kind: "entities", entities: [] });
     }
   });
 
@@ -572,6 +668,86 @@ describe("feature sources (edit-dialog seeding)", () => {
   });
 
   /**
+   * A connector copy's keep chips: the connector target and a connector axis
+   * resolve to their `connector()` statements, so the edit ghost can place
+   * the frames and turn them; a copy standing in as the axis
+   * (`bolt.instance(1)`) has no statement of its own and stays opaque.
+   */
+  it("resolves a copy's connector target and connector axis to their statements", () => {
+    const made = {} as { statement: unknown; around: unknown };
+    part("flange", () => {
+      sketch("xy", () => {
+        testRect(100, 100, { at: [-50, -50] });
+      });
+      extrude(10);
+      const bolt = connector("bolt", select(face().planar().onPlane("xy", 10))).offset(30, 0, 0);
+      setLocation(bolt as never, 4);
+      const pivot = connector("pivot", select(face().planar().onPlane("xy", 10))).offset(-20, 0, 0);
+      setLocation(pivot as never, 5);
+      made.statement = copy("circular", pivot as never, { count: 4, angle: 360 }, bolt as never);
+      setLocation(made.statement as never, 6);
+      made.around = copy("circular", bolt.instance(1) as never, { count: 2, angle: 360 }, pivot as never);
+      setLocation(made.around as never, 7);
+    });
+
+    const scene = render();
+    const at = (line: number): SelectionBoundary => {
+      const index = scene.getAllSceneObjects().findIndex(o => o.getType() === "copy-circular"
+        && o.getSourceLocation()?.line === line);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return { index, type: "copy-circular", line, column: 0 };
+    };
+
+    const result = resolveFeatureSources(scene, at(6));
+    expect(result).toMatchObject({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }],
+      axes: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
+    });
+    expect(resolveFeatureSources(scene, at(7))).toMatchObject({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
+      axes: [{ kind: "opaque" }],
+    });
+  });
+
+  /**
+   * A copy that follows a repeat walks no axis: its keep chips are the
+   * connectors it copies and the repeat it follows, each by its statement —
+   * what the edit ghost reads the repeat's slots off.
+   */
+  it("resolves a follow copy's repeat and connector targets to their statements", () => {
+    part("flange", () => {
+      sketch("xy", () => {
+        testRect(200, 200, { at: [-100, -100] });
+      });
+      const e = extrude(10);
+      sketch(e.endFaces(), () => {
+        circle([40, 0], 20);
+      });
+      const hole = cut();
+      const holes = repeat("circular", "z", { count: 6, angle: 360 }, hole as never);
+      setLocation(holes as never, 6);
+      const bolt = connector("bolt", hole.startEdges());
+      setLocation(bolt as never, 7);
+      const statement = copy(holes as never, bolt as never);
+      setLocation(statement as never, 8);
+    });
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "copy-pattern", 8));
+    expect(result).toEqual({
+      ok: true,
+      feature: "copy",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 7, column: 0 }],
+      axes: [],
+      pattern: { kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 },
+    });
+  });
+
+  /**
    * An implicit copy names no targets at all — it clones every active solid —
    * and reports the empty list that says so. Its world-axis literals build no
    * statement to point at, one per direction.
@@ -662,6 +838,86 @@ describe("feature sources (edit-dialog seeding)", () => {
     expect(result.ok).toBe(true);
     if (result.ok && result.feature === "rotate") {
       expect(result.axis).toEqual({ kind: "opaque" });
+    }
+  });
+
+  /**
+   * The bare `axis(<edge>)` the dialogs write for a picked edge lands inline,
+   * on the statement's own line: no statement to re-target, but an edge on the
+   * pre-statement solid — what the edit ghost draws the kept axis with. One
+   * carrying its own offset names a different line and stays opaque.
+   */
+  it("resolves a copy's inline axis(<edge>) to its edge, keeping an offset one opaque", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const bare = copy("linear", axis(e.sideEdges(0)) as never, { count: 3, offset: 50 }, e as never);
+    setLocation(bare as never, 6);
+    const moved = copy("linear", axis(e.sideEdges(0), { offsetX: 5 }) as never, { count: 2, offset: 50 }, e as never);
+    setLocation(moved as never, 8);
+
+    const scene = render();
+    // Each inline axis captures its copy's own line.
+    const axes = scene.getAllSceneObjects().filter(o => o.getType() === "axis");
+    expect(axes).toHaveLength(2);
+    setLocation(axes[0], 6);
+    setLocation(axes[1], 8);
+    const box = solidOf(scene, "extrude");
+    const at = (line: number): SelectionBoundary => {
+      const index = scene.getAllSceneObjects().findIndex(o => o.getType() === "copy-linear"
+        && o.getSourceLocation()?.line === line);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return { index, type: "copy-linear", line, column: 0 };
+    };
+
+    const result = resolveFeatureSources(scene, at(6));
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "copy") {
+      // One of the box's four vertical side edges, on the box itself.
+      const sideEdges = edgeRefsWhere(box, m => Math.abs(m.z - 5) < 1e-6);
+      expect(sideEdges).toHaveLength(4);
+      expect(result.axes).toHaveLength(1);
+      const slot = result.axes[0];
+      expect(slot.kind).toBe("entities");
+      if (slot.kind === "entities") {
+        expect(slot.entities).toHaveLength(1);
+        expect(sideEdges).toContainEqual(slot.entities[0]);
+      }
+    }
+    expect(resolveFeatureSources(scene, at(8))).toMatchObject({
+      ok: true,
+      feature: "copy",
+      axes: [{ kind: "opaque" }],
+    });
+  });
+
+  it("resolves a rotate's inline axis(<edge>) to its edge", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const r = rotate(axis(e.sideEdges(0)) as never, 45, e as never);
+    setLocation(r as never, 6);
+
+    const scene = render();
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.getType() === "axis") {
+        setLocation(obj, 6);
+      }
+    }
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rotate", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rotate") {
+      expect(result.axis.kind).toBe("entities");
+      if (result.axis.kind === "entities") {
+        expect(result.axis.entities).toHaveLength(1);
+        expect(edgeRefsWhere(box, m => Math.abs(m.z - 5) < 1e-6)).toContainEqual(result.axis.entities[0]);
+      }
     }
   });
 

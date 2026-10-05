@@ -96,12 +96,13 @@ export class Shell extends SceneObject implements IShell {
         newShapes.push(newShape);
 
         const originalObj = shapeObjMap.get(shape);
-        originalObj.removeShape(shape, this);
+        originalObj.removeShape(shape, this, [newShape]);
       } catch {
-        // OCCT's MakeThickSolid could not offset the inner wall. Keep the
-        // original (un-shelled) solid in the scene so downstream features
-        // still have geometry to work with, but surface the failure instead
-        // of silently serving an unchanged part.
+        // OCCT's MakeThickSolid could not offset the inner wall — it said
+        // so, or handed the solid back unchanged. Keep the original
+        // (un-shelled) solid in the scene so downstream features still have
+        // geometry to work with, but surface the failure instead of silently
+        // serving an unchanged part.
         newShapes.push(shape);
         console.warn("Shell: Failed to create thick solid.");
         this.setError(
@@ -109,7 +110,9 @@ export class Shell extends SceneObject implements IShell {
           "Hint: the wall may be thicker than a nearby feature or radius of " +
           "curvature, or a cut/groove may open onto a removed face. Try a " +
           "thinner wall, fewer/simpler open faces, or shelling before cutting " +
-          "small features."
+          "small features. Walls that meet at a corner at one end and blend " +
+          "smoothly at the other (a square-to-round loft) may hollow only " +
+          "when opened at the cornered end."
         );
       }
     }

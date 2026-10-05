@@ -1,0 +1,33 @@
+---
+sidebar_position: 14
+title: "far"
+description: "Marks an entity of a `region()` declaration as one the region lies on the far side of: outside a circle or an arc's circle, on the right of a line's own direction. `region('ring', c1, far(c2))` is the ring inside `c1` and outside `c2`; without `far()` the region lies inside, on the entity's left."
+---
+
+# far()
+
+Marks an entity of a `region()` declaration as one the region lies on the
+far side of: outside a circle or an arc's circle, on the right of a line's
+own direction. `region('ring', c1, far(c2))` is the ring inside `c1` and
+outside `c2`; without `far()` the region lies inside, on the entity's left.
+
+**Returns**: **`IRegionSide`**
+
+:::tip
+See the [guide](/docs/3d-operations/extrude#region-picking) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+far(entity: IRegionTarget): IRegionSide
+```
+
+Marks an entity of a `region()` declaration as one the region lies on the
+far side of: outside a circle or an arc's circle, on the right of a line's
+own direction. `region('ring', c1, far(c2))` is the ring inside `c1` and
+outside `c2`; without `far()` the region lies inside, on the entity's left.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `entity` | IRegionTarget | A sketch entity or one of its edges |

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import plane from "../../core/plane.js";
@@ -92,6 +92,19 @@ describe("plane", () => {
       const pl = p.getPlane();
       // Offset is applied first along original normal (Z), then rotated
       expect(Math.abs(pl.normal.y)).toBeCloseTo(1);
+    });
+
+    it("should rotate around the world axes with rotationAxes: 'world'", () => {
+      // XZ's normal is -Y. A Y turn around the plane's own Y swings the normal
+      // to +X; the same turn around the world Y leaves the normal on -Y.
+      const local = plane("xz", { rotateY: 90 }) as PlaneObjectBase;
+      const world = plane("xz", { rotateY: 90, rotationAxes: "world" }) as PlaneObjectBase;
+
+      render();
+
+      expect(local.getPlane().normal.x).toBeCloseTo(1);
+      expect(world.getPlane().normal.y).toBeCloseTo(-1);
+      expect(world.getPlane().xDirection.z).toBeCloseTo(-1);
     });
   });
 
@@ -342,7 +355,7 @@ describe("plane", () => {
       // available to the feature that consumes it.
       const s = sketch("xy", () => {
         bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]);
-      }) as SceneObject;
+      }) as unknown as SceneObject;
       plane(s, 0.5);
 
       render();
@@ -364,21 +377,22 @@ describe("plane", () => {
       expect(pl.normal.z).toBeCloseTo(1);
     });
 
-    it("should consume the two source planes", () => {
+    it("should hide the two source planes, keeping them for later features", () => {
       const p1 = plane("xy") as PlaneObjectBase;
       const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
       const mid = plane(p1, p2) as PlaneObjectBase;
 
-      render();
+      const scene = render();
 
       // Plane faces are meta shapes, so the filter has to admit them.
       const filter = { excludeMeta: false, excludeGuide: false };
 
-      // Only the mid plane survives — the originals were consumed.
-      expect(p1.getShapes(filter).length).toBe(0);
-      expect(p2.getShapes(filter).length).toBe(0);
+      // Only the mid plane renders — the originals are consumed for display.
+      expectDisplayConsumed(scene, p1);
+      expectDisplayConsumed(scene, p2);
       expect(mid.getShapes(filter).length).toBe(1);
     });
+
 
     it("should mark the mid plane face as a meta shape, like any other plane", () => {
       const ref = plane("xy") as PlaneObjectBase;
@@ -442,6 +456,36 @@ describe("plane", () => {
       // XY normal (Z) rotated 90° around the plane's X axis lands on ±Y.
       expect(Math.abs(pl.normal.y)).toBeCloseTo(1);
       expect(pl.normal.z).toBeCloseTo(0);
+    });
+
+    it("should rotate a mid plane around the world axes", () => {
+      const p1 = plane("xz") as PlaneObjectBase;
+      const p2 = plane("xz", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2, { rotateY: 90, rotationAxes: "world" }) as PlaneObjectBase;
+
+      render();
+
+      const pl = mid.getPlane();
+      // The midpoint sits 20 along -Y, on the world Y axis itself, so the
+      // orbit leaves it there; the normal (-Y) is the axis and stays, and the
+      // in-plane X swings to -Z.
+      expect(pl.origin.y).toBeCloseTo(-20);
+      expect(pl.normal.y).toBeCloseTo(-1);
+      expect(pl.xDirection.z).toBeCloseTo(-1);
+    });
+
+    it("should orbit an offset plane around a world axis", () => {
+      // A radial plane: YZ pushed out 20 along X, then swung 90° around the
+      // world Z axis — it lands 20 along Y, facing +Y.
+      const p = plane("yz", { offset: 20, rotateZ: 90, rotationAxes: "world" }) as PlaneObjectBase;
+
+      render();
+
+      const pl = p.getPlane();
+      expect(pl.origin.x).toBeCloseTo(0);
+      expect(pl.origin.y).toBeCloseTo(20);
+      expect(pl.normal.x).toBeCloseTo(0);
+      expect(pl.normal.y).toBeCloseTo(1);
     });
 
     it("should create a plane midway between two face planes", () => {

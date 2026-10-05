@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createInstancePoseRouter } from '../../src/routes/instance-pose.ts';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 
 // The gizmo commit endpoint: validation, the preflight refusing bad pose

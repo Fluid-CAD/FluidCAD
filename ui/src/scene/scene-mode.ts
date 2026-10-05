@@ -157,8 +157,7 @@ export class SceneModeManager {
     this.mode = 'default';
     this.lastSketchPlane = null;
 
-    this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
-    this.ctx.cameraControls.updateCameraUp();
+    this.ctx.setCameraUp(Object3D.DEFAULT_UP);
 
     this.showDefaultAxes();
     this.setupGrid(Z_UP);
@@ -202,11 +201,7 @@ export class SceneModeManager {
 
     const camPos = tgt.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
-    this.ctx.camera.up.copy(yDir);
-    cc.updateCameraUp();
-
-    cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, true);
+    this.ctx.flyTo(camPos, tgt, yDir);
 
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
@@ -244,12 +239,7 @@ export class SceneModeManager {
 
     const camPos = center.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
-    // Set up vector BEFORE setLookAt so camera-controls computes correct orientation
-    this.ctx.camera.up.copy(yDir);
-    cc.updateCameraUp();
-
-    cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, center.x, center.y, center.z, true);
+    this.ctx.flyTo(camPos, center, yDir);
 
     // Keep adapter target in sync
     cc.getTarget(this.ctx.controls.target);
@@ -262,12 +252,7 @@ export class SceneModeManager {
     const position = backup?.position ?? defaultCameraPosition();
     const target = backup?.target ?? new Vector3(0, 0, 0);
 
-    // Set up vector BEFORE setLookAt so camera-controls computes correct orientation
-    this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
-    cc.updateCameraUp();
-
-    cc.normalizeRotations();
-    cc.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z, true);
+    this.ctx.flyTo(position, target, Object3D.DEFAULT_UP);
 
     // Keep adapter target in sync
     cc.getTarget(this.ctx.controls.target);

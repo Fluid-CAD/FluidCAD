@@ -1,6 +1,7 @@
 import { FeaturePanel } from '../create-feature/feature-panel';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import type { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 const NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -34,7 +35,7 @@ export class AssemblyConnectorPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-assembly-connector-panel',
       title: 'Assembly connector',
-      icon: '/icons/assembly-connector.png',
+      icon: iconUrl('assembly-connector'),
       bodyHtml: `
         <label class="flex flex-col gap-1.5"
           title="The identifier the connector registers under — mates reference its binding">

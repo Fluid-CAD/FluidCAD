@@ -4,6 +4,7 @@
 // mesh building converts to world via the sketch plane.
 
 import type { SolverRef } from '../../../lib/sketch-solver/types.js';
+import { arcSweep } from './tessellate';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 
 export type Vec2 = [number, number];
@@ -145,21 +146,11 @@ export function orientedLineDir(e: SolvedEntityView, ref: SolverRef): Vec2 | nul
 
 /** Point on an arc halfway between its endpoints, on the drawn side. */
 export function arcMidPoint(e: SolvedEntityView): Vec2 | null {
-  if (!e.center || !e.start || !e.end || e.radius === undefined) {
+  const arc = arcSweep(e);
+  if (!arc || !e.center || e.radius === undefined) {
     return null;
   }
-  const a0 = Math.atan2(e.start[1] - e.center[1], e.start[0] - e.center[0]);
-  const a1 = Math.atan2(e.end[1] - e.center[1], e.end[0] - e.center[0]);
-  let sweep = a1 - a0;
-  // cw arcs sweep negative; ccw positive — mirror the kernel's convention.
-  if (e.cw) {
-    if (sweep > 0) {
-      sweep -= 2 * Math.PI;
-    }
-  } else if (sweep < 0) {
-    sweep += 2 * Math.PI;
-  }
-  const a = a0 + sweep / 2;
+  const a = arc.a0 + arc.sweep / 2;
   return [e.center[0] + Math.cos(a) * e.radius, e.center[1] + Math.sin(a) * e.radius];
 }
 

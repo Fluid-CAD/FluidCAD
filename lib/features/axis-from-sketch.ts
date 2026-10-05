@@ -1,6 +1,5 @@
 import { AxisTransformOptions, StandardAxis } from "../math/axis.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
-import { EdgeOps } from "../oc/edge-ops.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Sketch } from "./2d/sketch.js";
 
@@ -41,10 +40,7 @@ export class AxisFromSketch extends AxisObjectBase {
   build() {
     const axis = this.resolveAxis();
     this.setState('axis', axis);
-
-    const edge = EdgeOps.axisToEdge(axis);
-    edge.markAsMetaShape();
-    this.addShape(edge);
+    this.addAxisEdge(axis);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

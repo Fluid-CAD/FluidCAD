@@ -54,6 +54,13 @@ function formatParamType(raw: string): string {
     return '`' + raw.replace(/\|/g, '\\|') + '`';
   }
 
+  // Handle array types like "(number | FaceFilterBuilder)[]" — before the
+  // union split, which would cut it at its inner bar
+  const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
+  if (parenArrayMatch) {
+    return `(${formatParamType(parenArrayMatch[1])})[]`;
+  }
+
   // Handle union types like "number | FaceFilterBuilder"
   if (raw.includes('|')) {
     const parts = raw.split('|').map(p => p.trim());
@@ -64,12 +71,6 @@ function formatParamType(raw: string): string {
       }
       return escapeAngleBrackets(display);
     }).join(' \\| ');
-  }
-
-  // Handle array types like "(number | FaceFilterBuilder)[]"
-  const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
-  if (parenArrayMatch) {
-    return `(${formatParamType(parenArrayMatch[1])})[]`;
   }
 
   // Handle simple array types like "ISceneObject[]"
@@ -850,7 +851,7 @@ An axis reference used by \`revolve()\` and other axis-based operations. Any of 
 
   PlaneTransformOptions: (type) => renderOptionsTypePage(type,
     'Options for transforming a plane with offset and rotation.',
-    'Options accepted by [`plane()`](/docs/api/features/utilities/plane) to offset and rotate a plane relative to its own axes. Rotations are composed together and applied around the plane\'s origin (after the offset is applied), so the plane tilts in place rather than orbiting the world origin.',
+    'Options accepted by [`plane()`](/docs/api/features/utilities/plane) to offset and rotate a plane. The offset is applied first. The rotations are around the plane\'s own axes by default — X first, then Y and the normal as the earlier turns left them — which pass through the plane\'s origin, so it tilts in place. With `rotationAxes: \'world\'` they are around the world X, Y and Z axes through the world origin, so an offset plane orbits it.',
   ),
 
   Vertex: (type) => `---

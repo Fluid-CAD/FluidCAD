@@ -12,7 +12,7 @@ import shell from '../../lib/core/shell.js';
 import { circle } from '../../lib/core/2d/index.js';
 import { face } from '../../lib/filters/index.js';
 import { Extrude } from '../../lib/features/extrude.js';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 
 /** One entry of `scene.getRenderedObjects()`, trimmed to what the collector reads. */
 function rendered(overrides: Record<string, unknown> = {}) {

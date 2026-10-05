@@ -96,11 +96,7 @@ The pill reads *Fully constrained*.
 
 ### Extrude the body
 
-Click **Finish Sketch ▾**. The menu lists everything a sketch can become.
-
-![The Finish Sketch menu](/img/docs/tutorials/fork-ui-09-finish-menu.png)
-
-Choose **Extrude**. Set **Direction** to **Symmetric** and **Total distance** to `36`. Symmetric splits the distance evenly across the sketch plane, so 18 goes each way and the part is centred on the plane you drew it on. The green ghost is the live preview and the statement reads `extrude(36).symmetric()`.
+Everything a sketch can become stays on the toolbar while the sketch is open. Click **Extrude**. Set **Direction** to **Symmetric** and **Total distance** to `36`. Symmetric splits the distance evenly across the sketch plane, so 18 goes each way and the part is centred on the plane you drew it on. The green ghost is the live preview and the statement reads `extrude(36).symmetric()`.
 
 ![Extrude dialog with the symmetric 36 ghost](/img/docs/tutorials/fork-ui-10-extrude-ghost.png)
 
@@ -132,7 +128,7 @@ One degree of freedom is left. Click the **centre point**, **Ctrl+click** the **
 
 ### Extrude it, then mirror the feature
 
-Click **Finish Sketch ▾** and choose **Extrude**. Set **Distance** to `22`. The plane already stands 18 out from the centreline, and the finished part is 80 across the two bosses, so the boss has 40 − 18 = 22 left to travel.
+Click **Extrude** on the toolbar. Set **Distance** to `22`. The plane already stands 18 out from the centreline, and the finished part is 80 across the two bosses, so the boss has 40 − 18 = 22 left to travel.
 
 ![Extrude dialog with the boss ghost](/img/docs/tutorials/fork-ui-14-boss-ghost.png)
 
@@ -174,7 +170,7 @@ The rim has done its job, so demote it: click it and hit **Guide**. That appends
 
 ### Cut through everything
 
-Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab and switch on **Through all**. The red ghost is the material about to disappear — a rod running through both bosses — and the statement is simply `cut()`.
+Click **Extrude** on the toolbar. Select the **Remove** tab and switch on **Through all**. The red ghost is the material about to disappear — a rod running through both bosses — and the statement is simply `cut()`.
 
 ![Extrude on the Remove tab with Through all](/img/docs/tutorials/fork-ui-20-bore-ghost.png)
 
@@ -196,7 +192,7 @@ Pick **Circle**, click the **origin** for the centre, and type `30` for the **�
 
 ### Cut a 20-thick ring around it
 
-Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab, set **Depth** to `20`, and switch on **Thin walls** with a **Thickness** of `20`.
+Click **Extrude** on the toolbar. Select the **Remove** tab, set **Depth** to `20`, and switch on **Thin walls** with a **Thickness** of `20`.
 
 Thin walls turns the profile from an area into a wall: instead of removing the disc, the cut removes a 20-wide ring hugging the outside of it. The ring reaches 35 from the centre — further than the corners of the 36 square column — so it sweeps everything away except the cylinder in the middle. The statement reads `cut(20).thin(20)`.
 
@@ -222,7 +218,7 @@ Click the **corner on the right**, **Ctrl+click** the **horizontal axis**, and c
 
 ### Cut the ring around it
 
-Click **Finish Sketch ▾** and choose **Extrude**. **Remove** tab, **Depth** `45`, **Thin walls** on with **Thickness** `20`. The statement reads `cut(45).thin(20)`.
+Click **Extrude** on the toolbar. **Remove** tab, **Depth** `45`, **Thin walls** on with **Thickness** `20`. The statement reads `cut(45).thin(20)`.
 
 ![The ring ghost around the square](/img/docs/tutorials/fork-ui-26-square-ghost.png)
 

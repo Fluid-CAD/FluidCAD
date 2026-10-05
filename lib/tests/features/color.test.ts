@@ -195,28 +195,6 @@ describe("color", () => {
       expect(solid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
     });
 
-    it("should still fall back to a reusable selection another feature used", () => {
-      let c!: Color;
-      part("reusable-stays-eligible", () => {
-        sketch("xy", () => {
-            testRect(100, 50);
-          });
-        extrude(30);
-
-        // A reusable selection keeps its shapes through consumption, so it
-        // remains the implicit selection for the bare color() that follows.
-        const top = select(face().onPlane("xy", 30)).reusable();
-        connector("c", top.center());
-        c = color("red") as Color;
-      });
-
-      render();
-
-      expect(c.getError()).toBeFalsy();
-      const solid = c.getShapes()[0] as Solid;
-      expect(solid.colorMap).toHaveLength(1);
-      expect(solid.colorMap[0].color).toBe("#ff0000");
-    });
   });
 
   describe("color a whole scene object", () => {

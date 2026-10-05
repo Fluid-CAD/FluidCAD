@@ -105,8 +105,8 @@ describe("ShapeValidator", () => {
     expect(report.findings[0].message).toContain('solid 2 of 2');
   });
 
-  it("names the checks it runs and the one this kernel build cannot", () => {
-    expect(ShapeValidator.CHECKS).toEqual(['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid']);
+  it("names the basic checks and explicitly excludes native self-interference", () => {
+    expect(ShapeValidator.CHECKS).toEqual(['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid', 'nonFiniteGeometry']);
     expect(Object.keys(ShapeValidator.UNAVAILABLE)).toEqual(['selfIntersecting']);
     expect(ShapeValidator.UNAVAILABLE.selfIntersecting).toContain('BRepAlgoAPI_Check');
   });

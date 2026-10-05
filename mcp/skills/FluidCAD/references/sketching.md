@@ -92,8 +92,34 @@ sketch(block.endFaces(), () => {
 cut(4);
 ```
 
+A fastener hole with its counterbore is one statement with `hole()`: `hole('M6', s.geometries.c.center()).counterbore()` reads the clearance diameter and the socket-head counterbore from the tables, so the sketch above only needs the circle's centre. Sketch and `cut()` the recess yourself when the drawing gives a shape the tables do not.
+
 `project(...)` registers as a fixed reference the solver never moves; `.ref(i)`, `.start()`, `.end()` and `.center()` pick one edge of it. Check which index is the hole by rolling back to the sketch and taking a screenshot, or by `resolve_selection` on `edge().circle(12)` at the face.
 
 ## Keep sketches small
 
-One sketch per feature idea. A sketch holding the outline, the holes and the slots collapses them into geometry nothing downstream can select individually; separate sketches give separate features, each with its own faces and edges for filters. A sketch is consumed once; `.reusable()` when two features need it, and `remove()` it when they are done.
+One sketch per feature idea. A sketch holding the outline, the holes and the slots collapses them into geometry nothing downstream can select individually; separate sketches give separate features, each with its own faces and edges for filters. A sketch used by two features is passed by variable to both (`extrude(20, s)`, `cut(5, s)`); its first consumer hides it, nothing removes it.
+
+## Picking a region of an overlapping sketch
+
+Shapes that cross each other cut the plane into several regions; by default an operation takes them all (nested shapes as holes). To take particular ones, declare each region inside the sketch with `region(name, ...entities)` — the entities on its outer loop, passed as the variables themselves — and name it on the operation with `.region(name)`. Wrap an entity in `far()` when the region lies on its far side (outside a circle, right of a line's direction).
+
+```js
+const s = sketch('xy', () => {
+  const outer = circle([0, 0], 60);
+  const inner = circle([0, 0], 30);
+  region('ring', outer);              // the ring: its outer loop is `outer`, `inner` is its hole
+  region('disc', inner);              // the disc
+
+  const a = circle([-20, 0], 80);
+  const b = circle([20, 0], 80);
+  region('lens', a, b);               // inside both
+  region('crescent', a, far(b));      // inside a, outside b
+
+  const r = rect([0, 0], 40, 20);
+  region('inside', r);                // a bare rect covers all four sides; r.top() names one
+});
+extrude(20, s).region('ring', 'lens');
+```
+
+A declaration is topological — no coordinate in it — so it survives dimension edits, dragged geometry, and unrelated entities added or removed. Holes never count. When the entities you list bound more than one region (two overlapping circles: `region('x', a)` fits the lens and a crescent), the feature errors and lists the candidates with their `far()` markers — copy the one you mean. A `.region()` call with no names builds nothing and lists every region in the feature's `regions` parameter (`get_scene_summary`), each with the name of the declaration that describes it when one exists.

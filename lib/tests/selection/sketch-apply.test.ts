@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
-import { circle, line } from "../../core/2d/index.js";
+import { bezier, circle, ellipse, line, offset } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { synthesizeSketchApplyFeature } from "../../selection/sketch-apply.js";
@@ -111,6 +112,51 @@ describe("sketch apply-feature synthesis", () => {
     if (filleted.ok) {
       expect(filleted.preview).toBe(`fillet(3, ${filleted.args})`);
     }
+  });
+
+  it("offsets a selection holding a bezier and an ellipse as one offset() statement", () => {
+    // The Offset tool writes these curves through this rail: their offsets
+    // are no sketch primitive, so no offsetFrom pair can hold them.
+    let l: SceneObject;
+    let bz: SceneObject;
+    let el: SceneObject;
+    sketch("xy", () => {
+      const a = line([0, 0], [40, 0]);
+      const b = bezier([40, 0], [50, 10], [50, 30], [40, 40]);
+      coincident(a.end(), b.point(0));
+      l = a as unknown as SceneObject;
+      bz = b as unknown as SceneObject;
+      el = ellipse([100, 0], 20, 10) as unknown as SceneObject;
+    });
+    const scene = render();
+    setLocation(l!, 4);
+    setLocation(bz!, 5);
+    setLocation(el!, 7);
+
+    const result = synthesizeSketchApplyFeature(
+      scene, [solvedRef(l!), solvedRef(bz!), solvedRef(el!)], 'offset', 3,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.spec.producers.map(p => p.featureType)).toEqual(['line', 'bezier', 'ellipse']);
+    expect(result.spec.producers.every(p => p.bind)).toBe(true);
+    expect(result.preview).toMatch(/^offset\(3, \w+, \w+, \w+\)$/);
+
+    // The statement builds: the line + bezier chain offsets as one wire
+    // (exact offset curves, rounded corner), the ellipse as a closed one.
+    let off: SceneObject;
+    sketch("xy", () => {
+      const a = line([0, 0], [40, 0]);
+      const b = bezier([40, 0], [50, 10], [50, 30], [40, 40]);
+      coincident(a.end(), b.point(0));
+      const e = ellipse([100, 0], 20, 10);
+      off = offset(3, a, b, e) as unknown as SceneObject;
+    });
+    render();
+    expect(off!.getError?.()).toBeFalsy();
+    expect(edgesOf(off!).length).toBeGreaterThanOrEqual(3);
   });
 
   it("hints instead of no-opping when fillet picks share no corner", () => {
@@ -278,7 +324,30 @@ describe("sketch apply-feature synthesis", () => {
       expect(result.alternatives).toContain('l.edge(0)');
     });
 
-    it("refuses a guide target for the 2D transforms by name, not as a stale scene", () => {
+    it("copies a picked .guide() primitive through its bare variable", () => {
+      let c: SceneObject;
+      sketch("xy", () => {
+        c = circle([20, 0], 10).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+
+      // A copy stamps its named targets' guide shapes, so the pick resolves
+      // to the guide's own statement like any other target.
+      const result = synthesizeSketchApplyFeature(scene, [refFor(guideEdgesOf(c!)[0])], 'copy');
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('c');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [] });
+    });
+
+    it("mirrors a picked .guide() primitive through its bare variable", () => {
       let c: SceneObject;
       let axis: SceneObject;
       sketch("xy", () => {
@@ -289,18 +358,23 @@ describe("sketch apply-feature synthesis", () => {
       setLocation(c!, 3);
       setLocation(axis!, 4);
 
-      // Copies stamp real geometry only and mirror targets stay profile
-      // geometry (see the mirror operands) — the refusal says so.
-      for (const feature of ['copy', 'mirror'] as const) {
-        const result = synthesizeSketchApplyFeature(
-          scene, [refFor(guideEdgesOf(c!)[0])], feature, undefined,
-          feature === 'mirror' ? { axisRefs: [refFor(edgesOf(axis!)[0])] } : {},
-        );
-        expect(result, feature).toMatchObject({
-          ok: false,
-          reason: expect.stringMatching(/construction geometry/),
-        });
+      // A mirror reflects its named targets' guide shapes, so the pick
+      // resolves to the guide's own statement like any other target.
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(c!)[0])], 'mirror', undefined,
+        { axisRefs: [refFor(edgesOf(axis!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
       }
+      expect(result.args).toBe('c');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+        { line: 4, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [0] });
     });
 
     it("offsets a picked projected .guide() edge on a face sketch (user regression)", () => {
@@ -552,7 +626,7 @@ describe("sketch apply-feature synthesis", () => {
       expect(result.copySlots).toEqual({ targets: [], axisParts: [0] });
     });
 
-    it("accepts a .guide() line as the mirror line while targets stay profile geometry", () => {
+    it("accepts a .guide() line as the mirror line", () => {
       let c: SceneObject;
       let g: SceneObject;
       sketch("xy", () => {
@@ -579,10 +653,6 @@ describe("sketch apply-feature synthesis", () => {
         { line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true },
       ]);
       expect(result.copySlots).toEqual({ targets: [0], axisParts: [0] });
-
-      // The guide is construction geometry: as a TARGET it does not resolve.
-      const asTarget = synthesizeSketchApplyFeature(scene, [refFor(guideEdge)], 'mirror');
-      expect(asTarget.ok).toBe(false);
     });
 
     it("refuses a curved edge as the mirror line", () => {

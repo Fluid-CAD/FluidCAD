@@ -9,9 +9,12 @@ type Listener = (dialogOpen: boolean) => void;
  * Dialogs register by id so overlapping open/close sequences (e.g. an edit
  * dialog handing off to another) can't leave the buttons hidden for good.
  */
+type DialogsListener = (openIds: ReadonlySet<string>) => void;
+
 class ViewportChrome {
   private openDialogs = new Set<string>();
   private listeners = new Set<Listener>();
+  private dialogsListeners = new Set<DialogsListener>();
 
   get dialogOpen(): boolean {
     return this.openDialogs.size > 0;
@@ -29,6 +32,7 @@ class ViewportChrome {
 
   setDialogOpen(id: string, open: boolean): void {
     const wasOpen = this.dialogOpen;
+    const had = this.openDialogs.has(id);
     if (open) {
       this.openDialogs.add(id);
     } else {
@@ -39,6 +43,23 @@ class ViewportChrome {
         fn(this.dialogOpen);
       }
     }
+    if (had !== open) {
+      for (const fn of this.dialogsListeners) {
+        fn(this.openDialogs);
+      }
+    }
+  }
+
+  /**
+   * Subscribe to every change of the open set — which dialogs, not just
+   * whether any is open — for a dialog that must step aside when another
+   * one arrives.
+   */
+  subscribeDialogs(fn: DialogsListener): () => void {
+    this.dialogsListeners.add(fn);
+    return () => {
+      this.dialogsListeners.delete(fn);
+    };
   }
 
   /** Subscribe and receive the current state immediately. */

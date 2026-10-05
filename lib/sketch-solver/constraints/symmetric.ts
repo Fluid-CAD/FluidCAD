@@ -1,10 +1,13 @@
 // symmetric — two points, or two entities of one kind (lines, circles,
-// arcs), mirror across line l.
+// arcs, ellipses), mirror across line l.
 //
 //   points   → 2 rows: their midpoint lies on the line and a−b is
 //              perpendicular to it.
 //   lines    → 4 rows: start↔start and end↔end point pairs.
 //   circles  → 3 rows: the centers mirror + equal radii.
+//   ellipses → 5 rows: the centers mirror, both semi-radii equal, and b's
+//              RX axis is the reflection of a's (θa + θb = 2φ mod π, φ the
+//              mirror line's angle — linear in the angles, see below).
 //   arcs     → 5 rows: the centers mirror, the starts mirror, and b's end
 //              lies on the reflection of a's center→end ray (1 row) — the
 //              arc's own consistency row (|end−center| = r) supplies the
@@ -20,7 +23,7 @@
 
 import type { ConstraintSpec } from '../types.js';
 import { center, end, start } from '../types.js';
-import type { CompiledRow, CompileCtx, ResolvedLine, ResolvedPoint } from './types.js';
+import type { CompiledRow, CompileCtx, ResolvedEllipse, ResolvedLine, ResolvedPoint } from './types.js';
 import { floorDist, linePointSignedDist, makeLinePointDeriv } from './util.js';
 
 type Spec = Extract<ConstraintSpec, { kind: 'symmetric' }>;
@@ -75,9 +78,64 @@ export function compileSymmetric(spec: Spec, ctx: CompileCtx): CompiledRow[] {
           ctx.point(end(spec.b.entity), 'symmetric second arc end'),
         ),
       ];
+    case 'ellipse': {
+      const ea = ctx.ellipse(spec.a, 'symmetric first ellipse');
+      const eb = ctx.ellipse(spec.b, 'symmetric second ellipse');
+      return [
+        ...pointPairRows(l, ctx.point(center(spec.a.entity), 'symmetric first ellipse center'),
+          ctx.point(center(spec.b.entity), 'symmetric second ellipse center')),
+        equalRadiusRow(ea.rx, eb.rx),
+        equalRadiusRow(ea.ry, eb.ry),
+        reflectedAxisRow(ctx, l, ea, eb),
+      ];
+    }
     default:
       throw new Error(`symmetric does not apply to ${kindA} entities`);
   }
+}
+
+/**
+ * b's RX axis is the reflection of a's across the line: with φ the line's
+ * angle, reflecting the direction θa gives 2φ − θa, and an axis is the same
+ * line at ±π, so θa + θb − 2φ = kπ. Like the horizontal/vertical ellipse
+ * rows the residual is LINEAR in the angles against the k nearest the
+ * guess, locked at compile time — a trigonometric form has a zero gradient
+ * exactly at the orientation a freshly drawn image most often starts in.
+ * φ = atan2(uy, ux) rides the line's own params, so a sketched mirror line
+ * turning drags the image's orientation with it. Dimensionless (radians).
+ */
+function reflectedAxisRow(ctx: CompileCtx, l: ResolvedLine, a: ResolvedEllipse, b: ResolvedEllipse): CompiledRow {
+  const g = ctx.guess;
+  const phi0 = Math.atan2(g[l.ey] - g[l.sy], g[l.ex] - g[l.sx]);
+  const k = Math.round((g[a.th] + g[b.th] - 2 * phi0) / Math.PI);
+  // atan2 is continuous except across the −x direction; unwrap against
+  // the compile-time φ so a mirror line near that cut doesn't flip k.
+  const phi = (p: Float64Array): number => {
+    let f = Math.atan2(p[l.ey] - p[l.sy], p[l.ex] - p[l.sx]);
+    while (f - phi0 > Math.PI) {
+      f -= 2 * Math.PI;
+    }
+    while (f - phi0 < -Math.PI) {
+      f += 2 * Math.PI;
+    }
+    return f;
+  };
+  return {
+    params: [l.sx, l.sy, l.ex, l.ey, a.th, b.th],
+    eval: (p) => p[a.th] + p[b.th] - 2 * phi(p) - k * Math.PI,
+    jac: (p, out) => {
+      const ux = p[l.ex] - p[l.sx];
+      const uy = p[l.ey] - p[l.sy];
+      const d2 = floorDist(Math.hypot(ux, uy)) ** 2;
+      // ∂φ/∂ux = −uy/|u|², ∂φ/∂uy = ux/|u|²; the row carries −2φ.
+      out[0] = -2 * (uy / d2);
+      out[1] = -2 * (-ux / d2);
+      out[2] = -2 * (-uy / d2);
+      out[3] = -2 * (ux / d2);
+      out[4] = 1;
+      out[5] = 1;
+    },
+  };
 }
 
 /** The two rows mirroring point b from point a across the line. */

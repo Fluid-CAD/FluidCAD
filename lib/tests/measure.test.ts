@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import loft from "../core/loft.js";
+import plane from "../core/plane.js";
 import { bezier, circle, line } from "../core/2d/index.js";
 import { getSceneManager, getCurrentScene } from "../scene-manager.js";
 import { Explorer } from "../oc/explorer.js";
@@ -206,6 +208,48 @@ describe("measure", () => {
       expect(result.primary).toBe('angle');
       expect(result.primaryLabel).toBe('Lines angle');
       expect(result.angleDeg).toBeCloseTo(36.8699, 3);
+    });
+  });
+
+  describe("round ends of a loft", () => {
+    // A loft carries its circular sections as B-splines.
+    function makeLoft(): void {
+      const lower = sketch("xy", () => {
+        circle([0, 0], 40);
+      });
+      const upper = sketch(plane("xy", { offset: 30 }), () => {
+        circle([0, 0], 24);
+      });
+      loft(lower, upper);
+      render();
+    }
+
+    it("measures a rim as the circle it is", () => {
+      makeLoft();
+      const rims = findEntities('edge', c => c.form === 'circle');
+      expect(rims).toHaveLength(2);
+      const [lower, upper] = rims.sort((a, b) => a.info.center!.z - b.info.center!.z);
+      expect(lower.info.radius).toBeCloseTo(20, 6);
+      expect(upper.info.radius).toBeCloseTo(12, 6);
+      expect(upper.info.center!.x).toBeCloseTo(0, 6);
+      expect(upper.info.center!.y).toBeCloseTo(0, 6);
+      expect(upper.info.center!.z).toBeCloseTo(30, 6);
+      expect(dirAlong(upper.info, 0, 0, 1)).toBe(true);
+
+      const result = measureRefs([lower.ref, upper.ref]);
+      expect(result.centerDist!.value).toBeCloseTo(30, 6);
+      expect(result.entities[1].radius).toBeCloseTo(12, 6);
+    });
+
+    it("measures an end face from the centre of its rim", () => {
+      makeLoft();
+      const caps = findEntities('face', c => c.form === 'plane');
+      expect(caps).toHaveLength(2);
+      for (const cap of caps) {
+        expect(cap.info.center).not.toBeNull();
+        expect(Math.hypot(cap.info.center!.x, cap.info.center!.y)).toBeLessThan(1e-6);
+      }
+      expect(caps.map(cap => cap.info.radius!).sort((a, b) => a - b)[0]).toBeCloseTo(12, 6);
     });
   });
 

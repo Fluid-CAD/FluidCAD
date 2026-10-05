@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BoxGeometry,
   Group,
@@ -13,6 +13,8 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { AssemblyController } from '../src/scene/assembly-controller';
+import { AssemblyMateService } from '../src/interactive/assembly-mate/mate-service';
+import type { Viewer } from '../src/viewer';
 import { WORLD_BODY_ID } from '../src/solver';
 import type { SceneObjectRender, SerializedAssembly } from '../src/types';
 
@@ -290,6 +292,63 @@ describe('mate-dialog connector picking', () => {
     expect(controller.pickConnectorCandidatesAt(W / 2, H / 2).map(c => c.connectorId)).toEqual(['w1']);
   });
 
+  // `copy('linear', 'x', { count: 3, offset: 40 }, base)` at the file's top
+  // level: each copy is an assembly connector of its own in the payload
+  // (its seed's name, `copy`), and a row under the copy statement's row.
+  function worldFamily(suffix = '') {
+    const copies = [1, 2].map(slot => ({
+      ...worldConnector,
+      connectorId: `w1-${slot}${suffix}`,
+      origin: { x: 40 * slot, y: 0, z: 0 },
+      sourceLocation: { filePath: '/ws/m.assembly.js', line: 7, column: 0 },
+      copy: { slot, seedId: `w1${suffix}` },
+    }));
+    const rows: SceneObjectRender[] = [
+      { id: `w1${suffix}`, type: 'connector', name: 'base', object: { name: 'base', ...worldConnector }, sceneShapes: [], ownShapes: [] },
+      {
+        id: `cp${suffix}`, type: 'copy-linear', name: 'Copy', hideChildren: true, sceneShapes: [], ownShapes: [],
+        object: { connectorCopies: { seeds: [{ id: `w1${suffix}`, name: 'base' }], originalSlot: 0, slotCount: 3, slots: [1, 2], connectorsOnly: true } },
+      },
+      ...copies.map((copy): SceneObjectRender => ({
+        id: copy.connectorId, type: 'connector', name: `base.instance(${copy.copy.slot})`, parentId: `cp${suffix}`,
+        object: { name: 'base', ...copy }, sceneShapes: [], ownShapes: [],
+      })),
+    ];
+    return { connectors: [{ ...worldConnector, connectorId: `w1${suffix}` }, ...copies], rows };
+  }
+
+  it('keys an assembly connector copy by its label: hidden alone, found by name and slot, a family in slot order', () => {
+    const { controller, sceneObjects, assembly } = makeRig();
+    const family = worldFamily();
+    controller.update([...sceneObjects, ...family.rows], { ...assembly, connectors: family.connectors });
+
+    controller.setWorldConnectorHidden('base.instance(1)', true);
+    expect(controller.getWorldConnectorGroup('w1-1')!.visible).toBe(false);
+    expect(controller.getWorldConnectorGroup('w1-2')!.visible).toBe(true);
+    expect(controller.getWorldConnectorGroup('w1')!.visible).toBe(true);
+    expect(controller.isWorldConnectorHidden('base.instance(1)')).toBe(true);
+    expect(controller.isWorldConnectorHidden('base')).toBe(false);
+
+    // The address survives a re-mint: the hide follows the label.
+    const again = worldFamily('-r2');
+    controller.update([...sceneObjects, ...again.rows], { ...assembly, connectors: again.connectors });
+    expect(controller.getWorldConnectorGroup('w1-1-r2')!.visible).toBe(false);
+    expect(controller.findWorldConnectorId('base', 2)).toBe('w1-2-r2');
+    expect(controller.findWorldConnectorId('base')).toBe('w1-r2');
+
+    // "Suggest copies" reads the family through the copy statement — at the
+    // file's top level, like a part's.
+    expect(controller.getConnectorFamily('w1-2-r2')).toEqual({
+      seedId: 'w1-r2',
+      originalSlot: 0,
+      members: [
+        { connectorId: 'w1-r2', slot: 0 },
+        { connectorId: 'w1-1-r2', slot: 1 },
+        { connectorId: 'w1-2-r2', slot: 2 },
+      ],
+    });
+  });
+
   it('hover highlight and mate pinning reach assembly connectors', () => {
     const { controller, sceneObjects, assembly } = makeRig();
     controller.update(sceneObjects, { ...assembly, connectors: [worldConnector] });
@@ -349,8 +408,8 @@ describe('mate-dialog connector picking', () => {
 
   it('resolves connector names and ids for the mate dialog', () => {
     const { controller } = makeRig();
-    expect(controller.getConnectorName('c1')).toBe('top');
-    expect(controller.getConnectorName('nope')).toBeNull();
+    expect(controller.getConnectorRef('c1')).toEqual({ name: 'top' });
+    expect(controller.getConnectorRef('nope')).toBeNull();
     expect(controller.findConnectorId('i1', 'top')).toBe('c1');
     expect(controller.findConnectorId('i1', 'missing')).toBeNull();
     expect(controller.findConnectorId('ghost', 'top')).toBeNull();
@@ -467,5 +526,245 @@ describe('provisional mate replacing a committed one', () => {
     expect(lastResult).toBe('okay');
     expect(lastFailed).toEqual([]);
     expect(follower.position.distanceTo(reference)).toBeLessThan(1e-6);
+  });
+});
+
+// Connector copies (`copy(…, bolt)` in the part): a copy's row sits under
+// its copy statement's row, not the part, carries `copy: { slot, seedId }`,
+// and code addresses it `bolt.instance(slot)`. The solver, the gizmo pick,
+// the pick's address, its re-resolution and the writer's payload must all
+// reach it — a direct-children scan of the part would drop every one.
+describe('connector copies', () => {
+  const FLANGE_FILE = '/ws/flange.part.js';
+  const ASSEMBLY_FILE = '/ws/m.assembly.js';
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  /** A frame turned `deg` about Z at (x, y, z). */
+  function frame(x: number, y: number, z: number, deg = 0) {
+    const a = (deg * Math.PI) / 180;
+    return {
+      origin: { x, y, z },
+      xDirection: { x: Math.cos(a), y: Math.sin(a), z: 0 },
+      yDirection: { x: -Math.sin(a), y: Math.cos(a), z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    };
+  }
+
+  /**
+   * The rows a render emits: a flange whose `bolt` (30 out along X) a
+   * circular copy copies to slots 1–3, and a pin with a `head` at its
+   * origin. `suffix` re-mints every id, as each assembly render does.
+   */
+  function copyScene(suffix = ''): { rows: SceneObjectRender[]; assembly: SerializedAssembly } {
+    const id = (base: string) => `${base}${suffix}`;
+    const row = (fields: Partial<SceneObjectRender>): SceneObjectRender =>
+      ({ visible: true, sceneShapes: [], ownShapes: [], ...fields }) as SceneObjectRender;
+    const rows: SceneObjectRender[] = [
+      row({ id: id('flange'), type: 'part', name: 'flange' }),
+      row({
+        id: id('bolt'), type: 'connector', parentId: id('flange'), name: 'bolt',
+        object: { name: 'bolt', ...frame(30, 0, 10) },
+        sourceLocation: { filePath: FLANGE_FILE, line: 7, column: 2 },
+      }),
+      row({
+        id: id('copy'), type: 'copy-circular', parentId: id('flange'), hideChildren: true,
+        object: { connectorCopies: { seeds: [{ id: id('bolt'), name: 'bolt' }], originalSlot: 0, slotCount: 4, slots: [1, 2, 3] } },
+        sourceLocation: { filePath: FLANGE_FILE, line: 8, column: 2 },
+      }),
+      ...[1, 2, 3].map(slot => {
+        const a = (slot * Math.PI) / 2;
+        return row({
+          id: id(`bolt-${slot}`), type: 'connector', parentId: id('copy'), name: `bolt.instance(${slot})`,
+          object: { name: 'bolt', ...frame(30 * Math.cos(a), 30 * Math.sin(a), 10, slot * 90), copy: { slot, seedId: id('bolt') } },
+          sourceLocation: { filePath: FLANGE_FILE, line: 8, column: 2, occurrence: slot - 1 },
+        });
+      }),
+      row({ id: id('pin'), type: 'part', name: 'pin' }),
+      row({ id: id('head'), type: 'connector', parentId: id('pin'), name: 'head', object: { name: 'head', ...frame(0, 0, 0) } }),
+    ];
+    const instance = (instanceId: string, partId: string, line: number, grounded: boolean, x: number) => ({
+      instanceId, partId: id(partId), partName: partId,
+      position: { x, y: 0, z: 0 },
+      quaternion: { x: 0, y: 0, z: 0, w: 1 },
+      grounded, name: `${partId}1`,
+      sourceLocation: { filePath: ASSEMBLY_FILE, line, column: 0 },
+    });
+    return {
+      rows,
+      assembly: { instances: [instance('i1', 'flange', 4, true, 0), instance('i2', 'pin', 5, false, 100)], mates: [] },
+    };
+  }
+
+  function makeCopyRig() {
+    const canvas = makeCanvas();
+    const renderer = { domElement: canvas } as unknown as WebGLRenderer;
+    const camera = new PerspectiveCamera(50, W / H, 0.1, 5000);
+    camera.position.set(0, 0, 400);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+    const scene = new Scene();
+    const controller = new AssemblyController(renderer, camera, () => {}, (ndcX, ndcY) => {
+      const raycaster = new Raycaster();
+      raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+      return raycaster;
+    });
+    scene.add(controller.getContainer());
+    const first = copyScene();
+    controller.update(first.rows, first.assembly);
+    scene.updateMatrixWorld(true);
+    return { controller, camera, scene, ...first };
+  }
+
+  it('finds copies at any depth under the part: address, id, family and the seed\'s statement', () => {
+    const { controller } = makeCopyRig();
+
+    expect(controller.getConnectorRef('bolt-3')).toEqual({ name: 'bolt', slot: 3 });
+    expect(controller.getConnectorRef('bolt')).toEqual({ name: 'bolt' });
+    expect(controller.findConnectorId('i1', 'bolt', 3)).toBe('bolt-3');
+    expect(controller.findConnectorId('i1', 'bolt')).toBe('bolt');
+    // The original's slot is the connector itself; a slot nothing sits at is gone.
+    expect(controller.findConnectorId('i1', 'bolt', 0)).toBe('bolt');
+    expect(controller.findConnectorId('i1', 'bolt', 4)).toBeNull();
+
+    expect(controller.listInstanceConnectors('i1')).toEqual([
+      { connectorId: 'bolt', name: 'bolt' },
+      { connectorId: 'bolt-1', name: 'bolt', slot: 1, seedId: 'bolt' },
+      { connectorId: 'bolt-2', name: 'bolt', slot: 2, seedId: 'bolt' },
+      { connectorId: 'bolt-3', name: 'bolt', slot: 3, seedId: 'bolt' },
+    ]);
+    expect(controller.getConnectorFamily('bolt-2')).toEqual({
+      seedId: 'bolt',
+      originalSlot: 0,
+      members: [0, 1, 2, 3].map(slot => ({ connectorId: slot === 0 ? 'bolt' : `bolt-${slot}`, slot })),
+    });
+    expect(controller.getConnectorFamily('head')).toBeNull();
+    // A copy has no statement of its own: the pen edits its seed.
+    expect(controller.getConnectorSourceLocation('bolt-2')).toEqual({ filePath: FLANGE_FILE, line: 7 });
+  });
+
+  it('orders a family by slot, the seed at the original\'s slot of a centered pattern', () => {
+    const { controller, rows, assembly } = makeCopyRig();
+    // A centered three-cell copy: the seed holds slot 1, its copies 0 and 2.
+    const centered = rows.map(r => {
+      if (r.id === 'copy') {
+        return { ...r, object: { connectorCopies: { seeds: [{ id: 'bolt', name: 'bolt' }], originalSlot: 1, slotCount: 3, slots: [0, 2] } } };
+      }
+      if (r.id === 'bolt-1' || r.id === 'bolt-3') {
+        const slot = r.id === 'bolt-1' ? 0 : 2;
+        return { ...r, object: { ...r.object, copy: { slot, seedId: 'bolt' } } };
+      }
+      return r;
+    }).filter(r => r.id !== 'bolt-2');
+    controller.update(centered, assembly);
+    expect(controller.getConnectorFamily('bolt')!.members).toEqual([
+      { connectorId: 'bolt-1', slot: 0 },
+      { connectorId: 'bolt', slot: 1 },
+      { connectorId: 'bolt-3', slot: 2 },
+    ]);
+    expect(controller.findConnectorId('i1', 'bolt', 1)).toBe('bolt');
+  });
+
+  it('keeps a mate to a copy in the solve', () => {
+    const { controller, rows, assembly } = makeCopyRig();
+    controller.update(rows, {
+      ...assembly,
+      mates: [{
+        mateId: 'mate-0', type: 'fastened', status: 'satisfied',
+        connectorA: { instanceId: 'i1', connectorId: 'bolt-3' },
+        connectorB: { instanceId: 'i2', connectorId: 'head' },
+      }],
+    });
+    // The pin's head lands on copy 3, at (0, -30, 10).
+    const pin = controller.getInstanceGroup('i2')!;
+    expect(pin.position.x).toBeCloseTo(0, 6);
+    expect(pin.position.y).toBeCloseTo(-30, 6);
+    expect(pin.position.z).toBeCloseTo(10, 6);
+  });
+
+  it('picks a nested copy\'s gizmo, previews and applies bolt.instance(3), and re-resolves after a render', async () => {
+    const rig = makeCopyRig();
+    const { controller, camera } = rig;
+    let assembly = rig.assembly;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const viewer = { pickConnectors: false, getAssemblyController: () => controller } as unknown as Viewer;
+    const service = new AssemblyMateService(container, viewer, { getAssembly: () => assembly });
+    const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => ({ success: true }) }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const pickedSpy = vi.spyOn(controller, 'setMatePickedConnectors');
+
+    service.enter('fastened');
+    // The copy's gizmo is built under its statement's row and picks by screen distance.
+    const projected = new Vector3(0, -30, 10).project(camera);
+    const px = ((projected.x + 1) / 2) * W;
+    const py = ((1 - projected.y) / 2) * H;
+    const hit = controller.pickConnectorAt(px + 2, py + 2);
+    expect(hit).toEqual({ instanceId: 'i1', connectorId: 'bolt-3' });
+    service.handleClick(hit!.connectorId, { type: 'connector', index: 0 }, hit!.instanceId);
+    service.handleClick('head', { type: 'connector', index: 0 }, 'i2');
+
+    const text = (role: string) => container.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
+    expect(text('slot-a')).toContain('flange1 · bolt.instance(3)');
+    expect(text('message')).toBe('');
+    const preview = "mate('fastened', flange1.connectors.bolt.instance(3), pin1.connectors.head);";
+    expect(text('preview')).toBe(preview);
+
+    // A render re-mints every id: the pick re-finds itself by (name, slot).
+    const fresh = copyScene('-r2');
+    assembly = fresh.assembly;
+    controller.update(fresh.rows, fresh.assembly);
+    service.handleSceneRendered('assembly');
+    expect(pickedSpy.mock.calls.at(-1)![0]).toEqual([
+      { instanceId: 'i1', connectorId: 'bolt-3-r2' },
+      { instanceId: 'i2', connectorId: 'head-r2' },
+    ]);
+    expect(text('slot-a')).toContain('flange1 · bolt.instance(3)');
+    expect(text('preview')).toBe(preview);
+
+    await (service as any).apply();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain('api/assembly-mate');
+    const body = JSON.parse(init.body as string);
+    expect(body.filePath).toBe(ASSEMBLY_FILE);
+    expect(body.create.connectorA).toEqual({ instanceLine: 4, connectorName: 'bolt', slot: 3 });
+    expect(body.create.connectorB).toEqual({ instanceLine: 5, connectorName: 'head' });
+  });
+
+  it('tells a copy apart from its seed and its siblings, but refuses the same copy twice', () => {
+    const rig = makeCopyRig();
+    const open = () => {
+      document.body.innerHTML = '';
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const viewer = { pickConnectors: false, getAssemblyController: () => rig.controller } as unknown as Viewer;
+      const service = new AssemblyMateService(container, viewer, { getAssembly: () => rig.assembly });
+      service.enter('fastened');
+      const pick = (connectorId: string) => service.handleClick(connectorId, { type: 'connector', index: 0 }, 'i1');
+      const text = (role: string) => container.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
+      return { pick, text };
+    };
+
+    const seedAndCopy = open();
+    seedAndCopy.pick('bolt');
+    seedAndCopy.pick('bolt-2');
+    expect(seedAndCopy.text('message')).toBe('');
+    expect(seedAndCopy.text('preview'))
+      .toBe("mate('fastened', flange1.connectors.bolt, flange1.connectors.bolt.instance(2));");
+
+    const twoCopies = open();
+    twoCopies.pick('bolt-1');
+    twoCopies.pick('bolt-2');
+    expect(twoCopies.text('message')).toBe('');
+
+    const sameCopy = open();
+    sameCopy.pick('bolt-2');
+    sameCopy.pick('bolt-2');
+    expect(sameCopy.text('message')).toBe('A connector cannot be mated to itself — pick a different one.');
+    expect(sameCopy.text('slot-b')).not.toContain('bolt');
   });
 });

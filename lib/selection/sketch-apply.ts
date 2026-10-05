@@ -96,7 +96,7 @@ export function synthesizeSketchApplyFeature(
   // resolveEdgeTargets, which reads a named `.guide()` object's edges (the
   // P7 offset pattern: guide the source, offset it) — so guide picks resolve
   // here too. Only owner-bound forms can express them; see the filter pool.
-  const resolution = resolvePicks(scene, refs, { includeGuides: true });
+  const resolution = resolvePicks(scene, refs);
   if ('reason' in resolution) {
     return { ok: false, reason: resolution.reason };
   }
@@ -270,7 +270,7 @@ function resolveSingleOwner(
   refs: SketchPickRef[],
   reasonForMany: string,
 ): { owner: SceneObject } | { reason: string } {
-  const resolution = resolvePicks(scene, refs, { includeGuides: true });
+  const resolution = resolvePicks(scene, refs);
   if ('reason' in resolution) {
     return { reason: resolution.reason };
   }
@@ -402,10 +402,10 @@ function synthesizeSketchTransformOperands(
     return { ok: false, reason: 'a mirror reflects across exactly one line' };
   }
 
-  // Targets resolve through the profile index (the build's own view of the
-  // sketch) — a guide pick is refused as construction geometry; an axis line
-  // may be a `.guide()` — construction geometry is the classic mirror line —
-  // so its picks widen to guides. Both must land in ONE sketch.
+  // Both builds stamp their named targets' `.guide()` shapes (Copy2DBase
+  // .sourceShapes, MirrorShape2D.build), so target picks take construction
+  // geometry; an axis line may be a `.guide()` too — construction geometry
+  // is the classic mirror line. Both must land in ONE sketch.
   let targetPicks: ResolvedSketchPick[] = [];
   let pickedSketch: Sketch | null = null;
   if (refs.length > 0) {
@@ -418,7 +418,7 @@ function synthesizeSketchTransformOperands(
   }
   let axisPicks: ResolvedSketchPick[] = [];
   if (axisRefs.length > 0) {
-    const resolution = resolvePicks(scene, axisRefs, { includeGuides: true });
+    const resolution = resolvePicks(scene, axisRefs);
     if ('reason' in resolution) {
       return { ok: false, reason: resolution.reason };
     }
@@ -526,15 +526,12 @@ function synthesizeSketchTransformOperands(
 /**
  * Resolve every `{shapeId}` pick to its edge and owner in ONE sketch.
  *
- * The index always covers construction geometry, so a `.guide()` pick is
- * recognised as such: consumers whose build reads named guide objects pass
- * `includeGuides` and take it; the others refuse it with the reason (rather
- * than the generic "does not resolve", which reads as a stale scene).
+ * The index covers construction geometry: every consumer's build reads a
+ * named `.guide()` object's edges, so a guide pick resolves like any other.
  */
 function resolvePicks(
   scene: SelectionScene,
   refs: SketchPickRef[],
-  options: { includeGuides?: boolean } = {},
 ): { sketch: Sketch; picks: ResolvedSketchPick[] } | { reason: string } {
   const sketches = scene.getAllSceneObjects()
     .filter((o): o is Sketch => o instanceof Sketch);
@@ -568,9 +565,6 @@ function resolvePicks(
     }
     if (!resolved) {
       return { reason: 'a pick does not resolve to a sketch edge in the current scene' };
-    }
-    if (!options.includeGuides && resolved.edge.isGuideShape()) {
-      return { reason: 'a picked edge is construction geometry (.guide()) — this operation reads only real sketch edges' };
     }
     if (pickedSketch && resolved.sketch !== pickedSketch) {
       return { reason: 'the picked edges live in different sketches — apply the operation per sketch' };

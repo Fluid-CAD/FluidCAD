@@ -84,10 +84,7 @@ export class AxisFromEdge extends AxisObjectBase {
     }
 
     this.setState('axis', axis);
-
-    const edge = EdgeOps.axisToEdge(axis);
-
-    this.addShape(edge);
+    this.addAxisEdge(axis);
   }
 
   compareTo(other: AxisFromEdge): boolean {

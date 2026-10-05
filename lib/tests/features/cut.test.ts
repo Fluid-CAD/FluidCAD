@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import plane from "../../core/plane.js";
 import cylinder from "../../core/cylinder.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
@@ -17,6 +17,7 @@ import shell from "../../core/shell.js";
 import select from "../../core/select.js";
 import expose from "../../core/expose.js";
 import { face } from "../../filters/index.js";
+import { ShapeProps } from "../../oc/props.js";
 
 describe("cut", () => {
   setupOC();
@@ -110,13 +111,12 @@ describe("cut", () => {
 
       const s = sketch(e.endFaces(), () => {
           testRect(50, 50, { at: [25, 25] });
-        }) as SceneObject;
+        }) as unknown as SceneObject;
 
       cut(20);
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
   });
 
@@ -294,7 +294,7 @@ describe("cut", () => {
 
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
           testRect(100, 100);
@@ -302,10 +302,11 @@ describe("cut", () => {
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-          circle([25, 25], 30);
+          const a = circle([25, 25], 30);
           circle([75, 25], 30);
+          region('a', a);
         });
-      const c = cut(20).pick([25, 25]) as ExtrudeBase;
+      const c = cut(20).region('a') as ExtrudeBase;
 
       render();
 
@@ -406,6 +407,136 @@ describe("cut", () => {
       for (const edge of edges) {
         expect(edge.getType()).toBe("edge");
       }
+    });
+  });
+
+  describe("ownership", () => {
+    it("records the pocket it made as its own, and none of the stock around it", () => {
+      sketch("xy", () => {
+          testRect(100, 100);
+        });
+      const e = extrude(50) as unknown as SceneObject;
+
+      sketch((e as unknown as Extrude).endFaces(), () => {
+          testRect(50, 50, { at: [25, 25] });
+        });
+      const c = cut(20) as unknown as SceneObject;
+
+      render();
+
+      // Four walls and a floor; four rim edges, four floor edges, four creases.
+      expect(c.getAddedFaces()).toHaveLength(5);
+      expect(c.getAddedEdges()).toHaveLength(12);
+
+      // The five faces the cut never reached are on the result as the extrude
+      // built them, and the top face it opened is the extrude's, modified.
+      const solid = c.getShapes({}, "solid")[0];
+      const built = e.getAddedFaces();
+      expect(built).toHaveLength(6);
+      expect(built.filter(f => solid.getSubShapes("face").some(s => s.isSame(f)))).toHaveLength(5);
+      expect(c.getAddedFaces().some(f => built.some(b => b.isSame(f)))).toBe(false);
+      expect(e.getModifiedFaces()).toHaveLength(1);
+      expect(e.getModifiedFaces()[0].modifiedBy).toBe(c);
+    });
+
+    it("leaves a solid its tool only touches with the feature that built it", () => {
+      sketch("xy", () => {
+          testRect(100, 100);
+        });
+      const e = extrude(50) as unknown as SceneObject;
+
+      // A cut runs away from the face it is sketched on. Sketched on the
+      // box's bottom plane, the tool hangs below the box with its top against
+      // the box's bottom face, and takes nothing.
+      sketch("xy", () => {
+          testRect(50, 50, { at: [25, 25] });
+        });
+      const c = cut(20) as unknown as SceneObject;
+
+      const scene = render();
+
+      expect(c.getError()).toBeNull();
+      expect(countShapes(scene)).toBe(1);
+      expect(e.getShapes({}, "solid")[0]).toBe(e.getAddedShapes()[0]);
+      expect(e.getModifiedFaces()).toEqual([]);
+      expect(c.getShapes()).toEqual([]);
+      expect(c.getAddedFaces()).toEqual([]);
+      expect(c.getAddedEdges()).toEqual([]);
+    });
+
+    it("keeps the lineage of the stock faces a cleanup rebuilt instead of claiming them", () => {
+      sketch("xy", () => {
+          testRect(60, 40, { at: [-30, -20] });
+        });
+      const plate = extrude(10) as unknown as SceneObject;
+
+      // A wall across the full depth of the plate, fused on: it splits the
+      // plate's top face in two.
+      sketch((plate as unknown as Extrude).endFaces(), () => {
+          testRect(10, 40, { at: [-5, -20] });
+        });
+      const wall = extrude(8) as unknown as SceneObject;
+
+      // Cut the wall away again, flush with the plate. Nothing of the cut is
+      // left to see: the cleanup merges its floor and the two halves of the
+      // top into one face, and rebuilds the faces around them.
+      sketch((wall as unknown as Extrude).endFaces(), () => {
+          testRect(10, 40, { at: [-5, -20] });
+        });
+      const c = cut(8) as unknown as SceneObject;
+
+      render();
+
+      const solid = c.getShapes({}, "solid")[0];
+      const faces = solid.getSubShapes("face");
+      expect(faces).toHaveLength(6);
+      expect(c.getAddedFaces()).toEqual([]);
+      expect(c.getAddedEdges()).toEqual([]);
+
+      // Every face of the plate descends from what was there: it came through
+      // as the plate built it, or it is an image the cut's modification
+      // records name on the solid's owner.
+      const pristine = plate.getAddedFaces();
+      const images = wall.getModifiedFaces().filter(m => m.modifiedBy === c).flatMap(m => m.results);
+      expect(images.length).toBeGreaterThan(0);
+      for (const f of faces) {
+        expect(pristine.some(p => p.isSame(f)) || images.some(r => r.isSame(f))).toBe(true);
+      }
+    });
+
+    it("cuts two overlapping bodies each on its own", () => {
+      sketch("xy", () => {
+          testRect(60, 40, { at: [-30, -20] });
+        });
+      const plate = extrude(10).new() as unknown as SceneObject;
+
+      // A second body sunk halfway into the first: the two overlap.
+      sketch(plane("xy", 5), () => {
+          testRect(20, 20, { at: [-10, -10] });
+        });
+      const post = extrude(30).new() as unknown as SceneObject;
+
+      // Straight down through both, across the volume they share.
+      sketch(plane("xy", 35), () => {
+          circle([0, 0], 6);
+        });
+      const c = cut() as unknown as SceneObject;
+
+      const scene = render();
+
+      expect(c.getError()).toBeNull();
+      const volumes = scene.getAllSceneObjects()
+        .filter(o => !o.isContainer())
+        .flatMap(o => o.getShapes({}, "solid"))
+        .map(s => ShapeProps.getProperties(s.getShape()).volumeMm3)
+        .sort((a, b) => a - b);
+      // Each body minus the bore through it — neither split along the other.
+      expect(volumes).toHaveLength(2);
+      expect(volumes[0]).toBeCloseTo(20 * 20 * 30 - Math.PI * 3 * 3 * 30, 3);
+      expect(volumes[1]).toBeCloseTo(60 * 40 * 10 - Math.PI * 3 * 3 * 10, 3);
+      expect(plate.getShapes()).toEqual([]);
+      expect(post.getShapes()).toEqual([]);
+      expect(c.getAddedShapes()).toHaveLength(2);
     });
   });
 

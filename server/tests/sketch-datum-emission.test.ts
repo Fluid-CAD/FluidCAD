@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySolvedEmission } from '../src/sketch-solved-edit.ts';
+import { applySolvedEmission } from '../src/sketch-solved-edit/index.ts';
 import { applySketchConstraint } from '../src/sketch-constraint-edit.ts';
 
 // Datum targets (origin/axes): rendered as their accessor calls

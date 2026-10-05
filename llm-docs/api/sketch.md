@@ -25,7 +25,7 @@ literal is only a guess for the solver, never the design: pin every
 entity to the datums (`origin()`, `xAxis()`, `yAxis()`), to a projected
 reference, or to other entities, and dimension every size, until the
 solver reports the sketch fully constrained. Whatever the callback
-returns is attached as `.regions` on the resulting `SceneObject`, so
+returns is attached as `.geometries` on the resulting `SceneObject`, so
 named references can be carried out:
 
 ```fluid.js
@@ -43,8 +43,18 @@ const s = sketch("xy", () => {
 });
 extrude(10);
 
-// s.regions.outer  → reference to the outer circle
+// s.geometries.outer  → reference to the outer circle
 ```
+
+Use `.geometries` for any named geometry, including lines and arcs. The older
+`.regions` spelling remains a deprecated alias for the same object.
+Point accessors such as `s.geometries.line.start()` stay local inside sketch
+constraints. Outside the sketch, loft connections and connectors resolve them
+through the sketch plane to world coordinates, including on offset or tilted planes.
+Derived geometry is addressed by index on the operation that produced it:
+`s.geometries.o.edge(2).start()` names a vertex of an `offset()` result (see
+[[api/offset]] for the index rule). A sketch fillet is a real `arc()`
+statement, so its ends are ordinary named points.
 
 ## Sketch datums
 
@@ -73,8 +83,9 @@ sketch("xy", () => {
 extrude(20);  // consumes the sketch above
 ```
 
-A consumed sketch is gone. To reuse a sketch across multiple operations,
-mark it `.reusable()`:
+Consumption is a display rule: the sketch leaves the screen from its first
+consumer on (and shows again when the timeline is scrubbed before it), but
+it stays available. Any later feature takes it by variable — no chain needed:
 
 ```fluid.js
 import { circle, extrude, origin, sketch } from "fluidcad/core";
@@ -84,10 +95,14 @@ const profile = sketch("xy", () => {
   const c = circle([0, 0], 40);
   coincident(c.center(), origin());
   diameter(c, 40);
-}).reusable();
+});
 extrude(30, profile);
-extrude(-10, profile);  // still available
+extrude(-10, profile);  // the same sketch again
 ```
+
+With `region()` declarations the same sketch drives one feature per region
+(`extrude(20, s).region('ring')`, `extrude(50, s).region('disc')`).
+`remove(s)` drops a sketch for good once nothing else will use it.
 
 ## Sketching on a face
 

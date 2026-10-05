@@ -107,6 +107,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'until the solver reports the sketch fully constrained. Coordinate',
         'literals are guesses, never the design.',
         '',
+        'Do not build features inside a `for` loop (or forEach/map). Features',
+        'made in a loop are hard to edit from the FluidCAD UI. Build the',
+        'feature once and place the rest with repeat() ("linear", "circular",',
+        '"mirror", "rotate"; a repeat can repeat a repeat; `skip` leaves slots',
+        'out) or copy() for independent duplicates of a finished shape.',
+        'Instances that differ in size are separate statements. Loop only when',
+        'none of these can express the geometry.',
+        '',
         '`.fluid.js` files MUST import every FluidCAD symbol they use:',
         '  import { sketch, line, extrude } from "fluidcad/core";',
         '  import { face, edge } from "fluidcad/filters";',
@@ -266,7 +274,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -297,13 +305,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.registerTool(
     'get_shape_properties',
     {
-      title: 'Get geometric properties of a shape',
+      title: 'Get geometric properties of a shape or a part',
       description:
-        'Returns volume, surface area, bounding box, center of mass, and similar measurements for a single shape. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them).',
-      inputSchema: { ...workspaceArg, shapeId: shapeIdArg },
+        'With `shapeId`: volume, surface area, and center of mass for a single shape. With `partId` (a `part` object id from get_scene_summary, or an assembly instance\'s `partId`) instead: the same summed over the part\'s final solids (`shapeIds`, `solidCount`, volume-weighted `centroid`), plus `material` (id, name, density, `densityGcm3`, `source` built-in|project) and `massG` in grams when the part\'s `.material(id)` resolves, or `warning: "Unknown material: <id>"` and no mass when it does not; `material` is null for a part without one. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them; `massG` is always grams).',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg.optional(),
+        partId: z.string().min(1).optional().describe('A part object id from get_scene_summary (kind "part") — sums its final solids; pass this OR shapeId.'),
+      },
     },
-    async ({ workspace, shapeId }) =>
-      toMcp(await getShapeProperties({ workspace, shapeId })),
+    async ({ workspace, shapeId, partId }) =>
+      toMcp(await getShapeProperties({ workspace, shapeId, partId })),
   );
 
   server.registerTool(
@@ -364,9 +376,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     );
 
   const pickArg = z.object({
-    shapeId: z.string().min(1).describe('Solid id from list_shapes / get_scene_summary / hit_test.'),
-    kind: z.enum(['face', 'edge']),
-    index: z.number().int().nonnegative().describe('The face/edge index in that solid — the index hit_test, measure and resolve_selection matches report.'),
+    shapeId: z.string().min(1).describe('Shape id from list_shapes / get_scene_summary / hit_test.'),
+    kind: z.enum(['face', 'edge', 'vertex']),
+    index: z.number().int().nonnegative().describe('Topological face/edge/vertex index in that shape; vertex indices follow the rendered vertices payload.'),
   });
 
   server.registerTool(
@@ -375,11 +387,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Resolve a selection and synthesize the selector to write for it',
       description:
         'Two inputs, one of them: `expression` — a filter expression evaluated with exactly the candidate set a select() statement ' +
-        'would see at the given scope; or `picks` — explicit face/edge refs (from hit_test, a screenshot highlight, or an earlier ' +
-        'match). Returns every matched face/edge with its shapeId/kind/index (usable in measure and hit_test), owning ' +
+        'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
+        'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), owning ' +
         'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
         'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
-        '(returned as `unit`), rounded to its meaningful precision. Zero matches is a normal result with count 0 — check it before ' +
+        '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +
+        'vertex source synthesis is not yet available. Zero matches is a normal result with count 0 — check it before ' +
         'writing a fillet/chamfer/color on that filter, which would silently do nothing.\n\n' +
         '`synthesized` is the selector the language itself would write for exactly those matches — the same ranked, verified ' +
         'synthesis the UI runs on a pick: a feature accessor on a bound variable (`e.endEdges()`, `c.sideFaces(2)`) beats a filter ' +
@@ -437,8 +450,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'close, pcurves off their surface, an edge without faces); `openShell` (a shell with a free edge, so no enclosed volume); ' +
         '`nonPositiveVolume` (signed volume <= 0 — inversion is caught by the volume sign ONLY, because the analyzer accepts a ' +
         'reversed solid as valid; measured per solid, never summed, so +1000 and -1000 cannot cancel); `noSolid` (the shape holds ' +
-        'no solid at all). Self-intersection is NOT checked: this kernel build exposes neither BRepAlgoAPI_Check nor ' +
-        'BOPAlgo_ArgumentAnalyzer, and the result says so under `notChecked`; do not claim it. Result: `ok` (true only with zero ' +
+        'no solid at all); `nonFiniteGeometry` (unbounded/non-finite geometry bounds or signed volume). Self-intersection is NOT checked ' +
+        'by this basic inspection, as stated under `notChecked`; expensive native self-interference analysis is reserved for ' +
+        'explicit diagnostics. Do not infer a self-interference verdict from this report. Result: `ok` (true only with zero ' +
         'findings), `checked` (shapes examined), `findings`, `shapes` (per shape: faces, edges, solids, signed `volume` in the ' +
         'document unit cubed, finding kinds), `skipped` (shapes that could not be examined, with why), `checks` (what ran), `unit`. ' +
         'Default is every solid the scene renders (a solid a later cut consumed is not rendered, so not checked). `shapeIds` ' +

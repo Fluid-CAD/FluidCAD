@@ -1,6 +1,5 @@
 import { Axis, AxisTransformOptions } from "../math/axis.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
-import { EdgeOps } from "../oc/edge-ops.js";
 
 export class AxisMiddle extends AxisObjectBase {
 
@@ -29,10 +28,7 @@ export class AxisMiddle extends AxisObjectBase {
     }
 
     this.setState('axis', middleAxis);
-
-    const edge = EdgeOps.axisToEdge(middleAxis);
-
-    this.addShape(edge);
+    this.addAxisEdge(middleAxis);
   }
 
   compareTo(other: AxisMiddle): boolean {

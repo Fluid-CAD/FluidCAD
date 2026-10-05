@@ -1,9 +1,9 @@
-import { sketch, extrude } from 'fluidcad/core';
-import { circle } from 'fluidcad/core';
+import { sketch, circle, region, extrude } from 'fluidcad/core';
 
-sketch("xy", () => {
-    circle([0, 0], 60);
-    circle([0, 0], 30);
-  })
+const s = sketch("xy", () => {
+    const outer = circle([0, 0], 60);
+    const inner = circle([0, 0], 30);
+    region('r1', outer);         // written by the pick: the ring, whose outer loop is `outer`
+})
 
-extrude(20).pick([20, 0])
+extrude(20, s).region('r1')

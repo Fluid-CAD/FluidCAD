@@ -1,0 +1,160 @@
+---
+id: api/types/hole
+title: Hole
+summary: "A fastener hole cut into the scope solids at one or more placements."
+tags: [api, type, interface]
+symbols: [Hole, IHole]
+seeAlso: [api/hole, api/types/scene-object]
+---
+# Hole
+
+```ts
+interface Hole extends SceneObject {
+  clearance(fit?: "normal" | "close" | "loose"): this;
+  tapped(pitch?: number): this;
+  counterbore(diameter?: number, depth?: number): this;
+  countersink(diameter?: number, angle?: number): this;
+  depth(distance: number, tipAngle?: number): this;
+  fasten(pitch?: number | "coarse", depth?: number, tipAngle?: number): this;
+  scope(...objects: SceneObject[]): this;
+  faces(...args: (number | FaceFilter)[]): ISelection;
+  edges(...args: (number | EdgeFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
+}
+```
+
+A fastener hole cut into the scope solids at one or more placements. Created
+with `hole(size, ...placements)`; the chains below refine it and must come
+before `.scope()`.
+
+Extends [[api/types/scene-object]].
+
+## Methods
+
+### `clearance()`
+
+A clearance hole for the fastener size, from the ISO 273 / ASME B18.2.8
+tables. Fastener sizes only (`hole('M6', …)`).
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `fit` | `"normal"` \| `"close"` \| `"loose"` | 'close', 'normal' (default) or 'loose' *(optional)* |
+
+### `tapped()`
+
+A tapped hole for the fastener size, cut at its tap-drill diameter.
+Threads are not modelled yet; the size and pitch are kept for a later
+thread feature. Fastener sizes only.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `pitch` | `number` | The thread pitch in mm (metric) or threads per inch (inch); omitted = coarse *(optional)* |
+
+### `counterbore()`
+
+A counterbore at the entry. Without values the socket-head cap screw
+table for the fastener size is used.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `diameter` | `number` | Counterbore diameter *(optional)* |
+| `depth` | `number` | Counterbore depth from the surface *(optional)* |
+
+### `countersink()`
+
+A countersink at the entry. Without values the flat-head screw table for
+the fastener size is used (90° metric, 82° inch).
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `diameter` | `number` | Countersink diameter at the surface *(optional)* |
+| `angle` | `number` | Included angle in degrees *(optional)* |
+
+### `depth()`
+
+A blind hole. Without this chain the hole runs through every solid in scope.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `distance` | `number` | Depth from the surface to the shoulder (the full-diameter depth) |
+| `tipAngle` | `number` | Drill point included angle below the shoulder (118 for a standard drill); omitted = flat bottom *(optional)* |
+
+### `fasten()`
+
+Fastens through to the solid below: the clearance hole cuts the solid
+the hole sits on (or the `.scope()` solids), and the next solid the hole
+axis enters past them gets the matching tapped hole, cut at the
+tap-drill diameter for the hole's fastener size. It opens where the axis
+enters that solid and runs through it, or to a blind depth measured from
+there. Each placement taps the solid under its own axis. Clearance holes
+of a fastener size only.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `pitch` | `number` \| `"coarse"` | The thread pitch in mm (metric) or threads per inch (inch); omitted or 'coarse' = the size's coarse pitch *(optional)* |
+| `depth` | `number` | Blind depth of the tapped hole from the face it enters, to the shoulder; omitted = through all *(optional)* |
+| `tipAngle` | `number` | Drill point included angle below a blind depth (118 for a standard drill); omitted = flat bottom *(optional)* |
+
+### `scope()`
+
+Narrows the cut to specific solids.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...objects` | [[api/types/scene-object]][] | The solids to cut *(optional)* |
+
+### `faces()`
+
+Selects the walls the hole created — the bore, the counterbore step, the countersink cone and the drill point.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `FaceFilter`)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+### `edges()`
+
+Selects every edge the hole created: the rims on the surfaces and the creases inside.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+### `startEdges()`
+
+Selects the rims where the hole meets the surface it enters.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+### `endEdges()`
+
+Selects the rims at the bottom of a blind hole, or where a through hole leaves the solid.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+### `internalEdges()`
+
+Selects the edges between the hole's own walls: where a countersink or a drill point meets the bore, and the walls' seams.
+
+**Returns**: `ISelection`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | (`number` \| `EdgeFilter`)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+## Inherited
+
+From [[api/types/scene-object]]: `name()`

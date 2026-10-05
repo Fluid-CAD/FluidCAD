@@ -1,7 +1,7 @@
 ---
 id: api/types/scene-object
 title: SceneObject
-summary: "The SceneObject type. Defines 2 methods."
+summary: "The SceneObject type. Defines 1 method."
 tags: [api, type, interface]
 symbols: [SceneObject, ISceneObject]
 seeAlso: [api/select, concepts/scene-graph]
@@ -11,7 +11,6 @@ seeAlso: [api/select, concepts/scene-graph]
 ```ts
 interface SceneObject {
   name(value: string): this;
-  reusable(): this;
 }
 ```
 
@@ -24,10 +23,3 @@ Sets a custom display name for this object, overriding the default type-based na
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `string` | The display name to assign. |
-
-### `reusable()`
-
-Marks this object as reusable. Reusable objects retain their shapes when
-consumed by features (e.g., extrude, revolve), allowing multiple features
-to reference the same source geometry. Use `remove(obj)` to force-remove
-shapes from a reusable object.

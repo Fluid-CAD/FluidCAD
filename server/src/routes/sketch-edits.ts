@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { describeOcException } from '../../../lib/dist/index.js';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import {
   addBreakpoint,
   removeBreakpoint,
@@ -10,11 +10,8 @@ import {
   removePoint,
   addGuide,
   removeGuide,
-  addPick,
-  removePick,
   removeStatement,
   setFeatureName,
-  setPickPoints,
   insertGeometryCallWithVariable,
   insertLoadCall,
   updateSketchPositions,
@@ -24,53 +21,15 @@ import {
   getDimensionExpression,
   getPointExpression,
   extractVariablesInPart,
+  extractVariablesInAssembly,
   extractVariablesInScope,
+  RenderedProperties,
   type VariableInfo,
-} from '../code-editor.ts';
+} from '../code-editor/index.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
+import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-
-/** One statement's worth of a solved-sketch drag write-back (P4). */
-function validateSketchPositionEdit(input: unknown): SketchPositionEdit | null {
-  if (typeof input !== 'object' || input === null) {
-    return null;
-  }
-  const obj = input as Record<string, unknown>;
-  if (typeof obj.sourceLine !== 'number') {
-    return null;
-  }
-  const edit: SketchPositionEdit = { sourceLine: obj.sourceLine };
-  if (obj.points !== undefined) {
-    if (!Array.isArray(obj.points)) {
-      return null;
-    }
-    const points: SketchPositionEdit['points'] = [];
-    for (const p of obj.points) {
-      if (typeof p !== 'object' || p === null
-        || typeof (p as any).pointIndex !== 'number'
-        || !validPoint((p as any).position)
-        || ((p as any).expected !== undefined && !validPoint((p as any).expected))) {
-        return null;
-      }
-      points.push({
-        pointIndex: (p as any).pointIndex,
-        position: (p as any).position,
-        ...((p as any).expected !== undefined ? { expected: (p as any).expected } : {}),
-      });
-    }
-    edit.points = points;
-  }
-  if (obj.scalar !== undefined) {
-    const s = obj.scalar as Record<string, unknown> | null;
-    if (typeof s !== 'object' || s === null || typeof s.value !== 'number'
-      || (s.expected !== undefined && typeof s.expected !== 'number')) {
-      return null;
-    }
-    edit.scalar = { value: s.value, ...(s.expected !== undefined ? { expected: s.expected as number } : {}) };
-  }
-  return edit;
-}
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -103,16 +62,6 @@ function validateNewVariable(
     return valid.length === 0 ? null : valid;
   }
   return validateOneNewVariable(input);
-}
-
-/** A [x, y] pair of finite numbers, or null for anything else. */
-function validPoint(input: unknown): [number, number] | null {
-  if (Array.isArray(input) && input.length === 2
-    && typeof input[0] === 'number' && Number.isFinite(input[0])
-    && typeof input[1] === 'number' && Number.isFinite(input[1])) {
-    return [input[0], input[1]];
-  }
-  return null;
 }
 
 export function createSketchEditsRouter(
@@ -196,36 +145,6 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/add-pick', (req, res) => {
-    const { sourceLocation } = req.body;
-    if (
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'add-pick',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/remove-pick', (req, res) => {
-    const { sourceLocation } = req.body;
-    if (
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'remove-pick',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
   router.post('/add-guide', (req, res) => {
     const { sourceLocation } = req.body;
     if (
@@ -251,23 +170,6 @@ export function createSketchEditsRouter(
     }
     sendToExtension({
       type: 'remove-guide',
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/set-pick-points', (req, res) => {
-    const { points, sourceLocation } = req.body;
-    if (
-      !Array.isArray(points) ||
-      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'set-pick-points',
-      points: points as [number, number][],
       sourceLocation,
     });
     res.json({ success: true });
@@ -404,7 +306,7 @@ export function createSketchEditsRouter(
     // is appended to the active part's body when `part` names one (its
     // statement line) — the scope is then that body, `param()`s included —
     // and after the file's last line otherwise.
-    const { sketchSourceLine, part } = req.body;
+    const { sketchSourceLine, part, assembly } = req.body;
     if (sketchSourceLine !== undefined && sketchSourceLine !== null
       && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
@@ -422,13 +324,22 @@ export function createSketchEditsRouter(
       return;
     }
     try {
+      // An instance's or a part definition's binding also offers the
+      // properties its last render computed, so a field can complete
+      // `drawer.properties.<name>` and `box.properties.<name>`.
+      const rendered = new RenderedProperties(fluidCadServer.getCurrentFileName(), {
+        instances: fluidCadServer.getRenderedInstances(),
+        parts: fluidCadServer.getRenderedParts(),
+      });
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
-        variables = await extractVariablesInScope(code, sketchSourceLine);
+        variables = await extractVariablesInScope(code, sketchSourceLine, rendered);
+      } else if (assembly === true) {
+        variables = await extractVariablesInAssembly(code, rendered);
       } else if (typeof partLine === 'number') {
-        variables = await extractVariablesInPart(code, partLine);
+        variables = await extractVariablesInPart(code, partLine, rendered);
       } else {
-        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered);
       }
       res.json({ variables });
     } catch (err: any) {
@@ -573,34 +484,6 @@ export function createSketchEditsRouter(
     }
   });
 
-  router.post('/code/add-pick', async (req, res) => {
-    const { code, sourceLine } = req.body;
-    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await addPick(code, sourceLine);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/remove-pick', async (req, res) => {
-    const { code, sourceLine } = req.body;
-    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await removePick(code, sourceLine);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
   router.post('/update-insert-chain', (req, res) => {
     const { sourceLocation, edit } = req.body;
     if (
@@ -732,23 +615,6 @@ export function createSketchEditsRouter(
       revealEditor: revealEditor !== false,
     });
     res.json({ success: true });
-  });
-
-  router.post('/code/set-pick-points', async (req, res) => {
-    const { code, sourceLine, points } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !Array.isArray(points)
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await setPickPoints(code, sourceLine, points as [number, number][]);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
   });
 
   router.post('/code/insert-geometry', async (req, res) => {

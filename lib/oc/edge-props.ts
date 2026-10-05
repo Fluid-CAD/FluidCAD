@@ -1,5 +1,6 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
+import { EdgeQuery } from "./edge-query.js";
 
 export interface EdgeProperties {
   curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
@@ -56,6 +57,20 @@ export class EdgeProps {
     oc.BRepGProp.LinearProperties(ocEdge, linearProps, false, false);
     const length = linearProps.Mass();
     linearProps.delete();
+
+    // A B-spline standing for a line or circular arc (loft sections, fillet
+    // rims on a lofted wall) classifies by the geometry it approximates —
+    // the same recovery the line()/arc()/circle() filters run, so a probe
+    // and the predicate it instantiates agree on every edge.
+    const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
+    if (geometry.kind === 'line') {
+      return { curveType: 'line', length };
+    }
+    if (geometry.kind === 'circle') {
+      return geometry.closed
+        ? { curveType: 'circle', radius: geometry.radius }
+        : { curveType: 'arc', radius: geometry.radius, length };
+    }
     return { curveType: 'other', length };
   }
 }

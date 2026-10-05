@@ -1,18 +1,24 @@
 import { readFile } from 'fs/promises';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import {
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec,
   type ForeignExposureRef,
-} from '../apply-feature-edit.ts';
+} from '../apply-feature-edit/index.ts';
 import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 export type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
 export type PickChain = { seed: Pick; members: Pick[] };
 
-/** A `part()` statement as the scene captured it — the consumer of a cross-part reference. */
+/** A `part()` statement as the scene captured it — a pick's donor, or the part reading it. */
 export type PartSite = { filePath: string; line: number; column: number };
+
+/**
+ * Where a cross-part reference is read: a part's body, or — `part` null —
+ * the file's top level, to which every part's geometry is foreign.
+ */
+export type ReferenceConsumer = { filePath: string; part: PartSite | null };
 
 /** One pick another part owns, as the response describes it to the dialog. */
 export type ForeignPickSummary = {
@@ -37,6 +43,8 @@ export type ForeignPickResolution =
     expressions: string[];
     /** Every foreign pick, for the response's notice. */
     picks: ForeignPickSummary[];
+    /** Parallel to `picks`: the index in `refs` of the reference serving each one. */
+    pickRefs: number[];
     /** Cross-file expose creates — the caller dispatches these to the donor files first. */
     crossFileCreates: ApplyFeatureEditSpec[];
   }
@@ -73,11 +81,12 @@ type ResolvedDonor = {
 
 /**
  * The consumer side of a cross-part pick: which picks belong to a part OTHER
- * than the statement's own, and the find-or-create reference for each — an
- * existing exposure that already serves the geometry, or a fresh `expose()`
- * synthesized in the donor (the Phase-B rail). Shared by the sketch-on-face
- * and the projection arms; read-only over the scene and the code buffers,
- * the caller dispatches what comes back.
+ * than the statement's own (any part, for a statement at the file's top
+ * level), and the find-or-create reference for each — an existing exposure
+ * that already serves the geometry, or a fresh `expose()` synthesized in the
+ * donor (the Phase-B rail). Shared by the sketch-on-face and the projection
+ * arms; read-only over the scene and the code buffers, the caller
+ * dispatches what comes back.
  */
 export class ForeignPickResolver {
   constructor(
@@ -93,10 +102,11 @@ export class ForeignPickResolver {
 
   /**
    * Split the picks by owner without synthesizing anything: the parts other
-   * than `consumer` that own picks, by name. Empty when every pick is the
-   * consumer's own (or the workspace kernel predates the lookup).
+   * than the consumer's that own picks, by name. Empty when every pick is
+   * the consumer's own or lies outside every part (or the workspace kernel
+   * predates the lookup).
    */
-  async classify(picks: Pick[], consumer: PartSite): Promise<
+  async classify(picks: Pick[], consumer: ReferenceConsumer): Promise<
     | { ok: true; foreign: { pick: Pick; donor: Donor }[] }
     | { ok: false; status: 422; reason: string; pick?: Pick }
   > {
@@ -110,7 +120,7 @@ export class ForeignPickResolver {
         return { ok: false, status: 422, reason: resolution.reason, pick };
       }
       const donor: Donor | null = resolution.donor ?? null;
-      if (donor && !ForeignPickResolver.sameSite(donor, consumer)) {
+      if (donor && !(consumer.part && ForeignPickResolver.sameSite(donor, consumer.part))) {
         foreign.push({ pick, donor });
       }
     }
@@ -118,7 +128,7 @@ export class ForeignPickResolver {
   }
 
   /** Resolve every pick: the consumer's own stay as they are, the others become references. */
-  async resolve(picks: Pick[], chains: PickChain[], consumer: PartSite): Promise<ForeignPickResolution> {
+  async resolve(picks: Pick[], chains: PickChain[], consumer: ReferenceConsumer): Promise<ForeignPickResolution> {
     const classified = await this.classify(picks, consumer);
     if (classified.ok === false) {
       return classified;
@@ -126,7 +136,7 @@ export class ForeignPickResolver {
     const foreignKeys = new Set(classified.foreign.map(f => pickKey(f.pick)));
     const local = picks.filter(p => !foreignKeys.has(pickKey(p)));
     if (classified.foreign.length === 0) {
-      return { ok: true, local, chains, refs: [], expressions: [], picks: [], crossFileCreates: [] };
+      return { ok: true, local, chains, refs: [], expressions: [], picks: [], pickRefs: [], crossFileCreates: [] };
     }
     // A chain synthesizes to one `.withTangents()` selector on its owner; an
     // exposure publishes a single face or edge. A chain touching another
@@ -138,8 +148,9 @@ export class ForeignPickResolver {
     const refs: ForeignExposureRef[] = [];
     const expressions: string[] = [];
     const summaries: ForeignPickSummary[] = [];
+    const pickRefs: number[] = [];
     const crossFileCreates: ApplyFeatureEditSpec[] = [];
-    const seen = new Set<string>();
+    const refIndex = new Map<string, number>();
     for (const { pick, donor } of classified.foreign) {
       const key = `${normalizePath(donor.filePath)}:${donor.line}:${donor.column}`;
       let resolved = donors.get(key);
@@ -154,11 +165,14 @@ export class ForeignPickResolver {
       const existing = donor.matched !== null;
       const name = donor.matched ?? allocateExposeName(resolved.taken);
       summaries.push({ shapeId: pick.shapeId, sub: pick.sub, partName: donor.partName, exposeName: name, existing });
-      if (seen.has(`${key}/${name}`)) {
+      const served = refIndex.get(`${key}/${name}`);
+      if (served !== undefined) {
         // Two picks served by the same exposure reference it once.
+        pickRefs.push(served);
         continue;
       }
-      seen.add(`${key}/${name}`);
+      refIndex.set(`${key}/${name}`, refs.length);
+      pickRefs.push(refs.length);
       let create: ApplyFeatureEditSpec | null = null;
       if (!existing) {
         resolved.taken.push(name);
@@ -182,7 +196,7 @@ export class ForeignPickResolver {
       }
       expressions.push(`${resolved.ident}.features.${name}`);
     }
-    return { ok: true, local, chains: keptChains, refs, expressions, picks: summaries, crossFileCreates };
+    return { ok: true, local, chains: keptChains, refs, expressions, picks: summaries, pickRefs, crossFileCreates };
   }
 
   /**
@@ -190,7 +204,7 @@ export class ForeignPickResolver {
    * (same file, read off the live buffer) or its export identifier plus an
    * import (cross-file, resolved from the donor file on disk).
    */
-  private async resolveDonor(donor: Donor, consumer: PartSite): Promise<ResolvedDonor | { error: string }> {
+  private async resolveDonor(donor: Donor, consumer: ReferenceConsumer): Promise<ResolvedDonor | { error: string }> {
     const sameFile = normalizePath(donor.filePath) === normalizePath(consumer.filePath);
     const taken = (donor.existingNames ?? []).slice();
     if (sameFile) {
@@ -259,6 +273,7 @@ export class ForeignPickResolver {
   }
 }
 
-function pickKey(pick: Pick): string {
+/** A pick's identity — the key a resolution's `picks` are matched back to their inputs by. */
+export function pickKey(pick: Pick): string {
   return `${pick.shapeId}/${pick.sub.type}/${pick.sub.index}`;
 }

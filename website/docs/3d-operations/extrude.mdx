@@ -65,6 +65,10 @@ A rectangle on the ground plane, pulled up 30:
 
 Everything the dialog can do is a chained method on the statement it writes. The sections below go through the dialog controls one by one and show the code each one produces.
 
+### Using a sketch again
+
+An extrude takes its sketch off the screen, but the sketch is not used up. The Sketch picker lists every sketch a feature already used, named after that feature (`s · used by Extrude`); click its row in the timeline to pick it, and the dialog draws its wires for as long as it holds it. **Apply** binds the sketch to a variable if it has none and writes `extrude(20, s)`. With [region picking](#region-picking) the same sketch drives one feature per region. To see a used sketch outside a dialog, click the eye on its timeline row.
+
 ## Symmetric
 
 Choose **Symmetric** under **Direction**. The profile grows the given distance on both sides of the sketch plane, so the sketch plane ends up in the middle of the solid.
@@ -225,20 +229,38 @@ Thin extrude works with all extrude modes — symmetric, draft, remove, two dist
 
 ## Region picking
 
-A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude a particular region, use `.pick()` with a point inside it:
+A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude particular regions, pick them from the dialog. The same works on cut, revolve, sweep and wrap.
+
+### Picking in the viewport
+
+1. Open the extrude dialog (or double-click an existing extrude in the timeline to edit it) and choose the sketch.
+2. Click **Pick regions** under the Sketch picker. Every region of the sketch shows in the viewport as a face you can click, and the ghost preview follows your picks.
+3. Click a region to add it; click a selected region again to remove it. The picker counts the picks (**2 regions**) and its **✕** clears them all.
+4. **Done** leaves the mode; the picks stay. **Apply** declares each picked region inside the sketch with `region()` and names them on the extrude with `.region(...)` — with nothing picked the extrude takes every region and nothing is written.
+
+Two concentric circles make two regions: the ring, and the disc inside the inner circle. Picking the ring writes a `region('r1', outer)` declaration into the sketch and `extrude(20, s).region('r1')`:
 
 ![Region picking — ring extrusion](/img/docs/3d-operations/extrude-region-pick.png)
 
-<ExplainedCode code={extrudeRegionPick} />
+<ExplainedCode code={extrudeRegionPick}>
+The declaration lists the ring's outer loop: the circle `outer`, passed as the variable itself. Nothing in it says how big the ring is, so resizing either circle leaves the pick intact.
+</ExplainedCode>
 
-:::tip[Interactive mode]
-Call `.pick()` with no arguments and click regions in the viewport to select them; the click points are written into the statement.
-:::
+### Reading a declaration
 
-:::caution[Region picking can be fragile]
-The pick point is saved in your code. If the sketch dimensions change later, the point may fall outside the resized region and the model breaks.
+`region(name, ...entities)` sits inside the sketch callback and names a region by the sketch entities on its outer loop — the variables themselves, not their names in a string, so the editor checks them and renames them with the rest of the file:
 
-This makes `.pick()` fine for fast prototyping or fixed dimensions. For parametric models, prefer sketches that contain only the regions you need, so no pick is required.
+- `region('ring', outer)` — the region whose outer loop is the circle `outer`. Holes never take part: the ring's declaration does not mention `inner`, and cutting a hole into a region later does not change it. The hole is a region of its own, `region('disc', inner)`.
+- `region('plate', b, r, t, l)` — the region closed by the four lines `b`, `r`, `t` and `l`. The order carries no meaning.
+- `region('crescent', c1, far(c2))` — `far()` marks an entity the region lies on the far side of: on the right of the edge's own direction. A circle runs counter-clockwise, so `far(c2)` puts the region outside `c2`, and this is the crescent inside `c1` and outside `c2`. `region('lens', c1, c2)` is the lens inside both. The picker writes `far()` wherever it applies; you never work it out yourself.
+- `region('corner', r.top(), r.right(), far(l))` — one edge of a multi-edge statement: the top and right edges of the `rect()` `r`. A bare `r` stands for every edge of `r` on the region, so `region('inside', r)` names the inside of a rectangle without spelling out its sides. Projected edges read `p.ref(2)`, offset edges `o.edge(0)`.
+
+The extrude names the regions it takes: `extrude(20, s).region('lens', 'crescent')`. The picker reuses a declaration that already lists the region it clicked and allocates `r1`, `r2`, … for the rest; rename them in the source if you like, in both places.
+
+:::note[What a declaration survives]
+A declaration holds no coordinates, so a dimension change never moves a region away from it. It also survives an unrelated entity being added or deleted, and a hole being cut into the region. Deleting an entity it names is a compile error at the declaration, and the sketcher's Delete key drops the entity from the declaration for you.
+
+When the region's own boundary changes — a line drawn across it, a bounding entity redrawn — the feature takes the region that keeps most of the declared boundary, as long as the match is clear. If it is not, the feature reports an error that lists the nearest regions in the same `far()` form. Pick the region again, or paste the right boundary into the declaration.
 :::
 
 ## No-argument extrude

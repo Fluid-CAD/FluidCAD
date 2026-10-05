@@ -18,4 +18,4 @@ Extends [[api/types/scene-object]].
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

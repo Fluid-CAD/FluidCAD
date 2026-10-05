@@ -48,8 +48,10 @@ describe("Revolve — history tracking", () => {
   it("attributes modifications to the scene object when revolve fuses with it", () => {
     const c = cylinder(30, 40) as Cylinder;
 
+    // A ring standing 4 proud of the cylinder's wall: one sunk inside the
+    // cylinder would fuse without a face of its own.
     sketch("xz", () => {
-        testRect(8, 20, { at: [20, 0] });
+        testRect(8, 20, { at: [26, 0] });
       });
     const r = revolve("z") as Revolve;
     render();
@@ -111,25 +113,31 @@ describe("Loft — history tracking", () => {
 describe("ExtrudeToFace — history tracking", () => {
   setupOC();
 
-  it("records added faces/edges and finalShapes into empty scene via 'last-face'", () => {
+  it("records finalShapes and classified state for a 'last-face' extrude absorbed by the stock", () => {
     sketch("xy", () => {
         testRect(100, 50);
       });
-    extrude(30);
+    const box = extrude(30) as unknown as {
+      getModifiedFaces(): { modifiedBy: unknown }[];
+    };
 
     sketch("xy", () => {
         testRect(20, 20);
       });
     const e = extrude("last-face") as unknown as {
       getAddedFaces(): any[];
-      getAddedEdges(): any[];
       getFinalShapes(): any[];
       getState(k: string): any;
     };
     render();
 
-    expect(e.getAddedFaces().length).toBeGreaterThan(0);
-    expect(e.getAddedEdges().length).toBeGreaterThan(0);
+    // The square prism lies wholly inside the box, so the fusion adds no
+    // face of its own: every face of the result descends from the box —
+    // including the ones only the post-fuse cleanup rebuilt, which are
+    // recorded as the box's modifications rather than claimed as additions.
+    expect(e.getAddedFaces()).toHaveLength(0);
+    expect(box.getModifiedFaces().length).toBeGreaterThan(0);
+    expect(box.getModifiedFaces().every(m => m.modifiedBy === e)).toBe(true);
     expect(e.getFinalShapes().length).toBeGreaterThan(0);
     expect(e.getState('side-edges')).toBeDefined();
   });

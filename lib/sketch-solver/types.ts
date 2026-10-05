@@ -127,7 +127,8 @@ export type ConstraintSpec =
   /** Point p sits halfway between points a and b (2). Same rows as the
    * line form with a/b standing in for the line's endpoints. */
   | { kind: 'midpoint'; p: SolverRef; a: SolverRef; b: SolverRef }
-  /** Points a and b mirror across line l (2). */
+  /** Points a and b mirror across line l (2); or two entities of one kind
+   * — lines (4), circles (3), arcs (5), ellipses (5). */
   | { kind: 'symmetric'; a: SolverRef; b: SolverRef; l: SolverRef }
   /**
    * Anchor a point at (x, y) (2). When x/y are omitted at constrain()
@@ -175,7 +176,18 @@ export type ConstraintSpec =
       source: number;
       target: number;
       axis: SolverRef | [number, number, number, number];
-    };
+    }
+  /**
+   * USER offset tie (the `offsetFrom` statement): `targets[i]` is held at
+   * `value` (> 0) from `sources[i]` — a line parallel at that distance, an
+   * arc/circle concentric at R ± value — with the side locked from the
+   * guess. A target endpoint a user coincident joins to another target of
+   * the same statement is a chain corner and slides along its offset rail;
+   * every other endpoint sits at the perpendicular foot of the matching
+   * source endpoint (open ends, tangent junctions). Zero net DOF per pair,
+   * bidirectional. Rows in constraints/offset-from.ts.
+   */
+  | { kind: 'offset-from'; targets: SolverRef[]; sources: SolverRef[]; value: number };
 
 export type ConstraintKind = ConstraintSpec['kind'];
 

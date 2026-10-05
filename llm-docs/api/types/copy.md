@@ -48,4 +48,4 @@ constraint targets while remaining valid whole-geometry operands.
 
 ## Inherited
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

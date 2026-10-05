@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Plane, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
@@ -12,6 +12,7 @@ import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
+import { CONNECTOR_HOVER_SCALE, ConnectorGizmoPicker, type ConnectorPickCandidate } from './scene/connector-gizmo-picker';
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
 import { EdgeMesh } from './meshes/shape-meshes/edge-mesh';
 import { SettingsPanel } from './ui/settings-panel';
@@ -25,10 +26,12 @@ import { themeColors } from './scene/theme-colors';
 import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
-import { collectPickCandidates } from './interactive/pick-candidates';
+import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
+import { VertexPicking, type VertexPickScope } from './interactive/vertex-picking';
+import { pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
-import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
+import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
 import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
@@ -71,7 +74,7 @@ const DEFAULT_FIT_POLICY: FitPolicy = {
 };
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
-/** Gizmo enlargement for a timeline "show connector" — bigger than the assembly hover feedback (1.35) so it reads at a glance. */
+/** Gizmo enlargement for a timeline "show connector" — bigger than the hover feedback (1.35) so it reads at a glance. */
 const CONNECTOR_SHOW_SCALE = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
@@ -86,10 +89,10 @@ export type SelectionModifiers = {
   /**
    * Every connector gizmo the click could have meant, nearest first, when
    * more than one sits under the cursor (an assembly connector on top of a
-   * part connector) — the mate dialog asks which. Absent on unambiguous
-   * picks.
+   * part connector) — the dialog asks which. Absent on unambiguous picks.
+   * `instanceId` is null for a part scene's own connectors.
    */
-  connectorCandidates?: { instanceId: string; connectorId: string }[];
+  connectorCandidates?: { instanceId: string | null; connectorId: string }[];
 };
 
 /** What pickAt() resolves: a sub-shape (with its owning assembly instance,
@@ -101,7 +104,7 @@ type PickResult =
     sub: SubSelection;
     instanceId?: string | null;
     /** Connector picks: the overlapping candidates when there are several. */
-    connectorCandidates?: { instanceId: string; connectorId: string }[];
+    connectorCandidates?: { instanceId: string | null; connectorId: string }[];
   }
   | { standardPlane: StandardPlaneId }
   | { standardAxis: StandardAxisId };
@@ -127,8 +130,13 @@ export type SelectedEntity = {
   shapeId: string;
   sub: Exclude<
     NonNullable<SubSelection>,
-    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' }
-  >;
+    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' } | { type: 'vertex' }
+  > | {
+    type: 'vertex'; index: number;
+    /** Optional for stored/API identities; the viewer resolves the current payload on every frame. */
+    position?: { x: number; y: number; z: number };
+    alternates?: { shapeId: string; index: number; instanceId?: string | null }[];
+  };
   /**
    * The assembly instance the pick landed in. Instances of one part share a
    * shapeId, so highlights and measurements scope to this id; absent (or
@@ -150,6 +158,9 @@ export interface SectionViewControl {
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
 // transparency sort/overdraw cost on complex scenes.
 const SKETCH_GHOST_TINT_FACTOR = 0.75;
+// A solid's edges take only a light tint: faded like the faces they would sink
+// into them, and the ghosted model would lose the outline picks aim at.
+const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 
 
 /**
@@ -167,8 +178,20 @@ export class Viewer {
   private highlightedSolidShapeIds: string[] = [];
   private highlightedSketchWires: string[] = [];
   private highlightedPlaneQuads: string[] = [];
-  /** Part-view connector gizmo enlarged by highlightConnector (timeline "show"). */
-  private highlightedConnectorId: string | null = null;
+  /** Part-view connector gizmos enlarged by highlightConnector (timeline "show"). */
+  private highlightedConnectorIds = new Set<string>();
+  /** Part-view connector gizmo under the cursor while a dialog picks connectors — drawn enlarged. */
+  private hoveredConnectorId: string | null = null;
+  /** Part-view connectors filling an open dialog's slots — drawn enlarged ({@link setPickedConnectors}). */
+  private pickedConnectorIds = new Set<string>();
+  /**
+   * Part view: every connector gizmo shows, whatever the Connectors toggle
+   * or a hidden host says — an armed connector slot needs the whole pick set
+   * ({@link setConnectorPicking}).
+   */
+  private revealAllConnectors = false;
+  /** Screen-space connector picking in the part view (the assembly controller owns its own). */
+  private readonly connectorPicker: ConnectorGizmoPicker;
   /** Overlay groups built by highlightDetachedShapes — disposed on clearHighlight. */
   private detachedHighlightGroups: Group[] = [];
   private faceHighlightMeshes: Mesh[] = [];
@@ -187,7 +210,62 @@ export class Viewer {
    * (`pickSketchWires`, `pickAxes`) stay live — the revolve dialog's
    * profile-armed mode, where only sketch wires may be picked.
    */
-  pickFilter: 'all' | 'edge' | 'face' | 'none' = 'all';
+  private _pickFilter: 'all' | 'edge' | 'face' | 'vertex' | 'none' = 'all';
+  private vertexPicking: VertexPicking | null = null;
+
+  get pickFilter(): 'all' | 'edge' | 'face' | 'vertex' | 'none' {
+    return this._pickFilter;
+  }
+
+  set pickFilter(filter: 'all' | 'edge' | 'face' | 'vertex' | 'none') {
+    if (this._pickFilter === filter) {
+      return;
+    }
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this._pickFilter = filter;
+    this.syncVertexChannel();
+  }
+
+  private _pickVertices = false;
+
+  /**
+   * Opt-in vertex picking that lives BESIDE the face/edge channels (the hole
+   * dialog): a vertex dot within the pick radius wins, otherwise the pick
+   * falls through to the normal path — unlike `pickFilter = 'vertex'` (the
+   * loft's connections), which picks vertices and nothing else.
+   */
+  get pickVertices(): boolean {
+    return this._pickVertices;
+  }
+
+  set pickVertices(armed: boolean) {
+    if (this._pickVertices === armed) {
+      return;
+    }
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this._pickVertices = armed;
+    this.syncVertexChannel();
+  }
+
+  private syncVertexChannel(): void {
+    this.vertexPicking?.setActive(this._pickFilter === 'vertex' || this._pickVertices);
+  }
+
+  /** null includes all visible shapes; [] arms the channel with no candidates. */
+  setVertexPickScope(shapeIds: readonly VertexPickScope[] | null): void {
+    if (this.ctx) {
+      this.clearHover();
+    }
+    this.vertexPicking?.setScope(shapeIds);
+  }
+
+  setVertexPickEmphasis(entities: SelectedEntity[] | null): void {
+    this.vertexPicking?.setEmphasized(entities);
+  }
   /**
    * Makes sketch wires pickable, independent of `pickFilter` — the armed
    * create dialogs (extrude/sweep/loft) enable it so clicking a sketch's
@@ -219,17 +297,19 @@ export class Viewer {
    */
   pickPlanes = false;
   /**
-   * Makes assembly mate-connector gizmos pickable, independent of
-   * `pickFilter` — an armed mate dialog enables it. Connector hits resolve
-   * by screen distance through the assembly controller (the gizmos render
-   * depth-test-off on top of everything) and outrank every raycast channel.
-   * A hit returns the connector scene object's id with
-   * `sub.type === 'connector'` plus the owning instance id.
+   * Makes connector gizmos pickable, independent of `pickFilter` — an armed
+   * mate dialog enables it in an assembly, a part dialog's connector slot
+   * through {@link setConnectorPicking}. Connector hits resolve by screen
+   * distance ({@link ConnectorGizmoPicker}; the gizmos render depth-test-off
+   * on top of everything) and outrank every raycast channel. A hit returns
+   * the connector scene object's id with `sub.type === 'connector'` plus the
+   * owning instance id (null in a part scene).
    */
   pickConnectors = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private hoverMoveHandler: ((shapeId: string, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null) => void) | null = null;
   private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -272,8 +352,30 @@ export class Viewer {
   private sketchEditingSuspended = false;
   /** A render landed while sketch editing was suspended — see {@link missedSketchRender}. */
   private renderedWhileSuspended = false;
+  /**
+   * The suspension kept the sketch view ({@link suspendSketchEditing} with
+   * `keepCamera`): the mode manager stays in sketch mode — camera, lock, grid
+   * and datum axes untouched — while the scene draws and picks as plain 3D.
+   */
+  private sketchCameraHeld = false;
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
+  /**
+   * Consumed sketches, planes and axes drawn anyway, by source-location key
+   * (scene ids change every render): the ones the timeline eye showed, and
+   * the ones an open dialog reveals while they are its pick. View state only
+   * — nothing in the file changes.
+   */
+  private shownKeys = new Set<string>();
+  private revealedKeys = new Set<string>();
+  /**
+   * Consumed rows a highlight asked for: a dialog lighting up the wires of
+   * the sketch it holds, the line of its axis or the quad of its plane (an
+   * edit session's own pick, a create pick) draws that row for as long as
+   * the highlight stands.
+   */
+  private highlightRevealedKeys = new Set<string>();
+
   private shapeOpacities = new Map<string, number>();
   private assemblyController: AssemblyController | null = null;
   /**
@@ -285,8 +387,20 @@ export class Viewer {
    * so hover overlays never paint under a pointer that sits on a tool
    * handle.
    */
-  private clickInterceptor: (() => boolean) | null = null;
-  private hoverSuppressor: (() => boolean) | null = null;
+  private readonly clickInterceptors = new Set<() => boolean>();
+  private readonly hoverSuppressors = new Set<() => boolean>();
+  /**
+   * Fired after every change to the scene's geometry tree — a render, a mesh
+   * rebuild, a visibility or opacity change: what a layer built over the
+   * meshes (the live section view) re-applies itself on.
+   */
+  private readonly sceneMeshListeners = new Set<() => void>();
+  /**
+   * The clipping planes an overlay built after the fact (a hover highlight)
+   * must share while a section view is on, so it never paints on the
+   * removed half. Null when nothing clips.
+   */
+  overlayClipPlanes: Plane[] | null = null;
   private pendingDragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
   private pendingDragValueHandler: DragValueHandler | null = null;
@@ -303,6 +417,10 @@ export class Viewer {
     // coordinate offsets. UI chrome stays on the full-size outer container.
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
+    this.connectorPicker = new ConnectorGizmoPicker(() => this.ctx.camera, this.ctx.renderer.domElement);
+    this.vertexPicking = new VertexPicking(this.ctx,
+      (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
+      () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
@@ -428,6 +546,11 @@ export class Viewer {
     this.hoverHandler = fn;
   }
 
+  /** Notified when the cursor moves but stays on the hovered sub-shape. */
+  setHoverMoveHandler(fn: (shapeId: string, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.hoverMoveHandler = fn;
+  }
+
   /** Notified on a non-drag right-click over the canvas (pick may be null). */
   setContextMenuHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null) => void): void {
     this.contextMenuHandler = fn;
@@ -469,8 +592,8 @@ export class Viewer {
     if (!this.sketchEditingSuspended || this.lastRenderIsRollback) {
       return false;
     }
-    const active = findActiveObject(this.sceneObjects);
-    return active?.type === 'sketch' && !!active.object?.plane;
+    const active = findActiveSketch(this.sceneObjects);
+    return active !== undefined && !!active.object?.plane;
   }
 
   /**
@@ -509,8 +632,8 @@ export class Viewer {
     // Re-engaging the lock re-squares the view: free rotation while unlocked
     // may have tilted the camera, and a locked camera must face the plane.
     if (enabled) {
-      const active = findActiveObject(this.sceneObjects);
-      if (active?.type === 'sketch' && active.object?.plane) {
+      const active = findActiveSketch(this.sceneObjects);
+      if (active?.object?.plane) {
         this.modeManager.enforceSketchNormal(active.object.plane);
       }
     }
@@ -698,6 +821,15 @@ export class Viewer {
     this.settingsPanel.setParamsButtonActive(active);
   }
 
+  /** The viewport's section-views button: `fn` opens the menu off the button it receives. */
+  setSectionButtonHandler(fn: (anchor: HTMLElement) => void): void {
+    this.settingsPanel.setSectionHandler(fn);
+  }
+
+  setSectionButtonActive(active: boolean): void {
+    this.settingsPanel.setSectionButtonActive(active);
+  }
+
   lookAlongSketchNormal(plane: PlaneData): void {
     this.modeManager.enforceSketchNormal(plane);
   }
@@ -720,12 +852,12 @@ export class Viewer {
       if (e.button !== 0) {
         return;
       }
-      if (!this.selectionHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.selectionHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       // A gizmo gesture (drag, handle click, typed commit) owns this click
       // completely — no selection, no highlight churn.
-      if (this.clickInterceptor?.()) {
+      if (this.clickIntercepted()) {
         return;
       }
       // A drag of a draggable part shouldn't double as a face-selection
@@ -787,7 +919,7 @@ export class Viewer {
     // fired by the time this arrives (DOM event order), so the handler sees
     // the selection as the clicks left it.
     canvas.addEventListener('dblclick', (e) => {
-      if (!this.doubleClickHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.doubleClickHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       const dx = e.clientX - downX;
@@ -805,7 +937,7 @@ export class Viewer {
     // Non-drag right-click. OrbitControls suppresses the browser menu on the
     // canvas; this hook adds pick-aware context actions on top.
     canvas.addEventListener('contextmenu', (e) => {
-      if (!this.contextMenuHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.contextMenuHandler || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       const dx = e.clientX - downX;
@@ -825,15 +957,7 @@ export class Viewer {
 
   /** Walk up parents looking for an `instanceId` user-data marker. */
   private findInstanceIdForObject(obj: Object3D): string | null {
-    let cur: Object3D | null = obj;
-    while (cur) {
-      const id = cur.userData?.instanceId;
-      if (typeof id === 'string') {
-        return id;
-      }
-      cur = cur.parent;
-    }
-    return null;
+    return pickInstanceId(obj);
   }
 
   /**
@@ -901,19 +1025,31 @@ export class Viewer {
   }
 
   /**
+   * The connector gizmos under the cursor, nearest first — the assembly
+   * controller's instance and world connectors while an assembly is on
+   * screen, else the part scene's own drawn gizmos. Both measure through
+   * {@link ConnectorGizmoPicker}, so a pick means the same thing in either.
+   */
+  private connectorCandidatesAt(clientX: number, clientY: number): ConnectorPickCandidate[] {
+    const controller = this.assemblyController;
+    if (controller?.getContainer().parent) {
+      return controller.pickConnectorCandidatesAt(clientX, clientY);
+    }
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) {
+      return [];
+    }
+    return this.connectorPicker.candidatesAt(ConnectorGizmoPicker.gizmosIn(compiled, null), clientX, clientY);
+  }
+
+  /**
    * Whether `point` is visible from the camera: no occluder strictly in
    * front of it (beyond `tolerance` world units) along the sight line
    * through the point itself.
    */
   private isPointVisible(point: Vector3, occluders: Object3D[], tolerance: number): boolean {
-    if (occluders.length === 0) {
-      return true;
-    }
-    const ndc = point.clone().project(this.ctx.camera);
-    const ray = this.ctx.createPickingRaycaster(ndc.x, ndc.y);
-    const pointDepth = ray.ray.direction.dot(new Vector3().copy(point).sub(ray.ray.origin));
-    const hits = ray.intersectObjects(occluders, false);
-    return hits.length === 0 || hits[0].distance >= pointDepth - tolerance;
+    return pointIsVisible(point, occluders, tolerance, this.ctx.camera,
+      (x, y) => this.ctx.createPickingRaycaster(x, y));
   }
 
   /**
@@ -924,9 +1060,10 @@ export class Viewer {
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
     // Connector gizmos render on top of everything (depth-test off), so while
-    // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
-    if (this.pickConnectors && this.assemblyController) {
-      const candidates = this.assemblyController.pickConnectorCandidatesAt(clientX, clientY);
+    // a dialog has them armed a nearby gizmo outranks all raycast hits — the
+    // vertex dots included, which a hole dialog arms alongside them.
+    if (this.pickConnectors) {
+      const candidates = this.connectorCandidatesAt(clientX, clientY);
       const connectorHit = candidates[0];
       if (connectorHit) {
         return {
@@ -937,6 +1074,18 @@ export class Viewer {
             ? { connectorCandidates: candidates.map(c => ({ instanceId: c.instanceId, connectorId: c.connectorId })) }
             : {}),
         };
+      }
+    }
+    // The vertex channel is opt-in. `pickFilter = 'vertex'` picks vertices
+    // and nothing else; `pickVertices` tries the dots first and falls through
+    // to the face/edge path when none is within reach.
+    if (this.pickFilter === 'vertex') {
+      return this.vertexPicking?.pick(clientX, clientY) ?? null;
+    }
+    if (this._pickVertices) {
+      const vertexHit = this.vertexPicking?.pick(clientX, clientY) ?? null;
+      if (vertexHit) {
+        return vertexHit;
       }
     }
     const camera = this.ctx.camera;
@@ -1195,17 +1344,25 @@ export class Viewer {
    * the mesh un-ghosted so faces can be picked (the sketch-on-face flow from
    * inside a sketch). {@link resumeSketchEditing} undoes it; scene updates
    * arriving while suspended stay in the default mode.
+   *
+   * With `keepCamera` the view stays exactly where it is (the projection
+   * tool): the camera, its rotation lock, the grid and the datum axes remain
+   * the sketch's, and only the mesh un-ghosts for 3D picking. The user frees
+   * the camera through the Lock-camera toggle when a pick is out of sight.
    */
-  suspendSketchEditing(): void {
+  suspendSketchEditing(opts: { keepCamera?: boolean } = {}): void {
     this.modeManager.sketchEnabled = false;
     this.sketchEditingSuspended = true;
     this.renderedWhileSuspended = false;
-    if (this.modeManager.isSketchMode) {
-      this.modeManager.enterDefaultMode();
-    }
+    this.sketchCameraHeld = !!opts.keepCamera && this.modeManager.isSketchMode;
     this.activeSketchId = null;
-    this.settingsPanel.setProjectionLocked(false);
-    this.settingsPanel.setFitButtonVisible(true);
+    if (!this.sketchCameraHeld) {
+      if (this.modeManager.isSketchMode) {
+        this.modeManager.enterDefaultMode();
+      }
+      this.settingsPanel.setProjectionLocked(false);
+      this.settingsPanel.setFitButtonVisible(true);
+    }
     this.syncSectionViewVisible();
     this.clearHover();
     this.rebuildSceneMesh();
@@ -1228,10 +1385,7 @@ export class Viewer {
     cc.getTarget(tgt);
     const camPos = tgt.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
-    this.ctx.camera.up.copy(yDir);
-    cc.updateCameraUp();
-    cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, true);
+    this.ctx.flyTo(camPos, tgt, yDir);
 
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
@@ -1242,8 +1396,7 @@ export class Viewer {
   /** Undo {@link holdSketchCamera}: unlock rotation and restore the world up. */
   releaseSketchCamera(): void {
     this.ctx.setRotationLocked(false);
-    this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
-    this.ctx.cameraControls.updateCameraUp();
+    this.ctx.setCameraUp(Object3D.DEFAULT_UP);
   }
 
   /**
@@ -1256,6 +1409,7 @@ export class Viewer {
     this.modeManager.sketchEnabled = true;
     this.sketchEditingSuspended = false;
     this.renderedWhileSuspended = false;
+    this.sketchCameraHeld = false;
     if (immediate && this.sceneObjects) {
       // Replay the last render as it arrived: re-running a rollback as a full
       // render would let a rolled-back sketch grab the camera.
@@ -1264,6 +1418,9 @@ export class Viewer {
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
+    if (this.shownKeys.size > 0 && sceneObjects !== this.sceneObjects) {
+      this.shownKeys = carryShownKeys(this.shownKeys, this.sceneObjects, sceneObjects);
+    }
     this.sceneObjects = sceneObjects;
     this.lastRenderIsRollback = isRollback;
     this.lastRenderStop = rollbackStop;
@@ -1280,6 +1437,9 @@ export class Viewer {
     this.faceHighlightMeshes = [];
     this.hoverState = null;
     this.hoverFaceOverlayMeshes = [];
+    this.vertexPicking?.setSelected([]);
+    this.vertexPicking?.setEmphasized(null);
+    this.vertexPicking?.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
 
     this.removeCompiledMesh();
@@ -1303,12 +1463,13 @@ export class Viewer {
     }
 
     if (!isRollback) {
-      const activeObject = findActiveObject(sceneObjects);
+      const activeObject = findActiveSketch(sceneObjects);
 
       // A disabled mode manager (suspendSketchEditing / region picking) makes
       // a trailing sketch render like any other scene — no camera lock, no
-      // ghosting — so faces stay pickable in the free 3D view.
-      if (activeObject?.type === 'sketch' && activeObject.object?.plane && this.modeManager.sketchEnabled) {
+      // ghosting — so faces stay pickable in the free 3D view. A trailing
+      // sketch that carries `.close()` never enters (findActiveSketch).
+      if (activeObject?.object?.plane && this.modeManager.sketchEnabled) {
         if (!this.modeManager.isSketchMode) {
           this.modeManager.enterSketchMode(activeObject.object.plane);
         } else {
@@ -1317,7 +1478,11 @@ export class Viewer {
         this.activeSketchId = activeObject.id;
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
+      } else if (this.sketchCameraHeld && activeObject?.object?.plane) {
+        // A suspension holding the sketch view: draw as plain 3D, move nothing.
+        this.activeSketchId = null;
       } else {
+        this.sketchCameraHeld = false;
         this.activeSketchId = null;
         this.modeManager.enterDefaultMode();
         this.settingsPanel.setProjectionLocked(false);
@@ -1333,10 +1498,11 @@ export class Viewer {
         : null;
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback);
+    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
+    this.applyConnectorScales();
 
     if (this.activeSketchId) {
       this.applySketchModeGhosting();
@@ -1356,7 +1522,7 @@ export class Viewer {
     // mode (skip if viewport barely changed).
     // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
     const autoRefit = this.fitPolicy.refit === 'auto' && !this.cameraIsTheVisitors;
-    if (autoRefit || (!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
+    if (autoRefit || (!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !this.sketchCameraHeld && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
       const parts = geometryPartsOf(mesh);
       const box = unionBox(parts);
       if (!box.isEmpty() && this.shouldAutoFit(box)) {
@@ -1369,6 +1535,7 @@ export class Viewer {
       this.hasRendered = true;
     }
 
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -1386,6 +1553,7 @@ export class Viewer {
 
   setInstanceVisibility(instanceId: string, visible: boolean): void {
     this.assemblyController?.setInstanceVisible(instanceId, visible);
+    this.notifySceneMesh();
   }
 
   isInstanceVisible(instanceId: string): boolean {
@@ -1407,12 +1575,69 @@ export class Viewer {
     this.assemblyController?.setDragValueHandler(handler);
   }
 
-  setClickInterceptor(fn: (() => boolean) | null): void {
-    this.clickInterceptor = fn;
+  /** Register a click interceptor (see the field doc); returns its remover. */
+  addClickInterceptor(fn: () => boolean): () => void {
+    this.clickInterceptors.add(fn);
+    return () => {
+      this.clickInterceptors.delete(fn);
+    };
   }
 
-  setHoverSuppressor(fn: (() => boolean) | null): void {
-    this.hoverSuppressor = fn;
+  /** Register a hover suppressor (see the field doc); returns its remover. */
+  addHoverSuppressor(fn: () => boolean): () => void {
+    this.hoverSuppressors.add(fn);
+    return () => {
+      this.hoverSuppressors.delete(fn);
+    };
+  }
+
+  private clickIntercepted(): boolean {
+    let intercepted = false;
+    for (const fn of this.clickInterceptors) {
+      // Every interceptor sees the click: each consumes its own state.
+      intercepted = fn() || intercepted;
+    }
+    return intercepted;
+  }
+
+  private hoverSuppressed(): boolean {
+    for (const fn of this.hoverSuppressors) {
+      if (fn()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Subscribe to geometry-tree changes (see `sceneMeshListeners`); returns the unsubscribe. */
+  subscribeSceneMesh(fn: () => void): () => void {
+    this.sceneMeshListeners.add(fn);
+    return () => {
+      this.sceneMeshListeners.delete(fn);
+    };
+  }
+
+  private notifySceneMesh(): void {
+    for (const fn of this.sceneMeshListeners) {
+      fn();
+    }
+  }
+
+  /** The geometry root a section view clips: the assembly container when mounted, else the compiled mesh. */
+  get geometryRoot(): Object3D | null {
+    return findGeometryRoot(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
+  }
+
+  get isSketchMode(): boolean {
+    return this.modeManager.isSketchMode;
+  }
+
+  /**
+   * Sketch mode owns the pointer — the 3D hover/pick channels stand down —
+   * unless a suspension is only holding its camera for a 3D pick.
+   */
+  private get sketchOwnsPointer(): boolean {
+    return this.modeManager.isSketchMode && !this.sketchCameraHeld;
   }
 
   /**
@@ -1493,6 +1718,7 @@ export class Viewer {
       }
     }
 
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -1546,23 +1772,89 @@ export class Viewer {
   }
 
   /**
-   * Enlarge one part-view connector's gizmo (a timeline row's "show me"),
-   * replacing any previous highlight. Mirrors the assembly controller's
-   * hover feedback: the multiplier rides the gizmo's userData because its
-   * scale is re-derived from the camera on every draw.
+   * Enlarge part-view connector gizmos (a timeline row's "show me" — one
+   * connector, or a copy row's whole family), replacing any previous
+   * highlight. Mirrors the assembly controller's hover feedback: the
+   * multiplier rides the gizmo's userData because its scale is re-derived
+   * from the camera on every draw.
    */
-  highlightConnector(connectorId: string): void {
+  highlightConnector(connectorIds: readonly string[]): void {
     this.clearHighlight();
-    this.highlightedConnectorId = connectorId;
-    this.applyConnectorScale(connectorId, CONNECTOR_SHOW_SCALE);
+    this.highlightedConnectorIds = new Set(connectorIds);
+    this.applyConnectorScales();
     this.applyConnectorVisibility();
     this.ctx.render();
   }
 
   /**
+   * Arm or disarm connector picking in a part scene — the part dialogs'
+   * form of the mate dialog's channel (the Copy dialog's connector targets
+   * and axis). Armed, gizmos are screen-pickable ({@link pickConnectors})
+   * and, with `reveal` (the default), every connector gizmo shows whatever
+   * the Connectors toggle or a hidden host says, so the pick set is
+   * complete — as mate picking reveals every connector in an assembly.
+   * `reveal: false` picks only the gizmos already on screen (a dialog that
+   * takes none, but explains why when one is clicked). Disarmed, both drop,
+   * along with any hover enlargement.
+   */
+  setConnectorPicking(armed: boolean, opts: { reveal?: boolean } = {}): void {
+    this.pickConnectors = armed;
+    const reveal = armed && (opts.reveal ?? true);
+    if (!armed) {
+      this.setHoveredConnector(null);
+      this.setPickedConnectors([]);
+    }
+    if (reveal !== this.revealAllConnectors) {
+      this.revealAllConnectors = reveal;
+      this.applyConnectorVisibility();
+      this.ctx.requestRender();
+    }
+  }
+
+  /**
+   * The connectors filling an open part dialog's slots — the connector
+   * sibling of the whole-solid selection highlight — drawn enlarged until
+   * the dialog clears them. Scene ids: the dialog re-sends the set after
+   * every render, whose connectors re-mint theirs. Not cleared by
+   * {@link clearHighlight}; disarming connector picking drops them.
+   */
+  setPickedConnectors(connectorIds: readonly string[]): void {
+    const next = new Set(connectorIds);
+    if (next.size === this.pickedConnectorIds.size && [...next].every(id => this.pickedConnectorIds.has(id))) {
+      return;
+    }
+    this.pickedConnectorIds = next;
+    this.applyConnectorScales();
+    this.applyConnectorVisibility();
+    this.ctx.requestRender();
+  }
+
+  /**
+   * Hover feedback on a connector gizmo while picking — the assembly
+   * controller's in an assembly, the part view's own otherwise (`null`
+   * clears). Held as an id, so a render that rebuilt the gizmos keeps it.
+   * The viewport's own hover drives it; a "which connector?" menu row
+   * previews its connector through it too.
+   */
+  setHoveredConnector(connectorId: string | null): void {
+    const controller = this.assemblyController;
+    if (controller?.getContainer().parent) {
+      controller.setHighlightedConnector(connectorId);
+      return;
+    }
+    if (this.hoveredConnectorId === connectorId) {
+      return;
+    }
+    this.hoveredConnectorId = connectorId;
+    this.applyConnectorScales();
+    this.ctx.requestRender();
+  }
+
+  /**
    * Part-view connector gizmos follow the "Connectors" view toggle; a
-   * timeline "show me" highlight always reveals its own gizmo so the row
-   * still points at something. Assembly instances manage their own
+   * timeline "show me" highlight always reveals its own gizmos so the row
+   * still points at something, and an armed connector slot reveals them all
+   * ({@link setConnectorPicking}). Assembly instances manage their own
    * connectors (AssemblyController.applyConnectorVisibility), so only the
    * compiled part mesh is walked here.
    */
@@ -1579,20 +1871,31 @@ export class Viewer {
       // A connector goes with its body: hidden from the shapes panel, the
       // body takes its connectors along (a fillet after the connector still
       // maps to the rendered solid — the host ids are lineage-resolved).
-      child.visible = child.userData.connectorId === this.highlightedConnectorId
+      child.visible = this.revealAllConnectors
+        || this.highlightedConnectorIds.has(child.userData.connectorId)
+        || this.pickedConnectorIds.has(child.userData.connectorId)
         || (show && !connectorHostHidden(child.userData.hostShapeIds, this.hiddenShapeIds));
     });
   }
 
-  private applyConnectorScale(connectorId: string, scale: number): void {
+  /**
+   * Sync every part-view gizmo's scale multiplier: a "show me" highlight and
+   * a dialog's picks draw at {@link CONNECTOR_SHOW_SCALE}, the hovered pick
+   * at the hover factor, the rest at 1.
+   */
+  private applyConnectorScales(): void {
     this.ctx.scene.traverse((child) => {
-      if (child.userData.isConnector !== true || child.userData.connectorId !== connectorId) {
+      if (child.userData.isConnector !== true) {
         return;
       }
       const gizmo = child.children[0];
-      if (gizmo) {
-        gizmo.userData.highlight = scale;
+      if (!gizmo) {
+        return;
       }
+      const id = child.userData.connectorId;
+      gizmo.userData.highlight = this.highlightedConnectorIds.has(id) || this.pickedConnectorIds.has(id)
+        ? CONNECTOR_SHOW_SCALE
+        : id === this.hoveredConnectorId ? CONNECTOR_HOVER_SCALE : 1;
     });
   }
 
@@ -1631,16 +1934,26 @@ export class Viewer {
   }
 
   clearHighlight(): void {
+    this.clearHighlightState();
+    if (this.highlightRevealedKeys.size > 0) {
+      this.highlightRevealedKeys = new Set();
+      this.rebuildSceneMesh();
+    }
+  }
+
+  /** Drop every highlight; the rows a highlight revealed stay drawn (the caller decides). */
+
+  private clearHighlightState(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
       && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0
-      && this.highlightedConnectorId === null && this.detachedHighlightGroups.length === 0) {
+      && this.highlightedConnectorIds.size === 0 && this.detachedHighlightGroups.length === 0) {
       return;
     }
 
-    if (this.highlightedConnectorId !== null) {
-      this.applyConnectorScale(this.highlightedConnectorId, 1);
-      this.highlightedConnectorId = null;
+    if (this.highlightedConnectorIds.size > 0) {
+      this.highlightedConnectorIds = new Set();
+      this.applyConnectorScales();
       this.applyConnectorVisibility();
     }
     for (const group of this.detachedHighlightGroups) {
@@ -1685,6 +1998,7 @@ export class Viewer {
     this.highlightedEntities = [];
     this.highlightedSketchWires = [];
     this.highlightedPlaneQuads = [];
+    this.vertexPicking?.setSelected([]);
     this.ctx.render();
   }
 
@@ -1703,7 +2017,16 @@ export class Viewer {
     planeQuadShapeIds: string[] = [],
     instanceId: string | null = null,
   ): void {
-    this.clearHighlight();
+    this.clearHighlightState();
+    // A consumed sketch's wire, axis line or plane quad has no mesh until
+    // its row is drawn: reveal the rows these shapes belong to first, then
+    // highlight.
+    const reveal = this.keysOfHiddenShapes([...sketchWireShapeIds, ...planeQuadShapeIds]);
+
+    if (reveal.size !== this.highlightRevealedKeys.size || [...reveal].some(k => !this.highlightRevealedKeys.has(k))) {
+      this.highlightRevealedKeys = reveal;
+      this.rebuildSceneMesh();
+    }
     this.highlightedInstanceId = instanceId;
     for (const entity of entities) {
       // An entity's own instance wins over the call-wide one: a measure
@@ -1712,7 +2035,7 @@ export class Viewer {
       const scopeId = entity.instanceId ?? instanceId;
       if (entity.sub.type === 'face') {
         this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId);
-      } else {
+      } else if (entity.sub.type === 'edge') {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index, scopeId);
       }
     }
@@ -1726,6 +2049,7 @@ export class Viewer {
       this.applyPlaneQuadHighlight(shapeId);
     }
     this.highlightedEntities = entities;
+    this.vertexPicking?.setSelected(entities.map(entity => ({ ...entity, instanceId: entity.instanceId ?? instanceId })));
     this.highlightedSketchWires = sketchWireShapeIds;
     this.highlightedSolidShapeIds = solidShapeIds;
     this.highlightedPlaneQuads = planeQuadShapeIds;
@@ -1786,6 +2110,7 @@ export class Viewer {
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
+      overlayMat.clippingPlanes = this.overlayClipPlanes;
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
       overlayMesh.renderOrder = 1.5;
@@ -1856,7 +2181,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (this.isMouseDown || this.isRegionPicking || this.sketchOwnsPointer) {
         return;
       }
       // Authoritative drag-active gate. `isMouseDown` above is mouse-event
@@ -1898,7 +2223,7 @@ export class Viewer {
     }
     // The pointer sits on a tool handle (gizmo) — part hover must not paint
     // underneath it.
-    if (this.hoverSuppressor?.()) {
+    if (this.hoverSuppressed()) {
       if (this.hoverState) {
         this.clearHover();
       }
@@ -1967,6 +2292,7 @@ export class Viewer {
         this.hoverState.sub?.type === result.sub?.type &&
         this.hoverState.sub?.index === result.sub?.index &&
         this.hoverState.instanceId === (result.instanceId ?? null)) {
+      this.hoverMoveHandler?.(result.shapeId, result.sub, clientX, clientY);
       return;
     }
 
@@ -1999,17 +2325,20 @@ export class Viewer {
       this.applyHoverFace(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'edge') {
       this.applyHoverEdge(result.shapeId, result.sub.index, result.instanceId ?? null);
+    } else if (result.sub?.type === 'vertex') {
+      this.vertexPicking?.setHover({ shapeId: result.shapeId, sub: result.sub, instanceId: result.instanceId });
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
       this.applyHoverPlaneQuad(result.shapeId);
     } else if (result.sub?.type === 'connector') {
-      this.assemblyController?.setHighlightedConnector(result.shapeId);
+      this.setHoveredConnector(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
 
   clearHover(): void {
+    this.vertexPicking?.setHover(null);
     // Remove face hover overlays
     for (const m of this.hoverFaceOverlayMeshes) {
       m.parent?.remove(m);
@@ -2035,7 +2364,7 @@ export class Viewer {
     });
 
     if (this.hoverState?.sub?.type === 'connector') {
-      this.assemblyController?.setHighlightedConnector(null);
+      this.setHoveredConnector(null);
     }
     if (this.hoverState) {
       this.hoverHandler?.(null, null, 0, 0);
@@ -2112,6 +2441,7 @@ export class Viewer {
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
+      overlayMat.clippingPlanes = this.overlayClipPlanes;
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
       overlayMesh.renderOrder = 1.5;
@@ -2203,6 +2533,7 @@ export class Viewer {
   }
 
   dispose(): void {
+    this.vertexPicking?.dispose();
     this.ctx.dispose();
   }
 
@@ -2276,6 +2607,11 @@ export class Viewer {
       for (const part of obj.sceneShapes) {
         if (part.shapeId === shapeId) return part;
       }
+      // A shown row's hidden shapes — only ever hit when the row is drawn.
+      for (const part of obj.hiddenShapes ?? []) {
+
+        if (part.shapeId === shapeId) return part;
+      }
     }
     return undefined;
   }
@@ -2346,10 +2682,11 @@ export class Viewer {
       return;
     }
     this.removeCompiledMesh();
-    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback);
+    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownIds());
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
+    this.applyConnectorScales();
     // The rebuilt materials are un-tinted — reapply the sketch-mode ghosting
     // (as updateView does) or a mid-sketch rebuild (a theme change, region
     // picking) silently drops the dimming until the next full render.
@@ -2359,6 +2696,7 @@ export class Viewer {
     if (this.modeManager.isSketchMode && viewerSettings.current.sectionView) {
       this.applySectionView();
     }
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -2370,12 +2708,84 @@ export class Viewer {
     }
     this.applyVisibilityForId(shapeId, visible);
     this.applyConnectorVisibility();
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
   isShapeHidden(shapeId: string): boolean {
     return this.hiddenShapeIds.has(shapeId);
   }
+
+  /** Whether the timeline eye shows this consumed row (by its source-location key). */
+  isShown(key: string): boolean {
+    return this.shownKeys.has(key);
+  }
+
+  /** The timeline eye: draw (or stop drawing) a consumed sketch, plane or axis. */
+  setShown(key: string, shown: boolean): void {
+    if (shown) {
+      this.shownKeys.add(key);
+    } else {
+      this.shownKeys.delete(key);
+    }
+    this.rebuildSceneMesh();
+  }
+
+  /**
+   * The consumed rows open dialogs reveal while they are their pick, as a
+   * whole set — replaces the previous one; rebuilds only when it changed.
+   */
+  setRevealed(keys: readonly string[]): void {
+    const next = new Set(keys);
+    if (next.size === this.revealedKeys.size && [...next].every(k => this.revealedKeys.has(k))) {
+      return;
+    }
+    this.revealedKeys = next;
+    this.rebuildSceneMesh();
+  }
+
+  /** The scene ids of the shown and revealed consumed rows in the current render. */
+  private shownIds(): Set<string> {
+    const ids = new Set<string>();
+    if (this.shownKeys.size === 0 && this.revealedKeys.size === 0 && this.highlightRevealedKeys.size === 0) {
+      return ids;
+    }
+    for (const obj of this.sceneObjects ?? []) {
+      if (!isShowableConsumedRow(obj)) {
+        continue;
+      }
+      const key = sourceLocKey(obj.sourceLocation!);
+      if (this.shownKeys.has(key) || this.revealedKeys.has(key) || this.highlightRevealedKeys.has(key)) {
+        ids.add(obj.id);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * The source-location keys of the consumed rows these shape ids are hidden
+   * shapes of: the plane or axis row itself, or the sketch whose entity row
+   * carries the wire.
+   */
+  private keysOfHiddenShapes(shapeIds: string[]): Set<string> {
+    const keys = new Set<string>();
+    if (shapeIds.length === 0 || !this.sceneObjects) {
+      return keys;
+    }
+    const wanted = new Set(shapeIds);
+    const index = SceneIndex.of(this.sceneObjects);
+    for (const obj of this.sceneObjects) {
+      if (!obj.hiddenShapes?.some(part => part.shapeId !== undefined && wanted.has(part.shapeId))) {
+        continue;
+      }
+      const row = obj.consumedBy !== undefined ? obj : index.parent(obj);
+      if (row && isShowableConsumedRow(row)) {
+        keys.add(sourceLocKey(row.sourceLocation!));
+      }
+    }
+    return keys;
+  }
+
 
   private applyVisibilityForId(shapeId: string, visible: boolean): void {
     this.ctx.scene.traverse((child) => {
@@ -2392,6 +2802,7 @@ export class Viewer {
       this.shapeOpacities.set(shapeId, opacity);
     }
     this.applyOpacityForId(shapeId, opacity);
+    this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
@@ -2479,13 +2890,17 @@ export class Viewer {
 
     const bg = themeColors.backgroundColor;
     for (const child of compiled.children) {
-      this.tintForGhosting(child, bg);
+      this.tintForGhosting(child, bg, false);
     }
   }
 
-  private tintForGhosting(node: Object3D, bg: Color): void {
+  private tintForGhosting(node: Object3D, bg: Color, insideSolid: boolean): void {
     if (node.userData.isSketchRoot) { return; }
     if (node.renderOrder >= 999) { return; }
+    const factor = insideSolid && node.userData.isEdgeLine
+      ? SKETCH_GHOST_EDGE_TINT_FACTOR
+      : SKETCH_GHOST_TINT_FACTOR;
+    insideSolid = insideSolid || !!node.userData.isSolid;
 
     const mat = (node as any).material;
     if (mat) {
@@ -2495,12 +2910,12 @@ export class Viewer {
         if (!m.userData.ghostOriginalColor) {
           m.userData.ghostOriginalColor = m.color.clone();
         }
-        m.color.copy(m.userData.ghostOriginalColor).lerp(bg, SKETCH_GHOST_TINT_FACTOR);
+        m.color.copy(m.userData.ghostOriginalColor).lerp(bg, factor);
       }
     }
 
     for (const c of node.children) {
-      this.tintForGhosting(c, bg);
+      this.tintForGhosting(c, bg, insideSolid);
     }
   }
 

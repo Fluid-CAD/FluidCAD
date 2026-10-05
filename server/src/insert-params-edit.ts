@@ -1,4 +1,4 @@
-import { isExpressionText } from './code-editor.ts';
+import { isExpressionText } from './code-editor/index.ts';
 import {
   findChainAt,
   getBaseCallName,

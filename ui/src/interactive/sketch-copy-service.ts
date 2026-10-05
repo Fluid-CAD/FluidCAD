@@ -2,25 +2,25 @@ import {
   applySketchCopy, applySketchCopyEdit, clearBreakpoints, fetchFeatureGhost,
   fetchSketchFeatureSources, ApplyFeatureResponse, Copy2DGhostRequest, FeatureEditTarget,
   GhostSketchAxisRef, GhostSolid, ParsedFeatureStatement,
-  SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, ValueExpr,
+  SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, sketchGhostScope, ValueExpr,
 } from '../api';
-import { SketchOpSelection, SolvedPickRail } from './sketch-op-service';
+import { SketchOpScope, SketchOpSelection, SolvedPickRail } from './sketch-op-service';
 import { keepChip } from './create-feature/sketch-profiles';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
-import { VariableInfo } from '../ui/expression-core';
 import { SketchCopyDirection, SketchCopyPanel, SketchCopyArmedSlot } from './sketch-copy-panel';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
 /** A `copy()` statement as the parse route reads it. */
-type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }>;
+/** A 2D copy statement's parse — never the 3D-only follow form (`copy(holes, bolt)`). */
+export type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }> & { kind: 'linear' | 'circular' };
 
 /**
  * The in-sketch copy dialog on the 2D op rails: armed from the sketch
  * toolbar, it reads the hover handler's selected edges — any pick stands for
  * its whole producing primitive — previews the synthesized statement through
- * `/api/apply-feature` (sketch branch), and applies it, writing
+ * `api/apply-feature` (sketch branch), and applies it, writing
  * `copy('linear', xAxis(), { count: 3, offset: 20 }, r)` /
  * `copy('circular', [0, 0], { count: 6, angle: 360 }, c)` into the sketch
  * body. Exactly one panel slot is armed at a time and the picks land in it:
@@ -77,7 +77,7 @@ export class SketchCopyService {
   constructor(
     container: HTMLElement,
     private readonly selection: SketchOpSelection,
-    private fetchVariables: () => Promise<VariableInfo[]>,
+    private readonly scope: SketchOpScope,
     private onDone: () => void,
     /** The live viewport geometry overlay, shared with the other 2D op dialogs. */
     private readonly ghost?: FeatureGhostOverlay,
@@ -393,7 +393,7 @@ export class SketchCopyService {
 
   /** Feed the sketch scope's variables to the fields' dropdowns. */
   private async loadVariables(): Promise<void> {
-    const variables = await this.fetchVariables();
+    const variables = await this.scope.variables();
     if (this.active) {
       this.panel.setScopeVariables(variables);
     }
@@ -522,7 +522,7 @@ export class SketchCopyService {
     }
     let solids: GhostSolid[] | null;
     try {
-      solids = await fetchFeatureGhost(request, signal);
+      solids = await fetchFeatureGhost(request, sketchGhostScope(this.editTarget, this.scope.sketch()), signal);
     } catch {
       return; // aborted
     }

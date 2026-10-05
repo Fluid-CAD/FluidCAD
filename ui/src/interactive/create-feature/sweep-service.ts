@@ -1,5 +1,5 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureGhost, fetchFeatureSources, expandBucket,
+  applySweep, applySweepEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, expandBucket,
   ApplyFeatureEntity, FeatureEditTarget, GhostPathRef, GhostSolid, ParsedFeatureStatement,
   SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
@@ -16,12 +16,14 @@ import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 
@@ -75,6 +77,8 @@ export class SweepFeatureService {
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
   /** The translucent body the current profile would sweep along the path. */
   private ghost: FeatureGhostOverlay;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
 
   constructor(
     container: HTMLElement,
@@ -90,7 +94,7 @@ export class SweepFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/sweep.png',
+      icon: iconUrl('sweep'),
       label: 'Sweep',
       tip: 'Sweep a sketch along a path',
       ariaLabel: 'Sweep a sketch along a path',
@@ -117,7 +121,13 @@ export class SweepFeatureService {
       this.runner.schedulePreview();
     };
     this.panel.onPathModeChange = () => this.syncPathMode();
-    this.panel.onArmedSlotChange = () => this.syncPickFilter();
+    this.panel.onArmedSlotChange = () => {
+      this.syncPickFilter();
+      // Another slot took the viewport — region picking hands it over.
+      if (this.panel.armedSlot !== 'profile') {
+        this.regions.stop();
+      }
+    };
     this.panel.onRemoveScope = (index) => {
       this.scope.removeAt(index);
       this.panel.setMessage(null);
@@ -150,10 +160,19 @@ export class SweepFeatureService {
       boundary: () => this.session.boundary ?? undefined,
     });
 
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.ghostProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+    });
+
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applySweepEdit(this.editTarget, { ...(request as SweepEditRequest), ...extras })
         : applySweep({ ...(request as SweepApplyOptions), ...extras }),
@@ -188,7 +207,7 @@ export class SweepFeatureService {
     return this.armed;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }
@@ -266,6 +285,7 @@ export class SweepFeatureService {
     this.refreshPathChips();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -308,6 +328,7 @@ export class SweepFeatureService {
     this.refreshPathChips();
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -339,6 +360,8 @@ export class SweepFeatureService {
     // from the pre-rollback scene, where the edited row still renders.
     this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
     this.scope.seedKeeps(parsed, target.filePath);
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -348,6 +371,8 @@ export class SweepFeatureService {
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
+      extendStart: parsed.extendStart,
+      extendEnd: parsed.extendEnd,
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText,
     });
@@ -399,6 +424,7 @@ export class SweepFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     // Composing a sweep means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
@@ -438,6 +464,7 @@ export class SweepFeatureService {
     this.pathSeedApplied = false;
     this.editSceneStale = false;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     this.solidPick.set([]);
     this.syncButton();
@@ -687,9 +714,12 @@ export class SweepFeatureService {
       feature: 'sweep',
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
       profile,
       path,
-    }, signal);
+      regions: this.regions.ghostPicks(),
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost sweeps, or null while there is nothing to sweep. */
@@ -790,6 +820,9 @@ export class SweepFeatureService {
     return {
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
+      newVariables: values.newVariables,
       profile: {
         mode: profile.kind === 'active' ? 'active' : 'bound',
         filePath: profile.filePath,
@@ -800,6 +833,7 @@ export class SweepFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
+      regions: this.regions.picks,
     };
   }
 
@@ -853,11 +887,17 @@ export class SweepFeatureService {
     return {
       op: values.op,
       thin: values.thin,
+      extendStart: values.extendStart,
+      extendEnd: values.extendEnd,
+      newVariables: values.newVariables,
       path,
       profile,
       // The dialog owns the chain it shows: the full list on Add/Remove, an
       // explicit drop on New (`.new()` resets the fusion scope).
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
+      // Likewise the region list: the picks shown are the picks written.
+      regions: this.regions.picks,
+      regionSketch: this.ghostProfile() ?? undefined,
       expectedStatement: this.session.expectedStatement,
       before: path?.kind === 'edges' ? this.session.boundary ?? undefined : undefined,
     };
@@ -929,9 +969,9 @@ export class SweepFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen profile's (producers win:
-   * the statement inserts in the profile's scope), falling back to the
-   * timeline's active part.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen profile (see {@link scopePartLocation}): the profile's own
+   * part, else the timeline's active part.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {

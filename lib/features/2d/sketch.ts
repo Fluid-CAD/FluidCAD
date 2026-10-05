@@ -11,11 +11,17 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { SketchSolverContext } from "./solved/solver-context.js";
 import { isReferenceProducer } from "./solved/reference.js";
 import { isMacroProducer } from "./solved/macros/finalize.js";
+import { SketchRegionBuilder, SketchRegion } from "./regions/region-builder.js";
+import { StatementLabels } from "./regions/statement-label.js";
+import type { SketchRegionDeclaration } from "./regions/region-declaration.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
   private _solver: SketchSolverContext | null;
   private _solveDone = false;
+  private _closed = false;
+  /** The `region()` declarations of this sketch, by name, in statement order. */
+  private _regionDeclarations = new Map<string, SketchRegionDeclaration>();
 
   constructor(public planeObj: PlaneObjectBase) {
     super();
@@ -24,6 +30,77 @@ export class Sketch extends SceneObject implements Extrudable {
 
   solver(): SketchSolverContext | null {
     return this._solver;
+  }
+
+  /**
+   * Register a `region()` declaration (statement time). Returns the problem
+   * when the name is already declared, null when it was taken.
+   */
+  addRegionDeclaration(declaration: SketchRegionDeclaration): string | null {
+    const existing = this._regionDeclarations.get(declaration.regionName);
+    if (existing && existing !== declaration) {
+      return `region '${declaration.regionName}' is declared twice in this sketch — give each region its own name`;
+    }
+    this._regionDeclarations.set(declaration.regionName, declaration);
+    return null;
+  }
+
+  /** The regions this sketch declares, by name — what `.region('name')` looks up. */
+  declaredRegions(): ReadonlyMap<string, SketchRegionDeclaration> {
+    return this._regionDeclarations;
+  }
+
+  /**
+   * The closed regions the sketch's live edges cut its plane into, each
+   * described by the statements on its outer loop — see SketchRegionBuilder.
+   * Built on demand: only a `.region()` consumer needs them.
+   */
+  buildRegions(): SketchRegion[] {
+    const labels = StatementLabels.ofSketchChildren(this.getChildren());
+    return new SketchRegionBuilder(this.getEdgesWithOwner(), this.getPlane(), labels).build();
+  }
+
+  /**
+   * Mark the sketch finished. A sketch that ends the active scope keeps the
+   * UI in sketch mode until a later feature consumes it; `.close()` ends
+   * sketch mode without one, so the sketch can stay unconsumed (a profile
+   * kept for later, a reference drawing) and the file still opens as a 3D
+   * scene. The Finish Sketch button writes and removes it. Geometry, solve
+   * and consumption are untouched — the flag only reaches the render.
+   */
+  close(): this {
+    this._closed = true;
+    return this;
+  }
+
+  isClosed(): boolean {
+    return this._closed;
+  }
+
+  /**
+   * A feature consumes a sketch for display only. The wires leave the
+   * rendered scene from the consumer's timeline position on (and return when
+   * the timeline is scrubbed before it), but scope-less readers keep seeing
+   * them: any later feature may take the same sketch again — `extrude(20, s)`,
+   * `.region('b')`, `project(s)`. `remove(s)` forces the hard removal,
+   * dropping the sketch for readers too.
+   * See `removeShapesFromDisplay` for the read-kind rule.
+   */
+  override consumedForDisplayOnly(): boolean {
+    return true;
+  }
+
+
+  override restoreState(state: Map<string, any>): void {
+    super.restoreState(state);
+    const snapshot = state.get('solver-system');
+    if (snapshot && this._solver) {
+      this._solver.restoreSolved(snapshot);
+      // Both scene and assembly caches restore a whole sketch subtree.
+      // Re-preparing references here would query the final scene, where
+      // their source geometry may already have been consumed.
+      this._solveDone = true;
+    }
   }
 
   /**
@@ -128,8 +205,9 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   /** The default filter excludes guides; pass `{ excludeGuide: false }` to
-   * index construction geometry too (the tArc-to-edge target resolution). */
-  getEdgesWithOwner(filter?: ShapeFilter): Map<Edge, GeometrySceneObject> {
+   * index construction geometry too (the tArc-to-edge target resolution).
+   * `removalScope` reads the geometry before an edited statement. */
+  getEdgesWithOwner(filter?: ShapeFilter, removalScope?: Set<SceneObject>): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
@@ -141,7 +219,7 @@ export class Sketch extends SceneObject implements Extrudable {
         continue;
       }
 
-      const shapes = child.getShapes(filter);
+      const shapes = child.getShapes(filter, undefined, removalScope);
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);

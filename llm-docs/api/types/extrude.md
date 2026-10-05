@@ -24,7 +24,7 @@ interface Extrude extends BooleanOperation {
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
   drill(value?: boolean): this;
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
 }
@@ -164,13 +164,16 @@ before extruding.
 | --- | --- | --- |
 | `value` | `boolean` | `true` to enable (default), `false` to disable. *(optional)* |
 
-### `pick()`
+### `region()`
 
-Restricts extrusion to only the sketch regions containing the given points.
+Restricts the extrusion to particular regions of the sketch, by the
+names their `region()` declarations gave them inside the sketch
+callback — `region('r1', l1, l2, c1)` declares, `.region('r1')`
+selects. The Pick regions link of the dialog writes both.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to extrude. *(optional)* |
+| `...names` | `string`[] | Names of regions the sketch declares. *(optional)* |
 
 ### `thin()`
 
@@ -191,4 +194,4 @@ instead of extruding filled faces. Positive values offset outward, negative valu
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

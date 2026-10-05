@@ -57,14 +57,6 @@ function M.remove_point(code, source_line, point)
   return post('remove-point', { code = code, sourceLine = source_line, point = point })
 end
 
-function M.add_pick(code, source_line)
-  return post('add-pick', { code = code, sourceLine = source_line })
-end
-
-function M.remove_pick(code, source_line)
-  return post('remove-pick', { code = code, sourceLine = source_line })
-end
-
 function M.add_guide(code, source_line)
   return post('add-guide', { code = code, sourceLine = source_line })
 end
@@ -84,10 +76,6 @@ function M.set_feature_name(code, source_line, name)
     name = vim.NIL
   end
   return post('set-feature-name', { code = code, sourceLine = source_line, name = name })
-end
-
-function M.set_pick_points(code, source_line, points)
-  return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
 function M.update_insert_chain(code, source_line, edit)

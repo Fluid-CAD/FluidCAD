@@ -141,23 +141,6 @@ Forwards a remove-point command to the extension, which removes a point from the
 
 ---
 
-#### `POST /api/set-pick-points`
-
-Forwards a batch of pick points to the extension for source code insertion.
-
-**Request body:**
-
-```json
-{
-  "points": [[10, 20], [30, 40]],
-  "sourceLocation": { "line": 5, "column": 12 }
-}
-```
-
-**Response:** `200 { "success": true }` or `400` on invalid body.
-
----
-
 #### `POST /api/rollback`
 
 Rolls the scene back to a specific object index (undo step).
@@ -301,5 +284,4 @@ The server communicates with the editor extension via Node.js IPC (`process.send
 | `import-complete`  | File import result                                |
 | `insert-point`     | Request to insert a point in source code          |
 | `remove-point`     | Request to remove a point from source code        |
-| `set-pick-points`  | Request to set pick points in source code         |
 | `export-complete`  | Export result (base64 data or error)              |

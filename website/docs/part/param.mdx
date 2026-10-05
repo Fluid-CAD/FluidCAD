@@ -25,9 +25,11 @@ There are three ways to declare a parameter, and they all write the same stateme
 <img src="/img/docs/part/param-panel.png" alt="The Parameters panel listing the plate's five controls" width="320" style={{float: 'right', marginLeft: '1.5rem'}} />
 
 1. Open the **Parameters** panel from the left rail.
-2. **Add to** names the part the new parameter goes into: the timeline's active part by default, or any other part of the file.
-3. Click **+**. The dialog asks for **Label**, **Type** and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and a **Description**.
+2. **Add to** names the part the new parameter goes into: the part highlighted in the History panel by default (the active part, or the one you stepped out of), or any other part of the file.
+3. Click **+** and choose **New parameter**. The dialog asks for **Label**, **Type** and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and a **Description**. **Expose as property**, off by default, also declares a [property](./property) of the same name valued by the new parameter, so an assembly can read it. (**New property** declares a property on its own instead.)
 4. Apply. The `param()` call is written at the top of that part's body, below the parameters already there, and its control appears in the panel. Edit or delete a parameter later from its row's menu.
+
+Renaming a parameter's label renames the variable it binds after it (`Wall thickness` binds `wallThickness`) and every read of that variable, along with the `insert(…, { Label })` overrides that address it by label in the assemblies that insert the part. Deleting a parameter puts its default value in place of every read of the variable and drops those overrides, so the model still builds. The dialog says what it is about to rewrite, in which files, before you confirm. A default that is an expression over other names (`base * 2`) can only replace reads where those names are in scope; anywhere else the delete is refused, naming the reads to rewrite by hand first.
 
 <div style={{clear: 'both'}} />
 

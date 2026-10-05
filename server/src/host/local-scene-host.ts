@@ -11,6 +11,7 @@ import {
   runtimeUsesThisEngine,
 } from './engine-resolution.ts';
 import { EngineImportResolver } from './engine-import-resolver.ts';
+import { installSourceUrlEncoding } from './source-url-encoding.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -116,6 +117,7 @@ export class LocalSceneHost implements SceneHost {
       ]
     });
     this.engineImports?.install(this.server.environments.ssr);
+    installSourceUrlEncoding(this.server.environments.ssr);
   }
 
   steeredEngineEntry(): string | null {

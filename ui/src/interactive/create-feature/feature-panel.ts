@@ -1,4 +1,5 @@
 import { PanelShell } from './panel-controls';
+import type { DialogWidth, EscapeScope } from './panel-controls';
 import { ExpressionField } from '../../ui/expression-field';
 import { applyUnitDefaults } from '../../units/apply-unit-defaults';
 import { sceneUnit } from '../../units/scene-unit';
@@ -26,9 +27,21 @@ export abstract class FeaturePanel {
       id: string; title: string; icon: string; bodyHtml: string;
       /** Footer's dismiss label; 'Cancel' for the one-shot sketch tools. */
       exitLabel?: string;
+      /**
+       * Where Escape closes the dialog; `'anywhere'` (the default) also from
+       * the viewport, since a pick moves focus out of it. The sketch-mode
+       * dialogs pass `'inside'`: the sketch toolbar's Escape already exits
+       * their tool, which closes them.
+       */
+      escape?: EscapeScope;
+      /** A wider float for a dialog whose rows would crowd the default column. */
+      width?: DialogWidth;
     },
   ) {
-    this.shell = new PanelShell(container, opts.id, opts.title, opts.icon);
+    this.shell = new PanelShell(container, opts.id, opts.title, opts.icon, opts.escape ?? 'anywhere');
+    if (opts.width) {
+      this.shell.widen(opts.width);
+    }
     this.shell.onEscape = () => this.onExit?.();
     this.body = this.shell.body;
     this.body.insertAdjacentHTML('beforeend', opts.bodyHtml);

@@ -13,7 +13,6 @@ import { Explorer } from "../oc/explorer.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { throughAllLength } from "../helpers/through-all.js";
-import { Shape } from "../common/shape.js";
 import { mmTol } from "../units/tolerance.js";
 
 export class Extrude extends ExtrudeBase {
@@ -26,7 +25,7 @@ export class Extrude extends ExtrudeBase {
 
     const plane = p.record('Get source plane', () => this.getSourcePlane());
 
-    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolveRegionFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -334,7 +333,7 @@ export class Extrude extends ExtrudeBase {
   }
 
   private buildRemove(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
-    const scope = this.resolveFusionScope(context.getSceneObjects());
+    const stock = this.resolveFusionStock(context.getSceneObjects());
 
     let toolShapes: any[];
     const isThroughAll = this.distance === 0;
@@ -348,7 +347,7 @@ export class Extrude extends ExtrudeBase {
     // the same solids `cutWithSceneObjects` picks up. A fixed stand-in for
     // infinity blows up the boolean's tolerances; see `throughAllLength`.
     const throughAll = isThroughAll
-      ? throughAllLength(this.cutStockShapes(scope), faces, plane)
+      ? throughAllLength(stock.map(held => held.solid), faces, plane)
       : 0;
 
     if (this._symmetric) {
@@ -371,15 +370,10 @@ export class Extrude extends ExtrudeBase {
 
     this.getSource()?.removeShapes(this);
 
-    cutWithSceneObjects(scope, toolShapes, plane, this.distance, this, {
+    cutWithSceneObjects(stock, toolShapes, plane, this.distance, this, {
       recordHistoryFor: this,
       bidirectional: this._symmetric,
     });
-  }
-
-  /** The solids a cut over `scope` will consume — what `cutWithSceneObjects` reads. */
-  private cutStockShapes(scope: SceneObject[]): Shape[] {
-    return scope.flatMap(obj => obj.getShapes({}, 'solid'));
   }
 
   override getDependencies(): SceneObject[] {

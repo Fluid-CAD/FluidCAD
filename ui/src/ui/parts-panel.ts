@@ -2,7 +2,7 @@
 //
 // Manual test plan:
 //  1. Open a `.assembly.js` file with two `insert(...)` calls.
-//     → See one row per insert with the part name.
+//     → See one row per insert: the instance's name over its part's.
 //  2. Click a row → instance highlights in the viewport. Editor stays put.
 //  3. Click 👁 → instance hides; click again → reappears.
 //  4. Click ⋮ (or right-click the row) → menu shows Show in source,
@@ -150,8 +150,9 @@ export class PartsPanel {
       parts: document.createElement('div'),
       connectors: document.createElement('div'),
       joints: document.createElement('div'),
+      params: document.createElement('div'),
     };
-    this.panel.append(this.hosts.parts, this.hosts.connectors, this.hosts.joints);
+    this.panel.append(this.hosts.parts, this.hosts.connectors, this.hosts.joints, this.hosts.params);
     this.panel.addEventListener(AccordionSection.CHANGE_EVENT, (event) => {
       const section = (event as CustomEvent<AccordionSection>).detail;
       const host = section.header.parentElement;
@@ -181,6 +182,10 @@ export class PartsPanel {
     return this.hosts.joints;
   }
 
+  getParamsHost(): HTMLElement {
+    return this.hosts.params;
+  }
+
   /** Re-divide the column between whichever sections are mounted and open. */
   private applySplit(): void {
     const isOpen = (host: HTMLElement): boolean => this.sections.get(host)?.isExpanded ?? false;
@@ -188,8 +193,9 @@ export class PartsPanel {
       parts: isOpen(this.hosts.parts),
       connectors: isOpen(this.hosts.connectors),
       joints: isOpen(this.hosts.joints),
+      params: isOpen(this.hosts.params),
     });
-    for (const section of ['parts', 'connectors', 'joints'] as const) {
+    for (const section of ['parts', 'connectors', 'joints', 'params'] as const) {
       this.hosts[section].className = split[section];
     }
   }
@@ -317,14 +323,12 @@ export class PartsPanel {
     const eyeVisibility = allHidden
       ? 'opacity-100 text-base-content/70'
       : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-    const nameOrInput = this.inlineRename?.kind === 'occurrence' && this.inlineRename.id === occurrenceId
-      ? `<input data-rename-input="occurrence" value="${escapeAttr(occ.name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm flex-1 min-w-0" />`
-      : `<span class="truncate font-medium">${escapeHtml(occ.name)}</span>`;
+    const nameCell = this.nameCellHtml({ kind: 'occurrence', id: occurrenceId }, occ.name, occ.assemblyName);
     let html = `
       <div class="group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-occurrence-id="${occurrenceId}">
         <span data-ref="chevron" class="flex items-center justify-center w-4 h-4 opacity-50 transition-transform${collapsed ? '' : ' rotate-90'}">${ICON_CHEVRON_RIGHT}</span>
         <span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>
-        ${nameOrInput}
+        ${nameCell}
         ${occ.replica ? REPLICA_BADGE : ''}
         <span class="text-xs text-base-content/40 tabular-nums shrink-0">${members.length}</span>
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-group-eye="${occurrenceId}">${eyeIcon}</button>
@@ -348,19 +352,35 @@ export class PartsPanel {
     const eyeVisibility = inst.visible
       ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
       : 'opacity-100 text-base-content/70';
-    const nameOrInput = this.inlineRename?.kind === 'instance' && this.inlineRename.id === inst.instanceId
-      ? `<input data-rename-input="instance" value="${escapeAttr(inst.name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm flex-1 min-w-0" />`
-      : `<span class="truncate">${escapeHtml(inst.name)}</span>`;
+    const nameCell = this.nameCellHtml({ kind: 'instance', id: inst.instanceId }, inst.name, inst.partName);
     const padding = indented ? 'pl-8 pr-3' : 'px-3';
     return `
       <div class="group flex items-center gap-2 ${padding} py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
         ${groundSlot}
-        ${nameOrInput}
+        ${nameCell}
         ${inst.replica ? REPLICA_BADGE : ''}
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
         ${this.dotsButtonHtml('data-dots', inst.instanceId)}
       </div>
     `;
+  }
+
+  /**
+   * A row's name cell: the record's own name — or the inline rename input
+   * standing in for it — over the part or assembly it was inserted from,
+   * small and muted. The second line shows even when it repeats the first
+   * (an insert that never took a name of its own), so every row reads the
+   * same way. An occurrence's name reads heavier, marking its row as a
+   * group header.
+   */
+  private nameCellHtml(target: RenameTarget, name: string, sourceName: string): string {
+    const renaming = this.inlineRename?.kind === target.kind && this.inlineRename.id === target.id;
+    const weight = target.kind === 'occurrence' ? ' font-medium' : '';
+    const nameLine = renaming
+      ? `<input data-rename-input="${target.kind}" value="${escapeAttr(name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm w-full min-w-0" />`
+      : `<span class="truncate${weight}">${escapeHtml(name)}</span>`;
+    const sourceLine = `<span data-ref="source-name" class="truncate text-[10px] text-base-content/50">${escapeHtml(sourceName)}</span>`;
+    return `<span class="flex flex-col leading-tight min-w-0${renaming ? ' flex-1' : ''}">${nameLine}${sourceLine}</span>`;
   }
 
   /** The ⋮ menu button — omitted entirely on a read-only host (its every item edits source). */

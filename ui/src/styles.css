@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@import "./ui/timeline-breakpoint-bar.css";
+
 @plugin "daisyui" {
   themes: fluidcad-dark --default --prefersdark, fluidcad-light;
 }
@@ -29,6 +31,7 @@
   --color-warning-content: #382800;
   --color-error: #f87272;
   --color-error-content: #470000;
+  --color-variable: #f472b6;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -39,6 +42,10 @@
   --noise: 0;
   --scene-face-color: #969696;
   --scene-edge-color: #000000;
+  --scene-vertex-color: #8f969f;
+  --scene-vertex-hover: #ffb433;
+  --scene-vertex-selected: #11a4ed;
+  --scene-loft-match: #ff1493;
   --scene-grid-color: #6f6f6f;
   --scene-meta-edge-color: #b0b0b0;
   --scene-highlight-color: #ffb433;
@@ -81,6 +88,7 @@
   --color-warning-content: #ffffff;
   --color-error: #dc2626;
   --color-error-content: #ffffff;
+  --color-variable: #db2777;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -91,6 +99,10 @@
   --noise: 0;
   --scene-face-color: #b8b8b8;
   --scene-edge-color: #555555;
+  --scene-vertex-color: #626a73;
+  --scene-vertex-hover: #ad6900;
+  --scene-vertex-selected: #0074aa;
+  --scene-loft-match: #ff1493;
   --scene-grid-color: #e8e8e8;
   --scene-meta-edge-color: #888888;
   --scene-highlight-color: #ffb433;
@@ -111,6 +123,14 @@
   --scene-sketch-axis-x: #c22f2b;
   --scene-sketch-axis-y: #188a3c;
   --scene-sketch-origin: #333333;
+}
+
+/* The expression suggestions' V (variable) chip: a light pink beside the P
+   chip's primary blue, deepened per theme above the way primary is.
+   Registered so the chip can take bg-/text-/border-variable with opacity
+   modifiers; the themes' values override this default. */
+@theme {
+  --color-variable: #f472b6;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

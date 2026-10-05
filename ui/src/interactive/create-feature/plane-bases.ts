@@ -1,5 +1,6 @@
 import { fetchSketchNames } from '../../api';
 import { SceneObjectRender } from '../../types';
+import { consumedLabel, consumerName } from './consumed-option';
 
 /** The message when a picked plane cannot back the slot (not a plane()). */
 export const PLANE_UNAVAILABLE_MESSAGE =
@@ -11,7 +12,14 @@ export type PlaneOption = {
   filePath: string;
   line: number;
   column: number;
+  /**
+   * The display name of the feature that consumed the plane (hid its quad)
+   * in this world — the option is a plane drawn no more, which the dialog
+   * reveals while it holds it. Absent for a plane still on screen.
+   */
+  consumer?: string;
 };
+
 
 /** A row's `filePath:line` — the granularity plane statements resolve at. */
 function lineKey(loc: { filePath: string; line: number }): string {
@@ -65,10 +73,14 @@ export function isPlaneStatementRow(
 }
 
 /**
- * The plane features rendered in the scene, one option per source line. A
- * single statement can register several plane objects (a mid plane adds its
- * two inputs, a from-face plane adds the selection), all sharing the call's
- * source location — the LAST object at a line is the statement's result.
+ * The plane features in the scene, one option per source line — those still
+ * rendering their quad and those a feature already used (its consumer hid
+ * the quad, but a plane is never used up, so each is offered again, named
+ * after that consumer). A single statement can register several plane
+ * objects (a mid plane adds its two inputs, a from-face plane adds the
+ * selection), all sharing the call's source location — the LAST object at a
+ * line is the statement's result.
+
  * A sketch's implicit plane is excluded (see {@link sketchOwningPlaneRow}):
  * its line holds no plane() call the transform could bind. (Only sketch lines
  * are filtered — a plane statement's own line legitimately hosts the
@@ -94,15 +106,18 @@ export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOpt
     if (sketchLines.has(key)) {
       continue;
     }
+    const consumer = consumerName(obj, sceneObjects);
     byLine.set(key, {
-      label: 'Plane',
+      label: consumedLabel('Plane', consumer),
       filePath: loc.filePath,
       line: loc.line,
       column: loc.column,
+      consumer,
     });
   }
   return [...byLine.values()];
 }
+
 
 /**
  * Relabel options with the variable names their planes are bound to
@@ -117,9 +132,10 @@ export async function labelWithPlaneNames(options: PlaneOption[]): Promise<Plane
   const names = await fetchSketchNames(options.map(o => o.line), 'plane');
   return options.map((option, i) => {
     const name = names[i];
-    return name ? { ...option, label: name } : option;
+    return name ? { ...option, label: consumedLabel(name, option.consumer) } : option;
   });
 }
+
 
 /** A stable signature for "same options" checks across async relabeling. */
 export function planeOptionsSignature(options: PlaneOption[]): string {
@@ -131,14 +147,15 @@ export function resolvePlaneRow(obj: SceneObjectRender): SceneObjectRender | und
   return obj.type === 'plane' && obj.sourceLocation ? obj : undefined;
 }
 
-/** Resolve a picked plane quad's shape to its owning plane object. */
+/** Resolve a picked plane quad's shape to its owning plane object; a shown consumed plane draws its hidden quad. */
 export function resolvePlaneByShapeId(
   shapeId: string,
   sceneObjects: SceneObjectRender[],
 ): SceneObjectRender | undefined {
-  return sceneObjects.find(o =>
-    o.type === 'plane' && o.sceneShapes?.some(s => s.shapeId === shapeId));
+  return sceneObjects.find(o => o.type === 'plane'
+    && (o.sceneShapes?.some(s => s.shapeId === shapeId) || o.hiddenShapes?.some(s => s.shapeId === shapeId)));
 }
+
 
 /** The offered option at a source location (a timeline plane row's). */
 export function planeOptionForLocation(
@@ -149,10 +166,12 @@ export function planeOptionForLocation(
 }
 
 /**
- * The rendered quad shapes behind a plane option, for highlighting a chosen
- * base in the viewport. Several plane objects can share the option's line (a
- * mid plane registers its two inputs too) — the LAST one is the statement's
- * result, the same reading as {@link collectPlaneOptions}.
+ * The quad shapes behind a plane option, for highlighting a chosen base in
+ * the viewport. A consumed plane's quad is its hidden shape: the dialog that
+ * holds it reveals it, so it is the highlight target too. Several plane
+ * objects can share the option's line (a mid plane registers its two inputs
+ * too) — the LAST one is the statement's result, the same reading as
+ * {@link collectPlaneOptions}.
  */
 export function planeQuadShapeIds(
   option: { filePath: string; line: number },
@@ -162,8 +181,13 @@ export function planeQuadShapeIds(
     && o.sourceLocation?.filePath === option.filePath
     && o.sourceLocation.line === option.line);
   const result = rows[rows.length - 1];
-  return result?.sceneShapes?.flatMap(s => s.shapeId ? [s.shapeId] : []) ?? [];
+  if (!result) {
+    return [];
+  }
+  return [...(result.sceneShapes ?? []), ...(result.hiddenShapes ?? [])].flatMap(s => s.shapeId ? [s.shapeId] : []);
+
 }
+
 
 /**
  * Resolve a picked plane-quad shape to its offered option; undefined means

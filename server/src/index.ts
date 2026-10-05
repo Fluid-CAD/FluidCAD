@@ -2,12 +2,13 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { FluidCadServer, sceneUnitFields } from './fluidcad-server.ts';
-import type { SceneRenderedData } from './fluidcad-server.ts';
+import { FluidCadServer, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
+import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
-import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
+import { createPropertyEditsRouter } from './routes/property-edits.ts';
+import { createPropertiesRouter } from './routes/properties.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
 import { createMeasureRouter } from './routes/measure.ts';
 import { createResolveSelectionRouter } from './routes/resolve-selection.ts';
@@ -15,7 +16,7 @@ import { createValidateRouter } from './routes/validate.ts';
 import { createInterfereRouter } from './routes/interfere.ts';
 import { createTimelineRouter } from './routes/timeline.ts';
 import { createSketchEditsRouter } from './routes/sketch-edits.ts';
-import { createApplyFeatureRouter } from './routes/apply-feature.ts';
+import { createApplyFeatureRouter } from './routes/apply-feature/index.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
@@ -29,11 +30,12 @@ import { createPackRouter } from './routes/pack.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
+import { createSectionRouter } from './routes/section.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
 import { createAssemblyConnectorRouter } from './routes/assembly-connector.ts';
 import { createAssemblyReplicateRouter } from './routes/assembly-replicate.ts';
 import { createTextRouter } from './routes/text.ts';
-import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
+import { createFeatureGhostRouter } from './routes/feature-ghost/index.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
@@ -55,7 +57,8 @@ import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { setMaxWorkers } from '../../lib/dist/oc/init.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -157,19 +160,20 @@ app.use('/api', createHealthRouter({
   readUnit: projectUnitNow,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied));
+app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied, WORKSPACE_PATH));
+app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createResolveSelectionRouter(fluidCadServer));
 app.use('/api', createValidateRouter(fluidCadServer));
 app.use('/api', createInterfereRouter(fluidCadServer));
-app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher }));
+app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH }));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadServer.resolveSelection(request)));
-app.use('/api', createPreferencesRouter());
+app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
 app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes), core.awaitLatestSceneApplied));
@@ -192,7 +196,8 @@ app.use('/api', createUnitRouter({
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
-app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
+app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
+app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
@@ -244,6 +249,9 @@ const pageWrites = new PageWriteLedger();
 const lastSceneByFile = new Map<string, {
   result: any[];
   rollbackStop: number;
+  rollbackScopePartId?: string;
+  breakpointHit?: boolean;
+  timeline?: SceneRenderedData['timeline'];
   sceneKind: FluidScriptKind;
   unit: LengthUnit;
   declaredUnit: LengthUnit | null;
@@ -253,8 +261,8 @@ const lastSceneByFile = new Map<string, {
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
 function emitSuccess(version: number, data: SceneRenderedData) {
-  const { absPath, sceneKind, unit, declaredUnit, result, rollbackStop, breakpointHit, assembly, params } = data;
-  lastSceneByFile.set(absPath, { result, rollbackStop, sceneKind, unit, declaredUnit, assembly });
+  const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties, objectWarnings } = data;
+  lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
     type: 'scene-rendered',
@@ -262,7 +270,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     sceneKind,
     ...sceneUnitFields(data),
     result,
-    rollbackStop,
+    ...sceneStopFields(data),
     ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({
@@ -271,9 +279,11 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     absPath,
     sceneKind,
     ...sceneUnitFields(data),
-    rollbackStop,
+    ...sceneStopFields(data),
     breakpointHit,
     params,
+    properties,
+    objectWarnings,
     ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
@@ -281,8 +291,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
 
 function buildCompileError(filePath: string, err: any): CompileError {
   const message = err?.message || String(err);
-  const stack = typeof err?.stack === 'string' ? err.stack : '';
-  let sourceLocation = stack ? extractSourceLocation(stack) : null;
+  let sourceLocation = extractErrorSourceLocation(err);
   const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
   if (sourceLocation) {
     sourceLocation = {
@@ -303,7 +312,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
   const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
   const prev = lastSceneByFile.get(key);
   const result = prev?.result ?? [];
-  const rollbackStop = prev?.rollbackStop ?? -1;
+  const stop = sceneStopFields({ ...prev, rollbackStop: prev?.rollbackStop ?? -1 });
   const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
   // The replayed scene is the last good one, so it keeps that render's
   // unit; the project unit is not the scene's and is read live.
@@ -320,7 +329,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
     sceneKind,
     ...units,
     result,
-    rollbackStop,
+    ...stop,
     compileError,
     ...(assembly ? { assembly } : {}),
   });
@@ -330,7 +339,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
     absPath: key,
     sceneKind,
     ...units,
-    rollbackStop,
+    ...stop,
     compileError,
     ...(assembly ? { assembly } : {}),
   });
@@ -685,8 +694,13 @@ httpServer.listen(PORT, HOST, () => {
   // Signal ready immediately so extension can show the webview
   sendToExtension({ type: 'ready', port: PORT, url });
 
-  // Initialize FluidCAD server in the background
-  fluidCadServer.init(WORKSPACE_PATH).then(() => {
+  // Initialize FluidCAD server in the background. The stored worker count
+  // reaches the kernel first: loading it (from the workspace's init.js) fixes
+  // how many workers it starts with.
+  loadPreferences().then((prefs) => {
+    setMaxWorkers(prefs.maxWorkers);
+    return fluidCadServer.init(WORKSPACE_PATH);
+  }).then(() => {
     // Starting without an engine is legal — the UI and the editor still work —
     // but it is never what someone wants silently, so it lands in the terminal
     // as well as in the page.

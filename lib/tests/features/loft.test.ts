@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
+import { diameter, fix } from "../../core/constraints/index.js";
 import { Solid } from "../../common/solid.js";
+import { Face } from "../../common/face.js";
+import { getOC } from "../../oc/init.js";
+import { renderSolid } from "../../rendering/render-solid.js";
+import { EdgeQuery } from "../../oc/edge-query.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
@@ -76,6 +81,54 @@ describe("loft", () => {
       expect(bbox.maxX - bbox.minX).toBeCloseTo(bottomWidth, -1);
     });
 
+    it("keeps a round wall as one smooth face between two circular rims", () => {
+      const s1 = sketch("xy", () => {
+          circle([0, 0], 80);
+        });
+
+      const s2 = sketch(plane("xy", { offset: 50 }), () => {
+          circle([0, 0], 40);
+        });
+
+      const l = loft(s1, s2) as Loft;
+      const sides = l.sideFaces();
+      addToScene(sides);
+
+      render();
+
+      // A circle is one span of the section curve, so nothing splits the
+      // wall — and its surface carries no C0 knot, which OCC's offset
+      // (shell) would refuse the face for.
+      const walls = sides.getShapes() as Face[];
+      expect(walls).toHaveLength(1);
+      const oc = getOC();
+      const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(walls[0].getShape()), true);
+      const surface = adaptor.BSpline();
+      expect(surface.IsCNu(1)).toBe(true);
+      expect(surface.IsCNv(1)).toBe(true);
+      expect(surface.NbUKnots()).toBe(2);
+      surface.delete();
+
+      // The wall is an exact cone: every point sits on r = 40 − z·20/50.
+      for (let i = 0; i <= 16; i++) {
+        for (let j = 0; j <= 4; j++) {
+          const point = adaptor.Value(i / 16, j / 4);
+          expect(Math.hypot(point.X(), point.Y())).toBeCloseTo(40 - point.Z() * 0.4, 9);
+          point.delete();
+        }
+      }
+      adaptor.delete();
+
+      // Two rims, each one closed circle; the wall's seam is not drawn.
+      const solid = l.getShapes()[0] as Solid;
+      const drawn = renderSolid(solid).filter(m => m.label === "solid-edges");
+      expect(drawn).toHaveLength(2);
+      const rims = solid.getEdges().filter(edge => EdgeQuery.isCircleEdge(edge));
+      expect(rims).toHaveLength(2);
+      expect(rims.some(edge => EdgeQuery.isCircleEdge(edge, 80))).toBe(true);
+      expect(rims.some(edge => EdgeQuery.isCircleEdge(edge, 40))).toBe(true);
+    });
+
     it("should produce a solid with positive volume", () => {
       const s1 = sketch("xy", () => {
           circle([0, 0], 60);
@@ -111,6 +164,48 @@ describe("loft", () => {
       const shapes = l.getShapes();
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe("solid");
+    });
+  });
+
+  describe("profile regions", () => {
+    function circleWithDiameters(construction: boolean) {
+      const c = circle([0, 0], 30);
+      fix(c.center());
+      diameter(c, 30);
+      const q = 15 / Math.SQRT2;
+      const diagonals = [line([-q, q], [q, -q]), line([q, q], [-q, -q])];
+      for (const diagonal of diagonals) {
+        fix(diagonal.start());
+        fix(diagonal.end());
+        if (construction) {
+          diagonal.guide();
+        }
+      }
+    }
+
+    it.each([0, 1])("reports the region count for divided profile %i without a kernel exception", profileIndex => {
+      const square = sketch("xy", () => testRect(50, 50, { at: [-25, -25] }));
+      const round = sketch(plane("xy", { offset: 50 }), () => circleWithDiameters(false));
+      const feature = (profileIndex === 0 ? loft(round, square) : loft(square, round)) as Loft;
+
+      expect(() => render()).not.toThrow();
+
+      expect(feature.getError()).toContain(`Loft requires exactly one region per profile; profile ${profileIndex + 1} has 4.`);
+      expect(feature.getError()).toContain(".guide()");
+      expect(feature.getShapes()).toHaveLength(0);
+      expect(feature.profiles.map(profile => profile.getError())).toEqual([null, null]);
+    });
+
+    it("allows a circular profile with construction diameters", () => {
+      const square = sketch("xy", () => testRect(50, 50, { at: [-25, -25] }));
+      const round = sketch(plane("xy", { offset: 50 }), () => circleWithDiameters(true));
+      const feature = loft(square, round) as Loft;
+
+      render();
+
+      expect(feature.getError()).toBeNull();
+      expect(feature.getShapes()).toHaveLength(1);
+      expect(feature.getShapes()[0].isSolid()).toBe(true);
     });
   });
 
@@ -153,10 +248,9 @@ describe("loft", () => {
 
       loft(s1, s2);
 
-      render();
-
-      expect(s1.getShapes()).toHaveLength(0);
-      expect(s2.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s1);
+      expectDisplayConsumed(scene, s2);
     });
   });
 

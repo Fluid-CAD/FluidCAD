@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
@@ -12,11 +12,19 @@ import chamfer from "../core/chamfer.js";
 import fillet from "../core/fillet.js";
 import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
+import hole from "../core/hole.js";
+import color from "../core/color.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
+import part from "../core/part.js";
+import connector from "../core/connector.js";
+import select from "../core/select.js";
+import { face } from "../filters/index.js";
+import { Connector } from "../features/connector.js";
 import { bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
@@ -25,13 +33,17 @@ import {
   buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
-  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, RotateGhostRequest,
+  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
   SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
+import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
 import { horizontal } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
+import { runFluid, FLUID_FILE } from "./helpers/run-fluid.js";
+import { buildSketchRegions } from "../rendering/sketch-regions.js";
+import type { RegionPick } from "../features/2d/regions/region-wire.js";
 
 const FILE = '/tmp/ghost-test.fluid.js';
 
@@ -217,6 +229,130 @@ describe("feature ghost", () => {
  * the mesh: a 20×10 section from x = 60 to 80 in the xy plane sweeps an
  * annulus 60…80 out from the y axis, 10 tall.
  */
+describe("feature ghost — regions", () => {
+  setupOC();
+
+  /**
+   * Two concentric circles drawn from `.fluid.js` source so the statements
+   * carry source lines: the ring (declared `outer`) and the disc inside it
+   * (undeclared — a pick of it travels by its boundary).
+   */
+  function concentric(): { line: number; scene: Scene } {
+    const { s } = runFluid(`
+      const s = sketch("xy", () => {
+        const outer = circle([0, 0], 40);
+        const inner = circle([0, 0], 20);
+        region('outer', outer);
+      });
+      return { s };
+    `) as { s: Sketch };
+    return { line: s.getSourceLocation()!.line, scene: render() };
+  }
+
+  /** The disc by its boundary: the inner circle's statement, two lines below the sketch call. */
+  const discPick = (line: number) => ({ items: [{ line: line + 2, callee: 'circle', far: false }] });
+
+  const ghostWithRegions = (scene: Scene, line: number, regions: RegionPick[] | undefined) =>
+    buildFeatureGhost(
+      scene,
+      { ...BASE, regions, profile: { filePath: FLUID_FILE, line } },
+      DEFAULT_MESH_CONFIG,
+    );
+
+  it("lists every region of the profile with its name, its writable boundary and the picks marked", () => {
+    const { line, scene } = concentric();
+
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, picks: [discPick(line)] }, DEFAULT_MESH_CONFIG);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.regions.map(r => r.key).sort()).toEqual(['circle#1', 'circle#2']);
+    const ring = result.regions.find(r => r.key === 'circle#1')!;
+    const disc = result.regions.find(r => r.key === 'circle#2')!;
+    expect(ring.name).toBe('outer');
+    expect(ring.items).toEqual([{ line: line + 1, callee: 'circle', far: false }]);
+    expect(ring.selected).toBe(false);
+    expect(disc.name).toBeNull();
+    expect(disc.items).toEqual([{ line: line + 2, callee: 'circle', far: false }]);
+    expect(disc.selected).toBe(true);
+    for (const region of result.regions) {
+      expect(region.meshes.length).toBeGreaterThan(0);
+      expect(region.meshes[0].indices.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("still lists the regions of a profile the edited statement already consumed", () => {
+    const { s } = runFluid(`
+      const s = sketch("xy", () => {
+        const outer = circle([0, 0], 40);
+        const inner = circle([0, 0], 20);
+        region('outer', outer);
+      });
+      extrude(10, s).region('outer');
+      return { s };
+    `) as { s: Sketch };
+    const line = s.getSourceLocation()!.line;
+    const scene = render();
+
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line }, picks: [{ name: 'outer' }] }, DEFAULT_MESH_CONFIG);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.regions.map(r => [r.key, r.selected]).sort()).toEqual([['circle#1', true], ['circle#2', false]]);
+  });
+
+  it("refuses a profile the scene doesn't hold", () => {
+    const { scene } = concentric();
+    const result = buildSketchRegions(scene, { profile: { filePath: FLUID_FILE, line: 99 }, picks: [] }, DEFAULT_MESH_CONFIG);
+    expect(result.ok).toBe(false);
+  });
+
+  it("builds only the picked regions, and nothing for the bare .region()", () => {
+    const { line, scene } = concentric();
+
+    const disc = ghostWithRegions(scene, line, [discPick(line)]);
+    expect(disc.ok).toBe(true);
+    if (!disc.ok) {
+      return;
+    }
+    expect(disc.solids).toHaveLength(1);
+    // Mesh vertices sit on the circle's discretization, so the extent lands
+    // within a facet of the radius rather than on it.
+    const box = bounds(disc);
+    expect(box.maxX).toBeCloseTo(10, 0);
+    expect(box.minX).toBeCloseTo(-10, 0);
+
+    const ring = ghostWithRegions(scene, line, [{ name: 'outer' }]);
+    expect(ring.ok).toBe(true);
+    if (!ring.ok) {
+      return;
+    }
+    expect(bounds(ring).maxX).toBeCloseTo(20, 0);
+
+    const nothing = ghostWithRegions(scene, line, []);
+    expect(nothing.ok).toBe(true);
+    if (!nothing.ok) {
+      return;
+    }
+    expect(nothing.solids).toHaveLength(0);
+  });
+
+  it("shows what resolved when a pick names no region", () => {
+    const { line, scene } = concentric();
+    const result = ghostWithRegions(scene, line, [discPick(line), { name: 'gone' }]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    expect(bounds(result).maxX).toBeCloseTo(10, 0);
+  });
+});
+
 describe("feature ghost — revolve", () => {
   setupOC();
 
@@ -429,6 +565,35 @@ describe("feature ghost — loft", () => {
     ];
   }
 
+  it('transports actual matching lines for plain and connected lofts', () => {
+    rectStack();
+    const scene = render();
+    const variants: LoftGhostRequest['connections'][] = [undefined, [[[0, 0, 0], [0, 0, 40]]]];
+    for (const connections of variants) {
+      const result = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.solids).toHaveLength(1);
+        const lines = result.solids[0].matchLines!;
+        expect(lines.length).toBeGreaterThanOrEqual(4);
+        expect(lines.every(line => line.length >= 6 && line.length % 3 === 0 && line.every(Number.isFinite))).toBe(true);
+        expect(lines.some(line => Math.hypot(...line.slice(0, 3)) < 1e-5
+          && Math.hypot(line.at(-3)!, line.at(-2)!, line.at(-1)! - 40) < 1e-5)).toBe(true);
+      }
+    }
+  });
+
+  it('surfaces invalid connection points and crossing order instead of a stale ghost', () => {
+    rectStack();
+    const scene = render();
+    const offProfile = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections: [[[500, 0, 0], [0, 0, 40]]] });
+    expect(offProfile).toMatchObject({ ok: false, surface: true, reason: expect.stringMatching(/profile|vertex/) });
+    const crossing = loftGhost(scene, [sketchRef(5), sketchRef(9)], { connections: [
+      [[0, 0, 0], [0, 0, 40]], [[100, 0, 0], [100, 50, 40]], [[100, 50, 0], [100, 0, 40]],
+    ] });
+    expect(crossing).toMatchObject({ ok: false, surface: true, reason: expect.stringContaining('cross') });
+  });
+
   it("skins between the sections its chips name", () => {
     rectStack();
     const scene = render();
@@ -594,6 +759,24 @@ describe("feature ghost — sweep", () => {
     expect(box.maxZ).toBeCloseTo(50, 1);
     expect(box.maxX).toBeCloseTo(5, 0);
     expect(box.minX).toBeCloseTo(-5, 0);
+  });
+
+  /**
+   * The dialog's Extend toggle: the ghost runs past the spine's ends by the
+   * same amounts `.extend()` writes, so the preview matches the apply. A
+   * lead-in grows the tube below z = 0, a run-out above z = 50.
+   */
+  it("runs the ghost past the path ends by the extend amounts", () => {
+    tube();
+    const scene = render();
+
+    const both = bounds(sweepGhost(scene, 5, wireRef(3), { extendStart: 20, extendEnd: 30 }));
+    expect(both.minZ).toBeCloseTo(-20, 1);
+    expect(both.maxZ).toBeCloseTo(80, 1);
+
+    const endOnly = bounds(sweepGhost(scene, 5, wireRef(3), { extendStart: null, extendEnd: 30 }));
+    expect(endOnly.minZ).toBeCloseTo(0, 1);
+    expect(endOnly.maxZ).toBeCloseTo(80, 1);
   });
 
   /**
@@ -776,6 +959,31 @@ describe("feature ghost — repeat", () => {
       throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
     }
     return result.solids;
+  }
+
+  /** The extent of one ghost body across every mesh it carries. */
+  function extent(solid: { meshes: SceneObjectMesh[] }) {
+    const along = (offset: number) => solid.meshes.flatMap(m => [...m.vertices].filter((_, i) => i % 3 === offset));
+    const [xs, ys, zs] = [along(0), along(1), along(2)];
+    return {
+      minX: Math.min(...xs), maxX: Math.max(...xs),
+      minY: Math.min(...ys), maxY: Math.max(...ys),
+      minZ: Math.min(...zs), maxZ: Math.max(...zs),
+    };
+  }
+
+  /**
+   * A part of two bodies resting on one another: a 200 × 100 × 20 plate, and a
+   * 40 × 40 post standing 50 tall in the middle of its top face.
+   */
+  function plateAndPost() {
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { testRect(40, 40, { at: [-20, -20] }); });
+    const post = extrude(50).new() as unknown as { endFaces: () => { center: () => never } };
+    return { plate, post };
   }
 
   it("stamps a body at every instance but the original", () => {
@@ -1148,6 +1356,142 @@ describe("feature ghost — repeat", () => {
     expect(box.maxZ).toBeCloseTo(20, 3);
   });
 
+  /**
+   * A part of several bodies, the hole drilled into the post alone. Each
+   * instance is the hole: not the plate the post stands on, nor the rest of
+   * the post around it.
+   */
+  it("stamps a hole's pocket alone in a part of several bodies", () => {
+    const { post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const cuts = vi.spyOn(BooleanOps, 'cutShapesRaw');
+    let result: FeatureGhostResult;
+    try {
+      result = repeatGhost(scene, [13], {
+        directions: [{ count: 2, offset: 60, length: null }],
+      });
+      // The post against its drilled self, each way round — nothing is cut
+      // against the plate, which the hole never changed.
+      expect(cuts).toHaveBeenCalledTimes(2);
+    } finally {
+      cuts.mockRestore();
+    }
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    // Ø6, 10 deep from the post's top at z 70, moved 60 — not the 40 × 40 post
+    // around it, and not the 200 × 100 plate underneath.
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minY).toBeCloseTo(-3, 1);
+    expect(box.maxY).toBeCloseTo(3, 1);
+    expect(box.minZ).toBeCloseTo(60, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * The same hole drilled on through the post and into the plate: two bodies
+   * taken in, two handed on, both changed. Each is set against its own
+   * outcome — the pocket it lost — and never against the other's, which would
+   * read as the whole body gone.
+   */
+  it("stamps the pockets of a hole that runs through two bodies", () => {
+    const { post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(60) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [13], {
+      directions: [{ count: 2, offset: 60, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    // One pocket per body: the post's full 50, and 10 into the plate below.
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minZ).toBeCloseTo(10, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * Two targets on two bodies: a boss fused onto the plate, and a hole drilled
+   * into the post. Each reads against its own body — the boss against the
+   * plate it was fused onto, the hole against the post — and neither against
+   * the other's.
+   */
+  it("keeps each target on its own body", () => {
+    const { plate, post } = plateAndPost();
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9, 13], {
+      directions: [{ count: 2, offset: 60, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids.map(s => s.kind).sort()).toEqual(['add', 'remove']);
+    // The boss alone (Ø30 at x -80, standing on the plate), moved 60.
+    const added = extent(solids.find(s => s.kind === 'add')!);
+    expect(added.minX).toBeCloseTo(-35, 1);
+    expect(added.maxX).toBeCloseTo(-5, 1);
+    expect(added.minZ).toBeCloseTo(20, 3);
+    expect(added.maxZ).toBeCloseTo(30, 3);
+    // The hole alone, in the post's top.
+    const removed = extent(solids.find(s => s.kind === 'remove')!);
+    expect(removed.minX).toBeCloseTo(57, 1);
+    expect(removed.maxX).toBeCloseTo(63, 1);
+    expect(removed.minZ).toBeCloseTo(60, 3);
+    expect(removed.maxZ).toBeCloseTo(70, 3);
+  });
+
+  /**
+   * A colour takes the plate in and hands it back the same shape. Repeated
+   * alongside the hole it adds no material and takes none away, and it is told
+   * apart by measuring the two solids — never by cutting one against its twin.
+   */
+  it("draws nothing for a body a target handed back unchanged", () => {
+    const { plate, post } = plateAndPost();
+    const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const painted = color("red", plate as never) as unknown as SceneObject;
+    painted.setSourceLocation({ filePath: FILE, line: 17, column: 0 });
+    const scene = render();
+
+    const cuts = vi.spyOn(BooleanOps, 'cutShapesRaw');
+    let result: FeatureGhostResult;
+    try {
+      result = repeatGhost(scene, [13, 17], {
+        directions: [{ count: 2, offset: 60, length: null }],
+      });
+      // The hole's two, and none for the painted plate.
+      expect(cuts).toHaveBeenCalledTimes(2);
+    } finally {
+      cuts.mockRestore();
+    }
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBe('remove');
+    const box = extent(solids[0]);
+    expect(box.minX).toBeCloseTo(57, 1);
+    expect(box.maxX).toBeCloseTo(63, 1);
+    expect(box.minZ).toBeCloseTo(60, 3);
+    expect(box.maxZ).toBeCloseTo(70, 3);
+  });
+
   it("stamps every target the request names", () => {
     locatedBox(5);
     locatedBox(9, () => { testRect(20, 20, { at: [100, -10] }); });
@@ -1187,8 +1531,8 @@ describe("feature ghost — repeat", () => {
     expect(bounds(result, 0).maxX).toBeCloseTo(60, 3);
   });
 
-  /** Repeating a repeat is legal — the container hands over its children. */
-  it("gathers a container target's children", () => {
+  /** Repeating a repeat is legal — it stands for its whole pattern. */
+  it("stamps a repeat target's whole pattern, the original included", () => {
     const box = locatedBox(5);
     const pattern = repeat("linear", "x", { count: 2, offset: 200 }, box as never) as unknown as SceneObject;
     pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
@@ -1199,11 +1543,132 @@ describe("feature ghost — repeat", () => {
       directions: [{ count: 2, offset: 500, length: null }],
     });
 
+    // The original (x 0…20) and the pattern's one clone (x 200…220), both
+    // moved 500 — the statement repeats the pattern, not its clones alone.
     const solids = solidsOf(result);
-    // The pattern holds one clone (at x 200…220); the original at the origin
-    // belongs to line 5, not to the container.
-    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(1);
-    expect(bounds(result, 0).minX).toBeCloseTo(700, 3);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    expect(extent(solids[0]).minX).toBeCloseTo(500, 3);
+    expect(extent(solids[0]).maxX).toBeCloseTo(720, 3);
+  });
+
+  /**
+   * The pattern answers for what its features did. The original and its one
+   * clone each drilled the plate, so repeating the pattern previews both
+   * holes — read through the container instead, the clone's plate would have
+   * no input to be set against and every instance would draw a whole plate.
+   */
+  it("stamps what a repeat target's features did, not the bodies they hand on", () => {
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    const seat = sketch(plate.endFaces() as never, () => ({ c: circle([0, 0], 3) }));
+    const drilled = hole(6, (seat.geometries.c as unknown as { center: () => never }).center())
+      .depth(5) as unknown as SceneObject;
+    drilled.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const pattern = repeat("linear", "x", { count: 2, offset: 30 }, drilled as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, drilled, 9);
+
+    const result = repeatGhost(scene, [9], {
+      axes: [{ kind: 'standard', axis: 'y' }],
+      directions: [{ count: 2, offset: 20, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids.every(solid => solid.kind === 'remove')).toBe(true);
+    // Both holes (Ø6 at x 0 and x 30, 5 deep in the plate's top), moved 20 in y.
+    const box = {
+      minX: Math.min(...solids.map(solid => extent(solid).minX)),
+      maxX: Math.max(...solids.map(solid => extent(solid).maxX)),
+      minY: Math.min(...solids.map(solid => extent(solid).minY)),
+      maxY: Math.max(...solids.map(solid => extent(solid).maxY)),
+      minZ: Math.min(...solids.map(solid => extent(solid).minZ)),
+      maxZ: Math.max(...solids.map(solid => extent(solid).maxZ)),
+    };
+    expect(box.minX).toBeCloseTo(-3, 1);
+    expect(box.maxX).toBeCloseTo(33, 1);
+    expect(box.minY).toBeCloseTo(17, 1);
+    expect(box.maxY).toBeCloseTo(23, 1);
+    expect(box.minZ).toBeCloseTo(15, 3);
+    expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  it("mirrors a repeat target's whole pattern", () => {
+    const box = locatedBox(5, () => { testRect(20, 20, { at: [0, 30] }); });
+    const pattern = repeat("linear", "x", { count: 3, offset: 40 }, box as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, box, 9);
+
+    const result = repeatGhost(scene, [9], {
+      kind: 'mirror',
+      axes: [],
+      plane: { kind: 'standard', plane: 'xz' },
+      directions: [],
+    });
+
+    // Three boxes at x 0, 40 and 80, y 30…50, reflected to y -50…-30.
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(3);
+    const span = extent(solids[0]);
+    expect(span.minX).toBeCloseTo(0, 3);
+    expect(span.maxX).toBeCloseTo(100, 3);
+    expect(span.minY).toBeCloseTo(-50, 3);
+    expect(span.maxY).toBeCloseTo(-30, 3);
+  });
+
+  it("resolves a repeat's own line to its whole pattern in a script", () => {
+    // The production stamping: every clone carries the repeat statement's
+    // line, and that line names the repeat — the pattern, original included.
+    const { row } = runFluid(`
+      sketch("xy", () => { testRect(20, 20, { at: [0, 30] }); });
+      const box = extrude(10).new();
+      const row = repeat("linear", "x", { count: 3, offset: 40 }, box);
+      return { row };
+    `, { testRect });
+    const scene = render();
+    const line = row.getSourceLocation()!.line;
+    expect(row.getChildren().every(clone => clone.getSourceLocation()!.line === line)).toBe(true);
+
+    const result = buildFeatureGhost(
+      scene,
+      {
+        ...REPEAT_BASE,
+        kind: 'mirror',
+        axes: [],
+        plane: { kind: 'standard', plane: 'xz' },
+        directions: [],
+        targets: [{ filePath: FLUID_FILE, line }],
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(3);
+    expect(extent(solids[0]).minY).toBeCloseTo(-50, 3);
+    expect(extent(solids[0]).maxX).toBeCloseTo(100, 3);
+  });
+
+  it("counts a repeat target's instances against the cap", () => {
+    const box = locatedBox(5);
+    const pattern = repeat("linear", "x", { count: 3, offset: 40 }, box as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, box, 9);
+
+    // 99 new instances of a three-instance pattern: 297 bodies.
+    const result = repeatGhost(scene, [9], {
+      axes: [{ kind: 'standard', axis: 'y' }],
+      directions: [{ count: 100, offset: 40, length: null }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toBe('297 instances is more than the preview draws.');
   });
 
   it("refuses more instances than it draws", () => {
@@ -1378,7 +1843,7 @@ describe("feature ghost — copy", () => {
   /**
    * The dialog's Skip field, drawn: the instances it names are the ones the
    * apply won't place, so the ghost leaves exactly those holes
-   * (copy-linear.ts:82).
+   * (`CopyLayout.linear`).
    */
   it("leaves out the instances the skip list names", () => {
     locatedBox(5);
@@ -1472,7 +1937,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The one placement rule a copy does not share with a repeat: a partial
-   * sweep is divided by the instance count (copy-circular.ts:48), not by the
+   * sweep is divided by the instance count (`CopyLayout.circularStep`), not by the
    * gaps between them, so the last clone stops short of the stated angle.
    */
   it("divides a partial sweep by the count, not the gaps", () => {
@@ -1545,7 +2010,7 @@ describe("feature ghost — copy", () => {
 
   /**
    * The edit dialog's own blind spot: a copy takes its targets' shapes over
-   * (copy-linear.ts:33-38), so re-previewing the statement being edited finds
+   * (`CopyBase.build`), so re-previewing the statement being edited finds
    * them already consumed — by itself. Re-reading as if no removal applied
    * brings the body back, and without it editing any copy would draw nothing.
    */
@@ -1639,6 +2104,300 @@ describe("feature ghost — copy", () => {
 
     expect(result.ok).toBe(false);
   });
+
+  /**
+   * Connector copies: a connector target comes back as frames — its built
+   * frame moved by each slot's matrix, `ConnectorCopy.build`'s own rule — and
+   * a connector in the axis slot stands for its Z axis through its origin.
+   */
+  describe("connectors", () => {
+    type Frame = { origin: Vec; xDirection: Vec; yDirection: Vec; normal: Vec };
+    type Vec = { x: number; y: number; z: number };
+
+    const BOLT_LINE = 7;
+    const PIVOT_LINE = 8;
+
+    function near(v: Vec, x: number, y: number, z: number): void {
+      expect(v.x).toBeCloseTo(x, 6);
+      expect(v.y).toBeCloseTo(y, 6);
+      expect(v.z).toBeCloseTo(z, 6);
+    }
+
+    function framesOf(result: FeatureGhostResult): Frame[] {
+      if (!result.ok) {
+        throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+      }
+      return result.frames ?? [];
+    }
+
+    /**
+     * A 100 × 100 × 10 plate with `bolt` on its top face at (30, 0, 10) and
+     * `pivot` at (-20, 0, 10), both Z up, each addressable at its line like
+     * the parser's; `more` writes the rest of the part body.
+     */
+    function flange(more: (bolt: Connector) => void = () => {}): { bolt: Connector } {
+      const out = {} as { bolt: Connector };
+      part("flange", () => {
+        sketch("xy", () => {
+          testRect(100, 100, { at: [-50, -50] });
+        });
+        extrude(10).new();
+        out.bolt = (connector("bolt", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(30, 0, 0);
+        out.bolt.setSourceLocation({ filePath: FILE, line: BOLT_LINE, column: 0 });
+        const pivot = (connector("pivot", select(face().planar().onPlane("xy", 10))) as unknown as Connector)
+          .offset(-20, 0, 0);
+        pivot.setSourceLocation({ filePath: FILE, line: PIVOT_LINE, column: 0 });
+        more(out.bolt);
+      });
+      return out;
+    }
+
+    const CIRCULAR: Partial<CopyGhostRequest> = {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+    };
+
+    it("places a connector target's copies as frames, the seed left alone", () => {
+      flange();
+      const scene = render();
+
+      const result = copyGhost(scene, [BOLT_LINE], CIRCULAR);
+
+      expect(result.ok && result.solids).toEqual([]);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, 0, 30, 10);
+      near(frames[0].xDirection, 0, 1, 0);
+      near(frames[0].normal, 0, 0, 1);
+      near(frames[1].origin, -30, 0, 10);
+      near(frames[2].origin, 0, -30, 10);
+    });
+
+    it("places the frames the statement builds — editing a copy that already made them", () => {
+      const made = flange(bolt => {
+        copy("circular", "z", { count: 5, angle: 360 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], { ...CIRCULAR, count: 5 }));
+
+      expect(frames).toHaveLength(4);
+      frames.forEach((frame, i) => {
+        const built = made.bolt.instance(i + 1).getFrame();
+        near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+        near(frame.xDirection, built.xDirection.x, built.xDirection.y, built.xDirection.z);
+        near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+      });
+    });
+
+    it("stamps solids and places frames for mixed targets", () => {
+      flange(() => {
+        locatedBox(5);
+      });
+      const scene = render();
+
+      const result = copyGhost(scene, [5, BOLT_LINE], {
+        directions: [{ count: 2, offset: 40, length: null }],
+      });
+
+      expect(solidsOf(result)).toHaveLength(1);
+      expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+      const frames = framesOf(result);
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 70, 0, 10);
+    });
+
+    it("turns the copies around a connector's Z axis", () => {
+      flange();
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [BOLT_LINE], {
+        ...CIRCULAR,
+        axes: [{ kind: 'connector', filePath: FILE, line: PIVOT_LINE }],
+      }));
+
+      // The bolt sits 50 out from the pivot's axis at (-20, 0).
+      expect(frames).toHaveLength(3);
+      near(frames[0].origin, -20, 50, 10);
+      near(frames[1].origin, -70, 0, 10);
+      near(frames[2].origin, -20, -50, 10);
+    });
+
+    it("takes a connector copy as the axis by its slot", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      const frames = framesOf(copyGhost(scene, [PIVOT_LINE], {
+        ...CIRCULAR,
+        count: 2,
+        axes: [{ kind: 'connector', filePath: FILE, line: BOLT_LINE, slot: 1 }],
+      }));
+
+      // Half a turn around bolt.instance(1) at (70, 0): the pivot at (-20, 0) lands on (160, 0).
+      expect(frames).toHaveLength(1);
+      near(frames[0].origin, 160, 0, 10);
+    });
+
+    it("refuses a connector axis the scene doesn't hold, or a slot the copy never made", () => {
+      flange(bolt => {
+        copy("linear", "x", { count: 2, offset: 40 }, bolt);
+      });
+      const scene = render();
+
+      for (const axis of [
+        { kind: 'connector' as const, filePath: FILE, line: 99 },
+        { kind: 'connector' as const, filePath: FILE, line: BOLT_LINE, slot: 5 },
+      ]) {
+        const result = copyGhost(scene, [PIVOT_LINE], { ...CIRCULAR, axes: [axis] });
+        expect(result.ok).toBe(false);
+        expect(refusal(result)).toBe('That axis is not in the rendered scene.');
+      }
+    });
+
+    describe("following a repeat", () => {
+      const REPEAT_LINE = 9;
+
+      const FOLLOW: Partial<CopyGhostRequest> = {
+        kind: 'pattern',
+        axes: [],
+        directions: [],
+        pattern: { filePath: FILE, line: REPEAT_LINE },
+      };
+
+      /** A boss beside the bolt, repeated by `repeatIt` — the repeat addressable at its line. */
+      function repeatedBoss(repeatIt: (boss: SceneObject) => SceneObject): (bolt: Connector) => void {
+        return () => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new() as unknown as SceneObject;
+          repeatIt(boss).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+        };
+      }
+
+      it("places the copies on the repeat's own slots — a partial arc spaced its way", () => {
+        flange(repeatedBoss(boss => repeat("circular", "z", { count: 4, angle: 90 }, boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const result = copyGhost(scene, [BOLT_LINE], FOLLOW);
+
+        expect(result.ok && result.solids).toEqual([]);
+        const frames = framesOf(result);
+        expect(frames).toHaveLength(3);
+        [30, 60, 90].forEach((degrees, i) => {
+          const a = (degrees * Math.PI) / 180;
+          near(frames[i].origin, 30 * Math.cos(a), 30 * Math.sin(a), 10);
+          near(frames[i].xDirection, Math.cos(a), Math.sin(a), 0);
+        });
+      });
+
+      it("places the frames the statement builds — editing a copy that already follows", () => {
+        const made = flange(bolt => {
+          sketch("xy", () => {
+            testRect(10, 10, { at: [25, -5] });
+          });
+          const boss = extrude(20).new();
+          const r = repeat("linear", ["x", "y"], { count: [2, 2], offset: [15, 25], skip: [[1, 1]] }, boss as never);
+          (r as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: REPEAT_LINE, column: 0 });
+          copy(r, bolt);
+        });
+        const scene = render();
+
+        const frames = framesOf(copyGhost(scene, [BOLT_LINE], FOLLOW));
+
+        // Cells (0, 1) and (1, 0); (1, 1) is skipped.
+        expect(frames).toHaveLength(2);
+        frames.forEach((frame, i) => {
+          const built = made.bolt.instance(i + 1).getFrame();
+          near(frame.origin, built.origin.x, built.origin.y, built.origin.z);
+          near(frame.normal, built.normal.x, built.normal.y, built.normal.z);
+        });
+        near(frames[0].origin, 30, 25, 10);
+        near(frames[1].origin, 45, 0, 10);
+      });
+
+      it("refuses, surfaced, a repeat the statement would refuse; quietly, one the scene doesn't hold", () => {
+        flange(repeatedBoss(boss => repeat("mirror", "yz", boss as never) as unknown as SceneObject));
+        const scene = render();
+
+        const mirrored = copyGhost(scene, [BOLT_LINE], FOLLOW);
+        expect(mirrored).toEqual({
+          ok: false,
+          reason: "copy(): copy(pattern, …) follows a linear or circular repeat() — a mirror repeat reflects its "
+            + "instance, and a copied connector is never reflected",
+          surface: true,
+        });
+
+        const gone = copyGhost(scene, [BOLT_LINE], { ...FOLLOW, pattern: { filePath: FILE, line: 99 } });
+        expect(gone).toEqual({ ok: false, reason: 'That repeat is not in the rendered scene.', surface: undefined });
+      });
+    });
+
+    describe("in an assembly", () => {
+      const BAY_LINE = 3;
+      const HUB_LINE = 4;
+
+      /**
+       * An assembly scene with `bay` at (0, 0, 20) and `hub` at (100, 0, 0),
+       * both on world axes, each addressable at its line like the parser's;
+       * `more` writes the rest of the file's top level.
+       */
+      function assemblyScene(more: (bay: Connector) => void = () => {}): Scene {
+        const scene = getSceneManager().startAssemblyScene();
+        const bay = connector("bay", [0, 0, 20]) as unknown as Connector;
+        bay.setSourceLocation({ filePath: FILE, line: BAY_LINE, column: 0 });
+        const hub = connector("hub", [100, 0, 0]) as unknown as Connector;
+        hub.setSourceLocation({ filePath: FILE, line: HUB_LINE, column: 0 });
+        more(bay);
+        getSceneManager().renderScene(scene);
+        return scene;
+      }
+
+      it("places an assembly connector's copies along a world axis", () => {
+        const scene = assemblyScene();
+
+        const frames = framesOf(copyGhost(scene, [BAY_LINE], {
+          directions: [{ count: 4, offset: 50, length: null }],
+        }));
+
+        expect(frames).toHaveLength(3);
+        near(frames[0].origin, 50, 0, 20);
+        near(frames[1].origin, 100, 0, 20);
+        near(frames[2].origin, 150, 0, 20);
+        near(frames[2].normal, 0, 0, 1);
+      });
+
+      it("turns them around another assembly connector's Z axis, or a copy's", () => {
+        const scene = assemblyScene(bay => {
+          copy("linear", "x", { count: 2, offset: 40 }, bay);
+        });
+
+        const aroundHub = framesOf(copyGhost(scene, [BAY_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: HUB_LINE }],
+        }));
+        // Half a turn about the vertical through the hub at (100, 0).
+        expect(aroundHub).toHaveLength(1);
+        near(aroundHub[0].origin, 200, 0, 20);
+
+        const aroundCopy = framesOf(copyGhost(scene, [HUB_LINE], {
+          ...CIRCULAR,
+          count: 2,
+          axes: [{ kind: 'connector', filePath: FILE, line: BAY_LINE, slot: 1 }],
+        }));
+        // Half a turn about bay.instance(1) at (40, 0): the hub at (100, 0) lands on (-20, 0).
+        expect(aroundCopy).toHaveLength(1);
+        near(aroundCopy[0].origin, -20, 0, 0);
+      });
+    });
+  });
 });
 
 /**
@@ -1669,6 +2428,136 @@ function windingFollowsNormals(mesh: SceneObjectMesh): boolean {
   }
   return true;
 }
+
+describe("feature ghost — hole", () => {
+  setupOC();
+
+  const HOLE_BASE: Omit<HoleGhostRequest, 'frames' | 'scope'> = {
+    feature: 'hole',
+    diameter: 6,
+    depth: null,
+    tipAngle: null,
+    counterbore: null,
+    countersink: null,
+  };
+
+  function holeGhost(scene: Scene, overrides: Partial<HoleGhostRequest> = {}) {
+    return buildFeatureGhost(scene, {
+      ...HOLE_BASE,
+      frames: [{ origin: [0, 0, 10], normal: [0, 0, 1] }],
+      scope: [],
+      ...overrides,
+    }, DEFAULT_MESH_CONFIG);
+  }
+
+  /** A 60 × 40 × 10 plate at line 4. */
+  function plate(): void {
+    locatedSketch(3, () => { testRect(60, 40, { at: [-30, -20] }); }, 'xy');
+    const box = extrude(10) as unknown as SceneObject;
+    box.setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+  }
+
+  it("sizes a through hole tool to the stock, below the placement", () => {
+    plate();
+    const result = holeGhost(render());
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      const box = bounds(result);
+      expect(box.maxZ).toBeCloseTo(10, 3);
+      expect(box.minZ).toBeCloseTo(-1, 3);
+      expect(box.maxX).toBeCloseTo(3, 3);
+    }
+  });
+
+  it("draws a blind counterbored hole per placement", () => {
+    plate();
+    const scene = render();
+    const two = holeGhost(scene, {
+      frames: [{ origin: [-15, 0, 10], normal: [0, 0, 1] }, { origin: [15, 0, 10], normal: [0, 0, 1] }],
+      depth: 5, tipAngle: 118, counterbore: { diameter: 11, depth: 2 },
+    });
+    expect(refusal(two)).toBe('');
+    if (two.ok) {
+      expect(two.solids).toHaveLength(2);
+      const box = bounds(two, 0);
+      expect(box.maxX).toBeCloseTo(-15 + 5.5, 3);
+      expect(box.maxZ).toBeCloseTo(10, 3);
+      expect(box.minZ).toBeLessThan(5);
+    }
+  });
+
+  /** A 5 thick cover on the plate, at line 6. */
+  function coverOnPlate(): void {
+    plate();
+    locatedSketchAt(5, 10, () => { testRect(20, 20, { at: [-10, -10] }); });
+    const cover = extrude(5).new() as unknown as SceneObject;
+    cover.setSourceLocation({ filePath: FILE, line: 6, column: 0 });
+  }
+
+  it("taps the next solid along the axis, the clearance tool ending on its face", () => {
+    coverOnPlate();
+    const scene = render();
+    const frames = [{ origin: [0, 0, 15] as [number, number, number], normal: [0, 0, 1] as [number, number, number] }];
+    const result = holeGhost(scene, { frames, fasten: { diameter: 5 } });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(2);
+      // The clearance tool clears the cover the hole sits on and stops where the plate begins.
+      const clearance = bounds(result, 0);
+      expect(clearance.maxX).toBeCloseTo(3, 3);
+      expect(clearance.maxZ).toBeCloseTo(15, 3);
+      expect(clearance.minZ).toBeCloseTo(10, 3);
+      // The tap-drill bore takes over there, through the plate's whole reach.
+      const tapped = bounds(result, 1);
+      expect(tapped.maxX).toBeCloseTo(2.5, 3);
+      expect(tapped.maxZ).toBeCloseTo(10, 3);
+      expect(tapped.minZ).toBeCloseTo(15 - 15 * 1.1, 3);
+    }
+    // A blind bore stops at its depth below where the axis enters the plate.
+    const blind = holeGhost(scene, { frames, fasten: { diameter: 5, depth: 4 } });
+    expect(refusal(blind)).toBe('');
+    if (blind.ok) {
+      expect(blind.solids).toHaveLength(2);
+      expect(bounds(blind, 1).maxZ).toBeCloseTo(10, 3);
+      expect(bounds(blind, 1).minZ).toBeCloseTo(6, 3);
+    }
+    // The drill point reaches below the blind depth.
+    const pointed = holeGhost(scene, { frames, fasten: { diameter: 5, depth: 4, tipAngle: 118 } });
+    if (pointed.ok) {
+      expect(bounds(pointed, 1).minZ).toBeCloseTo(6 - 2.5 / Math.tan(59 * Math.PI / 180), 3);
+    }
+    // A scope naming the cover reads the same: the plate is the first solid past it.
+    const scoped = holeGhost(scene, { frames, scope: [{ filePath: FILE, line: 6 }], fasten: { diameter: 5, depth: 4 } });
+    expect(refusal(scoped)).toBe('');
+    if (scoped.ok) {
+      expect(bounds(scoped, 0).minZ).toBeCloseTo(10, 3);
+      expect(bounds(scoped, 1).minZ).toBeCloseTo(6, 3);
+    }
+  });
+
+  it("draws the clearance alone where nothing lies past it to tap", () => {
+    plate();
+    const result = holeGhost(render(), { fasten: { diameter: 5 } });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      expect(bounds(result, 0).minZ).toBeCloseTo(-1, 3);
+    }
+  });
+
+  it("refuses an empty placement list and surfaces a bad counterbore", () => {
+    plate();
+    const scene = render();
+    expect(refusal(holeGhost(scene, { frames: [] }))).toMatch(/Pick where/);
+    const bad = holeGhost(scene, { counterbore: { diameter: 5, depth: 2 } });
+    expect(bad.ok).toBe(false);
+    if (bad.ok === false) {
+      expect(bad.surface).toBe(true);
+      expect(bad.reason).toMatch(/counterbore diameter/);
+    }
+  });
+});
 
 describe("feature ghost — rib", () => {
   setupOC();
@@ -2154,6 +3043,33 @@ describe("copy2d ghost", () => {
     expect(instanceBounds(result, 1).minX - instanceBounds(result, 0).minX).toBeCloseTo(80, 3);
   });
 
+  it("copies a picked .guide() primitive, and leaves guides out of the whole-sketch form", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50); line([250, 0], [250, 80]).guide(); });
+    const scene = render();
+    const guide = [...s.getEdgesWithOwner({ excludeGuide: false }).keys()].find(e => e.isGuideShape())!;
+
+    const picked = copy2dGhost(scene, [{ shapeId: guide.id }]);
+
+    expect(refusal(picked)).toBe('');
+    if (!picked.ok) {
+      return;
+    }
+    // Two clones of the guide line alone, a step apart along x.
+    expect(picked.solids).toHaveLength(2);
+    expect(instanceBounds(picked, 0).minX).toBeCloseTo(290, 3);
+    expect(instanceBounds(picked, 0).maxX).toBeCloseTo(290, 3);
+    expect(instanceBounds(picked, 0).maxY).toBeCloseTo(80, 3);
+
+    // The target-less statement copies real geometry only — the rect.
+    const whole = copy2dGhost(scene, []);
+    expect(refusal(whole)).toBe('');
+    if (!whole.ok) {
+      return;
+    }
+    const box = instanceBounds(whole, 0);
+    expect(box.maxX - box.minX).toBeCloseTo(100, 3);
+  });
+
   it("leaves out the instances the skip list names", () => {
     const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
@@ -2425,6 +3341,25 @@ describe("mirror2d ghost", () => {
     const box = instanceBounds(result, 0);
     expect(box.minX).toBeCloseTo(180, 3);
     expect(box.maxX).toBeCloseTo(280, 3);
+  });
+
+  it("reflects a picked .guide() primitive", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); line([150, -20], [150, 80]).guide(); });
+    const scene = render();
+    const guide = [...s.getEdgesWithOwner({ excludeGuide: false }).keys()].find(e => e.isGuideShape())!;
+
+    // Across the sketch's Y axis: the guide line at x = 150 lands at x = -150.
+    const result = mirror2dGhost(scene, [{ shapeId: guide.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const box = instanceBounds(result, 0);
+    expect(box.minX).toBeCloseTo(-150, 3);
+    expect(box.maxX).toBeCloseTo(-150, 3);
+    expect(box.maxY).toBeCloseTo(80, 3);
   });
 
   it("an empty pick list mirrors the whole active (last) sketch", () => {

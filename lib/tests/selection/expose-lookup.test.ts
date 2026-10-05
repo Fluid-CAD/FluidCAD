@@ -86,7 +86,7 @@ describe("resolvePickExposure", () => {
     const { scene, topFace } = makeTwoPartScene(() => {
       const s = sketch("xy", () => {
         testRect(4, 4);
-      }).reusable();
+      });
       expose("profile", s);
     });
 

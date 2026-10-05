@@ -23,6 +23,7 @@ import {
 import CameraControls from 'camera-controls';
 import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
+import { CameraTransition } from './camera-transition';
 import { computeTightFraming, type FitLens, type FitOptions, type FitViewport } from './camera-fit';
 import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
@@ -97,6 +98,8 @@ export class SceneContext {
 
   private _cc!: CameraControls;
   private _adapter!: CameraControlsAdapter;
+  /** The up-changing camera flight (sketch enter/exit); see {@link flyTo}. */
+  private transition!: CameraTransition;
 
   private dirLight: DirectionalLight;
   private rotationLocked = false;
@@ -170,6 +173,7 @@ export class SceneContext {
 
     // Adapter for gizmo compatibility
     this._adapter = new CameraControlsAdapter(this._cc);
+    this.transition = new CameraTransition(this);
 
     // Viewport gizmo. Mount it in the same container the renderer fills (the
     // toolbar-inset #fluidcad-scene) so it renders at the top-right of the
@@ -409,6 +413,29 @@ export class SceneContext {
     return this._adapter;
   }
 
+  /**
+   * Fly the camera to `position` looking at `target` with `up`, along one
+   * rotation from the pose on screen — the move for a change of up vector,
+   * which camera-controls' own setLookAt transition cannot animate (see
+   * {@link CameraTransition}). The controls' end state is the destination
+   * from the moment this returns, so a fit issued in the same tick frames
+   * it; target and distance are damped by camera-controls in step with the
+   * orientation.
+   */
+  flyTo(position: Vector3, target: Vector3, up: Vector3): void {
+    this.transition.flyTo(position, target, up);
+  }
+
+  /**
+   * Change the orbit's up vector without moving the view. A bare
+   * `camera.up` write plus `updateCameraUp()` re-reads the stored orbit
+   * angles under the new up and jumps the camera on the next frame; this
+   * re-expresses the pose on screen (and any tween in flight) first.
+   */
+  setCameraUp(up: Vector3): void {
+    this.transition.setUp(up);
+  }
+
   /** Schedule a render on the next animation frame tick. */
   requestRender(): void {
     this.renderRequested = true;
@@ -603,6 +630,7 @@ export class SceneContext {
     this.running = false;
     cancelAnimationFrame(this.animFrameId);
     this.resizeObserver.disconnect();
+    this.transition.dispose();
     this._cc.dispose();
     this.scene.clear();
     this.renderer.dispose();
@@ -663,6 +691,7 @@ export class SceneContext {
         this._cc.setLookAt(pos.x, pos.y, pos.z, t.x, t.y, t.z, false);
         this.gizmoWasActive = false;
       }
+      this.transition.update(delta);
       hasUpdated = this._cc.update(delta);
     } else {
       // Gizmo is animating — skip cc.update() to avoid overwriting

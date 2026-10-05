@@ -15,24 +15,32 @@ import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
-import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, gotoSource,
-  FeatureEditTarget, ParsedFeatureStatement,
+  insertGeometry, insertSolvedGeometry, filletSketchCorners, addGuide, removeGuide, getScopeVariables, gotoSource,
+  FeatureEditTarget, NewVariable, ParsedFeatureStatement,
 } from '../api';
+import { buildSettleWriteBack } from '../sketch-solver-client/write-back';
 import type { SolvedEmissionRequest, SolvedEmitResult, SolvedToolContext } from './tools/solved-emission';
+import type { SketchFilletRequest } from './tools/fillet-plan';
 import { pendingEmissionOf, pruneRedundantInferred, type PendingEmission } from './tools/emission-redundancy';
-import { findActiveObject } from '../helpers/scene-utils';
+import { findActiveSketch } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
 import {
-  SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail, SolvedPickRail,
+  SketchOpDialog, SketchOpScope, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedOpRail,
+  SolvedPickRail,
 } from './sketch-op-service';
-import { SketchCopyService } from './sketch-copy-service';
+import { ParsedSketchCopy, SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
+import { SketchSplitService } from './sketch-split-service';
+import { SketchTrimService } from './sketch-trim-service';
+import { SketchDeleteService } from './sketch-delete-service';
+import type { SketchClickOpRail, SketchClickOpService } from './sketch-click-op-service';
+import { SPLIT_SNAP_PX } from './tools/split-plan';
+import { pixelToSketchThreshold } from './sketch-plane-utils';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -54,8 +62,8 @@ export class SketchToolbarService {
 
   /**
    * Fires when a sketch becomes active or inactive (the sketch toolbar shows
-   * or hides). main.ts uses it to collapse the create-feature buttons into the
-   * Finish Sketch popup while a sketch is being edited.
+   * or hides). main.ts uses it to show the Finish Sketch button while a
+   * sketch is being edited.
    */
   onActiveChange?: (active: boolean) => void;
 
@@ -86,6 +94,12 @@ export class SketchToolbarService {
   private offsetOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private mirrorOp!: SketchMirrorService;
+  private splitOp!: SketchSplitService;
+  private trimOp!: SketchTrimService;
+  /** The Delete key's action on the selected edges (no toolbar button). */
+  private deleteOp!: SketchDeleteService;
+  /** The click tools by toolbar id — the ones with a hover preview. */
+  private clickOps: Partial<Record<ToolId, SketchClickOpService<unknown>>> = {};
   private toolbar: SketchToolbar;
   /** The solved-sketch constraint bar (P4). */
   private solvedToolbar: SolvedConstraintToolbarService;
@@ -111,7 +125,6 @@ export class SketchToolbarService {
   /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
-  private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
   private opMessageToast: HTMLDivElement | null = null;
   private opMessageTimer: number | null = null;
@@ -172,7 +185,6 @@ export class SketchToolbarService {
     // field, and coordinates are expressions, not just digits.
     this.shortcuts.suspendWhile = () => this.activeDrawingTool?.wantsPrintableKeys() ?? false;
 
-    this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
     this.dofStatus = new SketchDofStatus(container, (loc) => gotoSource(loc));
     this.dofStatus.onVisibilityChange = (visible) => this.onDofPillVisibilityChange?.(visible);
@@ -184,29 +196,35 @@ export class SketchToolbarService {
       deselect: (shapeId) => this.activeHoverSelectHandler?.deselectShape(shapeId),
       select: (shapeIds) => this.activeHoverSelectHandler?.selectShapes(shapeIds),
     };
-    const opVars = () => this.fetchScopeVariables();
+    // The op dialogs read their names in the active sketch: its variables
+    // for the value fields, the end of its body for a created op's ghost.
+    const opScope: SketchOpScope = {
+      variables: () => this.fetchScopeVariables(),
+      sketch: () => this.activeSketchInfo?.sourceLocation ?? null,
+    };
     const opDone = () => this.handleToolSelect(null);
     // One shared overlay for the op dialogs' live geometry — only one dialog
     // is ever open; offset and fillet draw into it.
     const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
-      new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);
+      new SketchOpService(container, config, opSelection, opScope, opDone, opGhost);
     // Constraint-native fillet (P8): the create path reads the solved picks
-    // + model for the corner math and applies through the atomic
-    // insert-solved rail (arc + coincident/tangent/radius rows, corner
-    // coincidents removed). Bypasses the guide latch on purpose — a fillet
-    // arc is real profile geometry.
+    // + model for the corner math and applies through the fillet transform
+    // (arc + coincident/tangent/radius rows, trimmed edges, corner
+    // coincidents removed, virtual sharps). Bypasses the guide latch on
+    // purpose — a fillet arc is real profile geometry.
     const opRail: SolvedOpRail = {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       model: () => this.activeSketchInfo
         ? buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects)
         : null,
       emit: (request) => this.emitSolved(request, { guide: false, toast: false }),
+      fillet: (request) => this.filletSolved(request),
     };
     this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-    }, opSelection, opVars, opDone, opGhost, opRail);
+    }, opSelection, opScope, opDone, opGhost, opRail);
     // A copy direction or the mirror line may be one of the sketch's datum
     // axes — a solved pick, not an edge id — so both dialogs read the solved
     // rail.
@@ -214,12 +232,16 @@ export class SketchToolbarService {
       picks: opRail.picks,
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
     };
-    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost, datumRail);
+    this.copyOp = new SketchCopyService(container, opSelection, opScope, opDone, opGhost, datumRail);
     // The mirror CREATE path is constraint-native like the fillet's: it
     // reads the picks + model, plans reflected geometry + symmetric rows
     // client-side and emits through the insert-solved rail.
     this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, { ...opRail, ...datumRail });
-    this.offsetOp = opService({
+    // The offset CREATE path is constraint-native too: the server plans the
+    // chain with OCCT (sharp corners), the dialog emits the primitives + one
+    // offsetFrom statement through the same rail. Edits of an existing
+    // `offset()` statement keep the synthesis rewrite.
+    this.offsetOp = new SketchOpService(container, {
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
       toggles: [
@@ -230,12 +252,52 @@ export class SketchToolbarService {
             + 'making a closed loop (no-op on already-closed profiles)',
         },
       ],
+    }, opSelection, opScope, opDone, opGhost, opRail);
+    // The Split and Trim tools have no dialog: a single edge click is the
+    // whole input, so they ride the op-dialog surface (hover handler active,
+    // selection changes delivered) and act on the click's own pick.
+    const clickRail: SketchClickOpRail = {
+      picks: opRail.picks,
+      model: opRail.model,
+      sketch: () => this.activeSketchInfo
+        ? {
+          filePath: this.activeSketchInfo.sourceLocation.filePath,
+          sketchLine: this.solvedEmitSketchLine ?? this.activeSketchInfo.sourceLocation.line,
+        }
+        : null,
+      clearSelection: opSelection.clear,
+      message: (text) => this.showOpMessage(text),
+      noteEdit: ({ sketchLine }) => {
+        // The rewrite changed lines inside the body and may have added an
+        // import: every pending emission's line is stale, and the sketch
+        // statement may have moved.
+        this.pendingEmissions = [];
+        if (sketchLine !== undefined) {
+          this.solvedEmitSketchLine = sketchLine;
+        }
+      },
+    };
+    this.splitOp = new SketchSplitService({
+      ...clickRail,
+      snapTolerance: () => pixelToSketchThreshold(this.viewer.sceneContext, SPLIT_SNAP_PX),
+    });
+    this.trimOp = new SketchTrimService(clickRail);
+    this.clickOps = { split: this.splitOp, trim: this.trimOp };
+    // The Delete key has no toolbar button: it acts on the selection the
+    // hover handler holds while nothing else owns it, through the same rail
+    // the cut tools edit on.
+    this.deleteOp = new SketchDeleteService({
+      ...clickRail,
+      selectedShapeIds: () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
+      sceneObjects: () => this.viewer.currentSceneObjects,
+      idle: () => this.toolbar.activeTool === null && this.activeDrawingTool === null,
     });
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
       mirror: this.mirrorOp,
       offset: this.offsetOp,
+      ...this.clickOps,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
@@ -246,6 +308,7 @@ export class SketchToolbarService {
       (message) => this.showOpMessage(message),
       () => this.fetchScopeVariables(),
       this.shortcuts,
+      this.deleteOp,
     );
     this.solvedDimensionEditor = new SolvedDimensionEditor(
       container,
@@ -259,7 +322,7 @@ export class SketchToolbarService {
     return this.activeDrawingTool !== null;
   }
 
-  /** The op dialog (fillet, offset, copy, mirror) of the currently armed toolbar tool. */
+  /** The op dialog (fillet, offset, copy, mirror, split, trim) of the currently armed toolbar tool. */
   private activeOpService(): SketchOpDialog | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
@@ -340,7 +403,7 @@ export class SketchToolbarService {
    */
   enterCopyEdit(
     target: FeatureEditTarget,
-    parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+    parsed: ParsedSketchCopy,
     expectedStatement: string,
   ): void {
     const service = this.copyOp;
@@ -452,9 +515,9 @@ export class SketchToolbarService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
-    const lastRoot = findActiveObject(sceneObjects) ?? null;
+    const lastRoot = findActiveSketch(sceneObjects) ?? null;
 
-    if (lastRoot?.type === 'sketch' && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
+    if (lastRoot && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
       const plane: PlaneData = lastRoot.object.plane;
       const prevSketchId = this.activeSketchInfo?.sketchObj.id;
       // Solved sketches are container-atomic in the render cache (P2): every
@@ -481,9 +544,6 @@ export class SketchToolbarService {
         this.shortcuts.enable();
       }
       this.solvedToolbar.show();
-
-      this.bezierHandles.activate();
-      this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
 
       // The sketch an edit dialog was opened over has arrived: re-arm its
       // toolbar button (the bar's own hide() dropped it while the breakpoint
@@ -557,7 +617,6 @@ export class SketchToolbarService {
         this.toolbar.setActiveTool(null);
       }
       this.deactivateDragHandler();
-      this.bezierHandles.deactivate();
       this.solvedToolbar.hide();
       this.solvedDimensionEditor.hide();
       this.dofStatus.update({ result: 'hidden' });
@@ -600,6 +659,7 @@ export class SketchToolbarService {
     const location = owner?.sourceLocation;
     return {
       label: owner?.name || 'Edge',
+      uniqueType: owner?.uniqueType,
       line: location?.line,
       goTo: location ? () => gotoSource(location) : undefined,
     };
@@ -825,6 +885,13 @@ export class SketchToolbarService {
       this.activeOpService()?.refresh();
       this.solvedToolbar.selectionChanged(this.activeHoverSelectHandler);
     };
+    // The click tools preview on the hovered edge what their click would do
+    // (the Split tool its cut point, the Trim tool the stretch it removes).
+    this.activeHoverSelectHandler.hoverPreview = (entity, point2d, model) => {
+      const tool = this.toolbar.activeTool;
+      const clickOp = tool ? this.clickOps[tool] : undefined;
+      return clickOp ? clickOp.previewFor(entity, point2d, model) : null;
+    };
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
       if (pick.sourceLocation) {
         gotoSource(pick.sourceLocation, { revealEditor: false });
@@ -841,7 +908,7 @@ export class SketchToolbarService {
 
   /**
    * The one path every solved emission takes to the insert-solved rail
-   * (drawing tools, shape gestures, the constraint-native fillet). Before
+   * (drawing tools, shape gestures, the constraint-native mirror). Before
    * the statement is written, the emission's INFERRED constraints go
    * through the redundancy trial against the live solver rebuild — an
    * inferred row the sketch already enforces (a vertical between two
@@ -897,6 +964,42 @@ export class SketchToolbarService {
       this.pendingEmissions.push(pendingEmissionOf({ geometry, constraints }, result.geometryLines));
     }
     return result;
+  }
+
+  /**
+   * The Fillet tool's Apply: the corner plans go to the fillet transform
+   * with the settle write-back, so the literals it writes at the tangent
+   * points agree with every untouched one and the re-solve has nothing to
+   * move.
+   */
+  private async filletSolved(
+    request: SketchFilletRequest & { newVariables?: NewVariable[] },
+  ): Promise<SolvedEmitResult> {
+    const info = this.activeSketchInfo;
+    if (!info) {
+      return { success: false, reason: 'no active sketch' };
+    }
+    const model = buildSolvedSketchModel(info.sketchObj, this.viewer.currentSceneObjects);
+    const { edits: settle } = model ? buildSettleWriteBack(model) : { edits: [] };
+    const result = await filletSketchCorners({
+      sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
+      filePath: info.sourceLocation.filePath,
+      corners: request.corners,
+      radiusExpr: request.radiusExpr,
+      ...(request.newVariables && request.newVariables.length > 0
+        ? { newVariables: request.newVariables } : {}),
+      ...(settle.length > 0 ? { settle } : {}),
+    });
+    if (result.success) {
+      // The rewrite moved lines inside the body (removed coincidents, the
+      // sharps) and may have added an import: every pending emission's line
+      // is stale, and the sketch statement may have moved.
+      this.pendingEmissions = [];
+      if (result.sketchLine !== undefined) {
+        this.solvedEmitSketchLine = result.sketchLine;
+      }
+    }
+    return { success: result.success, ...(result.reason !== undefined ? { reason: result.reason } : {}) };
   }
 
   private deactivateDragHandler(): void {

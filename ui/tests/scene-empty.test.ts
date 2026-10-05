@@ -29,8 +29,10 @@ describe('isSceneEmpty', () => {
     expect(isSceneEmpty([row('axis'), row('helix', [{ shapeType: 'edge' }])])).toBe(true);
   });
 
-  it('is not empty once a sketch exists', () => {
-    expect(isSceneEmpty([row('plane'), row('sketch')])).toBe(false);
+  it('treats a sketch as an input, not modelled material', () => {
+    // A finished sketch with nothing built on it must keep the whole toolbar
+    // the blank document offered before it was drawn.
+    expect(isSceneEmpty([row('plane'), row('sketch', [{ shapeType: 'wire' }])])).toBe(true);
   });
 
   it('is not empty once a solid is modelled', () => {

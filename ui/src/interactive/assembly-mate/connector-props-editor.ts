@@ -5,7 +5,9 @@ import {
   ConnectorProperties,
 } from '../../api';
 import type { Viewer } from '../../viewer';
+import { connectorLabel } from '../../types';
 import type { ConnectorSlotState } from './mate-service';
+import { iconUrl } from '../../ui/icon-url';
 
 const NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -24,9 +26,11 @@ const ROTATE_ICON = `
  * and rotation — the same fields the part-mode connector dialog edits, minus
  * the source slot (the anchor stays what the statement says). Docked beside
  * the mate dialog; applying rewrites the `connector()` statement in its part
- * file.
+ * file. A copy has no statement of its own: the dialog edits its seed and
+ * says so in its note line.
  */
 class ConnectorPropsPanel extends FeaturePanel {
+  private noteLine: HTMLParagraphElement;
   private nameInput: HTMLInputElement;
   private offsetInputs: [HTMLInputElement, HTMLInputElement, HTMLInputElement];
   private rotateAxisSelect: HTMLSelectElement;
@@ -37,8 +41,9 @@ class ConnectorPropsPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-connector-props-panel',
       title: 'Connector',
-      icon: '/icons/mate-connector.png',
+      icon: iconUrl('mate-connector'),
       bodyHtml: `
+        <p data-role="copy-note" class="hidden text-xs text-base-content/60"></p>
         <label class="flex flex-col gap-1.5"
           title="The identifier the connector registers under — mates reference it as instance.connectors.<name>">
           <span class="text-base-content/70">Name</span>
@@ -77,6 +82,7 @@ class ConnectorPropsPanel extends FeaturePanel {
       exitLabel: 'Close',
     });
 
+    this.noteLine = this.role<HTMLParagraphElement>('copy-note');
     this.nameInput = this.role<HTMLInputElement>('name');
     this.offsetInputs = [
       this.role<HTMLInputElement>('offset-x'),
@@ -102,9 +108,15 @@ class ConnectorPropsPanel extends FeaturePanel {
     });
   }
 
-  /** Seed every field from the parsed statement and show the dialog. */
-  showSeeded(title: string, props: ConnectorProperties): void {
+  /**
+   * Seed every field from the parsed statement and show the dialog. `note`
+   * explains what the fields edit when that isn't the picked connector
+   * itself (a copy's seed); null hides the line.
+   */
+  showSeeded(title: string, props: ConnectorProperties, note: string | null = null): void {
     this.shell.setTitle(title);
+    this.noteLine.textContent = note ?? '';
+    this.noteLine.classList.toggle('hidden', note === null);
     this.nameInput.value = props.name;
     this.offsetInputs.forEach((input, index) => {
       const value = props.offset?.[index] ?? 0;
@@ -175,7 +187,7 @@ class ConnectorPropsPanel extends FeaturePanel {
 /**
  * Orchestrates the pen-button flow: fetch the statement's properties, seed
  * the panel beside the mate dialog, and apply the rewrite through
- * `/api/part-connector-props`. One instance serves both mate slots; opening
+ * `api/part-connector-props`. One instance serves both mate slots; opening
  * for another connector re-seeds in place.
  */
 export class ConnectorPropsEditor {
@@ -201,13 +213,21 @@ export class ConnectorPropsEditor {
     this.panel.onApply = () => void this.apply();
   }
 
-  /** The mate dialog's pen: open (or re-seed) the editor for a picked connector. */
+  /**
+   * The mate dialog's pen: open (or re-seed) the editor for a picked
+   * connector. A copy (`bolt.instance(3)`) has no statement of its own — the
+   * controller answers with its seed's, so the editor edits `bolt` and every
+   * copy follows.
+   */
   async open(slot: ConnectorSlotState): Promise<void> {
     const sourceLocation = this.viewer.getAssemblyController()
       ?.getConnectorSourceLocation(slot.connectorId) ?? null;
     if (!sourceLocation) {
       return;
     }
+    const note = slot.slot === undefined
+      ? null
+      : `${connectorLabel(slot.connectorName, slot.slot)} is a copy — this edits ${slot.connectorName}, and every copy follows.`;
     const props = await fetchConnectorProperties(sourceLocation);
     if ('error' in props) {
       // Statement forms the dialog can't hold (expression offsets, multi-
@@ -215,7 +235,7 @@ export class ConnectorPropsEditor {
       // clicked instead of opening an unfaithful editor.
       this.panel.showSeeded(`${slot.instanceName} · ${slot.connectorName}`, {
         name: slot.connectorName, rotate: null, offset: null,
-      });
+      }, note);
       this.panel.setApplyEnabled(false);
       this.panel.setMessage(props.error);
       this.target = null;
@@ -223,7 +243,7 @@ export class ConnectorPropsEditor {
     }
     this.target = { sourceLocation, slot, originalName: props.name };
     this.panel.setApplyEnabled(true);
-    this.panel.showSeeded(`${slot.instanceName} · ${props.name}`, props);
+    this.panel.showSeeded(`${slot.instanceName} · ${props.name}`, props, note);
   }
 
   close(): void {

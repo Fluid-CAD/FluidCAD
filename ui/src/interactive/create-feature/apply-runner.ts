@@ -22,7 +22,7 @@ type RunnerPanel = {
  * surfaces its reason. Preview: a blocked request just clears the preview;
  * refusals surface their reason immediately (pre-Apply validation).
  */
-export class ApplyRunner<R extends object> {
+export class ApplyRunner<R extends object, G = GhostSolid[]> {
   private applying = false;
   private timer: number | null = null;
   private abort: AbortController | null = null;
@@ -41,6 +41,12 @@ export class ApplyRunner<R extends object> {
     failMessage: () => string;
     /** Extra apply-only gate after `build` (checks previews tolerate). */
     validateApply?: () => { error: string } | null;
+    /**
+     * Runs on every {@link schedulePreview} — the form changed. Pickers that
+     * derive from the form re-sync here before the preview reads them (the
+     * region picker re-reads its profile).
+     */
+    onSchedule?: () => void;
     /** Gate preview refusal messages (default on) — extrude keeps create-mode
      * distance previews quiet so transient failures don't flash while
      * sketching. */
@@ -52,13 +58,15 @@ export class ApplyRunner<R extends object> {
     /**
      * Live viewport geometry for the request just previewed (the "ghost"),
      * chained onto the statement preview under the same debounce, abort and
-     * sequence guards. Dialogs without one are untouched.
+     * sequence guards. Dialogs without one are untouched. `G` is what one
+     * answer draws — the bodies, for most dialogs; a copy's also carries the
+     * connector frames it places.
      */
     ghost?: {
-      /** The bodies the request would build; null when there is none to draw. */
-      fetch: (request: R, signal: AbortSignal) => Promise<GhostSolid[] | null>;
+      /** What the request would build; null when there is none to draw. */
+      fetch: (request: R, signal: AbortSignal) => Promise<G | null>;
       /** Deliver the result; null clears the overlay. */
-      apply: (solids: GhostSolid[] | null) => void;
+      apply: (ghost: G | null) => void;
     };
   }) {}
 
@@ -101,6 +109,7 @@ export class ApplyRunner<R extends object> {
     if (!this.opts.isArmed()) {
       return;
     }
+    this.opts.onSchedule?.();
     this.timer = window.setTimeout(() => {
       this.timer = null;
       void this.runPreview();
@@ -160,9 +169,9 @@ export class ApplyRunner<R extends object> {
       ghost.apply(null);
       return;
     }
-    let solids: GhostSolid[] | null;
+    let drawn: G | null;
     try {
-      solids = await ghost.fetch(request, abort.signal);
+      drawn = await ghost.fetch(request, abort.signal);
     } catch {
       return; // aborted
     }
@@ -171,6 +180,6 @@ export class ApplyRunner<R extends object> {
     if (seq !== this.seq || !this.opts.isArmed()) {
       return;
     }
-    ghost.apply(solids);
+    ghost.apply(drawn);
   }
 }

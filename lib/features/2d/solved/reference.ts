@@ -6,7 +6,7 @@
 // build time), which is why constraints referencing them resolve deferred.
 
 import { Edge } from "../../../common/edge.js";
-import { LazyVertex } from "../../lazy-vertex.js";
+import { SketchPointVertex } from "../../sketch-point-ref.js";
 import { Vertex } from "../../../common/vertex.js";
 import { Point2D } from "../../../math/point.js";
 import { Plane } from "../../../math/plane.js";
@@ -161,16 +161,18 @@ export class ReferenceEntityRef {
  * LazyVertex-compatible so it resolves as a plain point wherever one is
  * accepted — reading the FIXED registered params via the owner's records.
  */
-export class ReferencePointRef extends LazyVertex {
+export class ReferencePointRef extends SketchPointVertex {
   constructor(
     readonly refOwner: ReferenceProducer,
     readonly index: number | null,
     readonly role: PointRole,
   ) {
-    super(`ref-${role}-${index ?? 'only'}`, () => {
-      const point = referencePointValue(refOwner, index, role);
-      return [Vertex.fromPoint2D(point)];
-    });
+    super(refOwner, role, `ref-${role}-${index ?? 'only'}`, () => referencePointValue(refOwner, index, role));
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const owner = (remap.get(this.refOwner) ?? this.refOwner) as ReferenceProducer;
+    return new ReferencePointRef(owner, this.index, this.role);
   }
 }
 

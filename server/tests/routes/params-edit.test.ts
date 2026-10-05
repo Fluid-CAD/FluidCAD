@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createParamsRouter } from '../../src/routes/params.ts';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 
 let server: http.Server;
@@ -32,9 +32,14 @@ const CODE = [
   ``,
 ].join('\n');
 
+/** A sibling file the host holds a buffer of — never on disk. */
+const SHARED_FILE = '/ws/shared.fluid.js';
+const SHARED = `import { param } from 'fluidcad/core';\nconst a = param('Anywhere', 1);\n`;
+
 const fakeServer = {
   getCurrentCode: () => CODE,
   getCurrentFileName: () => FILE,
+  getLiveBuffer: (filePath: string) => (filePath === SHARED_FILE ? SHARED : null),
   renameParam: (_session: string, from: string, to: string) => {
     bookkeeping.push(`rename ${from} -> ${to}`);
   },
@@ -130,6 +135,21 @@ describe('parameter declaration routes', () => {
     );
   });
 
+  it('exposes the new parameter as a property when asked', async () => {
+    const pending = post('/params/add', {
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+      part: { filePath: FILE, line: 3, column: 0 },
+      exposeAsProperty: true,
+    });
+    const newCode = await actAsEditor();
+    const { status, body } = await pending;
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(newCode).toContain(`  const depth = param('Depth', 25);`);
+    expect(newCode).toContain(`  property('Depth', 'depth', depth);\n});`);
+  });
+
   it('refuses an add that names no part, before it reaches the editor', async () => {
     const { status, body } = await post('/params/add', {
       param: { label: 'Depth', defaultValue: 25, type: 'number' },
@@ -184,7 +204,7 @@ describe('parameter declaration routes', () => {
     expect(relayed).toEqual([]);
   });
 
-  it('renames the label, leaves the variable, and moves the override with it', async () => {
+  it('renames the label and the variable after it, following its reads, and moves the override', async () => {
     const pending = post('/params/update', {
       label: 'Width',
       line: 4,
@@ -194,9 +214,21 @@ describe('parameter declaration routes', () => {
     const { body } = await pending;
 
     expect(body.success).toBe(true);
-    expect(newCode).toContain(`const width = param('Overall width', 100);`);
-    expect(newCode).toContain('extrude(width);');
+    expect(newCode).toContain(`const overallWidth = param('Overall width', 100);`);
+    expect(newCode).toContain('extrude(overallWidth);');
     expect(bookkeeping).toEqual(['rename Width -> Overall width']);
+  });
+
+  it('keeps the variable when the new label reduces to the same name', async () => {
+    const pending = post('/params/update', {
+      label: 'Width',
+      line: 4,
+      param: { label: 'width', defaultValue: 100, type: 'number' },
+    });
+    const newCode = await actAsEditor();
+    await pending;
+    expect(newCode).toContain(`const width = param('width', 100);`);
+    expect(newCode).toContain('extrude(width);');
   });
 
   it('leaves the override alone when only the control changed', async () => {
@@ -223,10 +255,10 @@ describe('parameter declaration routes', () => {
   });
 
   it('sends the edit to the file that declares the param, not the one on screen', async () => {
-    const other = '/ws/shared.fluid.js';
+    const other = SHARED_FILE;
     const pending = post('/params/remove', { label: 'Anywhere', line: 2, filePath: other });
-    // The preflight only dry-runs against the current file, so a sibling's
-    // declaration goes straight to the host that owns that buffer.
+    // The plan reads the sibling through the host's buffer of it; the edit
+    // itself goes to the host that owns that buffer.
     const msg = await (async () => {
       for (let i = 0; i < 200; i++) {
         const found = relayed.find((m) => m.type === 'apply-feature-edit');
@@ -243,21 +275,26 @@ describe('parameter declaration routes', () => {
     await fetch(`${baseUrl}/api/code/apply-feature`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: `import { param } from 'fluidcad/core';\nconst a = param('Anywhere', 1);\n`,
-        spec: msg.spec,
-      }),
+      body: JSON.stringify({ code: SHARED, spec: msg.spec }),
     });
     expect((await pending).body.success).toBe(true);
   });
 
-  it('reports no usage for a param the rendered file does not declare', async () => {
+  it('describes a param declared in a sibling file from the host\'s buffer of it', async () => {
     const res = await fetch(
-      `${baseUrl}/api/params/usage?label=Anywhere&filePath=${encodeURIComponent('/ws/shared.fluid.js')}`,
+      `${baseUrl}/api/params/usage?label=Anywhere&filePath=${encodeURIComponent(SHARED_FILE)}`,
     );
-    // Unreadable from here is not the same as unwritable — the declaration
-    // still edits, it just cannot be described.
-    expect(await res.json()).toMatchObject({ variable: null, references: 0, editable: true });
+    expect(await res.json()).toMatchObject({ variable: 'a', references: 0, editable: true, value: '1', portable: true });
+  });
+
+  it('cannot describe, or edit, a declaring file nobody holds', async () => {
+    const res = await fetch(
+      `${baseUrl}/api/params/usage?label=Anywhere&filePath=${encodeURIComponent('/ws/missing.fluid.js')}`,
+    );
+    expect(res.status).toBe(404);
+    const { status } = await post('/params/remove', { label: 'Anywhere', filePath: '/ws/missing.fluid.js' });
+    expect(status).toBe(404);
+    expect(relayed).toEqual([]);
   });
 
   it('refuses an edit the file cannot take, before it reaches the editor', async () => {

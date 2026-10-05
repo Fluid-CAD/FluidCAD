@@ -99,6 +99,15 @@ describe('workspace file routes', () => {
       expect(byPath['assembly.js'].kind).toBe('source');
     });
 
+    it('lists every folder, including empty ones the picker just created', async () => {
+      fs.mkdirSync(path.join(workspace, 'parts', 'brackets'), { recursive: true });
+      fs.mkdirSync(path.join(workspace, 'empty'));
+      fs.writeFileSync(path.join(workspace, 'parts', 'plate.fluid.js'), '// part');
+
+      const { body } = await get('/files/tree');
+      expect(body.folders).toEqual(['empty', 'parts', 'parts/brackets']);
+    });
+
     it('skips node_modules and .git without being told to', async () => {
       fs.mkdirSync(path.join(workspace, 'node_modules', 'fluidcad'), { recursive: true });
       fs.writeFileSync(path.join(workspace, 'node_modules', 'fluidcad', 'index.js'), '');
@@ -269,6 +278,26 @@ describe('workspace file routes', () => {
       expect(fs.readdirSync(workspace).filter((name) => name.endsWith('.tmp'))).toEqual([]);
     });
 
+    it('creates a folder, accepts one that already exists, and refuses a file of that name', async () => {
+      const created = await post('/files/mkdir', { path: 'sub/fresh' });
+      expect(created.status).toBe(200);
+      expect(created.body.path).toBe('sub/fresh');
+      expect(fs.statSync(path.join(workspace, 'sub', 'fresh')).isDirectory()).toBe(true);
+
+      const again = await post('/files/mkdir', { path: 'sub/fresh' });
+      expect(again.status).toBe(200);
+
+      const deep = await post('/files/mkdir', { path: 'test/folder/subpath' });
+      expect(deep.status).toBe(200);
+      expect(fs.statSync(path.join(workspace, 'test', 'folder', 'subpath')).isDirectory()).toBe(true);
+      const { body } = await get('/files/tree');
+      expect(body.folders).toEqual(['sub', 'sub/fresh', 'test', 'test/folder', 'test/folder/subpath']);
+
+      fs.writeFileSync(path.join(workspace, 'taken.js'), '');
+      const clash = await post('/files/mkdir', { path: 'taken.js' });
+      expect(clash.status).toBe(409);
+    });
+
     it('rejects a write whose content is not a string', async () => {
       const { status } = await post('/files/write', { path: 'a.js', content: { not: 'a string' } });
       expect(status).toBe(400);
@@ -318,6 +347,11 @@ describe('workspace file routes', () => {
 
       it(`refuses to write ${attempt}`, async () => {
         const { status } = await post('/files/write', { path: attempt, content: 'pwned' });
+        expect(status).toBe(403);
+      });
+
+      it(`refuses to create folder ${attempt}`, async () => {
+        const { status } = await post('/files/mkdir', { path: attempt });
         expect(status).toBe(403);
       });
     }

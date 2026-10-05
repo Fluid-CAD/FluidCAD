@@ -9,8 +9,7 @@
 // stashes on the constraint statement.
 
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
-import { LazyVertex } from "./lazy-vertex.js";
-import { Vertex } from "../common/vertex.js";
+import { SketchPointVertex } from "./sketch-point-ref.js";
 import type { SceneObject } from "../common/scene-object.js";
 import type { Copy2DBase } from "./copy2d-base.js";
 import type { PointRole, SolverRef } from "../sketch-solver/index.js";
@@ -58,14 +57,17 @@ export class Copy2DInstance extends LazySelectionSceneObject {
  * accepted — reading the resolved entity's CURRENT solver params (guesses
  * until the solve, solved values after).
  */
-export class Copy2DInstancePointRef extends LazyVertex {
+export class Copy2DInstancePointRef extends SketchPointVertex {
   constructor(
     readonly instance: Copy2DInstance,
     readonly role: PointRole,
   ) {
-    super(`copy-instance-${instance.slot}-${role}`, () => {
-      const point = instance.copyOwner.instancePointValue(instance.slot, role);
-      return [Vertex.fromPoint2D(point)];
-    });
+    super(instance.copyOwner, role, `copy-instance-${instance.slot}-${role}`,
+      () => instance.copyOwner.instancePointValue(instance.slot, role));
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const instance = (remap.get(this.instance) ?? this.instance.createCopy(remap)) as Copy2DInstance;
+    return new Copy2DInstancePointRef(instance, this.role);
   }
 }

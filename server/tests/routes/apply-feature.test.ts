@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 
 let server: http.Server;
 let baseUrl: string;
@@ -16,8 +16,24 @@ let relayed: any[];
 
 /** Picks forwarded to the connector anchor-suggestion endpoint. */
 let anchorCalls: unknown[];
+let anchorPurposes: unknown[];
 /** Per-test result for the anchor-suggestion endpoint. */
 let currentAnchors: any;
+/** Options each anchor suggestion carried, parallel to `anchorCalls`. */
+let anchorOptions: unknown[];
+/**
+ * Per-test result for the synthesis-free anchors; null stands for a kernel
+ * predating them (the routes fall back to their two-pass synthesis).
+ */
+let currentFrames: any;
+/** Picks and purposes forwarded to the synthesis-free anchors. */
+let framesCalls: { pick: unknown; purpose: unknown }[];
+/** The options key each memoized synthesis call carried. */
+let cachedSynthesisKeys: unknown[];
+/** Vertex-pick resolutions forwarded to the fake server's resolveSelection. */
+let resolveCalls: unknown[];
+/** Per-test result for resolveSelection (the vertex point synthesis). */
+let currentResolution: any;
 
 const fakeSynthesis = {
   ok: true,
@@ -76,7 +92,7 @@ const fakeServer = {
   },
   resolveStatementPart: (loc: unknown) => {
     statementPartCalls.push(loc);
-    return currentStatementPart;
+    return typeof currentStatementPart === 'function' ? currentStatementPart(loc) : currentStatementPart;
   },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
@@ -105,9 +121,27 @@ const fakeServer = {
     }
     return currentSynthesis;
   },
-  suggestConnectorAnchors: (pick: unknown, _options?: unknown) => {
+  resolveSelection: (request: unknown, _options?: unknown) => {
+    resolveCalls.push(request);
+    return currentResolution;
+  },
+  suggestConnectorAnchors: (pick: unknown, options?: unknown, purpose?: unknown) => {
     anchorCalls.push(pick);
+    anchorOptions.push(options);
+    anchorPurposes.push(purpose);
     return currentAnchors;
+  },
+  hasConnectorFrames: () => currentFrames !== null,
+  suggestConnectorFrames: (pick: unknown, purpose?: unknown) => {
+    framesCalls.push({ pick, purpose });
+    return currentFrames;
+  },
+  synthesizeApplyFeatureCached: (
+    optionsKey: string | null, picks: unknown, feature: string, value: number | undefined,
+    chains?: unknown, options?: unknown, before?: unknown,
+  ) => {
+    cachedSynthesisKeys.push(optionsKey);
+    return fakeServer.synthesizeApplyFeature(picks, feature, value, chains, options, before);
   },
   explainSelection: (_picks: unknown, before?: unknown) => {
     queryCalls.push({ method: 'explainSelection', before });
@@ -179,7 +213,14 @@ describe('apply-feature route validation', () => {
     queryCalls = [];
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
     anchorCalls = [];
+    anchorOptions = [];
+    anchorPurposes = [];
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
+    currentFrames = null;
+    framesCalls = [];
+    cachedSynthesisKeys = [];
+    resolveCalls = [];
+    currentResolution = { ok: false, code: 'no-match', reason: 'no vertex resolution configured' };
     exposureCalls = [];
     currentExposureResolution = null;
     statementPartCalls = [];
@@ -413,6 +454,42 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  // Each of these can be built from top-level sketches, planes and axes
+  // alone, which the transform lands in the active part.
+  it.each([
+    ['extrude', {
+      feature: 'extrude', op: 'add', distance: 25,
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['revolve', {
+      feature: 'revolve', op: 'add', angle: 360, axis: { kind: 'standard', axis: 'z' },
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['sweep', {
+      feature: 'sweep', op: 'add',
+      profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+      path: { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+    }],
+    ['loft', {
+      feature: 'loft', op: 'add', profiles: [
+        { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+      ],
+    }],
+    ['rib', {
+      feature: 'rib', op: 'add', thickness: 2,
+      spine: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+    ['sketch on a plane', {
+      feature: 'sketch', entities: [], planeRef: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }],
+  ])('forwards the active part into the %s spec', async (_label, request) => {
+    const { status } = await post({ ...request, activePart: { filePath: '/ws/m.fluid.js', line: 9, column: 21 } });
+    expect(status).toBe(200);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.activePart).toEqual({ line: 9, column: 21 });
+  });
+
   describe('foreign sketch (cross-part reference)', () => {
     const FILE = '/ws/m.fluid.js';
     const TWO_PART_CODE = [
@@ -498,6 +575,32 @@ describe('apply-feature route validation', () => {
 
       await post({ feature: 'sketch', entities: [PICK], activePart: ACTIVE, preview: true });
       // Fell through to the ordinary pick-carrying sketch synthesis.
+      expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
+    });
+
+    it('relays a sketchForeign spec for the file\'s top level when no part is active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({ feature: 'sketch', entities: [PICK] });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.filePath).toBe(FILE);
+      // No active part: the transform lands the sketch at the top level.
+      expect(spec.activePart).toBeUndefined();
+      expect(spec.sketchForeign).toEqual({ exposeName: 'endFace', donor: { line: 3, column: 18 } });
+    });
+
+    it('keeps the normal flow for a top-level pick with no part active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = { ok: true, donor: null };
+
+      await post({ feature: 'sketch', entities: [PICK], preview: true });
       expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
     });
 
@@ -1005,6 +1108,29 @@ describe('apply-feature route validation', () => {
       profile: { ...SWEEP_PROFILE, mode: 'bound' }, path: SWEEP_PATH, preview: true,
     });
     expect(body.preview).toBe('sweep(p, s).thin(2).remove()');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('previews sweep extend chains ahead of thin and relays them in the spec', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80,
+      profile: SWEEP_PROFILE, path: SWEEP_PATH,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`sweep(p).extend('start', lead).extend('end', 80).thin(2)`);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'sweep',
+      sweep: { op: 'add', thin: [2], extendStart: 'lead', extendEnd: 80 },
+    });
+  });
+
+  it('rejects a non-positive sweep extend amount', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', thin: null, extendEnd: -5,
+      profile: SWEEP_PROFILE, path: SWEEP_PATH,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toBe('extendEnd must be a positive number or expression');
     expect(relayed).toHaveLength(0);
   });
 
@@ -1846,6 +1972,31 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('no offset or rotation');
   });
 
+  it('rejects world rotationAxes on an edge plane', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5, rotationAxes: 'world', bases: [planePick(2, 'edge')],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('no offset or rotation');
+  });
+
+  it('previews world-axes rotation and rejects unknown rotationAxes', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const world = await post({
+      feature: 'plane', type: 'offset', rotateY: 30, rotationAxes: 'world',
+      bases: [{ kind: 'standard', plane: 'xz' }], preview: true,
+    });
+    expect(world.status).toBe(200);
+    expect(world.body.preview).toBe(`plane('xz', { rotateY: 30, rotationAxes: 'world' })`);
+
+    const bad = await post({
+      feature: 'plane', type: 'offset', rotateY: 30, rotationAxes: 'sideways',
+      bases: [{ kind: 'standard', plane: 'xz' }],
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain('rotationAxes');
+  });
+
   it('rejects a position on an offset plane', async () => {
     const { status, body } = await post({
       feature: 'plane', type: 'offset', position: 0.5, bases: [{ kind: 'standard', plane: 'xy' }],
@@ -1890,6 +2041,196 @@ describe('apply-feature route validation', () => {
     expect(body.reason).toContain('different files');
   });
 
+  describe('foreign plane bases (cross-part reference)', () => {
+    const FILE = '/ws/m.fluid.js';
+    const TWO_PART_CODE = [
+      `import { sketch, circle, extrude, part, expose } from 'fluidcad/core'`,
+      ``,
+      `export const p1 = part('Donor', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(30)`,
+      `  expose('endFace', e.endFaces(0))`,
+      `})`,
+      ``,
+      `export const p2 = part('Consumer', () => {`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const ACTIVE = { filePath: FILE, line: 9, column: 18 };
+    const DONOR_PICK = { shapeId: 'donor-shape', sub: { type: 'face', index: 0 } };
+    const donorResolution = (matched: string | null, existingNames: string[]) => ({
+      ok: true,
+      donor: { partName: 'Donor', filePath: FILE, line: 3, column: 18, matched, existingNames },
+    });
+
+    it('relays a matched exposure as a foreign base into the active part', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      // The reference is composed route-side — the donor's own selector is
+      // never synthesized.
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec).toMatchObject({
+        feature: 'plane',
+        filePath: FILE,
+        activePart: { line: 9, column: 18 },
+        producers: [],
+        parts: [],
+        plane: {
+          type: 'offset', offset: 10,
+          bases: [{ kind: 'foreign', ref: 0 }],
+          foreign: [{ exposeName: 'endFace', donor: { line: 3, column: 18 } }],
+        },
+      });
+    });
+
+    it('previews the reference with the foreign notice payload', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE, preview: true,
+      });
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      expect(body.foreign).toEqual({
+        picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }],
+      });
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('allocates a fresh name and embeds the expose create spec when unmatched', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution(null, ['g1']);
+      const exposeSpec = {
+        feature: 'expose', filePath: FILE,
+        expose: { name: 'g2', part: { line: 3, column: 18 } },
+        producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      };
+      currentSynthesis = {
+        ok: true, spec: exposeSpec, preview: `expose('g2', e.endFaces(0))`,
+        args: 'e.endFaces(0)', alternatives: [],
+      };
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.g2, 10)');
+      // Only the donor-side expose rail ran — never the plane's own synthesis.
+      expect(synthesizeCalls.length).toBeGreaterThan(0);
+      expect(synthesizeCalls.every(c => c.feature === 'expose')).toBe(true);
+      const plane = relayed[0].spec.plane;
+      expect(plane.bases).toEqual([{ kind: 'foreign', ref: 0 }]);
+      expect(plane.foreign[0].exposeName).toBe('g2');
+      expect(plane.foreign[0].donor).toEqual({ line: 3, column: 18 });
+      expect(plane.foreign[0].create).toEqual(exposeSpec);
+    });
+
+    it('keeps the normal flow when the picked part IS the active part', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = {
+        ok: true,
+        donor: { partName: 'Consumer', filePath: FILE, line: 9, column: 18, matched: null, existingNames: [] },
+      };
+      currentSynthesis = planeSynthesis('endFaces');
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 5, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toBe('plane(e.endFaces(), 5)');
+      expect(relayed[0].spec.plane.bases).toEqual([{ kind: 'selector', part: 0 }]);
+      expect(relayed[0].spec.plane.foreign).toBeUndefined();
+    });
+
+    it('lands a foreign base at the file\'s top level when no part is active', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.endFace, 10)');
+      const spec = relayed[0].spec;
+      expect(spec.filePath).toBe(FILE);
+      expect(spec.activePart).toBeUndefined();
+      expect(spec.plane.bases).toEqual([{ kind: 'foreign', ref: 0 }]);
+    });
+
+    it('mixes an own pick and a foreign pick in a mid plane, synthesizing only the own one', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = (pick: any) => (pick.shapeId === DONOR_PICK.shapeId
+        ? donorResolution('endFace', ['endFace'])
+        : { ok: true, donor: { partName: 'Consumer', filePath: FILE, line: 9, column: 18, matched: null, existingNames: [] } });
+      currentSynthesis = planeSynthesis('endFaces', 10);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'mid',
+        bases: [planePick(0), { kind: 'pick', entity: DONOR_PICK }],
+        activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeInputs).toEqual([{ picks: [PICK], chains: [] }]);
+      // `e` is the donor's binding already — the consumer's own extrude gets the next name.
+      expect(body.preview).toBe('plane(plane(e2.endFaces()), plane(p1.features.endFace))');
+      expect(relayed[0].spec).toMatchObject({
+        activePart: { line: 9, column: 18 },
+        producers: [{ line: 10, featureType: 'extrude', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces' }],
+        plane: {
+          type: 'mid',
+          bases: [{ kind: 'selector', part: 0 }, { kind: 'foreign', ref: 0 }],
+          foreign: [{ exposeName: 'endFace', donor: { line: 3, column: 18 } }],
+        },
+      });
+    });
+
+    it('renders a foreign edge as the edge plane\'s base', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('rim', ['rim']);
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'edge', position: 0.5, bases: [planePick(2, 'edge')], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('plane(p1.features.rim, 0.5)');
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec.plane).toMatchObject({
+        type: 'edge', position: 0.5, bases: [{ kind: 'foreign', ref: 0 }],
+      });
+    });
+
+    it('surfaces the resolver refusal (assembly scenes)', async () => {
+      currentExposureResolution = { ok: false, reason: 'cross-part geometry references are authored in the part file' };
+
+      const { status, body } = await post({
+        feature: 'plane', type: 'offset', offset: 10, bases: [planePick(0)], activePart: ACTIVE,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('part file');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   it('resolves bound plane names with the plane callee', async () => {
     currentCode = [
       `import { plane, sketch, circle } from 'fluidcad/core'`,
@@ -1923,6 +2264,25 @@ describe('apply-feature route validation', () => {
     });
     expect(res.status).toBe(200);
     expect((await res.json()).names).toEqual(['spine', null, null, null]);
+  });
+
+  it("resolves bound repeat names with the repeat callee — the Copy dialog's followed repeat", async () => {
+    currentCode = [
+      `import { sketch, circle, extrude, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { circle([0, 0], 10) })`,
+      `const e = extrude(30)`,
+      `const holes = repeat('circular', 'z', { count: 6, angle: 360 }, e)`,
+      `repeat('linear', 'x', { count: 2, offset: 40 }, e)`,
+      ``,
+    ].join('\n');
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [4, 5, 6], callee: 'repeat' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).names).toEqual([null, 'holes', null]);
   });
 
   it('returns all-null sketch names without a code buffer', async () => {
@@ -1964,10 +2324,33 @@ describe('apply-feature route validation', () => {
         parsed: {
           feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
           draft: null, endOffset: null, drill: true, thin: null, profileText: null,
-          toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
+          toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [], regions: [],
         },
         statement: 'extrude(30)',
       });
+    });
+
+    it("parses a part body's param() distance as a distance, not an up-to-face target", async () => {
+      currentCode = [
+        `import { part, param, sketch, line, region, extrude } from 'fluidcad/core'`,
+        ``,
+        `export const drawer = part('Drawer', () => {`,
+        `  const depth = param("depth", 50);`,
+        `  const s = sketch('xz', () => {`,
+        `    const l1 = line([-200, 0], [200, 0]);`,
+        `    region('r1', l1);`,
+        `  }).close();`,
+        `  extrude(depth, s).region('r1');`,
+        `});`,
+        ``,
+      ].join('\n');
+      currentFileName = '/ws/Drawer.part.js';
+      const { status, body } = await postParse({ filePath: '/ws/Drawer.part.js', line: 9 });
+      expect(status).toBe(200);
+      expect(body.parsed).toMatchObject({
+        feature: 'extrude', distance: 'depth', profileText: 's', toFaceText: null, toFaceKind: null, regions: ['r1'],
+      });
+      expect(body.statement).toBe(`extrude(depth, s).region('r1')`);
     });
 
     it('refuses to parse a feature from another file', async () => {
@@ -2520,6 +2903,35 @@ describe('apply-feature route validation', () => {
         expect(body.preview).toBe(`project(b.sideFaces(0))`);
         expect(synthesizeCalls).toHaveLength(0);
         expect(relayed).toHaveLength(0);
+      });
+
+      it('re-sources with previous sketches rendered whole, without a boundary', async () => {
+        currentCode = [
+          `import { sketch, extrude, project, circle } from 'fluidcad/core'`,
+          ``,
+          `sketch('xz', () => { circle(5) })`,
+          `const b = extrude(30)`,
+          `sketch('xy', () => {`,
+          `  project(b.sideFaces(0))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const edit = { filePath: '/ws/m.fluid.js', line: 6, column: 2 };
+        const { status, body } = await post({
+          feature: 'project', edit, entities: [], sketches: [{ filePath: '/ws/m.fluid.js', line: 3, column: 0 }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(s)`);
+        expect(body.args).toBe(`s`);
+        expect(synthesizeCalls).toHaveLength(0);
+      });
+
+      it('refuses re-sourcing a projection with the sketch it is drawn in', async () => {
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, sketches: [{ filePath: '/ws/m.fluid.js', line: 4, column: 0 }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('cannot project itself');
       });
 
       it('rewrites the source list from an edited expression row', async () => {
@@ -3727,6 +4139,143 @@ describe('apply-feature route validation', () => {
       expect(body.reason).toContain('cannot be named');
       expect(relayed).toEqual([]);
     });
+
+    // Connector copies: a connector target or axis rides as its connector()
+    // statement's call site with kind 'connector', and binds as a
+    // `connector` producer under the connector's own name.
+    describe('connectors', () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, connector } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 100) })",
+        '  const e = extrude(10)',
+        "  connector('bolt', e.endFaces()).offset(30, 0, 0)",
+        "  connector('pivot', e.endFaces())",
+        '})',
+        '',
+      ].join('\n');
+      const BOLT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 6, column: 2 };
+      const PIVOT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 7, column: 2 };
+      const E = { filePath: '/ws/flange.part.js', line: 5, column: 12 };
+
+      it('binds a connector target under its own name, beside a solid target', async () => {
+        currentCode = PART;
+        const body = {
+          feature: 'copy', kind: 'circular', targets: [E, BOLT],
+          axis: { kind: 'standard', axis: 'z' }, count: 6, sweep: { mode: 'angle', value: 360 },
+        };
+        const preview = await post({ ...body, preview: true });
+        expect(preview.status).toBe(200);
+        expect(preview.body.preview).toBe("copy('circular', 'z', { count: 6, angle: 360 }, e, bolt)");
+
+        const { status } = await post(body);
+        expect(status).toBe(200);
+        const spec = relayed[0].spec;
+        expect(spec.producers).toEqual([
+          { line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true },
+          { line: 6, column: 2, featureType: 'connector', nameHint: 'c', bind: true },
+        ]);
+        expect(spec.copy.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      });
+
+      it("sends a connector axis, and a copy's slot on it", async () => {
+        currentCode = PART;
+        const around = await post({
+          feature: 'copy', kind: 'circular', targets: [BOLT],
+          axis: PIVOT, count: 4, sweep: { mode: 'angle', value: 360 }, preview: true,
+        });
+        expect(around.status).toBe(200);
+        expect(around.body.preview).toBe("copy('circular', pivot, { count: 4, angle: 360 }, bolt)");
+
+        const { status, body } = await post({
+          feature: 'copy', kind: 'linear', targets: [PIVOT], spacingMode: 'offset',
+          directions: [{ axis: { ...BOLT, slot: 2 }, count: 2, value: 15 }],
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe("copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot)");
+        const spec = relayed[0].spec;
+        expect(spec.copy.directions[0].axis).toEqual({ kind: 'connector', producer: 1, slot: 2 });
+        expect(spec.producers[1]).toMatchObject({ line: 6, featureType: 'connector' });
+      });
+
+      it('rejects an unknown target kind, a bad slot, and a connector axis in another file', async () => {
+        const base = {
+          feature: 'copy', kind: 'circular', targets: [BOLT],
+          axis: PIVOT, count: 4, sweep: { mode: 'angle', value: 360 },
+        };
+        const badKind = await post({ ...base, targets: [{ ...BOLT, kind: 'sketch' }] });
+        expect(badKind.status).toBe(400);
+        expect(badKind.body.error).toContain('"feature" or "connector"');
+
+        const badSlot = await post({ ...base, axis: { ...PIVOT, slot: -1 } });
+        expect(badSlot.status).toBe(400);
+        expect(badSlot.body.error).toContain('slot');
+
+        const elsewhere = await post({ ...base, axis: { ...PIVOT, filePath: '/ws/other.part.js' } });
+        expect(elsewhere.status).toBe(400);
+        expect(elsewhere.body.error).toContain('different files');
+      });
+    });
+
+    // The follow form: `copy(<repeat>, …connectors)` — the repeat rides as
+    // its repeat() statement's call site and binds as a `feature` producer.
+    describe('following a repeat', () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, cut, repeat, connector } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 200) })",
+        '  const e = extrude(10)',
+        "  sketch(e.endFaces(), () => { circle([40, 0], 20) })",
+        '  const hole = cut()',
+        "  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)",
+        "  connector('bolt', hole.startEdges())",
+        '})',
+        '',
+      ].join('\n');
+      const BOLT = { kind: 'connector', filePath: '/ws/flange.part.js', line: 9, column: 2 };
+      const HOLES = { filePath: '/ws/flange.part.js', line: 8, column: 16 };
+
+      it('binds the repeat and the connector, and writes copy(holes, bolt)', async () => {
+        currentCode = PART;
+        const body = { feature: 'copy', kind: 'pattern', targets: [BOLT], pattern: HOLES };
+        const preview = await post({ ...body, preview: true });
+        expect(preview.status).toBe(200);
+        expect(preview.body.preview).toBe('copy(holes, bolt)');
+
+        const { status } = await post(body);
+        expect(status).toBe(200);
+        const spec = relayed[0].spec;
+        expect(spec.producers).toEqual([
+          { line: 9, column: 2, featureType: 'connector', nameHint: 'c', bind: true },
+          { line: 8, column: 16, featureType: 'feature', nameHint: 'r', bind: true },
+        ]);
+        expect(spec.copy).toEqual({ kind: 'pattern', pattern: { producer: 1 }, targets: [{ producer: 0 }] });
+      });
+
+      it("rejects a solid target, a missing or foreign repeat, and the other kinds' options", async () => {
+        const base = { feature: 'copy', kind: 'pattern', targets: [BOLT], pattern: HOLES };
+        const solid = await post({ ...base, targets: [BOLT, { filePath: '/ws/flange.part.js', line: 5, column: 12 }] });
+        expect(solid.status).toBe(400);
+        expect(solid.body.error).toBe('a copy along a repeat copies connectors only');
+
+        const missing = await post({ ...base, pattern: undefined });
+        expect(missing.status).toBe(400);
+        expect(missing.body.error).toContain('repeat() it follows');
+
+        const elsewhere = await post({ ...base, pattern: { ...HOLES, filePath: '/ws/other.part.js' } });
+        expect(elsewhere.status).toBe(400);
+        expect(elsewhere.body.error).toContain('different files');
+
+        for (const extra of [{ axis: { kind: 'standard', axis: 'z' } }, { count: 6 }, { skip: [[1]] }, { centered: true }]) {
+          const { status, body } = await post({ ...base, ...extra });
+          expect(status).toBe(400);
+          expect(body.error).toContain('a copy along a repeat takes no');
+        }
+        expect(relayed).toEqual([]);
+      });
+    });
   });
 
   describe('copy edit', () => {
@@ -3855,6 +4404,104 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(400);
       expect(body.error).toContain('before is required');
       expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('re-picks a connector target and a connector axis, each bound by name', async () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, connector, copy } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 100) })",
+        '  const e = extrude(10)',
+        "  connector('bolt', e.endFaces()).offset(30, 0, 0)",
+        "  connector('pivot', e.endFaces())",
+        "  copy('circular', 'z', { count: 6, angle: 360 }, e)",
+        '})',
+        '',
+      ].join('\n');
+      currentCode = PART;
+      currentFileName = '/ws/flange.part.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: { filePath: '/ws/flange.part.js', line: 8, column: 2 }, kind: 'circular',
+        axis: { kind: 'connector', filePath: '/ws/flange.part.js', line: 7, column: 2 },
+        count: 6, sweep: { mode: 'angle', value: 360 },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: '/ws/flange.part.js', line: 6, column: 2 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('circular', pivot, { count: 6, angle: 360 }, e, bolt)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [
+          { line: 7, featureType: 'connector', bind: true },
+          { line: 6, featureType: 'connector', bind: true },
+        ],
+        edit: {
+          copy: {
+            kind: 'circular',
+            axis: { kind: 'connector', producer: 0 },
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+          },
+        },
+      });
+    });
+
+    it('keeps or re-picks the repeat a follow copy follows, its connectors re-picked as connectors only', async () => {
+      const PART = [
+        "import { part, sketch, circle, extrude, cut, repeat, connector, copy } from 'fluidcad/core'",
+        '',
+        "export const flange = part('Flange', () => {",
+        "  sketch('xy', () => { circle([0, 0], 200) })",
+        '  const e = extrude(10)',
+        "  sketch(e.endFaces(), () => { circle([40, 0], 20) })",
+        '  const hole = cut()',
+        "  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)",
+        "  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)",
+        "  const bolt = connector('bolt', hole.startEdges())",
+        "  connector('pivot', e.endFaces())",
+        '  copy(holes, bolt)',
+        '})',
+        '',
+      ].join('\n');
+      currentCode = PART;
+      currentFileName = '/ws/flange.part.js';
+      const edit = { filePath: '/ws/flange.part.js', line: 12, column: 2 };
+
+      const kept = await post({ feature: 'copy', edit, kind: 'pattern', preview: true });
+      expect(kept.status).toBe(200);
+      expect(kept.body.preview).toBe('copy(holes, bolt)');
+
+      const { status, body } = await post({
+        feature: 'copy', edit, kind: 'pattern',
+        pattern: { filePath: '/ws/flange.part.js', line: 9, column: 16 },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: '/ws/flange.part.js', line: 11, column: 2 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('copy(slots, bolt, pivot)');
+      expect(relayed[0].spec).toMatchObject({
+        producers: [
+          { line: 9, featureType: 'feature', nameHint: 'r', bind: true },
+          { line: 11, featureType: 'connector', bind: true },
+        ],
+        edit: {
+          copy: {
+            kind: 'pattern',
+            pattern: { kind: 'feature', producer: 0 },
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 1 }],
+          },
+        },
+      });
+
+      const solid = await post({
+        feature: 'copy', edit, kind: 'pattern',
+        targets: [{ kind: 'feature', filePath: '/ws/flange.part.js', line: 5, column: 12 }],
+      });
+      expect(solid.status).toBe(400);
+      expect(solid.body.error).toBe('a copy along a repeat copies connectors only');
     });
 
     it('rejects an unknown kind on an edit', async () => {
@@ -5324,6 +5971,123 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    describe('previous sketches as sources', () => {
+      const SKETCH_CODE = [
+        `import { sketch, extrude, circle } from 'fluidcad/core'`,
+        ``,
+        `sketch('xz', () => { circle(5) })`,
+        `const e = extrude(30)`,
+        `const layout = sketch('yz', () => { circle(8) })`,
+        `sketch('xy', () => {`,
+        `  circle(4)`,
+        `})`,
+        ``,
+      ].join('\n');
+      const RECEIVER = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+      const UNBOUND = { filePath: '/ws/m.fluid.js', line: 3, column: 0 };
+      const BOUND = { filePath: '/ws/m.fluid.js', line: 5, column: 15 };
+
+      beforeEach(() => {
+        currentCode = SKETCH_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('appends the sketches as bare variables after the picked selectors', async () => {
+        currentSynthesis = projectSynthesis;
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: RECEIVER, sketches: [UNBOUND, BOUND], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          success: true,
+          preview: 'project(e.endFaces(0), s, layout)',
+          args: 'e.endFaces(0), s, layout',
+          alternatives: ['e.face(2), s, layout'],
+        });
+      });
+
+      it('relays sketch producers bound like an extrude profile, rendered whole', async () => {
+        currentSynthesis = projectSynthesis;
+        const { status } = await post({
+          feature: 'project', entities: [PICK], sketch: RECEIVER, sketches: [UNBOUND],
+        });
+        expect(status).toBe(200);
+        expect(relayed).toHaveLength(1);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'project',
+          project: { sketch: { line: 6, column: 0 } },
+          producers: [
+            { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+            { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          ],
+          parts: [
+            { producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' },
+            { producer: 1, accessor: '', indices: null, filterArgs: null },
+          ],
+        });
+      });
+
+      it('takes a sketch-only source list without synthesizing', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ success: true, preview: 'project(layout)', args: 'layout' });
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('folds a repeated sketch to one source', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND, { ...BOUND }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('project(layout)');
+      });
+
+      it('refuses an empty source list', async () => {
+        const { status, body } = await post({ feature: 'project', sketch: RECEIVER, sketches: [], entities: [] });
+        expect(status).toBe(400);
+        expect(body.error).toContain('at least one source');
+      });
+
+      it('refuses the receiving sketch as its own source', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [{ ...RECEIVER }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('cannot project itself');
+      });
+
+      it('refuses a sketch from another file', async () => {
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [{ ...BOUND, filePath: '/ws/other.fluid.js' }], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('different file');
+      });
+
+      it('refuses a sketch owned by another part', async () => {
+        const bracket = { partName: 'bracket', filePath: '/ws/m.fluid.js', line: 2, column: 0 };
+        const lid = { partName: 'lid', filePath: '/ws/m.fluid.js', line: 20, column: 0 };
+        currentStatementPart = (loc: { line: number }) => (loc.line === RECEIVER.line ? bracket : lid);
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part ("lid")');
+      });
+
+      it('refuses a top-level sketch for a sketch inside a part', async () => {
+        const bracket = { partName: 'bracket', filePath: '/ws/m.fluid.js', line: 2, column: 0 };
+        currentStatementPart = (loc: { line: number }) => (loc.line === RECEIVER.line ? bracket : null);
+        const { status, body } = await post({
+          feature: 'project', sketch: RECEIVER, sketches: [BOUND], preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part (the top level)');
+      });
+    });
+
     it('previews and relays intersect() under op', async () => {
       currentSynthesis = projectSynthesis;
       const previewed = await post({
@@ -5384,7 +6148,7 @@ describe('apply-feature route validation', () => {
     it('rejects an empty pick set', async () => {
       const { status, body } = await post({ feature: 'project', entities: [], sketch: SKETCH });
       expect(status).toBe(400);
-      expect(body.error).toContain('entities must be a non-empty array');
+      expect(body.error).toContain('pick at least one source')
     });
 
     it('surfaces a synthesis refusal as a 422', async () => {
@@ -5589,12 +6353,26 @@ describe('apply-feature route validation', () => {
         expect(body.args).toBe('e.endFaces(0)');
       });
 
-      it('keeps the normal flow when the sketch has no part (or the kernel predates the lookup)', async () => {
+      it('reads a part\'s geometry into a top-level sketch through its exposure', async () => {
+        // The sketch lies outside every part: every part is foreign to it.
         currentStatementPart = null;
         currentExposureResolution = donorResolution('endFace', ['endFace']);
+        const { status, body } = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({
+          preview: 'project(p1.features.endFace)',
+          foreign: { picks: [{ ...PICK, partName: 'Donor', exposeName: 'endFace', existing: true }] },
+        });
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('keeps the normal flow when the kernel resolves no donor', async () => {
+        currentStatementPart = null;
+        currentExposureResolution = null;
         currentSynthesis = projectSynthesis;
         await post({ feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true });
-        expect(exposureCalls).toEqual([]);
         expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
       });
 
@@ -5648,6 +6426,32 @@ describe('apply-feature route validation', () => {
         expect(status).toBe(422);
         expect(body.reason).toContain('belongs to another part ("Donor")');
         expect(body.reason).toContain('add a new Project');
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('refuses re-sourcing a top-level projection from a part the same way', async () => {
+        currentCode = [
+          `import { sketch, circle, extrude, part, project } from 'fluidcad/core'`,
+          ``,
+          `export const p1 = part('Donor', () => {`,
+          `  sketch('xy', () => { circle([0, 0], 100) })`,
+          `  extrude(30)`,
+          `})`,
+          ``,
+          `const b = extrude(5)`,
+          `sketch('xy', () => {`,
+          `  project(b.sideFaces(0))`,
+          `})`,
+          ``,
+        ].join('\n');
+        currentStatementPart = null;
+        currentExposureResolution = donorResolution(null, []);
+        const { status, body } = await post({
+          feature: 'project', edit: { filePath: FILE, line: 10, column: 2 }, entities: [PICK], preview: true,
+          before: { index: 4, type: 'projection', line: 10, column: 2 },
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('belongs to another part ("Donor")');
         expect(synthesizeCalls).toEqual([]);
       });
     });
@@ -5875,7 +6679,21 @@ describe('apply-feature route validation', () => {
       expect(body.args).toBe('e.endFaces(0)');
       expect(body.anchors).toHaveLength(1);
       expect(body.anchors[0].suffix).toBe('.center()');
+      expect(body.inPart).toBe(true);
       expect(anchorCalls).toEqual([PICK]);
+      expect(anchorPurposes).toEqual(['connector']);
+    });
+
+    it('anchors endpoint passes a hole purpose through and reports an anchor outside a part', async () => {
+      currentAnchors = { ok: true, inPart: false, defaultName: null, args: 'e.endFaces(0)', anchors: [] };
+      const { status, body } = await postAnchors({ entity: PICK, purpose: 'hole' });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.inPart).toBe(false);
+      expect(body.defaultName).toBeNull();
+      expect(anchorPurposes).toEqual(['hole']);
+      const bad = await postAnchors({ entity: PICK, purpose: 'rib' });
+      expect(bad.status).toBe(400);
     });
 
     it('anchors endpoint surfaces refusals as success:false', async () => {
@@ -5891,5 +6709,319 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(400);
       expect(anchorCalls).toEqual([]);
     });
+
+    describe('with synthesis-free anchors', () => {
+      const PART_CODE = [
+        `import { part, sketch, circle, extrude } from 'fluidcad/core'`,
+        ``,
+        `export const plate = part('Plate', () => {`,
+        `  sketch('xy', () => { circle([0, 0], 100) })`,
+        `  const e = extrude(10)`,
+        `})`,
+        ``,
+      ].join('\n');
+      const FRAMES = {
+        ok: true, inPart: true, defaultName: 'c3', filePath: '/ws/m.fluid.js',
+        anchors: [{
+          anchor: { kind: 'center' }, suffix: '.center()',
+          frame: {
+            origin: { x: 1, y: 2, z: 3 },
+            xDirection: { x: 1, y: 0, z: 0 },
+            yDirection: { x: 0, y: 1, z: 0 },
+            normal: { x: 0, y: 0, z: 1 },
+          },
+          hoverPoint: { x: 1, y: 2, z: 3 },
+        }],
+      };
+
+      beforeEach(() => {
+        currentFrames = FRAMES;
+        currentCode = PART_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('answers a frames-only request without synthesizing', async () => {
+        const { status, body } = await postAnchors({ entity: PICK, frames: true });
+        expect(status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.args).toBeNull();
+        expect(body.defaultName).toBe('c3');
+        expect(body.anchors).toEqual(FRAMES.anchors);
+        expect(framesCalls).toEqual([{ pick: PICK, purpose: 'connector' }]);
+        expect(anchorCalls).toEqual([]);
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('surfaces a frames refusal without synthesizing', async () => {
+        currentFrames = { ok: false, reason: 'connectors attach to geometry inside a part() block' };
+        const { body } = await postAnchors({ entity: PICK });
+        expect(body.success).toBe(false);
+        expect(body.reason).toContain('part()');
+        expect(anchorCalls).toEqual([]);
+      });
+
+      it('synthesizes the full answer in one pass, with options built over the target file', async () => {
+        currentAnchors = { ...FRAMES, args: 'e.endFaces(0)' };
+        const { body } = await postAnchors({ entity: PICK, purpose: 'hole' });
+        expect(body.success).toBe(true);
+        expect(body.args).toBe('e.endFaces(0)');
+        expect(framesCalls).toEqual([{ pick: PICK, purpose: 'hole' }]);
+        expect(anchorCalls).toEqual([PICK]);
+        expect(anchorPurposes).toEqual(['hole']);
+        expect(anchorOptions[0]).toMatchObject({ params: [] });
+        expect(typeof (anchorOptions[0] as any).namer).toBe('function');
+      });
+
+      it('rebuilds the options when synthesis lands the statement in another file', async () => {
+        currentAnchors = { ...FRAMES, args: 'e.endFaces(0)', filePath: '/ws/other.part.js' };
+        const { body } = await postAnchors({ entity: PICK });
+        expect(body.success).toBe(true);
+        expect(anchorCalls).toHaveLength(2);
+      });
+
+      it('creates the connector in one memoized synthesis pass keyed by the file it lands in', async () => {
+        currentSynthesis = connectorSynthesis;
+        const request = { feature: 'connector', name: 'mountTop', entities: [PICK], anchor: { kind: 'center' } };
+        const preview = await post({ ...request, preview: true });
+        expect(preview.status).toBe(200);
+        const apply = await post(request);
+        expect(apply.status).toBe(200);
+        expect(relayed).toHaveLength(1);
+        // One pass per request (no bare probe), each through the memo with
+        // the same key — the server answers the Apply from the preview's.
+        expect(synthesizeCalls).toHaveLength(2);
+        expect(cachedSynthesisKeys).toHaveLength(2);
+        expect(typeof cachedSynthesisKeys[0]).toBe('string');
+        expect(cachedSynthesisKeys[1]).toBe(cachedSynthesisKeys[0]);
+        expect(framesCalls).toEqual([
+          { pick: PICK, purpose: 'connector' },
+          { pick: PICK, purpose: 'connector' },
+        ]);
+        expect((synthesizeOptions[0] as any)?.connector).toEqual({ anchor: { kind: 'center' } });
+      });
+
+      it('falls back to the two-pass synthesis when the pick has no frames', async () => {
+        currentFrames = { ok: false, reason: 'no connector anchor available on this shape' };
+        currentSynthesis = connectorSynthesis;
+        const { status } = await post({
+          feature: 'connector', name: 'mountTop', entities: [PICK], anchor: { kind: 'center' }, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(cachedSynthesisKeys).toEqual([]);
+        expect(synthesizeCalls).toHaveLength(2);
+      });
+    });
+
+  describe('hole', () => {
+    const PART_CODE = [
+      `import { part, sketch, circle, extrude, connector } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
+      `  const e = extrude(10)`,
+      `  connector('bolt', e.endFaces().center())`,
+      `  const s = sketch(e.endFaces(), () => {`,
+      `    const c = circle([20, 0], 3)`,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const FILE = '/ws/plate.part.js';
+    const BASE = {
+      feature: 'hole', size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'clearance', fit: 'close' },
+      style: null, depth: null, tipAngle: null, scope: [], preview: true,
+    };
+
+    beforeEach(() => {
+      currentCode = PART_CODE;
+      currentFileName = FILE;
+    });
+
+    it('previews a connector placement bound under the connector name, with the scope last', async () => {
+      const { status, body } = await post({
+        ...BASE, depth: 12, tipAngle: 118,
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+        scope: [{ filePath: FILE, line: 5, column: 12 }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', bolt).clearance('close').depth(12, 118).scope(e)`);
+    });
+
+    it('relays the spec on apply with connector and scope producers', async () => {
+      const { status, body } = await post({
+        ...BASE, preview: false,
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+        scope: [{ filePath: FILE, line: 5, column: 12 }],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'hole',
+        filePath: FILE,
+        hole: { placements: [{ kind: 'connector', producer: 0 }], scope: [1] },
+        producers: [
+          { line: 6, featureType: 'connector', bind: true },
+          { line: 5, featureType: 'feature', bind: true },
+        ],
+      });
+    });
+
+    it('names a connector copy by its seed statement and slot, sharing the seed producer', async () => {
+      const placements = [
+        { kind: 'connector', filePath: FILE, line: 6, column: 2 },
+        { kind: 'connector', filePath: FILE, line: 6, column: 2, slot: 1 },
+      ];
+      const preview = await post({ ...BASE, placements });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
+
+      const applied = await post({ ...BASE, preview: false, placements });
+      expect(applied.status).toBe(200);
+      expect(relayed[0].spec.hole.placements).toEqual([
+        { kind: 'connector', producer: 0 },
+        { kind: 'connector', producer: 0, slot: 1 },
+      ]);
+      expect(relayed[0].spec.producers).toEqual([expect.objectContaining({ line: 6, featureType: 'connector', bind: true })]);
+    });
+
+    it('turns an anchor inside a part into a new connector, and outside a part into the anchor expression', async () => {
+      const synthesis = (part: { line: number; column: number } | undefined) => ({
+        ok: true,
+        spec: {
+          feature: 'hole', filePath: FILE,
+          hole: { anchor: { kind: 'center' }, ...(part ? { part } : {}) },
+          producers: [{ line: 5, column: 12, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: 'hole(e.endFaces(0).center())', args: 'e.endFaces(0).center()', alternatives: [],
+      });
+      currentSynthesis = synthesis({ line: 3, column: 20 });
+      const inPart = await post({
+        ...BASE, placements: [{ kind: 'anchor', entity: PICK, anchor: { kind: 'center' }, name: 'h1' }],
+      });
+      expect(inPart.status).toBe(200);
+      expect(inPart.body.preview).toBe(`hole('M6', h1).clearance('close')`);
+      expect(synthesizeCalls).toEqual([{ feature: 'hole', value: undefined }, { feature: 'hole', value: undefined }]);
+      expect((synthesizeOptions[0] as any)?.connector).toEqual({ anchor: { kind: 'center' } });
+
+      currentSynthesis = synthesis(undefined);
+      const topLevel = await post({
+        ...BASE, size: { kind: 'diameter', value: 6.4 }, fastener: null,
+        placements: [{ kind: 'anchor', entity: PICK, anchor: { kind: 'center' }, name: 'h1' }],
+      });
+      expect(topLevel.status).toBe(200);
+      expect(topLevel.body.preview).toBe(`hole(6.4, e.endFaces(0).center())`);
+    });
+
+    it('names a sketch vertex through the vertex synthesis export', async () => {
+      currentResolution = {
+        ok: true,
+        matches: [],
+        synthesized: {
+          ok: true,
+          producers: [{ sceneObjectId: 'sk', sceneObjectName: 's', featureType: 'sketch', variable: 's', filePath: FILE, line: 7, column: 12 }],
+          parts: [{ producer: 'sk', accessor: 'geometries', tier: 0, source: 's.geometries.c.center()',
+            point: { kind: 'sketch', target: { line: 8, featureType: 'circle', role: 'center' } } }],
+          imports: [], alternatives: [],
+          exports: [{ part: 0, sketch: { filePath: FILE, line: 7, column: 12 }, target: { line: 8, featureType: 'circle', role: 'center' } }],
+        },
+      };
+      const { status, body } = await post({
+        ...BASE, placements: [{ kind: 'vertex', entity: { shapeId: 'v1', sub: { type: 'vertex', index: 0 } } }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', s.geometries.c.center()).clearance('close')`);
+      expect(resolveCalls).toEqual([{ picks: [{ shapeId: 'v1', sub: { type: 'vertex', index: 0 } }] }]);
+    });
+
+    it('rejects malformed options and an empty placement list', async () => {
+      const noPlacements = await post({ ...BASE, placements: [] });
+      expect(noPlacements.status).toBe(400);
+      expect(noPlacements.body.error).toContain('at least one placement');
+      const tappedDrilled = await post({
+        ...BASE, size: { kind: 'diameter', value: 5 }, fastener: { type: 'tapped', pitch: null },
+        placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }],
+      });
+      expect(tappedDrilled.status).toBe(400);
+      const badKind = await post({ ...BASE, placements: [{ kind: 'point' }] });
+      expect(badKind.status).toBe(400);
+      for (const slot of [-1, 1.5, '1']) {
+        const badSlot = await post({ ...BASE, placements: [{ kind: 'connector', filePath: FILE, line: 6, column: 2, slot }] });
+        expect(badSlot.status).toBe(400);
+        expect(badSlot.body.error).toContain('whole number counting from 0');
+      }
+    });
+
+    it('edits a hole in place, keeping placements by position and re-picking the scope', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close')\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const { status, body } = await post({
+        feature: 'hole', edit: { filePath: FILE, line: 10, column: 2 },
+        size: { kind: 'fastener', label: 'M8' }, fastener: { type: 'tapped', pitch: null },
+        style: { kind: 'counterbore', diameter: null, depth: null }, depth: 9, tipAngle: null,
+        placements: [{ kind: 'verbatim', sourceIndex: 0 }],
+        scope: [{ kind: 'feature', filePath: FILE, line: 5, column: 12 }],
+        preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M8', bolt).tapped().counterbore().depth(9).scope(e)`);
+    });
+
+    it('edits a hole in place, adding a connector copy by its slot beside the kept placement', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close')\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const { status, body } = await post({
+        ...BASE, edit: { filePath: FILE, line: 10, column: 2 },
+        placements: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'connector', filePath: FILE, line: 6, column: 15, slot: 1 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`hole('M6', bolt, bolt.instance(1)).clearance('close')`);
+    });
+
+    it('writes the fasten chain before the scope, and refuses it off a clearance hole', async () => {
+      const placements = [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }];
+      const coarse = await post({ ...BASE, placements, fasten: { pitch: null } });
+      expect(coarse.status).toBe(200);
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten()`);
+      const fine = await post({ ...BASE, placements, fasten: { pitch: 0.75 } });
+      expect(fine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75)`);
+      const blind = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12)`);
+      const blindFine = await post({ ...BASE, placements, fasten: { pitch: 0.75, depth: 'reach + 2' } });
+      expect(blindFine.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, reach + 2)`);
+      expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: -1 } })).status).toBe(400);
+      const pointed = await post({ ...BASE, placements, fasten: { pitch: null, depth: 12, tipAngle: 118 } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12, 118)`);
+      expect((await post({ ...BASE, placements, fasten: { pitch: null, depth: null, tipAngle: 118 } })).status).toBe(400);
+      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: null }, placements, fasten: { pitch: null } });
+      expect(tapped.status).toBe(400);
+      const scoped = await post({ ...BASE, placements, scope: [{ filePath: FILE, line: 5, column: 12 }], fasten: { pitch: null, depth: 12 } });
+      expect(scoped.status).toBe(200);
+      expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12).scope(e)`);
+    });
+
+    it('edits the fasten chain in place: kept, re-pitched, deepened and dropped', async () => {
+      currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close').fasten(0.75)\n})`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+      const edit = { ...BASE, edit: { filePath: FILE, line: 10, column: 2 } };
+      const kept = await post(edit);
+      expect(kept.status).toBe(200);
+      expect(kept.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75)`);
+      const coarse = await post({ ...edit, fasten: { pitch: null } });
+      expect(coarse.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten()`);
+      const repitched = await post({ ...edit, fasten: { pitch: 1 } });
+      expect(repitched.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(1)`);
+      const blind = await post({ ...edit, fasten: { pitch: 0.75, depth: 9 } });
+      expect(blind.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, 9)`);
+      const pointed = await post({ ...edit, fasten: { pitch: 0.75, depth: 9, tipAngle: 'tip' } });
+      expect(pointed.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten(0.75, 9, tip)`);
+      const dropped = await post({ ...edit, fasten: null });
+      expect(dropped.body.preview).toBe(`hole('M6', bolt).clearance('close')`);
+    });
+  });
   });
 });

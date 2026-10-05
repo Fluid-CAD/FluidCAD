@@ -13,26 +13,31 @@ import { Revolve } from "../features/revolve.js";
 import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { RepeatAxisSource } from "../features/repeat-base.js";
+import { RepeatAxisSource, RepeatBase } from "../features/repeat-base.js";
 import { RepeatCircular } from "../features/repeat-circular.js";
 import { RepeatLinear } from "../features/repeat-linear.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { CopyAxisSource } from "../features/copy-base.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
+import { CopyPattern } from "../features/copy-pattern.js";
 import { Rib } from "../features/rib.js";
+import { Hole, type HolePlacement } from "../features/hole/hole.js";
+import { Connector } from "../features/connector.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
 import {
-  PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
+  PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
 } from "./types.js";
 
 /**
@@ -61,8 +66,14 @@ export type FeatureSources =
    * `'none'` scope that names no statements).
    */
   | { feature: 'rib'; spine: SourceSlot; scope: SourceSlot[] }
+  /**
+   * A hole: its placements in argument order — a connector by call site,
+   * anything else (a sketch point, an anchored vertex) opaque so the dialog
+   * keeps the argument text — plus the solid statements its `.scope(…)` names.
+   */
+  | { feature: 'hole'; placements: SourceSlot[]; scope: SourceSlot[] }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
-  | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
+  | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[]; connections: [number, number, number][][] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
   | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
   /** The single source: an axis statement (axis mode) or a face (face mode). */
@@ -72,7 +83,16 @@ export type FeatureSources =
    * The projected (or, for `intersect()`, sectioned) 3D sources, as entities
    * on the pre-statement solids — the two statements share one dialog.
    */
-  | { feature: 'projection' | 'intersect'; selection: SourceSlot }
+  | {
+    feature: 'projection' | 'intersect';
+    selection: SourceSlot;
+    /**
+     * Whole sketch statements the projection references (`project(s1)`), by
+     * call site, in argument order; `selection` covers the other sources.
+     * Always empty for `intersect()`, which sections solids only.
+     */
+    sketches: SourceSlot[];
+  }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -85,9 +105,10 @@ export type FeatureSources =
    * walks (one for circular). A world-axis literal is `opaque` as it is for a
    * repeat, and an implicit copy — one naming no targets at all, cloning every
    * active solid — reports an empty target list, which is what "implicit"
-   * looks like from here.
+   * looks like from here. A copy that follows a repeat (`copy(holes, bolt)`)
+   * walks no axis: it reports the repeat it follows as its `pattern`.
    */
-  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[] }
+  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[]; pattern?: SourceSlot }
   /**
    * A standalone `mirror(plane, …)`: the solids it reflects, by call site,
    * plus the plane it reflects them across. An origin-plane literal is
@@ -130,7 +151,7 @@ export function resolveFeatureSources(
   if (scoped.ok === false) {
     return scoped;
   }
-  const feature = scene.getAllSceneObjects()[boundary.index];
+  const feature = objectAtRow(scene, boundary.index);
   const resolver = new SourceResolver(scoped.scene.getAllSceneObjects(), boundary);
   try {
     if (feature instanceof Shell) {
@@ -143,10 +164,10 @@ export function resolveFeatureSources(
       return { ok: true, feature: 'chamfer', selection: resolver.entitiesSlot(feature.selections) };
     }
     if (feature instanceof Projection) {
-      return { ok: true, feature: 'projection', selection: resolver.entitiesSlot(feature.sources) };
+      return { ok: true, feature: 'projection', ...resolver.projectionSlots(feature.sources) };
     }
     if (feature instanceof Intersect) {
-      return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources) };
+      return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources), sketches: [] };
     }
     // A top-level (face-target) offset: its targets are face selections, the
     // same shape as shell's. In-sketch offsets never reach here — their edit
@@ -168,6 +189,19 @@ export function resolveFeatureSources(
         feature: 'loft',
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
         guides: feature.guideObjects.map(g => resolver.wireSlot(g)),
+        connections: feature.getConnectionPoints().map(connection => connection.map(point => [point.x, point.y, point.z])),
+      };
+    }
+    if (feature instanceof Hole) {
+      const fusionScope = feature.getFusionScope();
+      const scopeObjects = fusionScope instanceof SceneObject
+        ? [fusionScope]
+        : Array.isArray(fusionScope) ? fusionScope : [];
+      return {
+        ok: true,
+        feature: 'hole',
+        placements: feature.placements.map(placement => resolver.placementSlot(placement)),
+        scope: resolver.statementSlots(scopeObjects),
       };
     }
     // Rib extends ExtrudeBase — its case must come first.
@@ -289,6 +323,15 @@ export function resolveFeatureSources(
         axes: [resolver.axisSourceSlot(feature.axis)],
       };
     }
+    if (feature instanceof CopyPattern) {
+      return {
+        ok: true,
+        feature: 'copy',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [],
+        pattern: resolver.repeatSlot(feature.pattern),
+      };
+    }
     // The plane family, each form holding its own bases. All three extend
     // PlaneObjectBase, so the two that carry sources come first and the bare
     // literal (`plane('xy', 10)`) falls through to a base it can't re-target.
@@ -347,6 +390,15 @@ class SourceResolver {
   }
 
   /**
+   * The repeat a copy follows, by call site — a `repeat()` statement the
+   * dialog's Pattern slot can point at; a repeat written inline in the copy
+   * itself has none of its own and stays opaque.
+   */
+  repeatSlot(obj: SceneObject | null): SourceSlot {
+    return obj instanceof RepeatBase ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
    * A wire input (a loft guide), by call site: a sketch or a helix — the two
    * statements a wire slot can re-target.
    */
@@ -357,21 +409,46 @@ class SourceResolver {
   /**
    * A revolve's axis input, by call site — an axis statement the dialog can
    * point at and highlight. An axis built inline in the revolve's own
-   * arguments (`revolve('z')`, `revolve(axis(…))`) captures a line on the
-   * statement itself and stays opaque; the dialog keeps its verbatim text.
+   * arguments captures a line on the statement itself: see
+   * {@link axisObjectSlot} for the one inline form that still resolves.
    */
   axisSlot(obj: SceneObject | null): SourceSlot {
-    return obj instanceof AxisObjectBase ? this.callSiteSlot(obj) : OPAQUE;
+    return obj instanceof AxisObjectBase ? this.axisObjectSlot(obj) : OPAQUE;
   }
 
   /**
    * A repeat's or a copy's axis input. A world-axis literal
    * (`repeat('linear', 'x', …)`) builds no scene object at all and stays
    * opaque — nothing to re-target, and the dialog reads `'x'` straight off the
-   * argument text.
+   * argument text. A copy's connector axis resolves to its `connector()`
+   * statement; a connector copy (`bolt.instance(2)`) has none of its own and
+   * stays opaque, its text kept verbatim.
    */
   axisSourceSlot(source: RepeatAxisSource | CopyAxisSource): SourceSlot {
-    return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
+    if (source instanceof ConnectorAxis) {
+      return source.connector.copySlot() === undefined ? this.callSiteSlot(source.connector) : OPAQUE;
+    }
+    return source instanceof AxisObjectBase ? this.axisObjectSlot(source) : OPAQUE;
+  }
+
+  /**
+   * An axis object by call site — the axis sibling of {@link planeSlot}. An
+   * axis built inline in the statement's own arguments (`revolve('z')`,
+   * `copy('linear', axis(…), …)`) has no standalone statement to re-target,
+   * but one inline form still resolves: the bare `axis(<edge>)` a dialog's
+   * edge pick writes resolves to that edge, the pick the slot holds. An axis
+   * carrying its own offset or rotation does not — the edge alone would name a
+   * different line than the statement builds.
+   */
+  private axisObjectSlot(obj: AxisObjectBase): SourceSlot {
+    const slot = this.callSiteSlot(obj);
+    if (slot.kind !== 'opaque') {
+      return slot;
+    }
+    if (obj instanceof AxisFromEdge && obj.options == null && !(obj.source instanceof AxisObjectBase)) {
+      return this.entitiesSlot([obj.source]);
+    }
+    return OPAQUE;
   }
 
   /**
@@ -409,6 +486,19 @@ class SourceResolver {
     return this.entitiesSlot([obj]);
   }
 
+  /**
+   * A hole placement: a declared connector by its statement (the dialog
+   * re-picks it as a connector chip); a connector copy, a sketch point or an
+   * anchored vertex has no statement of its own to re-target and stays
+   * opaque, its argument text kept verbatim.
+   */
+  placementSlot(placement: HolePlacement): SourceSlot {
+    if (placement instanceof Connector && placement.copySlot() === undefined) {
+      return this.callSiteSlot(placement);
+    }
+    return OPAQUE;
+  }
+
   /** Statements by call site — a repeat's targets are features, not sketches. */
   statementSlots(objects: SceneObject[] | null): SourceSlot[] {
     return (objects ?? []).map(obj => this.callSiteSlot(obj));
@@ -434,6 +524,22 @@ class SourceResolver {
   /** The profile of an extrude-family feature: a sketch, or nothing pickable. */
   profileSlot(feature: ExtrudeBase): SourceSlot {
     return this.sketchSlot(feature.extrudable instanceof Sketch ? feature.extrudable : null);
+  }
+
+  /**
+   * A projection's sources: whole sketch statements by call site
+   * (`project(s1)`), and everything else as viewport entities on the
+   * pre-statement solids. A sketch entity referenced on its own
+   * (`s1.geometries.c`) is sketch geometry with no pick to seed — it rides
+   * `selection` and leaves it opaque, so the dialog keeps the verbatim text.
+   */
+  projectionSlots(sources: SceneObject[]): { selection: SourceSlot; sketches: SourceSlot[] } {
+    const sketches = sources.filter(obj => obj instanceof Sketch).map(obj => this.callSiteSlot(obj));
+    const rest = sources.filter(obj => !(obj instanceof Sketch));
+    const selection: SourceSlot = rest.length === 0 && sketches.length > 0
+      ? { kind: 'entities', entities: [] }
+      : this.entitiesSlot(rest);
+    return { selection, sketches };
   }
 
   /** A slot holding either a wire statement (sketch/helix) or a geometry selection (loft profile, sweep path). */

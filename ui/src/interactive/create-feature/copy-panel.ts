@@ -1,27 +1,36 @@
 import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
-import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { AxisSelection, AxisSlotControl, ConnectorAxisSelection } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { formatSkipEntries, parseSkipEntries, skipRangeError, SKIP_HELP_HTML } from './copy-skip';
 import { HelpPopover, helpIconHtml } from '../../ui/help-popover';
+import { DIRECTION_GROUP_CLASSES } from './panel-controls';
+import { iconUrl } from '../../ui/icon-url';
 
-export type CopyType = 'linear' | 'circular';
+/**
+ * The copy kind: along axes, around one, or along a repeat — `copy(holes,
+ * bolt)`, connectors laid on a repeat's own instances.
+ */
+export type CopyType = 'linear' | 'circular' | 'pattern';
 
 /** The linear directions the panel offers — Direction 1 and an optional 2. */
 export type CopyDirection = 1 | 2;
 
 /** The slot picks land in — the one last clicked (the sweep/loft idiom). */
-export type CopyArmedSlot = 'targets' | 'axis1' | 'axis2';
+export type CopyArmedSlot = 'targets' | 'axis1' | 'axis2' | 'pattern';
 
 /**
- * An axis slot's state — the shared axis-picker state machine, with the kept
- * statement axis carrying its position in the parsed `axisTexts`.
+ * An axis slot's state — the shared axis-picker state machine, plus a
+ * connector standing for its Z axis (a copy's axis can be one), with the
+ * kept statement axis carrying its position in the parsed `axisTexts`.
  */
 export type CopyAxisSelection =
   | Exclude<AxisSelection, { kind: 'keep' }>
+  | ConnectorAxisSelection
   | { kind: 'keep'; sourceIndex: number };
 
 /** Validated form values, or the message to show when a field is invalid. */
@@ -44,13 +53,40 @@ export type CopyValues =
       skip: number[][];
       newVariables?: NewVariable[];
     }
+  /** Along a repeat: nothing to read — the repeat states every instance. */
+  | { kind: 'pattern' }
   | { error: string };
 
 /**
- * The copy dialog: a Linear / Circular type dropdown (the copy kind), the
- * solids slot — filled from whole-solid viewport picks (any face or edge
- * click selects the owning solid) or timeline rows, one numbered chip per
- * solid being copied — plus the kind's inputs. Linear shows a Direction 1
+ * What a copy dialog says around its slots — the part dialog's defaults, or
+ * the assembly dialog's, whose targets and axes are connectors only.
+ */
+export type CopyPanelOptions = {
+  /** The panel element's id — one per dialog on the page. */
+  id?: string;
+  /** The targets slot's label. */
+  targetsLabel?: string;
+  /** What the empty targets slot asks for. */
+  targetsPrompt?: string;
+  /** What an empty axis slot asks for. */
+  axisPrompt?: string;
+  /**
+   * Offer "Along a repeat" — the part dialog does; an assembly has no
+   * repeat() to follow, so its dialog leaves the type out.
+   */
+  followsRepeats?: boolean;
+};
+
+/**
+ * The copy dialog: a Linear / Circular / Along a repeat type dropdown (the
+ * copy kind), the targets slot — filled from whole-solid viewport picks (any
+ * face or edge click selects the owning solid), connector gizmos, or timeline
+ * rows, one numbered chip per solid or connector being copied — plus the
+ * kind's inputs. "Along a repeat" (`copy(holes, bolt)`) copies connectors
+ * onto a repeat's own instances: it shows a Pattern slot for the repeat and
+ * none of the count, spacing, axis or skip fields, and is offered only while
+ * every target is a connector ({@link setPatternAvailable}). Every axis slot
+ * takes a connector too, standing for its Z axis. Linear shows a Direction 1
  * group (axis slot, Total Count, the shared
  * Offset/Total spacing mode with its value) and an "Add second direction"
  * button revealing a Direction 2 group with its own axis, count and value
@@ -71,6 +107,8 @@ export class CopyPanel extends FeaturePanel {
   onRemoveTarget?: (index: number) => void;
   /** An axis slot left edge mode (✕, a standard/axis pick) — drop its entity. */
   onAxisModeChange?: (direction: CopyDirection) => void;
+  /** The Pattern slot's chip was removed. */
+  onRemovePattern?: () => void;
   /** The armed slot changed — the service re-aims the viewer pick channels. */
   onArmedSlotChange?: () => void;
 
@@ -78,9 +116,17 @@ export class CopyPanel extends FeaturePanel {
   armedSlot: CopyArmedSlot = 'targets';
 
   private kindSelect: HTMLSelectElement;
+  private patternOption: HTMLOptionElement;
   private targetsSlot: PickSlot;
+  private patternSlot: PickSlot;
+  private patternWrap: HTMLElement;
+  /** The Direction 1 group — axis, count and spacing — boxed like Direction 2 while the kind is linear. */
+  private dir1Wrap: HTMLElement;
+  private axisWrap: HTMLElement;
+  private countRow: HTMLElement;
+  private skipRow: HTMLElement;
   private dir1Header: HTMLElement;
-  private axisSlots = new Map<CopyDirection, AxisSlotControl>();
+  private axisSlots = new Map<CopyDirection, AxisSlotControl<ConnectorAxisSelection>>();
   private spacingRow: HTMLElement;
   private spacingModeSelect: HTMLSelectElement;
   private sweepRow: HTMLElement;
@@ -100,40 +146,46 @@ export class CopyPanel extends FeaturePanel {
 
   /** The Direction 2 group is active (linear only). */
   private dir2 = false;
+  /** What the empty targets slot asks for. */
+  private readonly targetsPrompt: string;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options: CopyPanelOptions = {}) {
     super(container, {
-      id: 'fluidcad-copy-panel',
+      id: options.id ?? 'fluidcad-copy-panel',
       title: 'Copy',
-      icon: '/icons/copy-linear.png',
+      icon: iconUrl('copy-linear'),
       bodyHtml: `
         <label class="flex flex-col gap-1.5">
           <span class="text-base-content/70">Type</span>
           <select data-role="kind" class="select select-sm select-bordered w-full text-xs">
             <option value="linear" title="Copy along one or two axes — copy('linear', …)">Linear</option>
             <option value="circular" title="Copy around an axis — copy('circular', …)">Circular</option>
+            <option value="pattern" title="Copy connectors onto a repeat's instances — copy(pattern, …)">Along a repeat</option>
           </select>
         </label>
         <div data-role="targets-slot"></div>
-        <div data-role="axis-wrap" class="flex flex-col gap-1.5">
-          <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
-          <div data-role="axis-slot-1"></div>
-        </div>
-        <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
-          <span class="text-base-content/70">Total Count</span>
-          <input data-role="count" type="number" step="1" min="2" value="3"
-            class="input input-sm input-bordered w-full text-xs" />
-        </label>
-        <div data-role="spacing-row" class="flex flex-col gap-1.5">
-          <span class="text-base-content/70">Spacing</span>
-          <div class="flex items-center gap-1.5">
-            <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
-              title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
-              <option value="offset">Offset</option>
-              <option value="length">Total</option>
-            </select>
-            <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
-              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+        <div data-role="pattern-slot" class="hidden"></div>
+        <div data-role="dir1-wrap" class="flex flex-col gap-3">
+          <div data-role="axis-wrap" class="flex flex-col gap-1.5">
+            <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
+            <div data-role="axis-slot-1"></div>
+          </div>
+          <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
+            <span class="text-base-content/70">Total Count</span>
+            <input data-role="count" type="number" step="1" min="2" value="3"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <div data-role="spacing-row" class="flex flex-col gap-1.5">
+            <span class="text-base-content/70">Spacing</span>
+            <div class="flex items-center gap-1.5">
+              <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 shrink-0 text-xs"
+                title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
+                <option value="offset">Offset</option>
+                <option value="length">Total</option>
+              </select>
+              <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
+                class="input input-sm input-bordered w-full min-w-0 text-xs" />
+            </div>
           </div>
         </div>
         <div data-role="sweep-row" class="hidden flex-col gap-1.5">
@@ -148,7 +200,7 @@ export class CopyPanel extends FeaturePanel {
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
         </div>
-        <div data-role="dir2-wrap" class="hidden flex-col gap-1.5">
+        <div data-role="dir2-wrap" class="hidden flex-col gap-3 border border-base-content/10 rounded-md p-3">
           <div class="flex items-center justify-between">
             <span class="text-base-content/70 font-medium">Direction 2</span>
             <button data-role="dir2-remove" class="btn btn-ghost btn-xs px-1.5"
@@ -173,7 +225,7 @@ export class CopyPanel extends FeaturePanel {
           <span class="text-base-content/70">Centered</span>
           <input data-role="centered" type="checkbox" class="toggle toggle-sm toggle-primary" />
         </label>
-        <div class="flex flex-col gap-1.5">
+        <div data-role="skip-row" class="flex flex-col gap-1.5">
           <div class="flex items-center gap-1.5">
             <span class="text-base-content/70">Skip</span>
             ${helpIconHtml('skip-help', 'How the Skip field works')}
@@ -185,19 +237,45 @@ export class CopyPanel extends FeaturePanel {
     });
 
     this.kindSelect = this.role('kind');
+    this.patternOption = this.kindSelect.querySelector<HTMLOptionElement>('option[value="pattern"]')!;
+    if (options.followsRepeats === false) {
+      this.patternOption.remove();
+    }
     this.kindSelect.addEventListener('change', () => {
+      // Along a repeat, the repeat is what's left to pick; away from it, the
+      // Pattern slot the type hides hands the border back to the targets.
+      if (this.copyType === 'pattern') {
+        this.armSlot('pattern');
+      } else if (this.armedSlot === 'pattern') {
+        this.armSlot('targets');
+      }
       this.syncType();
       this.onTypeChange?.();
       this.onChange?.();
     });
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
+    this.targetsPrompt = options.targetsPrompt ?? 'Pick solids or connectors in the viewport';
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), {
+      label: options.targetsLabel ?? 'Solids & connectors',
+      multiple: true,
+    });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
+    this.patternWrap = this.role('pattern-slot');
+    this.patternSlot = new PickSlot(this.patternWrap, { label: 'Pattern', multiple: false });
+    this.patternSlot.onArm = () => this.armSlot('pattern');
+    this.patternSlot.onRemove = () => this.onRemovePattern?.();
+    this.dir1Wrap = this.role('dir1-wrap');
+    this.axisWrap = this.role('axis-wrap');
+    this.countRow = this.role('count-row');
+    this.skipRow = this.role('skip-row');
+
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
-      const control = new AxisSlotControl(this.role(`axis-slot-${direction}`));
+      const control = new AxisSlotControl<ConnectorAxisSelection>(this.role(`axis-slot-${direction}`), {
+        prompt: options.axisPrompt ?? 'Pick a world axis, an axis, an edge or a connector',
+      });
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       control.onModeChange = () => this.onAxisModeChange?.(direction);
       control.onChange = () => this.onChange?.();
@@ -281,7 +359,8 @@ export class CopyPanel extends FeaturePanel {
   }
 
   get copyType(): CopyType {
-    return this.kindSelect.value === 'circular' ? 'circular' : 'linear';
+    const kind = this.kindSelect.value;
+    return kind === 'circular' || kind === 'pattern' ? kind : 'linear';
   }
 
   /** The active linear directions: [1] or [1, 2]. */
@@ -312,6 +391,8 @@ export class CopyPanel extends FeaturePanel {
     this.centeredInput.checked = false;
     this.skipInput.value = '';
     this.setTargets([]);
+    this.setPattern(null);
+    this.setPatternAvailable(true);
     // The empty solids list is the first thing to fill — its slot opens
     // armed, taking whole-shape picks right away.
     this.armSlot('targets');
@@ -372,6 +453,8 @@ export class CopyPanel extends FeaturePanel {
     this.axisSlots.get(1)!.seedKeep(state.axisLabels[0] ?? null);
     this.axisSlots.get(2)!.seedKeep(state.axisLabels[1] ?? null);
     this.setTargets([]);
+    this.setPattern(null);
+    this.setPatternAvailable(true);
     // The targets list is the seeded statement's — its slot opens armed like
     // create mode, ready to toggle solids in the viewport.
     this.armSlot('targets');
@@ -394,6 +477,37 @@ export class CopyPanel extends FeaturePanel {
     }
   }
 
+  /**
+   * Re-find a connector axis after a re-render, by its site — the
+   * connector sibling of {@link setOptions}; a connector the scene lost
+   * falls back to the pick prompt (or the statement's own axis in edit mode).
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    for (const direction of [1, 2] as const) {
+      this.axisSlots.get(direction)!.setConnectorOptions(connectors);
+    }
+  }
+
+  /**
+   * The Pattern slot's chip — the repeat the copies follow — or its prompt
+   * while none is chosen.
+   */
+  setPattern(chip: PickSlotChip | null): void {
+    this.patternSlot.setChips(chip ? [chip] : []);
+    this.patternSlot.setPrompt(chip ? null : 'Pick a repeat in the timeline, or a feature it repeated');
+  }
+
+  /**
+   * Offer "Along a repeat" only while every target is a connector — the form
+   * copies nothing else. The service keeps solids out while it is chosen.
+   */
+  setPatternAvailable(available: boolean): void {
+    this.patternOption.disabled = !available;
+    this.patternOption.title = available
+      ? "Copy connectors onto a repeat's instances — copy(pattern, …)"
+      : 'Along a repeat copies connectors only — remove the solid targets first';
+  }
+
   /** Render the target chips — numbered, the copy's argument order. */
   setTargets(chips: PickSlotChip[]): void {
     this.targetsSlot.setChips(chips.map((chip, index) => ({
@@ -401,7 +515,7 @@ export class CopyPanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : this.targetsPrompt);
   }
 
   axisSelection(direction: CopyDirection = 1): CopyAxisSelection | null {
@@ -426,6 +540,17 @@ export class CopyPanel extends FeaturePanel {
   }
 
   /**
+   * A connector picked as the axis (a gizmo or a connector row) — it lands
+   * in the armed direction's slot, standing for its Z axis. No change event
+   * fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    const direction = this.armedAxis;
+    this.axisSlots.get(direction)!.selectConnector(option);
+    this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
    * A world axis clicked in the viewport — it lands in the armed direction's
    * slot. No change event fires.
    */
@@ -445,6 +570,9 @@ export class CopyPanel extends FeaturePanel {
 
   values(): CopyValues {
     const kind = this.copyType;
+    if (kind === 'pattern') {
+      return { kind };
+    }
     if (kind === 'linear') {
       const spacingMode = this.spacingModeSelect.value === 'length' ? 'length' : 'offset';
       const directions: { count: ValueExpr; value: ValueExpr }[] = [];
@@ -519,6 +647,7 @@ export class CopyPanel extends FeaturePanel {
     const changed = this.armedSlot !== slot;
     this.armedSlot = slot;
     this.targetsSlot.setArmed(slot === 'targets');
+    this.patternSlot.setArmed(slot === 'pattern');
     this.axisSlots.get(1)!.setArmed(slot === 'axis1');
     this.axisSlots.get(2)!.setArmed(slot === 'axis2');
     if (changed) {
@@ -535,13 +664,24 @@ export class CopyPanel extends FeaturePanel {
   private syncType(): void {
     const kind = this.copyType;
     const linear = kind === 'linear';
-    // The Direction 1 header only earns its row when a second direction can
-    // exist; circular shows the bare axis slot.
+    // Along a repeat takes the repeat and nothing numeric: every instance is
+    // the repeat's.
+    const following = kind === 'pattern';
+    this.patternWrap.classList.toggle('hidden', !following);
+    for (const row of [this.dir1Wrap, this.axisWrap, this.countRow, this.skipRow]) {
+      row.classList.toggle('hidden', following);
+      row.classList.toggle('flex', !following);
+    }
+    // The Direction 1 header and its box only earn their place when a second
+    // direction can exist; circular shows the bare axis slot.
     this.dir1Header.classList.toggle('hidden', !linear);
+    for (const cls of DIRECTION_GROUP_CLASSES) {
+      this.dir1Wrap.classList.toggle(cls, linear);
+    }
     this.spacingRow.classList.toggle('hidden', !linear);
     this.spacingRow.classList.toggle('flex', linear);
-    this.sweepRow.classList.toggle('hidden', linear);
-    this.sweepRow.classList.toggle('flex', !linear);
+    this.sweepRow.classList.toggle('hidden', linear || following);
+    this.sweepRow.classList.toggle('flex', !linear && !following);
     this.dir2Wrap.classList.toggle('hidden', !(linear && this.dir2));
     this.dir2Wrap.classList.toggle('flex', linear && this.dir2);
     this.addDirectionBtn.classList.toggle('hidden', !(linear && !this.dir2));
@@ -552,7 +692,7 @@ export class CopyPanel extends FeaturePanel {
     this.skipInput.placeholder = this.directions.length > 1 ? 'e.g. [1, 0], [2, 1]' : 'e.g. 1, 3';
     // Circular defaults its empty axis to the world Z axis; linear
     // directions stay an explicit pick.
-    if (!linear && !this.axisSlots.get(1)!.selection) {
+    if (kind === 'circular' && !this.axisSlots.get(1)!.selection) {
       this.axisSlots.get(1)!.selectStandard('z');
     }
     // An armed Direction 2 slot the circular kind hides falls to Direction 1.

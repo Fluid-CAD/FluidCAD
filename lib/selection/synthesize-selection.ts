@@ -7,6 +7,8 @@ import { nameHintFor } from "./types.js";
 import type { PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
 import type { Part } from "../features/part.js";
 import type { ResolvedSelectionMatch, ResolveSelectionRequest } from "./resolve-selection.js";
+import { VertexPointSynthesizer } from './vertex-synthesis.js';
+import type { SketchExportRequest, SolvedEmissionTarget } from './sketch-target.js';
 
 /** A feature the synthesized selector references through a variable. */
 export type SynthesizedProducer = {
@@ -28,6 +30,12 @@ export type SynthesizedForm = {
   expression: string;
   /** Source form: the argument list to write into the file, producers by variable name. */
   source: string;
+  /**
+   * Point expressions only: `source` split per part, so a consumer that
+   * learns a part's final spelling (a sketch export's real name) re-renders
+   * the form from its parts instead of editing the joined string.
+   */
+  partSources?: string[];
 };
 
 export type SynthesizedSelectionPart = {
@@ -40,6 +48,9 @@ export type SynthesizedSelectionPart = {
   tier: 0 | 1 | 2 | 3 | 4;
   /** Geometry constants the filter bakes that no parameter tracks — lower ranked, fragile under edits. */
   bakedConstants?: number;
+  source?: string;
+  point?: { kind: 'sketch'; target: SolvedEmissionTarget }
+    | { kind: 'edge'; role: 'start' | 'end'; indices: number[] | null; filterArgs: string | null; refs: string[] };
 };
 
 export type SynthesizedSelection =
@@ -53,6 +64,8 @@ export type SynthesizedSelection =
     imports: string[];
     /** Verified runner-up renderings, best first. */
     alternatives: SynthesizedForm[];
+    /** Producer edits required before the source expression is usable. */
+    exports?: (SketchExportRequest & { part: number })[];
   })
   | { ok: false; reason: string; pick?: PickRef };
 
@@ -78,6 +91,17 @@ export class SelectionSynthesizer {
       return { ok: false, reason: 'selectors are synthesized in the part file; an instance scope resolves the inserted part\'s build only.' };
     }
     const refs: PickRef[] = matches.map(m => ({ shapeId: m.shapeId, sub: { type: m.kind, index: m.index } }));
+    if (matches.some(match => match.kind === 'vertex')) {
+      if (matches.some(match => match.kind !== 'vertex')) {
+        return { ok: false, reason: 'Point expressions cannot mix vertex picks with face/edge selections.' };
+      }
+      const result = VertexPointSynthesizer.synthesize(scene, refs, options);
+      if (result.ok) {
+        result.sameAsInput = request.expression !== undefined
+          && SelectionSynthesizer.normalize(request.expression) === SelectionSynthesizer.normalize(result.expression);
+      }
+      return result;
+    }
     const index = new SelectionIndex(scene);
     try {
       const attributions = refs.map(ref => attributePick(scene, index, ref));

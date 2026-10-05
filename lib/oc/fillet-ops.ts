@@ -12,6 +12,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { ColorTransfer } from "./color-transfer.js";
 import { Explorer } from "./explorer.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+import { RenderSeams } from "./render-seams.js";
 
 export type FilletResult = {
   solids: Solid[];
@@ -39,6 +40,7 @@ export class FilletOps {
 
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
+    solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);
@@ -65,6 +67,7 @@ export class FilletOps {
 
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
+    solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);
@@ -109,6 +112,7 @@ export class FilletOps {
 
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
+    solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);

@@ -189,6 +189,57 @@ const PART_CODE = [
 const BRACKET_LINE = 3;
 const LID_LINE = 13;
 
+describe('ParamEditor.add exposed as a property', () => {
+  it('declares the param at the top and a property named after its variable at the end', async () => {
+    const result = await ParamEditor.apply(CODE, {
+      kind: 'add', param: spec({ label: 'Wall thickness', defaultValue: 3 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { property, part, param, sketch, circle, extrude } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  const wallThickness = param('Wall thickness', 3);\n`);
+    expect(result.newCode).toContain(`  extrude(width);\n  property('Wall thickness', 'wallThickness', wallThickness);\n});`);
+  });
+
+  it('names the property after the stepped variable, not the label', async () => {
+    const result = await ParamEditor.apply(CODE, {
+      kind: 'add', param: spec({ label: 'width', defaultValue: 3 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const width2 = param('width', 3);`);
+    expect(result.newCode).toContain(`property('width', 'width2', width2);`);
+  });
+
+  it('pulls both imports into a file that has neither', async () => {
+    const bare = `import { part, sketch } from 'fluidcad/core';\n\nexport const p = part('P', () => {\n  sketch('xy', () => {});\n});\n`;
+    const result = await ParamEditor.apply(bare, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { param, property, part, sketch } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(
+      `part('P', () => {\n  const depth = param('Depth', 25);\n  sketch('xy', () => {});\n  property('Depth', 'depth', depth);\n});`,
+    );
+  });
+
+  it('refuses the whole edit when the part already declares that property', async () => {
+    const taken = CODE.replace(`  extrude(width);`, `  extrude(width);\n  property('Depth', 'depth', 1);`);
+    const result = await ParamEditor.apply(taken, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE, exposeAsProperty: true,
+    });
+    expect(result.error).toContain(`already declares a property named "depth"`);
+    expect(result.newCode).toBe(taken);
+  });
+
+  it('refuses to expose an assembly parameter — a property has no home there', async () => {
+    const assembly = `import { assembly } from 'fluidcad/core';\n\nassembly(() => {\n});\n`;
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true, exposeAsProperty: true,
+    } as any);
+    expect(result.error).toContain('cannot be exposed');
+    expect(result.newCode).toBe(assembly);
+  });
+});
+
 describe('ParamEditor.add into a part body', () => {
   it('appends after the leading param() declarations of the chosen part', async () => {
     const result = await ParamEditor.apply(PART_CODE, {
@@ -289,6 +340,57 @@ describe('ParamEditor.add into a part body', () => {
 });
 
 describe('ParamEditor.update', () => {
+  it('renames the variable with the label when asked, following every read and override', async () => {
+    const inserted = CODE.replace(`    circle(width / 2);`, `    const dims = { width };\n    circle(width / 2);`)
+      + `insert(plate, { Width: 120, Rounded: false });\n`;
+    const result = await ParamEditor.apply(inserted, {
+      kind: 'update',
+      line: WIDTH_LINE,
+      expectedLabel: 'Width',
+      param: spec({ label: 'Overall width' }),
+      variable: 'overallWidth',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const overallWidth = param('Overall width', 100);`);
+    expect(result.newCode).toContain('const dims = { width: overallWidth };');
+    expect(result.newCode).toContain('circle(overallWidth / 2);');
+    expect(result.newCode).toContain('extrude(overallWidth);');
+    expect(result.newCode).toContain(`insert(plate, { 'Overall width': 120, Rounded: false });`);
+    // What `width` is left is the shorthand's key and the label: never a read.
+    expect(result.newCode).not.toMatch(/\bwidth\b(?![:'])/);
+  });
+
+  it('follows a new label through the overrides even when the variable keeps its name', async () => {
+    const inserted = CODE + `insert(plate, { Width: 120 });\n`;
+    const result = await ParamEditor.apply(inserted, {
+      kind: 'update', line: WIDTH_LINE, expectedLabel: 'Width', param: spec({ label: 'Size' }),
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('extrude(width);');
+    expect(result.newCode).toContain('insert(plate, { Size: 120 });');
+  });
+
+  it('renames an exported top-level variable with its export', async () => {
+    const shared = `import { param } from 'fluidcad/core';\n\nexport const width = param('Width', 100);\nexport const half = width / 2;\n`;
+    const result = await ParamEditor.apply(shared, {
+      kind: 'update', expectedLabel: 'Width', param: spec({ label: 'Span' }), variable: 'span',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`import { param } from 'fluidcad/core';\n\nexport const span = param('Span', 100);\nexport const half = span / 2;\n`);
+  });
+
+  it('refuses a variable the file already declares, and one that is no identifier', async () => {
+    const taken = await ParamEditor.apply(CODE, {
+      kind: 'update', line: WIDTH_LINE, expectedLabel: 'Width', param: spec({ label: 'Rounded?' }), variable: 'rounded',
+    });
+    expect(taken.error).toContain('already declares "rounded"');
+    expect(taken.newCode).toBe(CODE);
+    const bad = await ParamEditor.apply(CODE, {
+      kind: 'update', line: WIDTH_LINE, expectedLabel: 'Width', param: spec({ label: 'X' }), variable: '2x',
+    });
+    expect(bad.error).toContain('cannot name a variable');
+  });
+
   it('renames the label and leaves the variable alone', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'update',
@@ -425,15 +527,64 @@ describe('ParamEditor.remove', () => {
     expect(result.newCode).toContain(`const width = param('Width', 100);`);
   });
 
-  it('leaves the references behind for the user to resolve', async () => {
+  it('stands the default value in for every read of the variable', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'remove',
       line: WIDTH_LINE,
       expectedLabel: 'Width',
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).not.toContain(`param('Width'`);
-    expect(result.newCode).toContain('extrude(width);');
+    expect(result.newCode).not.toContain('width');
+    expect(result.newCode).toContain('circle(100 / 2);');
+    expect(result.newCode).toContain('extrude(100);');
+  });
+
+  it('parenthesizes a compound default where an operator would bind into it', async () => {
+    const compound = CODE.replace(`param('Width', 100)`, `param('Width', base * 2)`)
+      .replace(`export const plate`, `const base = 50;\nexport const plate`);
+    const result = await ParamEditor.apply(compound, { kind: 'remove', expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('circle((base * 2) / 2);');
+    expect(result.newCode).toContain('extrude(base * 2);');
+  });
+
+  it('refuses when the default reads a name that resolves differently at a read', async () => {
+    const shadowed = CODE.replace(`param('Width', 100)`, `param('Width', base * 2)`)
+      .replace(`export const plate`, `const base = 50;\nexport const plate`)
+      .replace(`    circle(width / 2);`, `    const base = 1;\n    circle(width / 2);`);
+    const result = await ParamEditor.apply(shadowed, { kind: 'remove', expectedLabel: 'Width' });
+    expect(result.error).toContain('out of scope at this file (line 10)');
+    expect(result.newCode).toBe(shadowed);
+  });
+
+  it('drops the insert() overrides keyed by the label, the argument when it empties', async () => {
+    const inserted = CODE
+      + `insert(plate, { Width: 120, Rounded: false });\n`
+      + `insert(plate, { 'Width': 60 }).grounded();\n`;
+    const result = await ParamEditor.apply(inserted, { kind: 'remove', expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('insert(plate, { Rounded: false });');
+    expect(result.newCode).toContain('insert(plate).grounded();');
+  });
+
+  it('refuses when the variable is reassigned — a value cannot be', async () => {
+    const reassigned = CODE.replace(`const width = param('Width', 100);`, `let width = param('Width', 100);\n  width = 5;`);
+    const result = await ParamEditor.apply(reassigned, { kind: 'remove', expectedLabel: 'Width' });
+    expect(result.error).toContain('reassigned');
+    expect(result.newCode).toBe(reassigned);
+  });
+
+  it('removes the export statement of a top-level exported parameter', async () => {
+    const shared = [
+      `import { param } from 'fluidcad/core';`,
+      ``,
+      `export const width = param('Width', 100);`,
+      `export const half = width / 2;`,
+      ``,
+    ].join('\n');
+    const result = await ParamEditor.apply(shared, { kind: 'remove', expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`import { param } from 'fluidcad/core';\n\nexport const half = 100 / 2;\n`);
   });
 
   it('refuses a param written inline inside another call', async () => {
@@ -456,6 +607,33 @@ describe('ParamEditor.remove', () => {
 });
 
 describe('ParamEditor.inspect', () => {
+  it('reports the default source text, how the model addresses the declaration, and the delete plan', async () => {
+    const usage = await ParamEditor.inspect(CODE, 'Width', WIDTH_LINE, '/ws/plate.part.js');
+    expect(usage.value).toBe('100');
+    expect(usage.portable).toBe(true);
+    expect(usage.declaration).toEqual({
+      kind: 'param', key: 'Width', filePath: '/ws/plate.part.js', variable: 'width', variableExport: null,
+      definition: { localName: 'plate', exportName: 'plate' },
+    });
+    expect(usage.usages).toEqual([{ filePath: '/ws/plate.part.js', count: 2, lines: [8, 11] }]);
+    expect(usage.deletion).toEqual({
+      value: '100',
+      replaced: [{ filePath: '/ws/plate.part.js', count: 2, lines: [8, 11] }],
+      dropped: [],
+      blocked: [],
+    });
+  });
+
+  it('marks the reads a default cannot replace as blocked', async () => {
+    const shadowed = CODE.replace(`param('Width', 100)`, `param('Width', base * 2)`)
+      .replace(`export const plate`, `const base = 50;\nexport const plate`)
+      .replace(`    circle(width / 2);`, `    const base = 1;\n    circle(width / 2);`);
+    const usage = await ParamEditor.inspect(shadowed, 'Width', undefined, '/ws/plate.part.js');
+    expect(usage.portable).toBe(false);
+    expect(usage.deletion.blocked).toEqual([{ filePath: '/ws/plate.part.js', count: 1, lines: [10] }]);
+    expect(usage.deletion.replaced).toEqual([{ filePath: '/ws/plate.part.js', count: 1, lines: [13] }]);
+  });
+
   it('reports the bound variable and every place that reads it', async () => {
     const usage = await ParamEditor.inspect(CODE, 'Width', WIDTH_LINE);
     expect(usage.variable).toBe('width');

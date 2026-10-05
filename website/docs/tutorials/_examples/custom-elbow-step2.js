@@ -22,7 +22,7 @@ const spine = sketch("front", () => {
     return {
         topSegment
     }
-}).reusable();
+});
 
 const profile = sketch("top", () => {
     const innerPipe = circle([0, 0], 1.5);
@@ -33,4 +33,4 @@ const profile = sketch("top", () => {
     }
   });
 
-const pipe = sweep(spine, profile.regions.outerPipe);
+const pipe = sweep(spine, profile.geometries.outerPipe);

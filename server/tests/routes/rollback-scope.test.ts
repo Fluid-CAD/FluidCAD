@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createTimelineRouter } from '../../src/routes/timeline.ts';
-import type { FluidCadServer, SceneRenderedData } from '../../src/fluidcad-server.ts';
+import type { FluidCadServer, SceneRenderedData } from '../../src/fluidcad-server/index.ts';
 
 let server: http.Server;
 let baseUrl: string;

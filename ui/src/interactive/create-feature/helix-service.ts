@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyHelix, applyHelixEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  applyHelix, applyHelixEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostHelixSourceRef, GhostSolid, HelixApplyOptions, HelixEditOptions, HelixSourceRef,
   ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
@@ -17,9 +17,10 @@ import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSketchProfiles } from './sketch-profiles';
 import {
-  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Helix dialog on the create rails: a helical wire built around an axis or
@@ -76,7 +77,7 @@ export class HelixFeatureService {
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/helix.png',
+      icon: iconUrl('helix'),
       label: 'Helix',
       tip: 'Build a helix around an axis or on a cylindrical face',
       ariaLabel: 'Build a helix around an axis or on a cylindrical face',
@@ -156,6 +157,11 @@ export class HelixFeatureService {
 
   get isActive(): boolean {
     return this.armed;
+  }
+
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
+  get toolbarButton(): FeatureButton {
+    return this.button;
   }
 
   /** An edit session is open (the viewport shows the pre-statement rollback). */
@@ -416,7 +422,7 @@ export class HelixFeatureService {
       if (sub.type === 'axis') {
         const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
         if (!option) {
-          this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+          this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
           return;
         }
         this.pickAxis(option);
@@ -453,7 +459,7 @@ export class HelixFeatureService {
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return true;
       }
       this.pickAxis(option);
@@ -489,7 +495,7 @@ export class HelixFeatureService {
       return null;
     }
     const { mode, newVariables, ...dimensions } = values;
-    return fetchFeatureGhost({ feature: 'helix', source, ...dimensions }, signal);
+    return fetchFeatureGhost({ feature: 'helix', source, ...dimensions }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The source the ghost coils around, in the form the kernel resolves. */
@@ -551,6 +557,9 @@ export class HelixFeatureService {
       return null;
     }
     const { shapeId, sub } = slot.entities[0];
+    if (sub.type === 'vertex') {
+      return null;
+    }
     return { kind: sub.type, shapeId, index: sub.index };
   }
 

@@ -1,7 +1,5 @@
-import { Vector3 } from 'three';
 import {
-  ApplyFeatureEntity, applyConnector, applyConnectorEdit, ConnectorAnchorCandidate, ConnectorAnchorsResult,
-  ConnectorApplyOptions, ConnectorEditOptions, FeatureEditTarget, fetchConnectorAnchors,
+  applyConnector, applyConnectorEdit, ConnectorApplyOptions, ConnectorEditOptions, FeatureEditTarget,
   ParsedFeatureStatement,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -11,35 +9,13 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { ConnectorFrameData } from '../../meshes/containers/connector-mesh';
 import { ConnectorPanel } from './connector-panel';
 import { ConnectorGhostOverlay, adjustConnectorFrame, unadjustConnectorFrame } from './connector-ghost';
+import { AnchorSuggestions, LockedAnchor, anchorChipLabel } from './anchor-suggestions';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { collectSolidTargets } from './solid-targets';
 import { collectSketchProfiles } from './sketch-profiles';
-
-/** Hovering across faces settles briefly before the anchors round-trip. */
-const HOVER_FETCH_DEBOUNCE_MS = 100;
-
-/** The anchors a hovered entity offered, cached until the hover moves on. */
-type AnchorCache = {
-  key: string;
-  entity: ApplyFeatureEntity;
-  result: ConnectorAnchorsResult;
-};
-
-/** The clicked suggestion the dialog is editing. */
-type LockedAnchor = {
-  entity: ApplyFeatureEntity;
-  key: string;
-  anchors: ConnectorAnchorCandidate[];
-  anchorIndex: number;
-  /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
-  args: string;
-};
-
-function entityKey(entity: ApplyFeatureEntity): string {
-  return `${entity.shapeId}:${entity.sub.type}:${entity.sub.index}`;
-}
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The Connector tool on the part-design rails: hovering solid faces/edges
@@ -63,16 +39,8 @@ export class ConnectorFeatureService {
   private sketchUI: SketchUISuspender;
   private ghost: ConnectorGhostOverlay;
   private runner: ApplyRunner<ConnectorApplyOptions | ConnectorEditOptions>;
-
-  /** The entity under the cursor, or null. */
-  private hoverKey: string | null = null;
-  private hoverTimer: number | null = null;
-  private hoverAbort: AbortController | null = null;
-  private hoverSeq = 0;
-  private lastCursor: { x: number; y: number } | null = null;
-  private cache: AnchorCache | null = null;
-  /** The suggestion gizmo currently drawn, keyed by entity + anchor. */
-  private suggestionShown: { key: string; index: number } | null = null;
+  /** The hover → anchor suggestion → click-lock rail (shared with the hole dialog). */
+  private suggestions: AnchorSuggestions;
 
   private locked: LockedAnchor | null = null;
 
@@ -110,7 +78,7 @@ export class ConnectorFeatureService {
     const group = navbar.getGroup('connector')
       ?? navbar.addGroup('connector', { visible: false, mode: 'part' });
     this.button = new FeatureButton(group, {
-      icon: '/icons/mate-connector.png',
+      icon: iconUrl('mate-connector'),
       label: 'Connector',
       tip: 'Add a mate connector',
       ariaLabel: 'Add a named mate connector to the part',
@@ -125,6 +93,11 @@ export class ConnectorFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new ConnectorGhostOverlay(viewer);
+    this.suggestions = new AnchorSuggestions(viewer, this.ghost, {
+      isTaken: (key, index) => this.locked?.key === key && this.locked.anchorIndex === index,
+    });
+    this.suggestions.onLock = (locked) => this.lockSuggestion(locked);
+    this.suggestions.onRefuse = (reason) => this.panel.setMessage(reason ?? 'A connector cannot attach to that shape.');
 
     this.panel = new ConnectorPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -210,7 +183,7 @@ export class ConnectorFeatureService {
     // the old scene died with it — the source falls back to the statement's
     // own expression, which is text and survives. The anchor frame is world
     // geometry from the row, so the ghost keeps drawing throughout.
-    this.clearSuggestion();
+    this.suggestions.clear();
     if (this.locked) {
       this.locked = null;
       this.panel.setSourceChip(null);
@@ -241,7 +214,7 @@ export class ConnectorFeatureService {
     }
     // Shape ids are per-render — the hover cache and any locked pick died
     // with the old scene. The dialog's typed values survive.
-    this.clearSuggestion();
+    this.suggestions.clear();
     if (this.locked) {
       this.locked = null;
       this.panel.setSourceChip(null);
@@ -274,7 +247,7 @@ export class ConnectorFeatureService {
     this.armed = true;
     this.editTarget = target;
     this.locked = null;
-    this.clearSuggestion();
+    this.suggestions.setEnabled(true);
     this.anchorFrame = frame
       ? unadjustConnectorFrame(
         frame,
@@ -304,7 +277,7 @@ export class ConnectorFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.locked = null;
-    this.clearSuggestion();
+    this.suggestions.setEnabled(true);
     // Placing a connector means looking at the whole solid, not down the
     // active sketch plane — leave sketch editing right away.
     if (this.sceneSketchActive) {
@@ -334,7 +307,7 @@ export class ConnectorFeatureService {
     this.editTarget = null;
     this.anchorFrame = null;
     this.locked = null;
-    this.clearSuggestion();
+    this.suggestions.setEnabled(false);
     this.runner.cancelPreview();
     this.ghost.clear();
     this.viewer.clearHighlight();
@@ -345,186 +318,39 @@ export class ConnectorFeatureService {
   }
 
   /**
-   * Viewer hover while the tool is armed: fetch the hovered entity's anchor
-   * candidates (debounced, cached per entity) and float the one nearest the
-   * cursor as the translucent suggestion gizmo. Screen-space nearest — the
-   * anchor whose origin sits closest to the pointer wins. A locked pick
-   * doesn't stop the hunt: its strong preview stays put while other
+   * Viewer hover while the tool is armed: the suggestion rail floats the
+   * hovered face/edge's nearest anchor as the translucent gizmo. A locked
+   * pick doesn't stop the hunt: its strong preview stays put while other
    * faces/edges keep floating suggestions, and the next click re-locks.
    */
   handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
     if (!this.armed) {
       return;
     }
-    if (!shapeId || (sub.type !== 'face' && sub.type !== 'edge')) {
-      this.clearSuggestion();
-      return;
-    }
-    this.lastCursor = { x: clientX, y: clientY };
-    const key = `${shapeId}:${sub.type}:${sub.index}`;
-    if (this.cache?.key === key) {
-      if (this.cache.result.ok) {
-        this.showNearestSuggestion(key, this.cache.result.anchors);
-      }
-      return;
-    }
-    if (this.hoverKey === key) {
-      return; // fetch already pending
-    }
-    this.hoverKey = key;
-    const entity: ApplyFeatureEntity = { shapeId, sub: { type: sub.type, index: sub.index } };
-    if (this.hoverTimer !== null) {
-      window.clearTimeout(this.hoverTimer);
-    }
-    this.hoverTimer = window.setTimeout(() => {
-      this.hoverTimer = null;
-      void this.fetchAnchors(key, entity);
-    }, HOVER_FETCH_DEBOUNCE_MS);
-  }
-
-  private async fetchAnchors(key: string, entity: ApplyFeatureEntity): Promise<void> {
-    const seq = ++this.hoverSeq;
-    this.hoverAbort?.abort();
-    const abort = new AbortController();
-    this.hoverAbort = abort;
-
-    let result: ConnectorAnchorsResult;
-    try {
-      result = await fetchConnectorAnchors(entity, abort.signal);
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.hoverSeq || !this.armed || this.hoverKey !== key) {
-      return;
-    }
-    this.cache = { key, entity, result };
-    if (result.ok) {
-      this.showNearestSuggestion(key, result.anchors, true);
-    } else {
-      this.clearSuggestionGhost();
-    }
-  }
-
-  /** Repaint the suggestion at the cursor-nearest anchor. */
-  private showNearestSuggestion(key: string, anchors: ConnectorAnchorCandidate[], force = false): void {
-    if (anchors.length === 0) {
-      this.clearSuggestionGhost();
-      return;
-    }
-    const nearest = this.lastCursor ? this.nearestAnchorIndex(anchors, this.lastCursor) : 0;
-    // Hovering the locked anchor itself: the strong preview already marks
-    // it — a faint twin underneath would just be noise.
-    if (this.locked && this.locked.key === key && this.locked.anchorIndex === nearest) {
-      this.clearSuggestionGhost();
-      return;
-    }
-    if (!force && this.suggestionShown?.key === key && this.suggestionShown.index === nearest) {
-      return;
-    }
-    this.suggestionShown = { key, index: nearest };
-    this.ghost.showSuggestion(anchors[nearest].frame);
-  }
-
-  private clearSuggestionGhost(): void {
-    this.suggestionShown = null;
-    this.ghost.clearSuggestion();
-  }
-
-  /** The anchor whose origin projects closest to the pointer. */
-  private nearestAnchorIndex(anchors: ConnectorAnchorCandidate[], cursor: { x: number; y: number }): number {
-    const camera = this.viewer.sceneContext.camera;
-    const rect = this.viewer.sceneContext.renderer.domElement.getBoundingClientRect();
-    let best = 0;
-    let bestDist = Number.POSITIVE_INFINITY;
-    const projected = new Vector3();
-    anchors.forEach((anchor, index) => {
-      projected.set(anchor.frame.origin.x, anchor.frame.origin.y, anchor.frame.origin.z).project(camera);
-      const x = rect.left + ((projected.x + 1) / 2) * rect.width;
-      const y = rect.top + ((1 - projected.y) / 2) * rect.height;
-      const dist = (x - cursor.x) ** 2 + (y - cursor.y) ** 2;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = index;
-      }
-    });
-    return best;
+    this.suggestions.handleHover(shapeId, sub, clientX, clientY);
   }
 
   /**
    * Viewport click while armed: lock the floated suggestion into the source
-   * slot. A click that outruns the hover fetch (or a touch tap, which never
-   * hovers) fetches on the spot and locks when the anchors land; a pick the
-   * kernel refused surfaces its reason. Clicking with a lock already set
-   * re-picks — the slot stays live like every armed pick slot.
+   * slot (the rail fetches on the spot when the click outran the hover).
+   * Clicking with a lock already set re-picks — the slot stays live like
+   * every armed pick slot.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.armed || !shapeId || (sub.type !== 'face' && sub.type !== 'edge')) {
+    if (!this.armed) {
       return;
     }
-    const key = `${shapeId}:${sub.type}:${sub.index}`;
-    if (this.cache?.key === key) {
-      const result = this.cache.result;
-      // strictNullChecks is off — `'reason' in` narrows where `.ok` can't.
-      if ('reason' in result) {
-        this.panel.setMessage(result.reason ?? 'A connector cannot attach to that shape.');
-      } else {
-        this.lockSuggestion(this.cache.entity, result, this.lastCursor);
-      }
-      return;
-    }
-    // No cached anchors (click before hover settled) — fetch and lock.
-    const entity: ApplyFeatureEntity = { shapeId, sub: { type: sub.type, index: sub.index } };
-    this.hoverKey = key;
-    void (async () => {
-      const seq = ++this.hoverSeq;
-      this.hoverAbort?.abort();
-      const abort = new AbortController();
-      this.hoverAbort = abort;
-      let result: ConnectorAnchorsResult;
-      try {
-        result = await fetchConnectorAnchors(entity, abort.signal);
-      } catch {
-        return; // aborted
-      }
-      if (seq !== this.hoverSeq || !this.armed) {
-        return;
-      }
-      this.cache = { key, entity, result };
-      if ('reason' in result) {
-        this.panel.setMessage(result.reason ?? 'A connector cannot attach to that shape.');
-      } else {
-        this.lockSuggestion(entity, result, this.lastCursor);
-      }
-    })();
+    this.suggestions.handleClick(shapeId, sub);
   }
 
-  private lockSuggestion(
-    entity: ApplyFeatureEntity,
-    result: Extract<ConnectorAnchorsResult, { ok: true }>,
-    cursor: { x: number; y: number } | null,
-  ): void {
-    if (result.anchors.length === 0) {
-      return;
-    }
-    const anchorIndex = cursor ? this.nearestAnchorIndex(result.anchors, cursor) : 0;
-    this.locked = { entity, key: entityKey(entity), anchors: result.anchors, anchorIndex, args: result.args };
-    const anchor = result.anchors[anchorIndex];
-    // The faint suggestion graduates to the strong preview.
-    this.clearSuggestionGhost();
-    this.panel.setSourceChip(this.anchorChipLabel(entity, anchor));
-    this.panel.suggestName(result.defaultName);
+  private lockSuggestion(locked: LockedAnchor): void {
+    this.locked = locked;
+    const anchor = locked.anchors[locked.anchorIndex];
+    this.panel.setSourceChip(anchorChipLabel(locked.entity, anchor));
+    this.panel.suggestName(locked.defaultName);
     this.panel.setMessage(null);
     this.updatePreviewGhost();
     this.runner.schedulePreview();
-  }
-
-  /** "Face center" / "Edge start" — the locked chip's human label. */
-  private anchorChipLabel(entity: ApplyFeatureEntity, anchor: ConnectorAnchorCandidate): string {
-    const shape = entity.sub.type === 'face' ? 'Face' : 'Edge';
-    const kind = anchor.anchor.kind === 'offset'
-      ? `offset ${anchor.anchor.value}`
-      : anchor.anchor.kind;
-    return `${shape} ${kind}`;
   }
 
   /**
@@ -590,20 +416,6 @@ export class ConnectorFeatureService {
       entities: [this.locked.entity],
       anchor: this.locked.anchors[this.locked.anchorIndex].anchor,
     };
-  }
-
-  /** Drop the hover suggestion (fetches, cache, gizmo). */
-  private clearSuggestion(): void {
-    if (this.hoverTimer !== null) {
-      window.clearTimeout(this.hoverTimer);
-      this.hoverTimer = null;
-    }
-    this.hoverAbort?.abort();
-    this.hoverAbort = null;
-    this.hoverSeq++;
-    this.hoverKey = null;
-    this.cache = null;
-    this.clearSuggestionGhost();
   }
 
   /** Faces and edges only — no axis/plane/sketch-wire channels. */

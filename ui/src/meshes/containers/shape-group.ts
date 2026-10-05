@@ -3,7 +3,7 @@ import { EdgeMeshOptions, MeshRenderOptions, SceneObjectPart, SceneObjectRender 
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { FaceMesh } from '../shape-meshes/face-mesh';
 import { SolidMesh } from '../shape-meshes/solid-mesh';
-import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
+import { MetaEdgeMesh, MetaEdgeOptions } from '../shape-meshes/meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
 import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
 
@@ -14,9 +14,10 @@ const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {
   'pick-edge': (shape) => new PickEdgeMesh(shape),
 };
 
-export function createMetaEdgeMesh(shape: SceneObjectPart): Group {
+/** `options` style the default dash-dot (a sketch's guides); typed meta edges ignore them. */
+export function createMetaEdgeMesh(shape: SceneObjectPart, options?: MetaEdgeOptions): Group {
   const factory = shape.metaType ? metaEdgeFactories[shape.metaType] : undefined;
-  return factory ? factory(shape) : new MetaEdgeMesh(shape);
+  return factory ? factory(shape) : new MetaEdgeMesh(shape, options);
 }
 
 /** Map of metaType → factory function for face meta shapes. */
@@ -108,6 +109,9 @@ export class ShapeGroup extends Group {
       if (mesh) {
         if (shape.shapeId) {
           mesh.userData.shapeId = shape.shapeId;
+        }
+        if (!shape.isMetaShape && !shape.isGuide && shape.vertices) {
+          mesh.userData.topologyVertices = shape.vertices;
         }
         this.add(mesh);
       }

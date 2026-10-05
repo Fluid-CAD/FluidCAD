@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { updateSketchPositions } from '../src/code-editor.ts';
+import { updateSketchPositions } from '../src/code-editor/index.ts';
 
 // The solved-sketch batch write-back (sketch-rewrite P4): one parse, one
 // splice pass across many statements, all-or-nothing drift refusal.

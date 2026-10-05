@@ -126,6 +126,24 @@ describe("mirror 2D solver images (constraint targeting)", () => {
       expect(payload.entities!.map(e => e.sourceEntityId)).toEqual([entityIdOf(c!)]);
     });
 
+    it("a named .guide() target is mirrored, its image staying a guide", () => {
+      let src: ISolvedLine;
+      let m: IMirror2D;
+      sketch('xy', () => {
+        src = line([10, 0], [30, 20]);
+        src.guide();
+        m = mirror(yAxis(), src);
+      });
+      render();
+
+      const stamped = (m! as unknown as MirrorShape2D).getShapes({ excludeGuide: false });
+      expect(stamped).toHaveLength(1);
+      expect(stamped[0].isGuideShape()).toBe(true);
+      expect((m! as unknown as MirrorShape2D).getShapes()).toHaveLength(0);
+      const payload = payloadOf(m!);
+      expect(payload.entities!.map(e => e.sourceEntityId)).toEqual([entityIdOf(src!)]);
+    });
+
     it("non-solver sources register nothing", () => {
       let m: IMirror2D;
       sketch('xy', () => {

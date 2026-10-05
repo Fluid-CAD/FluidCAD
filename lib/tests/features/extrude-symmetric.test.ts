@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -35,9 +35,8 @@ describe("extrude symmetric", () => {
 
       extrude(30).symmetric();
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
   });
 
@@ -348,14 +347,15 @@ describe("extrude symmetric", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-          circle([0, 0], 60);
+          const a = circle([0, 0], 60);
           circle([100, 0], 60);
+          region('a', a);
         });
 
-      const e = extrude(20).symmetric().pick([0, 0]) as Extrude;
+      const e = extrude(20).symmetric().region('a') as Extrude;
 
       render();
 
@@ -364,12 +364,12 @@ describe("extrude symmetric", () => {
       expect(shapes[0].getType()).toBe("solid");
     });
 
-    it("should produce no solid when pick point is outside all regions", () => {
+    it("should produce no solid when the key names no region", () => {
       sketch("xy", () => {
           circle([0, 0], 60);
         });
 
-      const e = extrude(20).symmetric().pick([500, 500]) as Extrude;
+      const e = extrude(20).symmetric().region('gone') as Extrude;
 
       render();
 

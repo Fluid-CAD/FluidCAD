@@ -2,6 +2,7 @@ import { Part } from "./part.js";
 import { registerPartDefinitionClass } from "./part-args.js";
 import type { Connector } from "./connector.js";
 import type { Exposed } from "./exposed.js";
+import type { PartProperty, PropertyValues } from "./part-property.js";
 import type { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "../rendering/scene.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -45,6 +46,9 @@ export class PartDefinition<T = unknown> {
   /** Display name new variants materialize with — `.name()` overrides partName. */
   private displayName: string;
 
+  /** Material id new variants materialize with — `.material()` sets it; null until then. */
+  private materialId: string | null = null;
+
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
@@ -77,12 +81,28 @@ export class PartDefinition<T = unknown> {
   }
 
   /**
-   * No-op — a definition isn't consumable geometry, so there is nothing to
-   * keep alive. Present so definitions satisfy the `ISceneObject` structural
-   * surface everywhere a built part used to flow.
+   * Assigns the part's material by id — a built-in (`'fluidcad-steel-1020'`,
+   * `'fluidcad-aluminum-6061'`, …) or a key of the `materials` map in the
+   * project's `fluidcad.json`. Mass in Shape Properties derives from it.
+   * An id the merged list does not know is a warning on the part's row,
+   * never a build error: the geometry builds and the raw id stays on the
+   * part. Variants materialized after this call carry it, like `.name()`.
+   *
+   *     part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
+   *
+   * @param id - A material id from the built-in list or the project's `fluidcad.json` `materials` map.
    */
-  reusable(): this {
+  material(id: string): this {
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error(`part '${this.partName}': .material() takes a material id, e.g. .material('fluidcad-steel-1020').`);
+    }
+    this.materialId = id;
     return this;
+  }
+
+  /** The material id `.material()` assigned, or null. */
+  getMaterial(): string | null {
+    return this.materialId;
   }
 
   private variantsIn(scene: Scene): Map<string, Part> {
@@ -97,6 +117,11 @@ export class PartDefinition<T = unknown> {
   /** Whether any variant of this definition was built into `scene`. */
   hasVariantIn(scene: Scene): boolean {
     return (this.variantsByScene.get(scene)?.size ?? 0) > 0;
+  }
+
+  /** The variants built into `scene`, in build order — the timeline lists them at this definition's call. */
+  builtVariantsIn(scene: Scene): Part[] {
+    return [...(this.variantsByScene.get(scene)?.values() ?? [])];
   }
 
   /**
@@ -159,6 +184,7 @@ export class PartDefinition<T = unknown> {
     if (this.sourceLocation) {
       partObj.setSourceLocation(this.sourceLocation);
     }
+    partObj.setMaterial(this.materialId);
     // The Part itself bypasses registerBuilder so it is stamped here.
     partObj.setUnit(definitionUnit);
     partObj.setTargetUnit(targetUnit);
@@ -249,6 +275,20 @@ export class PartDefinition<T = unknown> {
 
   getNamedExposures(): Record<string, SceneObject> {
     return this.materialize().getNamedExposures();
+  }
+
+  /**
+   * The definition's value interface: `property()` values of the DEFAULT
+   * variant (a part file sizing itself from a donor's
+   * `def.properties.internalWidth`). An inserted variant's own values
+   * are on its instance: `instance.properties.<name>`.
+   */
+  get properties(): PropertyValues {
+    return this.materialize().properties;
+  }
+
+  getProperties(): PartProperty[] {
+    return this.materialize().getProperties();
   }
 }
 

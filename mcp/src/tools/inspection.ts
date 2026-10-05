@@ -96,12 +96,26 @@ export async function getCompileError(input: GetCompileErrorInput) {
   return callWithClient(input, (client) => client.getJson<unknown>('/api/scene/compile-error'));
 }
 
-export type GetShapePropertiesInput = WorkspaceArg & { shapeId: string };
+/**
+ * One of `shapeId` (a single shape) or `partId` (a part row's aggregate over
+ * its final solids, with `material` / `massG` when its `.material(id)`
+ * resolves and `warning` when it does not).
+ */
+export type GetShapePropertiesInput = WorkspaceArg & { shapeId?: string; partId?: string };
 export async function getShapeProperties(input: GetShapePropertiesInput) {
-  if (!input?.shapeId || typeof input.shapeId !== 'string') {
-    return err('invalid-input', '`shapeId` is required and must be a non-empty string.');
+  const shapeId = typeof input?.shapeId === 'string' && input.shapeId !== '' ? input.shapeId : null;
+  const partId = typeof input?.partId === 'string' && input.partId !== '' ? input.partId : null;
+  if (shapeId !== null && partId !== null) {
+    return err('invalid-input', 'Pass either `shapeId` or `partId`, not both.');
   }
-  const shapeId = input.shapeId;
+  if (partId !== null) {
+    return callWithClient(input, (client) =>
+      client.getJson<unknown>(`/api/part-properties?partId=${encodeURIComponent(partId)}`),
+    );
+  }
+  if (shapeId === null) {
+    return err('invalid-input', 'One of `shapeId` or `partId` is required and must be a non-empty string.');
+  }
   return callWithClient(input, (client) =>
     client.getJson<unknown>(`/api/shape-properties?shapeId=${encodeURIComponent(shapeId)}`),
   );
@@ -222,7 +236,7 @@ class SelectionInputs {
 }
 
 /** A face/edge ref the way `measure` and `hit_test` address entities. */
-export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
+export type SelectionPickInput = { shapeId: string; kind: 'face' | 'edge' | 'vertex'; index: number };
 
 export type ResolveSelectionInput = WorkspaceArg & {
   expression?: string;
@@ -257,10 +271,10 @@ class ResolveSelectionInputs {
       }
       for (let i = 0; i < picks.length; i++) {
         const pick = picks[i];
-        const validKind = pick?.kind === 'face' || pick?.kind === 'edge';
+        const validKind = pick?.kind === 'face' || pick?.kind === 'edge' || pick?.kind === 'vertex';
         const validIndex = Number.isInteger(pick?.index) && pick.index >= 0;
         if (!pick || typeof pick.shapeId !== 'string' || pick.shapeId.length === 0 || !validKind || !validIndex) {
-          return `\`picks[${i}]\` needs a shapeId, a kind (face | edge) and a non-negative index.`;
+          return `\`picks[${i}]\` needs a shapeId, a kind (face | edge | vertex) and a non-negative index.`;
         }
       }
     }

@@ -1,0 +1,41 @@
+---
+sidebar_position: 18.5
+title: "Section"
+description: "The Section type. Extends SceneObject."
+---
+
+# Section
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### getPlane()
+
+```ts
+getPlane(): Plane
+```
+
+The cut plane before its offset, as built (origin, normal, x-direction).
+
+**Returns**: [`Plane`](/docs/api/types/plane)
+

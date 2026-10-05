@@ -1,17 +1,21 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
 import type { EngineClient } from '../engine-client';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_GIZMO, ICON_EYE, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_GIZMO, ICON_EYE, ICON_CLOSE, ICON_ADJUSTMENTS, ICON_SECTION_VIEW } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
+const STACK_BTN = 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
+const STACK_BTN_ACTIVE = FAB_BTN_ACTIVE + ' mt-2';
 
 export class SettingsPanel {
   private wrapper: HTMLDivElement;
   private fabEl: HTMLDivElement;
+  private sectionEl: HTMLButtonElement;
   private fitEl: HTMLButtonElement;
   private paramsEl: HTMLButtonElement;
   private onFitView: (() => void) | null = null;
+  private onSectionClick: ((anchor: HTMLElement) => void) | null = null;
   /** Sketch mode takes fit-to-view away; the host gate can take it for good. */
   private fitVisibleForScene = true;
   private fitEnabled = true;
@@ -43,6 +47,16 @@ export class SettingsPanel {
     this.fabEl.className = 'fab settings-fab !relative !bottom-auto !end-auto !flex-col';
     this.fabEl.innerHTML = this.buildFabHTML();
     wrapper.appendChild(this.fabEl);
+
+    // Section views: opens the menu of the scene's saved section views.
+    this.sectionEl = document.createElement('button');
+    this.sectionEl.className = STACK_BTN;
+    this.sectionEl.title = 'Section views';
+    this.sectionEl.setAttribute('aria-haspopup', 'menu');
+    this.sectionEl.setAttribute('aria-expanded', 'false');
+    this.sectionEl.dataset.role = 'section-views';
+    this.sectionEl.innerHTML = ICON_SECTION_VIEW;
+    wrapper.appendChild(this.sectionEl);
 
     // Standalone fit-to-view button
     this.fitEl = document.createElement('button');
@@ -89,6 +103,10 @@ export class SettingsPanel {
   private bindEvents(): void {
     this.fitEl.addEventListener('click', () => {
       this.onFitView?.();
+    });
+
+    this.sectionEl.addEventListener('click', () => {
+      this.onSectionClick?.(this.sectionEl);
     });
 
     this.paramsEl.addEventListener('click', () => {
@@ -140,7 +158,21 @@ export class SettingsPanel {
   }
 
   private applyFitVisibility(): void {
-    this.fitEl.style.display = this.fitEnabled && this.fitVisibleForScene ? '' : 'none';
+    const shown = this.fitEnabled && this.fitVisibleForScene;
+    this.fitEl.style.display = shown ? '' : 'none';
+    // The section menu shares fit-to-view's life: gone in sketch mode (the
+    // sketch owns the clip there) and under the host gate.
+    this.sectionEl.style.display = shown ? '' : 'none';
+  }
+
+  /** The section-views button was clicked; `anchor` is the button, for the menu to hang off. */
+  setSectionHandler(fn: (anchor: HTMLElement) => void): void {
+    this.onSectionClick = fn;
+  }
+
+  /** Lit while a section view is active. */
+  setSectionButtonActive(active: boolean): void {
+    this.sectionEl.className = active ? STACK_BTN_ACTIVE : STACK_BTN;
   }
 
   /**
@@ -161,9 +193,7 @@ export class SettingsPanel {
   }
 
   setParamsButtonActive(active: boolean): void {
-    this.paramsEl.className = active
-      ? FAB_BTN_ACTIVE + ' mt-2'
-      : 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
+    this.paramsEl.className = active ? STACK_BTN_ACTIVE : STACK_BTN;
   }
 
   setProjectionLocked(locked: boolean): void {

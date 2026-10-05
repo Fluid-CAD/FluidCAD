@@ -8,6 +8,7 @@ import fillet from "../../core/fillet.js";
 import chamfer from "../../core/chamfer.js";
 import fuse from "../../core/fuse.js";
 import shell from "../../core/shell.js";
+import plane from "../../core/plane.js";
 import { circle } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Color } from "../../features/color.js";
@@ -93,7 +94,9 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     select(face().onPlane("xy", 20));
     color("red");
 
-    sketch("xy", () => {
+    // Sketched on the top plane, the cut runs into the block; from "xy" it
+    // would run away from it and take nothing.
+    sketch(plane("xy", { offset: 20 }), () => {
         testRect(20, 20);
       });
     const cut = extrude(10).remove() as Extrude;
@@ -117,8 +120,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     select(face().onPlane("xy", 0));
     color("red");
 
-    sketch("xy", () => {
-        testRect(10, 40);
+    sketch(plane("xy", { offset: 10 }), () => {
+        testRect(10, 40, { at: [25, 0] });
       });
     const cut = extrude(10).remove() as Extrude;
     render();

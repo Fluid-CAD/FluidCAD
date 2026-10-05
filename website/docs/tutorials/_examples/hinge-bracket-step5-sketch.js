@@ -10,7 +10,7 @@ const spine = sketch("front", () => {
     hLine(-78)
     hLine(-40)
     fillet(34)
-}).reusable();
+});
 
 let base = extrude(80).thin(26).symmetric();
 
@@ -37,7 +37,7 @@ sketch(topPlane, () => {
 
 extrude(-20)
 
-const faceSelection = select(face().onPlane("xy", 16)).reusable()
+const faceSelection = select(face().onPlane("xy", 16))
 sketch(faceSelection, () => {
     move([0, 0])
     project(faceSelection)
@@ -46,5 +46,3 @@ sketch(faceSelection, () => {
     trim(edge().above("yz"))
     circle([0, 0], 50)
 });
-
-remove(faceSelection);

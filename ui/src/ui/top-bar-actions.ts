@@ -8,6 +8,7 @@ import {
   ICON_FILE_IMPORT,
   ICON_MENU,
   ICON_MOON,
+  ICON_SETTINGS,
   ICON_SUN,
 } from './icons';
 
@@ -51,6 +52,8 @@ export interface TopBarActionHandlers {
   export?: TopBarExportHandlers;
   /** The Import button. Absent: none — a read-only host has nothing to import into. */
   onImport?(): void;
+  /** The Settings button, ahead of the theme toggle. Absent: none — a viewport-only host has no preferences to offer. */
+  onSettings?(): void;
 }
 
 /**
@@ -86,7 +89,7 @@ const LIGHT_THEME = 'fluidcad-light';
 
 /**
  * The top bar's right-hand controls: the host's own buttons, then Import,
- * Export and the light/dark toggle.
+ * Export, Settings and the light/dark toggle.
  *
  * Import and Export are opt-in — a read-only host passes no `onImport` and
  * gets no button — while the theme toggle is always mounted: it is the app's
@@ -149,6 +152,14 @@ export class TopBarActions {
       const divider = document.createElement('div');
       divider.className = 'w-px h-5 bg-base-content/15 mx-1 shrink-0';
       this.inline.appendChild(divider);
+    }
+
+    if (handlers.onSettings) {
+      const settingsBtn = this.addButton(this.inline, ICON_SETTINGS, 'Settings');
+      settingsBtn.addEventListener('click', () => {
+        this.closePanel();
+        handlers.onSettings?.();
+      });
     }
 
     this.themeBtn = this.addButton(this.inline, ICON_SUN, '');
@@ -330,6 +341,13 @@ export class TopBarActions {
       });
       row.appendChild(caret);
       menu.appendChild(row);
+    }
+
+    if (this.handlers.onSettings) {
+      menu.appendChild(this.buildRow(ICON_SETTINGS, 'Settings', () => {
+        this.closePanel();
+        this.handlers.onSettings?.();
+      }));
     }
 
     menu.appendChild(this.buildRow(this.themeIcon(), this.themeLabel(), () => {

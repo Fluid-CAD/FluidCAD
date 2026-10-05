@@ -15,7 +15,7 @@ const highlighted: (string | null)[] = [];
 
 function makeViewer(): Viewer {
   const controller = {
-    getConnectorName: (id: string) => (id === 'conn-crank' ? 'shaft' : null),
+    getConnectorRef: (id: string) => (id === 'conn-crank' ? { name: 'shaft' } : null),
     findConnectorId: (_instanceId: string, name: string) => (name === 'shaft' ? 'conn-crank' : null),
     setMatePicking: () => {},
     setMatePickedConnectors: () => {},
@@ -192,5 +192,63 @@ describe('assembly connector mate sides', () => {
     svc.enter('tangent');
     svc.pickWorldConnector('w1');
     expect(panelText(container, 'message')).toMatch(/Tangent mates take exposed faces\/edges/);
+  });
+});
+
+// Copies of an assembly connector (`copy('linear', 'x', {…}, bay)` at the
+// top level): each is an assembly connector of its own in the payload, with
+// its seed's name and `copy`. A pick writes `bay.instance(k)` through the
+// seed's statement and binding, and re-finds itself by (name, slot).
+describe('assembly connector copies as mate sides', () => {
+  /** `const bay = connector('bay', …)` on line 7 and its copy statement on line 8 making slots 1–3. */
+  function copiedAssembly(idSuffix = ''): SerializedAssembly {
+    const base = makeAssembly();
+    const seedId = `w-bay${idSuffix}`;
+    const copyAt = { filePath: MAIN, line: 8, column: 0 };
+    return {
+      ...base,
+      connectors: [
+        { connectorId: seedId, name: 'bay', owner: '', ...frame, sourceLocation: { filePath: MAIN, line: 7, column: 0 } },
+        ...[1, 2, 3].map(slot => ({
+          connectorId: `w-bay-${slot}${idSuffix}`, name: 'bay', owner: '', ...frame,
+          origin: { x: 50 * slot, y: 0, z: 0 }, sourceLocation: copyAt, copy: { slot, seedId },
+        })),
+      ],
+    };
+  }
+
+  it('picks bay.instance(2): chip and preview by label, applied through the seed\'s line with the slot', async () => {
+    let assembly = copiedAssembly();
+    const container = makeContainer();
+    const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
+    svc.enter('slider');
+    svc.handleClick('w-bay-2', { type: 'connector', index: 0 } as any, WORLD_BODY_ID);
+    expect(panelText(container, 'message')).toBe('');
+    expect(container.textContent).toContain('Assembly · bay.instance(2)');
+    svc.handleClick('conn-crank', { type: 'connector', index: 0 } as any, 'inst-0');
+    expect(panelText(container, 'preview')).toBe("mate('slider', bay.instance(2), Crank Shaft.connectors.shaft);");
+
+    // A render re-mints every id; the pick re-finds slot 2, not the seed.
+    assembly = copiedAssembly('-r2');
+    svc.handleSceneRendered('assembly');
+    expect(panelText(container, 'preview')).toBe("mate('slider', bay.instance(2), Crank Shaft.connectors.shaft);");
+
+    await (svc as any).apply();
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.create.frameA).toEqual({ connectorLine: 7, connectorName: 'bay', slot: 2 });
+  });
+
+  it('the seed and its copies stay distinct picks — the seed writes plain bay', async () => {
+    const assembly = copiedAssembly();
+    const container = makeContainer();
+    const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
+    svc.enter('fastened');
+    svc.pickWorldConnector('w-bay');
+    expect(container.textContent).toContain('Assembly · bay');
+    expect(container.textContent).not.toContain('bay.instance');
+    svc.handleClick('conn-crank', { type: 'connector', index: 0 } as any, 'inst-0');
+    await (svc as any).apply();
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.create.frameA).toEqual({ connectorLine: 7, connectorName: 'bay' });
   });
 });

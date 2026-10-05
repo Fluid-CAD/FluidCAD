@@ -85,20 +85,20 @@ export class MirrorShape extends SceneObject {
       }
     }
 
-    const scope = this.resolveFusionScope(allSceneObjects);
+    const stock = this.resolveFusionStock(allSceneObjects);
 
     if (this._operationMode === 'new') {
       this.addShapes(transformedShapes);
     } else if (this._operationMode === 'remove') {
-      cutWithSceneObjects(scope, transformedShapes, plane, 0, this, {
+      cutWithSceneObjects(stock, transformedShapes, plane, 0, this, {
         recordHistoryFor: this,
       });
     } else {
-      const fusionResult = fuseWithSceneObjects(scope, transformedShapes);
+      const fusionResult = fuseWithSceneObjects(stock, transformedShapes);
 
       for (const modifiedShape of fusionResult.modifiedShapes) {
         if (modifiedShape.object) {
-          modifiedShape.object.removeShape(modifiedShape.shape, this)
+          modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors)
         }
       }
 

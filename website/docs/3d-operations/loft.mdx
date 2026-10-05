@@ -12,6 +12,7 @@ import loftThreeSections from '!!raw-loader!./_examples/loft-three-sections.js';
 import loftThin from '!!raw-loader!./_examples/loft-thin.js';
 import loftGuides from '!!raw-loader!./_examples/loft-guides.js';
 import loftConditions from '!!raw-loader!./_examples/loft-conditions.js';
+import loftConnections from '!!raw-loader!./_examples/loft-connections.js';
 import loftScopeAdd from '!!raw-loader!./_examples/loft-scope-add.js';
 import loftThinAdd from '!!raw-loader!./_examples/loft-thin-add.js';
 
@@ -71,6 +72,18 @@ Each column's file contains only the sketches it lofts; the highlighted line is 
 
 The profiles must be on different planes — typically parallel planes at different offsets — and the order in the list matters: a belly listed after the neck would make the surface double back on itself.
 
+## How profiles are matched
+
+Loft decides which point of each profile joins which point of the next, and the faces and edges of the side follow from that pairing.
+
+The side has one face for each stretch of profile between two vertices where the outline changes: a corner, or a smooth junction where a straight side runs into an arc. A circle or an ellipse is a single stretch, so a loft between round profiles — the vase above — has one side face, and each end is one closed edge: `edge().circle(60)` matches the vase's foot. When every profile is a circle or an ellipse, those edges are exact rather than approximated. A circle drawn as several arcs is one stretch too: the arc ends leave no mark on the side unless a [connection](#vertex-connections-from-code) is pinned to one.
+
+Profiles with matching vertices — the same number, corners and junctions in the same order — are joined vertex to vertex, in the pairing that twists the least. A 60 × 30 rounded rectangle lofted to a 30 × 40 one joins flat to flat and corner to corner, eight side faces whatever the two corner radii; two slots join straight to straight and end to end. When only the corners agree in number, the corners are joined.
+
+Other profiles — a square and a circle, a hexagon and a square — are matched by distance along the outline: the point a quarter of the way round one profile joins the point a quarter of the way round the next. A vertex of one then lands part-way along an edge of the other, and the side splits there too. The distance is measured from the seam, the line where the side closes on itself. The seam passes through a vertex of every profile that has one, so it never cuts a flat side in two; a circle or an ellipse has no vertex and is turned to face the seam of the profile next to it. A square lofted to a circle has four side faces, one per side of the square, and the circle's rim is four arcs — `edge().arc(r)` rather than `edge().circle(d)`.
+
+To choose the pairing yourself, see [Vertex connections from code](#vertex-connections-from-code).
+
 ## Guide curves
 
 Guides are side rails the transition surface must follow. Pass one or two open curves; each guide has to pass through every profile. A single sketch may carry several guide curves (for example a curve and its `mirror()`) — each connected curve counts as one guide:
@@ -91,13 +104,50 @@ Guides compose with start/end conditions: the condition fades out around each gu
 loft(p1, p2).guides(g1).startCondition('normal')
 ```
 
+## Vertex connections from code
+
+Use `.connect(...)` to choose which profile corners belong together. Pass one
+point per profile, in the same order as the `loft()` arguments, and repeat the
+call for each connection. Each connection becomes an edge of the loft; the side
+faces split along it.
+
+This example builds the outer solid of a square-to-round duct transition. The
+round section uses four arcs so it has vertices, and the connections hold the
+twist at the named `twistDegrees` value:
+
+<ExplainedCode code={loftConnections} fileName="duct-transition.part.js" />
+
+Returning geometry from a sketch callback makes it available through
+`sketch.geometries`. Point references follow their sketch planes, so the same
+code works on offset or tilted planes. You can also connect world coordinates
+such as `[0, 0, 40]` or solid-edge endpoints such as `e.endEdges(0).start()`.
+A vertex of an `offset()` result is named by edge index,
+`a.geometries.o.edge(2).start()` — see
+[naming offset edges](/docs/sketching/tools/offset#naming-offset-edges-from-outside-the-sketch)
+for the index rule and why a sign flip shifts the indices.
+
+To use a point of a `select(...)`, declare the selection on its own line before
+the loft: `const tip = select(edge().farthest('x'));`, then
+`.connect(tip.end(), ...)`. A selection written inside `.connect(...)` runs
+after `loft(...)` and the loft reports an error.
+
+Connections require closed, planar profiles with one region each. Points must
+be vertices: split a full circle or ellipse into arcs first. Connections
+compose with start/end conditions, guides and thin walls. A guide may ride a
+connected vertex; a guide that crosses a connection between two profiles is
+reported as an error. With thin walls each connection is carried onto both
+walls — the sharp offset corner on one side and the crest of the rounded
+corner on the other, where an edge runs along the rounding. Thin walls merge
+smooth junctions into one edge, so a thin loft connects real profile corners
+only, not the arc ends of a split circle.
+
 ## Start and end conditions
 
 The **condition** rows control how the surface leaves the first profile and arrives at the last one:
 
 - `'none'` — no constraint (default)
 - `'normal'` — the surface takes off perpendicular to the profile plane
-- `'tangent'` — the surface takes off inside the profile plane, bulging outward
+- `'tangent'` — the surface takes off inside the profile plane, bulging outward: every point leaves square to the outline at the same rate and a corner leaves along its mitre, so two stacked circles make a round barrel (Ø80 circles 60 apart, tangent at both ends, swell to Ø110 halfway up) and two stacked squares a square barrel with sharp corners
 
 ![Loft with normal end conditions](/img/docs/3d-operations/loft-conditions.png)
 

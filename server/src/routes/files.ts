@@ -88,8 +88,8 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
 
   router.get('/files/tree', (_req, res) => {
     try {
-      const { files, truncated } = listWorkspaceFiles(workspacePath);
-      res.json({ workspacePath, files, truncated });
+      const { files, folders, truncated } = listWorkspaceFiles(workspacePath);
+      res.json({ workspacePath, files, folders, truncated });
     } catch (err) {
       respondToError(res, err);
     }
@@ -190,6 +190,25 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
       fs.writeFileSync(file.absPath, initial, 'utf8');
       deps.onWrite?.(file.absPath, initial);
       res.json(fileInfo(file, fs.statSync(file.absPath)));
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  /**
+   * Create an empty folder. The `+` picker offers this for a name typed with a
+   * trailing slash; a folder that already exists is fine, since the point is
+   * for it to be there afterwards.
+   */
+  router.post('/files/mkdir', (req, res) => {
+    try {
+      const folder = resolveWorkspaceFile(workspacePath, req.body?.path);
+      if (fs.existsSync(folder.absPath) && !fs.statSync(folder.absPath).isDirectory()) {
+        res.status(409).json({ error: `${folder.relPath} already exists and is not a folder.` });
+        return;
+      }
+      fs.mkdirSync(folder.absPath, { recursive: true });
+      res.json({ success: true, path: folder.relPath, absPath: folder.absPath });
     } catch (err) {
       respondToError(res, err);
     }

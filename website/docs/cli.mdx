@@ -5,7 +5,7 @@ title: "CLI Reference"
 
 # CLI Reference
 
-FluidCAD ships a command-line tool alongside the library. It scaffolds a project, opens FluidCAD in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
+FluidCAD ships a command-line tool alongside the library. It opens FluidCAD's start screen in your browser, scaffolds a project, opens one project in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
 
 FluidCAD is installed per-project, so the CLI is run through `npx` from inside the project:
 
@@ -14,20 +14,128 @@ npm i fluidcad
 npx fluidcad --help
 ```
 
+The start screen, `npx fluidcad` on its own, is the exception: it runs from any
+folder, and the projects it opens need no `npm i` of their own.
+
 :::note
 A global install (`npm install -g fluidcad`) is not supported — the engine and your editor's type hints both resolve from the project's `node_modules`. If you see `Cannot find module 'fluidcad' imported from …`, run `npm i fluidcad` inside the project.
 :::
 
 | Command | What it does |
 |---------|--------------|
+| [`fluidcad`](#fluidcad) | Open the start screen in the browser: your projects, new projects, and the engine each one runs on |
 | [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory |
-| [`fluidcad serve`](#fluidcad-serve) | Open FluidCAD in the browser and watch the workspace |
+| [`fluidcad serve`](#fluidcad-serve) | Open one project in the browser and watch its workspace |
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
 | [`fluidcad mcp`](#fluidcad-mcp) | Run the MCP server over stdio |
 
 Every command accepts `--help`, and `npx fluidcad --version` prints the installed version.
+
+---
+
+## `fluidcad`
+
+```bash
+npx fluidcad
+```
+
+Opens FluidCAD's start screen in your browser: the same one the desktop app
+shows, with your recent projects, **New Project** and **Open Project**, and the
+engine each project runs on. It is the one command you can run from anywhere;
+it is not tied to a project folder. (`npx fluidcad start` is the same command
+by its name.)
+
+Every project opens in a tab of its own, and the start screen stays in its tab.
+Opening a project that is already open brings its tab forward. **New Project**
+asks where the project should live and what to call it, creates the folder, and
+sets the project up in it, the same scaffold as [`fluidcad init`](#fluidcad-init).
+Close a project from the **⋯** menu on its card; FluidCAD refuses while its tab
+has unsaved changes.
+
+Each project runs on the engine its `fluidcad.json` pins, the way the desktop
+app runs it: a pin that is not on your machine is downloaded once and kept in
+`~/.fluidcad/engines`, and an unpinned project is pinned to the version of
+`fluidcad` you ran. The start screen and the desktop app share the recent
+projects, the previews and the downloaded engines, so a project opened in one
+is on the other's list too. See [Project
+configuration](/docs/project-configuration#engine).
+
+Leave the command running while you work. `Ctrl+C` stops FluidCAD and every
+project it opened. Running `npx fluidcad` again while it runs opens the running
+one in a new tab instead of starting a second.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-p, --port <port>` | Port for the start screen — if it's taken, the first free port above it is used | `3100` |
+| `--no-open` | Don't launch a browser, only print the start screen's link | _opens by default_ |
+| `--projects <dir>` | Keep every project in this folder (see below) | _projects live anywhere_ |
+| `--host <address>` | The address to listen on; `0.0.0.0` lets other machines reach FluidCAD (see below) | `127.0.0.1` |
+| `--public-url <url>` | The origin browsers reach FluidCAD at behind a reverse proxy, such as `https://cad.example.com` | _none_ |
+
+The link it prints carries a key for the session, so that no other page or user
+on your machine can drive FluidCAD through it. Open it yourself when the
+browser does not open on its own (over SSH, say), and don't share it.
+
+Every project's page is served by the start server itself, at `/p/<name>/`,
+which stands in for the project's engine: the engine runs on this machine's
+loopback address only, and the start server forwards its page, its calls and
+its live connection to it. That is what lets a browser on another machine work
+on a project, below.
+
+### A projects folder
+
+```bash
+npx fluidcad --projects ~/cad
+```
+
+With `--projects`, one folder holds every project. The start screen lists the
+projects in it, all of them rather than the recent ones. **New Project** asks
+only for a name, creates `<dir>/<name>` and sets the project up there. **Open
+Project** is not offered, since every project in the folder is already on the
+screen, and nothing outside the folder can be opened: the start server refuses
+any path that is not a project in it, which is what makes the folder the
+boundary when the start screen is reached from another machine. The folder has
+to exist.
+
+### Reaching FluidCAD from other machines
+
+```bash
+npx fluidcad --projects /srv/cad --host 0.0.0.0 --no-open
+```
+
+`--host 0.0.0.0` binds the start screen to every address of the machine, so a
+browser on another machine (or in a container's network) can open it, and open
+projects in it: each project's page goes through the start server, at
+`/p/<name>/`, and the engines themselves stay on loopback where nothing else
+can reach them. Pair it with `--projects`, so that the machine's other folders
+stay out of reach.
+
+What keeps it yours:
+
+- The link `npx fluidcad` prints carries the session's key. Anyone who has it
+  can use FluidCAD as you, and can read and change every project it opens, so
+  keep it private. Without it a browser gets a page saying where the link is.
+- The key becomes an `HttpOnly`, `SameSite=Strict` cookie, and every call
+  that changes something has to come from FluidCAD's own pages.
+- Nothing is encrypted by FluidCAD itself. Before leaving a private network,
+  put an HTTPS reverse proxy in front of it (Caddy, nginx, Tailscale Serve,
+  Cloudflare Tunnel), forwarding WebSocket upgrades too, and tell FluidCAD the
+  origin it is reached at:
+
+```bash
+npx fluidcad --projects /srv/cad --host 127.0.0.1 --public-url https://cad.example.com --no-open
+```
+
+With `--public-url`, the link it prints uses that origin, calls from pages at
+that origin are accepted, and, when it is `https://`, the session cookie is
+marked `Secure` so it is never sent in the clear. Bound to `127.0.0.1` behind
+the proxy on the same machine, the start server is not reachable any other
+way.
+
+One start server is one session, for one person or a group who share the
+link. It has no accounts of its own.
 
 ---
 
@@ -42,22 +150,24 @@ Scaffolds a project in the **current directory**:
 ```
 my-app/
 ├── init.js             ← required project entry point
-├── box.part.js         ← starter model
+├── part1.part.js       ← an empty part to start modeling in
 ├── jsconfig.json       ← enables editor type hints
 └── fluidcad.json       ← project configuration: engine pin, unit
 ```
 
 `init.js` is required — the viewer cannot run a `.part.js` file without it. Don't edit it.
 
-The command refuses to run if `init.js` already exists, so it can't clobber a project. `box.part.js`, `jsconfig.json` and `fluidcad.json` are only written when they're missing, so re-running it in a half-set-up folder fills in the gaps.
+The command refuses to run if `init.js` already exists, so it can't clobber a project. `part1.part.js`, `jsconfig.json` and `fluidcad.json` are only written when they're missing, so re-running it in a half-set-up folder fills in the gaps.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | `mm` |
+| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | the unit for new projects from the Settings dialog, `mm` unless changed |
 
 ```bash
 npx fluidcad init --unit in        # an inch project
 ```
+
+Without the flag, the unit comes from **Settings ▸ Units ▸ Unit for new projects** in the FluidCAD UI (the gear in the top bar). The desktop app's New Project uses the same setting.
 
 See [Project configuration](/docs/project-configuration) for what `fluidcad.json` holds.
 
@@ -75,9 +185,10 @@ tool, and a code editor. It renders the model you had open last (or the first
 made anywhere — the in-page editor, your own editor, an AI agent through MCP —
 rebuilds the model. Press `Ctrl+C` to stop.
 
-This is the primary way to run FluidCAD. The [VS Code and Neovim
-extensions](/docs/installation#editor-setup) drive the same server if you'd
-rather stay in your own editor.
+Where [`fluidcad`](#fluidcad) opens the start screen, `serve` opens one
+project, runs it on the `fluidcad` it was installed with, and suits CI and
+scripts. The [VS Code and Neovim extensions](/docs/installation#editor-setup)
+drive the same server if you'd rather stay in your own editor.
 
 | Flag | Description | Default |
 |------|-------------|---------|

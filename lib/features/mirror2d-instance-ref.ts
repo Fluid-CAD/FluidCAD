@@ -8,8 +8,7 @@
 // path stashes on the constraint statement.
 
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
-import { LazyVertex } from "./lazy-vertex.js";
-import { Vertex } from "../common/vertex.js";
+import { SketchPointVertex } from "./sketch-point-ref.js";
 import type { SceneObject } from "../common/scene-object.js";
 import type { MirrorShape2D } from "./mirror-shape2d.js";
 import type { PointRole, SolverRef } from "../sketch-solver/index.js";
@@ -57,14 +56,17 @@ export class Mirror2DInstance extends LazySelectionSceneObject {
  * accepted — reading the image entity's CURRENT solver params (guesses
  * until the solve, solved values after).
  */
-export class Mirror2DInstancePointRef extends LazyVertex {
+export class Mirror2DInstancePointRef extends SketchPointVertex {
   constructor(
     readonly instance: Mirror2DInstance,
     readonly role: PointRole,
   ) {
-    super(`mirror-instance-${role}`, () => {
-      const point = instance.mirrorOwner.instancePointValue(instance.source, role);
-      return [Vertex.fromPoint2D(point)];
-    });
+    super(instance.mirrorOwner, role, `mirror-instance-${instance.source.getOrder()}-${role}`,
+      () => instance.mirrorOwner.instancePointValue(instance.source, role));
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const instance = (remap.get(this.instance) ?? this.instance.createCopy(remap)) as Mirror2DInstance;
+    return new Mirror2DInstancePointRef(instance, this.role);
   }
 }

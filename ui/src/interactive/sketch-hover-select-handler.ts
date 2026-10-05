@@ -7,8 +7,13 @@ import {
   Mesh,
   MeshBasicMaterial,
   Object3D,
+  RingGeometry,
   Vector3,
 } from 'three';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData, SceneObjectRender, SourceLocation } from '../types';
 import { SceneIndex } from '../helpers/scene-index';
@@ -23,16 +28,29 @@ import {
   SolvedSketchModel,
   buildSolvedSketchModel,
   datumHitTest,
+  entityPickAddress,
   solvedHitTest,
 } from '../sketch-solver-client';
 import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView } from '../sketch-solver-client';
+import { viewerSettings } from '../scene/viewer-settings';
 
-const HIGHLIGHT_THRESHOLD_PX = 12;
+/**
+ * What a click tool shows on the hovered edge: the point where a cut would
+ * land (the Split tool — a vertex dot, ringed when it locked onto a snap
+ * mark) or the stretch of the edge that would go (the Trim tool — a
+ * polyline in the removal colour).
+ */
+export type HoverPreview =
+  | { kind: 'point'; at: [number, number]; snapped: boolean }
+  | { kind: 'segment'; points: [number, number][] };
+
+/** Entity hover radius, screen px — the `pickRadiusPx` preference, read live. */
+const highlightThresholdPx = (): number => viewerSettings.current.pickRadiusPx;
 /** Grab radius for solved entity vertices. Deliberately equal to the edge
  * threshold: a click that can see both must prefer the vertex, or a
  * near-endpoint pick silently records the edge instead (a line's endpoint
  * is ON the line, so the edge is always in range there too). */
-const VERTEX_PICK_PX = 12;
+const vertexPickPx = (): number => viewerSettings.current.pickRadiusPx;
 
 /** An ordered pick the solved constraint toolbar consumes: a whole entity
  * (edge click) or one of its named points (vertex click). */
@@ -74,38 +92,6 @@ export type SolvedPick = {
   anchor?: { owner: 'text' | 'bezier'; pointIndex: number };
 };
 
-/**
- * The address fields a rendered entity view contributes to a pick made on
- * it: reference / copy-instance / anchor / mirror-image. A mirror image
- * nests the pick of its SOURCE view — recursively, so a mirror of a copy
- * instance (or of another mirror's image) addresses all the way down.
- */
-function pickAddress(
-  model: SolvedSketchModel,
-  e: SolvedEntityView,
-): Pick<SolvedPick, 'reference' | 'copyInstance' | 'anchor' | 'mirrorInstance'> {
-  const source = e.mirrorInstance !== undefined
-    ? model.entities.get(e.mirrorInstance.sourceEntityId)
-    : undefined;
-  return {
-    ...(e.reference ? { reference: e.reference } : {}),
-    ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
-    ...(e.anchor ? { anchor: e.anchor } : {}),
-    ...(source && source.obj
-      ? {
-        mirrorInstance: {
-          source: {
-            entityId: source.entityId,
-            kind: source.kind,
-            sourceLocation: source.obj.sourceLocation,
-            ...pickAddress(model, source),
-          },
-        },
-      }
-      : {}),
-  };
-}
-
 type SelectedVertexPick = {
   entityId: number;
   role: 'start' | 'end' | 'center' | null;
@@ -122,6 +108,11 @@ type HoveredVertex = {
  * constant-pixel scaler only needs it in the document's magnitude). */
 const CENTER_OVERLAY_RADIUS_MM = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
+/** The snapped hover marker's ring: outer radius in px, inner as a fraction of it. */
+const SNAP_MARKER_PX_RADIUS = 11;
+const SNAP_MARKER_RING_INNER = 0.8;
+/** The segment preview's line width (px) — heavier than the edge it sits on. */
+const SEGMENT_PREVIEW_WIDTH = 3;
 /** Extra slack around a constraint badge's box before a hover counts. */
 const BADGE_HIT_SLACK_PX = 3;
 
@@ -181,6 +172,16 @@ export class SketchHoverSelectHandler {
   private entityShapeIds = new Map<number, string[]>();
   /** Sketch-space click point per selected edge pick (see SolvedPick.at). */
   private edgePickAt = new Map<string, [number, number]>();
+  /**
+   * Optional preview on the hovered edge for a click tool: given the hovered
+   * solved entity, the cursor's sketch position and the solved model, what
+   * to draw ({@link HoverPreview}), or null for nothing.
+   */
+  hoverPreview?: (entity: SolvedEntityView, point2d: [number, number], model: SolvedSketchModel) => HoverPreview | null;
+  private hoverPreviewOverlay: Group | null = null;
+  private hoverPreviewKey: string | null = null;
+  /** The hovered shape whose tint a segment preview stands in for, if any. */
+  private hoverTintSuppressedFor: string | null = null;
   private hoveredBadge: BadgeHitTarget | null = null;
   /** Constraint statements tinted while a vertex pick stands for them (the
    * coincident ring behind a selected junction) — by render objId. */
@@ -431,7 +432,7 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             role: pick.role,
             sourceLocation: e.obj.sourceLocation,
-            ...pickAddress(model, e),
+            ...entityPickAddress(model, e),
           });
         }
       } else {
@@ -449,7 +450,7 @@ export class SketchHoverSelectHandler {
             // An anchor statement's edges (text glyphs) resolve to its
             // anchor POINT — the only solver entity it has, so an edge click
             // means "constrain its position" (P8).
-            ...pickAddress(model, e),
+            ...entityPickAddress(model, e),
           });
         }
       }
@@ -480,6 +481,15 @@ export class SketchHoverSelectHandler {
     }
 
     const badge = this.findBadgeAt(e.clientX, e.clientY);
+    if (badge) {
+      // Badges draw over the geometry — while one is hovered it owns the
+      // cursor and no edge hover competes. The edge hover goes BEFORE the
+      // badge tints the entities it references: an edge lit by both would
+      // otherwise have its hover bookkeeping reset over the highlight.
+      if (this.hoveredShapeId) {
+        this.clearHover();
+      }
+    }
     if (badge !== this.hoveredBadge) {
       this.clearBadgeHover();
       if (badge) {
@@ -487,11 +497,6 @@ export class SketchHoverSelectHandler {
       }
     }
     if (badge) {
-      // Badges draw over the geometry — while one is hovered it owns the
-      // cursor and no edge hover competes.
-      if (this.hoveredShapeId) {
-        this.clearHover();
-      }
       this.canvas.style.cursor = 'pointer';
       return;
     }
@@ -510,7 +515,7 @@ export class SketchHoverSelectHandler {
     // top of its own edge (constraint targets are usually points).
     if (this.solvedModel) {
       const vertexHit = solvedHitTest(
-        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX), 0,
+        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, vertexPickPx()), 0,
       );
       if (vertexHit && vertexHit.type === 'vertex') {
         const key = `${vertexHit.entityId}:${vertexHit.role ?? 'point'}`;
@@ -537,7 +542,7 @@ export class SketchHoverSelectHandler {
       // The origin datum: vertex-like, but loses to real vertices (above) —
       // a coincident endpoint at (0,0) stays the pick.
       const originHit = datumHitTest(
-        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX), 0,
+        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, vertexPickPx()), 0,
       );
       if (originHit) {
         this.applyDatumHover(originHit);
@@ -549,7 +554,7 @@ export class SketchHoverSelectHandler {
       }
     }
 
-    const threshold = pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
+    const threshold = pixelToSketchThreshold(this.ctx, highlightThresholdPx());
     const hit = this.findNearestEdge(point2d, threshold);
 
     // Datum axes: the lowest hover priority — real geometry near an axis
@@ -581,8 +586,11 @@ export class SketchHoverSelectHandler {
         this.canvas.style.cursor = '';
       }
       this.hoveredShapeId = nearest;
+      this.hoverTintSuppressedFor = null;
       this.ctx.requestRender();
     }
+
+    this.updateHoverPreview(nearest !== null && !hit?.isCenter ? nearest : null, point2d);
 
     if (hit?.isCenter && hit.centerPoint) {
       const samePoint = this.hoveredCenterPoint
@@ -611,15 +619,24 @@ export class SketchHoverSelectHandler {
       return;
     }
 
+    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
+
     if (this.hoveredBadge) {
+      // A constraint pick replaces the geometry selection the way an edge
+      // pick does (Ctrl/Cmd and the toggle policy keep it). The selection
+      // change goes out first so the toolbar drops its old delete target
+      // before it notes the picked constraint.
+      if (!isMulti && this.hasSelection()) {
+        this.clearSelection();
+        this.ctx.requestRender();
+        this.onSelectionChange?.();
+      }
       this.onConstraintPick?.({
         objId: this.hoveredBadge.objId,
         sourceLocation: this.hoveredBadge.sourceLocation,
       });
       return;
     }
-
-    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
 
     if (this.hoveredVertex) {
       const key = this.hoveredVertex.key;
@@ -760,7 +777,12 @@ export class SketchHoverSelectHandler {
     }
     this.traverseShapeEdges(shapeId, (line) => {
       const color = SketchHoverSelectHandler.lineColor(line);
-      if (!color || line.userData.selectOriginalColor !== undefined) {
+      // A line already carrying a saved colour (selected, or hover-lit by
+      // another route — the edge hover and a badge hover both reach here)
+      // keeps it: saving again would record the highlight as the colour to
+      // restore, and the line would stay lit for good.
+      if (!color || line.userData.selectOriginalColor !== undefined
+        || line.userData.hoverOriginalColor !== undefined) {
         return;
       }
       line.userData.hoverOriginalColor = color.getHex();
@@ -805,6 +827,8 @@ export class SketchHoverSelectHandler {
   }
 
   private clearHover(): void {
+    this.clearHoverPreview();
+    this.hoverTintSuppressedFor = null;
     if (this.hoveredShapeId) {
       this.removeHoverHighlight(this.hoveredShapeId);
       this.hoveredShapeId = null;
@@ -812,6 +836,87 @@ export class SketchHoverSelectHandler {
       this.removeCenterOverlay();
       this.ctx.requestRender();
     }
+  }
+
+  /** Re-place the hover preview for the edge under the cursor (see {@link hoverPreview}). */
+  private updateHoverPreview(shapeId: string | null, point2d: [number, number]): void {
+    const entity = shapeId !== null ? this.entityOfShape(shapeId) : undefined;
+    const preview = entity && this.solvedModel && this.hoverPreview
+      ? this.hoverPreview(entity, point2d, this.solvedModel)
+      : null;
+    // A snapped marker sits still while the cursor roams its reach, and a
+    // segment while the cursor roams its stretch: rebuilding either every
+    // move is wasted work.
+    const key = preview && entity ? SketchHoverSelectHandler.previewKey(entity, preview) : null;
+    if (key === this.hoverPreviewKey) {
+      return;
+    }
+    this.syncHoverTint(shapeId, preview?.kind === 'segment');
+    this.clearHoverPreview();
+    if (preview) {
+      this.hoverPreviewOverlay = preview.kind === 'segment'
+        ? this.buildSegmentOverlay(preview.points)
+        : preview.snapped
+          ? this.buildSnapMarkerOverlay(preview.at)
+          : this.buildVertexOverlay(preview.at, 0.9);
+      this.hoverPreviewKey = key;
+      this.ctx.requestRender();
+    }
+  }
+
+  /**
+   * A segment preview stands in for the hover tint: the entity keeps its own
+   * colour and only the stretch that would go turns red — a tinted entity
+   * under a red stretch reads as two colours fighting. The tint comes back
+   * the moment the preview is something else.
+   */
+  private syncHoverTint(shapeId: string | null, segmentShown: boolean): void {
+    if (segmentShown && shapeId !== null) {
+      if (this.hoverTintSuppressedFor !== shapeId) {
+        this.removeHoverHighlight(shapeId);
+        this.hoverTintSuppressedFor = shapeId;
+      }
+      return;
+    }
+    if (this.hoverTintSuppressedFor !== null) {
+      if (this.hoverTintSuppressedFor === this.hoveredShapeId) {
+        this.applyHoverHighlight(this.hoverTintSuppressedFor);
+      }
+      this.hoverTintSuppressedFor = null;
+    }
+  }
+
+  /** What a preview draws, as a string — equal keys need no rebuild. */
+  private static previewKey(entity: SolvedEntityView, preview: HoverPreview): string {
+    if (preview.kind === 'point') {
+      return `p:${preview.at[0]},${preview.at[1]}:${preview.snapped}`;
+    }
+    const first = preview.points[0];
+    const last = preview.points[preview.points.length - 1];
+    return `s:${entity.entityId}:${preview.points.length}:${first[0]},${first[1]}:${last[0]},${last[1]}`;
+  }
+
+  private clearHoverPreview(): void {
+    if (this.hoverPreviewOverlay) {
+      this.disposeVertexOverlay(this.hoverPreviewOverlay);
+      this.hoverPreviewOverlay = null;
+      this.hoverPreviewKey = null;
+      this.ctx.requestRender();
+    }
+  }
+
+  /** The solved entity a picked shape belongs to, if any. */
+  private entityOfShape(shapeId: string): SolvedEntityView | undefined {
+    for (const [entityId, shapeIds] of this.entityShapeIds) {
+      if (shapeIds.includes(shapeId)) {
+        return this.solvedModel?.entities.get(entityId);
+      }
+    }
+    return undefined;
+  }
+
+  private hasSelection(): boolean {
+    return this.selectedShapeIds.size > 0 || this.selectedVertexPicks.size > 0 || this.selectedDatums.size > 0;
   }
 
   private clearSelection(): void {
@@ -952,11 +1057,75 @@ export class SketchHoverSelectHandler {
     return group;
   }
 
+  /**
+   * The hover marker locked onto a snap mark (a line's or arc's midpoint,
+   * a circle's quarter mark): the vertex dot inside a thin ring, both
+   * screen-constant, so a snapped cut point reads differently from one
+   * sliding freely along the edge.
+   */
+  private buildSnapMarkerOverlay(point2d: [number, number]): Group {
+    const group = this.buildVertexOverlay(point2d, 1);
+    const dot = group.children[0] as Mesh;
+    const radius = worldFromMm(CENTER_OVERLAY_RADIUS_MM);
+    const scale = SNAP_MARKER_PX_RADIUS / CENTER_OVERLAY_PX_RADIUS;
+    const ring = new Mesh(
+      new RingGeometry(radius * scale * SNAP_MARKER_RING_INNER, radius * scale, 32),
+      new MeshBasicMaterial({
+        color: themeColors.highlightColor,
+        side: DoubleSide,
+        depthTest: false,
+        transparent: true,
+        opacity: 1,
+      }),
+    );
+    ring.renderOrder = dot.renderOrder;
+    group.add(ring);
+    return group;
+  }
+
+  /**
+   * The stretch of an edge a click would remove (the Trim tool): a heavier
+   * polyline over the edge in the removal colour, screen-constant width
+   * like the edges themselves.
+   */
+  private buildSegmentOverlay(points: [number, number][]): Group {
+    const positions: number[] = [];
+    for (const p of points) {
+      const world = localToWorld(p, this.plane);
+      positions.push(world.x, world.y, world.z);
+    }
+    const geometry = new LineGeometry();
+    geometry.setPositions(positions);
+    // Transparent (at full opacity) so it renders in the same pass as the
+    // sketch edges, after them by render order — an opaque line would draw
+    // first and the edge would paint over it.
+    const material = new LineMaterial({
+      color: themeColors.ghostRemoveEdgeColor.getHex(),
+      linewidth: SEGMENT_PREVIEW_WIDTH,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      depthTest: false,
+    });
+    LineResolutionRegistry.register(material);
+    const line = new Line2(geometry, material);
+    line.renderOrder = 6;
+    const group = new Group();
+    group.renderOrder = 6;
+    group.userData.isMetaShape = true;
+    group.add(line);
+    this.ctx.scene.add(group);
+    return group;
+  }
+
+  /** Tear down an overlay group built here (a vertex dot, a snap ring, a segment line). */
   private disposeVertexOverlay(group: Group): void {
     this.ctx.scene.remove(group);
-    const dot = group.children[0] as Mesh;
-    dot.geometry.dispose();
-    (dot.material as MeshBasicMaterial).dispose();
+    for (const child of group.children) {
+      const mesh = child as Mesh;
+      mesh.geometry.dispose();
+      (mesh.material as MeshBasicMaterial).dispose();
+    }
   }
 
   private clearVertexHover(): void {
@@ -1128,7 +1297,7 @@ export class SketchHoverSelectHandler {
     if (!point2d) {
       return false;
     }
-    const threshold = pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX);
+    const threshold = pixelToSketchThreshold(this.ctx, vertexPickPx());
     if (solvedHitTest(this.solvedModel, point2d, threshold, 0)?.type === 'vertex') {
       return true;
     }

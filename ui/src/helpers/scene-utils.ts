@@ -11,6 +11,81 @@ import { SceneIndex } from './scene-index';
  * Shared with hosts that walk the build the way the panel does (the browser
  * viewer's replay), so "what counts as a step" has one definition.
  */
+/** A source location's identity across renders (scene ids change every render). */
+export function sourceLocKey(loc: SourceLocation): string {
+  return `${loc.filePath}:${loc.line}:${loc.column}`;
+}
+
+/**
+ * Whether a row can be drawn again after its consumer hid it: a sketch, plane
+ * or axis a feature used (`consumedBy`), and a statement of its own — an
+ * internal object (the plane a sketch builds for itself, a plane written
+ * inline in another call) has no row to show it from and shares its call's
+ * source location.
+ */
+export function isShowableConsumedRow(obj: SceneObjectRender): boolean {
+  return obj.consumedBy !== undefined && obj.internal !== true && obj.sourceLocation !== undefined;
+}
+
+/**
+ * The shown rows (the timeline eye's source-location keys) carried over a
+ * rebuild. An apply can move a shown row's statement along its line — a hole
+ * placed on a shown sketch binds it, `sketch(…)` becoming `const s =
+ * sketch(…)` — and the row keeps its eye under the new key: the row of the
+ * same type on the same line. Every other key is kept as it is.
+ */
+export function carryShownKeys(
+  keys: ReadonlySet<string>,
+  prev: SceneObjectRender[],
+  next: SceneObjectRender[],
+): Set<string> {
+  const carried = new Set<string>();
+  const nextKeys = new Set(next.flatMap(obj => obj.sourceLocation ? [sourceLocKey(obj.sourceLocation)] : []));
+  for (const key of keys) {
+    if (nextKeys.has(key)) {
+      carried.add(key);
+      continue;
+    }
+    const moved = prev
+      .filter(obj => obj.sourceLocation && sourceLocKey(obj.sourceLocation) === key && obj.internal !== true)
+      .flatMap(obj => next.filter(other => other.type === obj.type && other.internal !== true
+        && other.sourceLocation?.filePath === obj.sourceLocation!.filePath
+        && other.sourceLocation.line === obj.sourceLocation!.line));
+    if (moved.length === 0) {
+      carried.add(key);
+    }
+    for (const row of moved) {
+      carried.add(sourceLocKey(row.sourceLocation!));
+    }
+  }
+  return carried;
+}
+
+/**
+ * A consumed row as its shown form: it reads visible and draws the shapes its
+ * consumer hid (a plane's quad, an axis's line) along with any it still
+ * draws. The same object when nothing changes.
+ */
+export function rowWithHiddenShapes(obj: SceneObjectRender): SceneObjectRender {
+  if (obj.hiddenShapes?.length) {
+    return { ...obj, visible: true, sceneShapes: [...obj.sceneShapes, ...obj.hiddenShapes] };
+  }
+  return obj.visible === false ? { ...obj, visible: true } : obj;
+}
+
+/**
+ * A consumed row and its children as their shown form: the row reads
+ * visible, and every row under it draws its hidden shapes too (a sketch's
+ * removal lands on its entity rows). The other rows are the same objects.
+ * For the mesh of an object the user showed again (the timeline eye) or a
+ * dialog revealed.
+ */
+export function withHiddenShapes(row: SceneObjectRender, sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
+  const children = new Set(SceneIndex.of(sceneObjects).children(row.id));
+  return sceneObjects.map(obj => obj === row || children.has(obj) ? rowWithHiddenShapes(obj) : obj);
+}
+
+
 export function isHiddenTimelineRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }
@@ -36,11 +111,11 @@ export function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRend
 }
 
 /**
- * The timeline's active part, injected by main.ts from the ActivePartTracker.
- * The tracker re-syncs against every render before the scope helpers below
- * run (see the scene-rendered handler), so matching its location by exact
- * file + line is safe — a shifted or renamed part row has already been
- * re-adopted.
+ * The timeline's active part, injected by main.ts from the ActivePartTracker
+ * — null while the user works at the file's top level. The tracker re-syncs
+ * against every render before the scope helpers below run (see the
+ * scene-rendered handler), so matching its location by exact file + line is
+ * safe — a shifted or renamed part row has already been re-adopted.
  */
 let activePartLocationProvider: () => SourceLocation | null = () => null;
 
@@ -96,29 +171,46 @@ export function findEnclosingPartRow(
 
 /**
  * The rows of the active scope, in scene order: the active part's direct
- * children while a part is active, else every top-level row. New statements
+ * children while a part is active, else the file's top-level rows — its
+ * statements and its parts, listed where the file wrote them (the engine
+ * renders in timeline order, a part at its `part()` call). New statements
  * land at the end of this scope, so its tail is "where the user is working".
  */
 export function activeScopeObjects(sceneObjects: SceneObjectRender[]): SceneObjectRender[] {
   const part = findActivePart(sceneObjects);
-  const index = SceneIndex.of(sceneObjects);
   if (part) {
-    return [...index.children(part.id)];
+    return [...SceneIndex.of(sceneObjects).children(part.id)];
   }
-  return sceneObjects.filter(o => index.isTopLevel(o));
+  return sceneObjects.filter(o => !o.parentId);
 }
 
 /**
  * The "active" feature — the last object of the active scope. With a part
  * active this is that part's last feature (an empty part has none), NOT the
  * scene's last object: another part further down may keep building, but the
- * user is editing here. Returned regardless of visibility so a non-sketch
- * tip with no shapes doesn't fall through to an earlier sketch and wrongly
- * enter sketch mode.
+ * user is editing here. At the top level it is the file's last row, which is
+ * a part row when the file ends in a part. Returned regardless of visibility
+ * so a non-sketch tip with no shapes doesn't fall through to an earlier
+ * sketch and wrongly enter sketch mode.
  */
 export function findActiveObject(sceneObjects: SceneObjectRender[]): SceneObjectRender | undefined {
   const scope = activeScopeObjects(sceneObjects);
   return scope.length > 0 ? scope[scope.length - 1] : undefined;
+}
+
+/**
+ * The sketch the active scope ends in while it is still open for editing —
+ * the one thing every sketch-mode derivation keys off (camera lock, sketch
+ * toolbar, dialog adoption, timeline gating). A trailing sketch that carries
+ * `.close()` is finished: the scope ends in it, but nothing enters sketch
+ * mode for it, so it reads as no active sketch here. So does one a feature
+ * already took (`consumedBy`): the top level can end in a sketch a part body
+ * above it extruded — a part body builds after the top level, so it may read
+ * a sketch written below it — and that sketch is used, not drawn.
+ */
+export function findActiveSketch(sceneObjects: SceneObjectRender[]): SceneObjectRender | undefined {
+  const active = findActiveObject(sceneObjects);
+  return active?.type === 'sketch' && active.closed !== true && active.consumedBy === undefined ? active : undefined;
 }
 
 /**
@@ -172,13 +264,14 @@ function hasSolidShape(obj: SceneObjectRender): boolean {
 }
 
 /**
- * Nothing in the render is material a feature could be built *from* — no
- * solids and no sketches. Everything else a document can hold at this point is
- * a construction input: planes, axes, a `select()` overlay, or a helix (a
- * wire — you sweep a profile along it, you can't build it into anything on its
- * own). Those leave the scene as empty as a blank file, so the toolbar treats
- * them the same. See {@link Viewer.sceneIsEmpty}.
+ * Nothing in the render is material a feature could work *on* — no solids.
+ * Everything else a document can hold at this point is an input: planes,
+ * axes, a `select()` overlay, a helix (a wire — you sweep a profile along it),
+ * or a sketch (a profile — you extrude it). Those leave the scene as empty as
+ * a blank file, so the toolbar treats them the same: a document that holds
+ * only a finished (`.close()`d) sketch gets the same whole toolbar the blank
+ * document offered before that sketch was drawn. See {@link Viewer.sceneIsEmpty}.
  */
 export function isSceneEmpty(sceneObjects: SceneObjectRender[]): boolean {
-  return !sceneObjects.some(o => o.type === 'sketch' || hasSolidShape(o));
+  return !sceneObjects.some(hasSolidShape);
 }

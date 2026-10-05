@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType } from "../utils.js";
@@ -48,13 +48,12 @@ describe("cut two distances", () => {
 
       const s = sketch("xy", () => {
           testRect(50, 50, { at: [25, 25] });
-        }) as SceneObject;
+        }) as unknown as SceneObject;
 
       cut(20, 10);
 
-      render();
-
-      expect(s.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, s);
     });
   });
 
@@ -128,7 +127,7 @@ describe("cut two distances", () => {
     });
   });
 
-  describe("pick", () => {
+  describe("region", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
           testRect(100, 100);
@@ -136,10 +135,11 @@ describe("cut two distances", () => {
       extrude(50).symmetric();
 
       sketch("xy", () => {
-          circle([25, 25], 30);
+          const a = circle([25, 25], 30);
           circle([75, 25], 30);
+          region('a', a);
         });
-      const c = cut(20, 10).pick([25, 25]) as ExtrudeBase;
+      const c = cut(20, 10).region('a') as ExtrudeBase;
 
       render();
 

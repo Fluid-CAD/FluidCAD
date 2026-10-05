@@ -7,6 +7,7 @@ import type {
   MeasureEntityRef,
   MeasureResult,
   MoveToPartResult,
+  PartProperties,
   RemoveFeaturePreview,
   RemoveFeatureResult,
   SetUnitResult,
@@ -23,6 +24,8 @@ import type { LengthUnit } from './units/units';
  */
 export interface EngineEditorClient {
   addBreakpoint(sourceLocation: SourceLocationParam): void;
+  /** Atomic document breakpoint move; null continues to the end. */
+  moveTimelineBreakpoint?(filePath: string, before: { line: number; column: number } | null): Promise<{ success: boolean; reason?: string }>;
   /**
    * Reveal a source line. `revealEditor: false` is a passive navigation: an
    * editor that is hidden stays hidden (see {@link gotoSource} in api.ts).
@@ -37,6 +40,12 @@ export interface EngineEditorClient {
   /** Remove the feature and that whole dependant closure in one acked edit. */
   removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult>;
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void;
+  /**
+   * Rename the `part(...)` statement at `sourceLocation`: its name, the
+   * variable it is bound to and that variable's reads, in every file that
+   * imports the part. Acked: resolves once the edits landed.
+   */
+  renamePart(sourceLocation: SourceLocationParam, name: string): Promise<SetUnitResult>;
   /** Step the editor's native undo history for the file at `filePath`. */
   undo(filePath: string): Promise<EditorHistoryResult>;
   /** Step the editor's native redo history for the file at `filePath`. */
@@ -59,6 +68,11 @@ export interface EngineEditorClient {
   setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult>;
   /** Write the project unit (`fluidcad.json`) — what assemblies are measured in. */
   setProjectUnit(unit: LengthUnit): Promise<SetUnitResult>;
+  /**
+   * Set (null: remove) the `.material('id')` chain on the `part(...)`
+   * statement at `sourceLocation`. Acked: resolves once the edit landed.
+   */
+  setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult>;
 }
 
 /**
@@ -85,6 +99,13 @@ export interface EngineClient {
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;
   getMaterials(): Promise<Material[] | null>;
+  /**
+   * The aggregate over a part row's final solids (volume, area, centroid,
+   * mass from its material). Optional: a host without it (the browser
+   * viewer's worker client) leaves the Shape Properties panel's Part mode
+   * without numbers.
+   */
+  getPartProperties?(partId: string): Promise<PartProperties | null>;
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null>;
   /** `POST /api/export` — a list of solids, or the whole assembly; see {@link ExportRequestBody}. */
   exportShapes(body: ExportRequestBody): Promise<Blob>;

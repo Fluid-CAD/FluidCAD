@@ -57,14 +57,6 @@ export function removePoint(
   return postCodeEdit<CodeEditResult>(serverUrl, 'remove-point', { code, sourceLine, point }, logger);
 }
 
-export function addPick(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'add-pick', { code, sourceLine }, logger);
-}
-
-export function removePick(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'remove-pick', { code, sourceLine }, logger);
-}
-
 export function addGuide(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
   return postCodeEdit<CodeEditResult>(serverUrl, 'add-guide', { code, sourceLine }, logger);
 }
@@ -85,12 +77,6 @@ export function setFeatureName(
 
 export function insertLoad(serverUrl: string, code: string, fileName: string, logger: vscode.OutputChannel) {
   return postCodeEdit<CodeEditResult>(serverUrl, 'insert-load', { code, fileName }, logger);
-}
-
-export function setPickPoints(
-  serverUrl: string, code: string, sourceLine: number, points: [number, number][], logger: vscode.OutputChannel,
-) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'set-pick-points', { code, sourceLine, points }, logger);
 }
 
 export type InsertChainEdit = {

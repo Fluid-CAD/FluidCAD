@@ -8,7 +8,7 @@ import asmParams from '!!raw-loader!./_examples/asm-parameters.assembly.js';
 
 # Part parameters
 
-A part declares its parameters with [`param()`](/docs/part/param). Inserted into an assembly, that list is the part's **interface**: every `insert()` can supply its own values, and the same definition builds one variant per distinct set of values. This page is about supplying those values; declaring them is the part file's business.
+A part declares its parameters with [`param()`](/docs/part/param). Inserted into an assembly, that list is the part's **interface**: every `insert()` can supply its own values, and the same definition builds one variant per distinct set of values. The assembly can also declare its own parameters and pass them to its instances.
 
 ## In the viewport
 
@@ -27,7 +27,7 @@ A part declares its parameters with [`param()`](/docs/part/param). Inserted into
 
    <img src="/img/docs/assembly/asm-edit-params.png" alt="The Edit parameters dialog on an inserted plate" width="390" />
 
-4. Value rows are [expression inputs](/docs/part/param#in-an-expression-input): a row whose source holds an expression shows that expression rather than its resolved number, and any number row accepts an expression over the assembly file's own variables.
+4. Both **Insert** and **Edit parameters** support [expression inputs](/docs/part/param#in-an-expression-input). Number fields accept assembly parameters and expressions such as `width / 2`, with variable suggestions as you type. For sliders, text, selects, checkboxes, and colours, click **fx** to enter an expression. An existing expression is shown as source text when you reopen the dialog.
 
 ## In code
 
@@ -54,9 +54,21 @@ insert(plate, { Width: 120, Hole: 6.6 });
 
 `insert(def)` and `insert(def, { Width: 120 })` are two builds of the part; two `insert(def, { Width: 120 })` share one. Repeating an instance is therefore cheap, and a change to one instance's values never rebuilds the others.
 
+### Reading a part's properties
+
+Values flow the other way too. A part publishes what it computes with [`property()`](/docs/part/property), and every instance carries the values its own overrides produced, as `instance.properties.<name>`:
+
+```js
+const housing = insert(housingDef, { Width: 100 }).grounded();
+insert(plate, { Width: housing.properties.pocketDiameter - 0.4 })
+    .translate(0, 0, housing.properties.pocketDepth);
+```
+
+They are plain values, so they go anywhere a number goes: a pose, a mate offset, another insert's override. Numbers arrive in the part file's unit, like parameter overrides.
+
 ## Assembly parameters
 
-`param()` is also legal at the top of an `assembly()` body, where it is the assembly's own value: the inserts below can pass it on, and a sub-assembly declared this way has a parameter interface of its own, overridden exactly like a part's — `insert(stack, { Levels: 4 })`. The Insert dialog shows the same parameter page for a queued sub-assembly as for a part. An assembly's parameters have no panel in the assembly workspace; set them in the source, or from the parent's `insert()`.
+`param()` is also legal at the top of an `assembly()` body, where it is the assembly's own value: the inserts below can pass it on, and a sub-assembly declared this way has a parameter interface of its own, overridden exactly like a part's — `insert(stack, { Levels: 4 })`. The Insert dialog shows the same parameter page for a queued sub-assembly as for a part. Use the assembly workspace's **Parameters** panel to change their values. Click **+** to declare a parameter inside the assembly body, or the pencil beside a parameter to edit its declaration — a new label renames the variable and its reads, and a delete puts the default value in their place. This panel manages only the current assembly, so it has no part selector. New declarations require a single `assembly()` callback body in the current file.
 
 ![Two plates and a sub-assembly, each insert with its own parameter values](/img/docs/assembly/asm-parameters.png)
 

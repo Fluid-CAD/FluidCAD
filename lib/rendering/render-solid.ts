@@ -8,6 +8,7 @@ import type { MeshConfig } from "../oc/mesh.js";
 import { getOC } from "../oc/init.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { EdgeConvexityOps } from "../oc/edge-convexity.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 
 export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
   Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
@@ -24,17 +25,19 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
 
   const edgeToFaces = (shapeObj as Solid).getEdgeToFacesIndex();
 
-  // Seams and degenerated edges are never drawn; `edgeIdx` still counts
-  // them so the index matches every explorer-ordered lookup.
+  // Native seams, degenerate edges and recorded sweep construction joins
+  // are not drawn. Raw indexing remains unchanged for explicit lookups.
   const hidden = shapeObj instanceof Solid ? null : HiddenEdges.collect(shapeObj.getShape());
   const isHidden = (edge: TopoDS_Shape) => (shapeObj instanceof Solid ? shapeObj.isHiddenEdge(edge) : hidden!.Contains(edge));
 
   const edges = Explorer.findEdgesWrapped(shapeObj);
+  const spanSeams = shapeObj.getRenderSeams().length
+    ? TopologyIndex.buildShapeSet([...shapeObj.getRenderSeams()]) : null;
 
   try {
     for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
       const edgeShape = edges[edgeIdx].getShape();
-      if (isHidden(edgeShape)) {
+      if (isHidden(edgeShape) || spanSeams?.Contains(edgeShape)) {
         continue;
       }
 
@@ -66,6 +69,7 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
     }
   } finally {
     hidden?.delete();
+    spanSeams?.delete();
   }
 
   return result;

@@ -1,6 +1,6 @@
 import { StandardAxisId } from '../../scene/standard-axes';
 import {
-  applyRepeat, applyRepeatEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
+  applyRepeat, applyRepeatEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostPlaneRef, GhostSolid, ParsedFeatureStatement, RepeatApplyOptions,
   RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef, RepeatEditTargetRef,
   RepeatGhostRequest, SourceSlotRef,
@@ -15,11 +15,14 @@ import { RepeatDirection, RepeatPanel } from './repeat-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
+import { KeptAxisSlot } from './kept-axis-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
-import { collectRepeatTargets, RepeatTargetOption, resolveRepeatTargetRow } from './repeat-targets';
 import {
-  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  collectRepeatTargets, connectorRepeatRefusal, RepeatTargetOption, resolveRepeatTargetRow,
+} from './repeat-targets';
+import {
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
 import {
@@ -28,6 +31,7 @@ import {
   standardPlaneFromText,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 /**
  * The statement a resolved source slot names, or null when it names none —
@@ -144,7 +148,7 @@ export class RepeatFeatureService {
     // toolbar owns the bar.
     const group = navbar.addGroup('repeat', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/repeat-linear.png',
+      icon: iconUrl('repeat-linear'),
       label: 'Repeat',
       tip: 'Repeat features',
       ariaLabel: 'Repeat features along an axis, around an axis, or mirrored',
@@ -569,6 +573,7 @@ export class RepeatFeatureService {
     this.viewer.hideStandardAxes();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
+    this.viewer.setConnectorPicking(false);
     // pickPlanes is left alone: syncButton's onActiveChange runs the modify
     // service's neutral-mode restore, which owns that channel.
     this.syncButton();
@@ -594,7 +599,7 @@ export class RepeatFeatureService {
       }
       const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return;
       }
       this.pickAxis(option);
@@ -619,6 +624,20 @@ export class RepeatFeatureService {
       this.refreshHighlight();
       this.runner.schedulePreview();
     }
+  }
+
+  /**
+   * A connector gizmo was clicked with the Features slot armed — the dialog
+   * keeps the gizmos on screen pickable there only to say this: repeat()
+   * re-applies features and refuses connectors, and Copy copies them.
+   */
+  handleConnectorPick(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.panel.setMessage(
+      'Connectors are not repeated — repeat re-applies features. Copy a connector with the Copy dialog instead.',
+    );
   }
 
   /** A plane feature's quad was clicked while the Mirror type is up. */
@@ -675,7 +694,7 @@ export class RepeatFeatureService {
       }
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
+        this.panel.setMessage(AXIS_UNAVAILABLE_MESSAGE);
         return true;
       }
       this.pickAxis(option);
@@ -692,6 +711,11 @@ export class RepeatFeatureService {
         return true;
       }
       this.pickPlane(option);
+      return true;
+    }
+    const refusal = connectorRepeatRefusal(obj);
+    if (refusal) {
+      this.panel.setMessage(refusal);
       return true;
     }
     const target = resolveRepeatTargetRow(obj, this.sceneObjects);
@@ -932,7 +956,7 @@ export class RepeatFeatureService {
         request.angle = values.angle;
       }
     }
-    const result = await fetchFeatureGhostResult(request, signal);
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary
     // refusal (a stale pick, an expression the server can't evaluate: those
     // just leave the viewport as it was). A superseded fetch says nothing
@@ -1015,11 +1039,8 @@ export class RepeatFeatureService {
       return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
     }
     // The kept statement axis, as the sources query resolved it — an `axis()`
-    // the statement names by variable. A world-axis literal never reaches here
-    // (the slot reads `'z'` as the standard selection itself), and anything
-    // else is an expression no ghost can stand in for.
-    const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
-    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
+    // statement, or the edge an inline `axis(<edge>)` was built on.
+    return KeptAxisSlot.ghostRef(this.sourceSlots?.axes[selection.sourceIndex]);
   }
 
   /** The mirror plane slot, in the form the kernel resolves. */
@@ -1218,6 +1239,10 @@ export class RepeatFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = planeArmed;
     this.viewer.pickFilter = axisArmed ? 'edge' : planeArmed ? 'face' : 'none';
+    // The Features slot takes timeline rows; a connector gizmo on screen is
+    // pickable there only to be refused with the pointer to Copy (B9) —
+    // none is revealed, since none is ever a target.
+    this.viewer.setConnectorPicking(!axisArmed && !planeArmed, { reveal: false });
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {

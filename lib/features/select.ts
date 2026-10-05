@@ -11,7 +11,6 @@ import { ShapeType } from "../common/shape-type.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
-import { ShapeHasher } from "../oc/shape-hash.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Sketch } from "./2d/sketch.js";
@@ -46,15 +45,14 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * `plane(select(...))`. Its shapes belong to that feature once it builds, so
    * a later bare `color()` / `fillet(2)` must not fall back to it as the
    * implicit "last selection": that only fails at build time with a
-   * consumed-geometry error naming the feature. Reusable selections keep
-   * their shapes through consumption and stay eligible.
+   * consumed-geometry error naming the feature.
    */
   markClaimed(): void {
     this._claimed = true;
   }
 
   isClaimed(): boolean {
-    return this._claimed && !this.isReusable();
+    return this._claimed;
   }
 
   /**
@@ -163,10 +161,9 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope);
-    let scopeHasher: ShapeHasher | null = null;
+    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope, fromObjects);
     if (type === "edge") {
-      scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
+      SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
     }
     const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
     try {
@@ -176,7 +173,6 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
         filter.setMembershipSet(null);
         set.delete();
       }
-      scopeHasher?.delete();
     }
   }
 
@@ -268,8 +264,19 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return objects;
   }
 
-  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>) {
+  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>, fromObjects: SceneObject[] = []) {
     const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid', removalScope).map(s => s.getSubShapes(type)).flat());
+    // A borrowed path can be a standalone helix/sketch or a copy of one.
+    // Include curves explicitly named by .from(); unscoped edge filters keep
+    // their existing solid-only universe, so construction curves do not leak
+    // into an unrelated fillet/chamfer selection.
+    if (type === "edge") {
+      for (const obj of fromObjects) {
+        scopeShapes.push(...obj.getShapes({}, undefined, removalScope)
+          .filter(shape => shape.isEdge() || shape.isWire())
+          .flatMap(shape => shape.getSubShapes("edge")));
+      }
+    }
     const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(type));
     if (flatExcluded.length === 0) {
       return scopeShapes;
@@ -322,8 +329,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     filters: FilterBuilderBase<Shape>[],
     sceneObjects: SceneObject[],
     removalScope?: Set<SceneObject>,
-  ): ShapeHasher | null {
-    return injectFilterScope(filters, () => ({
+  ): void {
+    injectFilterScope(filters, () => ({
       solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid', removalScope)) as Solid[],
       extraFaces: [],
     }));
@@ -375,5 +382,4 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     }
   }
 }
-
 

@@ -86,11 +86,14 @@ export const features: FeatureEntry[] = [
   { name: 'origin', displayName: 'origin', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'origin', returnType: 'SketchDatum', sidebarPosition: 10 },
   { name: 'xAxis', displayName: 'xAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'xAxis', returnType: 'SketchDatum', sidebarPosition: 11 },
   { name: 'yAxis', displayName: 'yAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'yAxis', returnType: 'SketchDatum', sidebarPosition: 12 },
+  // 2D Sketching — Region declarations (what a 3D operation's .region() names)
+  { name: 'region', displayName: 'region', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: 'RegionFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 13 },
+  { name: 'far', displayName: 'far', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: null, functionName: 'far', returnType: 'IRegionSide', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 14 },
   // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 
   // 3D Operations
-  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
+  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISketch', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
   { name: 'extrude', displayName: 'extrude', category: '3d', sourceFile: 'core/extrude.ts', interfaceName: 'ExtrudeFunction', returnType: 'IExtrude', relatedGuide: '/docs/3d-operations/extrude', sidebarPosition: 2 },
   { name: 'cut', displayName: 'cut', category: '3d', sourceFile: 'core/cut.ts', interfaceName: 'CutFunction', returnType: 'ICut', relatedGuide: '/docs/3d-operations/extrude#add-new-and-remove', sidebarPosition: 3 },
   { name: 'revolve', displayName: 'revolve', category: '3d', sourceFile: 'core/revolve.ts', interfaceName: 'RevolveFunction', returnType: 'IRevolve', relatedGuide: '/docs/3d-operations/revolve', sidebarPosition: 4 },
@@ -108,6 +111,7 @@ export const features: FeatureEntry[] = [
   { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/3d-operations/rib', sidebarPosition: 16 },
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
+  { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
@@ -123,6 +127,7 @@ export const features: FeatureEntry[] = [
   { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/import-export/import', sidebarPosition: 4 },
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
+  { name: 'section', displayName: 'section', category: 'utilities', sourceFile: 'core/section.ts', interfaceName: 'SectionFunction', returnType: 'ISection', relatedGuide: '/docs/3d-operations/section-views', sidebarPosition: 7 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/sketching/tools/project', sidebarPosition: 25 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IReference', sidebarPosition: 26 },
 
@@ -131,15 +136,17 @@ export const features: FeatureEntry[] = [
   { name: 'param', displayName: 'param', category: 'assembly', sourceFile: 'core/param.ts', interfaceName: null, functionName: 'param', returnType: 'number | string | boolean', relatedGuide: '/docs/part/param', sidebarPosition: 2 },
   { name: 'connector', displayName: 'connector', category: 'assembly', sourceFile: 'core/connector.ts', interfaceName: 'ConnectorFunction', returnType: 'IConnector', relatedGuide: '/docs/part/connector', sidebarPosition: 3 },
   { name: 'expose', displayName: 'expose', category: 'assembly', sourceFile: 'core/expose.ts', interfaceName: 'ExposeFunction', returnType: 'ISceneObject', relatedGuide: '/docs/part/expose', sidebarPosition: 4 },
-  { name: 'assembly', displayName: 'assembly', category: 'assembly', sourceFile: 'core/assembly.ts', interfaceName: null, functionName: 'assembly', returnType: 'Assembly', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 5 },
-  { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 6 },
-  { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
-  { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 8 },
+  { name: 'property', displayName: 'property', category: 'assembly', sourceFile: 'core/property.ts', interfaceName: null, functionName: 'property', returnType: 'number | string | boolean | (string | number)[]', relatedGuide: '/docs/part/property', sidebarPosition: 5 },
+  { name: 'assembly', displayName: 'assembly', category: 'assembly', sourceFile: 'core/assembly.ts', interfaceName: null, functionName: 'assembly', returnType: 'Assembly', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 6 },
+  { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
+  { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 8 },
+  { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 9 },
   { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/extra/units', sidebarPosition: 10 },
 ];
 
 export const types: TypeEntry[] = [
   { name: 'ISceneObject', displayName: 'SceneObject', sourceFile: 'core/interfaces.ts', sidebarPosition: 1 },
+  { name: 'ISketch', displayName: 'Sketch', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 1.5 },
   { name: 'ITransformable', displayName: 'Transformable', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 2 },
   { name: 'IBooleanOperation', displayName: 'BooleanOperation', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 3 },
   { name: 'IGeometry', displayName: 'Geometry', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 4 },
@@ -167,11 +174,15 @@ export const types: TypeEntry[] = [
   { name: 'IRib', displayName: 'Rib', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.5 },
   { name: 'IWrap', displayName: 'Wrap', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.6 },
   { name: 'IHelix', displayName: 'Helix', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.7 },
+  { name: 'IHole', displayName: 'Hole', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.8 },
   { name: 'IText', displayName: 'Text', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17.5 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
+  { name: 'IOffsetEdge', displayName: 'OffsetEdge', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 32.1 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
+  { name: 'ISection', displayName: 'Section', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18.5 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
+  { name: 'IConnector', displayName: 'Connector', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 21 },
   { name: 'Point2DLike', displayName: 'Point2DLike', sourceFile: 'math/point.ts', sidebarPosition: 23 },
   { name: 'PointLike', displayName: 'PointLike', sourceFile: 'math/point.ts', sidebarPosition: 24 },
   { name: 'PlaneLike', displayName: 'PlaneLike', sourceFile: 'math/plane.ts', sidebarPosition: 25 },
@@ -281,6 +292,7 @@ export const constraints: ConstraintEntry[] = [
   { name: 'angle', sourceFile: 'core/constraints/angle.ts', group: 'dimension' },
   { name: 'radius', sourceFile: 'core/constraints/radius.ts', group: 'dimension' },
   { name: 'diameter', sourceFile: 'core/constraints/diameter.ts', group: 'dimension' },
+  { name: 'offsetFrom', sourceFile: 'core/constraints/offset-from.ts', group: 'dimension' },
 ];
 
 // ── Expandable options types ──
@@ -313,6 +325,7 @@ export const optionsTypeProperties: Record<string, OptionsProperty[]> = {
     { name: 'rotateX', type: 'number', description: 'Rotation around the plane\'s X axis (in degrees)', optional: true },
     { name: 'rotateY', type: 'number', description: 'Rotation around the plane\'s Y axis (in degrees)', optional: true },
     { name: 'rotateZ', type: 'number', description: 'Rotation around the plane\'s Z axis / normal (in degrees)', optional: true },
+    { name: 'rotationAxes', type: "'local' | 'world'", description: 'The axes the rotations turn around: the plane\'s own through its origin (`local`, the default — tilts in place) or the world axes through the world origin (`world` — an offset plane orbits)', optional: true },
   ],
 };
 
@@ -334,13 +347,18 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IRib': 'Rib',
   'IWrap': 'Wrap',
   'IHelix': 'Helix',
+  'IHole': 'Hole',
   'IText': 'Text',
   'IOffset': 'Offset',
+  'IOffsetEdge': 'OffsetEdge',
   'IPlane': 'Plane',
+  'ISketch': 'Sketch',
   'IAxis': 'Axis',
   'ISelect': 'Select',
+  'ICopy': 'Copy',
   'IRepeat': 'Repeat',
   'IRepeatInstance': 'RepeatInstance',
+  'IConnector': 'Connector',
   'FaceFilterBuilder': 'FaceFilter',
   'EdgeFilterBuilder': 'EdgeFilter',
   'Point2DLike': 'Point2DLike',
@@ -376,14 +394,15 @@ export function typeSlug(displayName: string): string {
 
 /** Resolves a raw type string to its display name */
 export function resolveTypeName(raw: string): string {
-  // Handle union types: resolve each part individually
-  if (raw.includes(' | ')) {
-    return raw.split(' | ').map(part => resolveTypeName(part.trim())).join(' | ');
-  }
-  // Handle parenthesized array wrapper: (Foo | Bar)[]
+  // Handle parenthesized array wrapper: (Foo | Bar)[] — before the union
+  // split, which would cut it at its inner bar
   const parenArrayMatch = raw.match(/^\((.+)\)\[\]$/);
   if (parenArrayMatch) {
     return `(${resolveTypeName(parenArrayMatch[1])})[]`;
+  }
+  // Handle union types: resolve each part individually
+  if (raw.includes(' | ')) {
+    return raw.split(' | ').map(part => resolveTypeName(part.trim())).join(' | ');
   }
   // Handle simple array type: Foo[]
   const simpleArrayMatch = raw.match(/^(.+)\[\]$/);

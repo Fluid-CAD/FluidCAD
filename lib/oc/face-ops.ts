@@ -167,6 +167,16 @@ export class FaceOps {
   }
 
   /**
+   * The face's outer (boundary) wire; every other wire of the face bounds a
+   * hole. Pure topology — no tolerance, no geometry — so it holds under
+   * fillets, booleans and shells alike. The caller owns the returned wire.
+   */
+  static outerWireRaw(face: TopoDS_Face): TopoDS_Wire {
+    const oc = getOC();
+    return oc.BRepTools.OuterWire(oc.TopoDS.Face(face));
+  }
+
+  /**
    * The axis of a face whose surface is a cylinder or a cone — origin at the
    * surface's own location, direction along its axis — or null for any other
    * surface. The direction carries the surface's raw sign: for an extruded
@@ -216,7 +226,7 @@ export class FaceOps {
 
   /**
    * The face's OUTWARD normal where `edge` runs along it — evaluated at the
-   * mid-parameter of the edge's pcurve on the face, so it is exact on curved
+   * mid-parameter by default (or at `fraction` along the pcurve), so it is exact on curved
    * faces (a cylinder's normal rotates along the rim; the UV-mid probe would
    * be off by the angular distance). Orientation-corrected like
    * `calculateNormalRaw`.
@@ -227,7 +237,7 @@ export class FaceOps {
    * no pcurve on this face or the normal is undefined there (a degenerate
    * apex).
    */
-  static outwardNormalOnEdge(face: Face | TopoDS_Face, edge: Edge | TopoDS_Edge): Vector3d | null {
+  static outwardNormalOnEdge(face: Face | TopoDS_Face, edge: Edge | TopoDS_Edge, fraction = 0.5): Vector3d | null {
     const oc = getOC();
     const rawFace = oc.TopoDS.Face(face instanceof Face ? face.getShape() : face);
     const rawEdge = oc.TopoDS.Edge(edge instanceof Edge ? edge.getShape() : edge);
@@ -236,21 +246,25 @@ export class FaceOps {
     const pcurve = rep.returnValue;
     // A null handle arrives as JS null, never as a wrapper.
     if (!pcurve) {
+      rep[Symbol.dispose]?.();
+      rawEdge.delete(); rawFace.delete();
       return null;
     }
     const surface = oc.BRep_Tool.Surface(rawFace);
     try {
-      const uv = pcurve.Value((rep.First + rep.Last) / 2);
+      const uv = pcurve.Value(rep.First + (rep.Last - rep.First) * fraction);
       const props = new oc.GeomLProp_SLProps(surface, uv.X(), uv.Y(), 1, 1e-6);
       try {
         if (!props.IsNormalDefined()) {
           return null;
         }
-        let normal = props.Normal();
-        if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-          normal = normal.Reversed();
+        const normal = props.Normal();
+        try {
+          const vector = Convert.toVector3dFromGpDir(normal);
+          return rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? vector.negate() : vector;
+        } finally {
+          normal.delete();
         }
-        return Convert.toVector3dFromGpDir(normal);
       } finally {
         props.delete();
         uv.delete();
@@ -259,6 +273,7 @@ export class FaceOps {
       surface.delete();
       pcurve.delete();
       rep[Symbol.dispose]?.();
+      rawEdge.delete(); rawFace.delete();
     }
   }
 
@@ -490,8 +505,6 @@ export class FaceOps {
   }
 
   static planeToFace(plane: Plane, center?: Point): Face {
-    const oc = getOC();
-
     // A 100 mm visual half-size, in the document's unit.
     const size = mmTol(100);
 
@@ -500,12 +513,17 @@ export class FaceOps {
       plane = plane.translate(translation.x, translation.y, translation.z);
     }
 
+    return Face.fromTopoDSFace(FaceOps.makeSquareFace(plane, size));
+  }
+
+  /** A square planar face centred on the plane's origin, `halfSize` to each side. */
+  static makeSquareFace(plane: Plane, halfSize: number): TopoDS_Face {
+    const oc = getOC();
     const [pln, dispose] = Convert.toGpPln(plane);
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln, -size, size, -size, size);
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln, -halfSize, halfSize, -halfSize, halfSize);
     const face = faceMaker.Face();
     faceMaker.delete();
     dispose();
-
-    return Face.fromTopoDSFace(face);
+    return face;
   }
 }

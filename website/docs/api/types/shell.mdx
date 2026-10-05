@@ -24,19 +24,6 @@ Sets a custom display name for this object, overriding the default type-based na
 |-----------|------|-------------|
 | `value` | string | The display name to assign. |
 
----
-
-### reusable()
-
-```ts
-reusable(): this
-```
-
-Marks this object as reusable. Reusable objects retain their shapes when
-consumed by features (e.g., extrude, revolve), allowing multiple features
-to reference the same source geometry. Use `remove(obj)` to force-remove
-shapes from a reusable object.
-
 
 </details>
 
@@ -45,7 +32,7 @@ shapes from a reusable object.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+internalFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects the inner wall faces created by the shell operation (from thickness removal).
@@ -54,14 +41,14 @@ Selects the inner wall faces created by the shell operation (from thickness remo
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+internalEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects edges created by the shell operation that are not from the original solid
@@ -71,7 +58,7 @@ or on the opening rim.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 

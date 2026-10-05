@@ -24,19 +24,6 @@ Sets a custom display name for this object, overriding the default type-based na
 |-----------|------|-------------|
 | `value` | string | The display name to assign. |
 
----
-
-### reusable()
-
-```ts
-reusable(): this
-```
-
-Marks this object as reusable. Reusable objects retain their shapes when
-consumed by features (e.g., extrude, revolve), allowing multiple features
-to reference the same source geometry. Use `remove(obj)` to force-remove
-shapes from a reusable object.
-
 
 </details>
 
@@ -98,7 +85,7 @@ Offsets the cut end face by a specified distance along the cut direction.
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+startEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges at the top of the cut: the rims where the tool entered the
@@ -110,14 +97,14 @@ the sketch plane lies in a void and the tool meets material further out.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+endEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges at the bottom of the cut: every edge of a floor the tool
@@ -127,14 +114,14 @@ stopped at, and the rims where a through cut left the material.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
+internalEdges(...args: (number | EdgeFilter)[]): ISelection
 ```
 
 Selects the edges created inside the solid: creases between the cut's own
@@ -144,14 +131,14 @@ walls, and rims along faces the cut runs parallel to.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilter)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
+internalFaces(...args: (number | FaceFilter)[]): ISelection
 ```
 
 Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
@@ -160,21 +147,22 @@ Selects internal faces exposed by the cut — newly created surfaces not from th
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
-### pick()
+### region()
 
 ```ts
-pick(...points: Point2DLike[]): this
+region(...names: string[]): this
 ```
 
-Restricts the cut to only the sketch regions containing the given points.
+Restricts the cut to particular regions of the sketch, by the names
+their `region()` declarations gave them. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to cut. *(optional)* |
+| `...names` | string[] | Names of regions the sketch declares. *(optional)* |
 
 ---
 

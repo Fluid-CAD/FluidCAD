@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render, addToScene } from "../setup.js";
+import { setupOC, render, addToScene, expectDisplayConsumed } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
 import mirror from "../../core/mirror.js";
+import extrude from "../../core/extrude.js";
+import select from "../../core/select.js";
+import { edge } from "../../filters/index.js";
 import { circle, bezier, line, yAxis } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -89,9 +92,8 @@ describe("loft guides", () => {
 
       loft(s1, s2).guides(guide);
 
-      render();
-
-      expect(guide.getShapes()).toHaveLength(0);
+      const scene = render();
+      expectDisplayConsumed(scene, guide);
     });
 
     it("classifies start and end faces", () => {
@@ -137,7 +139,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       const l = loft(p1, p2).guides(g1) as Loft;
       const sides = l.sideFaces();
@@ -180,7 +182,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       const l = loft(p1, p2).guides(g1) as Loft;
       const sideEdges = l.sideEdges();
@@ -282,7 +284,7 @@ describe("loft guides", () => {
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(yAxis());
-      }).reusable();
+      });
 
       // `.new()` — the two variants overlap almost everywhere; fusing two
       // nearly-coincident B-spline solids is exactly the boolean OCC hates.
@@ -379,6 +381,32 @@ describe("loft guides", () => {
       render();
 
       expect(l.getError()).toContain("thin");
+    });
+  });
+
+  describe("a solid edge selected as the guide", () => {
+    function guided(inline: boolean): Loft {
+      extrude(60, sketch("xy", () => testRect(40, 40)));
+      const a = sketch("xy", () => testRect(40, 40));
+      const b = sketch(plane("xy", { offset: 60 }), () => testRect(40, 40));
+      if (inline) {
+        return loft(a, b).guides(select(edge().verticalTo("xy").nearest("x").nearest("y"))).new() as Loft;
+      }
+      const rail = select(edge().verticalTo("xy").nearest("x").nearest("y"));
+      return loft(a, b).guides(rail).new() as Loft;
+    }
+
+    it("builds when the selection is declared before the loft", () => {
+      const l = guided(false);
+      render();
+      expect(l.getError()).toBeNull();
+      expect(l.getShapes()).toHaveLength(1);
+    });
+
+    it("reports a selection written inside .guides() as created after the loft", () => {
+      const l = guided(true);
+      render();
+      expect(l.getError()).toMatch(/loft\(\) uses a select\(\) that runs after it/);
     });
   });
 });

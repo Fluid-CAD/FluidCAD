@@ -12,6 +12,11 @@ import { Solid } from "../../common/solid.js";
 import { Scene } from "../../rendering/scene.js";
 import { FaceProps } from "../../oc/face-props.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import axis from "../../core/axis.js";
+import { Matrix4 } from "../../math/matrix4.js";
+import { Point } from "../../math/point.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { rad } from "../../helpers/math-helpers.js";
 import { testRect } from "../helpers/profiles.js";
 
 /** Distinct non-container solids of the scene, ordered by their min x. */
@@ -228,5 +233,59 @@ describe("repeat instance() accessor", () => {
     const solids = solidsByX(scene);
     expect(solids.map(cylinderFaceCount)).toEqual([0, 0, 12]);
     expect(ShapeOps.getBoundingBox(solids[2]).minX).toBeCloseTo(80, 1);
+  });
+});
+
+describe("repeat slot matrices", () => {
+  setupOC();
+
+  function expectNoErrors(scene: Scene): void {
+    const errored = scene.getAllSceneObjects().filter(o => o.getError());
+    expect(errored.map(o => `${o.getUniqueType()}: ${o.getError()}`)).toEqual([]);
+  }
+
+  it("hands each linear slot the transform its clones carry, the identity at the original's", () => {
+    const e = box();
+    const r = repeat("linear", "x", { count: 3, offset: 40, centered: true }, e) as unknown as RepeatBase;
+    const slots = r.getInstanceSlots();
+    expect(r.getOriginalSlot()).toBe(1);
+    expect(r.getSlotMatrix(0)).toBe(slots[0]![0].getTransformRef());
+    expect(r.getSlotMatrix(2)).toBe(slots[2]![0].getTransformRef());
+
+    expectNoErrors(render());
+    expect(r.getSlotMatrix(1).resolve().equals(Matrix4.identity())).toBe(true);
+    expect(r.getSlotMatrix(0).resolve().equals(Matrix4.fromTranslation(-40, 0, 0), 1e-9)).toBe(true);
+    expect(r.getSlotMatrix(2).resolve().equals(Matrix4.fromTranslation(40, 0, 0), 1e-9)).toBe(true);
+  });
+
+  it("stays lazy until the axis object a circular slot turns about has built", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [60, 0] });
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+    const r = repeat("circular", axis("z", { offsetX: 20 }), { count: 4, angle: 360, skip: [2] }, e) as unknown as RepeatBase;
+    // Parse time: the axis has not built, and asking for the slot must not read it.
+    const turn = r.getSlotMatrix(1);
+    expect(turn).toBe(r.getInstanceSlots()[1]![0].getTransformRef());
+    expect(() => r.getSlotMatrix(2)).toThrow(/instance\(2\) was skipped/);
+    expect(() => r.getSlotMatrix(4)).toThrow(/instance\(4\) is out of range — valid slots: 0–3/);
+
+    expectNoErrors(render());
+    const expected = Matrix4.fromRotationAroundAxis(new Point(20, 0, 0), new Vector3d(0, 0, 1), rad(90));
+    expect(turn.resolve().equals(expected, 1e-9)).toBe(true);
+  });
+
+  it("gives a mirror its reflection at slot 1", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [40, 0] });
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+    const m = repeat("mirror", "yz", e) as unknown as RepeatBase;
+
+    expectNoErrors(render());
+    expect(m.getSlotMatrix(0).resolve().equals(Matrix4.identity())).toBe(true);
+    const reflection = Matrix4.mirrorPlane(new Vector3d(1, 0, 0), new Point(0, 0, 0));
+    expect(m.getSlotMatrix(1).resolve().equals(reflection, 1e-9)).toBe(true);
+    expect(m.getSlotMatrix(1)).toBe(m.getInstanceSlots()[1]![0].getTransformRef());
   });
 });

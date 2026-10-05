@@ -12,7 +12,7 @@ export type SummaryVec = [number, number, number];
  */
 export type EntitySummary = {
   /** Surface kind for a face, curve kind for an edge. */
-  form: FaceForm | EdgeForm;
+  form: FaceForm | EdgeForm | 'vertex';
   /** The entity's center, else its area centroid / midpoint. */
   center: SummaryVec;
   /** Unit normal — planes, circles/arcs (their plane), tori (axis). */

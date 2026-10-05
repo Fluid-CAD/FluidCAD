@@ -73,13 +73,85 @@ describe('ActivePartTracker', () => {
     expect(tracker.isActive(b)).toBe(false);
   });
 
-  it('re-activating the active part keeps it active (no toggle-off)', () => {
+  it('activating the active part again changes nothing', () => {
     const tracker = new ActivePartTracker();
     const a = partRow('A', 3);
     tracker.sync([a]);
-    tracker.activate(a);
-    tracker.activate(a);
+    expect(tracker.activate(a)).toBe(false);
     expect(tracker.isActive(a)).toBe(true);
+  });
+
+  it('steps out of the active part to the top level, keeping it selected', () => {
+    const tracker = new ActivePartTracker();
+    const a = partRow('A', 3);
+    const b = partRow('B', 8);
+    tracker.sync([a, b]);
+    expect(tracker.deactivate()).toBe(true);
+    expect(tracker.location).toBeNull();
+    expect(tracker.isActive(b)).toBe(false);
+    expect(tracker.isSelected(b)).toBe(true);
+    expect(tracker.isSelected(a)).toBe(false);
+    expect(tracker.selectedLocation).toEqual({ filePath: FILE, line: 8, column: 0 });
+    // Already at the top level: nothing is left to step out of.
+    expect(tracker.deactivate()).toBe(false);
+  });
+
+  it('steps back into the selected part, or into another one, on activate', () => {
+    const tracker = new ActivePartTracker();
+    const a = partRow('A', 3);
+    const b = partRow('B', 8);
+    tracker.sync([a, b]);
+    tracker.deactivate();
+    expect(tracker.activate(b)).toBe(true);
+    expect(tracker.isActive(b)).toBe(true);
+    expect(tracker.location).toEqual({ filePath: FILE, line: 8, column: 0 });
+
+    tracker.deactivate();
+    expect(tracker.activate(a)).toBe(true);
+    expect(tracker.isActive(a)).toBe(true);
+    expect(tracker.isSelected(b)).toBe(false);
+  });
+
+  it('stays at the top level across renders that shift or rename the selected part', () => {
+    const tracker = new ActivePartTracker();
+    tracker.sync([partRow('A', 3), partRow('B', 8)]);
+    tracker.deactivate();
+    const shifted = partRow('B', 12);
+    tracker.sync([partRow('A', 3), shifted]);
+    expect(tracker.location).toBeNull();
+    expect(tracker.isSelected(shifted)).toBe(true);
+
+    const renamed = partRow('Lid', 12);
+    tracker.sync([partRow('A', 3), renamed]);
+    expect(tracker.location).toBeNull();
+    expect(tracker.isSelected(renamed)).toBe(true);
+  });
+
+  it('selects the last part, active, when the part stepped out of leaves the scene', () => {
+    const tracker = new ActivePartTracker();
+    const a = partRow('A', 3);
+    tracker.sync([a, partRow('B', 8)]);
+    tracker.deactivate();
+    tracker.sync([a]);
+    expect(tracker.isActive(a)).toBe(true);
+  });
+
+  it('activates the part the Part tool created, even from the top level', () => {
+    const tracker = new ActivePartTracker();
+    const a = partRow('A', 3);
+    tracker.sync([a]);
+    tracker.deactivate();
+    tracker.activateLastOnNextRender();
+    const fresh = partRow('Part 1', 9);
+    tracker.sync([a, fresh]);
+    expect(tracker.isActive(fresh)).toBe(true);
+  });
+
+  it('has nothing to step out of in a scene without parts', () => {
+    const tracker = new ActivePartTracker();
+    tracker.sync([featureRow('E', 2)]);
+    expect(tracker.deactivate()).toBe(false);
+    expect(tracker.selectedLocation).toBeNull();
   });
 
   it('re-resolves by name when an edit shifted the line', () => {
@@ -133,9 +205,15 @@ describe('ActivePartTracker', () => {
 
   it('clear() empties the assembly-scene state', () => {
     const tracker = new ActivePartTracker();
-    tracker.sync([partRow('A', 3)]);
+    const a = partRow('A', 3);
+    tracker.sync([a]);
+    tracker.deactivate();
     tracker.clear();
     expect(tracker.location).toBeNull();
+    expect(tracker.selectedLocation).toBeNull();
+    // The step-out went with the selection: the next part scene starts active.
+    tracker.sync([a]);
+    expect(tracker.isActive(a)).toBe(true);
   });
 
   it('ignores child part rows and rows without a source location', () => {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { CompileError } from '../ws-protocol.ts';
-import type { ObjectBuildError } from '../fluidcad-server.ts';
+import type { ObjectBuildError } from '../fluidcad-server/index.ts';
 import type { RenderChanges } from '../../../lib/dist/index.js';
 
 /**

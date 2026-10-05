@@ -11,6 +11,12 @@ export type SelectionScene = {
   getAllSceneObjects(): SceneObject[];
   findEnclosingPart(obj: SceneObject): SceneObject | null;
   /**
+   * The objects in timeline order — the rows a render lists and a boundary
+   * index counts (Scene.getTimelineObjects). Absent on a truncated view,
+   * whose rows are its build-order list.
+   */
+  getTimelineObjects?(): SceneObject[];
+  /**
    * The statement the view is truncated before — the one being re-authored
    * (every boundary comes from an edit session; creation never scopes).
    * Registries that live outside the object list (a part's connectors)
@@ -20,14 +26,25 @@ export type SelectionScene = {
   editedStatement?: SceneObject;
 };
 
-/** View of `scene` truncated to objects strictly before `boundaryIndex`. */
+/** The object on timeline row `index` — the row a boundary names. */
+export function objectAtRow(scene: SelectionScene, index: number): SceneObject | undefined {
+  return (scene.getTimelineObjects?.() ?? scene.getAllSceneObjects())[index];
+}
+
+/**
+ * View of `scene` truncated before the statement on row `boundaryIndex`:
+ * the objects built before it, in build order — the world its arguments see
+ * at build time, even where the timeline lists a part above it that built
+ * later.
+ */
 export function scopedSceneBefore(scene: SelectionScene, boundaryIndex: number): SelectionScene {
   const all = scene.getAllSceneObjects();
-  const objects = all.slice(0, boundaryIndex);
+  const edited = objectAtRow(scene, boundaryIndex);
+  const objects = edited ? all.slice(0, all.indexOf(edited)) : all.slice(0, boundaryIndex);
   return {
     getAllSceneObjects: () => objects,
     findEnclosingPart: (obj) => scene.findEnclosingPart(obj),
-    editedStatement: all[boundaryIndex],
+    editedStatement: edited,
   };
 }
 
@@ -54,7 +71,7 @@ export function resolveScopedScene(
   scene: SelectionScene,
   boundary: SelectionBoundary,
 ): { ok: true; scene: SelectionScene } | { ok: false; reason: string } {
-  const obj = scene.getAllSceneObjects()[boundary.index];
+  const obj = objectAtRow(scene, boundary.index);
   const loc = obj?.getSourceLocation() ?? null;
   const matches = !!obj && obj.getType() === boundary.type
     && !!loc && loc.line === boundary.line && loc.column === boundary.column;
@@ -82,7 +99,7 @@ export const CONNECTOR_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export const MEMBER_NAME_PATTERN = CONNECTOR_NAME_PATTERN;
 
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
-export type PickSubRef = { type: 'edge' | 'face'; index: number };
+export type PickSubRef = { type: 'edge' | 'face' | 'vertex'; index: number };
 export type PickRef = { shapeId: string; sub: PickSubRef };
 
 /** Geometric summary of a picked sub-shape, for labels and debugging. */
@@ -140,7 +157,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section' | 'hole';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -205,6 +222,17 @@ export type ApplyFeatureEditSpec = {
   expose?: {
     name: string;
     /** The `part(...)` call site whose body receives the statement. */
+    part?: { line: number; column: number };
+  };
+  /**
+   * Hole-anchor payload (synthesis kind `'hole'`): one face/edge pick named
+   * as a hole placement with its anchor suffix (`e.endFaces().center()`).
+   * `part` is the enclosing `part(...)` call site when the pick lives inside
+   * one — the route then creates a named connector there instead of
+   * placing the hole on the bare anchor expression.
+   */
+  hole?: {
+    anchor?: ConnectorAnchor;
     part?: { line: number; column: number };
   };
   filePath: string;
@@ -400,6 +428,7 @@ export function nameHintFor(featureType: string): string {
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
     case 'plane': return 'p';
+    case 'sketch': return 's';
     case 'axis': return 'a';
     // 2D sketch geometry (getType values of sketch primitives).
     case 'line': return 'l';

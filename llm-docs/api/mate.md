@@ -25,8 +25,9 @@ mate(type, a, b): MateBuilder
 | `'tangent'` | anything that keeps the surfaces in contact | exposures |
 
 A connector side is `instance.connectors.<name>` (from an `insert()`
-handle) or an assembly connector; a tangent side is
-`instance.features.<name>`. The two kinds are not interchangeable — passing
+handle) or an assembly connector — or a copy of either,
+`instance.connectors.bolt.instance(3)` / `bay.instance(2)` (see
+[[api/connector]]); a tangent side is `instance.features.<name>`. The two kinds are not interchangeable — passing
 a connector to `'tangent'` or an exposure to any other type is an error.
 
 **Driver and placement.** The first side drives: options are read in its

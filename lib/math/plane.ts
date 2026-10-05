@@ -8,14 +8,39 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { IPlane } from "../core/interfaces.js";
 import { mmTol } from "../units/tolerance.js";
 
+/**
+ * Which axes a plane's rotations turn around: the plane's own X, Y and normal
+ * (`'local'`, the default) or the fixed world X, Y and Z (`'world'`).
+ */
+export type PlaneRotationAxes = 'local' | 'world';
+
+export function isPlaneRotationAxes(value: unknown): value is PlaneRotationAxes {
+  return value === 'local' || value === 'world';
+}
+
 export interface PlaneTransformOptions {
+  /** Distance to move the plane along its normal. Applied before any rotation. */
   offset?: number;
+  /** Rotation in degrees around the X axis — the plane's own, or the world's under `rotationAxes: 'world'`. */
   rotateX?: number;
+  /** Rotation in degrees around the Y axis — the plane's own, or the world's under `rotationAxes: 'world'`. */
   rotateY?: number;
+  /** Rotation in degrees around the Z axis — the plane's normal, or the world Z under `rotationAxes: 'world'`. */
   rotateZ?: number;
+  /**
+   * The axes the rotations turn around. `'local'` (the default) is the plane's
+   * own X, Y and normal: X first, then Y as the X turn left it, then the
+   * normal as both turns left it. They pass through the plane's origin (after
+   * the offset), so the plane tilts in place. `'world'` is the fixed world X,
+   * Y and Z, in that order. They pass through the world origin, so an offset
+   * plane orbits it rather than tilting in place.
+   */
+  rotationAxes?: PlaneRotationAxes;
 }
 
 export class Plane {
+  /** Authored station from plane(path, position), before local profile offsets/rotations. */
+  pathStation?: { point: Point; tangent: Vector3d };
   public readonly yDirection: Vector3d;
   public readonly xAxis: Axis;
   public readonly yAxis: Axis;
@@ -46,11 +71,15 @@ export class Plane {
 
   offset(distance: number): Plane {
     const newOrigin = this.origin.add(this.normal.multiply(distance));
-    return new Plane(newOrigin, this.xDirection, this.normal);
+    const plane = new Plane(newOrigin, this.xDirection, this.normal);
+    plane.pathStation = this.pathStation;
+    return plane;
   }
 
   transform(options: PlaneTransformOptions): Plane {
-    return this.applyMatrix(this.getTransformMatrix(options));
+    const plane = this.applyMatrix(this.getTransformMatrix(options));
+    plane.pathStation = this.pathStation;
+    return plane;
   }
 
   getTransformMatrix(options: PlaneTransformOptions): Matrix4 {
@@ -60,26 +89,42 @@ export class Plane {
       ? Matrix4.fromTranslation(offsetVec.x, offsetVec.y, offsetVec.z)
       : Matrix4.identity();
 
+    if (options.rotationAxes !== undefined && !isPlaneRotationAxes(options.rotationAxes)) {
+      throw new Error(`plane: rotationAxes must be 'local' or 'world', got ${JSON.stringify(options.rotationAxes)}`);
+    }
+
     const hasRotation = options.rotateX || options.rotateY || options.rotateZ;
     if (!hasRotation) {
       return offsetMatrix;
     }
 
-    // Compose all rotations into a single quaternion to avoid gimbal lock.
-    // Axes are taken from the current plane (offset doesn't change orientation).
+    // Compose the three turns into one quaternion. The offset doesn't change
+    // the orientation, so the local axes are read off this plane as it is.
+    //
+    // Local axes are intrinsic: X first, then Y as the X turn left it, then
+    // the normal as both left it — which is the product qx·qy·qz over the
+    // plane's untouched axes. World axes are extrinsic: X, then Y, then Z,
+    // all fixed — the product qz·qy·qx. The multiplication order and the
+    // pivot differ, nothing else.
+    const world = options.rotationAxes === 'world';
+    const turns: [number | undefined, Vector3d, Vector3d][] = [
+      [options.rotateX, this.xDirection, Vector3d.unitX()],
+      [options.rotateY, this.yDirection, Vector3d.unitY()],
+      [options.rotateZ, this.normal, Vector3d.unitZ()],
+    ];
     let q = Quaternion.identity();
-    if (options.rotateX) {
-      q = q.multiply(Quaternion.fromAxisAngle(this.xDirection, rad(options.rotateX)));
-    }
-    if (options.rotateY) {
-      q = q.multiply(Quaternion.fromAxisAngle(this.yDirection, rad(options.rotateY)));
-    }
-    if (options.rotateZ) {
-      q = q.multiply(Quaternion.fromAxisAngle(this.normal, rad(options.rotateZ)));
+    for (const [angle, localAxis, worldAxis] of turns) {
+      if (!angle) {
+        continue;
+      }
+      const turn = Quaternion.fromAxisAngle(world ? worldAxis : localAxis, rad(angle));
+      q = world ? turn.multiply(q) : q.multiply(turn);
     }
 
-    // Rotate around the offset-applied origin (the plane's origin after offset).
-    const pivot = this.origin.add(offsetVec);
+    // Each turn is around its axis LINE: the local axes pass through the
+    // plane's origin after the offset, so the plane tilts in place; the world
+    // axes pass through the world origin, so an offset plane orbits it.
+    const pivot = world ? Point.origin() : this.origin.add(offsetVec);
     const toOrigin = Matrix4.fromTranslation(-pivot.x, -pivot.y, -pivot.z);
     const rotation = Matrix4.fromQuaternion(q);
     const fromOrigin = Matrix4.fromTranslation(pivot.x, pivot.y, pivot.z);
@@ -89,12 +134,17 @@ export class Plane {
   }
 
   applyMatrix(matrix: Matrix4): Plane {
-    return new Plane(
+    const plane = new Plane(
       matrix.transformPoint(this.origin),
       matrix.transformDirection(this.xDirection),
       matrix.transformDirection(this.normal),
       matrix.transformDirection(this.yDirection)
     );
+    if (this.pathStation) plane.pathStation = {
+      point: matrix.transformPoint(this.pathStation.point),
+      tangent: matrix.transformDirection(this.pathStation.tangent),
+    };
+    return plane;
   }
 
   translateAlongNormal(distance: number): Plane {

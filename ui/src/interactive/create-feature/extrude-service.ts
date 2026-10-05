@@ -1,5 +1,5 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
+  applyExtrude, applyExtrudeEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
   ExtrudeProfileRef, FeatureEditTarget, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
@@ -13,12 +13,14 @@ import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
+import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectExtrudeProfiles, labelWithSketchNames, optionsSignature, resolveProfileByShapeId, resolveProfileRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
+import { iconUrl } from '../../ui/icon-url';
 
 type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
 
@@ -67,6 +69,8 @@ export class ExtrudeFeatureService {
   private sketchUI: SketchUISuspender;
   /** The translucent body the current values would build, drawn in the view. */
   private ghost: FeatureGhostOverlay;
+  /** The `.region(…)` picks — dialog state, written on Apply. */
+  private regions: RegionPicker;
   private runner: ApplyRunner<ExtrudeApplyRequest | ExtrudeEditOptions>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
@@ -86,7 +90,7 @@ export class ExtrudeFeatureService {
   ) {
     const group = navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/extrude.png',
+      icon: iconUrl('extrude'),
       label: 'Extrude',
       tip: 'Extrude a sketch',
       ariaLabel: 'Extrude a sketch',
@@ -126,12 +130,30 @@ export class ExtrudeFeatureService {
       this.refreshScope();
       this.runner.schedulePreview();
     };
-    this.panel.onArmedPickChange = () => this.syncFacePickMode();
+    this.panel.onArmedPickChange = () => {
+      // A face or scope slot took the viewport — region picking hands it
+      // over (the panel re-arms the slot as the picker reports it off).
+      this.regions.stop();
+      this.syncFacePickMode();
+    };
+    this.regions = new RegionPicker(viewer, this.panel.regionControl, {
+      profile: () => this.ghostProfile(),
+      onChange: () => {
+        this.panel.setMessage(null);
+        this.runner.schedulePreview();
+      },
+      // The extrude panel keeps its profile slot armed alongside the solid
+      // slots (sketch picks never compete with face picks), so region
+      // picking cannot quiet them by arming the profile slot the way the
+      // other swept dialogs do — it tells the panel outright.
+      onActiveChange: (active) => this.panel.setRegionPickLive(active),
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      onSchedule: () => this.regions.sync(),
       send: (request, extras) => this.editTarget
         ? applyExtrudeEdit(this.editTarget, { ...(request as ExtrudeEditOptions), ...extras })
         : applyExtrude({ ...(request as ExtrudeApplyRequest), ...extras }),
@@ -176,7 +198,7 @@ export class ExtrudeFeatureService {
     return this.armed;
   }
 
-  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
   get toolbarButton(): FeatureButton {
     return this.button;
   }
@@ -264,6 +286,7 @@ export class ExtrudeFeatureService {
     this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -316,6 +339,7 @@ export class ExtrudeFeatureService {
     this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
+    this.regions.refresh();
   }
 
   /**
@@ -345,6 +369,8 @@ export class ExtrudeFeatureService {
     // from the pre-rollback scene, where the edited row still renders.
     this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
     this.scope.seedKeeps(parsed, target.filePath);
+    this.regions.reset();
+    this.regions.seed(parsed.regions);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -409,6 +435,7 @@ export class ExtrudeFeatureService {
     this.armed = true;
     this.toFaceEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     // Composing the extrude — and looking over its ghost preview — means the
     // whole scene, not the view down the active sketch plane: leave sketch
@@ -453,6 +480,7 @@ export class ExtrudeFeatureService {
     this.sourceToFace = null;
     this.toFaceEntity = null;
     this.scope.clear();
+    this.regions.reset();
     this.editPartLoc = null;
     this.solidPick.set([]);
     this.editSceneStale = false;
@@ -508,9 +536,9 @@ export class ExtrudeFeatureService {
 
   /**
    * The part the scope picker is restricted to: the edited statement's own
-   * enclosing part, or — create mode — the chosen profile's (producers win:
-   * the new statement inserts in the profile's scope), falling back to the
-   * timeline's active part. Null offers top-level solids only.
+   * enclosing part, or — create mode — the part the new statement lands in
+   * for the chosen profile (see {@link scopePartLocation}): the profile's own
+   * part, else the timeline's active part. Null offers top-level solids only.
    */
   private scopePartLoc(): SourceLocation | null {
     if (this.editTarget) {
@@ -581,7 +609,7 @@ export class ExtrudeFeatureService {
     const loc = sketch.sourceLocation!;
     const index = this.options.findIndex(o => o.filePath === loc.filePath && o.line === loc.line);
     if (index < 0) {
-      this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be extruded.');
+      this.panel.setMessage('That sketch cannot be extruded here — pick one in the active part.');
       return;
     }
     this.panel.selectProfile(index);
@@ -683,7 +711,8 @@ export class ExtrudeFeatureService {
       drill: values.drill,
       thin: values.thin,
       profile,
-    }, signal);
+      regions: this.regions.ghostPicks(),
+    }, featureGhostScope(this.editTarget), signal);
   }
 
   /** The sketch the ghost extrudes, or null while there is nothing to sweep. */
@@ -728,6 +757,7 @@ export class ExtrudeFeatureService {
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
+      regions: this.regions.picks,
     };
   }
 
@@ -773,6 +803,9 @@ export class ExtrudeFeatureService {
       // an explicit drop on New — `.new()` resets the fusion scope, so a
       // statement rewritten to a separate body must not keep one.
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
+      // Likewise the region list: the picks shown are the picks written.
+      regions: this.regions.picks,
+      regionSketch: this.ghostProfile() ?? undefined,
     };
   }
 }

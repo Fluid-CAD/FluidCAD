@@ -1,6 +1,7 @@
 import { Viewer, type SelectedEntity } from './viewer';
 import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
+import { SetMaterialDialog } from './ui/set-material-dialog';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
@@ -10,6 +11,7 @@ import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
+import { PropertyEditorDialog } from './ui/property-editor-dialog';
 import { ExportDialog, exportBaseName } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
@@ -25,12 +27,12 @@ import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HISTORY_SHORTCUTS, HistoryToolbar } from './ui/history-toolbar';
 import { ShortcutManager } from './ui/shortcut-manager';
 import { SelectionContextMenu } from './interactive/selection-menu';
-import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { RibFeatureService } from './interactive/create-feature/rib-service';
+import { HoleFeatureService } from './interactive/create-feature/hole/hole-service';
 import { RevolveFeatureService } from './interactive/create-feature/revolve-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
@@ -44,29 +46,37 @@ import { ConnectorFeatureService } from './interactive/create-feature/connector-
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
-import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
+import { FinishSketchButton } from './interactive/create-feature/finish-sketch-button';
 import { PartToolButton } from './interactive/create-feature/part-tool';
 import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
-import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
+import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
+import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
+import { SectionViewService } from './interactive/section-view/section-view-service';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
 import { normalizeAssemblyPayload } from './scene/assembly-payload';
 import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
+import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
+import { applyEditorPreferences } from './editor/editor-prefs';
+import { SettingsModal } from './ui/settings';
+import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
+import { applyEnginePreferences } from './ui/settings/engine-settings';
+import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -130,8 +140,9 @@ function startEditorSurface(): void {
       onEditRefused: (message) => showToast(message),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
-      onOpenChange: (open) => {
-        savePreference('editorOpen', open);
+      // Whether the pane opens at startup is a Settings choice, not the last
+      // state the pane was left in — so nothing is saved here.
+      onOpenChange: () => {
         // Ctrl+B, the desktop menu and the restored preference all land here,
         // so the rail's latch follows the pane however it was opened.
         panelRail.sync();
@@ -205,22 +216,35 @@ viewerSettings.subscribe((s) => {
 // a session that had it open comes back with it open.
 const editorPreferences = { open: false, width: 420 };
 
+/**
+ * Apply a full preference set to the page: at startup, and again after the
+ * Settings dialog resets everything — the same routine, so a reset leaves
+ * the page exactly as a fresh start would.
+ */
+function applyLoadedPreferences(prefs: UserPreferences): void {
+  // The server pre-applies the saved theme when it serves index.html;
+  // re-setting the same value would still fire the theme MutationObserver
+  // and trigger a needless full scene re-mesh.
+  if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
+    document.documentElement.setAttribute('data-theme', prefs.theme);
+  }
+  applyPreferences(prefs);
+  applyEditorPreferences(prefs);
+  applyNewProjectPreferences(prefs);
+  applyEnginePreferences(prefs);
+  applyGlobalMaterialsPreferences(prefs);
+  pendingShowBuildTimings = !!prefs.showBuildTimings;
+  if (currentRail?.kind === 'part') {
+    currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
+  }
+  measureController.applyPreferences(prefs);
+  editorPreferences.open = prefs.editorOpen === true;
+  editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+}
+
 loadPreferences().then((prefs) => {
   if (prefs) {
-    // The server pre-applies the saved theme when it serves index.html;
-    // re-setting the same value would still fire the theme MutationObserver
-    // and trigger a needless full scene re-mesh.
-    if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
-      document.documentElement.setAttribute('data-theme', prefs.theme);
-    }
-    applyPreferences(prefs);
-    pendingShowBuildTimings = !!prefs.showBuildTimings;
-    if (currentRail?.kind === 'part') {
-      currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
-    }
-    measureController.applyPreferences(prefs);
-    editorPreferences.open = prefs.editorOpen === true;
-    editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+    applyLoadedPreferences(prefs);
   }
 });
 
@@ -229,9 +253,18 @@ loadPreferences().then((prefs) => {
 // ---------------------------------------------------------------------------
 
 const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
+// Materials are managed globally in Settings → Materials (the dialog is
+// built further down; these handlers run only on a click). The part row's
+// Set material… dialog re-reads the merged list every time it opens, and
+// the server copies a picked global material into fluidcad.json itself.
+const openMaterialSettings = () => settingsModal.show('materials');
+shapePropertiesModal.setManageMaterialsHandler(openMaterialSettings);
+const setMaterialDialog = new SetMaterialDialog(container, engineClient, { onManage: openMaterialSettings });
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
+// Its Part mode: every final solid of the selected part, highlighted together.
+const propertiesPartPick = new SolidPickSelection(viewer, { multiple: true });
 const selectionInfoOverlay = new SelectionInfoOverlay(container, engineClient);
 const measureController = new MeasureController(
   container, engineClient, viewer,
@@ -277,7 +310,10 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 // state and the section's own across those rebuilds — buildPartRail() mounts
 // this same instance into whichever column is current.
 const paramEditorDialog = new ParamEditorDialog(container);
-const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog);
+const propertyEditorDialog = new PropertyEditorDialog(container);
+const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
+const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
+const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -301,23 +337,29 @@ const fileImporter = new FileImporter(container, {
 // the rail flips back from assembly to part mode.
 let timelinePanel: TimelinePanel;
 
-// The timeline's active part — one part is ALWAYS active while the scene
+// The timeline's active part — one part is ALWAYS selected while the scene
 // contains any (last part by default; a part-row click re-points it, no
-// rollback). Producer-less creates (pick-less sketch, standard plane/helix)
-// land inside its callback body instead of at top level. Every apply-feature
-// payload carries its location through the provider below.
+// rollback), and it is the active part unless the user stepped out of it to
+// the file's top level (a click on the active row). Creates whose inputs pin
+// no other scope (pick-less sketch, standard plane/helix, features of
+// sketches drawn at the top level) land inside the active part's callback
+// body, or at the top level with none. Every apply-feature payload carries
+// its location through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
 // The Parameters panel's Part dropdown (and the Add dialog's, which opens on
-// the panel's choice) list the same parts and default to the active one — a
+// the panel's choice) list the same parts and default to the selected one —
+// active or stepped out of, since a param() only lives in a part body — and a
 // new param() lands in the chosen part's callback body.
-const partChoices = () => ({ parts: activePartTracker.parts, active: activePartTracker.location });
+const partChoices = () => ({ parts: activePartTracker.parts, selected: activePartTracker.selectedLocation });
 paramsPanel.setPartProvider(partChoices);
 paramEditorDialog.setPartProvider(partChoices);
+propertyEditorDialog.setPartProvider(partChoices);
 // The scene-utils scope helpers (findActiveObject & co.) read the same
-// tracker: the "active" feature is the active part's last child, so the
-// viewer, sketch toolbar, timeline and pick services all follow the part a
-// timeline click chose instead of whatever part the file happens to end in.
+// tracker: the "active" feature is the active part's last child — the top
+// level's last statement once the user stepped out — so the viewer, sketch
+// toolbar, timeline and pick services all follow the scope a timeline click
+// chose instead of whatever part the file happens to end in.
 setActivePartLocationProvider(() => activePartTracker.location);
 
 function disposeRail(): void {
@@ -333,6 +375,12 @@ function disposeRail(): void {
   }
   currentRail = null;
 }
+
+// A create dialog holding a consumed sketch, plane or axis reveals it in the
+// viewport for as long as it holds it (see the sketch, plane and axis slot
+// controls); the registry hands the viewer the whole set whenever it changes.
+consumedReveal.onChange = (keys) => viewer.setRevealed(keys);
+
 
 function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
   const timeline = new TimelinePanel(
@@ -386,10 +434,7 @@ function buildAssemblyRail(): LeftRail {
     (id, newName) => {
       const inst = findInstance(id);
       if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-      updateInsertChain(inst.sourceLocation, {
-        name: newName,
-        defaultName: defaultNameFor(inst),
-      });
+      void renameInsert(inst.sourceLocation, newName, inst.partName);
     },
     (id) => {
       const inst = findInstance(id);
@@ -417,10 +462,7 @@ function buildAssemblyRail(): LeftRail {
       onRename: (id, newName) => {
         const occ = findOccurrence(id);
         if (!occ?.sourceLocation || occ.replica) return;
-        updateInsertChain(occ.sourceLocation, {
-          name: newName,
-          defaultName: occ.assemblyName,
-        });
+        void renameInsert(occ.sourceLocation, newName, occ.assemblyName);
       },
       onDelete: (id) => {
         const occ = findOccurrence(id);
@@ -548,24 +590,46 @@ function buildAssemblyRail(): LeftRail {
     () => {},
   );
   dragReadout.setObstacle(() => animateBar.openElement());
-  // The assembly's own connectors, between Parts and Joints: a row opens
-  // the connector dialog on it; the eye hides its gizmo by name.
+  assemblyParamsPanel.mount(parts.getParamsHost());
+  assemblyParamsPanel.setVisible(true);
+  // The assembly's own connectors, between Parts and Joints: a connector's
+  // row opens the connector dialog on it, a copy's row the Copy dialog on
+  // the statement that made it; the eye hides a gizmo by label.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
-    // While the mate dialog is picking, a row is a pick (no gizmo to hunt
-    // for under a coincident part connector); otherwise it opens the dialog.
-    onEdit: (connector) => {
+    // While a dialog is picking, a row is a pick (no gizmo to hunt for
+    // under a coincident part connector).
+    onPick: (connector) => {
+      if (assemblyConnectorCopyService.isPicking) {
+        assemblyConnectorCopyService.pickWorldConnector(connector.connectorId);
+        return;
+      }
       if (assemblyMateService.isPicking) {
         assemblyMateService.pickWorldConnector(connector.connectorId);
         return;
       }
       if (assemblyReplicateService.isPicking) {
         assemblyReplicateService.pickWorldConnector(connector.connectorId);
-        return;
       }
-      void assemblyConnectorService.edit(connector);
     },
-    onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
-    isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
+    onEdit: (connector) => void assemblyConnectorService.edit(connector),
+    onEditCopy: (copy) => void editAssemblyConnectorCopy(copy),
+    onCopy: (connector) => assemblyConnectorCopyService.enterWithConnector(connector.connectorId),
+    onShowInSource: (connector) => {
+      if (connector.sourceLocation) {
+        gotoSource(connector.sourceLocation);
+      }
+    },
+    // Drops the whole `connector(...)` statement; the server sweeps the
+    // mates, replicate cells and copy() statements that named it (the same
+    // path as the parts panel's Delete).
+    onDelete: (connector) => {
+      if (connector.sourceLocation) {
+        removeFeature(connector.sourceLocation);
+      }
+    },
+    onRemoveCopies: (copy) => void removeAssemblyConnectorCopy(copy),
+    onToggleVisibility: (label, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(label, !visible),
+    isHidden: (label) => viewer.getAssemblyController()?.isWorldConnectorHidden(label) ?? false,
   });
   return { kind: 'assembly', parts, connectors, joints, dragReadout, animateBar, instanceVisibility: visibility };
 }
@@ -583,6 +647,33 @@ let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
 /** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
 const lastPartTemplates = new Map<string, any>();
+
+/**
+ * A copy row's editor: the Copy dialog over the `copy()` statement that
+ * made it (the copy's own location) — or, when that statement can't be
+ * edited here, the reason as a toast.
+ */
+async function editAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  if (!copy.sourceLocation) {
+    return;
+  }
+  const refused = await assemblyConnectorCopyService.enterEdit(copy.sourceLocation);
+  if (refused) {
+    showToast(refused);
+  }
+}
+
+/** A copy row's "Remove copies": the `copy()` statement goes, with every mate and replicate cell on its copies. */
+async function removeAssemblyConnectorCopy(copy: SerializedAssemblyConnector): Promise<void> {
+  const location = copy.sourceLocation;
+  if (!location) {
+    return;
+  }
+  const result = await applyAssemblyConnectorCopy(location.filePath, { remove: { sourceLine: location.line } });
+  if (!result.success) {
+    showToast(result.reason ?? 'Could not remove the copies.');
+  }
+}
 
 function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
@@ -624,21 +715,31 @@ function instanceHasMate(instanceId: string): boolean {
   return false;
 }
 
-function defaultNameFor(inst: { partName: string; instanceId: string }): string {
-  return inst.partName;
+/**
+ * The parts panel's Rename on an instance or an occurrence header.
+ * `defaultName` is what the row shows without a `.name()` of its own — the
+ * part's or the assembly's name. A refusal is flashed on the rail.
+ */
+async function renameInsert(
+  sourceLocation: { filePath: string; line: number },
+  name: string,
+  defaultName: string,
+): Promise<void> {
+  const result = await renameInstance(sourceLocation, name, defaultName);
+  if (!result.success && currentRail?.kind === 'assembly') {
+    currentRail.dragReadout.flashError(result.reason ?? 'Could not rename');
+  }
 }
 
 async function updateInsertChain(
   sourceLocation: { filePath: string; line: number },
   edit: {
     ground?: boolean;
-    name?: string | null;
-    defaultName?: string;
     translate?: [number, number, number] | null;
   },
 ): Promise<void> {
   try {
-    await fetch('/api/update-insert-chain', {
+    await fetch('api/update-insert-chain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sourceLocation, edit }),
@@ -693,6 +794,15 @@ currentRail = initialRail;
 
 // Top application bar (logo, workspace, file tabs) and the secondary tool bar
 // below it (host for conditionally-visible tool groups).
+// The global Settings dialog — part of the page in every host; only a
+// viewport-only host (`?editor=0`, an embed) leaves the gear off the bar.
+const settingsModal = new SettingsModal(container, {
+  savePreference,
+  resetPreferences,
+  applyPreferences: applyLoadedPreferences,
+  loadMaterials: () => engineClient.getMaterials(),
+});
+
 const topBar = new TopBar(container, {
   // A viewport-only host gets no tab affordances: the handler set is absent,
   // which is what removes them.
@@ -705,8 +815,11 @@ const topBar = new TopBar(container, {
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
     onReorder: (absPaths) => editorSurface?.reorderTabs(absPaths),
     onRename: (absPath, newBasename) => void editorSurface?.renameTab(absPath, newBasename),
+    onCloseOthers: (absPath, which) => editorSurface?.closeOtherTabs(absPath, which),
+    onRemove: (absPath) => void confirmRemoveFile(absPath),
   } : undefined,
   saveTheme: (theme) => savePreference('theme', theme),
+  onSettings: editorSurfaceEnabled ? () => settingsModal.show() : undefined,
   // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
   // the choice — or, in an assembly, the whole assembly where it sits;
   // File ▸ Export stays the whole-scene path.
@@ -717,6 +830,11 @@ const topBar = new TopBar(container, {
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
   },
   onImport: () => fileImporter.openPicker(),
+});
+void getEngineVersion().then((version) => {
+  if (version) {
+    topBar.setEngineVersion(version);
+  }
 });
 
 // Share: the rendered model opens in the public viewer as a link that
@@ -762,6 +880,10 @@ let currentSceneAbsPath: string | null = null;
 // then: the timeline's rows describe the previous scene, so their line
 // anchors can't be trusted against the broken buffer.
 let activeCompileError = false;
+// The last authoritative breakpoint state — the timeline is told which
+// scenes stopped early, so the render that leaves the pause (Continue, or
+// the breakpoint removed in the editor) isn't read as a scene of new rows.
+let breakpointActive = false;
 /**
  * Armed after a successful move-to-part ack: if the render that follows
  * fails to compile, the move is undone automatically (it applied as exactly
@@ -878,12 +1000,11 @@ new AssemblyToolbar(navbar, {
   },
 });
 
-const regionService = new RegionPickService(viewer, navbar);
 // The Project sketch tool. It is armed from the sketch toolbar, but
 // its picks are solid edges and faces in the free 3D view, so the routing
 // below hands it viewport clicks while it is armed.
 const projectionService = new ProjectionPickService(container, viewer);
-// While a create-feature dialog launched from the Finish Sketch menu is open,
+// While a create-feature dialog launched from an active sketch is open,
 // keep the sketch toolbar pinned in place — the bar stays on the sketch tools
 // until the feature is applied — even though the dialog suspends sketch editing
 // so the free 3D view can be picked. Derived from the dialogs' own suspend
@@ -896,6 +1017,7 @@ const projectionService = new ProjectionPickService(container, viewer);
 const syncKeepToolbar = () => sketchService.setKeepToolbar(
   (extrudeService.isActive && extrudeService.sketchUISuspended)
   || (ribService.isActive && ribService.sketchUISuspended)
+  || (holeService.isActive && holeService.sketchUISuspended)
   || (revolveService.isActive && revolveService.sketchUISuspended)
   || (sweepService.isActive && sweepService.sketchUISuspended)
   || (loftService.isActive && loftService.sketchUISuspended)
@@ -908,7 +1030,7 @@ const syncKeepToolbar = () => sketchService.setKeepToolbar(
 // the toolbar pin (this fires after a dialog disarms, clearing the pin on apply).
 const syncSketchButtonBlocked = () => {
   modifyService.setCreateDialogActive(
-    extrudeService.isActive || ribService.isActive || revolveService.isActive
+    extrudeService.isActive || ribService.isActive || holeService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
     || mirrorService.isActive || rotateService.isActive || connectorService.isActive
@@ -938,6 +1060,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     modifyService.displaceSketchSession();
     modifyService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -968,6 +1091,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     helixService.exit();
     sweepService.exit();
     loftService.exit();
@@ -995,6 +1119,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     loftService.exit();
@@ -1022,6 +1147,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1050,6 +1176,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1079,6 +1206,7 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+    holeService.exit();
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
@@ -1128,6 +1256,36 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
+// Constructed after Rib so its Hole button lands at the end of the create
+// feature row.
+const holeService = new HoleFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
 // Constructed after the other create services: its button prepends ahead of
 // Extrude, and the Sketch button (modify service) prepends ahead of it —
 // the group reads Sketch, Plane, Extrude, Sweep, Loft.
@@ -1144,6 +1302,8 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1177,6 +1337,8 @@ const textEditService = new TextEditService(container, viewer, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1202,7 +1364,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // An armed create dialog takes sketch (or plane) rows clicked in the
   // timeline as its input instead of the default rollback-preview.
   panel.onFeatureIntercept = (obj) =>
-    extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj)
+    extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj) || holeService.handleTimelinePick(obj)
     || revolveService.handleTimelinePick(obj)
     || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
     || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
@@ -1210,27 +1372,52 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
-  // statements land inside its callback body instead of at top level, and
-  // the view re-derives its mode from the new scope (a part ending in a
-  // sketch enters sketch editing). One part is always active while the
-  // scene has any (tracker invariant), so re-clicking the active row is a
-  // no-op rather than a toggle.
-  panel.onPartActivate = (obj) => {
-    if (activePartTracker.isActive(obj)) {
-      return;
+  // statements land inside its callback body instead of at top level — and
+  // a click on the active part steps out to the file's top level, the part
+  // staying selected in the Parameters panel. Either way the view re-derives
+  // its mode from the new scope (a scope ending in an open sketch enters
+  // sketch editing).
+  panel.setActivePart = (part) => {
+    const changed = part === null ? activePartTracker.deactivate() : activePartTracker.activate(part);
+    if (changed) {
+      paramsPanel.syncParts();
+      refreshActivePartScope();
+      // The Shape Properties panel's Part mode shows the timeline's part.
+      shapePropertiesModal.syncSelectedPart();
     }
-    activePartTracker.activate(obj);
-    paramsPanel.syncParts();
-    refreshActivePartScope();
+    return changed;
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
+  panel.onSetMaterial = (obj) => setMaterialDialog.open(obj);
+  // The eye on a consumed sketch, plane or axis row: view state in the
+  // viewer, keyed by source location so it survives re-renders. Never
+  // written to the file.
+  panel.isRowShown = (obj) => obj.sourceLocation !== undefined && viewer.isShown(sourceLocKey(obj.sourceLocation));
+  panel.onToggleRowShown = (obj) => {
+    if (!obj.sourceLocation) {
+      return;
+    }
+    const key = sourceLocKey(obj.sourceLocation);
+    viewer.setShown(key, !viewer.isShown(key));
+  };
+
   // Connector / exposed rows are references, not modeling steps: a click
-  // shows what they publish in the viewer instead of a rollback preview.
+  // shows what they publish in the viewer instead of a rollback preview. A
+  // copy row that copies only connectors shows its whole family — the seeds
+  // and every copy.
   panel.onFeatureShow = (obj) => {
     if (obj.type === 'connector' && obj.id != null) {
-      viewer.highlightConnector(obj.id);
+      viewer.highlightConnector([obj.id]);
+    } else if (SceneIndex.copiesOnlyConnectors(obj)) {
+      viewer.highlightConnector(SceneIndex.of(viewer.currentSceneObjects).connectorFamilyOf(obj));
     } else if (obj.type === 'exposed') {
       viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
+    }
+  };
+  // A connector row's "Copy…" opens the Copy dialog on that connector.
+  panel.onCopyConnector = (obj) => {
+    if (obj.id != null) {
+      copyService.enterWithConnector(obj.id);
     }
   };
   // Multi-selected rows dropped onto a part row → move their statements
@@ -1259,11 +1446,15 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    && !SceneIndex.isConnectorCopy(obj)
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
-  // openFeatureEditor), so its double-click defers the generic breakpoint.
+  // openFeatureEditor), so its double-click defers the generic breakpoint. A
+  // closed sketch row defers it too: its `.close()` must come off first, or
+  // the paused build would end in a finished sketch and enter nothing.
   panel.managesOwnBreakpoint = (obj) =>
-    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj);
+    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj)
+    || (obj.type === 'sketch' && obj.closed === true);
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
@@ -1296,13 +1487,18 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
  * surfaces its parse refusal as the toast).
  */
 const EDITABLE_ROW_TYPES = new Set([
-  'extrude', 'cut', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
+  'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
-  'copy-linear', 'copy-circular',
+  // A copy row opens the Copy dialog — a connector copy row too, filed with
+  // its part's connectors in the timeline; a copy that follows a repeat
+  // (`copy(holes, bolt)`) opens it on "Along a repeat".
+  'copy-linear', 'copy-circular', 'copy-pattern',
   'fuse', 'subtract', 'common',
   'plane',
   // A connector row sits inside its part() body; its dialog re-opens over the
-  // statement with the frame the row itself carries.
+  // statement with the frame the row itself carries. The copies a `copy()`
+  // made of one are the exception (SceneIndex.isConnectorCopy): they have no
+  // statement of their own.
   'connector',
   // 2D: an offset/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (Slot rows are deliberately absent — the slot
@@ -1315,7 +1511,7 @@ const EDITABLE_ROW_TYPES = new Set([
 ]);
 
 /**
- * Each sketch's consumed state (`!visible || reusable`) from the last COMPLETE
+ * Each sketch's consumed state (`!visible`) from the last COMPLETE
  * build, keyed by source location. Read when a double-click opens a sketch for
  * editing to decide the Finish Sketch button's behavior — the timeline's own
  * row can't be trusted at that moment, because the gesture's first click rolls
@@ -1341,10 +1537,13 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  */
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (obj.type === 'sketch' && obj.sourceLocation) {
-    enterSketchEdit(obj.sourceLocation);
+    await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
   }
-  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
+  // A connector copy shares its copy statement's call site but is no
+  // statement of its own: it never opens a dialog — the copy row edits the
+  // pattern, the seed's pen its frame.
+  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation || SceneIndex.isConnectorCopy(obj)) {
     return;
   }
   const target = obj.sourceLocation;
@@ -1373,7 +1572,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // call site — `sketch('xy', …)` builds itself a plane. The statement is
     // what the dialogs edit, so it opens as the sketch it is (the breakpoint
     // the gesture placed already landed after it).
-    enterSketchEdit(target);
+    await enterSketchEdit(target);
     return;
   }
   const info = { index, type: obj.type, expectedStatement: result.statement };
@@ -1382,6 +1581,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     extrudeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'rib') {
     ribService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'hole') {
+    holeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'revolve') {
     revolveService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'sweep') {
@@ -1398,12 +1599,18 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     repeatService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'copy') {
     if (isCopy2DRow(obj)) {
+      if (parsed.kind === 'pattern') {
+        // Following a repeat is 3D only — a 2D row never parses as it.
+        addBreakpoint(target);
+        showEditRefusal('This copy follows a repeat — edit it in the source.');
+        return;
+      }
       // A 2D copy lives inside a sketch body and edits on the sketch rails —
       // the offset edit's pause-before contract, its originals visible and
       // re-pickable in the paused sketch.
       closeFeatureDialogs();
       pauseBeforeSketchStatement(obj, index);
-      sketchService.enterCopyEdit(target, parsed, result.statement);
+      sketchService.enterCopyEdit(target, { ...parsed, kind: parsed.kind }, result.statement);
     } else {
       copyService.enterEdit(target, parsed, info);
     }
@@ -1522,6 +1729,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   }
   extrudeService.exit();
   ribService.exit();
+  holeService.exit();
   revolveService.exit();
   helixService.exit();
   sweepService.exit();
@@ -1546,16 +1754,39 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
  * sketch dialog adopts the render that ends in it. Flag that adoption as the
  * edit it is, so the dialog owns the breakpoint and its close leaves the
  * statement alone. Whether a later feature consumes the sketch (Finish Sketch
- * just removes the breakpoint) or not (offer the grid) comes from the last
- * complete build's snapshot, not the row — the gesture's own rollback has
- * already flipped its `visible` by dropping its geometry out of scope.
+ * just removes the breakpoint) or not (Finish Sketch writes `.close()`) comes
+ * from the last complete build's snapshot, not the row — the gesture's own
+ * rollback has already flipped its `visible` by dropping its geometry out of
+ * scope.
+ *
+ * A sketch that already carries `.close()` is finished, and a build paused
+ * after it would end in a closed sketch and enter nothing. Its chain comes
+ * off first (an acked edit), and only then does the breakpoint the timeline
+ * deferred for this row (`managesOwnBreakpoint`) go in — two host edits in
+ * flight would race on the buffer. The edit request is noted after the chain
+ * edit rather than before it: the removal's own render may adopt the sketch
+ * as a plain session meanwhile, and the note upgrades that session in place.
  */
-function enterSketchEdit(loc: { filePath: string; line: number; column: number }): void {
+async function enterSketchEdit(
+  loc: { filePath: string; line: number; column: number },
+  closedHint?: boolean,
+): Promise<void> {
   const row = viewer.currentSceneObjects.find(o =>
     o.type === 'sketch' && o.sourceLocation && sketchLocKey(o.sourceLocation) === sketchLocKey(loc));
   const consumed = sketchConsumedByKey.get(sketchLocKey(loc))
-    ?? (row?.visible === false || row?.reusable === true);
-  modifyService.noteSketchEditRequest(loc, consumed);
+    ?? row?.visible === false;
+  const closed = closedHint ?? row?.closed === true;
+  if (closed) {
+    const result = await setSketchClosed(loc, false);
+    if (!result.success) {
+      showToast(`Can't reopen the sketch: ${result.reason ?? 'the edit was refused'}`);
+      return;
+    }
+  }
+  modifyService.noteSketchEditRequest(loc, consumed, closed);
+  if (closed) {
+    addBreakpoint(loc);
+  }
 }
 
 // Transient toast for messages with no dialog to carry them — an edit the
@@ -1639,7 +1870,9 @@ async function handleMoveToPart(
  * references are removed at once, exactly as before; a feature that later
  * statements reference (an extrude's sketch, a fillet's extrude, …) first
  * shows what the removal takes along — the timeline's own names for those
- * rows where it has them — and deletes the whole closure on "Delete".
+ * rows where it has them — and deletes the whole closure on "Delete". A
+ * hole's connectors that nothing else reads go with it either way, unasked:
+ * nothing depends on them.
  */
 async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: number) => string | null): Promise<void> {
   const editor = engineClient.editor;
@@ -1648,28 +1881,56 @@ async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: num
     return;
   }
   const probe = await editor.previewRemoveFeature(loc);
-  if (!probe.success || !probe.dependents || probe.dependents.length === 0) {
+  const dependents = probe.dependents ?? [];
+  const connectors = probe.connectors ?? [];
+  if (!probe.success || (dependents.length === 0 && connectors.length === 0)) {
     // Nothing else goes — or nothing to analyze against (an imported file,
     // a stale render): the plain host-side removal, as before.
     editor.removeFeature(loc);
     return;
   }
-  const nameFor = (dep: { name: string; line: number }): string =>
-    rowNameAt(dep.line) ?? `${dep.name} (line ${dep.line})`;
-  const confirmed = await confirmDialog({
-    title: 'Delete feature',
-    icon: ICON_TRASH,
-    message: `${obj.name} is used by later features. Deleting it also deletes:`,
-    items: probe.dependents.map(nameFor),
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-  if (!confirmed) {
-    return;
+  if (dependents.length > 0) {
+    const nameFor = (dep: { name: string; line: number }): string =>
+      rowNameAt(dep.line) ?? `${dep.name} (line ${dep.line})`;
+    const confirmed = await confirmDialog({
+      title: 'Delete feature',
+      icon: ICON_TRASH,
+      message: `${obj.name} is used by later features. Deleting it also deletes:`,
+      items: dependents.map(nameFor),
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
   }
   const result = await editor.removeFeatureCascade(loc);
   if (!result.success) {
     showToast(`Can't delete: ${result.reason ?? 'unknown error'}`);
+  }
+}
+
+/**
+ * The tab menu's Remove file: deleting from disk can't be undone, so the
+ * user confirms first — and hears that unsaved edits go too.
+ */
+async function confirmRemoveFile(absPath: string): Promise<void> {
+  const surface = editorSurface;
+  const entry = surface?.models.get(absPath);
+  if (!surface || !entry) {
+    return;
+  }
+  const unsaved = surface.models.isDirty(absPath) ? ' Its unsaved changes will be lost.' : '';
+  const confirmed = await confirmDialog({
+    title: 'Remove file',
+    icon: ICON_TRASH,
+    message: `This deletes the file from disk and can't be undone.${unsaved}`,
+    items: [entry.relPath],
+    confirmLabel: 'Remove',
+    danger: true,
+  });
+  if (confirmed) {
+    await surface.removeFile(absPath);
   }
 }
 
@@ -1766,6 +2027,8 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     projectionService.exit({ resume: 'lazy' });
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1810,6 +2073,8 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1845,6 +2110,8 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1882,6 +2149,8 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1917,6 +2186,8 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1952,6 +2223,8 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -1990,6 +2263,8 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
     modifyService.exit();
     extrudeService.exit();
     ribService.exit();
+  holeService.exit();
+    holeService.exit();
     revolveService.exit();
     helixService.exit();
     sweepService.exit();
@@ -2012,47 +2287,41 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
   onResumeSketchUI: resumeSketchForFeature,
 });
 
-// While a sketch is active, the create-feature buttons collapse into a single
-// "Finish Sketch" button whose popup grid mirrors them and delegates clicks
-// straight back to them. Constructed after every create service so its button
-// prepends ahead of theirs; only the mirrored buttons hide, so Shell (a modify
-// tool that also lives in the create group) stays reachable alongside it.
-const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
-  { button: extrudeService.toolbarButton },
-  { button: ribService.toolbarButton },
-  { button: revolveService.toolbarButton },
-  { button: sweepService.toolbarButton },
-  { button: loftService.toolbarButton },
-  { button: wrapService.toolbarButton },
-  { button: planeService.toolbarButton },
-  {
-    button: modifyService.sketchButton,
-    label: 'New Sketch',
-    reflectActive: false,
-    onClick: () => modifyService.startNewSketch(),
-  },
-  // New Part finishes the sketch implicitly: the appended part() statement
-  // takes the tip of the timeline, so the sketch is no longer active.
-  {
-    button: partTool.button,
-    label: 'New Part',
-    reflectActive: false,
-  },
+// While a sketch is active, a green "Finish Sketch" button heads the create
+// group and the create-feature buttons leave the bar. It marks the sketch
+// done — writing `.close()` onto its statement, or clearing the edit
+// breakpoint of a consumed sketch — and sketch mode ends with the render that
+// follows, bringing the 3D toolbar back for the follow-up feature.
+// Constructed after every create service so its button prepends ahead of theirs.
+const finishSketchButton = new FinishSketchButton(navbar.getGroup('create')!, [
+  extrudeService.toolbarButton,
+  ribService.toolbarButton,
+  holeService.toolbarButton,
+  revolveService.toolbarButton,
+  sweepService.toolbarButton,
+  loftService.toolbarButton,
+  wrapService.toolbarButton,
+  planeService.toolbarButton,
+  helixService.toolbarButton,
+  modifyService.sketchButton,
+  partTool.button,
 ]);
-sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
-// Editing a consumed sketch (double-click → breakpoint): finishing removes the
-// breakpoint so the downstream feature re-applies with the edits, rather than
-// turning the sketch into a new feature.
-finishSketchMenu.onResume = () => modifyService.finishSketchEdit();
+finishSketchButton.onClick = () => {
+  void modifyService.finishSketch(breakpointActive);
+};
+// The breakpoint chip steps aside while sketching: Finish Sketch is the one
+// way out of a sketch, paused or not, so it also lifts the pause.
+sketchService.onActiveChange = (active) => {
+  finishSketchButton.setVisible(active);
+  breakpointIndicator.setSketchActive(active);
+  errorBanner.setSketchActive(active);
+};
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
-  if (regionService.state === 'picking-active') {
-    regionService.exit();
-  }
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
+  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -2085,6 +2354,20 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   } else {
     viewer.clearCentroid();
   }
+});
+
+// Part mode reads the scene for a solid's part and follows the timeline's
+// selected part; its selection paints the part's solids as one highlight.
+shapePropertiesModal.setSceneProvider(() => viewer.currentSceneObjects);
+shapePropertiesModal.setSelectedPartProvider(() => activePartTracker.selectedLocation);
+shapePropertiesModal.setPartSelectionHandler((part) => {
+  const ids = part ? ShapePropertiesModal.partSolidShapeIds(part, viewer.currentSceneObjects) : [];
+  propertiesPartPick.set(ids);
+  if (ids.length === 0 && propertiesSolidPick.first === null) {
+    viewer.clearHighlight();
+    return;
+  }
+  propertiesPartPick.refreshHighlight();
 });
 
 viewer.setInstanceDragReleaseHandler((instanceId, position) => {
@@ -2139,6 +2422,50 @@ const assemblyGizmo = new AssemblyGizmoDriver({
   },
 });
 
+// The section views: the viewport's section button lists the scene's
+// section() statements; one clips the scene live, its arrow rewrites the
+// statement's offset, and "New section view…" writes a new statement.
+const sectionViewService = new SectionViewService(container, viewer, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+  holeService.exit();
+    holeService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+  filePath: () => currentSceneAbsPath,
+  canEdit: () => engineClient.editor !== null,
+  removeView: (sourceLocation) => engineClient.editor?.removeFeature(sourceLocation),
+  instanceIds: () => (lastAssemblyPayload?.instances ?? []).map(i => i.instanceId),
+  poseOf: (instanceId) => {
+    const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
+    return pose
+      ? { position: { x: pose.position.x, y: pose.position.y, z: pose.position.z }, quaternion: { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w } }
+      : null;
+  },
+});
+
 // The mate dialog: a toolbar mate button opens it armed for connector
 // picking; apply writes the mate() statement via /api/assembly-mate.
 const assemblyMateService = new AssemblyMateService(container, viewer, {
@@ -2150,9 +2477,10 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
-    // One picking dialog at a time: a replicate session yields to the mate
-    // dialog (and vice versa below).
+    // One picking dialog at a time: a replicate or copy session yields to
+    // the mate dialog (and vice versa below).
     assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2168,9 +2496,12 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
   // file.
   onEditConnector: (state) => void connectorPropsEditor.open(state),
   // The pen on an assembly-connector chip: the connector dialog in edit
-  // mode on that statement.
+  // mode on that statement — a copy's seed's, since a copy has none of its
+  // own and follows its seed.
   onEditWorldConnector: (state) => {
-    const connector = lastAssemblyPayload?.connectors?.find(c => c.connectorId === state.connectorId);
+    const connectors = lastAssemblyPayload?.connectors ?? [];
+    const picked = connectors.find(c => c.connectorId === state.connectorId);
+    const connector = picked?.copy ? connectors.find(c => c.connectorId === picked.copy!.seedId) : picked;
     if (connector) {
       void assemblyConnectorService.edit(connector);
     }
@@ -2191,6 +2522,41 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+    assemblyConnectorCopyService.exit();
+  },
+});
+
+// The assembly Copy dialog: a Connectors row's "Copy…" opens it on that
+// connector, a copy's row (or "Edit copy…") on the copy() statement that
+// made it. Apply writes the statement via /api/assembly-connector-copy.
+const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  getCurrentFile: () => currentSceneAbsPath,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    // One picking dialog at a time.
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorService.exit();
+  },
+  // The rail's rows pick for the armed slot: a copy's row only as the axis
+  // (a copy is never copied again), so it sits inert while targets are picked.
+  onPickingChange: (picking) => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(
+        true,
+        picking === 'axis' ? 'Pick as the copy axis' : 'Pick for the copy',
+        picking === 'axis' ? 'pick' : 'inert',
+      );
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(false);
+    }
   },
 });
 
@@ -2205,6 +2571,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
     assemblyMateService.exit();
+    assemblyConnectorCopyService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2218,6 +2585,8 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
 
 viewer.setSolverUpdateHandler((output) => {
   if (currentRail?.kind !== 'assembly') return;
+  // An active section view follows the moved instances (throttled inside).
+  sectionViewService.handleInstancesMoved();
   // Diff the failed set against the previous frame BEFORE replacing it.
   // The joints panel only re-renders when this set changes, and during a
   // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
@@ -2264,6 +2633,22 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
     // The armed connector tool floats its anchor suggestion at the hovered
     // face/edge — the gizmo nearest the cursor.
     connectorService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (holeService.isPicking) {
+    // The hole dialog floats the same anchor suggestion for a new placement.
+    holeService.handleHover(shapeId, sub, clientX, clientY);
+  }
+});
+
+// Moving along the hovered face/edge: the anchor rails re-pick the anchor
+// nearest the cursor (an edge's ends vs its center).
+viewer.setHoverMoveHandler((shapeId, sub, clientX, clientY) => {
+  if (modifyService.isActive) {
+    return;
+  }
+  if (connectorService.isActive) {
+    connectorService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (holeService.isPicking) {
+    holeService.handleHover(shapeId, sub, clientX, clientY);
   }
 });
 
@@ -2277,6 +2662,7 @@ const createDialogPicking = () =>
   || extrudeService.isFacePicking
   || extrudeService.isScopePicking
   || ribService.isPicking
+  || holeService.isPicking
   || revolveService.isAxisPicking
   || (sweepService.isActive && !sweepService.isEditing)
   || sweepService.isEdgePicking
@@ -2296,7 +2682,7 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking && !assemblyConnectorCopyService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2329,6 +2715,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // panels and the measure tool; the part-design pick services aren't
   // active here.
   if (currentRail?.kind === 'assembly') {
+    // The open Copy dialog owns every viewport click: an assembly
+    // connector's gizmo fills its armed slot.
+    if (assemblyConnectorCopyService.isPicking) {
+      assemblyConnectorCopyService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
     // The armed mate dialog owns every viewport click: connector picks fill
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
@@ -2379,6 +2771,19 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     projectionService.handleClick(shapeId, sub);
     return;
   }
+  // A connector-gizmo pick exists only while a part dialog armed connector
+  // picking (viewer.setConnectorPicking) — the Copy dialog takes it as a
+  // target or its axis; the Repeat dialog explains that Copy does.
+  if (sub?.type === 'connector') {
+    if (holeService.isPicking) {
+      holeService.handleConnectorPick(shapeId, modifiers);
+    } else if (copyService.isPicking) {
+      copyService.handleConnectorPick(shapeId, modifiers);
+    } else if (repeatService.isPicking) {
+      repeatService.handleConnectorPick();
+    }
+    return;
+  }
   // A sketch-wire pick exists only while a create dialog is armed (the
   // dialogs enable viewer.pickSketchWires) — it selects that sketch as the
   // dialog's input and never reaches the measure selection.
@@ -2422,6 +2827,10 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // plane — the Sketch button consumes it). Never part of the measure set.
   if (sub?.type === 'plane') {
     if (shapeId) {
+      if (sectionViewService.isPlanePicking) {
+        sectionViewService.handlePlanePick(shapeId);
+        return;
+      }
       if (repeatService.isPlanePicking) {
         repeatService.handlePlanePick(shapeId);
         return;
@@ -2472,7 +2881,7 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     wrapService.handleClick(shapeId, sub);
     return;
   }
-  // The armed loft dialog owns face clicks — each pick is one profile.
+  // The loft dialog routes face profiles, scoped vertex connections and solid scope picks.
   if (loftService.isFacePicking) {
     loftService.handleClick(shapeId, sub);
     return;
@@ -2501,6 +2910,11 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     mirrorService.handleClick(shapeId, sub);
     return;
   }
+  // The armed section dialog owns clicks — a face is the cut plane.
+  if (sectionViewService.isPicking) {
+    sectionViewService.handleClick(shapeId, sub);
+    return;
+  }
   // The armed rotate dialog owns clicks — a face or edge selects its whole
   // solid as a target, or (axis slot armed) an edge is the rotation axis.
   if (rotateService.isPicking) {
@@ -2519,6 +2933,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     booleanService.handleClick(shapeId, sub);
     return;
   }
+  // The armed hole dialog owns clicks — a vertex dot or a face/edge anchor
+  // is a placement, a face or edge with the scope slot armed its whole solid.
+  if (holeService.isPicking) {
+    holeService.handleClick(shapeId, sub);
+    return;
+  }
   // The armed rib dialog owns clicks — a face or edge selects its whole
   // solid into the scope slot.
   if (ribService.isPicking) {
@@ -2533,6 +2953,14 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
 
   if (shapePropertiesModal.isOpen) {
     measureController.clearSelection();
+    if (shapePropertiesModal.mode === 'part') {
+      // Part mode: the click selects the whole part the shape belongs to
+      // (the panel's selection handler highlights every solid of it).
+      propertiesSolidPick.set([]);
+      shapePropertiesModal.selectPartOfShape(shapeId);
+      selectionInfoOverlay.hide();
+      return;
+    }
     // The shared whole-solid picker: any face or edge click selects (and
     // highlights) the owning shape whole — the copy dialog's targets slot
     // rides the same component in multiple mode.
@@ -2715,15 +3143,13 @@ viewer.sceneContext.subscribeCameraChange(scheduleCameraStatePush);
 /**
  * The scope-sensitive service cascade every scene render runs (and a
  * timeline part-row click replays — see {@link refreshActivePartScope}):
- * the region pick triggers, the sketch toolbar, and each dialog
+ * the sketch toolbar, and each dialog
  * service's own scene handling, in the order the services expect.
  */
 function runSceneServices(result: SceneObjectRender[], renderStop: number, isRollback: boolean): void {
   if (isRollback) {
-    regionService.reset();
     sketchService.update([]);
   } else {
-    regionService.update(result);
     // While a pick mode has sketch editing suspended, the sketch
     // toolbar must not re-take the bar on incoming renders. An open
     // projection EDIT counts too (its session owns the rolled-back
@@ -2735,7 +3161,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
       || rotateService.sketchUISuspended || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-      || ribService.sketchUISuspended
+      || ribService.sketchUISuspended || holeService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
       || projectionService.isEditing
       || textEditService.isActive;
@@ -2751,12 +3177,9 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   // re-seeds its sources there; without one, a (non-rollback) render
   // drops an armed tool's now-unaddressable picks.
   projectionService.handleSceneRendered(result, renderStop, isRollback);
-  // Once the modify service has (re)adopted the active sketch for this
-  // render, the Finish Sketch button knows whether it should offer the
-  // grid or just remove the breakpoint (editing a consumed sketch).
-  finishSketchMenu.setResumeMode(modifyService.isEditingConsumedSketch);
   extrudeService.handleSceneRendered(result, renderStop, isRollback);
   ribService.handleSceneRendered(result, renderStop, isRollback);
+  holeService.handleSceneRendered(result, renderStop, isRollback);
   revolveService.handleSceneRendered(result, renderStop, isRollback);
   sweepService.handleSceneRendered(result, renderStop, isRollback);
   wrapService.handleSceneRendered(result, renderStop, isRollback);
@@ -2780,15 +3203,15 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
 let lastPartRender: { result: SceneObjectRender[]; isRollback: boolean; rollbackStop?: number } | null = null;
 
 /**
- * A part-row click repointed the active part: re-run the render cascade's
- * scope-derived pieces against the current scene so the view reacts now —
- * a newly active part ending in a sketch enters sketch editing (camera,
- * ghosting, toolbar, sketch dialog); anything else leaves it. Safe by
- * construction: this is the exact sequence a real render runs, and every
- * service already handles the scene's active sketch appearing or vanishing
- * between renders. Rolled-back views are left alone — their mode derives
- * from the rollback stop, not the active scope, and the next full render
- * re-derives everything.
+ * A part-row click repointed the active part (or stepped out of it to the
+ * top level): re-run the render cascade's scope-derived pieces against the
+ * current scene so the view reacts now — a new scope ending in an open
+ * sketch enters sketch editing (camera, ghosting, toolbar, sketch dialog);
+ * anything else leaves it. Safe by construction: this is the exact sequence
+ * a real render runs, and every service already handles the scene's active
+ * sketch appearing or vanishing between renders. Rolled-back views are left
+ * alone — their mode derives from the rollback stop, not the active scope,
+ * and the next full render re-derives everything.
  */
 function refreshActivePartScope(): void {
   if (!lastPartRender || lastPartRender.isRollback) {
@@ -2889,7 +3312,7 @@ function applySceneRendered(msg: any): void {
         sketchConsumedByKey.clear();
         for (const o of msg.result as SceneObjectRender[]) {
           if (o.type === 'sketch' && o.sourceLocation) {
-            sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+            sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false);
           }
         }
       }
@@ -2915,6 +3338,7 @@ function applySceneRendered(msg: any): void {
     }
     const renderStop = msg.rollbackStop ?? msg.result.length - 1;
     runSceneServices(msg.result, renderStop, isRollback);
+    sectionViewService.handleSceneRendered(msg.result, sceneKind);
     // Swap the toolbar to the matching workbench alongside the left rail —
     // part-design groups hide and the assembly groups show (or back).
     navbar.setMode(sceneKind);
@@ -2923,7 +3347,17 @@ function applySceneRendered(msg: any): void {
     // the Export list filters its parts by it.
     let renderedAssembly: SerializedAssembly | undefined;
     if (rail.kind === 'part') {
-      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
+      // Responses without an authoritative flag (compile errors) serve the
+      // last scene, so the last known state still describes it.
+      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
+        filePath: msg.absPath ?? currentSceneAbsPath,
+        breakpointStop: msg.breakpointStop,
+        paused: msg.breakpointHit ?? breakpointActive,
+        timeline: msg.timeline,
+        // Non-fatal per-row notices (an unknown material id) — absent on a
+        // compile-error replay, which keeps the last render's.
+        warnings: msg.objectWarnings,
+      });
       assemblyGizmo.handleModeExit();
     } else {
       const assembly = normalizeAssemblyPayload(msg.assembly);
@@ -2936,13 +3370,17 @@ function applySceneRendered(msg: any): void {
     // The panel column becomes visible on its first update, and a
     // part/assembly swap renames the button it hangs off.
     panelRail.sync();
+    // Re-adopt the part the properties panel reads its material from — ids
+    // are re-minted, and a Set material… edit just re-rendered its row.
+    shapePropertiesModal.onSceneRendered();
     // The mate dialog re-resolves its picks against the re-minted scene
     // ids (or closes, when the render switched to a part scene).
     assemblyMateService.handleSceneRendered(sceneKind);
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
+    assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      paramsPanel.update(msg.params);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);
@@ -2972,13 +3410,17 @@ function applySceneRendered(msg: any): void {
     // scene is a rollback still restores the indicator); compile-error
     // responses omit the flag and the last known state persists.
     if (msg.breakpointHit !== undefined) {
+      breakpointActive = msg.breakpointHit;
       breakpointIndicator.setActive(msg.breakpointHit);
     }
 }
 
 function connectWebSocket() {
-  // Protocol-relative: plain ws:// is blocked from an https page.
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+  // Next to the page, like every other request: at `/` under `fluidcad serve`,
+  // under `/p/<project>/` behind `npx fluidcad`'s proxy. Protocol-relative
+  // too: plain ws:// is blocked from an https page.
+  const wsUrl = new URL('.', window.location.href);
+  wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {

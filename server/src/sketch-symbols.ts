@@ -6,11 +6,11 @@
 // carries the legacy geometry qualifiers (outside/enclosed/enclosing) — those
 // are import symbols, not constraint statements, and stay out of this set.
 
-/** The 16 solved-sketch constraint statement callees (fluidcad/constraints). */
+/** The 17 solved-sketch constraint statement callees (fluidcad/constraints). */
 export const SOLVED_CONSTRAINT_KINDS = new Set<string>([
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
   'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',
-  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
+  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix', 'offsetFrom',
 ]);
 
 export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
@@ -21,20 +21,23 @@ export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
  * its radii stay literals. */
 export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point', 'ellipse']);
 
-/** What the emission rail may write as geometry: the entity statements. */
-export type SolvedGeometryKind = SolvedEntityKind;
+/**
+ * What the emission rail may write as geometry: the entity statements, plus
+ * the bezier — no solver entity itself, but a rigid function of its literal
+ * control points, each an anchor point a constraint target addresses as
+ * `bz.point(i)` (P8). The sketch Mirror tool writes reflected beziers this
+ * way, one point-pair symmetric per control point.
+ */
+export type SolvedGeometryKind = SolvedEntityKind | 'bezier';
 
-export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES]);
+export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES, 'bezier']);
 
 /** Binding-name hints per entity kind — `const l1 = line(…)`,
  * `const el1 = ellipse(…)`. Reference producers (P6) hoist too:
  * `const prj1 = project(…)`, and so do 2D copy statements whose duplicates
  * are constraint targets (`const cp1 = copy(…)`) and the anchor-point
  * statements (P8): `const t1 = text(…)`, `const bz1 = bezier(…)`. */
-export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
-  line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz',
-};
+export { SOLVED_ENTITY_NAME_HINTS } from '../../lib/dist/selection/sketch-target.js';
 
 /**
  * Edge-consuming derived-op callees — the TAIL region of a solved sketch
@@ -69,3 +72,11 @@ export const MIRROR_CALLEES = new Set<string>(['mirror']);
  * featureType-derived accessor.
  */
 export const ANCHOR_CALLEES = new Set<string>(['text', 'bezier']);
+
+/**
+ * The region declaration statement (`region('r1', l1, far(c1))`): the tail
+ * of a solved sketch body after the derived ops — it references geometry
+ * and derived ops alike, so it lands after both. `far` is its side wrapper.
+ */
+export const REGION_DECLARATION_CALLEE = 'region';
+export const REGION_SIDE_CALLEE = 'far';

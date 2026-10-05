@@ -19,7 +19,7 @@ interface Wrap extends BooleanOperation {
   internalFaces(...args: (number | FaceFilter)[]): ISelection;
   internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   drill(value?: boolean): this;
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 }
 ```
 
@@ -116,16 +116,17 @@ before wrapping.
 | --- | --- | --- |
 | `value` | `boolean` | `true` to enable (default), `false` to disable. *(optional)* |
 
-### `pick()`
+### `region()`
 
-Restricts wrapping to only the sketch regions containing the given points.
+Restricts wrapping to particular regions of the sketch, by the names
+their `region()` declarations gave them. See `IExtrude.region`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...points` | [[api/types/point2dlike]][] | 2D points in the sketch plane identifying regions to wrap. *(optional)* |
+| `...names` | `string`[] | Names of regions the sketch declares. *(optional)* |
 
 ## Inherited
 
 From [[api/types/boolean-operation]]: `add()`, `'new'()`, `remove()`, `scope()`
 
-From [[api/types/scene-object]]: `name()`, `reusable()`
+From [[api/types/scene-object]]: `name()`

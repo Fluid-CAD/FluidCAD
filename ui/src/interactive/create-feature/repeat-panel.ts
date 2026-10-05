@@ -4,9 +4,11 @@ import { PlaneOption } from './plane-bases';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { DIRECTION_GROUP_CLASSES } from './panel-controls';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
@@ -83,6 +85,8 @@ export class RepeatPanel extends FeaturePanel {
 
   private kindSelect: HTMLSelectElement;
   private targetsSlot: PickSlot;
+  /** The Direction 1 group — axis, count and spacing — boxed like Direction 2 while the kind is linear. */
+  private dir1Wrap: HTMLElement;
   private axisWrap: HTMLElement;
   private dir1Header: HTMLElement;
   private axisSlots = new Map<RepeatDirection, AxisSlotControl>();
@@ -113,7 +117,7 @@ export class RepeatPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-repeat-panel',
       title: 'Repeat',
-      icon: '/icons/repeat-linear.png',
+      icon: iconUrl('repeat-linear'),
       bodyHtml: `
         <label class="flex flex-col gap-1.5">
           <span class="text-base-content/70">Type</span>
@@ -125,28 +129,30 @@ export class RepeatPanel extends FeaturePanel {
           </select>
         </label>
         <div data-role="targets-slot"></div>
-        <div data-role="axis-wrap" class="flex flex-col gap-1.5">
-          <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
-          <div data-role="axis-slot-1"></div>
-        </div>
-        <div data-role="plane-wrap" class="hidden flex-col gap-1.5">
-          <div data-role="plane-slot"></div>
-        </div>
-        <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
-          <span class="text-base-content/70">Total Count</span>
-          <input data-role="count" type="number" step="1" min="2" value="3"
-            class="input input-sm input-bordered w-full text-xs" />
-        </label>
-        <div data-role="spacing-row" class="flex flex-col gap-1.5">
-          <span class="text-base-content/70">Spacing</span>
-          <div class="flex items-center gap-1.5">
-            <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
-              title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
-              <option value="offset">Offset</option>
-              <option value="length">Total</option>
-            </select>
-            <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
-              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+        <div data-role="dir1-wrap" class="flex flex-col gap-3">
+          <div data-role="axis-wrap" class="flex flex-col gap-1.5">
+            <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
+            <div data-role="axis-slot-1"></div>
+          </div>
+          <div data-role="plane-wrap" class="hidden flex-col gap-1.5">
+            <div data-role="plane-slot"></div>
+          </div>
+          <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
+            <span class="text-base-content/70">Total Count</span>
+            <input data-role="count" type="number" step="1" min="2" value="3"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <div data-role="spacing-row" class="flex flex-col gap-1.5">
+            <span class="text-base-content/70">Spacing</span>
+            <div class="flex items-center gap-1.5">
+              <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 shrink-0 text-xs"
+                title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
+                <option value="offset">Offset</option>
+                <option value="length">Total</option>
+              </select>
+              <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
+                class="input input-sm input-bordered w-full min-w-0 text-xs" />
+            </div>
           </div>
         </div>
         <div data-role="sweep-row" class="hidden flex-col gap-1.5">
@@ -161,7 +167,7 @@ export class RepeatPanel extends FeaturePanel {
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
         </div>
-        <div data-role="dir2-wrap" class="hidden flex-col gap-1.5">
+        <div data-role="dir2-wrap" class="hidden flex-col gap-3 border border-base-content/10 rounded-md p-3">
           <div class="flex items-center justify-between">
             <span class="text-base-content/70 font-medium">Direction 2</span>
             <button data-role="dir2-remove" class="btn btn-ghost btn-xs px-1.5"
@@ -205,6 +211,7 @@ export class RepeatPanel extends FeaturePanel {
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
+    this.dir1Wrap = this.role('dir1-wrap');
     this.axisWrap = this.role('axis-wrap');
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
@@ -558,9 +565,12 @@ export class RepeatPanel extends FeaturePanel {
     const usesAxis = kind !== 'mirror';
     this.axisWrap.classList.toggle('hidden', !usesAxis);
     this.axisWrap.classList.toggle('flex', usesAxis);
-    // The Direction 1 header only earns its row when a second direction can
-    // exist; other kinds show the bare axis slot.
+    // The Direction 1 header and its box only earn their place when a second
+    // direction can exist; other kinds show the bare axis (or plane) slot.
     this.dir1Header.classList.toggle('hidden', !linear);
+    for (const cls of DIRECTION_GROUP_CLASSES) {
+      this.dir1Wrap.classList.toggle(cls, linear);
+    }
     this.planeWrap.classList.toggle('hidden', kind !== 'mirror');
     this.planeWrap.classList.toggle('flex', kind === 'mirror');
     const usesCount = linear || kind === 'circular';

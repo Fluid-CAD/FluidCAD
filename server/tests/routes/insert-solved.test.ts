@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
-import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
+import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 
 // The solved-sketch drawing-tool emission route (sketch-rewrite P5):
 // preflights against the server's code copy for a fast honest 422 AND the

@@ -6,6 +6,7 @@ import { EntitySlotControl } from './entity-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Which geometry the helix is built around — the two dialog tabs. */
 export type HelixSourceMode = 'axis' | 'face';
@@ -85,7 +86,7 @@ export class HelixPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-helix-panel',
       title: 'Helix',
-      icon: '/icons/helix.png',
+      icon: iconUrl('helix'),
       bodyHtml: `
         <div data-role="mode-tabs" class="join w-full"></div>
         <div data-role="axis-group" class="flex flex-col gap-1.5">

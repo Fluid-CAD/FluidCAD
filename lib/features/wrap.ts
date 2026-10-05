@@ -28,7 +28,7 @@ export class Wrap extends ExtrudeBase implements IWrap {
 
     const plane = p.record('Get source plane', () => this.getSourcePlane());
 
-    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolveRegionFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -44,8 +44,8 @@ export class Wrap extends ExtrudeBase implements IWrap {
     this.face.removeShapes(this);
 
     if (isRemove) {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, result.solids, plane, this.thickness, this, {
+      const stock = this.resolveFusionStock(context.getSceneObjects());
+      cutWithSceneObjects(stock, result.solids, plane, this.thickness, this, {
         recordHistoryFor: this,
       });
     } else {

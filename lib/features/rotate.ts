@@ -72,7 +72,7 @@ export class Rotate extends SceneObject {
         transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
-          obj.removeShape(shape, this);
+          obj.removeShape(shape, this, [transformed]);
         }
       }
     }

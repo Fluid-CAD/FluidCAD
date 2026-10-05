@@ -1,0 +1,45 @@
+---
+sidebar_position: 5
+title: "Offset"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import dimensionOffset from '!!raw-loader!../../_examples/dimension-offset.js';
+import toolOffsetConstrained from '!!raw-loader!../../_examples/tool-offset-constrained.js';
+
+# Offset
+
+`offsetFrom` holds one or more entities at a distance from the entities they were offset from — a line parallel to its source at that distance, an arc or circle concentric with its source at its radius plus or minus that distance. It is the dimension the [Offset tool](/docs/sketching/tools/offset) writes: the offset curves are ordinary lines and arcs you can pick, dimension and constrain further, and this one statement keeps them following the outline they came from.
+
+## In the viewport
+
+The statement is written by the **Offset** tool; there is no constraint-bar button for it. Double-click its label to edit the distance in place, and delete the statement to leave the offset curves as free geometry.
+
+![An L-shaped path offset by 4 with sharp corners](/img/docs/sketching/dimension-offset.png)
+
+<ExplainedCode code={dimensionOffset} fileName="bracket.part.js">
+The three offset lines are held 4 from `a`, `b` and `c`. Where the path turns a corner, a `coincident` joins the two offset lines and they slide to where their rails cross; the two free ends sit straight across from the path's ends without any further constraint.
+</ExplainedCode>
+
+## In code
+
+```js
+offsetFrom(o, s, 5)                          // one entity offset 5 from s
+offsetFrom([o1, o2, o3], [s1, s2, s3], 5)    // a chain: o1 follows s1, o2 follows s2, …
+```
+
+- **Pairs.** The first argument lists the offset entities, the second their sources in the same order: `o1` follows `s1`, `o2` follows `s2`. A line follows a line, an arc an arc, a circle a circle.
+- **The distance is positive.** Which side the offset lies on — left or right of a line, outside or inside a circle — is read from where you drew the offset entity, exactly as `distance` reads its side. Draw the guess on the side you want.
+- **Corners.** An offset entity's end that a `coincident` joins to an end of *another entity of the same statement* is a corner of the chain: it slides along its rail to wherever the neighbour's rail crosses it, which is how sharp corners are formed. Every other end sits straight across from its source's end — the free ends of an open chain, and both sides of a tangent junction, where the two offsets meet on their own because their sources are tangent. Add or remove a corner coincident later and the chain re-forms without touching the statement.
+- **Bidirectional.** Dimensioning an offset entity drives its source through the tie, and dragging either moves both.
+- **One value.** Edit the distance once and every entity of the chain moves.
+
+<ExplainedCode code={toolOffsetConstrained} fileName="plate.part.js">
+A stadium offset outward by 5: the four offset curves in one statement. Every junction of the stadium is tangent, so no coincidents are needed — the offset lines end straight across from the outline's tangent points, which is exactly where the offset arcs start.
+</ExplainedCode>
+
+## Limits
+
+- An inside offset of an arc or circle must stay smaller than its radius; the statement refuses otherwise.
+- Ellipses, beziers and text are not offset entities — the Offset tool writes a selection holding one as an `offset()` statement, the derived operation, which handles those curves exactly.
+- A `.cw()` change on a source arc after the offset is drawn turns its offset arc the other way, like any arc drawn to match.

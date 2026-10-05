@@ -5,15 +5,16 @@ title: "Connector"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import partConnector from '!!raw-loader!./_examples/part-connector.js';
+import partConnectorCopy from '!!raw-loader!./_examples/part-connector-copy.js';
 
 # connector()
 
-A connector is a named coordinate frame attached to the part's geometry — an origin, an X direction and a Z normal. Mates in an assembly join connectors to connectors, so the connectors a part declares are its mating interface. Every instance of the part carries the same set.
+A connector is a named coordinate frame attached to the part's geometry — an origin, an X direction and a Z normal. Mates in an assembly join connectors to connectors, so the connectors a part declares are its mating interface. Every instance of the part carries the same set. A bolt circle or a hole grid needs only one: declare it on the first hole and [copy it](#copying-a-connector).
 
 ## In the viewport
 
 1. Click **Connector** on the toolbar. The Connector dialog docks on the right with its **Source** slot armed.
-2. Hover the model. Faces and edges float their anchor candidates — the centre of a face, the centre, start or end of an edge — as a translucent frame. Click the one you want; the chip shows it.
+2. Hover the model. Faces and edges float their anchor candidates — the centre of a face, the centre, start or end of an edge — as a translucent frame, and the frame follows the cursor to the anchor nearest it. On an arc, hover its middle for the arc's centre, or near an end for that end. Click the one you want; the chip shows it.
 3. Fill in the **Name** (a free `c1`-style default is prefilled). Adjust the frame-local **Offset** x / y / z and click the rotation stepper to turn the frame 90° about its own Z per click.
 4. Click **Apply**. The statement is written directly in the part body and the timeline's part row gains a connector under its *N connectors* toggle. In the viewport the connector renders as a small axis triad.
 
@@ -64,3 +65,30 @@ Face frames follow the outward normal, so two parts mated **face-to-face** end u
 - Names are unique within a part; a part connector and an assembly connector may share a name.
 - Connectors are part-owned. There is no way to add one to a single instance from the assembly; edit the part, or use an assembly-level free frame (`connector('name', [x, y, z])`, see the [assembly introduction](/docs/assembly/introduction#assembly-connectors)).
 - The pen button on a connector chip in the mate dialog edits a part connector's name, offset and rotation from the assembly — the edit is written into the part file.
+
+## Copying a connector
+
+A copy of a connector is a connector too — a mate side, a replicate row — with no statement of its own. The copies of `bolt` are addressed `bolt.instance(1)`, `bolt.instance(2)`, …; in these pages `bolt.instance(3)` is *copy 3 of `bolt`*.
+
+<img src="/img/docs/ui/copy-dialog-along-repeat.png" alt="The Copy dialog on Along a repeat: the bolt connector in Solids & connectors, the holes repeat in Pattern" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Right-click the connector's row in the timeline (under the part's *N connectors* toggle) and choose **Copy…**. The Copy dialog opens with the connector in its **Solids & connectors** slot. Or click **Copy** on the toolbar and click the connector's triad: every connector shows while the dialog is open.
+2. Pick the **Type**. **Along a repeat** puts one copy on every instance of a feature you repeated: its **Pattern** slot asks for the repeat — click the Repeat row in the timeline, or the repeated feature in the viewport. Count, spacing and axis come from the repeat, so the dialog hides them. **Linear** and **Circular** lay the copies out on their own, with the fields of a [solid copy](/docs/patterns/copy); their **Axis** slot also takes a connector, for its Z axis.
+3. A translucent triad previews each copy. Click **Apply**. The `copy()` statement is written at the end of the part body, and its Copy row appears in the timeline like any other feature; clicking the row highlights the connector with all its copies.
+
+<div style={{clear: 'both'}} />
+
+![A pipe flange with a bolt connector on each of its six holes: bolt on the first, its five copies on the others](/img/docs/part/part-connector-copy.png)
+
+<ExplainedCode code={partConnectorCopy} fileName="flange.part.js" />
+
+An assembly mates a copy like any connector: `mate('fastened', f.connectors.bolt.instance(3), b.connectors.head)` seats a bolt in the hole three steps round from the first. Dialog chips show the same spelling, `Pipe flange · bolt.instance(3)`.
+
+### How copies behave
+
+- **Read-only.** A copy is not edited, renamed or removed on its own. Change the connector and every copy follows; change the pattern by double-clicking the Copy row. In the mate dialog, the pen on a copy's chip edits the connector it copies, and says so.
+- **Numbered like a repeat's instances.** Along a repeat, `bolt.instance(k)` sits on the repeat's instance `k`, and an instance the repeat skips has no copy. A linear grid counts its cells with the first direction varying slowest, the original keeping its own cell (0, or the centre cell when centered); a circular copy counts the steps round from the original at 0. The original's own slot is the connector itself.
+- **A moved frame, not a new anchor.** A copy is the connector's frame moved by the pattern. It does not re-attach to the geometry where it lands, so a Linear or Circular copy sits on a hole only while its pattern matches the holes'. **Along a repeat** keeps every copy on its hole when the repeat's count, spacing or axis changes, and it is the way to follow a repeat over a partial arc: a Circular copy steps that arc differently (see [Copy](/docs/patterns/copy#circular-copy)).
+- **Renumbering.** A grid's cells are numbered in one sequence, so changing a later direction's count, or the count of a centered pattern, gives the slots new numbers: a part mated to `hole.instance(2)` of a 2 × 2 grid jumps to another hole when the grid becomes 2 × 3. The jump shows in the assembly, so it does not go unnoticed.
+- **Limits.** One copy statement per connector; a copy is not copied again (a grid is one Linear copy with two directions); copies are made directly in the part body, never in a sketch. A Circular copy of a connector can't be **Centered** yet.
+- **Addresses that don't exist.** A slot the pattern skipped, a slot past the count, or `.instance()` on a connector nothing copies stops the assembly with an error that names the copy statement: `bolt.instance(7) is out of range — the copy at flange.part.js:40 makes instances 0–5`.

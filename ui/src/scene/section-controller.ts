@@ -23,6 +23,7 @@ import {
   ReplaceStencilOp,
   Vector3,
 } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { SectionClipper } from './section-clipper';
 import { SectionPlaneMath, type ResolvedSection, type SectionSpec, type Vec3Tuple } from './section-spec';
 import { themeColors } from './theme-colors';
@@ -31,6 +32,30 @@ export type { ResolvedSection, SectionPlaneName, SectionPlaneSpec, SectionSpec, 
 export { SectionPlaneMath } from './section-spec';
 
 type PositionAttribute = BufferAttribute | InterleavedBufferAttribute;
+
+/**
+ * How the caps are painted. The defaults are the screenshot look: every cap
+ * in its solid's own face colour, flat. The interactive section view asks
+ * for `distinctColors` (each body its own palette colour, so the parts of an
+ * assembly read apart at the cut) and `hatch` (a drawing's section lines,
+ * `hatchSpacing` world units apart). A solid subtree carrying
+ * `userData.sectionCapColor` (the interference overlay's red) paints its cap
+ * in that colour whatever the style says.
+ */
+export type SectionStyle = {
+  distinctColors?: boolean;
+  hatch?: boolean;
+  /** Distance between hatch lines, in world units; required for `hatch`. */
+  hatchSpacing?: number;
+};
+
+/**
+ * The cap palette for `distinctColors`: muted, well separated hues that
+ * stay readable under the hatch and beside the interference red.
+ */
+export const SECTION_CAP_PALETTE: readonly number[] = [
+  0x8fb3d9, 0xd9b48f, 0x9fcf9a, 0xcf9fc8, 0xd9d38f, 0x8fd1d9, 0xc9a8a8, 0xa8b8c9,
+];
 
 /** The three.js side of {@link SectionPlaneMath}: a resolved section as a clipping `Plane`. */
 export class SectionPlanes {
@@ -81,8 +106,8 @@ export class SectionPlanes {
  *    camera, lights, backgrounds or visibility.
  *  - Apply it after any other visibility change of a capture (hide, focus,
  *    solids-only) and clear it before undoing them: the caps are built from
- *    what is visible at apply time and the overlays are children of the
- *    model meshes.
+ *    what is visible at apply time, and the stencil markers freeze each
+ *    mesh's world transform as of then.
  *  - `root` is the geometry root (the compiled mesh or the assembly
  *    container); helpers like the grid and axes outside it stay uncut.
  *  - Highlight overlays inside the root are clipped like the model, so a
@@ -105,7 +130,7 @@ export class SectionController {
     return this.spec;
   }
 
-  apply(root: Object3D, spec: SectionSpec): void {
+  apply(root: Object3D, spec: SectionSpec, style: SectionStyle = {}): void {
     if (this.root && this.root !== root) {
       this.clear();
     }
@@ -118,9 +143,14 @@ export class SectionController {
       this.priorClipping = SectionController.snapshotClipping(root);
     }
     this.clipper.apply(root, plane);
-    this.caps.build(root, section, plane);
+    this.caps.build(root, section, plane, style);
     this.root = root;
     this.spec = spec;
+  }
+
+  /** The clipping plane in force, for overlays built after `apply` (a hover highlight) to clip alike. */
+  get clipPlane(): Plane | null {
+    return this.spec ? SectionPlanes.clipPlane(SectionPlaneMath.resolve(this.spec)) : null;
   }
 
   clear(): void {
@@ -162,6 +192,9 @@ export class SectionController {
 /** One cut solid's cap: its stencil markers and the coloured quad. */
 type CapEntry = { markers: Object3D[]; quad: Mesh };
 
+/** A visible solid subtree the plane cuts, with its ordinal among every solid under the root. */
+type CutSolid = { node: Object3D; meshes: Mesh[]; box: Box3; ordinal: number };
+
 /**
  * The stencil caps of a section: see {@link SectionController} for the
  * technique. Builds one cap per visible solid the plane cuts; `dispose`
@@ -184,12 +217,21 @@ export class SectionCaps {
     return this.entries.length;
   }
 
-  build(root: Object3D, section: ResolvedSection, plane: Plane): void {
+  build(root: Object3D, section: ResolvedSection, plane: Plane, style: SectionStyle = {}): void {
     this.dispose();
     root.updateMatrixWorld(true);
     const group = new Group();
     group.name = SectionCaps.GROUP_NAME;
     group.userData.isSectionOverlay = true;
+    // Not model geometry: the quads span each solid's bounding sphere on the
+    // plane, and anything measuring the scene (fit-to-view, the arrow's
+    // placement, the hatch density) must not see them.
+    group.userData.isMetaShape = true;
+    // Three sorts draws by the nearest ancestor Group's renderOrder before
+    // the object's own: the model's face groups carry 1, so every cap
+    // object lives under this one group, ordered below all of them, and the
+    // markers and quads keep their relative order by their own renderOrder.
+    group.renderOrder = SectionCaps.RENDER_ORDER_BASE;
     // Children are placed in world space whatever the root's own transform.
     group.matrixAutoUpdate = false;
     group.matrix.copy(root.matrixWorld).invert();
@@ -198,7 +240,7 @@ export class SectionCaps {
     this.group = group;
 
     for (const solid of SectionCaps.cutSolids(root, section)) {
-      this.addCap(solid, section, plane);
+      this.addCap(solid, section, plane, style);
     }
     group.updateMatrixWorld(true);
   }
@@ -228,20 +270,28 @@ export class SectionCaps {
    * select overlay) whose world bounds straddle the cut plane, with its
    * face meshes and bounds.
    */
-  static cutSolids(root: Object3D, section: ResolvedSection): Array<{ meshes: Mesh[]; box: Box3 }> {
-    const found: Array<{ meshes: Mesh[]; box: Box3 }> = [];
+  static cutSolids(root: Object3D, section: ResolvedSection): CutSolid[] {
+    const found: CutSolid[] = [];
+    // The ordinal counts every solid subtree under the root, cut or not, so
+    // a body keeps its palette colour as the plane moves on and off it.
+    let ordinal = 0;
     const visit = (node: Object3D): void => {
-      if (!node.visible || node.userData.isSectionOverlay) {
+      if (node.userData.isSectionOverlay) {
         return;
       }
       if (node.userData.isSolid) {
-        if (!node.userData.isMetaShape && node.renderOrder < 999) {
-          const meshes = SectionCaps.faceMeshes(node);
-          const box = SectionCaps.worldBox(meshes);
-          if (meshes.length > 0 && SectionCaps.straddles(box, section)) {
-            found.push({ meshes, box });
-          }
+        if (!node.visible || node.userData.isMetaShape || node.renderOrder >= 999) {
+          return;
         }
+        const own = ordinal++;
+        const meshes = SectionCaps.faceMeshes(node);
+        const box = SectionCaps.worldBox(meshes);
+        if (meshes.length > 0 && SectionCaps.straddles(box, section)) {
+          found.push({ node, meshes, box, ordinal: own });
+        }
+        return;
+      }
+      if (!node.visible) {
         return;
       }
       for (const child of node.children) {
@@ -274,11 +324,22 @@ export class SectionCaps {
     return kept > 0 && removed > 0;
   }
 
+  /**
+   * The triangle meshes of a solid: its face meshes, never its edges. A
+   * solid's edge lines are fat lines (`LineSegments2`), which extend `Mesh`
+   * and carry a `position` attribute — the 2×3 template quad the line
+   * shader instances along every segment, sitting at the mesh's origin.
+   * Counted in the stencil pass, that open quad never balances, and it
+   * left a small stray cap at the model's origin.
+   */
   private static faceMeshes(solid: Object3D): Mesh[] {
     const meshes: Mesh[] = [];
     solid.traverse((obj) => {
       const mesh = obj as Mesh;
-      if (mesh.isMesh && obj.visible && !obj.userData.isSectionOverlay && mesh.geometry?.getAttribute('position')) {
+      if (!mesh.isMesh || (obj as unknown as LineSegments2).isLineSegments2) {
+        return;
+      }
+      if (obj.visible && !obj.userData.isSectionOverlay && mesh.geometry?.getAttribute('position')) {
         meshes.push(mesh);
       }
     });
@@ -300,7 +361,7 @@ export class SectionCaps {
   // One solid's cap
   // -------------------------------------------------------------------------
 
-  private addCap(solid: { meshes: Mesh[]; box: Box3 }, section: ResolvedSection, plane: Plane): void {
+  private addCap(solid: CutSolid, section: ResolvedSection, plane: Plane, style: SectionStyle): void {
     const order = SectionCaps.RENDER_ORDER_BASE + this.entries.length * 2;
     const markers: Object3D[] = [];
     for (const mesh of solid.meshes) {
@@ -318,7 +379,7 @@ export class SectionCaps {
     if (markers.length === 0) {
       return;
     }
-    const quad = this.quadFor(solid, section, order + 1);
+    const quad = this.quadFor(solid, section, order + 1, style);
     this.entries.push({ markers, quad });
   }
 
@@ -395,21 +456,31 @@ export class SectionCaps {
       marker.userData.isSectionOverlay = true;
       marker.userData.isSectionMarker = true;
       marker.raycast = () => {};
-      // Identity local transform: the exact placement of the surface it counts.
-      mesh.add(marker);
+      // The mesh's own world transform, frozen: the exact placement of the
+      // surface it counts, drawn from the caps group rather than as the
+      // mesh's child (see build) — the caps are rebuilt whenever a mesh moves.
+      marker.matrixAutoUpdate = false;
+      marker.matrix.copy(mesh.matrixWorld);
+      marker.matrixWorldNeedsUpdate = true;
+      this.group!.add(marker);
       markers.push(marker);
     }
     return markers;
   }
 
   /** The cap quad: on the plane, covering the solid's bounding sphere, drawn where the stencil count is non-zero and resetting it. */
-  private quadFor(solid: { meshes: Mesh[]; box: Box3 }, section: ResolvedSection, order: number): Mesh {
+  private quadFor(solid: CutSolid, section: ResolvedSection, order: number, style: SectionStyle): Mesh {
     const center = solid.box.getCenter(new Vector3());
     const radius = solid.box.getSize(new Vector3()).length() / 2;
     const geometry = new PlaneGeometry(radius * 2, radius * 2);
     this.owned.push(geometry);
+    const override = solid.node.userData.sectionCapColor as Color | string | number | undefined;
     const material = new MeshPhongMaterial({
-      color: SectionCaps.capColor(solid.meshes),
+      color: override !== undefined
+        ? new Color(override as Color)
+        : style.distinctColors
+          ? new Color(SECTION_CAP_PALETTE[solid.ordinal % SECTION_CAP_PALETTE.length])
+          : SectionCaps.capColor(solid.meshes),
       shininess: 5,
       side: DoubleSide,
       stencilWrite: true,
@@ -420,6 +491,17 @@ export class SectionCaps {
       stencilZPass: ReplaceStencilOp,
     });
     material.clippingPlanes = [];
+    if (override !== undefined) {
+      // An overlay's cap (the interference red) shares the plane with the
+      // caps of the bodies it lies in and draws after them: pull it a hair
+      // toward the eye so the coplanar quads never speckle.
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -1;
+      material.polygonOffsetUnits = -1;
+    }
+    if (style.hatch && style.hatchSpacing && style.hatchSpacing > 0) {
+      SectionCaps.hatch(material, style.hatchSpacing, solid.ordinal % 2 === 0 ? 1 : -1);
+    }
     this.owned.push(material);
     const quad = new Mesh(geometry, material);
     quad.renderOrder = order;
@@ -433,6 +515,38 @@ export class SectionCaps {
     quad.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), removed));
     this.group!.add(quad);
     return quad;
+  }
+
+  /**
+   * A drawing's section lines on a cap: thin dark stripes at 45° in the
+   * quad's own plane, `spacing` world units apart. `direction` flips the
+   * stripes between neighbouring bodies so two parts meeting at the cut
+   * read apart even in one colour. Injected into the Phong shader so the
+   * lighting and the stencil rules stay exactly the cap's.
+   */
+  static hatch(material: MeshPhongMaterial, spacing: number, direction: 1 | -1): void {
+    const uniforms = {
+      uHatchSpacing: { value: spacing },
+      uHatchDirection: { value: direction },
+    };
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vSectionCapLocal;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSectionCapLocal = position.xy;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vSectionCapLocal;\nuniform float uHatchSpacing;\nuniform float uHatchDirection;')
+        .replace('#include <color_fragment>', [
+          '#include <color_fragment>',
+          '{',
+          '  float hatchT = (vSectionCapLocal.x + uHatchDirection * vSectionCapLocal.y) / uHatchSpacing;',
+          '  float hatchWidth = fwidth(hatchT) * 1.5 + 0.06;',
+          '  float hatchLine = 1.0 - smoothstep(0.0, hatchWidth, abs(fract(hatchT) - 0.5) - 0.5 + hatchWidth);',
+          '  diffuseColor.rgb *= mix(1.0, 0.55, hatchLine);',
+          '}',
+        ].join('\n'));
+    };
+    material.customProgramCacheKey = () => 'section-cap-hatch';
   }
 
   /** The solid's face colour (its untinted one while sketch-mode ghosting is on), shaded. */

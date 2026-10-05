@@ -171,14 +171,20 @@ export class Geometry {
     throw new Error('Failed to create arc edge from tangent: ' + status);
   }
 
-  static makeCircle(center: Point, radius: number, normal: Vector3d): Geom_Circle {
+  /**
+   * A full circle. `xDir` (optional, in the circle's plane) sets where the
+   * parameter starts — the seam vertex of an edge made from the circle lands
+   * there — so a full-turn arc can keep its authored end point.
+   */
+  static makeCircle(center: Point, radius: number, normal: Vector3d, xDir?: Vector3d): Geom_Circle {
     if (radius < DEGENERATE_TOL) {
       throw new Error(`Cannot create a circle with radius ${radius} — the radius must be positive`);
     }
     const oc = getOC();
     const [gpCenter, disposeCenter] = Convert.toGpPnt(center);
     const [gpDir, disposeDir] = Convert.toGpDir(normal);
-    const ax2 = new oc.gp_Ax2(gpCenter, gpDir);
+    const [gpXDir, disposeXDir] = xDir ? Convert.toGpDir(xDir) : [null, () => {}];
+    const ax2 = gpXDir ? new oc.gp_Ax2(gpCenter, gpDir, gpXDir) : new oc.gp_Ax2(gpCenter, gpDir);
     const gpCircle = new oc.gp_Circ(ax2, radius);
     const circleMaker = new oc.GC_MakeCircle(gpCircle);
 
@@ -189,6 +195,7 @@ export class Geometry {
       gpCircle.delete();
       disposeCenter();
       disposeDir();
+      disposeXDir();
       return circle;
     }
 
@@ -198,6 +205,7 @@ export class Geometry {
     gpCircle.delete();
     disposeCenter();
     disposeDir();
+    disposeXDir();
 
     throw new Error('Failed to create circle edge: ' + status);
   }

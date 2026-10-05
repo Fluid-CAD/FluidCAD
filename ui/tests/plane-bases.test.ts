@@ -99,3 +99,25 @@ describe('planeQuadShapeIds', () => {
     expect(planeQuadShapeIds({ filePath: FILE, line: 3 }, [row('plane', 3)])).toEqual([]);
   });
 });
+
+// A plane a feature used is consumed for display only: its row carries the
+// consumer and the hidden quad, and the plane picker offers it again, named
+// after that consumer, with the hidden quad as its highlight target.
+describe('a used plane', () => {
+  const quad = { shapeId: 'p3-q', shapeType: 'face', isMetaShape: true, isGuide: false, meshes: [{}] } as any;
+  const used = row('plane', 3, { visible: false, sceneShapes: [], hiddenShapes: [quad], consumedBy: 'sketch-5' });
+  const consumer = row('sketch', 5, { name: 'Sketch' });
+  const scene = [used, consumer];
+
+  it('is offered named after its consumer', () => {
+    const options = collectPlaneOptions(scene);
+    expect(options).toHaveLength(1);
+    expect(options[0].label).toBe('Plane · used by Sketch');
+    expect(options[0].consumer).toBe('Sketch');
+  });
+
+  it('highlights its hidden quad', () => {
+    expect(planeQuadShapeIds({ filePath: FILE, line: 3 }, scene)).toEqual(['p3-q']);
+  });
+});
+

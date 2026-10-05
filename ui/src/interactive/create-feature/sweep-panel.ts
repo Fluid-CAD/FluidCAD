@@ -1,16 +1,18 @@
-import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
+import { ExtendControl, ExtendValues, FeatureOp, OpTabs, ThinControl } from './panel-controls';
 import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption, keepChip, sourceChip } from './sketch-profiles';
 import { SketchSlotControl } from './sketch-slot';
 import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { iconUrl } from '../../ui/icon-url';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type SweepValues =
-  | { op: FeatureOp; thin: [ValueExpr] | [ValueExpr, ValueExpr] | null; newVariables?: NewVariable[] }
+  | (ExtendValues & { op: FeatureOp; thin: [ValueExpr] | [ValueExpr, ValueExpr] | null; newVariables?: NewVariable[] })
   | { error: string };
 
 export type SweepPathSelection =
@@ -37,10 +39,11 @@ type PathState =
  * wire source (a sketch or a helix) or the picked path edges (edge picking
  * is live in the 3D view the
  * whole time the dialog is armed; picking an edge re-sources the path to
- * edges, picking a sketch re-sources it back). Timeline/wire sketch picks
- * land in whichever slot was clicked last (`armedSlot`). Pure DOM + form
- * state — the service owns scene data, edge picks, previews, and the apply
- * call.
+ * edges, picking a sketch re-sources it back) — then the Extend toggle
+ * (lead-in / run-out amounts past the path's ends) and the Thin walls
+ * toggle. Timeline/wire sketch picks land in whichever slot was clicked
+ * last (`armedSlot`). Pure DOM + form state — the service owns scene data,
+ * edge picks, previews, and the apply call.
  */
 export class SweepPanel extends FeaturePanel {
   /** The path slot switched between edge picking and a sketch. */
@@ -58,6 +61,7 @@ export class SweepPanel extends FeaturePanel {
   armedSlot: 'profile' | 'path' | 'scope' = 'path';
 
   private tabs: OpTabs;
+  private extend: ExtendControl;
   private thin: ThinControl;
   private profileSlot: SketchSlotControl;
   private pathSlot: PickSlot;
@@ -75,11 +79,12 @@ export class SweepPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-sweep-panel',
       title: 'Sweep',
-      icon: '/icons/sweep.png',
+      icon: iconUrl('sweep'),
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>
         <div data-role="path-slot"></div>
+        <div data-role="extend-host" class="contents"></div>
         <div data-role="thin-host" class="contents"></div>
         <div data-role="scope-slot"></div>
       `,
@@ -94,12 +99,15 @@ export class SweepPanel extends FeaturePanel {
       this.syncScopeVisible();
       this.onChange?.();
     };
+    this.extend = new ExtendControl(this.role('extend-host'));
+    this.extend.onChange = () => this.onChange?.();
+    this.extend.onSubmit = () => this.onApply?.();
     this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
     // Boxed like the path slot below so the two pickers stand equal height.
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { boxed: true });
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { boxed: true, regions: true });
     this.profileSlot.onArm = () => this.armSlot('profile');
     this.profileSlot.onChange = () => this.onChange?.();
     this.pathSlot = new PickSlot(this.role('path-slot'), { label: 'Path', multiple: true });
@@ -138,6 +146,7 @@ export class SweepPanel extends FeaturePanel {
     this.editMode = false;
     this.shell.setTitle(null);
     this.tabs.reset();
+    this.extend.reset();
     this.thin.reset();
     this.options = options;
     this.allowEdgePicking = allowEdgePicking;
@@ -154,10 +163,15 @@ export class SweepPanel extends FeaturePanel {
    * Open prefilled from an existing statement (edit mode). Both slots start
    * on a "Current: …" chip that keeps the statement's own expression
    * verbatim; picking another sketch (or edges, for the path) re-sources
-   * that slot, and its ✕ reverts to the kept expression. The op tabs and
-   * thin control edit in place.
+   * that slot, and its ✕ reverts to the kept expression. The op tabs, the
+   * extend control and the thin control edit in place.
    */
-  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | [ValueExpr, ValueExpr] | null; pathLabel: string; profileLabel: string | null }): void {
+  showEdit(state: ExtendValues & {
+    op: FeatureOp;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+    pathLabel: string;
+    profileLabel: string | null;
+  }): void {
     this.options = [];
     this.allowEdgePicking = true;
     this.pathState = { kind: 'keep' };
@@ -167,6 +181,7 @@ export class SweepPanel extends FeaturePanel {
     this.profileSlot.seedKeep(state.profileLabel);
     this.shell.setTitle('Edit sweep');
     this.tabs.setOp(state.op);
+    this.extend.setValues({ extendStart: state.extendStart, extendEnd: state.extendEnd });
     this.thin.setValues(state.thin);
     this.syncScopeVisible();
     this.renderPath();
@@ -194,6 +209,11 @@ export class SweepPanel extends FeaturePanel {
 
   selectedProfile(): SketchProfileOption | null {
     return this.profileSlot.selectedOption();
+  }
+
+  /** The region row under the profile slot — the service drives it. */
+  get regionControl(): RegionPickControl {
+    return this.profileSlot.regions!;
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */
@@ -245,15 +265,26 @@ export class SweepPanel extends FeaturePanel {
   }
 
   values(): SweepValues {
+    const extend = this.extend.values();
+    if ('error' in extend) {
+      return extend;
+    }
     const thin = this.thin.values();
     if ('error' in thin) {
       return thin;
     }
-    return { op: this.tabs.op, thin: thin.thin, newVariables: collectNewVariables([thin]) };
+    return {
+      op: this.tabs.op,
+      thin: thin.thin,
+      extendStart: extend.extendStart,
+      extendEnd: extend.extendEnd,
+      newVariables: collectNewVariables([extend, thin]),
+    };
   }
 
-  /** The variables the thin thickness field's dropdown offers. */
+  /** The variables the extend and thin fields' dropdowns offer. */
   setScopeVariables(variables: VariableInfo[]): void {
+    this.extend.setVariables(variables);
     this.thin.setVariables(variables);
   }
 

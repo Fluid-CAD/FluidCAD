@@ -227,14 +227,14 @@ describe("part", () => {
     });
   });
 
-  describe("pick inside part", () => {
-    it("should preserve pick meta shapes on extrude inside a part", () => {
+  describe("region picking inside part", () => {
+    it("should preserve region meta shapes on extrude inside a part", () => {
       part("pick-test", () => {
         sketch("xy", () => {
             testRect(50, 50);
             circle([50, 50], 20);
           });
-        extrude().pick();
+        extrude().region();
       });
 
       const scene = render();
@@ -246,13 +246,13 @@ describe("part", () => {
       expect(metaShapes.length).toBeGreaterThan(0);
     });
 
-    it("should preserve pick meta shapes with multiple parts", () => {
+    it("should preserve region meta shapes with multiple parts", () => {
       part("pick-part1", () => {
         sketch("xy", () => {
             testRect(50, 50);
             circle([50, 50], 20);
           });
-        extrude().pick();
+        extrude().region();
       });
 
       part("pick-part2", () => {

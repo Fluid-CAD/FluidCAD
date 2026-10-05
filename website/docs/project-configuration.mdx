@@ -11,7 +11,7 @@ A FluidCAD project is an ordinary folder: a descriptor, an entry point, and one 
 my-hinge/
 ├── package.json          ← npm dependencies (the fluidcad package)
 ├── jsconfig.json         ← editor type hints
-├── fluidcad.json         ← project descriptor: engine pin, unit
+├── fluidcad.json         ← project descriptor: engine pin, unit, materials
 ├── init.js               ← required entry point
 ├── leaf.part.js          ← a part
 ├── pin.part.js           ← another part
@@ -43,11 +43,14 @@ The project descriptor, written next to `init.js`: plain JSON that the server, t
 ```json
 {
   "engine": "0.0.42",
-  "unit": "mm"
+  "unit": "mm",
+  "materials": {
+    "alloy-steel": { "name": "Alloy Steel", "density": 7.7, "densityUnit": "g/cm³" }
+  }
 }
 ```
 
-Both keys are optional. A project with no `fluidcad.json` behaves as if the file held neither: no engine pin, millimetres.
+Every key is optional. A project with no `fluidcad.json` behaves as if the file held none of them: no engine pin, millimetres, only the built-in materials.
 
 ### `engine`
 
@@ -60,7 +63,9 @@ FluidCAD: this project pins engine 0.0.42 (fluidcad.json), but 0.0.45 is running
 Geometry may differ from what the project was authored against.
 ```
 
-The desktop app goes one step further and uses the pin to choose which engine to load for the project. Bump the pin once you have upgraded `fluidcad` and checked the model still builds the way you expect.
+The desktop app and the start screen of [`npx fluidcad`](/docs/cli#fluidcad) go one step further and use the pin to choose which engine to load for the project — every project opens on the engine it was authored against, however often FluidCAD itself updates. A new project is pinned to FluidCAD's own engine (the one that ships with the app, or the `fluidcad` you ran), and the start screen shows it as **latest** until a newer one arrives. From then on the card reads **update**. The card's **⋯ → Change engine version…** moves the pin in either direction, including to an older engine that is downloaded on demand, and **Compare first** rebuilds every model on both engines and lists the differences — features that stop or start building, solid counts, volumes — before anything is written. In the desktop app the project also offers the move when it opens: **Upgrade**, **Preview changes**, **Keep** the current engine until the next release, or **Don't ask again** for that project.
+
+With `npx fluidcad serve`, bump the pin by hand once you have upgraded `fluidcad` and checked the model still builds the way you expect.
 
 `package.json` is accepted as an alternative home for the same pin — `{ "fluidcad": { "engine": "0.0.42" } }` — and `fluidcad.json` wins when both exist. An `engine` value that is not a version string is reported and ignored.
 
@@ -72,7 +77,7 @@ The project's length unit. It is the unit of every part file that does not decla
 npx fluidcad init --unit in
 ```
 
-writes `"unit": "in"`. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
+writes `"unit": "in"`. Without the flag, `init` uses the unit for new projects chosen in the Settings dialog (the gear in the top bar, under Units); that is `mm` unless you change it. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
 
 Numbers in a file are in that file's unit. A part file can opt out of the project unit with a single statement at the top:
 
@@ -88,6 +93,35 @@ extrude(0.5);            // 0.5 in
 ```
 
 Assemblies never declare a unit: their offsets and translations are in the project unit, and inserted parts of any unit are scaled into it automatically. The [Units guide](/docs/extra/units) covers the rules, the `fluidcad/units` conversion helpers, import/export, and which unit to pick for which feature scale.
+
+### `materials`
+
+The project's own materials, keyed by id. A part picks one with [`.material('<id>')`](/docs/part/part-definition#material) on its `part()` statement, and Shape Properties turns the part's volume into a mass with that density.
+
+```json
+{
+  "unit": "mm",
+  "materials": {
+    "alloy-steel": { "name": "Alloy Steel", "density": 7.7, "densityUnit": "g/cm³" },
+    "acme-pla":    { "name": "ACME PLA+",   "density": 1.27 }
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| key | The id `.material()` refers to. Any non-empty string; Settings → Materials slugs one from the name (`alloy-steel`). |
+| `name` | The display name in Shape Properties and the **Set material** dialog. Required. |
+| `density` | A positive number. Required. |
+| `densityUnit` | One of `g/cm³`, `kg/m³`, `g/mm³`, `lbs/in³`. Optional; `g/cm³` when omitted. |
+
+The built-in materials (`fluidcad-steel-1020`, `fluidcad-aluminum-6061`, `fluidcad-pla`, … — every id starts with `fluidcad-`) are always available and are listed under **Built-in** in every material list; the entries of this map follow under **Custom**, tagged *in project*, together with your own materials from Settings → Materials. An entry that reuses a built-in id overrides that built-in for this project.
+
+The map travels with the project: a `.material('alloy-steel')` in a part resolves the same way on a teammate's machine, in a share link and in the viewer. A part whose id is in neither list still builds; its timeline row shows a warning triangle and Shape Properties reads `Unknown material: <id>` with no mass.
+
+The map is filled for you: your own materials live in [Settings → Materials](/docs/user-interface#your-own-materials), and **Set material…** on a part row copies the picked one into this key when the project does not have it yet, keeping every other key of the file — so a project holds exactly the custom materials it uses. Nothing removes an entry automatically. Editing the JSON by hand works the same; the file is re-read before every render, so no restart is needed either way. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
+
+An invalid map is reported like a bad `unit` — an entry without a `name` string, with a density that is not a positive number, with an unknown `densityUnit`, or with an empty id — and the whole map is ignored until it is fixed. `package.json` accepts the same map under `{ "fluidcad": { "materials": { … } } }`, and `fluidcad.json` wins when both exist.
 
 ## `.part.js` — parts
 

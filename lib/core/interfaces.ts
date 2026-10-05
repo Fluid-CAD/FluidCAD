@@ -1,5 +1,5 @@
 import type { LazyVertex } from "../features/lazy-vertex.js";
-import type { Point2DLike, PointLike } from "../math/point.js";
+import type { PointLike } from "../math/point.js";
 import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
@@ -13,14 +13,17 @@ export interface ISceneObject {
    * @param value - The display name to assign.
    */
   name(value: string): this;
+}
 
+export interface ISketch extends ISceneObject {
   /**
-   * Marks this object as reusable. Reusable objects retain their shapes when
-   * consumed by features (e.g., extrude, revolve), allowing multiple features
-   * to reference the same source geometry. Use `remove(obj)` to force-remove
-   * shapes from a reusable object.
+   * Marks the sketch finished. The editor stays in sketch mode while the
+   * timeline ends in an open sketch; a closed sketch ends that without a
+   * consuming feature, so a profile can be left unconsumed and the model
+   * still opens as a 3D scene. The Finish Sketch button adds this chain and
+   * removes it again when the sketch is reopened for editing.
    */
-  reusable(): this;
+  close(): this;
 }
 
 export interface LoadOptions {
@@ -153,6 +156,15 @@ export interface IPlane extends ISceneObject {
 }
 
 /**
+ * A saved section view — what `section()` returns. It builds nothing and
+ * has no timeline row; the viewer's section menu lists it by name.
+ */
+export interface ISection extends ISceneObject {
+  /** The cut plane before its offset, as built (origin, normal, x-direction). */
+  getPlane(): Plane;
+}
+
+/**
  * An axis datum in the scene — what `axis()` returns. `getAxis()`
  * plays the same structural role here as `getPlane()` does on `IPlane`.
  */
@@ -225,6 +237,25 @@ export interface IConnector extends ISceneObject {
    * default to 0. Axes are unchanged.
    */
   offset(x: number, y?: number, z?: number): this;
+
+  /**
+   * Copy `slot` of this connector, made by the `copy()` statement that
+   * copies it: `copy('circular', 'z', { count: 6, angle: 360 }, bolt)` makes
+   * `bolt.instance(1)` … `bolt.instance(5)`, and an assembly mates one as
+   * `f.connectors.bolt.instance(3)`.
+   *
+   * Slots are numbered like `repeat().instance(k)`: a linear grid counts its
+   * cells with the first axis varying slowest, the original keeping its own
+   * cell (0, or the centre cell when `centered`); a circular copy counts
+   * rotation steps from the original at 0. A copy that follows a repeat —
+   * `copy(holes, bolt)` — takes the repeat's own slots, so `bolt.instance(k)`
+   * sits on `holes.instance(k)`. The original's slot is the connector
+   * itself. A copy is the connector's frame moved by the pattern — it does
+   * not re-attach to geometry at its new place. A slot the copy skipped, a
+   * slot out of range, or a connector nothing copies throws.
+   * @param slot - The pattern slot.
+   */
+  instance(slot: number): IConnector;
 }
 
 /**
@@ -336,6 +367,18 @@ export interface IMacroEdge {
   start(): LazyVertex;
   end(): LazyVertex;
   center(): LazyVertex;
+}
+
+/**
+ * An entity of a `region()` declaration: a sketch entity statement (a
+ * line, circle, arc, rect, projection…), one edge of a multi-edge statement
+ * (`r.top()`, `p.ref(i)`, `o.edge(i)`), or either wrapped in `far()`.
+ */
+export type IRegionTarget = ISceneObject | IMacroEdge | IReferenceEntity | IRegionSide;
+
+/** A `far(entity)` wrapper — the region lies on the entity's far side. */
+export interface IRegionSide {
+  readonly target: unknown;
 }
 
 /**
@@ -518,6 +561,24 @@ export interface IText extends IExtrudableGeometry {
   startAt(distance: number): this;
 }
 
+/**
+ * One edge of an offset result (`o.edge(i)`): a whole-edge operand like any
+ * `edge(i)` selection, and a point source for references from outside the
+ * sketch — loft connections, connectors — through `.start()`, `.end()` and,
+ * on an arc, `.center()`. Offset edges have no solver identity, so these
+ * points are not constraint targets.
+ */
+export interface IOffsetEdge extends ISelect {
+  /** The edge's first point along the offset walk (see `IOffset.edge`). */
+  start(): LazyVertex;
+
+  /** The edge's last point along the offset walk — `o.edge(i).end()` is `o.edge(i + 1).start()`. */
+  end(): LazyVertex;
+
+  /** The center of an arc edge (an offset arc or a rounded outward corner); an error on a line. */
+  center(): LazyVertex;
+}
+
 export interface IOffset extends IExtrudableGeometry {
   /**
    * Closes an open offset by joining it back to the source wire with
@@ -525,6 +586,23 @@ export interface IOffset extends IExtrudableGeometry {
    * is already closed.
    */
   close(): this;
+
+  /**
+   * One edge of the result by index, with point accessors for references
+   * from outside the sketch (`a.geometries.o.edge(2).start()` in a loft
+   * connection). Indices walk the result: index 0 is the offset of the
+   * first source edge in statement order (for an open offset, the offset of
+   * the chain's first edge), the walk continues in that edge's own
+   * direction, and the arcs an outward offset rounds corners with are
+   * ordinary steps of it. Several separate sources offset to several wires,
+   * numbered wire after wire in statement order; `.close()` appends the cap
+   * at the walk's end, then the cap at its start. Because the indices are
+   * positional, an edit that changes which corners are rounded — flipping
+   * the sign, for one — shifts them, and a reference then resolves to a
+   * different vertex, as any index-based reference does.
+   * @param index - The 0-based edge index along the offset walk.
+   */
+  edge(index: number): IOffsetEdge;
 }
 
 export interface ICommon extends ISceneObject {
@@ -622,10 +700,13 @@ export interface IExtrude extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts extrusion to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to extrude.
+   * Restricts the extrusion to particular regions of the sketch, by the
+   * names their `region()` declarations gave them inside the sketch
+   * callback — `region('r1', l1, l2, c1)` declares, `.region('r1')`
+   * selects. The Pick regions link of the dialog writes both.
+   * @param names - Names of regions the sketch declares.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
@@ -698,10 +779,11 @@ export interface ICut extends ISceneObject {
   internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
-   * Restricts the cut to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to cut.
+   * Restricts the cut to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
@@ -726,10 +808,11 @@ export interface IRevolve extends IBooleanOperation {
    */
   symmetric(): this;
   /**
-   * Restricts the revolve to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to revolve.
+   * Restricts the revolve to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin revolve mode — offsets the profile edges to create a thin-walled
@@ -785,6 +868,17 @@ export interface IRevolve extends IBooleanOperation {
 export type LoftConditionType = 'none' | 'normal' | 'tangent';
 
 export interface ILoft extends IBooleanOperation {
+  /**
+   * Joins one vertex on each profile, in profile order. Repeat `.connect()`
+   * for additional connections. Each connection becomes an edge of the loft.
+   * Points may be world coordinates or sketch/selection point references.
+   * Requires closed, planar profiles with one region each. Full circles and
+   * ellipses must be split into arcs to supply vertices. Connections compose
+   * with start/end conditions; guides and thin walls are not yet supported.
+   * @param points - One profile vertex per section, in the loft's profile order.
+   */
+  connect(...points: (PointLike | LazyVertex)[]): this;
+
   /**
    * Adds side guide curves (rails) the loft surface must follow. Supports one
    * or two guides in total; a single argument may carry several separate
@@ -973,10 +1067,11 @@ export interface ISweep extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts the sweep to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to sweep.
+   * Restricts the sweep to particular regions of the profile sketch, by the
+   * names their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 
   /**
    * Enables thin sweep mode — offsets the profile edges to create a thin-walled
@@ -1127,6 +1222,12 @@ export interface IRepeatInstance extends ISelection {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
+   * The repeated hole's walls at this instance.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
    * The repeated feature's section edges at this instance, by index.
    * @param indices - Edge indices within the section-edge bucket.
    */
@@ -1136,7 +1237,9 @@ export interface IRepeatInstance extends ISelection {
 /**
  * A 3D `repeat()` — linear, circular, mirror, rotate or matrix. Its
  * instances are addressable by slot, so one clone of a pattern can be
- * selected without describing its position numerically.
+ * selected without describing its position numerically. It is itself a
+ * feature another `repeat()` takes, standing for its whole pattern — the
+ * original and every instance: `repeat('mirror', plane, row)`.
  */
 export interface IRepeat extends ISceneObject {
   /**
@@ -1147,7 +1250,8 @@ export interface IRepeat extends ISceneObject {
    * repeats linearize the grid in axis order (the first axis varies
    * slowest) with the original at its own slot — 0 when not centered, the
    * center slot when centered — the same numbering the `skip` option uses;
-   * a skipped slot is an error.
+   * a skipped slot is an error. An instance of a repeat of a repeat is the
+   * whole inner pattern at that slot.
    * @param index - The slot index.
    */
   instance(index: number): IRepeatInstance;
@@ -1217,6 +1321,101 @@ export interface IRotate extends ISceneObject {
 }
 
 export interface IDraft extends ISceneObject {}
+
+/**
+ * A fastener hole cut into the scope solids at one or more placements. Created
+ * with `hole(size, ...placements)`; the chains below refine it and must come
+ * before `.scope()`.
+ */
+export interface IHole extends ISceneObject {
+  /**
+   * A clearance hole for the fastener size, from the ISO 273 / ASME B18.2.8
+   * tables. Fastener sizes only (`hole('M6', …)`).
+   * @param fit - 'close', 'normal' (default) or 'loose'
+   */
+  clearance(fit?: 'close' | 'normal' | 'loose'): this;
+
+  /**
+   * A tapped hole for the fastener size, cut at its tap-drill diameter.
+   * Threads are not modelled yet; the size and pitch are kept for a later
+   * thread feature. Fastener sizes only.
+   * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted = coarse
+   */
+  tapped(pitch?: number): this;
+
+  /**
+   * A counterbore at the entry. Without values the socket-head cap screw
+   * table for the fastener size is used.
+   * @param diameter - Counterbore diameter
+   * @param depth - Counterbore depth from the surface
+   */
+  counterbore(diameter?: number, depth?: number): this;
+
+  /**
+   * A countersink at the entry. Without values the flat-head screw table for
+   * the fastener size is used (90° metric, 82° inch).
+   * @param diameter - Countersink diameter at the surface
+   * @param angle - Included angle in degrees
+   */
+  countersink(diameter?: number, angle?: number): this;
+
+  /**
+   * A blind hole. Without this chain the hole runs through every solid in scope.
+   * @param distance - Depth from the surface to the shoulder (the full-diameter depth)
+   * @param tipAngle - Drill point included angle below the shoulder (118 for a standard drill); omitted = flat bottom
+   */
+  depth(distance: number, tipAngle?: number): this;
+
+  /**
+   * Fastens through to the solid below: the clearance hole cuts the solid
+   * the hole sits on (or the `.scope()` solids), and the next solid the hole
+   * axis enters past them gets the matching tapped hole, cut at the
+   * tap-drill diameter for the hole's fastener size. It opens where the axis
+   * enters that solid and runs through it, or to a blind depth measured from
+   * there. Each placement taps the solid under its own axis. Clearance holes
+   * of a fastener size only.
+   * @param pitch - The thread pitch in mm (metric) or threads per inch (inch); omitted or 'coarse' = the size's coarse pitch
+   * @param depth - Blind depth of the tapped hole from the face it enters, to the shoulder; omitted = through all
+   * @param tipAngle - Drill point included angle below a blind depth (118 for a standard drill); omitted = flat bottom
+   */
+  fasten(pitch?: number | 'coarse' | null, depth?: number, tipAngle?: number): this;
+
+  /**
+   * Narrows the cut to specific solids.
+   * @param objects - The solids to cut
+   */
+  scope(...objects: ISceneObject[]): this;
+
+  /**
+   * Selects the walls the hole created — the bore, the counterbore step, the countersink cone and the drill point.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * Selects every edge the hole created: the rims on the surfaces and the creases inside.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  edges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * Selects the rims where the hole meets the surface it enters.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * Selects the rims at the bottom of a blind hole, or where a through hole leaves the solid.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * Selects the edges between the hole's own walls: where a countersink or a drill point meets the bore, and the walls' seams.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+}
 
 export interface IRib extends IBooleanOperation {
   /**
@@ -1343,10 +1542,11 @@ export interface IWrap extends IBooleanOperation {
   drill(value?: boolean): this;
 
   /**
-   * Restricts wrapping to only the sketch regions containing the given points.
-   * @param points - 2D points in the sketch plane identifying regions to wrap.
+   * Restricts wrapping to particular regions of the sketch, by the names
+   * their `region()` declarations gave them. See `IExtrude.region`.
+   * @param names - Names of regions the sketch declares.
    */
-  pick(...points: Point2DLike[]): this;
+  region(...names: string[]): this;
 }
 
 export type ShellJoinType = 'arc' | 'intersection' | 'tangent';

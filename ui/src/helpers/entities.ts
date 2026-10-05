@@ -51,7 +51,8 @@ export function selectionChipRows(
         });
       }
     } else {
-      rows.push({ label: entity.sub.type === 'face' ? 'Face' : 'Edge', members: [entity] });
+      const labels = { face: 'Face', edge: 'Edge', vertex: 'Vertex' };
+      rows.push({ label: labels[entity.sub.type], members: [entity] });
     }
   }
   return rows;

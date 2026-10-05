@@ -9,6 +9,7 @@
 // register deferred with placeholder ids, like projected references.
 
 import { GeometrySceneObject } from "../../geometry.js";
+import { Edge } from "../../../../common/edge.js";
 import { BuildError } from "../../../../common/build-error.js";
 import { Point2D } from "../../../../math/point.js";
 import { Geometry } from "../../../../oc/geometry.js";
@@ -37,6 +38,16 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
   private _finalized = false;
   private _finalizeError: string | null = null;
   private _entities = new Map<string, RegisteredEntity>();
+
+  override restoreState(state: Map<string, any>): void {
+    super.restoreState(state);
+    const entities = state.get('macro-entities');
+    if (entities) {
+      this._entities = new Map(entities);
+      this._finalized = true;
+      this._finalizeError = state.get('macro-finalize-error') ?? null;
+    }
+  }
 
   /** Every slot this shape can ever expose, in a FIXED order — the
    * ordinal feeds deterministic constraint placeholder ids. */
@@ -110,6 +121,11 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
       }
     } catch (error) {
       this._finalizeError = error instanceof Error ? error.message : String(error);
+    } finally {
+      // The cached sketch's solver snapshot includes these build-time ids.
+      // Preserve the slot-to-id join so cached accessors read that solution.
+      this.setState('macro-entities', new Map(this._entities));
+      this.setState('macro-finalize-error', this._finalizeError);
     }
   }
 
@@ -178,18 +194,22 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
     for (const [slot, rec] of this._entities) {
       const params = this._ctx.entityParams(rec.entityId);
       solvedState[slot] = params;
+      // Each edge wears its slot as its role — what `edge('top')` selects
+      // by and what a region declaration names it as (`r1.top()`).
+      let edge: Edge;
       if (rec.kind === 'line') {
         const start = new Point2D(params[0], params[1]);
         const end = new Point2D(params[2], params[3]);
         const segment = Geometry.makeSegment(plane.localToWorld(start), plane.localToWorld(end));
-        this.addShape(Geometry.makeEdge(segment));
+        edge = Geometry.makeEdge(segment);
       } else {
         const start = new Point2D(params[3], params[4]);
         const end = new Point2D(params[5], params[6]);
         const center = new Point2D(params[0], params[1]);
-        const { edge } = fitArcThroughEndpoints(plane, start, end, center, rec.cw);
-        this.addShape(edge);
+        edge = fitArcThroughEndpoints(plane, start, end, center, rec.cw).edge;
       }
+      edge.setRole(slot);
+      this.addShape(edge);
     }
     this.setState('solved', solvedState);
   }
@@ -238,6 +258,10 @@ export abstract class MacroShapeBase extends GeometrySceneObject implements Macr
     copy._finalized = this._finalized;
     copy._finalizeError = this._finalizeError;
     copy._entities = new Map(this._entities);
+    if (copy._finalized) {
+      copy.setState('macro-entities', copy._entities);
+      copy.setState('macro-finalize-error', copy._finalizeError);
+    }
   }
 
   // NOTE deliberately NO registered-entity comparison in compareTo:

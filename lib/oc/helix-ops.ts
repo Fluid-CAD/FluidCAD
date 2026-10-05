@@ -4,6 +4,7 @@ import { Convert } from "./convert.js";
 import { Edge } from "../common/edge.js";
 import { CoordinateSystem } from "../math/coordinate-system.js";
 import { mmTol } from "../units/tolerance.js";
+import { getActiveUnit } from "../units/registry.js";
 
 /**
  * Builds 3D helix edges with OCCT's TKHelix package. The analytic helix
@@ -74,34 +75,39 @@ export class HelixOps {
     // looking *along* the axis direction (from the base), which is the mirror
     // of the tip-looking-back convention used here: aIsCW=false yields a helix
     // that is clockwise by the right-hand rule, aIsCW=true a counter-clockwise one.
-    adaptor.Load(0, lastAngle, pitch, startRadius, taperAngle, counterClockwise);
+    const tolerance = HelixOps.APPROX_TOLERANCE;
+    try {
+      adaptor.Load(0, lastAngle, pitch, startRadius, taperAngle, counterClockwise);
+      const appr = oc.HelixGeom_Tools.ApprCurve3D(
+        adaptor, tolerance, oc.GeomAbs_Shape.GeomAbs_C2, maxSegments, HelixOps.MAX_DEGREE,
+      );
+      try {
+        if (appr.returnValue !== 0 || !Number.isFinite(appr.theMaxError) ||
+          appr.theMaxError < 0 || appr.theMaxError > tolerance) {
+          throw new Error(`HelixOps: helix approximation failed (status ${appr.returnValue}; ` +
+            `curveError=${appr.theMaxError}; tolerance=${tolerance} ${getActiveUnit()}; ` +
+            `radii=${startRadius},${endRadius}; height=${height}; turns=${turns}; ` +
+            `maxSegments=${maxSegments}; maxDegree=${HelixOps.MAX_DEGREE}).`);
+        }
 
-    const appr = oc.HelixGeom_Tools.ApprCurve3D(
-      adaptor,
-      HelixOps.APPROX_TOLERANCE,
-      oc.GeomAbs_Shape.GeomAbs_C2,
-      maxSegments,
-      HelixOps.MAX_DEGREE,
-    );
-    if (appr.returnValue !== 0) {
-      appr[Symbol.dispose]();
+        const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(appr.theBSpl);
+        try {
+          const canonicalEdge = edgeMaker.Edge();
+          try {
+            // Copy into the target frame before releasing the approximation.
+            return Edge.fromTopoDSEdge(HelixOps.placeInFrame(canonicalEdge, cs, zStart));
+          } finally {
+            canonicalEdge.delete();
+          }
+        } finally {
+          edgeMaker.delete();
+        }
+      } finally {
+        appr[Symbol.dispose]();
+      }
+    } finally {
       adaptor.delete();
-      throw new Error(`HelixOps: helix approximation failed (status ${appr.returnValue}).`);
     }
-
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(appr.theBSpl);
-    const canonicalEdge = edgeMaker.Edge();
-
-    // Relocate the canonical helix into the target frame (copies the geometry, so
-    // the result is independent of the approximation envelope released below).
-    const placedEdge = HelixOps.placeInFrame(canonicalEdge, cs, zStart);
-
-    edgeMaker.delete();
-    canonicalEdge.delete();
-    appr[Symbol.dispose]();
-    adaptor.delete();
-
-    return Edge.fromTopoDSEdge(placedEdge);
   }
 
   /**

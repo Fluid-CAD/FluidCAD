@@ -22,4 +22,4 @@ const spine = sketch("front", () => {
     return {
         topSegment
     }
-}).reusable();
+});

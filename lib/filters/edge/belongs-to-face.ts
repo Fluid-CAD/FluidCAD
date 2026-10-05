@@ -1,29 +1,28 @@
-import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Edge, Face } from "../../common/shapes.js";
 import { Solid } from "../../common/solid.js";
-import { Explorer } from "../../oc/explorer.js";
-import { TopologyIndex } from "../../oc/topology-index.js";
-import { ShapeHasher } from "../../oc/shape-hash.js";
 import { FilterBase, applyFilterStages } from "../filter-base.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { ScopeAwareFilter } from "../scope-injection.js";
 
-abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements ScopeAwareFilter {
+/**
+ * Shared scope lookup for the edge predicates that reason about the faces an
+ * edge bounds: `belongsToFace(face()...)` and the loop predicates
+ * `outerOf` / `holeOf`. The scope index answers "which faces in scope does
+ * this edge bound" through the solids' edge→faces index, plus the extra
+ * faces by `hasEdge`.
+ */
+export abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements ScopeAwareFilter {
   protected scopeSolids: Solid[] = [];
   protected scopeFaces: Face[] = [];
-  protected faceByHash: Map<number, Face[]> = new Map();
-  protected shapeHasher: ShapeHasher | null = null;
 
   constructor(protected faceFilterBuilders: FilterBuilderBase<Face>[]) {
     super();
   }
 
-  setScopeIndex(solids: Solid[], extraFaces: Face[], faceByHash: Map<number, Face[]>, hasher: ShapeHasher) {
+  setScopeIndex(solids: Solid[], extraFaces: Face[]) {
     this.scopeSolids = solids;
     this.scopeFaces = extraFaces;
-    this.faceByHash = faceByHash;
-    this.shapeHasher = hasher;
   }
 
   protected findContainingFaces(edge: Edge): Face[] {
@@ -31,16 +30,28 @@ abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implements Scope
     const seen = new Set<Face>();
     const result: Face[] = [];
 
+    // Each solid answers with its own face wrappers (cached per solid and
+    // edge). The first solid bounding the edge contributes its faces as-is —
+    // they are distinct within one solid; a later solid sharing the edge only
+    // adds the faces the earlier ones did not, as the shared face index
+    // resolves a shared face to the first scope solid's wrapper.
+    let first = true;
     for (const solid of this.scopeSolids) {
-      const index = solid.getEdgeToFacesIndex();
-      const rawFaces = TopologyIndex.seekShapes(index, edgeShape);
-      for (const raw of rawFaces) {
-        const wrapper = resolveFaceWrapper(raw, this.faceByHash, this.shapeHasher);
-        if (wrapper && !seen.has(wrapper)) {
-          seen.add(wrapper);
-          result.push(wrapper);
-        }
+      const faces = solid.getFacesOfEdge(edge);
+      if (faces.length === 0) {
+        continue;
       }
+      for (const face of faces) {
+        if (seen.has(face)) {
+          continue;
+        }
+        if (!first && result.some(kept => kept.getShape().IsSame(face.getShape()))) {
+          continue;
+        }
+        seen.add(face);
+        result.push(face);
+      }
+      first = false;
     }
 
     if (this.scopeFaces.length > 0) {
@@ -111,31 +122,4 @@ export class NotBelongsToFaceFilter extends BelongsToFaceFilterBase {
     const transformed = this.faceFilterBuilders.map(builder => builder.transform(matrix));
     return new NotBelongsToFaceFilter(transformed);
   }
-}
-
-function resolveFaceWrapper(
-  rawFace: TopoDS_Shape,
-  faceByHash: Map<number, Face[]>,
-  hasher: ShapeHasher | null,
-): Face | null {
-  const hash = hasher ? hasher.key(rawFace) : null;
-  const bucket = hash !== null ? faceByHash.get(hash) : undefined;
-  if (bucket) {
-    for (const candidate of bucket) {
-      if (candidate.getShape().IsSame(rawFace)) {
-        return candidate;
-      }
-    }
-  }
-  // Not in scope (e.g. neighbor face from another part / out-of-scope solid).
-  // Wrap on the fly so the face filters can still evaluate it.
-  const wrapped = Face.fromTopoDSFace(Explorer.toFace(rawFace));
-  if (hash !== null) {
-    if (!bucket) {
-      faceByHash.set(hash, [wrapped]);
-    } else {
-      bucket.push(wrapped);
-    }
-  }
-  return wrapped;
 }

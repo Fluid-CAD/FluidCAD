@@ -1,0 +1,271 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SettingsModal } from '../src/ui/settings/settings-modal';
+import { viewerSettings } from '../src/scene/viewer-settings';
+import { editorPrefs } from '../src/editor/editor-prefs';
+import { newProjectDefaults } from '../src/ui/settings/new-project-defaults';
+import { engineSettings } from '../src/ui/settings/engine-settings';
+import type { UserPreferences } from '../src/api';
+
+// The Settings dialog: a gear-opened modal with one vertical tab per area.
+// Tabs edit drafts; Save applies them to the live stores AND persists the
+// changed keys, Cancel drops them, and a tab with an unsaved edit shows a
+// dot. Reset re-applies the server's defaults through the page's own routine.
+
+const initialWorkers = engineSettings.current.maxWorkers;
+
+afterEach(() => {
+  document.body.innerHTML = '';
+  document.documentElement.removeAttribute('data-theme');
+  viewerSettings.update({ snapRadiusPx: 15, pickRadiusPx: 12, timelineSketchChildren: 'all', timelineShowConstraints: true, timelineShowRegions: false });
+  editorPrefs.update({ fontFamily: '', fontSize: 13, wordWrap: false, openAtStartup: false });
+  newProjectDefaults.update({ unit: 'mm' });
+  engineSettings.update({ maxWorkers: initialWorkers });
+  // Drop a pinned CPU count; the prototype's getter answers again.
+  delete (navigator as { hardwareConcurrency?: number }).hardwareConcurrency;
+});
+
+/** Pin the CPU count the page sees (it bounds the workers field). */
+function pinCpus(count: number): void {
+  Object.defineProperty(navigator, 'hardwareConcurrency', { value: count, configurable: true });
+}
+
+function mount() {
+  const savePreference = vi.fn();
+  const resetPreferences = vi.fn(async (): Promise<UserPreferences | null> => ({
+    theme: 'fluidcad-dark', showGrid: true, cameraMode: 'orthographic', showBuildTimings: false,
+    editorFontFamily: '', editorFontSize: 13, editorWordWrap: false, snapRadiusPx: 15, pickRadiusPx: 12, defaultProjectUnit: 'mm', editorOpen: false,
+    maxWorkers: 3,
+  }));
+  const applyPreferences = vi.fn((prefs: UserPreferences) => {
+    viewerSettings.update({ snapRadiusPx: prefs.snapRadiusPx!, pickRadiusPx: prefs.pickRadiusPx! });
+    editorPrefs.update({ fontSize: prefs.editorFontSize!, fontFamily: prefs.editorFontFamily!, wordWrap: false, openAtStartup: false });
+    newProjectDefaults.update({ unit: prefs.defaultProjectUnit! });
+    engineSettings.update({ maxWorkers: prefs.maxWorkers! });
+    document.documentElement.setAttribute('data-theme', prefs.theme);
+  });
+  const modal = new SettingsModal(document.body, { savePreference, resetPreferences, applyPreferences });
+  const overlay = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+  return { modal, overlay, savePreference, resetPreferences, applyPreferences };
+}
+
+function tabButton(overlay: HTMLElement, id: string): HTMLButtonElement {
+  return overlay.querySelector<HTMLButtonElement>(`[data-tab="${id}"]`)!;
+}
+
+function dotVisible(overlay: HTMLElement, id: string): boolean {
+  return !tabButton(overlay, id).querySelector('[data-dirty]')!.classList.contains('hidden');
+}
+
+function panel(overlay: HTMLElement, id: string): HTMLElement {
+  return overlay.querySelector<HTMLElement>(`[data-panel="${id}"]`)!;
+}
+
+function saveButton(overlay: HTMLElement): HTMLButtonElement {
+  return overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!;
+}
+
+function typeNumber(input: HTMLInputElement, value: string): void {
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+  input.dispatchEvent(new Event('change'));
+}
+
+describe('SettingsModal', () => {
+  it('lists the seven tabs, opens on Appearance, switches on click, and has a fixed-height box', () => {
+    const { modal, overlay } = mount();
+    expect(Array.from(overlay.querySelectorAll('[data-tab]')).map((b) => b.textContent)).toEqual([
+      'Appearance', 'Editor', 'Sketch', 'Timeline', 'Units', 'Materials', 'Advanced',
+    ]);
+    expect(overlay.querySelector('[data-ref="box"]')!.className).toMatch(/\bh-\[480px\]/);
+    expect(modal.isOpen()).toBe(false);
+    modal.show();
+    expect(modal.isOpen()).toBe(true);
+    expect(panel(overlay, 'appearance').classList.contains('hidden')).toBe(false);
+    tabButton(overlay, 'sketch').click();
+    expect(panel(overlay, 'sketch').classList.contains('hidden')).toBe(false);
+    expect(tabButton(overlay, 'sketch').getAttribute('aria-selected')).toBe('true');
+    expect(saveButton(overlay).disabled).toBe(true);
+  });
+
+  it('closes on Escape, the close button and a click on the backdrop', () => {
+    const { modal, overlay } = mount();
+    modal.show();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(modal.isOpen()).toBe(false);
+    modal.show();
+    overlay.querySelector<HTMLButtonElement>('[data-ref="close"]')!.click();
+    expect(modal.isOpen()).toBe(false);
+    modal.show();
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(modal.isOpen()).toBe(false);
+  });
+
+  it('an edit marks its tab with a dot and enables Save; nothing is applied until Save', () => {
+    const { modal, overlay, savePreference } = mount();
+    modal.show('sketch');
+    const snap = panel(overlay, 'sketch').querySelector<HTMLInputElement>('input[type="number"]')!;
+    typeNumber(snap, '25');
+    expect(dotVisible(overlay, 'sketch')).toBe(true);
+    expect(dotVisible(overlay, 'editor')).toBe(false);
+    expect(saveButton(overlay).disabled).toBe(false);
+    expect(viewerSettings.current.snapRadiusPx).toBe(15);
+    expect(savePreference).not.toHaveBeenCalled();
+
+    tabButton(overlay, 'appearance').click();
+    overlay.querySelector<HTMLButtonElement>('[data-theme="fluidcad-light"]')!.click();
+    expect(dotVisible(overlay, 'appearance')).toBe(true);
+    expect(document.documentElement.getAttribute('data-theme')).toBeNull();
+
+    saveButton(overlay).click();
+    expect(viewerSettings.current.snapRadiusPx).toBe(25);
+    expect(savePreference).toHaveBeenCalledWith('snapRadiusPx', 25);
+    expect(savePreference).not.toHaveBeenCalledWith('pickRadiusPx', expect.anything());
+    expect(document.documentElement.getAttribute('data-theme')).toBe('fluidcad-light');
+    expect(savePreference).toHaveBeenCalledWith('theme', 'fluidcad-light');
+    expect(dotVisible(overlay, 'sketch')).toBe(false);
+    expect(dotVisible(overlay, 'appearance')).toBe(false);
+    expect(saveButton(overlay).disabled).toBe(true);
+  });
+
+  it('Cancel drops the drafts and re-reads the stores', () => {
+    const { modal, overlay, savePreference } = mount();
+    modal.show('sketch');
+    const snap = panel(overlay, 'sketch').querySelector<HTMLInputElement>('input[type="number"]')!;
+    typeNumber(snap, '500');
+    expect(snap.value).toBe('80');
+    expect(modal.hasUnsavedChanges()).toBe(true);
+    overlay.querySelector<HTMLButtonElement>('[data-ref="cancel"]')!.click();
+    expect(modal.isOpen()).toBe(false);
+    expect(modal.hasUnsavedChanges()).toBe(false);
+    expect(viewerSettings.current.snapRadiusPx).toBe(15);
+    expect(savePreference).not.toHaveBeenCalled();
+    modal.show('sketch');
+    expect(snap.value).toBe('15');
+    expect(dotVisible(overlay, 'sketch')).toBe(false);
+  });
+
+  it('Editor offers "Editor default" plus installed fonts, keeps an unknown stored font visible, and saves size, wrap and startup', () => {
+    editorPrefs.update({ fontFamily: 'Somewhere Else Mono' });
+    const { modal, overlay, savePreference } = mount();
+    modal.show('editor');
+    const editor = panel(overlay, 'editor');
+    const select = editor.querySelector<HTMLSelectElement>('select')!;
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels[0]).toBe('Editor default');
+    expect(labels).toContain('Somewhere Else Mono (not installed here)');
+    expect(select.value).toBe('Somewhere Else Mono');
+
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+    typeNumber(editor.querySelector<HTMLInputElement>('input[type="number"]')!, '16');
+    const [wrap, startup] = Array.from(editor.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(wrap.checked).toBe(false);
+    expect(startup.checked).toBe(false);
+    wrap.checked = true;
+    wrap.dispatchEvent(new Event('change'));
+    startup.checked = true;
+    startup.dispatchEvent(new Event('change'));
+    expect(editorPrefs.current.fontSize).toBe(13);
+
+    saveButton(overlay).click();
+    expect(editorPrefs.current).toEqual({ fontFamily: '', fontSize: 16, wordWrap: true, openAtStartup: true });
+    expect(savePreference).toHaveBeenCalledWith('editorFontFamily', '');
+    expect(savePreference).toHaveBeenCalledWith('editorFontSize', 16);
+    expect(savePreference).toHaveBeenCalledWith('editorWordWrap', true);
+    expect(savePreference).toHaveBeenCalledWith('editorOpen', true);
+  });
+
+  it('Timeline offers the sketch-children choice and the constraints and regions switches, and saves only what changed', () => {
+    const { modal, overlay, savePreference } = mount();
+    modal.show('timeline');
+    const timeline = panel(overlay, 'timeline');
+    const select = timeline.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Show all', 'Show only editable features']);
+    expect(select.value).toBe('all');
+    const [constraints, regions] = Array.from(timeline.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(constraints.checked).toBe(true);
+    expect(regions.checked).toBe(false);
+
+    select.value = 'editable';
+    select.dispatchEvent(new Event('change'));
+    regions.checked = true;
+    regions.dispatchEvent(new Event('change'));
+    expect(dotVisible(overlay, 'timeline')).toBe(true);
+    expect(viewerSettings.current.timelineSketchChildren).toBe('all');
+    expect(viewerSettings.current.timelineShowRegions).toBe(false);
+
+    saveButton(overlay).click();
+    expect(viewerSettings.current.timelineSketchChildren).toBe('editable');
+    expect(viewerSettings.current.timelineShowConstraints).toBe(true);
+    expect(viewerSettings.current.timelineShowRegions).toBe(true);
+    expect(savePreference).toHaveBeenCalledWith('timelineSketchChildren', 'editable');
+    expect(savePreference).toHaveBeenCalledWith('timelineShowRegions', true);
+    expect(savePreference).not.toHaveBeenCalledWith('timelineShowConstraints', expect.anything());
+    expect(dotVisible(overlay, 'timeline')).toBe(false);
+  });
+
+  it('Units lists every unit and saves the pick for new projects', () => {
+    const { modal, overlay, savePreference } = mount();
+    modal.show('units');
+    const select = panel(overlay, 'units').querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['mm', 'cm', 'm', 'in', 'ft']);
+    select.value = 'in';
+    select.dispatchEvent(new Event('change'));
+    expect(newProjectDefaults.current.unit).toBe('mm');
+    saveButton(overlay).click();
+    expect(newProjectDefaults.current.unit).toBe('in');
+    expect(savePreference).toHaveBeenCalledWith('defaultProjectUnit', 'in');
+  });
+
+  it('Advanced drafts the maximum workers count, at least one and at most one per CPU, and saves it', () => {
+    pinCpus(6);
+    engineSettings.update({ maxWorkers: 4 });
+    const { modal, overlay, savePreference } = mount();
+    modal.show('advanced');
+    const advanced = panel(overlay, 'advanced');
+    expect(advanced.textContent).toContain('Maximum workers count');
+    const workers = advanced.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(workers.value).toBe('4');
+    expect([workers.min, workers.max]).toEqual(['1', '6']);
+
+    typeNumber(workers, '99');
+    expect(workers.value).toBe('6');
+    typeNumber(workers, '0');
+    expect(workers.value).toBe('1');
+    expect(dotVisible(overlay, 'advanced')).toBe(true);
+    expect(engineSettings.current.maxWorkers).toBe(4);
+    expect(savePreference).not.toHaveBeenCalled();
+
+    saveButton(overlay).click();
+    expect(engineSettings.current.maxWorkers).toBe(1);
+    expect(savePreference).toHaveBeenCalledWith('maxWorkers', 1);
+    expect(dotVisible(overlay, 'advanced')).toBe(false);
+  });
+
+  it('Advanced asks first, then resets on the server at once, re-applies the defaults and drops every draft', async () => {
+    const { modal, overlay, resetPreferences, applyPreferences } = mount();
+    modal.show('sketch');
+    typeNumber(panel(overlay, 'sketch').querySelector<HTMLInputElement>('input[type="number"]')!, '40');
+    expect(dotVisible(overlay, 'sketch')).toBe(true);
+
+    tabButton(overlay, 'advanced').click();
+    const advanced = panel(overlay, 'advanced');
+    const workers = advanced.querySelector<HTMLInputElement>('input[type="number"]')!;
+    typeNumber(workers, '2');
+    expect(dotVisible(overlay, 'advanced')).toBe(true);
+    const buttons = () => Array.from(advanced.querySelectorAll<HTMLButtonElement>('button')).filter((b) => !b.closest('.hidden'));
+    expect(buttons().map((b) => b.textContent)).toEqual(['Reset all to defaults']);
+    buttons()[0].click();
+    expect(resetPreferences).not.toHaveBeenCalled();
+    buttons().find((b) => b.textContent === 'Reset')!.click();
+    await vi.waitFor(() => expect(applyPreferences).toHaveBeenCalledTimes(1));
+    expect(resetPreferences).toHaveBeenCalledTimes(1);
+    expect(viewerSettings.current.snapRadiusPx).toBe(15);
+    expect(panel(overlay, 'sketch').querySelector<HTMLInputElement>('input[type="number"]')!.value).toBe('15');
+    expect(dotVisible(overlay, 'sketch')).toBe(false);
+    expect(workers.value).toBe('3');
+    expect(dotVisible(overlay, 'advanced')).toBe(false);
+    expect(advanced.textContent).toContain('Every setting is back to its default.');
+  });
+});

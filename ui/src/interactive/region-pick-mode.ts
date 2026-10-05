@@ -1,23 +1,20 @@
 import { Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
-import { PlaneData } from '../types';
 
 const HOVER_COLOR = '#64B5F6';
 const HOVER_OPACITY = 0.35;
 
 /**
- * Interactive mode for picking face regions in the sketch.
- *
- * Uses Three.js raycasting against meta face meshes (pick-region / pick-region-selected)
- * to detect hover and click on individual sketch regions.
+ * Click and hover handling for a set of drawn sketch regions — the region
+ * picker's overlay. Raycasts the pick-region meshes under `root` (each group
+ * carries its region label in `userData.metaData.key` and its pick state in
+ * `userData.isPickRegionSelected`); a click reports the key as a pick or a
+ * removal, a hover tints the face. Scoped to `root` on purpose: a scene can
+ * hold other region meshes (a `.region()` statement's own), and those are
+ * not this picker's to toggle.
  */
 export class RegionPickMode {
   private canvas: HTMLCanvasElement;
-  private ctx: SceneContext;
-  private plane: PlaneData;
-  private onPick: (point2d: [number, number]) => void;
-  private onRemove: (finalPoints: [number, number][]) => void;
-  private onHighlight: (shapeId: string | null) => void;
 
   private highlightedMesh: Mesh | null = null;
   private highlightedOriginalColor: number | null = null;
@@ -31,19 +28,16 @@ export class RegionPickMode {
   private boundMouseMove: (e: MouseEvent) => void;
 
   constructor(
-    ctx: SceneContext,
-    plane: PlaneData,
-    onPick: (point2d: [number, number]) => void,
-    onRemove: (finalPoints: [number, number][]) => void,
-    onHighlight: (shapeId: string | null) => void,
+    private ctx: SceneContext,
+    private root: Object3D,
+    private handlers: {
+      /** An unselected region was clicked. */
+      onPick: (key: string) => void;
+      /** A selected region was clicked. */
+      onRemove: (key: string) => void;
+    },
   ) {
     this.canvas = ctx.renderer.domElement;
-    this.ctx = ctx;
-    this.plane = plane;
-    this.onPick = onPick;
-    this.onRemove = onRemove;
-    this.onHighlight = onHighlight;
-
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -62,6 +56,13 @@ export class RegionPickMode {
     this.restoreHighlight();
   }
 
+  /** The overlay was redrawn — the tinted mesh is gone with it. */
+  forgetHighlight(): void {
+    this.highlightedMesh = null;
+    this.highlightedOriginalColor = null;
+    this.highlightedOriginalOpacity = null;
+  }
+
   private handleMouseDown(e: MouseEvent): void {
     this.downX = e.clientX;
     this.downY = e.clientY;
@@ -74,48 +75,22 @@ export class RegionPickMode {
       return; // drag, not click
     }
 
-    const point2d = this.projectToSketch(e.clientX, e.clientY);
-    if (!point2d) {
-      return;
-    }
-
-    // Raycast directly to find the region under the click
     const hit = this.raycastRegions(e.clientX, e.clientY);
     if (!hit) {
       return;
     }
 
     const hitGroup = hit.mesh.parent;
-    const isSelected = hitGroup?.userData.isPickRegionSelected === true;
-
-    if (isSelected) {
-      // Collect all currently selected regions' pick points, minus the clicked one
-      const finalPoints = this.collectSelectedPickPoints(hitGroup!);
-      this.onRemove(finalPoints);
-    } else {
-      const rounded: [number, number] = [
-        Math.round(point2d[0] * 100) / 100,
-        Math.round(point2d[1] * 100) / 100,
-      ];
-      this.onPick(rounded);
+    const key = hitGroup?.userData.metaData?.key;
+    if (typeof key !== 'string') {
+      return;
     }
-  }
 
-  /**
-   * Collect pick points from ALL selected regions except the one being deselected.
-   * Each selected region's metaData.pickPoint holds its associated point.
-   */
-  private collectSelectedPickPoints(excludeGroup: Object3D): [number, number][] {
-    const points: [number, number][] = [];
-    this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj === excludeGroup) {
-        return;
-      }
-      if (obj.userData.isPickRegion && obj.userData.isPickRegionSelected && obj.userData.metaData?.pickPoint) {
-        points.push(obj.userData.metaData.pickPoint);
-      }
-    });
-    return points;
+    if (hitGroup.userData.isPickRegionSelected === true) {
+      this.handlers.onRemove(key);
+    } else {
+      this.handlers.onPick(key);
+    }
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -123,38 +98,20 @@ export class RegionPickMode {
     const hitMesh = hit?.mesh ?? null;
 
     if (hitMesh === this.highlightedMesh) {
-      return; // Same mesh, no change
+      return;
     }
 
-    // Restore previous highlight
     this.restoreHighlight();
 
     if (hitMesh) {
-      // Apply hover highlight
       const mat = hitMesh.material as MeshBasicMaterial;
       this.highlightedOriginalColor = mat.color.getHex();
       this.highlightedOriginalOpacity = mat.opacity;
       mat.color.set(HOVER_COLOR);
       mat.opacity = HOVER_OPACITY;
       this.highlightedMesh = hitMesh;
-
-      // Find shapeId from parent group
-      let shapeId: string | null = null;
-      let obj: Object3D | null = hitMesh;
-      while (obj) {
-        if (obj.userData.shapeId) {
-          shapeId = obj.userData.shapeId;
-          break;
-        }
-        obj = obj.parent;
-      }
-      this.onHighlight(shapeId);
-      this.ctx.requestRender();
-    } else {
-      this.highlightedMesh = null;
-      this.onHighlight(null);
-      this.ctx.requestRender();
     }
+    this.ctx.requestRender();
   }
 
   private restoreHighlight(): void {
@@ -166,27 +123,23 @@ export class RegionPickMode {
       if (this.highlightedOriginalOpacity !== null) {
         mat.opacity = this.highlightedOriginalOpacity;
       }
-      this.highlightedMesh = null;
-      this.highlightedOriginalColor = null;
-      this.highlightedOriginalOpacity = null;
+      this.forgetHighlight();
     }
   }
 
-  /** Raycast against pick-region meta face meshes and return the closest hit Mesh + world point. */
+  /** The closest pick-region mesh under the pointer, with the hit point. */
   private raycastRegions(clientX: number, clientY: number): { mesh: Mesh; point: Vector3 } | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = this.canvas.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
     const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
 
-    // Collect all pick-region meshes from the scene
     const regionMeshes: Mesh[] = [];
-    this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj.userData.isPickRegion && obj.children) {
+    this.root.traverse((obj: Object3D) => {
+      if (obj.userData.isPickRegion) {
         for (const child of obj.children) {
-          if ((child as any).isMesh) {
+          if ((child as Mesh).isMesh) {
             regionMeshes.push(child as Mesh);
           }
         }
@@ -202,39 +155,5 @@ export class RegionPickMode {
       return null;
     }
     return { mesh: intersects[0].object as Mesh, point: intersects[0].point };
-  }
-
-  /** Project screen coordinates to 2D sketch plane coordinates. */
-  private projectToSketch(clientX: number, clientY: number): [number, number] | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
-
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-
-    const planeOrigin = new Vector3(this.plane.origin.x, this.plane.origin.y, this.plane.origin.z);
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-
-    const denom = rayDir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) {
-      return null;
-    }
-
-    const t = planeOrigin.clone().sub(rayOrigin).dot(planeNormal) / denom;
-    if (t < 0) {
-      return null;
-    }
-
-    const worldPoint = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
-
-    const rel = worldPoint.clone().sub(planeOrigin);
-    const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-    const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-
-    return [rel.dot(xDir), rel.dot(yDir)];
   }
 }

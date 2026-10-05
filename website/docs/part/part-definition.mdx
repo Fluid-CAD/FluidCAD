@@ -3,9 +3,12 @@ sidebar_position: 2
 title: "Part"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partMaterial from '!!raw-loader!./_examples/part-material.js';
+
 # part()
 
-`part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters — belongs to that part.
+`part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters, properties — belongs to that part.
 
 ```js
 import { part, sketch, circle, extrude } from 'fluidcad/core';
@@ -20,7 +23,7 @@ export const disc = part('Disc', () => {
 
 ## In the viewport
 
-Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu. There is no Apply: the statement is written the moment you click.
+Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu: the name in `part('…')` is rewritten and the exported variable is renamed after it (`Fixed leaf` binds `fixedLeaf`), in the files that import the part too. There is no Apply: the statement is written the moment you click.
 
 ## The definition is lazy
 
@@ -43,7 +46,33 @@ Because the body runs later, it must be self-contained: read parameters with [`p
 | Member | Meaning |
 |--------|---------|
 | `def.features.<name>` | The source object an [`expose()`](./expose) published, for another part to build on: `extrude(15, donor.features.profile)`. |
-| `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>` and `instance.features.<name>` bound to it. |
+| `def.properties.<name>` | A value a [`property()`](./property) published, from the default variant: `donor.properties.pocketDiameter`. |
+| `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>`, `instance.features.<name>` and `instance.properties.<name>` bound to it. |
+
+## Material
+
+A part can carry a material, and Shape properties turns its volume into a mass with that material's density.
+
+1. Click the **⋮** button at the right edge of the part's row in the History panel (or right-click the row) and choose **Set material…**.
+2. The **Set material** dialog lists the built-in materials under **Built-in** and the custom ones under **Custom** — the project's own, tagged *in project*, and yours from Settings → Materials. The current one is checked and first in its group; **None** removes the material. Click a row and **Apply**.
+3. Open **Shape properties** (the scale icon at the bottom right), choose the **Part** tab, click the part in the viewport — every solid of the part highlights — and click **Calculate**.
+
+![The Set material dialog on a part row](/img/docs/ui/set-material-dialog.png)
+
+![Shape properties in Part mode, with the mass](/img/docs/ui/shape-properties-part.png)
+
+<ExplainedCode code={partMaterial} fileName="plate.part.js" />
+
+The pick is a `.material('<id>')` chain on the `part()` statement, next to where `.name()` goes. The argument is an id, never a density:
+
+| Id | Where it comes from |
+|----|---------------------|
+| `fluidcad-steel-1020`, `fluidcad-stainless-304`, `fluidcad-aluminum-6061`, `fluidcad-aluminum-1060`, `fluidcad-aluminum-7075`, `fluidcad-brass-c260`, `fluidcad-copper`, `fluidcad-titanium-6al4v`, `fluidcad-cast-iron-gray`, `fluidcad-bronze`, `fluidcad-pc`, `fluidcad-abs`, `fluidcad-pla`, `fluidcad-nylon-pa6`, `fluidcad-carbon-fiber`, `fluidcad-pine`, `fluidcad-carbon-steel` | Built in. Always available; listed under **Built-in**. |
+| `alloy-steel`, `acme-pla`, … | A key of the `materials` map in the project's [`fluidcad.json`](/docs/project-configuration#materials). Listed under **Custom**, with your own materials from [Settings → Materials](/docs/user-interface#your-own-materials); applying one of those copies its entry into the map, so the project carries what it uses. |
+
+A material that is in neither list is added first — to Settings → Materials, or by hand to `fluidcad.json` — then picked. An id the lists do not know is a warning rather than a build error: the part still builds, its row shows a warning triangle, and Shape properties reads `Unknown material: <id>` with no mass.
+
+Only parts carry a material. A solid outside any part is measured with a material picked in Shape properties for that calculation alone; nothing is written to the file. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
 
 ## Export it
 

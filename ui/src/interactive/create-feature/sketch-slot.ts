@@ -1,5 +1,8 @@
 import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
+import { RegionPickControl } from './region-pick-control';
+import { consumedReveal } from './consumed-reveal';
+
 
 /** A sketch slot's state, `keep` included (edit mode only). */
 export type SketchSlotSelection =
@@ -13,7 +16,9 @@ export type SketchSlotSelection =
  * re-matching the choice after re-renders (by kind + source location — scene
  * ids change every render), seeding/reverting to the edited statement's own
  * profile, and wearing the shared empty-slot prompts. The panel owns arming
- * policy.
+ * policy. `regions` adds the region row under the chip — the "Pick regions"
+ * link and pick count the swept features carry (a rib's spine has no
+ * regions to pick).
  */
 export class SketchSlotControl {
   /** The slot was clicked — the panel arms it as the pick target. */
@@ -21,18 +26,32 @@ export class SketchSlotControl {
   /** A gesture changed the selection (the chip's ✕). */
   onChange?: () => void;
 
+  /** The region row, for the dialogs that opted in; the service drives it. */
+  readonly regions: RegionPickControl | null;
+
   private readonly slot: PickSlot;
+  private readonly host: HTMLElement;
   private optionList: SketchProfileOption[] = [];
   private state: SketchSlotSelection | null = null;
   /** Edit mode: the statement's own profile text (null when implicit). */
   private keep: { label: string | null } | null = null;
 
-  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean } = {}) {
+  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean; regions?: boolean } = {}) {
+    this.host = host;
     this.slot = new PickSlot(host, {
       label: opts.label ?? 'Sketch',
       multiple: false,
       boxed: opts.boxed,
     });
+    if (opts.regions) {
+      // Below the chip list, inside the slot host: a click on the row arms
+      // the slot like a click on the chip does.
+      const row = document.createElement('div');
+      host.appendChild(row);
+      this.regions = new RegionPickControl(row);
+    } else {
+      this.regions = null;
+    }
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => {
       // Create mode: back to the prompt; edit mode: back to the statement's
@@ -54,15 +73,21 @@ export class SketchSlotControl {
   }
 
   /**
-   * Fresh create-mode arming: the offered sketches with the first one (the
-   * active sketch, in sketch mode) preselected — or the pick prompt.
+   * Fresh create-mode arming: the offered sketches with the active sketch
+   * (in sketch mode) or else the last one preselected — or the pick prompt.
    */
   reset(options: SketchProfileOption[]): void {
     this.keep = null;
     this.state = null;
     this.optionList = options;
-    if (options.length > 0) {
-      this.state = { kind: 'sketch', option: options[0] };
+    // The default pick is the active sketch, else the last sketch in scene
+    // order — the one a bare `extrude()` would take, used or not (a region
+    // extrude is usually followed by another on the same sketch).
+    const preset = options[0]?.kind === 'active'
+      ? options[0]
+      : options.filter(o => o.feature === 'sketch').at(-1) ?? options[0];
+    if (preset) {
+      this.state = { kind: 'sketch', option: preset };
     }
     this.render();
   }
@@ -137,6 +162,9 @@ export class SketchSlotControl {
   /** The slot: one chip (the chosen sketch), or the pick prompt. */
   private render(): void {
     const state = this.state;
+    // A consumed sketch picked here is drawn for as long as the slot holds it.
+    consumedReveal.set(this, this.host, state?.kind === 'sketch' && state.option.consumer ? state.option : null);
+
     if (state?.kind === 'keep') {
       this.slot.setChips([keepSketchChip(this.keep?.label ?? null)]);
       this.slot.setPrompt(null);

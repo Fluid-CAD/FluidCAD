@@ -7,7 +7,7 @@
 // it is still alive) and the summary lands on the outcome.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { FluidCadServer } from '../src/fluidcad-server.ts';
+import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 
 const FILE = '/ws/model.fluid.js';

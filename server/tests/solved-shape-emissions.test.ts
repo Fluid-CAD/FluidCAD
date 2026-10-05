@@ -13,7 +13,7 @@ import * as constraints from '../../lib/core/constraints/index.js';
 import * as filters from '../../lib/filters/index.js';
 import * as math from '../../lib/math/index.js';
 import { Scene } from '../../lib/rendering/scene.js';
-import { applySolvedEmission, type SolvedEmissionSpec } from '../src/sketch-solved-edit.ts';
+import { applySolvedEmission, type SolvedEmissionSpec } from '../src/sketch-solved-edit/index.ts';
 import {
   rectEmission,
   roundedRectEmission,

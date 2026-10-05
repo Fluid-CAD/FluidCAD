@@ -130,6 +130,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'inspection. On `compile-error`, the previous scene is still being',
         'served; fix the source and retry.',
         '',
+        'A `*.feature.js` module defines a custom feature (fluidcad/sdk) that',
+        'models import and call. Writing a file that is not a model (.fluid.js,',
+        '.part.js, .assembly.js) never renders that file as the model: a',
+        'JavaScript module (or fluidcad.json) re-renders the open model in full',
+        'with its new contents (`render.openModel: true`), so render the model',
+        'that uses a feature (write it) before editing the feature module.',
+        'read_doc "concepts/custom-features" explains custom features.',
+        '',
         'A render can finish and still be wrong: a feature whose build fails is',
         'skipped, not fatal. That is `state: "build-error"`, with every failed',
         'feature listed under `objectErrors` (name, message, 1-based',
@@ -869,9 +877,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.registerTool(
     'list_fluid_files',
     {
-      title: 'List every .fluid.js file in the workspace',
+      title: 'List every FluidCAD file in the workspace',
       description:
-        'Walks the workspace recursively and returns workspace-relative paths for every `.fluid.js` file. Skips `node_modules`, `.git`, `.fluidcad`, `dist`, `build`.',
+        'Walks the workspace recursively and returns workspace-relative paths for every FluidCAD file: the models (`.fluid.js`, `.part.js`, `.assembly.js`) and the custom feature modules they import (`.feature.js`). Skips `node_modules`, `.git`, `.fluidcad`, `dist`, `build` and other dot directories.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await listFluidFiles({ workspace })),
@@ -893,7 +901,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `render.uiApplied` is true once a connected viewer has the render on screen — false means built but not (yet) visible: no viewer is connected, or it is still applying the scene. `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. `render.changes` (unless `includeChanges: false`) says what the render actually rebuilt: `rebuilt` (objects built again, each with `sceneObjectId`, `name`, `kind`, `sourceLocation`, `shapes` and exact `bounds.before` / `bounds.after` of its solids — volumes are not included), `added`, `removed`, `reused` (count served from cache, geometry untouched) and `truncated` when a list hit its 50-entry cap. Re-verify the rebuilt objects; an object you did not mean to touch appearing under `rebuilt` with different bounds is an unintended downstream change. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `render.uiApplied` is true once a connected viewer has the render on screen — false means built but not (yet) visible: no viewer is connected, or it is still applying the scene. `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. `render.changes` (unless `includeChanges: false`) says what the render actually rebuilt: `rebuilt` (objects built again, each with `sceneObjectId`, `name`, `kind`, `sourceLocation`, `shapes` and exact `bounds.before` / `bounds.after` of its solids — volumes are not included), `added`, `removed`, `reused` (count served from cache, geometry untouched) and `truncated` when a list hit its 50-entry cap. Re-verify the rebuilt objects; an object you did not mean to touch appearing under `rebuilt` with different bounds is an unintended downstream change. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard. Only a model file renders itself. Any other file is never rendered as the model: a JavaScript module the open model may import (a `*.feature.js` custom feature, a helper) or `fluidcad.json` re-renders the open model in full instead, so new feature code takes effect — `render` then carries `openModel: true` with `state` (rendered | build-error), `objectErrors` and `changes` (every object rebuilt), or `state: no-open-model` when no model is open, or `render-failed` with the error the model hit; any other file (an icon, a note) re-renders nothing (`state: not-rendered`).',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -911,7 +919,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome (including `render.changes`: rebuilt / added / removed objects with exact before and after bounds, plus the reused count) as `write_file`.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome (including `render.changes`: rebuilt / added / removed objects with exact before and after bounds, plus the reused count) as `write_file` — a file that is not a model re-renders the open model (`render.openModel: true`), as there.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,

@@ -129,6 +129,20 @@ describe('skills policy', () => {
     expect(bad).toEqual([]);
   });
 
+  it('the core FluidCAD skill points to every skill layered on it', () => {
+    // An agent starts from the core skill: a layered skill it never names
+    // (custom features, assemblies, drawings) is one the agent won't reach
+    // for when the task turns that way.
+    const core = fs.readFileSync(path.join(skillsDir, 'FluidCAD', 'SKILL.md'), 'utf8');
+    const layered = fs.readdirSync(skillsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== 'FluidCAD')
+      .map((entry) => entry.name);
+    expect(layered).toContain('FluidCAD-custom-features');
+    for (const name of layered) {
+      expect(core, `the FluidCAD skill never names ${name}`).toContain(`**${name}**`);
+    }
+  });
+
   it('every SKILL.md frontmatter names the MCP prefix with the registered server name', () => {
     const skillFiles = files.filter((f) => path.basename(f) === 'SKILL.md');
     for (const file of skillFiles) {

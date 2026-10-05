@@ -123,7 +123,7 @@ Install the companion skills so agents follow the FluidCAD workflow:
 npx skills add Fluid-CAD/FluidCAD
 ```
 
-Three skills ship with the repo, under `mcp/skills/`:
+Four skills ship with the repo, under `mcp/skills/`:
 
 - **FluidCAD** — the core modeling loop: read the docs, plan, write the file,
   check the render, resolve filters before writing them, verify with
@@ -136,6 +136,10 @@ Three skills ship with the repo, under `mcp/skills/`:
 - **FluidCAD-assembly** — layered on top, for multi-part models: `.part.js`
   files with `param()` / `connector()` / `expose()`, `.assembly.js` files with
   `insert()` / `mate()` / `replicate()`, STEP parts, units, and assembly export.
+- **FluidCAD-custom-features** — layered on top, for writing a custom feature:
+  a feature type in a `*.feature.js` module (`fluidcad/sdk`) that the
+  toolbar's Custom dropdown offers with its own dialog, and that models call
+  like a built-in.
 
 `mcp/tests/skills.test.ts` checks that every tool name a skill mentions is
 registered by the server and that the `mcp__FluidCAD__*` prefix in each skill's
@@ -170,6 +174,13 @@ Tools that trigger a re-render (`write_file`, `edit_range`, `recompute`,
 settles. `write_file` and `edit_range` additionally carry the render outcome
 under `render`. The agent should inspect `render.state` and surface any
 `compile-error` to the user before retrying.
+
+Only a model file (`.fluid.js`, `.part.js`, `.assembly.js`) renders itself.
+Writing any other file never renders it as the model: a JavaScript module the
+open model may import (a `*.feature.js` custom feature module, a helper) or
+`fluidcad.json` re-renders the open model in full, with `render.openModel:
+true`; any other file (an icon, a note) re-renders nothing
+(`render.state: "not-rendered"`).
 
 Two failures are reported, and they are not the same thing:
 

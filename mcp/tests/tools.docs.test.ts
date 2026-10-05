@@ -181,6 +181,38 @@ describe('doc tools (unit)', () => {
     expect(result.code).toBe('invalid-input');
   });
 
+  // The custom-feature SDK is documented by hand, outside api/types/: a
+  // capitalized symbol of a doc tagged `type` is a type, its functions are not.
+  it('get_type_definition resolves the custom-feature SDK types from their docs', () => {
+    for (const [name, docId, definition] of [
+      ['Feature', 'api/feature', /class MyFeature extends Feature\.with\(params\)/],
+      ['FeatureBuckets', 'api/feature', /type FeatureBuckets = \{/],
+      ['ParamSpec', 'api/feature-params', /type ParamSpec = ScalarParamSpec \| PickerParamSpec/],
+      ['CallShape', 'api/define-feature', /type CallShape =/],
+      ['FeatureMeta', 'api/register-builder', /type FeatureMeta = \{/],
+      ['OccScope', 'api/sdk-occt', /class OccScope \{/],
+      ['Primitives', 'api/sdk-kernel', /Primitives\.makeCylinder\(radius: number, height: number\): Solid/],
+    ] as const) {
+      const result = getTypeDefinition(index, { name });
+      expect(result.ok, name).toBe(true);
+      if (!result.ok) {
+        continue;
+      }
+      expect(result.data.docId, name).toBe(docId);
+      expect(result.data.definition, name).toMatch(definition);
+    }
+  });
+
+  it('get_type_definition leaves the SDK functions to get_api_signature', () => {
+    for (const name of ['defineFeature', 'registerBuilder', 'parseCall', 'getOC']) {
+      expect(getTypeDefinition(index, { name }).ok, name).toBe(false);
+      const signature = getApiSignature(index, { name });
+      expect(signature.ok, name).toBe(true);
+    }
+    const defineFeature = getApiSignature(index, { name: 'defineFeature' });
+    expect(defineFeature.ok && defineFeature.data.signature).toMatch(/^defineFeature\(FeatureClass, \{/);
+  });
+
   it('get_type_definition rejects an unknown name', () => {
     const result = getTypeDefinition(index, { name: 'NotARealType' });
     expect(result.ok).toBe(false);

@@ -229,7 +229,7 @@ Load only what the task needs, from this skill's `references/` folder:
 - `references/sketching.md`: read before the first sketch, or when a sketch solves somewhere you did not draw it.
 - `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
 
-Assemblies (parts, inserts, mates, connectors) are covered by the separate **FluidCAD-assembly** skill; modeling from a drawing by **FluidCAD-from-drawing**.
+Assemblies (parts, inserts, mates, connectors) are covered by the separate **FluidCAD-assembly** skill; modeling from a drawing by **FluidCAD-from-drawing**; writing a custom feature (a reusable feature type in a `*.feature.js` module, offered under the toolbar's Custom dropdown) by **FluidCAD-custom-features**.
 
 ## Quick reference: the loop
 

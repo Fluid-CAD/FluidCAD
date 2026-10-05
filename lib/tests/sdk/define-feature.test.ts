@@ -185,6 +185,44 @@ describe("defineFeature()", () => {
   });
 });
 
+describe("a defineFeature() feature called without its select and toggle", () => {
+  setupOC();
+
+  /** A post whose diameter is a select and whose height a toggle, neither with a default; an optional finish without one. */
+  function definePost() {
+    class Post extends Feature.with({
+      size: { type: 'select', options: [{ label: 'Small', value: 4 }, { label: 'Large', value: 8 }] },
+      tall: { type: 'boolean' },
+      finish: { type: 'select', optional: true, options: [{ label: 'Low', value: 'low' }] },
+    }) {
+      static id = 'acme.post';
+      buildTool(): Shape[] {
+        const { size, tall, finish } = this.values;
+        return [Primitives.makeCylinder(size / 2, tall ? 10 : finish === 'low' ? 1 : 3)];
+      }
+    }
+    return defineFeature(Post, { label: 'Post', group: 'create', call: [{ size: 'size', tall: 'tall', finish: 'finish' }] });
+  }
+
+  it("builds on what the dialog shows untouched: the first option, the toggle off, no finish", () => {
+    const post = definePost();
+    const made = post();
+    expect(made.values).toEqual({ size: 4, tall: false, finish: undefined });
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(solidVolumes(scene)).toHaveLength(1);
+    expect(solidVolumes(scene)[0]).toBeCloseTo(Math.PI * 2 ** 2 * 3, 3);
+  });
+
+  it("builds on what the call passes", () => {
+    const post = definePost();
+    expect(post({ size: 8, tall: true, finish: 'low' }).values).toEqual({ size: 8, tall: true, finish: 'low' });
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(solidVolumes(scene)[0]).toBeCloseTo(Math.PI * 4 ** 2 * 10, 3);
+  });
+});
+
 /** Both ways of writing the standoff, each held to the same behaviour. */
 const AUTHORING_PATHS: [string, (variant?: StandoffVariant) => StandoffDefinition][] = [
   ['Feature.with() and defineFeature()', defineStandoff],

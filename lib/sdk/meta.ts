@@ -43,7 +43,12 @@ type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'grou
   /** The dialog tab the row sits on; rows without one sit above the tabs. */
   tab?: string;
   visibleWhen?: VisibleWhen;
-  /** The value may be left out; without a default it then reaches the feature as `undefined`. */
+  /**
+   * The value may be left out; without a default it then reaches the feature
+   * as `undefined`. A boolean always has a value (`false` without a
+   * default), so it changes nothing there; a select without a default stays
+   * unset rather than taking its first option.
+   */
   optional?: boolean;
 };
 
@@ -52,9 +57,22 @@ export type NumberParamSpec = ParamCommon & Partial<Pick<ParamDefinition, 'min' 
   default?: number;
 };
 
-export type BooleanParamSpec = ParamCommon & { type: 'boolean'; default?: boolean };
+export type BooleanParamSpec = ParamCommon & {
+  type: 'boolean';
+  /** Left out, `false`: the toggle the dialog shows off. */
+  default?: boolean;
+};
 
-export type SelectParamSpec = ParamCommon & { type: 'select'; options: readonly SelectOption[]; default?: string | number };
+export type SelectParamSpec = ParamCommon & {
+  type: 'select';
+  options: readonly SelectOption[];
+  /**
+   * Left out, the first option's value — the one the dialog shows — unless
+   * the value is `optional`: it then stays unset, and the dialog offers an
+   * empty choice.
+   */
+  default?: string | number;
+};
 
 export type TextParamSpec = ParamCommon & { type: 'text'; default?: string };
 
@@ -201,7 +219,11 @@ export type FeatureMeta = {
   contexts?: readonly FeatureContext[];
 };
 
-/** A feature's metadata once `registerBuilder` checked it: the id read from the class, every default filled. */
+/**
+ * A feature's metadata once `registerBuilder` checked it: the id read from
+ * the class, every default filled — a value's too, where it resolves to one
+ * it doesn't declare (see {@link FeatureMetas.defaultOf}).
+ */
 export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'ghost' | 'contexts'> & {
   id: string;
   operations: readonly FeatureOperation[];
@@ -212,7 +234,7 @@ export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'gho
   contexts: readonly FeatureContext[];
 }>;
 
-/** A value's spec in a snapshot: as declared, its label filled in. */
+/** A value's spec in a snapshot: as declared, its label and its resolved default filled in (see {@link FeatureMetas.defaultOf}). */
 export type ParamSpecSnapshot = ParamSpec & { label: string };
 
 /**
@@ -512,7 +534,7 @@ class FeatureMetaValidator {
     } else {
       this.checkPicker(where, spec);
     }
-    return FeatureMetaValidator.frozenCopy(spec) as ParamSpec;
+    return FeatureMetaValidator.frozenCopy(FeatureMetas.withDefault(spec as ParamSpec)) as ParamSpec;
   }
 
   private scalarFields(where: string, spec: Record<string, unknown>): string[] {
@@ -1015,7 +1037,7 @@ export class FeatureMetas {
     const resolved = meta as Partial<ResolvedFeatureMeta>;
     const params: Record<string, ParamSpecSnapshot> = {};
     for (const [name, spec] of Object.entries(meta.params ?? {})) {
-      const copy = FeatureMetas.json(spec) as ParamSpecSnapshot;
+      const copy = FeatureMetas.json(FeatureMetas.withDefault(spec)) as ParamSpecSnapshot;
       params[name] = { ...copy, label: FeatureMetas.labelOf(name, spec) };
     }
     return FeatureMetaValidator.defined({
@@ -1068,8 +1090,8 @@ export class FeatureMetas {
     const values: FeatureValues = {};
     for (const [name, spec] of Object.entries(meta.params)) {
       let value = read[name];
-      if ((value === undefined || value === null) && 'default' in spec && spec.default !== undefined) {
-        value = spec.default;
+      if (value === undefined || value === null) {
+        value = FeatureMetas.defaultOf(spec) ?? value;
       }
       values[name] = 'type' in spec
         ? FeatureMetas.scalarValue(callee, name, spec, value)
@@ -1096,6 +1118,41 @@ export class FeatureMetas {
       FeatureMetas.calls.set(shape, call);
     }
     return call;
+  }
+
+  /**
+   * The value a call that leaves `spec`'s value out (or passes `null`) gives
+   * the feature — what the builder fills, what the snapshot carries and what
+   * the dialog shows, so a row left untouched writes nothing and still
+   * builds: the declared `default`; else, for a control that always shows a
+   * value, the one it shows — `false` for a boolean, the first option for a
+   * select that isn't `optional`. Nothing for the rest: a picked value, a
+   * number or a text without a default (the dialog shows those empty, and
+   * asks for one that isn't optional), an optional select without one (the
+   * dialog offers an empty choice).
+   */
+  static defaultOf(spec: ParamSpec): FeatureScalar | undefined {
+    if (!('type' in spec)) {
+      return undefined;
+    }
+    if (spec.default !== undefined) {
+      return spec.default;
+    }
+    if (spec.type === 'boolean') {
+      return false;
+    }
+    if (spec.type === 'select' && !spec.optional) {
+      return spec.options[0]?.value;
+    }
+    return undefined;
+  }
+
+  /** `spec` with its resolved default ({@link defaultOf}) written in, when it resolves to one. */
+  static withDefault(spec: ParamSpec): ParamSpec {
+    const fallback = FeatureMetas.defaultOf(spec);
+    return fallback === undefined || ('default' in spec && spec.default === fallback)
+      ? spec
+      : { ...spec, default: fallback } as ParamSpec;
   }
 
   /** Whether a value is a list: a picker with `multiple` or a `max`. */

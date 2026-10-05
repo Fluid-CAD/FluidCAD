@@ -53,12 +53,13 @@ type PassedValueOf<S> =
   : ScalarValueOf<S>;
 
 /**
- * Whether a call may leave the value out: it has a default, is `optional`,
- * is a list (an empty one then), or is a sketch that defaults to the active
- * one.
+ * Whether a call may leave the value out: it has a default — declared, or
+ * the one a boolean or a select resolves to without one — is `optional`, is
+ * a list (an empty one then), or is a sketch that defaults to the active one.
  */
 type CanLeaveOut<S> =
   S extends { default: string | number | boolean } ? true
+  : S extends { type: 'boolean' | 'select' } ? true
   : S extends { optional: true } ? true
   : S extends ListSpec ? true
   : S extends { picker: 'sketch'; implicitDefault: true } ? true
@@ -66,19 +67,24 @@ type CanLeaveOut<S> =
 
 /**
  * What a value the call may leave out reaches the feature as when it does:
- * its default when it has one, an empty list for a list — and `undefined`
- * for the rest. Never, for a value the call must pass.
+ * its default when it has one — a boolean without one is `false`, a select
+ * without one its first option — an empty list for a list, and `undefined`
+ * for the rest (an optional select without a default among them). Never,
+ * for a value the call must pass.
  */
 type LeftOut<S> =
   CanLeaveOut<S> extends false ? never
   : S extends { default: string | number | boolean } ? never
+  : S extends { type: 'boolean' } ? never
+  : S extends { type: 'select'; optional: true } ? undefined
+  : S extends { type: 'select' } ? never
   : S extends ListSpec ? never
   : undefined;
 
 /**
  * The value one spec gives the feature, as `this.values` holds it: what a
  * call passes for it, or `undefined` for an optional value without a
- * default that the call left out.
+ * default that the call left out (a boolean always has one: `false`).
  */
 export type ValueOf<S> = PassedValueOf<S> | LeftOut<S>;
 

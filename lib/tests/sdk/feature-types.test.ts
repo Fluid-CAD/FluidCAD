@@ -21,6 +21,9 @@ export class Probe extends Feature.with({
   note: { type: 'text', optional: true },
   size: { type: 'select', default: 'm3', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] },
   pitch: { type: 'select', options: [{ label: 'Fine', value: 0.5 }, { label: 'Coarse', value: 0.7 }] },
+  finish: { type: 'select', optional: true, options: [{ label: 'Matte', value: 'matte' }, { label: 'Gloss', value: 'gloss' }] },
+  vented: { type: 'boolean' },
+  sealed: { type: 'boolean', optional: true },
   around: { picker: 'axis' },
   on: { picker: 'plane', optional: true },
   profile: { picker: 'sketch', implicitDefault: true },
@@ -30,7 +33,7 @@ export class Probe extends Feature.with({
   static id = 'acme.probe';
 
   buildTool() {
-    const { face, faces, rims, height, count, turn, depth, through, note, size, pitch, around, on, profile, targets, after } = this.values;
+    const { face, faces, rims, height, count, turn, depth, through, note, size, pitch, finish, vented, sealed, around, on, profile, targets, after } = this.values;
     return [];
   }
 }
@@ -40,7 +43,7 @@ export const probe = defineFeature(Probe, {
   group: 'create',
   operations: ['add', 'new'],
   call: ['face', 'around', { height: 'height', count: 'count', turn: 'turn', depth: 'depth', through: 'through', note: 'note',
-    size: 'size', pitch: 'pitch', on: 'on', profile: 'profile', targets: 'targets', after: 'after', rims: 'rims' }, '...faces'],
+    size: 'size', pitch: 'pitch', finish: 'finish', vented: 'vented', sealed: 'sealed', on: 'on', profile: 'profile', targets: 'targets', after: 'after', rims: 'rims' }, '...faces'],
 });
 `;
 
@@ -110,7 +113,7 @@ describe("a feature module's types, in plain JavaScript", () => {
 
     expect(errorsOf(check)).toEqual([]);
     const types = Object.fromEntries(['face', 'faces', 'rims', 'height', 'count', 'turn', 'depth', 'through', 'note', 'size', 'pitch',
-      'around', 'on', 'profile', 'targets', 'after'].map(name => [name, check.typeOf('probe.feature.js', name)]));
+      'finish', 'vented', 'sealed', 'around', 'on', 'profile', 'targets', 'after'].map(name => [name, check.typeOf('probe.feature.js', name)]));
     expect(types).toEqual({
       face: 'ISelection',
       faces: 'ISelection[]',
@@ -122,7 +125,12 @@ describe("a feature module's types, in plain JavaScript", () => {
       through: 'boolean',
       note: 'string | undefined',
       size: '"m3" | "m4"',
+      // A select without a default takes its first option, a boolean false;
+      // an optional select without one stays unset.
       pitch: '0.5 | 0.7',
+      finish: '"matte" | "gloss" | undefined',
+      vented: 'boolean',
+      sealed: 'boolean',
       around: 'ISceneObject',
       on: 'ISceneObject | undefined',
       profile: 'ISceneObject | undefined',
@@ -137,9 +145,13 @@ describe("a feature module's types, in plain JavaScript", () => {
     const builder = check.typeOf('probe.feature.js', 'probe');
     // Positionals in order, the options object (the options a call must pass
     // first), the spread rest value; the feature's own class comes back.
-    expect(builder).toMatch(/^\(args_0: ISelection, args_1: (Axis|ISceneObject|StandardAxis)( \| (Axis|ISceneObject|StandardAxis)){2}, args_2: \{ count: number; pitch: 0\.5 \| 0\.7; height\?: number \| undefined; /);
+    expect(builder).toMatch(/^\(args_0: ISelection, args_1: (Axis|ISceneObject|StandardAxis)( \| (Axis|ISceneObject|StandardAxis)){2}, args_2: \{ count: number; height\?: number \| undefined; /);
     expect(builder).toMatch(/; \}, \.\.\.args: ISelection\[\]\) => Probe$/);
     expect(builder).toContain('size?: "m3" | "m4" | undefined;');
+    // Selects and toggles without a default may be left out too: they resolve to one.
+    expect(builder).toContain('pitch?: 0.5 | 0.7 | undefined;');
+    expect(builder).toContain('finish?: "matte" | "gloss" | undefined;');
+    expect(builder).toContain('vented?: boolean | undefined;');
     expect(builder).toContain('targets?: ISceneObject | ISceneObject[] | undefined;');
     expect(builder).toContain('rims?: ISelection | ISelection[] | undefined;');
     expect(builder).toMatch(/ on\?: (ISceneObject|Plane|StandardPlane)( \| (ISceneObject|Plane|StandardPlane)){2} \| undefined;/);

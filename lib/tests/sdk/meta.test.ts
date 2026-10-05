@@ -394,7 +394,8 @@ describe("parseCall", () => {
     });
     expect(parseCall(meta, [undefined, { style: 2 }])).toEqual({ face: undefined, count: 2, style: 2, hollow: false, tag: undefined });
     expect(parseCall(meta, [null, { style: 'plain', count: null, tag: null }])).toEqual({ face: null, count: 2, style: 'plain', hollow: false, tag: null });
-    expect(() => parseCall(meta, [undefined, {}])).toThrow("boss(): 'style' is required");
+    // A select without a default takes its first option.
+    expect(parseCall(meta, [undefined, {}])).toEqual({ face: undefined, count: 2, style: 'plain', hollow: false, tag: undefined });
     expect(() => parseCall(meta, [undefined, { style: 'round' }])).toThrow(`boss(): 'style' must be one of "plain", 2, got 'round'`);
     expect(() => parseCall(meta, [undefined, { style: 2, count: 1.5 }])).toThrow("boss(): 'count' must be a whole number, got 1.5");
     expect(() => parseCall(meta, [undefined, { style: 2, count: 7 }])).toThrow("boss(): 'count' must be at most 6, got 7");
@@ -433,5 +434,81 @@ describe("parseCall", () => {
     const [a, b] = [sel(), sel()];
     span(4, { along: [a, b] });
     expect([a.isClaimed(), b.isClaimed()]).toEqual([true, true]);
+  });
+});
+
+describe("a value the call leaves out", () => {
+  const OPTIONS = [{ label: 'Plain', value: 'plain' }, { label: 'Round', value: 2 }];
+
+  /** Every typed-in type with no default, required and optional, and two that declare one. */
+  const PARAMS = {
+    flag: { type: 'boolean' },
+    quiet: { type: 'boolean', optional: true },
+    lit: { type: 'boolean', default: true },
+    style: { type: 'select', options: OPTIONS },
+    finish: { type: 'select', options: OPTIONS, optional: true },
+    shape: { type: 'select', options: OPTIONS, default: 2 },
+    picked: { type: 'select', options: OPTIONS, default: 2, optional: true },
+    count: { type: 'number' },
+    holes: { type: 'integer', optional: true },
+    depth: { type: 'length' },
+    lip: { type: 'length', optional: true },
+    turn: { type: 'angle' },
+    tilt: { type: 'angle', optional: true },
+    note: { type: 'text' },
+    tag: { type: 'text', optional: true },
+  } as const;
+
+  function meta(params: Record<string, unknown> = PARAMS): FeatureMeta {
+    return bossMeta({
+      class: toolClass('acme.trim'),
+      params: { face: { picker: 'face', optional: true }, ...params },
+      call: ['face', Object.fromEntries(Object.keys(params).map(name => [name, name]))],
+    });
+  }
+
+  /** What each value resolves to when left out: false, a select's first option, a declared default — else nothing. */
+  const RESOLVED = { flag: false, quiet: false, lit: true, style: 'plain', shape: 2, picked: 2 };
+
+  it("resolves a boolean to false and a select to its first option — an optional select stays unset, a number or a text too", () => {
+    const resolved = getFeatureMeta(register(meta()))!;
+    const defaults = Object.fromEntries(Object.entries(resolved.params).map(([name, spec]) => [name, (spec as { default?: unknown }).default]));
+    expect(defaults).toEqual({
+      face: undefined, ...RESOLVED, finish: undefined,
+      count: undefined, holes: undefined, depth: undefined, lip: undefined, turn: undefined, tilt: undefined, note: undefined, tag: undefined,
+    });
+    // The declared fields stay as they are; only the default is filled in.
+    expect(resolved.params.style).toEqual({ type: 'select', options: OPTIONS, default: 'plain' });
+    expect(resolved.params.quiet).toEqual({ type: 'boolean', optional: true, default: false });
+    expect(Object.isFrozen(resolved.params.flag)).toBe(true);
+  });
+
+  it("is what the snapshot carries, checked or not", () => {
+    const fromChecked = snapshotFeatureMeta(getFeatureMeta(register(meta()))!);
+    const fromUnchecked = snapshotFeatureMeta(meta());
+    expect(fromUnchecked).toEqual(fromChecked);
+    for (const [name, value] of Object.entries(RESOLVED)) {
+      expect([name, (fromChecked.params[name] as { default?: unknown }).default]).toEqual([name, value]);
+    }
+    for (const name of ['face', 'finish', 'count', 'holes', 'depth', 'lip', 'turn', 'tilt', 'note', 'tag']) {
+      expect([name, 'default' in fromChecked.params[name]]).toEqual([name, false]);
+    }
+  });
+
+  it("is what the builder fills for a value left out or null — a number or a text without a default stays required, or unset when optional", () => {
+    const optionalOnly = meta(Object.fromEntries(Object.entries(PARAMS).filter(([name]) => !['count', 'depth', 'turn', 'note'].includes(name))));
+    const left = { face: undefined, ...RESOLVED, finish: undefined, holes: undefined, lip: undefined, tilt: undefined, tag: undefined };
+    expect(parseCall(optionalOnly, [])).toEqual(left);
+    expect(parseCall(optionalOnly, [undefined, { flag: null, style: null, lit: null }])).toEqual(left);
+    expect(parseCall(optionalOnly, [undefined, { flag: true, style: 2, finish: 'plain', quiet: true }]))
+      .toMatchObject({ flag: true, style: 2, finish: 'plain', quiet: true });
+
+    const full = meta();
+    const required = { count: 1, depth: 2, turn: 3, note: 'n' };
+    expect(parseCall(full, [undefined, required])).toEqual({ ...left, ...required });
+    for (const name of Object.keys(required)) {
+      const without = Object.fromEntries(Object.entries(required).filter(([other]) => other !== name));
+      expect(() => parseCall(full, [undefined, without])).toThrow(`trim(): '${name}' is required`);
+    }
   });
 });

@@ -16,6 +16,7 @@ import { Plane, toPlane } from "../math/plane.js";
 import type { MeshSettings } from "../oc/mesh.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { FaceQuery } from "../oc/face-query.js";
+import { KernelTraps } from "../oc/kernel-traps.js";
 import { Feature } from "../sdk/feature.js";
 import type { FeatureOperation } from "../sdk/call-shape.js";
 import type { FeatureScalar } from "../sdk/feature-inputs.js";
@@ -192,6 +193,11 @@ export class CustomFeatureGhost {
     try {
       preview = feature.buildPreview(this.context());
     } catch (error) {
+      if (KernelTraps.isTrap(error)) {
+        // A preview that trapped damages the same heap a build would.
+        KernelTraps.record(error, { type: this.meta.id, name: this.meta.label, during: 'preview' });
+        return { ok: false, reason: KernelTraps.buildMessage(this.meta.label, error) };
+      }
       return { ok: false, reason: CustomFeatureGhost.messageOf(error) };
     }
     if (!preview) {

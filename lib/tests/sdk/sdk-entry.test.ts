@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import * as sdk from "../../sdk/index.js";
 import * as kernel from "../../sdk/kernel.js";
+import * as occt from "../../sdk/occt.js";
 import { registerBuilder } from "../../index.js";
 import { ENGINE_NAMESPACE_SPECIFIERS, engineShimModuleSource } from "../../browser/index.js";
 
@@ -18,16 +19,26 @@ describe("the fluidcad/sdk entry points", () => {
     expect(Object.keys(kernel)).not.toContain("SceneObject");
   });
 
-  it("keep the unstable kernel to the surface the standoff builds with", () => {
-    expect(Object.keys(kernel).sort()).toEqual(["BooleanOps", "Edge", "Face", "Primitives", "Shape", "ShapeOps", "Solid"]);
+  it("keep the unstable kernel to the surface the standoff builds with, and the wrappers raw shapes come back into", () => {
+    expect(Object.keys(kernel).sort()).toEqual([
+      "BooleanOps", "Edge", "Face", "Primitives", "Shape", "ShapeFactory", "ShapeOps", "Solid", "Vertex", "Wire",
+    ]);
+  });
+
+  it("keep raw OpenCascade to its own entry: the instance and the scope its code runs in", () => {
+    expect(Object.keys(occt).sort()).toEqual(["OccScope", "getOC"]);
+    expect(Object.keys(sdk)).not.toContain("getOC");
+    expect(Object.keys(kernel)).not.toContain("getOC");
   });
 
   it("link in the browser host like every other engine namespace", () => {
     expect(ENGINE_NAMESPACE_SPECIFIERS).toContain("fluidcad/sdk");
     expect(ENGINE_NAMESPACE_SPECIFIERS).toContain("fluidcad/sdk/kernel");
+    expect(ENGINE_NAMESPACE_SPECIFIERS).toContain("fluidcad/sdk/occt");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const Feature =");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const defineFeature =");
     expect(engineShimModuleSource("fluidcad/sdk/kernel")).toContain("export const Primitives =");
+    expect(engineShimModuleSource("fluidcad/sdk/occt")).toContain("export const OccScope =");
   });
 
   it("are what the browser host links: every model-facing package export, and nothing else", () => {

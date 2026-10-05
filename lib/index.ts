@@ -257,6 +257,8 @@ export type {
 export type { AssemblyExportPose } from './io/assembly-export/index.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';
+export { KernelTraps } from './oc/kernel-traps.js';
+export type { KernelTrapReport } from './oc/kernel-traps.js';
 export type { LengthUnit } from './units/units.js';
 export { LENGTH_UNITS, MM_PER_UNIT, parseLengthUnit, isLengthUnit, convertLength, unitFactor } from './units/units.js';
 export { getUnitRegistry, createUnitRegistry, setUnitRegistry, getActiveUnit, withUnit } from './units/registry.js';

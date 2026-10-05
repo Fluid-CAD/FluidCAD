@@ -86,6 +86,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
   private _unit: LengthUnit | null = null;
   private _error: string | null = null;
+  private _kernelTrap = false;
   /** Why the statement refused its operands at parse time — see refuse(). */
   private _refusal: string | null = null;
   private _destroyed: boolean = false;
@@ -887,16 +888,28 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set(GEOMETRY_UNIT_KEY, unit);
   }
 
-  setError(message: string) {
+  /**
+   * The statement's build error. `kernelTrap`: the OpenCascade kernel itself
+   * trapped (a wasm `RuntimeError`) — not an error the feature raised — so
+   * the engine's memory may be damaged (see `KernelTraps`).
+   */
+  setError(message: string, opts: { kernelTrap?: boolean } = {}) {
     this._error = message;
+    this._kernelTrap = opts.kernelTrap === true;
   }
 
   clearError() {
     this._error = null;
+    this._kernelTrap = false;
   }
 
   getError(): string | null {
     return this._error;
+  }
+
+  /** Whether the build error is a trap of the OpenCascade kernel (see setError). */
+  isKernelTrap(): boolean {
+    return this._error !== null && this._kernelTrap;
   }
 
   /**

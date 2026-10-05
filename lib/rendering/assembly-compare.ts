@@ -108,7 +108,7 @@ export class AssemblyCompare {
 
       const oldError = oldObj.getError();
       if (oldError) {
-        newObj.setError(oldError);
+        newObj.setError(oldError, { kernelTrap: oldObj.isKernelTrap() });
       }
     }
 

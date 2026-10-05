@@ -11,6 +11,9 @@ import { Locations } from "../features/locations.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Point } from "../math/point.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { OccScope } from "../oc/occ-scope.js";
+import { BuildScope } from "../common/build-scope.js";
+import { SceneDisposal } from "../rendering/scene-disposal.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
 import { ClassifiedBucketRemapper, ClassifiedBuckets } from "../features/classified-buckets.js";
@@ -256,7 +259,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   buildPreview(ctx: FeatureBuildContext): { shapes: Shape[]; scratch: Shape[] } | null {
     this.declared = {};
     try {
-      const shapes = this.ghost(ctx);
+      const shapes = BuildScope.run(this, ctx, () => this.ghost(ctx));
       if (shapes === null || shapes === undefined) {
         return null;
       }
@@ -297,6 +300,48 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     }
     context.addSceneObject(this);
     return this;
+  }
+
+  /**
+   * Run raw OpenCascade code (`fluidcad/sdk/occt`) in a scope that frees
+   * what it makes: every object constructed through `scope.oc`, and what
+   * `scope.track()` hands it, is released when `fn` returns or throws —
+   * except what `fn` returns or `scope.keep()`s, and never a shape the
+   * scene holds. Use it inside `buildTool()`, `build()` and `ghost()`:
+   *
+   * ```js
+   * buildTool() {
+   *   return this.occ(({ oc, track }) => {
+   *     const maker = new oc.BRepPrimAPI_MakeCylinder(2, 10);   // freed with the scope
+   *     return [ShapeFactory.fromShape(track(maker.Shape()))];  // the wrapper is returned, so kept
+   *   });
+   * }
+   * ```
+   *
+   * The binding can't free every internal allocation even so — its
+   * `delete()` skips C++ destructors — see `fluidcad/sdk/occt`.
+   */
+  protected occ<T>(fn: (scope: OccScope) => T): T {
+    return OccScope.run(fn, { survivors: () => this.heldShapes() });
+  }
+
+  /**
+   * Every shape the scene holds that this build could reach: the scene
+   * objects its build context sees, the feature's own, and its references
+   * with everything they depend on.
+   */
+  private heldShapes(): Set<Shape> {
+    const objects = new Set<SceneObject>(BuildScope.contextOf(this)?.getSceneObjects() ?? []);
+    objects.add(this);
+    const pending: SceneObject[] = [...this.inputs.references()];
+    while (pending.length > 0) {
+      const ref = pending.pop()!;
+      if (!objects.has(ref)) {
+        objects.add(ref);
+        pending.push(...ref.getDependencies());
+      }
+    }
+    return SceneDisposal.collectShapes([...objects]);
   }
 
   /** Every shape a reference holds now (its solids, its selected faces or edges, its sketch's wires). */

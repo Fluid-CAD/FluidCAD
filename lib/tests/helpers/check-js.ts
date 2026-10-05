@@ -24,6 +24,7 @@ export class CheckJs {
     "fluidcad": "lib/index.ts",
     "fluidcad/sdk": "lib/sdk/index.ts",
     "fluidcad/sdk/kernel": "lib/sdk/kernel.ts",
+    "fluidcad/sdk/occt": "lib/sdk/occt.ts",
     "fluidcad/core": "lib/core/index.ts",
     "fluidcad/filters": "lib/filters/index.ts",
     "fluidcad/constraints": "lib/core/constraints/index.ts",

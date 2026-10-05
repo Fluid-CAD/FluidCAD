@@ -87,6 +87,12 @@ export type SceneObjectRender = {
   hasError: boolean;
   errorMessage?: string;
   /**
+   * The build error is a trap of the OpenCascade kernel (a wasm
+   * `RuntimeError`), not an error the feature raised: the engine's memory
+   * may be damaged from here on (see `KernelTraps`).
+   */
+  kernelTrap?: boolean;
+  /**
    * `occurrence` is render-derived, never stamped: the 0-based execution
    * index of this object's call site, present only when a loop/helper ran
    * the statement more than once in this render.

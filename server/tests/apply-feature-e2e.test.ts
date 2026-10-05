@@ -2004,3 +2004,125 @@ describe('an axis that is a connector, from the dialog\'s pick to the built mode
   });
 });
 
+
+/**
+ * A select and a toggle declared without a default show a value in the
+ * dialog — the first option, off — and the engine resolves them to the same
+ * value: the snapshot carries it, the route asks a create for neither, and
+ * the builder fills both. So an untouched create writes the bare call and
+ * builds. A length without a default stays required: the route refuses a
+ * create without it, as the dialog does.
+ */
+describe('a custom feature whose select and toggle declare no default, from an untouched dialog to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/post.feature.js';
+
+  const CODE = [
+    `import { sketch, line, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+    `const e = extrude(10)`,
+    ``,
+  ].join('\n');
+
+  /** A post on a picked face, made a body of its own: a diameter to choose, a toggle doubling its height, an optional finish, and a height. */
+  function definePost() {
+    class Post extends Feature.with({
+      face: { picker: 'face', surface: 'planar' },
+      size: { type: 'select', options: [{ label: 'M4', value: 4 }, { label: 'M8', value: 8 }] },
+      tall: { type: 'boolean' },
+      finish: { type: 'select', optional: true, options: [{ label: 'Sunk', value: 'sunk' }] },
+      height: { type: 'length', min: 0 },
+    }) {
+      static id = 'acme.post';
+
+      buildTool(): Shape[] {
+        const { face, size, tall, finish, height } = this.values;
+        if (this.facesOf(face).length !== 1) {
+          throw new Error('post: pick one face');
+        }
+        return [Primitives.makeCylinder(size / 2, (tall ? 2 : 1) * height - (finish === 'sunk' ? 1 : 0))];
+      }
+    }
+    return defineFeature(Post, {
+      label: 'Post', group: 'create', operations: ['new'],
+      call: ['face', { size: 'size', tall: 'tall', finish: 'finish', height: 'height' }],
+    });
+  }
+
+  it('writes the bare call for the rows left alone, and the model builds on the first option and the toggle off', async () => {
+    const post = definePost();
+    const meta = snapshotFeatureMeta(getFeatureMeta(post)!);
+    expect([meta.params.size.default, meta.params.tall.default]).toEqual([4, false]);
+    expect('default' in meta.params.finish).toBe(false);
+    expect('default' in meta.params.height).toBe(false);
+
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 10 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const top = Explorer.findFacesWrapped(plate).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+    expect(top).toBeGreaterThanOrEqual(0);
+
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'post', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: () => CODE,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      synthesizeFeatureSlots: (request: any, options: any, before?: any) =>
+        getSceneManager()!.synthesizeFeatureSlots(scene, request, options, before),
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.post', exportName: 'post', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    const postJson = async (path: string, body: unknown) => {
+      const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() as any };
+    };
+    try {
+      const picks = { face: [{ kind: 'entities', entities: [{ shapeId: plate.id, sub: { type: 'face', index: top } }] }] };
+      const untouched = await postJson('/apply-feature', { feature: 'custom', custom: { id: 'acme.post', values: {}, picks }, preview: true });
+      expect(untouched.status).toBe(422);
+      expect(untouched.body.reason ?? untouched.body.error).toBe('Height is required');
+
+      const body = { feature: 'custom', custom: { id: 'acme.post', values: { height: 5 }, picks } };
+      const preview = await postJson('/apply-feature', { ...body, preview: true });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      expect(preview.body.preview).toBe('post(e.endFaces(), { height: 5 })');
+
+      expect((await postJson('/apply-feature', body)).status).toBe(200);
+      const written = await postJson('/code/apply-feature', { code: CODE, spec: relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      const newCode: string = written.body.newCode;
+      expect(newCode).toContain(`import { post } from './post.feature.js';`);
+      expect(newCode).toContain(`const e = extrude(10)\npost(e.endFaces(), { height: 5 })\n`);
+
+      const built = runFluid(newCode, { post });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const posts = built.getAllSceneObjects().filter(o => o.getType() === 'acme.post');
+      expect(posts).toHaveLength(1);
+      expect((posts[0] as unknown as Feature).values).toMatchObject({ size: 4, tall: false, finish: undefined, height: 5 });
+      const volume = ShapeProps.getProperties(posts[0].getShapes().find(s => s.isSolid())!.getShape()).volumeMm3;
+      expect(volume).toBeCloseTo(Math.PI * 2 ** 2 * 5, 3);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});

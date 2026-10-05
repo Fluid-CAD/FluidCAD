@@ -1,5 +1,6 @@
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from '../host/scene-host.ts';
+import type { RawOcctUse } from './raw-occt.ts';
 import {
   createParamRegistry,
   getParamRegistry,
@@ -23,6 +24,11 @@ export type FeatureScanResult = {
    * Empty when the module did not evaluate: a failed scan is never cached.
    */
   deps: string[];
+  /**
+   * The module, or one it imports, reaches raw OpenCascade — read from the
+   * source by {@link RawOcctUse}, which the catalog runs after the scan.
+   */
+  usesOcct?: boolean;
 };
 
 /** The slice of the workspace engine's SceneManager a feature scan drives. */

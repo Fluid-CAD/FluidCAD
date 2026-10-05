@@ -132,6 +132,67 @@ export function readEngineTypes(): EngineTypesPayload {
   return cached;
 }
 
+/**
+ * Where the declarations of the OpenCascade binding the engine runs on
+ * (`ocjs-fluidcad`) are published for Monaco: node resolution from
+ * `fluidcad/lib/dist/sdk/occt.d.ts` walks up to this `node_modules` entry.
+ */
+const OCCT_LIB_ROOT = 'file:///node_modules/ocjs-fluidcad';
+
+/** The binding's own declarations, in its package's `dist`: the entry and the generated module it re-exports. */
+const OCCT_DECLARATIONS = ['index.d.ts', 'opencascade.fluidcad.multi-threaded.d.ts'];
+
+/**
+ * The binding's package directory as the engine resolves it: the nearest
+ * `node_modules/ocjs-fluidcad` up from `lib/dist`, the way Node finds it for
+ * `lib/dist/oc/init.js` (a hoisted install puts it higher up).
+ */
+function findOcctPackage(): string | null {
+  let dir = LIB_DIST;
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', 'ocjs-fluidcad');
+    if (fs.existsSync(path.join(candidate, 'dist', 'index.d.ts'))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+
+let occtCached: EngineTypesPayload | null = null;
+
+/**
+ * The declarations of raw OpenCascade (`fluidcad/sdk/occt`): the binding's
+ * whole API, about 2 MB, so the page asks for them only once a file imports
+ * that entry — every other file completes without them. Null when the
+ * binding's declarations can't be found.
+ */
+export function readOcctTypes(): EngineTypesPayload | null {
+  if (occtCached) {
+    return occtCached;
+  }
+  const pkg = findOcctPackage();
+  if (!pkg) {
+    return null;
+  }
+  const files: EngineTypeFile[] = [{
+    uri: `${OCCT_LIB_ROOT}/package.json`,
+    content: JSON.stringify({ name: 'ocjs-fluidcad', types: './dist/index.d.ts' }),
+  }];
+  for (const name of OCCT_DECLARATIONS) {
+    try {
+      files.push({ uri: `${OCCT_LIB_ROOT}/dist/${name}`, content: fs.readFileSync(path.join(pkg, 'dist', name), 'utf8') });
+    } catch {
+      return null;
+    }
+  }
+  occtCached = { files, symbols: [], bytes: files.reduce((sum, file) => sum + file.content.length, 0) };
+  return occtCached;
+}
+
 export function createEngineTypesRouter(version: string): Router {
   const router = Router();
 
@@ -140,6 +201,20 @@ export function createEngineTypesRouter(version: string): Router {
       const payload = readEngineTypes();
       // Immutable for a given engine build: the page can keep it across
       // reloads and only re-fetch when the version in the URL changes.
+      res.setHeader('Cache-Control', 'no-cache');
+      res.json({ version, ...payload });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  router.get('/engine/types/occt', (_req, res) => {
+    try {
+      const payload = readOcctTypes();
+      if (!payload) {
+        res.status(404).json({ error: 'The OpenCascade binding\'s declarations are not installed with this engine.' });
+        return;
+      }
       res.setHeader('Cache-Control', 'no-cache');
       res.json({ version, ...payload });
     } catch (err: any) {

@@ -701,6 +701,38 @@ export type UIFeaturesChangedMessage = {
 
 
 /**
+ * The engine can no longer be trusted: the OpenCascade kernel trapped (a
+ * wasm `RuntimeError`), so its memory may be corrupt — most likely a custom
+ * feature's raw OpenCascade code freed or reached memory the engine still
+ * needed. Sent once the first trap happens, again as more follow, and to
+ * every page that connects for the rest of the engine's life: only a fresh
+ * engine is sound. The page shows a banner offering the restart. UI-only —
+ * no editor host receives it.
+ */
+export type UIEngineSuspectMessage = {
+  type: 'engine-suspect';
+  /** What happened, as the banner says it. */
+  message: string;
+  /** The type of the statement whose build (or preview) trapped (`acme.twist`); null when it was no statement's. */
+  featureType: string | null;
+  /** That statement's name (`Twist`); null when it was no statement's. */
+  featureName: string | null;
+  /** That feature reaches raw OpenCascade (`fluidcad/sdk/occt`): the likeliest cause. */
+  usesOcct: boolean;
+  /** Traps since the engine started. */
+  traps: number;
+  /**
+   * How this page can restart the engine: `engine` — `POST
+   * /api/engine/restart`, and the host starts a fresh one on the same port;
+   * null — the engine can't restart itself, and `hint` says how to. (The
+   * desktop shell restarts its engine itself, whatever this says.)
+   */
+  restart: 'engine' | null;
+  hint: string | null;
+};
+
+
+/**
  * An edit for the in-page editor host to apply — the WebSocket carriage of a
  * message an IPC host would receive on `process.send`. Wrapped rather than
  * sent bare so the host contract's 24 message types can grow without ever
@@ -726,6 +758,7 @@ export type ServerToUIMessage =
   | UIEditorCapabilitiesMessage
   | UIFileEventMessage
   | UIFeaturesChangedMessage
+  | UIEngineSuspectMessage
   | UIHostMessage;
 
 // ---------------------------------------------------------------------------

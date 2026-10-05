@@ -60,7 +60,9 @@ import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { extractErrorSourceLocation, describeOcException, KernelTraps } from '../../lib/dist/index.js';
+import { EngineHealth } from './engine-health.ts';
+import { createEngineRouter } from './routes/engine.ts';
 import { setMaxWorkers } from '../../lib/dist/oc/init.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
@@ -159,6 +161,19 @@ const featureCatalog = new FeatureCatalog({
   hasLiveBuffer: (absPath) => fluidCadServer.hasLiveBuffer(absPath),
 });
 
+// Whether the engine can still be trusted: a trap of the OpenCascade kernel
+// (most likely a custom feature's raw OpenCascade code) may have corrupted
+// its heap. Every page hears of it and is offered the restart this host
+// supports; a trapped row whose feature reaches raw OpenCascade says so.
+const engineHealth = new EngineHealth({
+  broadcast: (msg) => broadcastToUI(msg),
+  feature: async (type) => {
+    const entry = (await featureCatalog.list())?.find(e => e.id === type && e.meta !== null);
+    return entry?.meta ? { label: entry.meta.label, usesOcct: entry.usesOcct } : null;
+  },
+});
+engineHealth.watch(KernelTraps);
+
 // Every router that writes source dispatches through this one instance: the
 // ack that settles a dispatch arrives at /code/apply-feature, so a router with
 // its own registry would never hear about its own edits.
@@ -204,6 +219,12 @@ app.use('/api', createFilesRouter({
   onWrite: (absPath, content) => pageWrites.record(absPath, content),
 }));
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
+app.use('/api', createEngineRouter(engineHealth, {
+  exit: (code) => {
+    cleanupDiscovery();
+    process.exit(code);
+  },
+}));
 app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
 app.use('/api', createUnitRouter({
   workspacePath: WORKSPACE_PATH,
@@ -295,7 +316,7 @@ const lastSceneByFile = new Map<string, {
   assembly?: SerializedAssembly;
 }>();
 
-attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
+attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState, replay: (send) => engineHealth.replay(send) });
 
 function emitSuccess(version: number, data: SceneRenderedData) {
   const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties, objectWarnings } = data;
@@ -443,6 +464,9 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
     const data = dependency
       ? await fluidCadServer.updateDependencyCode(fileName, code, options)
       : await fluidCadServer.updateLiveCode(fileName, code, options);
+    if (data) {
+      await engineHealth.explain(data);
+    }
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -473,6 +497,7 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
       ...(data.changes ? { changes: data.changes } : {}),
     };
   } catch (err) {
+    engineHealth.noteError(err, KernelTraps);
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -499,6 +524,9 @@ async function processFile(filePath: string): Promise<void> {
   currentFile = filePath;
   try {
     const data = await fluidCadServer.processFile(filePath);
+    if (data) {
+      await engineHealth.explain(data);
+    }
     if (myVersion !== renderVersion) { return; }
     if (data) {
       emitSuccess(myVersion, data);
@@ -508,6 +536,7 @@ async function processFile(filePath: string): Promise<void> {
     // than leaving the page on its loading overlay.
     emitMissingEngine(myVersion, filePath);
   } catch (err) {
+    engineHealth.noteError(err, KernelTraps);
     if (myVersion !== renderVersion) { return; }
     emitCompileError(myVersion, filePath, err);
   }
@@ -551,6 +580,9 @@ async function handleExtensionMessage(msg: any) {
         const myVersion = ++renderVersion;
         broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
+        if (data) {
+          await engineHealth.explain(data);
+        }
         if (myVersion !== renderVersion) { return; }
         if (data) {
           emitSuccess(myVersion, data);
@@ -598,6 +630,7 @@ async function handleExtensionMessage(msg: any) {
 
       case 'editor-hello': {
         hosts.announce('ipc', { undoRedo: msg.capabilities?.undoRedo === true });
+        engineHealth.noteEditor(msg.editor);
         broadcastEditorCapabilities(core, hosts);
         break;
       }

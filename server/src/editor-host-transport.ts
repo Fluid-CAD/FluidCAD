@@ -1,4 +1,5 @@
 import type { ServerCore } from './server-core.ts';
+import type { ServerToUIMessage } from './ws-protocol.ts';
 import type { HostRegistry } from './host-registry.ts';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import type { DirtyBufferState } from './routes/editor.ts';
@@ -18,6 +19,8 @@ export interface EditorHostTransportDeps {
   hosts: HostRegistry;
   dispatcher: FeatureEditDispatcher;
   dirtyBufferState: DirtyBufferState;
+  /** Other state a page that connects late is told (the engine's health), sent after the host's capabilities. */
+  replay?: (send: (msg: ServerToUIMessage) => void) => void;
 }
 
 /**
@@ -42,6 +45,7 @@ export function attachEditorHostTransport(deps: EditorHostTransportDeps): void {
     if (capabilities) {
       ws.send(JSON.stringify({ type: 'editor-capabilities', ...capabilities }));
     }
+    deps.replay?.((msg) => ws.send(JSON.stringify(msg)));
   });
 
   core.setMessageHandler((sessionId, msg, ws) => {

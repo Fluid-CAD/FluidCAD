@@ -64,3 +64,41 @@ part('plate', () => {
     expect(check.typeOf('boss.feature.js', 'at')).toBe('ISceneObject[]');
   });
 });
+
+describe('the JavaScript raw OpenCascade fixtures, type-checked as a project checks them', () => {
+  const TWIST = path.resolve(import.meta.dirname, 'fixtures/custom-features/twist.feature.js');
+  const DANGLING = path.resolve(import.meta.dirname, 'fixtures/custom-features/dangling.feature.js');
+
+  it('types the twist\'s raw code through its scope, the binding\'s classes and all', () => {
+    const check = CheckJs.check({}, [TWIST, DANGLING]);
+
+    expect(check.diagnostics()).toEqual([]);
+    expect(['height', 'angle', 'sections', 'bore'].map(name => check.typeOf('twist.feature.js', name))).toEqual(['number', 'number', 'number', 'number']);
+    expect(check.typeOf('twist.feature.js', 'loft')).toBe('BRepOffsetAPI_ThruSections');
+    expect(check.typeOf('twist.feature.js', 'section')).toBe('TopoDS_Shape');
+    expect(check.typeOf('twist.feature.js', 'twist')).toBe(
+      '(args_0: ISelection, args_1?: { height?: number | undefined; angle?: number | undefined; sections?: number | undefined; bore?: number | undefined; } | undefined) => Twist',
+    );
+  });
+
+  it('marks a misspelled class of the binding', () => {
+    const check = CheckJs.check({
+      'knurl.feature.js': `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { ShapeFactory } from 'fluidcad/sdk/kernel';
+
+class Knurl extends Feature.with({ size: { type: 'length', default: 2 } }) {
+  static id = 'acme.knurl';
+  buildTool() {
+    return this.occ(({ oc }) => [ShapeFactory.fromShape(new oc.BRepPrimAPI_MakeCylindr(this.values.size, 4).Shape())]);
+  }
+}
+export const knurl = defineFeature(Knurl, { label: 'Knurl', group: 'create', call: ['size'] });
+`,
+    });
+
+    expect(check.diagnostics().map(d => `${d.file}:${d.line}: ${d.message}`)).toEqual([
+      expect.stringContaining("knurl.feature.js:8: Property 'BRepPrimAPI_MakeCylindr' does not exist on type 'OpenCascadeInstance'. Did you mean 'BRepPrimAPI_MakeCylinder'?"),
+    ]);
+  });
+});

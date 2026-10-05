@@ -12,6 +12,7 @@ import { ScanCache } from '../part-catalog/cache.ts';
 import type { FeatureMetaSnapshot } from '../../../lib/dist/index.js';
 import { FeatureModules } from './walk.ts';
 import { FeatureScanner, type FeatureScanResult } from './scan.ts';
+import { RawOcctUse } from './raw-occt.ts';
 
 /**
  * One feature the editor can offer: a builder a feature module exports, or
@@ -29,6 +30,14 @@ export type FeatureCatalogEntry = {
   modulePath: string;
   builtIn: boolean;
   meta: FeatureMetaSnapshot | null;
+  /**
+   * The feature's module — or a workspace module it imports — reaches raw
+   * OpenCascade (`fluidcad/sdk/occt`, or a scope opened with `this.occ()`;
+   * see {@link RawOcctUse}): unstable code that can corrupt the kernel's
+   * memory for the whole engine session. Read from the source, never
+   * evaluated. False for the engine's own builders.
+   */
+  usesOcct: boolean;
   /** Why this entry can't be offered. */
   error?: string;
 };
@@ -173,8 +182,9 @@ export class FeatureCatalog implements FeatureCalleeSource {
     if (result === null) {
       return null;
     }
+    const usesOcct = result.usesOcct === true;
     const failed = (error: string): FeatureCatalogEntry[] =>
-      [{ id: null, exportName: null, modulePath, builtIn: false, meta: null, error }];
+      [{ id: null, exportName: null, modulePath, builtIn: false, meta: null, usesOcct, error }];
     if (result.error !== undefined) {
       return failed(result.error);
     }
@@ -187,6 +197,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
       modulePath,
       builtIn: false,
       meta: feature.meta,
+      usesOcct,
     }));
   }
 
@@ -199,7 +210,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     }
     let pending = this.inflight.get(modulePath);
     if (!pending) {
-      pending = this.options.scan(modulePath).finally(() => this.inflight.delete(modulePath));
+      pending = this.scanWithSource(modulePath).finally(() => this.inflight.delete(modulePath));
       this.inflight.set(modulePath, pending);
     }
     const result = await pending;
@@ -207,6 +218,21 @@ export class FeatureCatalog implements FeatureCalleeSource {
       this.cache.set(modulePath, result);
     }
     return result;
+  }
+
+  /**
+   * Evaluate the module, then read its source (and its imports') for raw
+   * OpenCascade. A file only that read reached joins the scan's
+   * dependencies, so changing it drops the cached answer too.
+   */
+  private async scanWithSource(modulePath: string): Promise<FeatureScanResult | null> {
+    const result = await this.options.scan(modulePath);
+    if (result === null) {
+      return null;
+    }
+    const raw = await RawOcctUse.scan(modulePath, this.workspacePath);
+    const deps = result.deps.length > 0 ? [...new Set([...result.deps, ...raw.files])] : result.deps;
+    return { ...result, deps, usesOcct: raw.usesOcct };
   }
 
   private builtIns(): Promise<FeatureCatalogEntry[]> {
@@ -218,6 +244,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
         modulePath: FeatureCatalog.BUILT_IN_MODULE,
         builtIn: true,
         meta: feature.meta,
+        usesOcct: false,
       })));
     }
     return this.builtInEntries;

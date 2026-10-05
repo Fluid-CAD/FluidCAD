@@ -43,10 +43,11 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
 - **Why.** Each click must land in exactly one kind. `face` + `anchor`, `solid` + `feature` (both take a feature row), `edge` + `face` with `facesAsEdges`, and `axis` + `connector` (an axis already takes connectors) clash.
 - **Fix.** Leave one kind out, or declare two values.
 
-## A select or a toggle without a default
+## A size with no default
 
-- **Signature.** The model's own calls work, but **Apply** in the dialog fails when the user leaves that row alone: the dialog shows the first option (or the toggle off) yet writes nothing, and the builder requires the value (`ventGrid(): 'pattern' is required`).
-- **Fix.** Give every `select` and `boolean` a `default`, or make it `optional`.
+- **Signature.** A fresh dialog shows the row empty, no preview draws, and **Apply** says `Rows is required.`; a model call that leaves it out fails to compile with `ventGrid(): 'rows' is required`.
+- **Why.** A `number`, `integer`, `length`, `angle` or `text` without a `default` has nothing to fall back on, so the dialog asks for it. (A `boolean` and a `select` always have one: off, and the first option; an `optional` select without one shows "—" and stays unset.)
+- **Fix.** Give every size a `default` the feature builds well with; leave one out only for a value the user must decide each time, and say so in its `label` or `description`.
 
 ## A call the dialog can't edit
 

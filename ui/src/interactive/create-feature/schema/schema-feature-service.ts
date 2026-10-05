@@ -364,6 +364,22 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
+  /**
+   * The feature's module was saved with its metadata unchanged, so the
+   * dialog stayed open — but what it previews was built with the old code.
+   * Ask again: the engine loads the saved code for the next ghost. A paused
+   * ghost resumes too, since what made it slow may be gone.
+   */
+  codeChanged(): void {
+    if (!this.armed) {
+      return;
+    }
+    if (this.ghostPaused !== null) {
+      this.resumeGhost();
+    }
+    this.runner.schedulePreview();
+  }
+
   /** Take the dialog and its button (or menu cell) off the page — its feature changed or left the catalog. */
   destroy(): void {
     this.exit({ resume: 'lazy' });

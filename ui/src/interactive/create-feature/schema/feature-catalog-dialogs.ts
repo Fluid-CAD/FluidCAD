@@ -27,7 +27,8 @@ type OfferedEntry = FeatureCatalogEntry & { id: string; meta: FeatureMetaSnapsho
  * registered with the page's dialog registry like the built-ins, and each
  * feature's icon for its timeline rows. A refresh (the engine coming up, a
  * `features-changed`) rebuilds only the dialogs whose metadata changed, so a
- * dialog open on an unrelated feature stays open.
+ * dialog open on an unrelated feature stays open; after a module changed, an
+ * open dialog it kept asks for its preview again, as the saved code builds it.
  *
  * The workspace's features open from one toolbar button, the custom
  * features {@link menu}: a cell apiece. A built-in keeps a regular button in
@@ -80,7 +81,14 @@ export class FeatureCatalogDialogs {
     if (entries === null || ticket !== this.ticket) {
       return;
     }
+    const kept = opts.changed ? new Set(this.services) : null;
     this.apply(entries);
+    // A dialog its metadata didn't rebuild previews the module's old code.
+    for (const service of this.services) {
+      if (kept?.has(service)) {
+        service.codeChanged();
+      }
+    }
   }
 
   /** Bring the page in line with `entries`. */

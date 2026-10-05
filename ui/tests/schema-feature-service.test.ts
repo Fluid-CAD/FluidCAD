@@ -831,6 +831,29 @@ describe("a custom feature's ghost", () => {
     expect(lastGhost()![0]).not.toHaveProperty('unbounded');
   });
 
+  it('previews live again once its module is saved — what made it slow may be gone', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: null, frames: [], notice: null, paused: PAUSED });
+    const { service, panel, lastGhost, ghostBodies } = mount();
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    const row = panel().querySelector<HTMLElement>('[data-role="ghost-paused"]')!;
+    expect(row.classList.contains('hidden')).toBe(false);
+
+    service.codeChanged();
+    expect(row.classList.contains('hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+    expect(lastGhost()![0]).not.toHaveProperty('unbounded');
+    expect(ghostBodies()).toBe(1);
+
+    // A closed dialog has nothing to ask.
+    service.exit();
+    service.codeChanged();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+  });
+
   it('asks for no ghost when the metadata turns it off', async () => {
     const { service } = mount({ ...STANDOFF, ghost: false });
     service.enter();
@@ -1070,6 +1093,36 @@ describe('the feature catalog on the page', () => {
     expect(dialogs.menu.isOpen).toBe(false);
     expect(menuGroup.classList.contains('hidden')).toBe(true);
     expect(cells()).toEqual([]);
+  });
+
+  it('asks an open dialog its metadata left as it was for its preview again once a module is saved', async () => {
+    const { dialogs, built } = catalog();
+    vi.mocked(api.getFeatureCatalog).mockResolvedValue([entry(STANDOFF), entry(BRACKET)]);
+    await dialogs.refresh();
+    const [standoff, bracket] = built;
+    standoff.update(scene());
+    standoff.enter();
+    standoff.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    const asked = () => vi.mocked(api.fetchFeatureGhostResult).mock.calls.length;
+    expect(asked()).toBe(1);
+
+    // The engine coming up again lists the same features: nothing to ask.
+    await dialogs.refresh();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(asked()).toBe(1);
+
+    // A module saved, its metadata the same: the same dialog, its pick kept,
+    // asks again — the engine draws the saved code. The closed one asks nothing.
+    await dialogs.refresh({ changed: true });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(built).toEqual([standoff, bracket]);
+    expect(standoff.isActive).toBe(true);
+    expect(asked()).toBe(2);
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls[1][0]).toMatchObject({
+      id: 'acme.standoff', refs: { face: [{ kind: 'entities', entities: [{ shapeId: 'plate-solid', index: 4 }] }] },
+    });
+    standoff.exit();
   });
 
   it('keeps the newest answer when two refreshes overlap', async () => {

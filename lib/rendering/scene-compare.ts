@@ -19,13 +19,30 @@ const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
   { key: 'removedEdges', actorField: 'removedBy' },
 ];
 
+/**
+ * What a compare is told beyond the two scenes.
+ */
+export type SceneCompareOptions = {
+  /**
+   * Feature types (a custom feature's id) whose code changed since the old
+   * scene was built — a feature module saved on disk. A statement reads the
+   * same while the class behind it changed, so its values can't tell: an
+   * object of one of these types never takes its old counterpart's build.
+   * It rebuilds, and with it everything the prefix match puts after it;
+   * everything before it stays cached.
+   */
+  rebuild?: ReadonlySet<string>;
+};
+
 export class SceneCompare {
   /**
    * `changes` is the MCP-only change summary hook: when present it records
    * the old objects that did not survive, while their shapes are still
    * alive. Absent (every host and UI render), nothing here differs.
+   * `options.rebuild` names feature types whose code changed (see
+   * {@link SceneCompareOptions}); absent, objects match by type and inputs.
    */
-  public static compare(oldScene: Scene, newScene: Scene, changes?: RenderChangeTracker): Scene {
+  public static compare(oldScene: Scene, newScene: Scene, changes?: RenderChangeTracker, options?: SceneCompareOptions): Scene {
     if (oldScene === newScene) {
       return newScene;
     }
@@ -40,7 +57,7 @@ export class SceneCompare {
 
       console.log('Checking:', newObj?.getUniqueType());
 
-      if (!oldObj || oldObj.getUniqueType() !== newObj.getUniqueType() || !oldObj.compareTo(newObj)) {
+      if (!oldObj || !SceneCompare.matches(oldObj, newObj, options)) {
         console.log('NO MATCH:', newObj.getUniqueType());
         break;
       }
@@ -53,7 +70,7 @@ export class SceneCompare {
       if (newObj instanceof Sketch) {
         const newRun = SceneCompare.subtreeRun(newScene, i);
         const oldRun = SceneCompare.subtreeRun(oldScene, i);
-        if (!SceneCompare.runsMatch(oldRun, newRun)) {
+        if (!SceneCompare.runsMatch(oldRun, newRun, options)) {
           console.log('NO MATCH (solved sketch subtree):', newObj.getUniqueType());
           break;
         }
@@ -179,17 +196,30 @@ export class SceneCompare {
     return false;
   }
 
-  private static runsMatch(oldRun: SceneObject[], newRun: SceneObject[]): boolean {
+  private static runsMatch(oldRun: SceneObject[], newRun: SceneObject[], options?: SceneCompareOptions): boolean {
     if (oldRun.length !== newRun.length) {
       return false;
     }
     for (let i = 0; i < newRun.length; i++) {
-      if (oldRun[i].getUniqueType() !== newRun[i].getUniqueType()
-          || !oldRun[i].compareTo(newRun[i])) {
+      if (!SceneCompare.matches(oldRun[i], newRun[i], options)) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * Whether `newObj` may take `oldObj`'s build: the same type, not one whose
+   * code changed since (`options.rebuild`), and inputs that compare equal.
+   */
+  static matches(oldObj: SceneObject, newObj: SceneObject, options?: SceneCompareOptions): boolean {
+    if (oldObj.getUniqueType() !== newObj.getUniqueType()) {
+      return false;
+    }
+    if (options?.rebuild?.has(newObj.getType())) {
+      return false;
+    }
+    return oldObj.compareTo(newObj);
   }
 
   /**

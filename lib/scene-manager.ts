@@ -1,7 +1,7 @@
 import { Scene } from "./rendering/scene.js";
 import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedReplicate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
-import { SceneCompare } from "./rendering/scene-compare.js";
+import { SceneCompare, type SceneCompareOptions } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { RenderChangeTracker } from "./rendering/render-changes.js";
@@ -230,12 +230,15 @@ class SceneManager {
    * `changes` asks the compare to record what it replaces, for a change
    * summary after the render (see RenderChangeTracker). Only a render the
    * MCP flagged passes one; without it the compare is exactly the host's.
+   * `options.rebuild` names the feature types whose code changed since
+   * `previous` was built (a saved feature module): their statements rebuild
+   * though their values match (see SceneCompareOptions).
    */
-  compare(previous: Scene, current: Scene, changes?: RenderChangeTracker) {
+  compare(previous: Scene, current: Scene, changes?: RenderChangeTracker, options?: SceneCompareOptions) {
     if (previous instanceof AssemblyScene && current instanceof AssemblyScene) {
-      return AssemblyCompare.compare(previous, current, changes);
+      return AssemblyCompare.compare(previous, current, changes, options);
     }
-    return SceneCompare.compare(previous, current, changes);
+    return SceneCompare.compare(previous, current, changes, options);
   }
 
   /**

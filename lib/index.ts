@@ -231,6 +231,7 @@ export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-impo
 export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';
+export type { SceneCompareOptions } from './rendering/scene-compare.js';
 export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';
 export type {
   ResolveSelectionRequest, ResolveSelectionResult, ResolveSelectionErrorCode, ResolvedSelectionMatch, ResolvedSelectionScope,

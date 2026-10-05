@@ -43,8 +43,8 @@ export type SolvedEmissionRequest = {
   constraints: SolvedConstraintParam[];
   newVariables?: NewVariable[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
-   * the constraint-native fillet removes each corner's coincident as it
-   * emits the replacing arc. */
+   * the constraint bar swaps out a replaced orientation and deletes the
+   * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
 };
 

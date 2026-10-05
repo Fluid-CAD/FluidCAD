@@ -18,10 +18,12 @@ import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, gotoSource,
-  FeatureEditTarget, ParsedFeatureStatement,
+  insertGeometry, insertSolvedGeometry, filletSketchCorners, addGuide, removeGuide, getScopeVariables, gotoSource,
+  FeatureEditTarget, NewVariable, ParsedFeatureStatement,
 } from '../api';
+import { buildSettleWriteBack } from '../sketch-solver-client/write-back';
 import type { SolvedEmissionRequest, SolvedEmitResult, SolvedToolContext } from './tools/solved-emission';
+import type { SketchFilletRequest } from './tools/fillet-plan';
 import { pendingEmissionOf, pruneRedundantInferred, type PendingEmission } from './tools/emission-redundancy';
 import { findActiveSketch } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
@@ -207,16 +209,17 @@ export class SketchToolbarService {
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
       new SketchOpService(container, config, opSelection, opScope, opDone, opGhost);
     // Constraint-native fillet (P8): the create path reads the solved picks
-    // + model for the corner math and applies through the atomic
-    // insert-solved rail (arc + coincident/tangent/radius rows, corner
-    // coincidents removed). Bypasses the guide latch on purpose — a fillet
-    // arc is real profile geometry.
+    // + model for the corner math and applies through the fillet transform
+    // (arc + coincident/tangent/radius rows, trimmed edges, corner
+    // coincidents removed, virtual sharps). Bypasses the guide latch on
+    // purpose — a fillet arc is real profile geometry.
     const opRail: SolvedOpRail = {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       model: () => this.activeSketchInfo
         ? buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects)
         : null,
       emit: (request) => this.emitSolved(request, { guide: false, toast: false }),
+      fillet: (request) => this.filletSolved(request),
     };
     this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
@@ -905,7 +908,7 @@ export class SketchToolbarService {
 
   /**
    * The one path every solved emission takes to the insert-solved rail
-   * (drawing tools, shape gestures, the constraint-native fillet). Before
+   * (drawing tools, shape gestures, the constraint-native mirror). Before
    * the statement is written, the emission's INFERRED constraints go
    * through the redundancy trial against the live solver rebuild — an
    * inferred row the sketch already enforces (a vertical between two
@@ -961,6 +964,42 @@ export class SketchToolbarService {
       this.pendingEmissions.push(pendingEmissionOf({ geometry, constraints }, result.geometryLines));
     }
     return result;
+  }
+
+  /**
+   * The Fillet tool's Apply: the corner plans go to the fillet transform
+   * with the settle write-back, so the literals it writes at the tangent
+   * points agree with every untouched one and the re-solve has nothing to
+   * move.
+   */
+  private async filletSolved(
+    request: SketchFilletRequest & { newVariables?: NewVariable[] },
+  ): Promise<SolvedEmitResult> {
+    const info = this.activeSketchInfo;
+    if (!info) {
+      return { success: false, reason: 'no active sketch' };
+    }
+    const model = buildSolvedSketchModel(info.sketchObj, this.viewer.currentSceneObjects);
+    const { edits: settle } = model ? buildSettleWriteBack(model) : { edits: [] };
+    const result = await filletSketchCorners({
+      sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
+      filePath: info.sourceLocation.filePath,
+      corners: request.corners,
+      radiusExpr: request.radiusExpr,
+      ...(request.newVariables && request.newVariables.length > 0
+        ? { newVariables: request.newVariables } : {}),
+      ...(settle.length > 0 ? { settle } : {}),
+    });
+    if (result.success) {
+      // The rewrite moved lines inside the body (removed coincidents, the
+      // sharps) and may have added an import: every pending emission's line
+      // is stale, and the sketch statement may have moved.
+      this.pendingEmissions = [];
+      if (result.sketchLine !== undefined) {
+        this.solvedEmitSketchLine = result.sketchLine;
+      }
+    }
+    return { success: result.success, ...(result.reason !== undefined ? { reason: result.reason } : {}) };
   }
 
   private deactivateDragHandler(): void {

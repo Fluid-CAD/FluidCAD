@@ -940,7 +940,7 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'draft')).toBe('icons/draft.png');
   });
 
-  it('marks a feature whose module reaches raw OpenCascade — its cell and its dialog — and rebuilds it when that changes', () => {
+  it('marks a feature whose module reaches raw OpenCascade on its cell, not in its dialog, and rebuilds it when that changes', () => {
     const { dialogs, built, menuButton } = catalog();
     dialogs.apply([entry(STANDOFF, { usesOcct: true }), entry(BRACKET, { usesOcct: false })]);
     const [standoff, bracket] = built;
@@ -952,16 +952,19 @@ describe('the feature catalog on the page', () => {
     expect(marked.map(mark => mark.closest('[data-tool]')!.getAttribute('data-tool'))).toEqual(['feature:acme.standoff']);
     dialogs.menu.close();
     standoff.enter();
-    expect(document.querySelector('#fluidcad-feature-acme-standoff [data-role="header"] [data-role="raw-occt"]')).not.toBeNull();
+    expect(document.querySelector('#fluidcad-feature-acme-standoff [data-role="raw-occt"]')).toBeNull();
     standoff.exit();
     bracket.enter();
     expect(document.querySelector('#fluidcad-feature-acme-bracket [data-role="raw-occt"]')).toBeNull();
     bracket.exit();
 
-    // The module stopped reaching it: the dialog is rebuilt without the mark.
+    // The module stopped reaching it: the feature is rebuilt, its cell without the mark.
     dialogs.apply([entry(STANDOFF, { usesOcct: false }), entry(BRACKET, { usesOcct: false })]);
     expect(built).toHaveLength(3);
     expect(built[2].schema.usesOcct).toBe(false);
+    menuButton.click();
+    expect(document.querySelectorAll('[data-role="custom-features-menu"] [data-role="raw-occt"]')).toHaveLength(0);
+    dialogs.menu.close();
   });
 
   it('rebuilds a dialog whose metadata changed, closing it, and leaves the others open', () => {

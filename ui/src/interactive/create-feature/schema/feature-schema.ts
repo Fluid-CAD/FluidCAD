@@ -28,7 +28,8 @@ const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> 
 export class FeatureSchema {
   /**
    * The feature's module reaches raw OpenCascade (the catalog's
-   * `usesOcct`): its dialog and its menu cell carry the mark.
+   * `usesOcct`): its cell in the Custom dropdown carries the mark; its
+   * dialog carries none.
    */
   readonly usesOcct: boolean;
 

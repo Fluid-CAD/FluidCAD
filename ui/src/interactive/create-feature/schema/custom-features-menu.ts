@@ -78,7 +78,7 @@ export class CustomFeatureCell implements FeatureLauncher {
     label.textContent = spec.label;
     this.button.appendChild(label);
     if (spec.usesOcct) {
-      this.el.appendChild(RawOcctMarker.element('corner'));
+      this.el.appendChild(RawOcctMarker.element());
     }
     this.button.addEventListener('click', () => this.events.press(this));
     this.el.appendChild(this.button);

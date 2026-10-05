@@ -6,7 +6,6 @@ import { ScopeSlotControl } from '../scope-slot';
 import { FeatureSchema, type SchemaBlock } from './feature-schema';
 import { SchemaField } from './schema-fields';
 import { SchemaPicker } from './schema-pickers';
-import { RawOcctMarker } from './raw-occt-marker';
 
 /** The slot the next viewport pick lands in: a picked value by name, or the `.scope(…)` row. */
 export type ArmedSlot = string | 'scope' | null;
@@ -52,9 +51,6 @@ export class SchemaFeaturePanel extends FeaturePanel {
       icon: iconSrc,
       bodyHtml: '',
     });
-    if (schema.usesOcct) {
-      this.shell.addHeaderItem(RawOcctMarker.element('badge'));
-    }
 
     const operations = schema.operations;
     if (schema.offersOperationChoice) {

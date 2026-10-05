@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FeatureMetaSnapshot } from '../src/api';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeaturePanel } from '../src/interactive/create-feature/schema/schema-feature-panel';
-import { RawOcctMarker } from '../src/interactive/create-feature/schema/raw-occt-marker';
 
 // The dialog a custom feature's metadata draws: each kind of row, the group
 // headings and tab panes, rows that come and go with `visibleWhen`, and the
@@ -49,14 +48,10 @@ const opTabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElemen
 const shown = (el: Element | null) => el !== null && !el.closest('.hidden');
 
 describe('the schema dialog', () => {
-  it('marks a feature that reaches raw OpenCascade beside its title, and no other', () => {
+  it('carries no raw OpenCascade mark beside its title — the Custom dropdown cell carries it', () => {
     const marked = mount(VENT, { usesOcct: true }).root;
-    const mark = marked.querySelector<HTMLElement>('[data-role="header"] [data-role="raw-occt"]');
-    expect(mark).not.toBeNull();
-    expect(mark!.textContent!.trim()).toBe('Raw OpenCascade');
-    expect(mark!.title).toBe(RawOcctMarker.TIP);
-    document.body.innerHTML = '';
-    expect(mount(VENT).root.querySelector('[data-role="raw-occt"]')).toBeNull();
+    expect(marked.querySelector('[data-role="raw-occt"]')).toBeNull();
+    expect(marked.querySelector('[data-role="header"]')!.textContent).not.toContain('Raw OpenCascade');
   });
 
   it('draws each kind of row with its default', () => {

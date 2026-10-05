@@ -725,6 +725,10 @@ httpServer.listen(PORT, HOST, () => {
     try {
       workspaceWatcher = createWorkspaceWatcher(WORKSPACE_PATH, (event) => {
         broadcastToUI(event);
+        // Feature code saved (a `*.feature.js`, or a module one imports):
+        // what was built with the old code rebuilds on the next render — the
+        // re-render below — and the next ghost draws the new code.
+        fluidCadServer.noteFileChange(event.absPath);
         // A feature module (or a file one imports) changed: the toolbar's
         // catalog is stale. UI-only — editor hosts never see this message.
         if (featureCatalog.noteFileChange(event.absPath)) {

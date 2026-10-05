@@ -9,6 +9,7 @@ import type {
   RenderChangeTracker,
   ResolveSelectionRequest,
   ResolveSelectionResult,
+  SceneCompareOptions,
   SceneInterferenceOutcome,
   SceneValidationOutcome,
   ValidateSceneRequest,
@@ -26,7 +27,10 @@ export type SceneManager = {
   // Optional: may predate timeline-ordered renders — the stop is then the
   // last row, unscoped.
   renderStop?(scene: any): { stop: number; scopePartId: string | null };
-  compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker): any;
+  // `options.rebuild`: feature ids whose code changed since `previousScene`
+  // was built — their statements rebuild though their values match. An
+  // engine that predates it ignores the argument.
+  compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker, options?: SceneCompareOptions): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate scene disposal.
   disposeScene?(scene: any): void;

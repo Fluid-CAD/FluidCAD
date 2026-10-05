@@ -13,6 +13,7 @@ import { BreakpointHit } from '../../../lib/dist/common/breakpoint-hit.js';
 import {
   createParamRegistry,
   getParamRegistry,
+  listFeatureExports,
   setParamRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
@@ -32,6 +33,8 @@ import {
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
 import { FeatureScanner, type FeatureScanResult } from '../feature-catalog/scan.ts';
+import { FeatureModules } from '../feature-catalog/walk.ts';
+import { FeatureRebuilds, type OwedRebuilds } from './feature-rebuilds.ts';
 import { collectRenderedPartProperties, collectSceneProperties, type RenderedPartProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import type { CompileError } from '../ws-protocol.ts';
@@ -145,6 +148,14 @@ export class FluidCadServer {
    * dialog's keystrokes don't each load the feature's module again.
    */
   private ghostBuilders = new Map<string, Function>();
+  /**
+   * A feature module (or a module one imports) changed on disk since the
+   * workspace modules were last evaluated: the next ghost evaluates them
+   * again before it loads a builder, so it draws the saved code.
+   */
+  private ghostCodeStale = false;
+  /** The custom features each session's cached scene was built with older code of. */
+  private readonly featureRebuilds = new FeatureRebuilds();
 
   private currentFileName: string = '';
   private currentFilePath: string = '';
@@ -302,6 +313,7 @@ export class FluidCadServer {
     this.paramOverrides.delete(sessionId);
     this.lastParamDefaults.delete(sessionId);
     this.sessionFiles.delete(sessionId);
+    this.featureRebuilds.forget(sessionId);
   }
 
   /**
@@ -438,7 +450,9 @@ export class FluidCadServer {
 
       const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
 
-      if (!ignoreCache) {
+      // A session that owes a feature rebuild has a cached render built with
+      // the old code, whatever its inputs hash to now.
+      if (!ignoreCache && !this.featureRebuilds.owes(sessionId)) {
         const fromCache = this.renderingCache.get(sessionId);
         if (fromCache && this.isFingerprintCurrent(sessionId, fromCache.fingerprint)) {
           // Everything a render would have left behind: the stop, the
@@ -453,6 +467,11 @@ export class FluidCadServer {
         }
       }
 
+      // Taken before the modules load: a feature module saved from here on
+      // is the next render's to rebuild, since this one may have read it
+      // before the save.
+      const owed = this.featureRebuilds.take(sessionId);
+      let compared = false;
       try {
         const readTimelineSource = (path: string): string | null => {
           const buffer = this.host.getBuffer(path);
@@ -530,8 +549,12 @@ export class FluidCadServer {
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
-          scene = this.sceneManager.compare(previousScene, scene, changes);
+          const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : null;
+          scene = rebuild && rebuild.size > 0
+            ? this.sceneManager.compare(previousScene, scene, changes, { rebuild })
+            : this.sceneManager.compare(previousScene, scene, changes);
         }
+        compared = true;
 
         this.previousScenes.set(sessionId, scene);
 
@@ -638,11 +661,45 @@ export class FluidCadServer {
         return renderChanges ? { ...data, changes: renderChanges } : data;
       }
       catch (error) {
+        if (owed && !compared) {
+          // The cached scene is still the one built with the old code.
+          this.featureRebuilds.restore(sessionId, owed);
+        }
         this.invalidateModules();
         console.log('Error processing file:', error);
         throw error;
       }
     });
+  }
+
+  /**
+   * The feature ids a render owes a rebuild: those named directly, and
+   * those each saved feature module defines — read from the module as this
+   * render evaluated it (`fingerprint`: what it read). A module the render
+   * no longer reads is left alone: nothing of it is in the scene, and
+   * loading it would evaluate it into the live scene. Runs with the OCC
+   * mutex held, after the modules loaded.
+   */
+  private async featureIdsOwed(owed: OwedRebuilds, fingerprint: RenderFingerprint | null): Promise<Set<string>> {
+    const ids = new Set(owed.ids);
+    if (owed.modules.size === 0 || !fingerprint || typeof this.host.loadModuleRaw !== 'function') {
+      return ids;
+    }
+    for (const modulePath of owed.modules) {
+      if (!fingerprint.files.has(modulePath)) {
+        continue;
+      }
+      try {
+        const namespace = await this.host.loadModuleRaw(modulePath);
+        for (const { meta } of listFeatureExports(namespace)) {
+          ids.add(meta.id);
+        }
+      } catch {
+        // It loaded for this render, so it comes from the loader's cache;
+        // should it not, its statements keep the cached build.
+      }
+    }
+    return ids;
   }
 
   /**
@@ -802,7 +859,8 @@ export class FluidCadServer {
     this.host.setBuffer(id, code);
     // The hash vouches for the entry's own text; the fingerprint for every
     // file it imports — an edited part or helper module makes this miss.
-    if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)) {
+    if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)
+      && !this.featureRebuilds.owes(fileName)) {
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -883,7 +941,7 @@ export class FluidCadServer {
         return null;
       }
       // The scan re-evaluates the workspace modules.
-      this.ghostBuilders.clear();
+      this.forgetGhostBuilders();
       return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
     });
   }
@@ -900,7 +958,7 @@ export class FluidCadServer {
         return null;
       }
       // The scan re-evaluates the workspace modules.
-      this.ghostBuilders.clear();
+      this.forgetGhostBuilders();
       return FeatureScanner.scanFile(this.host, this.sceneManager, normalizePath(filePath));
     });
   }
@@ -1260,6 +1318,11 @@ export class FluidCadServer {
    * the OCC mutex held.
    */
   private async customGhostRequest(request: CustomGhostRequest): Promise<KernelCustomGhostRequest | { error: string }> {
+    if (this.ghostCodeStale) {
+      // A feature module was saved since the modules were last evaluated:
+      // the loader's copy is the old code.
+      this.invalidateModules();
+    }
     const key = `${normalizePath(request.modulePath)}#${request.exportName}`;
     let builder = this.ghostBuilders.get(key);
     if (!builder) {
@@ -1276,8 +1339,14 @@ export class FluidCadServer {
 
   /** Mark the workspace modules stale for the next load, and the builders loaded from them. */
   private invalidateModules(): void {
-    this.ghostBuilders.clear();
+    this.forgetGhostBuilders();
     this.host.invalidateModule();
+  }
+
+  /** The workspace modules are about to be evaluated again: every builder a ghost loaded from them is stale. */
+  private forgetGhostBuilders(): void {
+    this.ghostBuilders.clear();
+    this.ghostCodeStale = false;
   }
 
   /**
@@ -1840,7 +1909,9 @@ export class FluidCadServer {
    * A render that failed keeps the inputs of the last one that succeeded, so
    * fixing a module that broke it renders again. While the current file does
    * not compile, a change to any workspace script retries it too: the import
-   * that failed may be the file that just appeared.
+   * that failed may be the file that just appeared. A render that owes a
+   * feature rebuild (see {@link noteFileChange}) is behind, whatever its
+   * inputs hash to.
    */
   isRenderBehind(absPath: string): boolean {
     const current = this.currentFileName;
@@ -1851,11 +1922,88 @@ export class FluidCadServer {
     if (candidates.includes(current)) {
       return false;
     }
+    // Built with a feature's old code: behind, though its inputs may hash as
+    // current — a render that ran between the save and the watcher's word
+    // read the new file, yet matched the feature's statements to their old
+    // builds.
+    if (this.featureRebuilds.owes(current)) {
+      return true;
+    }
     const fingerprint = this.renderFingerprints.get(current) ?? null;
     if (fingerprint && candidates.some(file => fingerprint.files.has(file))) {
       return !this.isFingerprintCurrent(current, fingerprint);
     }
     return this.compileError !== null && /\.[cm]?[jt]s$/.test(candidates[0]);
+  }
+
+  /**
+   * A workspace file changed on disk. When it is feature code — a
+   * `*.feature.js` module, or a workspace module one imports — the features
+   * built with the old code rebuild: every session whose last render read
+   * that module rebuilds the statements of the features it defines on its
+   * next render (see {@link FeatureRebuilds}), though their values are
+   * unchanged, and the next ghost loads the saved code. Answers whether it
+   * was feature code. Any other file changes nothing here, so a render costs
+   * nothing more until feature code is saved.
+   *
+   * The workspace watcher calls this for every change, whichever host saved
+   * the file (the in-page editor, VS Code, Neovim, any other program); an
+   * unsaved editor buffer of a feature module reaches no render.
+   */
+  noteFileChange(absPath: string): boolean {
+    const modules = this.featureModulesChangedBy(absPath);
+    if (modules.size === 0) {
+      return false;
+    }
+    this.ghostBuilders.clear();
+    this.ghostCodeStale = true;
+    for (const [sessionId, fingerprint] of this.renderFingerprints) {
+      if (!fingerprint || !this.previousScenes.has(sessionId)) {
+        continue;
+      }
+      for (const modulePath of modules) {
+        if (fingerprint.files.has(modulePath)) {
+          this.featureRebuilds.noteModule(sessionId, modulePath);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Rebuild every statement of these features on each session's next
+   * render, though their values are unchanged — for a feature whose code
+   * changed without a workspace module being saved (an installed package
+   * upgraded: its ids stay while its modules move). Render again afterwards
+   * (`recomputeCurrentFile`) for the open model to show it.
+   */
+  rebuildFeatures(ids: Iterable<string>): void {
+    const list = [...ids];
+    for (const sessionId of this.previousScenes.keys()) {
+      for (const id of list) {
+        this.featureRebuilds.noteId(sessionId, id);
+      }
+    }
+  }
+
+  /**
+   * The feature modules a change to `absPath` reaches: the file itself when
+   * it is one, and every one that imports it, directly or through another,
+   * as the module graph knows them.
+   */
+  private featureModulesChangedBy(absPath: string): Set<string> {
+    const modules = new Set<string>();
+    for (const file of FluidCadServer.pathForms(absPath)) {
+      if (FeatureModules.isModule(file)) {
+        modules.add(file);
+      }
+      for (const importer of this.host.getModuleImporters?.(file) ?? []) {
+        if (FeatureModules.isModule(importer)) {
+          modules.add(importer);
+        }
+      }
+    }
+    return modules;
   }
 
   /** A changed path as the watcher names it, and through its symlinks, as the module graph does. */

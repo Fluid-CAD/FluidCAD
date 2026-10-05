@@ -200,6 +200,32 @@ export class LocalSceneHost implements SceneHost {
     return Array.from(seen);
   }
 
+  getModuleImporters(filePath: string): string[] {
+    const normalized = normalizePath(filePath);
+    const graph = this.server.moduleGraph;
+    const start = [
+      ...(graph.getModulesByFile(normalized) ?? []),
+      ...[graph.getModuleById(normalized), graph.getModuleById(`virtual:live-render:${normalized}`)].filter(mod => mod !== undefined),
+    ];
+    const seen = new Set<string>([normalized]);
+    const importers = new Set<string>();
+    const queue = start.flatMap(mod => [...mod.importers]);
+    while (queue.length > 0) {
+      const mod = queue.pop()!;
+      // A live-rendered importer sits under its overlay id: name its file.
+      const file = (mod.file ?? mod.id ?? '').replace('virtual:live-render:', '');
+      if (!file || seen.has(file)) {
+        continue;
+      }
+      seen.add(file);
+      if (!file.startsWith(this.rootPath) || file.includes('/node_modules/')) {
+        continue;
+      }
+      importers.add(file);
+      queue.push(...mod.importers);
+    }
+    return Array.from(importers);
+  }
 
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {

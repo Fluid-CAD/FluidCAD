@@ -30,6 +30,12 @@ export interface SceneHost {
    */
   getModuleDependencies?(filePath: string): string[];
   /**
+   * The workspace files that import a loaded file, directly or through
+   * another, as far as the loader has evaluated them — the feature modules
+   * a saved helper reaches. Best-effort: empty when nothing loaded the file.
+   */
+  getModuleImporters?(filePath: string): string[];
+  /**
    * The kernel entry file the host itself hands to the workspace's
    * `import 'fluidcad'` (see `EngineImportResolver`), or null when the
    * workspace's own resolution stands. `lib-identity.ts` compares it with

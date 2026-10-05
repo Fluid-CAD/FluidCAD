@@ -52,6 +52,6 @@ const seat = sketch(cover.endFaces(), () => {
 });
 
 // The tapped hole is 12 deep to the shoulder, measured from the base's top
-// face, with the 118° point of a standard drill below it. `null` in the
+// face, with the 118° point of a standard drill below it. 'coarse' in the
 // pitch position keeps the coarse pitch for the size.
-hole('M6', seat.geometries.p).fasten(base, 'coarse', 12, 118);
+hole('M6', seat.geometries.p).fasten('coarse', 12, 118);

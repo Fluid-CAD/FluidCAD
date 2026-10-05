@@ -1,7 +1,7 @@
 ---
 id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
-summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
+summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. Left out, a boolean without a default is false and a select its first option (unset when optional) — what the dialog shows; a number or a text without one is required unless optional. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
 tags: [api, sdk, custom-feature, type]
 symbols: [ParamSpec, PickerKind, VisibleWhen]
 seeAlso: [api/feature, api/define-feature, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
@@ -21,8 +21,9 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
 // Typed in
 { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
-{ type: 'boolean'; default?: boolean }
+{ type: 'boolean'; default?: boolean }                     // no default: false
 { type: 'select'; options: { label: string; value: string | number }[]; default?: string | number }
+                                                           // no default: the first option; unset when optional
 { type: 'text'; default?: string }
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
@@ -48,7 +49,7 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 | `group` | A heading over the rows that share it; a grouped row joins its group where the group first appears. |
 | `tab` | The dialog tab the row sits on. Rows without a tab sit above the tabs; tabs appear in first-appearance order. |
 | `visibleWhen` | When the row shows: every named value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }`. It names typed-in values only. A hidden row writes nothing in a create. |
-| `optional` | The call may leave the value out. Without a `default` it then reaches the feature as `undefined`. |
+| `optional` | The call may leave the value out. Without a `default` it then reaches the feature as `undefined` — except a boolean, which is always `false` or `true`. |
 
 ## Typed-in values
 
@@ -62,21 +63,36 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 | `select` | the union of its options' values | `options: [{ label: 'M3 (3.4 mm)', value: 'm3' }, …]`; values are strings or numbers |
 | `text` | `string` | |
 
-Give a `select` and a `boolean` a `default` (or make them `optional`):
-without one the dialog shows the first option, or the toggle off, but a
-create that leaves the row untouched writes nothing, and the builder requires
-the value.
-
 The builder checks every value it is called with, so a model that passes a
 wrong one fails to compile at that call: `boltCircle(): 'count' must be at
 least 1, got 0`, `boltCircle(): 'size' must be one of "m3", "m4", "m5",
 "custom", got 'm6'`, `boltCircle(): 'count' must be a whole number, got 2.5`.
-A value left out (or `null`) takes its `default`; one with neither a default
-nor `optional` is required: `standoff(): 'face' is required`.
+
+**A value left out** (or `null`) takes its default. A `boolean` and a
+`select` always resolve to one, declared or not, because their dialog rows
+always show one:
+
+| Declared | Left out, the feature gets | The dialog shows |
+|---|---|---|
+| any type with a `default` | the default | the default |
+| `boolean`, no default | `false` (`optional` changes nothing) | the toggle off |
+| `select`, no default | its first option's value | the first option |
+| `select`, no default, `optional: true` | `undefined` | an empty choice, "—" |
+| `number`, `integer`, `length`, `angle` or `text`, no default | required: `post(): 'height' is required` | an empty row; Apply says "Height is required." |
+| the same, `optional: true` | `undefined` | an empty row |
+
+A picked value that isn't `optional` (or a sketch with
+`implicitDefault: true`) is required too: `standoff(): 'face' is required`. The resolved default is what the builder
+fills, what the editor's catalog carries and what the dialog shows, so a row
+left alone always builds what it shows.
 
 The dialog's number rows take expressions and model variables
 (`param()` values included), as the built-in dialogs do. A create writes
-only the values the user changed; the others stay the builder's defaults.
+only the values the user changed, picks and the operation aside: a row left
+alone shows the value the builder fills, so the call leaves it out. An
+emptied number row shows its default greyed; an emptied text row with a
+default writes `''`. Choosing "—" in an optional select writes nothing in a
+create, and drops the value from the statement in an edit.
 
 ## Picked values
 

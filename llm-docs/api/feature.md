@@ -72,7 +72,9 @@ see [[api/feature-params]] for every kind and option.
 
 A value is `| undefined` only when the call may leave it out and nothing
 fills it: `optional: true` (or a sketch with `implicitDefault: true`) with no
-`default`, and not a list (a list left out is `[]`). Every declared name is
+`default`, and not a list (a list left out is `[]`). A boolean without a
+default is `false` and a select without one its first option, so neither is
+`| undefined` unless the select is optional. Every declared name is
 present in `this.values`, so the cache's key set never depends on how the
 call was written.
 

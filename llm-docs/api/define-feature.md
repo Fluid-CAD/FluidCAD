@@ -115,8 +115,11 @@ statement the dialog wrote is exactly one the builder reads back. In order:
 
 - Any argument may be left out when the values it holds may be: a trailing
   one is dropped, an option loses its key, an empty object of options goes.
-  A positional value left out ahead of a later argument is passed as
-  `undefined` (the dialog writes its default there: `draft(5, …)`).
+  A value may be left out when it has a default — a boolean and a select
+  always do (`false`, the first option) — or is optional (see
+  [[api/feature-params]]). A positional value left out ahead of a later
+  argument is passed as `undefined` (the dialog writes its default there:
+  `draft(5, …)`).
 - With both options and a rest, an argument that is not a plain object is
   read as the rest: `f(6, a, b)` and `f(6, { depth: 10 }, a, b)` both read.
 - **In the editor**, the builder's arguments are typed from the shape, and a
@@ -135,6 +138,17 @@ opens as not editable: an options object held in a variable or spread
 (`{ ...size }`), a computed key, a string or object where a number goes.
 The message ends "— not editable in the dialog; edit the statement in the
 source".
+
+**What the dialog writes.** A create writes the picks, the operation and
+only the typed-in values the user changed. Every row left alone shows the
+value the builder fills for it, so the call leaves it out and still builds:
+`grille(e.endFaces())` for a grille whose pattern (a select) and chamfer (a
+boolean) declare no default gets the first pattern and no chamfer, as its
+dialog showed. A number or a text with no default and not optional shows
+empty, and Apply asks for it ("Depth is required."). An optional select with
+no default shows an empty choice, "—", which writes nothing. An edit
+rewrites only what the user changed; a value the statement leaves out opens
+on that same default and stays out unless changed.
 
 **Choosing a shape.** Follow the built-ins: what is picked first and
 positional (`standoff(face, …)`, `boltCircle(axis, …)`), sizes in one object

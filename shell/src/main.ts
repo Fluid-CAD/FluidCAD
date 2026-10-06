@@ -7,6 +7,7 @@ import { EngineScratch } from '../../launcher/src/engine/scratch';
 import { thumbnailsDir } from '../../launcher/src/paths';
 import { pinnedVersions, workspaceForPath } from '../../launcher/src/projects/app-state';
 import { StartApi } from '../../launcher/src/start/api';
+import { inLastDirectory, rememberDirectory } from './dialog-directory';
 import { buildApplicationMenu, refreshApplicationMenu, type MenuActions } from './menu';
 import { chooseNewProjectFolder } from './new-project';
 import { handleAppScheme, registerAppScheme } from './start/app-protocol';
@@ -78,16 +79,18 @@ function pathFromArgv(argv: string[]): string | null {
 }
 
 async function promptForProject(parent: BrowserWindow | null): Promise<string | null> {
-  const options: Electron.OpenDialogOptions = {
+  const options = inLastDirectory<Electron.OpenDialogOptions>({
     title: 'Open a FluidCAD project',
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Open project',
-  };
+  });
   const result =
     parent && !parent.isDestroyed()
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
-  return result.canceled ? null : result.filePaths[0] ?? null;
+  const folder = result.canceled ? null : result.filePaths[0] ?? null;
+  rememberDirectory(folder);
+  return folder;
 }
 
 /**
@@ -211,18 +214,28 @@ const startApi = new StartApi({
 function registerIpcHandlers(): void {
   ipcMain.handle('desktop:show-open-dialog', async (event, request) => {
     const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const options = inLastDirectory<Electron.OpenDialogOptions>(request ?? {});
     const result = browserWindow
-      ? await dialog.showOpenDialog(browserWindow, request ?? {})
-      : await dialog.showOpenDialog(request ?? {});
-    return result.canceled ? null : result.filePaths;
+      ? await dialog.showOpenDialog(browserWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled) {
+      return null;
+    }
+    rememberDirectory(result.filePaths[0]);
+    return result.filePaths;
   });
 
   ipcMain.handle('desktop:show-save-dialog', async (event, request) => {
     const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const options = inLastDirectory<Electron.SaveDialogOptions>(request ?? {});
     const result = browserWindow
-      ? await dialog.showSaveDialog(browserWindow, request ?? {})
-      : await dialog.showSaveDialog(request ?? {});
-    return result.canceled ? null : result.filePath ?? null;
+      ? await dialog.showSaveDialog(browserWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled) {
+      return null;
+    }
+    rememberDirectory(result.filePath);
+    return result.filePath ?? null;
   });
 
   ipcMain.handle('desktop:write-file', async (_event, filePath: string, base64: string) => {

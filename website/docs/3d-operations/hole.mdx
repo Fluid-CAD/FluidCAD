@@ -28,14 +28,14 @@ Hole cuts fastener holes into a solid at the places you point at: a plain drille
    - a vertex of a sketch: a circle centre, a line end, a sketch point, or the corner of a [guide](/docs/sketching/tools/guides). Guides are drawn over the model for as long as their sketch is shown, so a construction layout keeps its corners clickable;
    - an anchor on a face or an edge. Hovering floats the anchor nearest the cursor as a translucent frame: the centre of a face, or the start, end or centre of an edge. On an arc, hover its middle for the arc's centre. Inside a part, the anchor becomes a new connector when you apply.
 3. Choose the entry with the **Simple / Counterbore / Countersink** tabs, then the **Termination** (**Through all** or **Blind**) and the **Hole type** (**Drilled**, **Clearance** or **Tapped**). **Clearance** puts **Size** and **Fastener fit** on one row, and **Tapped** puts **Size** and **Pitch** there. The **Size** list groups **Metric** and **Imperial** sizes, and the **Pitch** list groups **Coarse** and **Fine**. **Drilled** hides the row and takes the **Diameter** you type. The section drawing shows which dimension the field you are editing sets, and a red ghost shows the holes in the viewport.
-4. Optional, for a **Clearance** hole: pick the solid the screw threads into in **Fasten to**, and that solid gets the matching tapped hole. See [Fastening to another solid](#fastening-to-another-solid).
+4. Optional, for a **Clearance** hole: turn on **Fasten to the solid below**, and the next solid along each hole's axis, the one the screw threads into, gets the matching tapped hole. See [Fastening to another solid](#fastening-to-another-solid).
 5. Click **Apply**. The timeline gains a Hole row and the `hole()` statement is written to the file.
 
 To change a hole later, double-click its row in the timeline. The dialog reopens with every placement as a chip, and the ghost shows the holes where they are cut now.
 
 <UiFigure
   src="/img/docs/ui/hole-dialog.png"
-  alt="The Hole dialog with its section drawing beside it: two sketch-point placements, an M6 close-fit clearance hole with a counterbore, and a Fasten to solid picked with a 12 deep tapped hole"
+  alt="The Hole dialog with its section drawing beside it: two sketch-point placements, an M6 close-fit clearance hole with a counterbore, and Fasten to the solid below turned on with a 12 deep tapped hole"
   markers={[
     {n: 1, x: 46.2, y: 12.8, label: 'Simple / Counterbore / Countersink', description: 'The entry of the hole. Counterbore and Countersink add their own two fields below the diameter.'},
     {n: 2, x: 46.2, y: 22.3, label: 'Placements', description: 'Where the holes start. Click connectors, sketch vertices (guide corners included), or face and edge anchors in 3D; click a chip\'s ✕ to drop it.'},
@@ -43,7 +43,7 @@ To change a hole later, double-click its row in the timeline. The dialog reopens
     {n: 4, x: 46.2, y: 31.7, label: 'Termination', description: 'Through all cuts through every solid in scope. Blind takes a Depth to the shoulder and a Tip angle (118° for a drill point, 0 for a flat bottom).'},
     {n: 5, x: 46.2, y: 38.6, label: 'Hole type', description: 'Drilled takes a Diameter you type. Clearance and Tapped read the diameter from the fastener tables, converted into the document unit.'},
     {n: 6, x: 46.2, y: 45.5, label: 'Size, Fastener fit or Pitch', description: 'The fastener size, from the Metric (M3, M6 …) or Imperial (#10, 1/4 …) group. Beside it, Clearance takes the fit (Close, Normal, Loose) and Tapped the Pitch, grouped into Coarse and Fine.'},
-    {n: 7, x: 46.2, y: 64.9, label: 'Fasten to', description: 'Clearance holes only, and optional: the solid the screw threads into. Once a solid is picked, the rows below it set the tapped hole that solid gets.'},
+    {n: 7, x: 46.2, y: 64.9, label: 'Fasten to the solid below', description: 'Clearance holes only, and optional: the next solid along each hole\'s axis, the one the screw threads into, gets a tapped hole. Once it is on, the rows below it set that tapped hole.'},
     {n: 8, x: 46.2, y: 90.4, label: 'Scope', description: 'Which solids the holes cut. All considers every solid in the scene.'},
   ]}
 />
@@ -89,42 +89,42 @@ hole('M8', p2).tapped(1).depth(10, 118)    // Ø7.0, for M8 × 1, blind with a d
 
 ## Fastening to another solid
 
-A screw passes through one solid and threads into the next. That normally takes two holes: a clearance hole in the first solid and a tapped hole in the second. With **Fasten to** you model only the clearance hole and name the solid it fastens to. That solid gets the matching tapped hole on the same axis, cut at the tap-drill diameter for the same fastener size. For M6 that is Ø6.6 through the cover and Ø5 in the base.
+A screw passes through one solid and threads into the next. That normally takes two holes: a clearance hole in the first solid and a tapped hole in the second. With **Fasten to the solid below** you model only the clearance hole. The next solid along the hole's axis, the one under the solid the hole sits on, gets the matching tapped hole on the same axis, cut at the tap-drill diameter for the same fastener size. You never name that solid. For M6 that is Ø6.6 through the cover and Ø5 in the base.
 
 The pictures below show the rear half of a joint, an 8 mm cover on a 20 mm base, so both bores are visible in section.
 
 <ModeTable columns={[
-  {title: 'Through all', code: '.fasten(base)', image: '/img/docs/3d-operations/hole-fasten.png', description: 'Ø6.6 through the cover, Ø5 through the whole base.'},
-  {title: 'Blind', code: ".fasten(base, 'coarse', 12)", image: '/img/docs/3d-operations/hole-fasten-blind.png', description: 'The tapped hole stops 12 below the top face of the base, with a flat bottom.'},
-  {title: 'Blind with a drill point', code: ".fasten(base, 'coarse', 12, 118)", image: '/img/docs/3d-operations/hole-fasten-tip.png', description: '12 deep to the shoulder, then the 118° point of a standard drill.'},
+  {title: 'Through all', code: '.fasten()', image: '/img/docs/3d-operations/hole-fasten.png', description: 'Ø6.6 through the cover, Ø5 through the whole base.'},
+  {title: 'Blind', code: ".fasten('coarse', 12)", image: '/img/docs/3d-operations/hole-fasten-blind.png', description: 'The tapped hole stops 12 below the top face of the base, with a flat bottom.'},
+  {title: 'Blind with a drill point', code: ".fasten('coarse', 12, 118)", image: '/img/docs/3d-operations/hole-fasten-tip.png', description: '12 deep to the shoulder, then the 118° point of a standard drill.'},
 ]} />
 
 ### In the dialog
 
-1. Set **Hole type** to **Clearance**. The **Fasten to** section appears above **Scope**. It is hidden for **Drilled** and **Tapped** holes.
-2. Click the **Fasten to** slot, then click the solid the screw threads into. It becomes a chip and the solid is highlighted in the viewport. The red ghost now shows both bores: the clearance hole down to the fastened solid, and the narrower tapped hole inside it.
-3. Three fields appear under the chip. **Tapped size** and **Tap drill Ø** are read-only: they follow **Size**. **Pitch** starts at the coarse pitch for the size; pick a fine pitch if you need one.
+1. Set **Hole type** to **Clearance**. The **Fasten to the solid below** toggle appears above **Scope**. It is hidden for **Drilled** and **Tapped** holes.
+2. Turn the toggle on. The red ghost now shows both bores at each placement: the clearance hole through the solid the hole sits on, and the narrower tapped hole in the solid under it.
+3. Three fields appear under the toggle. **Tapped size** and **Tap drill Ø** are read-only: they follow **Size**. **Pitch** starts at the coarse pitch for the size; pick a fine pitch if you need one.
 4. **Through all** is on, so the tapped hole runs through the whole fastened solid. Turn it off for a blind hole: type the **Tapped depth**, and a **Tip angle** (118 by default, 0 for a flat bottom).
 
 <UiFigure
   src="/img/docs/ui/hole-fasten-preview.png"
-  alt="The workspace with the Hole dialog open: the base solid is highlighted and the red ghost shows a counterbored clearance hole in the cover and a narrower tapped hole in the base at each placement"
-  caption="The base is picked in Fasten to and highlighted. Each ghost shows the counterbored clearance hole in the cover and the 12 deep tapped hole in the base."
+  alt="The workspace with the Hole dialog open and Fasten to the solid below turned on: the red ghost shows a counterbored clearance hole in the cover and a narrower tapped hole in the base at each placement"
+  caption="Fasten to the solid below is on. Each ghost shows the counterbored clearance hole in the cover and the 12 deep tapped hole in the base under it."
 />
 
 ### In code
 
-`.fasten()` takes the solid first, then three optional values: the pitch, the blind depth and the tip angle.
+`.fasten()` takes no solid, only three optional values: the pitch, the blind depth and the tip angle.
 
 ```js
-hole('M6', p).fasten(base)                      // Ø5 through the whole base (M6 × 1, the coarse pitch)
-hole('M6', p).fasten(base, 0.75)                // Ø5.25, for M6 × 0.75 fine
-hole('M6', p).fasten(base, 'coarse', 12)        // coarse pitch, blind: 12 deep, flat bottom
-hole('M6', p).fasten(base, 'coarse', 12, 118)   // blind, with a 118° drill point below the 12
+hole('M6', p).fasten()                      // Ø5 through the whole base (M6 × 1, the coarse pitch)
+hole('M6', p).fasten(0.75)                  // Ø5.25, for M6 × 0.75 fine
+hole('M6', p).fasten('coarse', 12)          // coarse pitch, blind: 12 deep, flat bottom
+hole('M6', p).fasten('coarse', 12, 118)     // blind, with a 118° drill point below the 12
 ```
 
-- **The solid** is the variable of the feature that made it, here `const base = extrude(20)`.
-- **The pitch** is in millimetres for a metric size and in threads per inch for an inch size. Leave it out for the coarse pitch. Write `null` when a depth follows, so the pitch keeps following the size.
+- **The fastened solid** is found along each hole's axis: the first solid the axis enters past the ones the clearance hole cuts. Here the clearance hole cuts the cover, so the base under it is tapped.
+- **The pitch** is in millimetres for a metric size and in threads per inch for an inch size. Leave it out for the coarse pitch. Write `'coarse'` when a depth follows, so the pitch keeps following the size.
 - **The depth** is measured from the face where the hole axis enters the fastened solid, not from the placement. In the pictures above, 12 is counted from the top of the base, which is 8 below the placement on top of the 8 mm cover. Leave it out and the tapped hole runs through the whole solid.
 - **The tip angle** is the included angle of the drill point below the depth: 118 for a standard drill. Leave it out for a flat bottom. It needs a depth, because a through hole has no drill point.
 
@@ -135,14 +135,14 @@ hole('M6', p).fasten(base, 'coarse', 12, 118)   // blind, with a 118° drill poi
 `.fasten()` comes after the entry and the depth of the clearance hole, and before `.scope()`. This is the order the dialog writes:
 
 ```js
-hole('M6', p).clearance('close').counterbore().fasten(base, 'coarse', 12, 118).scope(cover);
+hole('M6', p).clearance('close').counterbore().fasten('coarse', 12, 118).scope(cover);
 ```
 
 ### What is cut, and what is not
 
-- The fastened solid never takes the clearance hole. It is left out of the clearance cut with no scope set, and also when `.scope()` names it. In the dialog, picking a solid in **Fasten to** removes it from **Scope**, and it cannot be added to **Scope** while it is fastened.
-- The tapped hole opens on the face of the fastened solid that the hole axis meets first. If the axis never reaches that solid, the hole reports an error and cuts nothing.
-- The clearance hole still needs a solid of its own to cut. Fastening to the only solid in scope is an error.
+- With no scope set, the clearance hole cuts only the solid the hole sits on, the first solid its axis enters, and the tapped hole goes into the next one. With `.scope()`, the clearance hole cuts the scoped solids, and the tapped hole goes into the first solid past them along the axis. A scoped solid never takes the tapped hole.
+- Each placement taps the solid under its own axis, so one statement can fasten a cover to two different blocks, and a mirrored or repeated fastened hole taps the solid under each copy.
+- The tapped hole opens on the face where the hole axis enters that solid. If no solid lies past the clearance hole along the axis, the hole reports an error and cuts nothing.
 - Only a clearance hole of a fastener size can fasten: `'M6'`, `'1/4'`, with or without `.clearance()`. A drilled hole (`hole(6, p)`) and a `.tapped()` hole cannot.
 - Threads are not modelled, the same as for `.tapped()`. The tapped hole is a plain bore at the tap-drill diameter.
 
@@ -169,7 +169,7 @@ Removing a hole from the History panel removes the connectors it was placed at w
 ## Direction, scope and selection
 
 - A hole drills opposite the placement's normal: into the face a sketch sits on, or against a connector's Z. To drill the other way from a connector, turn the connector around: `.rotate('x', 180)`.
-- By default a hole cuts every solid in the scene; `.scope(plate)` narrows it, as in the other dialogs. A solid named in `.fasten()` is never part of that cut.
+- By default a hole cuts every solid in the scene; `.scope(plate)` narrows it, as in the other dialogs. A fastened hole cuts less: its clearance hole cuts the solid it sits on (or the scoped solids), and its tapped hole only the next solid along the axis.
 - The cut geometry is selectable: `h.faces()` are the walls, `h.edges()` every rim, `h.startEdges()` the rims on the entry face and `h.endEdges()` the floor rims of a blind hole or the exit rims of a through hole. On a hole with `.fasten()`, each list holds the clearance holes' geometry first and the tapped holes' after.
 
 ```js

@@ -1,7 +1,7 @@
 ---
 id: api/hole
 title: hole(size, ...placements)
-summary: Cuts drilled, clearance or tapped fastener holes at connectors, sketch points or face/edge anchors, with optional counterbore or countersink, blind or through-all termination, and .fasten() to tap the mating solid of a clearance hole.
+summary: Cuts drilled, clearance or tapped fastener holes at connectors, sketch points or face/edge anchors, with optional counterbore or countersink, blind or through-all termination, and .fasten() to tap the next solid along a clearance hole's axis.
 tags: [api, 3d, solid]
 symbols: [hole]
 seeAlso: [api/connector, api/point, api/repeat, api/cut]
@@ -33,17 +33,17 @@ exported from a sketch (`s.geometries.c.center()`, `s.geometries.p` for a
 - `.depth(distance, tipAngle?)` — blind hole: depth to the shoulder, plus a
   drill point of that included angle (118 is a standard drill); omitted = through all.
 - `.fasten(pitch?, depth?, tipAngle?)` — clearance holes of a string size
-  only (not a numeric size, not `.tapped()`). The clearance hole cuts the solid
-  the hole sits on (or the `.scope()` solids); the next solid the hole axis
-  enters past them — the one the fastener threads into — gets the matching
-  tapped hole on the same axis, at the tap-drill diameter for the size. Each
-  placement taps the solid under its own axis. `pitch` in mm / threads per
-  inch, omitted, `'coarse'` or `null` = the size's coarse pitch (write
-  `'coarse'` when a depth follows). `depth` = blind depth to the shoulder,
-  measured from the face where the axis enters that solid (not from the
-  placement); omitted = through the whole solid. `tipAngle` = drill point
-  below a blind depth (118), only with a depth. It takes no solid (the axis
-  finds it) and errors when the axis enters no solid past the clearance cut.
+  only (not a numeric size, not `.tapped()`). It takes no solid: the clearance
+  hole cuts the solid the hole sits on (the first one its axis enters) or the
+  `.scope()` solids, and the next solid the axis enters past them gets the
+  matching tapped hole, at the tap-drill diameter for the size. Each placement
+  taps the solid under its own axis, so mirrored or repeated fastened holes tap
+  the solid under each copy. `pitch` in mm / threads per inch, omitted,
+  `'coarse'` or `null` = coarse (write `'coarse'` when a depth follows).
+  `depth` = blind depth to the shoulder, measured from the face where the axis
+  enters the tapped solid (not from the placement); omitted = through the whole
+  solid. `tipAngle` = drill point below a blind depth (118), only with a depth.
+  Errors if no solid lies along the axis past the clearance-cut ones.
 - `.scope(...solids)` — which solids are cut (default: all).
 
 Accessors: `faces()` (walls), `edges()` (every rim), `startEdges()` (entry
@@ -87,8 +87,9 @@ hole(5, plate.endFaces().center()).depth(6, 118);
 
 ## Example: fasten a cover to a base
 
-One clearance hole in the cover; the base gets the M6 tapped hole (Ø5), 12
-deep from its top face with a 118° drill point.
+One clearance hole in the cover; the base under it, the next solid along the
+hole axis, gets the M6 tapped hole (Ø5), 12 deep from its top face with a 118°
+drill point.
 
 ```fluid.js
 import { sketch, line, point, extrude, hole } from "fluidcad/core";

@@ -189,6 +189,22 @@ The repeated feature's cap edges at this instance (thin-walled extrudes).
 
 ---
 
+### faces()
+
+```ts
+faces(...args: (number | FaceFilter)[]): ISelection
+```
+
+The repeated hole's walls at this instance.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilter)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
+
+---
+
 ### edges()
 
 ```ts

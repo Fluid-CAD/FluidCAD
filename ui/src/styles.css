@@ -4,6 +4,7 @@
 
 @plugin "daisyui" {
   themes: fluidcad-dark --default --prefersdark, fluidcad-light;
+  logs: false;
 }
 
 @plugin "daisyui/theme" {

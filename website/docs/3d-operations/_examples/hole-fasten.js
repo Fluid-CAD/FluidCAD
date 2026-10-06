@@ -52,6 +52,6 @@ const seat = sketch(cover.endFaces(), () => {
 });
 
 // One statement, two holes. The cover takes the M6 clearance hole (Ø6.6).
-// The base it fastens to takes the M6 tapped hole on the same axis: Ø5,
-// the tap drill for M6 × 1, through the whole block.
-hole('M6', seat.geometries.p).fasten(base);
+// The base under it, the next solid along the hole axis, takes the M6
+// tapped hole: Ø5, the tap drill for M6 × 1, through the whole block.
+hole('M6', seat.geometries.p).fasten();

@@ -1,9 +1,9 @@
 ---
 id: api/constraints
 title: Constraints — coincident, tangent, distance, …
-summary: The 16 constraint statements of a solved sketch. Geometry is drawn at guess positions; constraints state the relationships and the solver moves the geometry until every relationship holds exactly.
+summary: The 17 constraint statements of a solved sketch. Geometry is drawn at guess positions; constraints state the relationships and the solver moves the geometry until every relationship holds exactly.
 tags: [api, 2d, constraint, solver]
-symbols: [coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, distance, angle, radius, diameter, fix]
+symbols: [coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, distance, angle, radius, diameter, offsetFrom, fix]
 seeAlso: [api/sketch, api/line, api/arc, api/circle, api/project-intersect, concepts/coordinate-system]
 ---
 
@@ -14,7 +14,7 @@ Imported from `fluidcad/constraints`:
 ```js
 import { coincident, horizontal, vertical, parallel, perpendicular,
          tangent, equal, concentric, collinear, midpoint, symmetric,
-         distance, angle, radius, diameter, fix } from "fluidcad/constraints";
+         distance, angle, radius, diameter, offsetFrom, fix } from "fluidcad/constraints";
 ```
 
 Constraint statements are written inside a `sketch(plane, cb)` body —

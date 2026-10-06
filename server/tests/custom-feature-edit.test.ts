@@ -91,7 +91,7 @@ const SWATCH_META = {
 const CLIP_META = {
   id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
   params: {
-    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric' }] },
+    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric', when: { head: 'plain' } }] },
     head: { type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 2, options: [{ label: 'Plain', value: 'plain', image: './clip/plain.svg' }, { label: 'Counterbore', value: 'counterbore', description: 'A flat recess' }] },
     turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
   },
@@ -730,6 +730,21 @@ describe('a radio value, and choices that differ only in how they are shown', ()
     expect(bare.newCode).toBe(shown.newCode);
     // The shape a statement is written by carries no presentation at all.
     expect(CustomFeatureStatement.shapeOf(CLIP_META)).toEqual(CustomFeatureStatement.shapeOf(BARE_CLIP_META));
+  });
+
+  it("reads no option's 'when': a value its 'when' does not offer is written, checked against every declared option", async () => {
+    // CLIP_META offers 'm4' while the head is plain only; the dialog narrows, the statement owes it nothing.
+    const select = TypedInKinds.of('select')!;
+    const [shown, bare] = [CLIP_META, BARE_CLIP_META].map(meta => (meta.params as Record<string, TypedInSpec>).size);
+    expect((shown as { options: { when?: unknown }[] }).options[1].when).toEqual({ head: 'plain' });
+    expect(select.source(shown, 'm4')).toEqual({ kind: 'literal', value: 'm4' });
+    expect(select.source(shown, 'm4')).toEqual(select.source(bare, 'm4'));
+    expect(select.source(shown, 'm9')).toEqual(select.source(bare, 'm9'));
+    const values: CustomFeatureOptions['values'] = { size: { kind: 'literal', value: 'm4' }, head: { kind: 'literal', value: 'counterbore' } };
+    const written = await applyFeatureEdit(PLATE, clipSpec(CLIP_META, values), { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`clip({ size: 'm4', head: 'counterbore' })`);
+    expect((await applyFeatureEdit(PLATE, clipSpec(BARE_CLIP_META, values), { callees: catalog() })).newCode).toBe(written.newCode);
   });
 
   it('reads a radio back, edits it keeping the rest, and refuses one that is no plain literal', async () => {

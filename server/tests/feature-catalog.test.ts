@@ -227,7 +227,10 @@ describe('the feature catalog over a workspace', () => {
     expect(fastener).toMatchObject({ modulePath: at('fastener.feature.js'), builtIn: false });
     const params = fastener!.meta!.params as Record<string, any>;
     expect(params.size).toMatchObject({ type: 'select', display: 'grid', columns: 3 });
-    expect(params.size.options[0]).toMatchObject({ value: 'm3', image: './fastener/m3.svg', group: 'Metric' });
+    expect(params.size.options[0]).toMatchObject({ value: 'm3', image: './fastener/m3.svg', when: { standard: 'iso' } });
+    // An option's 'when' reaches the dialog as declared; the value it names is listed ahead of it.
+    expect(params.standard).toMatchObject({ type: 'radio', display: 'buttons', default: 'iso' });
+    expect(Object.keys(params).indexOf('standard')).toBeLessThan(Object.keys(params).indexOf('size'));
     expect(params.head).toMatchObject({ type: 'radio', display: 'cards' });
     expect(params.head.options.map((option: any) => option.image)).toEqual([
       './fastener/plain.svg', './fastener/counterbore.svg', './fastener/countersink.svg',

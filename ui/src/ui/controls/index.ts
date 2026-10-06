@@ -3,7 +3,8 @@
  * callbacks, with no knowledge of features, catalogs, schemas or the server.
  */
 export { ChoiceImage, type ChoiceItem } from './choice-item';
-export { OptionPopover, type OptionPopoverMode, type OptionPopoverOptions } from './option-popover';
+export { OptionPopover, type OptionMultiPopoverOptions, type OptionPopoverMode, type OptionPopoverOptions } from './option-popover';
 export { OptionButton, type OptionButtonOptions } from './option-button';
+export { OptionMultiButton, type OptionMultiButtonOptions } from './option-multi-button';
 export { RadioGroup, type RadioDisplay, type RadioGroupOptions } from './radio-group';
 export { RangeTrack, type RangeTrackOptions } from './range-track';

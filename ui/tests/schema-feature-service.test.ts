@@ -1366,3 +1366,94 @@ describe('the feature catalog on the page', () => {
     expect(menuGroup.classList.contains('hidden')).toBe(false);
   });
 });
+
+describe('a select of several in a custom feature dialog', () => {
+  /** A face treated by the finishes chosen — up to two of them, deburring unless told otherwise. */
+  const TREAT = meta('acme.treat', 'Treat', {
+    face: { picker: 'face', label: 'Face' },
+    finishes: {
+      type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], max: 2,
+      options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
+    },
+    marks: { type: 'select', multiple: true, label: 'Marks', default: [], options: [{ label: 'Lot', value: 1 }, { label: 'Date', value: 2 }] },
+  }, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { finishes: 'finishes', marks: 'marks' }] });
+  const apply = async (service: SchemaFeatureService) => {
+    await service.dialogPanel.onApply!();
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  const created = () => vi.mocked(api.applyCustomFeature).mock.calls.map(call => call[0]).filter(request => !request.preview);
+  const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+
+  it('writes nothing for a list left alone — the default it shows is the builder\'s — and the ghost carries what the rows hold', async () => {
+    const { service, input, lastCreate, lastGhost } = mount(TREAT);
+    service.enter();
+    expect(input('finishes').tagName).toBe('BUTTON');
+    expect(input('finishes').textContent).toBe('Deburr');
+    expect(input('marks').textContent).toBe('None');
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({ id: 'acme.treat', values: {}, preview: true });
+    expect(lastGhost()![0].values).toEqual({ finishes: ['deburr'], marks: [] });
+    await apply(service);
+    expect(created()).toHaveLength(1);
+    expect(created()[0].values).toEqual({});
+  });
+
+  it('writes the list the user chose in the options\' order, the popover open through every toggle, and refuses one over its max', async () => {
+    const { service, input, lastCreate, lastGhost, message } = mount(TREAT);
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    input('finishes').click();
+    options()[2].click();
+    expect(input('finishes').getAttribute('aria-expanded')).toBe('true');
+    expect(input('finishes').textContent).toBe('Deburr, Polish');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ finishes: ['deburr', 'polish'] });
+    expect(lastGhost()![0].values).toEqual({ finishes: ['deburr', 'polish'], marks: [] });
+
+    options()[1].click();
+    expect(input('finishes').textContent).toBe('3 selected');
+    const before = created().length;
+    await apply(service);
+    expect(message()).toBe('Finishes takes at most 2.');
+    expect(created()).toHaveLength(before);
+
+    options()[0].click();
+    await apply(service);
+    expect(created().at(-1)!.values).toEqual({ finishes: ['chamfer', 'polish'] });
+  });
+
+  it('edits a statement\'s list: shown as written, kept while untouched, and emptied it writes an empty list', async () => {
+    const { service, input, lastEdit } = mount(TREAT);
+    const rendered = [...scene(), {
+      id: 'tr', type: 'acme.treat', name: 'Treat', parentId: 'part', ownShapes: [], sourceLocation: at(12, 2),
+      sceneShapes: [{ shapeId: 'treat-solid', shapeType: 'solid', meshes: MESH }],
+    }] as SceneObjectRender[];
+    const statement: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.treat', callee: 'treat',
+      values: { finishes: ['deburr', 'polish'] }, picks: { face: [{ text: 'pad.endFaces()', start: 0, end: 14 }] },
+      operation: 'remove', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(12, 2), statement, { index: 6, type: 'acme.treat', expectedStatement: "treat(pad.endFaces(), { finishes: ['deburr', 'polish'] })" });
+    service.handleSceneRendered(rendered, 5, true);
+    expect(input('finishes').textContent).toBe('Deburr, Polish');
+    // A list the statement leaves out shows its default.
+    expect(input('marks').textContent).toBe('None');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({});
+
+    input('finishes').click();
+    options()[0].click();
+    options()[2].click();
+    expect(input('finishes').textContent).toBe('None');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ finishes: [] });
+
+    // A click on the open trigger closes its popover; the other row's opens alone.
+    input('finishes').click();
+    input('marks').click();
+    options()[1].click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ finishes: [], marks: [2] });
+  });
+});

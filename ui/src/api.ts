@@ -1024,7 +1024,7 @@ export type GhostCustomRef =
 export type CustomGhostRequest = {
   feature: 'custom';
   id: string;
-  values: Record<string, ValueExpr | boolean | string>;
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
   refs: Record<string, GhostCustomRef[]>;
   operation: FeatureOpKind | null;
   /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
@@ -3750,8 +3750,8 @@ export type ParsedFeatureStatement =
       id: string;
       /** The callee as written — an import alias included. */
       callee: string;
-      /** The typed-in values the statement writes; one it leaves out is absent. */
-      values: Record<string, ValueExpr | boolean | string>;
+      /** The typed-in values the statement writes, a select of several's as its list; one it leaves out is absent. */
+      values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
       /** The picked values it writes, element by element; one it leaves out is absent. */
       picks: Record<string, ParsedCustomPick[]>;
       operation: FeatureOpKind;
@@ -6099,6 +6099,8 @@ export async function fetchInterference(body: InterferenceRequestBody, signal?: 
 
 /** A typed-in value a custom feature's `visibleWhen` can compare. */
 export type FeatureScalarValue = number | string | boolean;
+/** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
+export type FeatureListValue = (string | number)[];
 
 /** When a value's row shows: every named value equals the given one, or one of the listed ones. */
 export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
@@ -6153,7 +6155,14 @@ export type FeatureScalarParam = FeatureParamCommon & (
   | FeatureNumberSpec
   | FeatureBooleanSpec
   | {
-    type: 'select'; options: FeatureChoiceOption[]; default?: string | number;
+    type: 'select'; options: FeatureChoiceOption[];
+    /** One option's value; with `multiple`, a list of them — always there, empty when the declaration names none. */
+    default?: string | number | FeatureListValue;
+    /** Several options may be chosen: the value is a list of theirs. */
+    multiple?: boolean;
+    /** With `multiple`: the fewest and the most options the list may hold. */
+    min?: number;
+    max?: number;
     /** A `list` of rows (the default) or a `grid` of images. */
     display?: 'list' | 'grid';
     /** A grid's columns, 2 to 6. */
@@ -6317,8 +6326,8 @@ export type CustomPickInput =
 type CustomFeatureFields = {
   /** The feature's catalog id. */
   id: string;
-  /** Typed-in values by name; `null` drops one (edit). */
-  values: Record<string, ValueExpr | boolean | string | null>;
+  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one); `null` drops one (edit). */
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
   /** Picked values by name, element by element; an empty list drops one (edit). */
   picks: Record<string, CustomPickInput[]>;
   operation?: FeatureOpKind;

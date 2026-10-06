@@ -25,6 +25,11 @@ const PLACEHOLDER = `${LABEL} text-base-content/50`;
  * on click, ArrowDown, Enter and Space.
  */
 export class OptionButton<V> {
+  /** The trigger's look and its label's, chosen and not — `OptionMultiButton` wears the same. */
+  static readonly BUTTON_CLASS = BUTTON;
+  static readonly LABEL_CLASS = LABEL;
+  static readonly PLACEHOLDER_CLASS = PLACEHOLDER;
+
   readonly element: HTMLButtonElement;
   /** The user chose an item. Never fired by `setValue` or `setItems`. */
   onChange?: (value: V) => void;

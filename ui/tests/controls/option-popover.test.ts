@@ -462,3 +462,132 @@ describe('OptionPopover placement', () => {
     expect(panel.dataset.placement).toBe('above');
   });
 });
+
+describe('OptionPopover multiple', () => {
+  // Shown order: the ungrouped pin, then Metric (M3, M4, M5), then Imperial (#4, #6).
+  function mountMulti(values: string[] = [], options: { mode?: 'list' | 'grid'; search?: boolean } = {}) {
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const onToggle = vi.fn();
+    const onClose = vi.fn();
+    const popover = new OptionPopover<string>({ anchor, items: SCREWS, multiple: true, values, onToggle, onClose, ...options });
+    opened.push(popover);
+    const panel = popover.element;
+    const rows = () => [...panel.querySelectorAll<HTMLElement>('[role="option"]')];
+    return {
+      anchor, popover, panel, onToggle, onClose, options: rows,
+      selected: () => rows().map(o => o.getAttribute('aria-selected')),
+      checked: () => rows().map(o => !o.querySelector('[data-role="check"]')!.classList.contains('invisible')),
+      search: () => panel.querySelector<HTMLInputElement>('input'),
+    };
+  }
+
+  it('is a multiselectable listbox whose chosen options are selected and checked', () => {
+    const { popover, panel, selected, checked, options } = mountMulti(['m4', 'n6']);
+    popover.open();
+
+    expect(panel.querySelector('[role="listbox"]')!.getAttribute('aria-multiselectable')).toBe('true');
+    expect(selected()).toEqual(['false', 'false', 'true', 'false', 'false', 'true']);
+    expect(checked()).toEqual([false, false, true, false, false, true]);
+    expect(options()[2].className).toContain('bg-primary/15');
+    expect(options()[0].className).not.toContain('bg-primary/15');
+    // Every option carries the mark, so the labels stay in one column.
+    expect(options().every(o => o.querySelector('[data-role="check"]')?.getAttribute('aria-hidden') === 'true')).toBe(true);
+    // Focus opens on the first chosen one.
+    expect(document.activeElement).toBe(options()[2]);
+  });
+
+  it('a single popover is no multiselectable listbox and draws no check mark', () => {
+    const { popover, panel } = mount({ value: 'm4' });
+    popover.open();
+
+    expect(panel.querySelector('[role="listbox"]')!.hasAttribute('aria-multiselectable')).toBe(false);
+    expect(panel.querySelector('[data-role="check"]')).toBeNull();
+  });
+
+  it('a click toggles its option and the popover stays open', () => {
+    const { popover, onToggle, onClose, selected, checked, options, anchor } = mountMulti(['m4']);
+    popover.open();
+
+    options()[0].click();
+    expect(onToggle).toHaveBeenLastCalledWith('pin');
+    expect(selected()).toEqual(['true', 'false', 'true', 'false', 'false', 'false']);
+    expect(checked()).toEqual([true, false, true, false, false, false]);
+
+    options()[2].click();
+    expect(onToggle).toHaveBeenLastCalledWith('m4');
+    expect(selected()).toEqual(['true', 'false', 'false', 'false', 'false', 'false']);
+    expect(options()[2].className).not.toContain('bg-primary/15');
+
+    expect(onToggle).toHaveBeenCalledTimes(2);
+    expect(popover.isOpen).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(anchor);
+  });
+
+  it('Enter and Space toggle the focused option and the popover stays open', () => {
+    const { popover, onToggle, selected, options } = mountMulti();
+    popover.open();
+
+    expect(key(options()[0], 'Enter').defaultPrevented).toBe(true);
+    expect(selected()[0]).toBe('true');
+    key(options()[0], 'ArrowDown');
+    expect(document.activeElement).toBe(options()[1]);
+    expect(key(options()[1], ' ').defaultPrevented).toBe(true);
+    key(options()[1], ' ');
+
+    expect(onToggle.mock.calls.map(call => call[0])).toEqual(['pin', 'm3', 'm3']);
+    expect(selected()).toEqual(['true', 'false', 'false', 'false', 'false', 'false']);
+    expect(popover.isOpen).toBe(true);
+    // The arrows go on from the option just toggled.
+    expect(document.activeElement).toBe(options()[1]);
+  });
+
+  it('a search keeps what was toggled: Enter in the box toggles the first match, and clearing it shows every mark', () => {
+    const { popover, onToggle, selected, search } = mountMulti(['pin'], { search: true });
+    popover.open();
+
+    type(search()!, 'm5');
+    key(search()!, 'Enter');
+    expect(onToggle).toHaveBeenLastCalledWith('m5');
+    expect(popover.isOpen).toBe(true);
+    expect(selected()).toEqual(['true']);
+
+    type(search()!, '');
+    expect(selected()).toEqual(['true', 'false', 'false', 'true', 'false', 'false']);
+
+    // The first match, not the chosen one further down the matches.
+    type(search()!, 'm');
+    key(search()!, 'Enter');
+    expect(onToggle).toHaveBeenLastCalledWith('m3');
+    expect(selected()).toEqual(['true', 'false', 'true']);
+  });
+
+  it('a grid cell carries the check mark in its corner', () => {
+    const { popover, options, checked } = mountMulti(['m3'], { mode: 'grid' });
+    popover.open();
+
+    expect(options()[1].className).toContain('relative');
+    expect(options()[1].querySelector('[data-role="check"]')!.getAttribute('class')).toContain('absolute');
+    expect(checked()).toEqual([false, true, false, false, false, false]);
+  });
+
+  it('Escape and a press elsewhere close it, focus back on the anchor after Escape', () => {
+    const first = mountMulti(['m3']);
+    first.popover.open();
+    key(first.options()[1], 'Escape');
+    expect(first.popover.isOpen).toBe(false);
+    expect(first.onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(first.anchor);
+    expect(first.onToggle).not.toHaveBeenCalled();
+
+    const second = mountMulti();
+    second.popover.open();
+    second.options()[0].click();
+    const elsewhere = document.createElement('div');
+    document.body.appendChild(elsewhere);
+    elsewhere.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(second.popover.isOpen).toBe(false);
+    expect(second.onClose).toHaveBeenCalledTimes(1);
+  });
+});

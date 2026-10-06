@@ -1,5 +1,6 @@
 import type {
   FeatureMetaSnapshot, FeatureOpKind, FeatureParam, FeaturePickerKind, FeaturePickerParam, FeatureScalarParam,
+  FeatureListValue,
   FeatureScalarValue,
 } from '../../../api';
 
@@ -174,7 +175,7 @@ export class FeatureSchema {
    * optional select without one). The dialog shows it as it is, so a row
    * left untouched shows what the builder gets.
    */
-  defaultOf(name: string): FeatureScalarValue | undefined {
+  defaultOf(name: string): FeatureScalarValue | FeatureListValue | undefined {
     const spec = this.param(name);
     return FeatureSchema.isPicker(spec) ? undefined : spec.default;
   }
@@ -191,6 +192,10 @@ export class FeatureSchema {
     }
     if (FeatureSchema.isPicker(spec)) {
       return !(spec.picker === 'sketch' && spec.implicitDefault === true);
+    }
+    // A list always stands for itself: left out it is its default, and that may be empty.
+    if (spec.type === 'select' && spec.multiple) {
+      return false;
     }
     return this.defaultOf(name) === undefined;
   }

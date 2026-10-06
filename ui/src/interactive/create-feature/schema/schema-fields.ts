@@ -1,12 +1,15 @@
-import type { FeatureBooleanSpec, FeatureChoiceOption, FeatureNumberSpec, FeatureScalarParam, FeatureTextSpec, FeatureScalarValue, NewVariable, ValueExpr } from '../../../api';
-import { OptionButton, RadioGroup, RangeTrack, type ChoiceItem } from '../../../ui/controls';
+import type { FeatureBooleanSpec, FeatureChoiceOption, FeatureListValue, FeatureNumberSpec, FeatureScalarParam, FeatureTextSpec, FeatureScalarValue, NewVariable, ValueExpr } from '../../../api';
+import { OptionButton, OptionMultiButton, RadioGroup, RangeTrack, type ChoiceItem } from '../../../ui/controls';
 import { ExpressionField } from '../../../ui/expression-field';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeatureSchema } from './feature-schema';
 
+/** What a typed-in row holds: a number or an expression, a boolean, a text or an option's value, or a list of options' values. */
+export type FieldValue = ValueExpr | boolean | string | FeatureListValue;
+
 /** What one typed-in row reads: a value to write, nothing (left out), or why it can't be read. */
 export type FieldRead =
-  | { value: ValueExpr | boolean | string; newVariable?: NewVariable }
+  | { value: FieldValue; newVariable?: NewVariable }
   | { empty: true }
   | { error: string };
 
@@ -58,7 +61,7 @@ export abstract class SchemaField {
     this.onChange?.();
   }
 
-  /** The value `visibleWhen` compares: the literal the row holds, or undefined. */
+  /** The value `visibleWhen` compares: the literal the row holds, or undefined — a list is never compared. */
   abstract current(): FeatureScalarValue | undefined;
 
   /** The value to write. */
@@ -68,12 +71,12 @@ export abstract class SchemaField {
    * Show `value` without it counting as the user's: a fresh dialog's
    * default, or an edited statement's own value. Undefined clears the row.
    */
-  seed(value: ValueExpr | boolean | string | undefined): void {
+  seed(value: FieldValue | undefined): void {
     this.changed = false;
     this.show(value);
   }
 
-  protected abstract show(value: ValueExpr | boolean | string | undefined): void;
+  protected abstract show(value: FieldValue | undefined): void;
 
   setVisible(visible: boolean): void {
     this.row.classList.toggle('hidden', !visible);
@@ -109,7 +112,7 @@ export abstract class SchemaField {
       case 'boolean':
         return new BooleanField(name, spec);
       case 'select':
-        return new SelectField(name, spec, context);
+        return spec.multiple ? new MultiSelectField(name, spec, context) : new SelectField(name, spec, context);
       case 'radio':
         return new RadioField(name, spec, context);
       case 'text':
@@ -261,7 +264,7 @@ class NumberField extends SchemaField {
     return read.newVariable ? { value: read.value, newVariable: read.newVariable } : { value: read.value };
   }
 
-  protected show(value: ValueExpr | boolean | string | undefined): void {
+  protected show(value: FieldValue | undefined): void {
     this.field.setValue(typeof value === 'number' || typeof value === 'string' ? value : '');
     this.follow();
   }
@@ -316,7 +319,7 @@ class BooleanField extends SchemaField {
     return { value: this.input.checked };
   }
 
-  protected show(value: ValueExpr | boolean | string | undefined): void {
+  protected show(value: FieldValue | undefined): void {
     this.input.checked = value === true;
   }
 }
@@ -325,20 +328,12 @@ class BooleanField extends SchemaField {
 type ChoiceValue = string | number;
 
 /**
- * One of a fixed list — a select or a radio: the declared options carrying
- * their real values (strings or numbers), and the empty choice. A choice
- * without a default — the engine leaves only an optional one without —
- * holds no value until one is chosen, and writes nothing while it holds
- * none. How the options are laid out is the subclass's; what the row holds,
- * reads and shows is the same for both.
+ * A row over a fixed list of options — a select, of one or of several, or a
+ * radio: its label above the control, and the declared options as a control
+ * takes them.
  */
-abstract class ChoiceField extends SchemaField {
-  /** The empty choice's caption. */
-  static readonly NONE = '—';
-
+abstract class OptionsField extends SchemaField {
   protected readonly options: readonly FeatureChoiceOption[];
-  /** No default: the row may hold nothing. */
-  protected readonly unset: boolean;
 
   constructor(name: string, spec: FeatureScalarParam, protected readonly context: SchemaFieldContext) {
     super(name, spec);
@@ -348,6 +343,42 @@ abstract class ChoiceField extends SchemaField {
     label.textContent = spec.label;
     this.row.append(label);
     this.options = spec.type === 'select' || spec.type === 'radio' ? spec.options : [];
+  }
+
+  /** The options as a control takes them, each image where it is served now. */
+  protected items(): ChoiceItem<ChoiceValue>[] {
+    return this.options.map(option => ({
+      value: option.value,
+      label: option.label,
+      image: option.image === undefined ? undefined : this.context.assetUrl(option.image),
+      description: option.description,
+      group: option.group,
+      keywords: option.keywords,
+    }));
+  }
+
+  protected get hasImages(): boolean {
+    return this.options.some(option => option.image !== undefined);
+  }
+}
+
+/**
+ * One of a fixed list — a select or a radio: the declared options carrying
+ * their real values (strings or numbers), and the empty choice. A choice
+ * without a default — the engine leaves only an optional one without —
+ * holds no value until one is chosen, and writes nothing while it holds
+ * none. How the options are laid out is the subclass's; what the row holds,
+ * reads and shows is the same for both.
+ */
+abstract class ChoiceField extends OptionsField {
+  /** The empty choice's caption. */
+  static readonly NONE = '—';
+
+  /** No default: the row may hold nothing. */
+  protected readonly unset: boolean;
+
+  constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
+    super(name, spec, context);
     this.unset = spec.default === undefined;
   }
 
@@ -367,25 +398,9 @@ abstract class ChoiceField extends SchemaField {
   }
 
   /** A value no option carries shows as a fresh row does: nothing where the row may hold nothing, else the first option. */
-  protected show(value: ValueExpr | boolean | string | undefined): void {
+  protected show(value: FieldValue | undefined): void {
     const option = this.options.find(o => o.value === value);
     this.choose(option ? option.value : this.unset ? undefined : this.options[0]?.value);
-  }
-
-  /** The options as a control takes them, each image where it is served now. */
-  protected items(): ChoiceItem<ChoiceValue>[] {
-    return this.options.map(option => ({
-      value: option.value,
-      label: option.label,
-      image: option.image === undefined ? undefined : this.context.assetUrl(option.image),
-      description: option.description,
-      group: option.group,
-      keywords: option.keywords,
-    }));
-  }
-
-  protected get hasImages(): boolean {
-    return this.options.some(option => option.image !== undefined);
   }
 }
 
@@ -479,6 +494,70 @@ class SelectField extends ChoiceField {
     }
     return spec.display !== undefined || spec.search !== undefined || spec.options.some(option =>
       option.image !== undefined || option.description !== undefined || option.group !== undefined || option.keywords !== undefined);
+  }
+}
+
+/**
+ * A select of several (`multiple`): always the button and its popover, whose
+ * options toggle while it stays open — the native select has no such list.
+ * The row holds a list of the chosen options' values, in the options' own
+ * order however they were chosen, and always reads as one: with none chosen
+ * it is the empty list, never a value left out. `min` and `max` bound how
+ * many it may hold. A list takes no part in `visibleWhen`.
+ */
+class MultiSelectField extends OptionsField {
+  private readonly button: OptionMultiButton<ChoiceValue>;
+  private readonly min: number | undefined;
+  private readonly max: number | undefined;
+
+  constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
+    super(name, spec, context);
+    const select = spec.type === 'select' ? spec : undefined;
+    this.min = select?.min;
+    this.max = select?.max;
+    this.button = new OptionMultiButton<ChoiceValue>({
+      items: this.items(),
+      mode: select?.display ?? 'list',
+      columns: select?.columns,
+      search: select?.search ?? this.options.length > SelectField.SEARCH_ABOVE,
+    });
+    this.button.element.dataset.role = `value-${name}`;
+    this.button.onChange = () => this.touch();
+    this.row.append(this.button.element);
+  }
+
+  current(): undefined {
+    return undefined;
+  }
+
+  read(): FieldRead {
+    const value = this.button.value;
+    if (this.min !== undefined && value.length < this.min) {
+      return { error: `${this.spec.label} takes at least ${this.min}.` };
+    }
+    if (this.max !== undefined && value.length > this.max) {
+      return { error: `${this.spec.label} takes at most ${this.max}.` };
+    }
+    return { value };
+  }
+
+  /** The options a list names, chosen; anything else — no list, a value no option carries — chooses nothing. */
+  protected show(value: FieldValue | undefined): void {
+    this.button.setValue(Array.isArray(value) ? value : []);
+  }
+
+  refreshImages(): void {
+    if (this.hasImages) {
+      this.button.setItems(this.items());
+    }
+  }
+
+  dismiss(): void {
+    this.button.close();
+  }
+
+  destroy(): void {
+    this.button.destroy();
   }
 }
 
@@ -608,7 +687,7 @@ class TextField extends SchemaField {
     return { value };
   }
 
-  protected show(value: ValueExpr | boolean | string | undefined): void {
+  protected show(value: FieldValue | undefined): void {
     this.input.value = typeof value === 'string' ? value : value === undefined ? '' : String(value);
   }
 

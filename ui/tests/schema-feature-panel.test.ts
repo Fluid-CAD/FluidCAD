@@ -424,3 +424,98 @@ describe('the choice rows of a schema dialog', () => {
     expect(field('head').read()).toEqual({ value: 'pan' });
   });
 });
+
+describe('a select of several in a schema dialog', () => {
+  const TREAT: FeatureMetaSnapshot = {
+    ...VENT,
+    id: 'acme.treat',
+    label: 'Treat',
+    params: {
+      finishes: {
+        type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], min: 1, max: 2,
+        options: [
+          { label: 'Deburr', value: 'deburr', image: './treat/deburr.svg' },
+          { label: 'Chamfer', value: 'chamfer', image: './treat/chamfer.svg' },
+          { label: 'Polish', value: 'polish', image: './treat/polish.svg' },
+        ],
+      },
+      marks: { type: 'select', multiple: true, label: 'Marks', default: [], options: [{ label: 'Lot', value: 1 }, { label: 'Date', value: 2 }] },
+      size: { type: 'length', label: 'Mark size', default: 2, visibleWhen: { finishes: 'polish' } },
+    },
+  };
+  let revision = 0;
+  const treat = () => {
+    revision = 0;
+    const { panel, root } = mount(TREAT, { assetUrl: path => `asset:${path}${revision > 0 ? `?v=${revision}` : ''}` });
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+    return { panel, root, control, options, field: (name: string) => panel.fields.get(name)! };
+  };
+
+  it('opens on the declared lists, nothing the user\'s, and neither row is required', () => {
+    const { panel, control, field } = treat();
+    expect(control('finishes').textContent).toBe('Deburr');
+    expect(control('marks').textContent).toBe('None');
+    expect(field('finishes').dirty).toBe(false);
+    expect(field('marks').dirty).toBe(false);
+    expect(field('finishes').read()).toEqual({ value: ['deburr'] });
+    expect(field('marks').read()).toEqual({ value: [] });
+    expect(panel.schema.required('finishes')).toBe(false);
+    expect(panel.schema.required('marks')).toBe(false);
+    panel.hide();
+  });
+
+  it('compares no list in a visibleWhen: the row is undefined among the scalars, and a row that names it stays hidden', () => {
+    const { panel, control, options, root } = treat();
+    expect('finishes' in panel.scalars()).toBe(true);
+    expect(panel.scalars().finishes).toBeUndefined();
+    control('finishes').click();
+    options()[2].click();
+    expect(panel.scalars().finishes).toBeUndefined();
+    expect(shown(root.querySelector('[data-role="value-size"]'))).toBe(false);
+    panel.hide();
+  });
+
+  it('toggles with the popover open, says its limits, and closes the popover when the dialog hides', () => {
+    const { panel, control, options, field } = treat();
+    control('finishes').click();
+    options()[0].click();
+    expect(control('finishes').textContent).toBe('None');
+    expect(field('finishes').read()).toEqual({ error: 'Finishes takes at least 1.' });
+    options()[2].click();
+    options()[1].click();
+    expect(control('finishes').textContent).toBe('Chamfer, Polish');
+    options()[0].click();
+    expect(control('finishes').textContent).toBe('3 selected');
+    expect(field('finishes').read()).toEqual({ error: 'Finishes takes at most 2.' });
+    expect(control('finishes').getAttribute('aria-expanded')).toBe('true');
+    expect(field('finishes').dirty).toBe(true);
+
+    panel.hide();
+    expect(options()).toEqual([]);
+    expect(control('finishes').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('opens an edit on the statement\'s list, the default for one it leaves out, nothing changed', () => {
+    const { panel, control, field } = treat();
+    panel.showEdit({ values: { finishes: ['polish', 'chamfer'] }, operation: 'remove', seedPicks: () => {} });
+    expect(control('finishes').textContent).toBe('Chamfer, Polish');
+    expect(field('finishes').read()).toEqual({ value: ['chamfer', 'polish'] });
+    expect(control('marks').textContent).toBe('None');
+    expect(field('finishes').dirty).toBe(false);
+    panel.hide();
+  });
+
+  it('asks for its options\' images again on a saved file, keeping the list and staying untouched', () => {
+    const { panel, control, options, field } = treat();
+    panel.showEdit({ values: { finishes: ['deburr', 'polish'] }, operation: 'remove', seedPicks: () => {} });
+    revision = 1;
+    panel.refreshImages();
+    expect(control('finishes').textContent).toBe('Deburr, Polish');
+    expect(field('finishes').dirty).toBe(false);
+    control('finishes').click();
+    expect(options()[0].querySelector('img')!.getAttribute('src')).toBe('asset:./treat/deburr.svg?v=1');
+    expect(options().map(o => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'true']);
+    panel.hide();
+  });
+});

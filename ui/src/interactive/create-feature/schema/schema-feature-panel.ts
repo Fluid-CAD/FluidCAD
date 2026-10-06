@@ -1,4 +1,4 @@
-import type { FeatureOpKind, FeaturePickerParam, FeatureScalarParam, FeatureScalarValue } from '../../../api';
+import type { FeatureListValue, FeatureOpKind, FeaturePickerParam, FeatureScalarParam, FeatureScalarValue } from '../../../api';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeaturePanel } from '../feature-panel';
 import { ChoiceTabs } from '../panel-controls';
@@ -157,7 +157,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
    * operation on the tabs. Nothing counts as changed until the user changes it.
    */
   showEdit(state: {
-    values: Record<string, FeatureScalarValue>;
+    values: Record<string, FeatureScalarValue | FeatureListValue>;
     operation: FeatureOpKind;
     seedPicks: (picker: SchemaPicker) => void;
   }): void {

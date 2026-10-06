@@ -1,7 +1,7 @@
 import {
   applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
   type CustomFeatureApplyOptions, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
-  type FeatureEditTarget, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
+  type FeatureEditTarget, type FeatureListValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
 import type { StandardAxisId } from '../../../scene/standard-axes';
@@ -316,7 +316,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     void this.loadEditSources();
     void this.refreshScopeVariables();
     this.panel.showEdit({
-      values: parsed.values as Record<string, FeatureScalarValue>,
+      values: parsed.values as Record<string, FeatureScalarValue | FeatureListValue>,
       operation: parsed.operation,
       seedPicks: (picker) => picker.seedKeeps(parsed.picks[picker.name], target.filePath),
     });
@@ -730,13 +730,14 @@ export class SchemaFeatureService implements FeatureDialogService {
    * leaves an untouched row's value to the builder's default — the one the
    * row shows — and refuses a required one never filled in; an edit keeps
    * the statement's own, and a cleared row (an empty choice) drops its value
-   * when the builder has something to fall back on.
+   * when the builder has something to fall back on. A select of several is
+   * never empty in that sense: with none chosen it writes an empty list.
    */
   private collectValues(editing: boolean): {
-    values: Record<string, ValueExpr | boolean | string | null>;
+    values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
     newVariables?: NewVariable[];
   } | { error: string } {
-    const values: Record<string, ValueExpr | boolean | string | null> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | null> = {};
     const newVariables: NewVariable[] = [];
     for (const [name, field] of this.panel.fields) {
       if (!field.visible) {
@@ -803,7 +804,7 @@ export class SchemaFeatureService implements FeatureDialogService {
    */
   private ghostRequest(): CustomGhostRequest | null {
     const editing = this.editTarget !== null;
-    const values: Record<string, ValueExpr | boolean | string> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue> = {};
     for (const [name, field] of this.panel.fields) {
       if (!field.visible && !editing) {
         continue;

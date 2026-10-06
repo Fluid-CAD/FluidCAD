@@ -8,12 +8,19 @@ import { SchemaPicker } from '../src/interactive/create-feature/schema/schema-pi
 // a checkbox, a text's lines and limits, a hint. None of it is the value:
 // each row seeds without becoming the user's, and reads what it shows.
 
+/** Every row a test builds — destroyed afterwards, so a popover left open keeps no document listener. */
+const rows: SchemaField[] = [];
+
 afterEach(() => {
+  for (const row of rows.splice(0)) {
+    row.destroy();
+  }
   document.body.innerHTML = '';
 });
 
-function field(spec: FeatureScalarParam, seed?: number | string | boolean) {
+function field(spec: FeatureScalarParam, seed?: number | string | boolean | (string | number)[]) {
   const row = SchemaField.create('v', spec);
+  rows.push(row);
   document.body.append(row.row);
   let changes = 0;
   let submits = 0;
@@ -183,5 +190,124 @@ describe('a text\'s lines and limits', () => {
     // The whole value is matched, not a part of it.
     type('A b');
     expect(row.read()).toEqual({ error: 'Marking must match [A-Z0-9-]*.' });
+  });
+});
+
+describe('a select of several', () => {
+  const OPTIONS = [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }, { label: 'Anodise', value: 'anodise' }];
+  const FINISHES: FeatureScalarParam = { type: 'select', multiple: true, label: 'Finishes', options: OPTIONS, default: ['deburr'] };
+  const options = () => [...document.body.querySelectorAll<HTMLElement>('[role="option"]')];
+  const popup = () => document.body.querySelector<HTMLElement>('[role="listbox"]');
+
+  it('is the button and its popover even over plain options, seeded without becoming the user\'s', () => {
+    const { row, q } = field(FINISHES, ['deburr']);
+    expect(q('value-v').tagName).toBe('BUTTON');
+    expect(q('value-v').textContent).toBe('Deburr');
+    expect(row.row.textContent).toContain('Finishes');
+    expect(row.dirty).toBe(false);
+    expect(row.read()).toEqual({ value: ['deburr'] });
+
+    q('value-v').click();
+    expect(popup()!.getAttribute('aria-multiselectable')).toBe('true');
+    expect(options().map(o => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false', 'false']);
+    // Four plain options: no search box, a list.
+    expect(popup()!.parentElement!.querySelector('input')).toBeNull();
+    expect(popup()!.parentElement!.dataset.mode).toBe('list');
+  });
+
+  it('feeds no visibleWhen: its current value is undefined whatever it holds', () => {
+    expect(field(FINISHES, ['deburr', 'polish']).row.current()).toBeUndefined();
+    expect(field(FINISHES, []).row.current()).toBeUndefined();
+  });
+
+  it('a toggle keeps the popover open, updates the trigger and dirties the row; the list keeps the options\' order', () => {
+    const { row, q, changes } = field(FINISHES, ['deburr']);
+    q('value-v').click();
+    options()[2].click();
+    expect(q('value-v').textContent).toBe('Deburr, Polish');
+    expect(popup()).not.toBeNull();
+    expect(row.dirty).toBe(true);
+    expect(changes()).toBe(1);
+
+    options()[0].click();
+    options()[1].click();
+    expect(q('value-v').textContent).toBe('Chamfer, Polish');
+    options()[0].click();
+    expect(row.read()).toEqual({ value: ['deburr', 'chamfer', 'polish'] });
+    expect(q('value-v').textContent).toBe('3 selected');
+    expect(changes()).toBe(4);
+    expect(popup()).not.toBeNull();
+  });
+
+  it('reads an empty list, never a value left out, and shows "None"', () => {
+    const { row, q } = field(FINISHES, ['deburr']);
+    q('value-v').click();
+    options()[0].click();
+    expect(q('value-v').textContent).toBe('None');
+    expect(row.read()).toEqual({ value: [] });
+
+    // No list to seed, or values no option carries: nothing chosen.
+    const bare = field(FINISHES);
+    expect(bare.q('value-v').textContent).toBe('None');
+    expect(bare.row.read()).toEqual({ value: [] });
+    expect(field(FINISHES, ['knurl']).row.read()).toEqual({ value: [] });
+    expect(field(FINISHES, 'deburr').row.read()).toEqual({ value: [] });
+  });
+
+  it('holds the list to min and max, saying which', () => {
+    const bounded: FeatureScalarParam = { ...FINISHES, min: 1, max: 2 } as FeatureScalarParam;
+    const { row, q } = field(bounded, ['deburr']);
+    expect(row.read()).toEqual({ value: ['deburr'] });
+    q('value-v').click();
+    options()[0].click();
+    expect(row.read()).toEqual({ error: 'Finishes takes at least 1.' });
+    options()[0].click();
+    options()[1].click();
+    expect(row.read()).toEqual({ value: ['deburr', 'chamfer'] });
+    options()[3].click();
+    expect(row.read()).toEqual({ error: 'Finishes takes at most 2.' });
+  });
+
+  it('a seed over the user\'s list is the row\'s own again, and closes the popover', () => {
+    const { row, q } = field(FINISHES, ['deburr']);
+    q('value-v').click();
+    options()[1].click();
+    expect(row.dirty).toBe(true);
+
+    row.seed(['polish', 'anodise', 'chamfer']);
+    expect(row.dirty).toBe(false);
+    expect(popup()).toBeNull();
+    expect(q('value-v').textContent).toBe('3 selected');
+    expect(row.read()).toEqual({ value: ['chamfer', 'polish', 'anodise'] });
+  });
+
+  it('honours a grid and its columns, and searches over twelve options unless told otherwise', () => {
+    const grid = field({ ...FINISHES, display: 'grid', columns: 2 } as FeatureScalarParam, []);
+    grid.q('value-v').click();
+    expect(popup()!.parentElement!.dataset.mode).toBe('grid');
+    expect(popup()!.parentElement!.dataset.columns).toBe('2');
+    grid.row.dismiss();
+    expect(popup()).toBeNull();
+
+    const many = Array.from({ length: 13 }, (_, i) => ({ label: `Step ${i}`, value: i }));
+    const searched = field({ type: 'select', multiple: true, label: 'Steps', options: many, default: [] }, []);
+    searched.q('value-v').click();
+    expect(popup()!.parentElement!.querySelector('input[type="search"]')).not.toBeNull();
+    options()[4].click();
+    options()[1].click();
+    expect(searched.row.read()).toEqual({ value: [1, 4] });
+    searched.row.setVisible(false);
+    expect(popup()).toBeNull();
+
+    const unsearched = field({ type: 'select', multiple: true, label: 'Steps', options: many, default: [], search: false }, []);
+    unsearched.q('value-v').click();
+    expect(popup()!.parentElement!.querySelector('input')).toBeNull();
+    unsearched.row.destroy();
+    expect(popup()).toBeNull();
+  });
+
+  it('carries a hint under the row, as any value does', () => {
+    const { q } = field({ ...FINISHES, hint: 'Applied in this order.' } as FeatureScalarParam, []);
+    expect(q('hint').textContent).toBe('Applied in this order.');
   });
 });

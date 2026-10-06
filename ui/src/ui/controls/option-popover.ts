@@ -21,6 +21,15 @@ export interface OptionPopoverOptions<V> {
   onClose?(): void;
 }
 
+/** A popover several options may be chosen from: a choice toggles its option and the popover stays open. */
+export interface OptionMultiPopoverOptions<V> extends Omit<OptionPopoverOptions<V>, 'value' | 'onChoose'> {
+  multiple: true;
+  /** The chosen items' values — each marked selected and checked; the first is focused on open. */
+  values: readonly V[];
+  /** An option was chosen or let go; the popover is still open, and already shows it so. */
+  onToggle(value: V): void;
+}
+
 // The menu look (menu-styles.ts) from the page body: a dialog's body is a
 // clipping scroller, and a grid may be wider than the dialog it serves.
 // z-[1200] clears the feature dialogs, as the Custom menu's dropdown does.
@@ -45,6 +54,12 @@ const CELL =
 const CELL_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
 const DESCRIPTION = 'block truncate text-[11px] text-base-content/50';
 const EMPTY = 'px-2 py-1.5 text-base-content/50 select-none';
+// Several may be chosen: every option carries a check mark, drawn only while it is — a
+// row's ahead of its label, where it keeps the labels in one column; a cell's in its corner.
+const CHECK = 'shrink-0 w-3.5 h-3.5 text-primary';
+const CELL_CHECK = `absolute top-1 right-1 ${CHECK}`;
+const UNCHECKED = 'invisible';
+const CHECK_PATH = 'M3 8.5l3.2 3.2L13 4.8';
 
 /** Clearance from the window's edges, in pixels. */
 const EDGE = 8;
@@ -62,7 +77,9 @@ const CELL_REM = 5.5;
  * images, under group headings, with an optional search box. It lives on the
  * page body, flips above the anchor when the window leaves no room below,
  * and closes on a choice, a press or wheel elsewhere, Tab and Escape — an
- * Escape it keeps to itself, so a dialog under it stays open.
+ * Escape it keeps to itself, so a dialog under it stays open. With
+ * `multiple`, a choice toggles its option's check mark and the popover
+ * stays open until it is dismissed.
  */
 export class OptionPopover<V> {
   /** The floating panel; on the page body only while open. */
@@ -71,9 +88,12 @@ export class OptionPopover<V> {
   private readonly anchor: HTMLElement;
   private readonly items: readonly ChoiceItem<V>[];
   private readonly value: V | undefined;
+  /** Several may be chosen: the values that are, as toggled since. Null where one is. */
+  private readonly selected: Set<V> | null;
   private readonly mode: OptionPopoverMode;
   private readonly columns: number;
-  private readonly onChoose: (value: V) => void;
+  private readonly onChoose?: (value: V) => void;
+  private readonly onToggle?: (value: V) => void;
   private readonly onClose?: () => void;
 
   private readonly searchInput: HTMLInputElement | null = null;
@@ -87,13 +107,20 @@ export class OptionPopover<V> {
   private active = -1;
   private opened = false;
 
-  constructor(options: OptionPopoverOptions<V>) {
+  constructor(options: OptionPopoverOptions<V> | OptionMultiPopoverOptions<V>) {
     this.anchor = options.anchor;
     this.items = options.items;
-    this.value = options.value;
+    if ('multiple' in options) {
+      this.value = undefined;
+      this.selected = new Set(options.values);
+      this.onToggle = options.onToggle;
+    } else {
+      this.value = options.value;
+      this.selected = null;
+      this.onChoose = options.onChoose;
+    }
     this.mode = options.mode ?? 'list';
     this.columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
-    this.onChoose = options.onChoose;
     this.onClose = options.onClose;
 
     this.element = document.createElement('div');
@@ -116,6 +143,9 @@ export class OptionPopover<V> {
     this.list = document.createElement('div');
     this.list.className = LIST;
     this.list.setAttribute('role', 'listbox');
+    if (this.selected) {
+      this.list.setAttribute('aria-multiselectable', 'true');
+    }
     this.list.tabIndex = -1;
     this.list.addEventListener('click', this.onClick);
     this.element.appendChild(this.list);
@@ -142,8 +172,8 @@ export class OptionPopover<V> {
     document.addEventListener('wheel', this.onMovedUnder, { capture: true, passive: true });
     document.addEventListener('scroll', this.onMovedUnder, { capture: true, passive: true });
     window.addEventListener('resize', this.onResize);
-    // The chosen option when there is one; else the search box, so typing filters at once.
-    const chosen = this.shown.findIndex(item => item.value === this.value);
+    // The chosen option (the first of several) when there is one; else the search box, so typing filters at once.
+    const chosen = this.shown.findIndex(item => this.isChosen(item));
     if (chosen < 0 && this.searchInput) {
       this.searchInput.focus({ preventScroll: true });
     } else if (this.options.length) {
@@ -246,11 +276,11 @@ export class OptionPopover<V> {
         const option = this.mode === 'grid' ? this.buildCell(item) : this.buildRow(item, boxed);
         option.dataset.index = String(index);
         option.setAttribute('role', 'option');
-        option.setAttribute('aria-selected', String(item.value === this.value));
         option.tabIndex = -1;
-        if (item.value === this.value) {
-          option.className += ` ${SELECTED}`;
+        if (this.selected) {
+          option.prepend(this.buildCheck());
         }
+        this.mark(option, this.isChosen(item));
         this.options.push(option);
         this.shown.push(item);
         body.appendChild(option);
@@ -264,7 +294,9 @@ export class OptionPopover<V> {
       empty.textContent = 'No matches';
       this.list.appendChild(empty);
     }
-    const chosen = this.shown.findIndex(item => item.value === this.value);
+    // Of several, a search starts from its first match — Enter in the box
+    // toggles what was searched for, not a chosen option further down.
+    const chosen = this.selected && query.trim() ? -1 : this.shown.findIndex(item => this.isChosen(item));
     this.setActive(this.options.length ? Math.max(chosen, 0) : -1);
   }
 
@@ -292,7 +324,8 @@ export class OptionPopover<V> {
 
   private buildCell(item: ChoiceItem<V>): HTMLElement {
     const cell = document.createElement('div');
-    cell.className = CELL;
+    // A corner check mark is placed against its own cell.
+    cell.className = this.selected ? `${CELL} relative` : CELL;
     cell.title = item.description ? `${item.label} — ${item.description}` : item.label;
     cell.appendChild(ChoiceImage.create(item.image, ChoiceImage.SQUARE));
     const label = document.createElement('span');
@@ -300,6 +333,36 @@ export class OptionPopover<V> {
     label.textContent = item.label;
     cell.appendChild(label);
     return cell;
+  }
+
+  /** The mark an option of several carries; `mark` shows it while the option is chosen. */
+  private buildCheck(): SVGElement {
+    const SVG = 'http://www.w3.org/2000/svg';
+    const check = document.createElementNS(SVG, 'svg');
+    check.setAttribute('viewBox', '0 0 16 16');
+    check.setAttribute('fill', 'none');
+    check.setAttribute('stroke', 'currentColor');
+    check.setAttribute('stroke-width', '2');
+    check.setAttribute('stroke-linecap', 'round');
+    check.setAttribute('stroke-linejoin', 'round');
+    check.setAttribute('aria-hidden', 'true');
+    check.setAttribute('class', this.mode === 'grid' ? CELL_CHECK : CHECK);
+    check.dataset.role = 'check';
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', CHECK_PATH);
+    check.appendChild(path);
+    return check;
+  }
+
+  private isChosen(item: ChoiceItem<V>): boolean {
+    return this.selected ? this.selected.has(item.value) : item.value === this.value;
+  }
+
+  /** Show an option chosen or not: its `aria-selected`, its tint and, of several, its check mark. */
+  private mark(option: HTMLElement, chosen: boolean): void {
+    option.setAttribute('aria-selected', String(chosen));
+    option.classList.toggle(SELECTED, chosen);
+    option.querySelector('[data-role="check"]')?.classList.toggle(UNCHECKED, !chosen);
   }
 
   /** Move the list's one tab stop. */
@@ -327,9 +390,27 @@ export class OptionPopover<V> {
     if (!item) {
       return;
     }
+    if (this.selected) {
+      this.toggle(index, item);
+      return;
+    }
     this.close();
     this.anchor.focus({ preventScroll: true });
-    this.onChoose(item.value);
+    this.onChoose?.(item.value);
+  }
+
+  /** One of several, chosen or let go where it stands: the popover stays, and the option is the arrows' next start. */
+  private toggle(index: number, item: ChoiceItem<V>): void {
+    const selected = this.selected!;
+    const chosen = !selected.has(item.value);
+    if (chosen) {
+      selected.add(item.value);
+    } else {
+      selected.delete(item.value);
+    }
+    this.mark(this.options[index], chosen);
+    this.setActive(index);
+    this.onToggle?.(item.value);
   }
 
   /** Where an arrow, Home or End leads from option `from`; `from` itself when nowhere. */

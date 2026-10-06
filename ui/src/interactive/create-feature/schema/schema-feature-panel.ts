@@ -71,6 +71,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private readonly nodes: LayoutNode[];
   private readonly asides: { host: HTMLElement; nodes: LayoutNode[] }[] = [];
   private readonly places = new Map<string, RowPlace>();
+  private readonly folds: { fold: FoldingSection; collapsed: boolean }[] = [];
   private readonly images: { img: HTMLImageElement; path: string }[] = [];
   private readonly pausedRow: HTMLElement;
   private readonly pausedText: HTMLElement;
@@ -180,6 +181,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     if (this.schema.defaultOperation) {
       this.opTabs?.setValue(this.schema.defaultOperation);
     }
+    this.refold();
     this.syncVisibility();
     this.armFirstPicker();
     this.shell.show();
@@ -203,6 +205,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       state.seedPicks(picker);
     }
     this.opTabs?.setValue(state.operation);
+    this.refold();
     this.syncVisibility();
     this.armFirstPicker({ preferEmpty: false });
     this.shell.show();
@@ -387,6 +390,13 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
+  /** Every folding section back to how it was declared: the dialog opens with 'collapsed' folded, whatever the last one left. */
+  private refold(): void {
+    for (const { fold, collapsed } of this.folds) {
+      fold.setFolded(collapsed);
+    }
+  }
+
   /**
    * A section folded or unfolded: a slot it just folded over hands the armed
    * state on, and one it just uncovered takes it when none holds it.
@@ -505,6 +515,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       });
       fold.root.dataset.group = item.section;
       fold.onToggle = folded => this.onFold(folded);
+      this.folds.push({ fold, collapsed: item.collapsed === true });
       host.appendChild(fold.root);
       return { item, el: fold.root, children: this.renderItems(fold.body, item.items, { ...inside, fold }) };
     }

@@ -744,7 +744,7 @@ describe("the layout tree of a schema dialog", () => {
   });
 
   it('folds a collapsible section from its heading, one declared collapsed starting folded, sections sitting on tabs', () => {
-    const { one, tab, toggle } = open();
+    const { panel, one, tab, toggle } = open();
     const depth = one('[data-group="Depth"]');
     expect(depth.closest('[data-role="tab-Hole"]')).not.toBeNull();
     expect(toggle('Depth').tagName).toBe('BUTTON');
@@ -756,6 +756,14 @@ describe("the layout tree of a schema dialog", () => {
     expect(shown(one('[data-param="depth"]'))).toBe(true);
     toggle('Depth').click();
     expect(shown(one('[data-param="depth"]'))).toBe(false);
+    // Opened again, every section is back as declared: a fresh create and an edit alike.
+    toggle('Depth').click();
+    panel.show();
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
+    expect(shown(one('[data-param="depth"]'))).toBe(false);
+    toggle('Depth').click();
+    panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
     tab('Finish');
     expect(toggle('Coating').getAttribute('aria-expanded')).toBe('true');
     expect(shown(one('[data-param="finish"]'))).toBe(true);

@@ -9,6 +9,8 @@ import { Feature, parseCall, type FeatureMeta, type FeatureBuildContext } from "
 import type { Shape } from "../../sdk/kernel.js";
 import * as standoffModule from "../fixtures/custom-features/standoff.js";
 import { defineStandoff } from "../fixtures/custom-features/standoff.js";
+import { defineFastener } from "../fixtures/custom-features/fastener.js";
+import { FeatureMetas } from "../../sdk/meta.js";
 
 /** A tool feature class with the given id: it leaves build() to the base. */
 function toolClass(id: unknown = 'acme.boss') {
@@ -182,7 +184,7 @@ describe("feature metadata refusals", () => {
 
   it("refuse an unknown picker kind or type, or a value declaring neither or both", () => {
     refuses(withParam('face', { picker: 'vertex' }), /param 'face': unknown picker 'vertex' — the pickers are sketch, face, edge, axis, plane, solid, feature, connector, point, anchor/);
-    refuses(withParam('height', { type: 'distance' }), /param 'height': unknown type 'distance' — the types are number, integer, length, angle, boolean, select, text/);
+    refuses(withParam('height', { type: 'distance' }), /param 'height': unknown type 'distance' — the types are number, integer, length, angle, boolean, select, radio, text/);
     refuses(withParam('height', { default: 5 }), "feature 'acme.boss': param 'height' declares neither a 'type' nor a 'picker'");
     refuses(withParam('height', { type: 'length', picker: 'face' }), "feature 'acme.boss': param 'height' declares both a 'type' and a 'picker'");
     refuses(withParam('height', 5), /param 'height' must be an object such as \{ type: 'length' \}/);
@@ -510,5 +512,119 @@ describe("a value the call leaves out", () => {
       const without = Object.fromEntries(Object.entries(required).filter(([other]) => other !== name));
       expect(() => parseCall(full, [undefined, without])).toThrow(`trim(): '${name}' is required`);
     }
+  });
+});
+
+describe("choice values: select and radio", () => {
+  const AB = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }];
+  const at = "feature 'acme.boss': param 'height'";
+  const refuses = (spec: Record<string, unknown>, message: string) =>
+    expect(() => register(withParam('height', spec))).toThrow(message);
+  const option = (patch: Record<string, unknown>) => ({ type: 'select', options: [{ label: 'A', value: 'a', ...patch }] });
+
+  it("refuses a radio's options and default as it does a select's", () => {
+    refuses({ type: 'radio' }, `${at}: a radio needs 'options', a list of { label, value }`);
+    refuses({ type: 'radio', options: [{ label: 'A', value: true }] }, `${at}: each option is { label, value } with a string or number value, got {"label":"A","value":true}`);
+    refuses({ type: 'radio', options: [...AB, { label: 'C', value: 'a' }] }, `${at}: 'options' lists "a" twice`);
+    refuses({ type: 'radio', options: AB, default: 'c' }, `${at}: the default "c" is not one of its options' values`);
+  });
+
+  it("refuses an option field it doesn't know, by name", () => {
+    refuses(option({ icon: './a.svg' }), `${at}: option "a": unknown field 'icon' — an option's fields are label, value, image, description, group, keywords`);
+    // Dependent options are not here yet.
+    refuses(option({ when: { style: 'iso' } }), `${at}: option "a": unknown field 'when'`);
+  });
+
+  it("refuses an option's image that is not an image inside the module's directory", () => {
+    refuses(option({ image: '../a.svg' }), `${at}: option "a": 'image' must be a relative path inside the module's directory, such as './image.svg', got '../a.svg'`);
+    refuses(option({ image: 'https://example.com/a.svg' }), `${at}: option "a": 'image' must be a relative path inside the module's directory`);
+    refuses(option({ image: './a.js' }), `${at}: option "a": 'image' must be an image (.svg, .png, .jpg or .webp), got './a.js'`);
+    refuses(option({ image: 3 }), `${at}: option "a": 'image' must be a non-empty string, got 3`);
+  });
+
+  it("refuses an option's description, group and keywords of the wrong shape", () => {
+    refuses(option({ description: 3 }), `${at}: option "a": 'description' must be a string, got 3`);
+    refuses(option({ group: '' }), `${at}: option "a": 'group' must be a non-empty string, got ''`);
+    refuses(option({ keywords: [] }), `${at}: option "a": 'keywords' must be a non-empty list of words — leave it out when the option has none, got a list`);
+    refuses(option({ keywords: 'iso' }), `${at}: option "a": 'keywords' must be a non-empty list of words`);
+    refuses(option({ keywords: ['iso', 3] }), `${at}: option "a": each of 'keywords' must be a non-empty string, got 3`);
+  });
+
+  it("refuses a display the type doesn't have, columns without the display that has them, and a search on a radio", () => {
+    refuses({ type: 'select', options: AB, display: 'cards' }, `${at}: 'display' must be one of list, grid, got 'cards'`);
+    refuses({ type: 'radio', options: AB, display: 'grid' }, `${at}: 'display' must be one of list, inline, buttons, cards, got 'grid'`);
+    refuses({ type: 'select', options: AB, columns: 3 }, `${at}: 'columns' is for display: 'grid' — leave it out`);
+    refuses({ type: 'select', options: AB, display: 'list', columns: 3 }, `${at}: 'columns' is for display: 'grid' — leave it out`);
+    refuses({ type: 'radio', options: AB, display: 'buttons', columns: 3 }, `${at}: 'columns' is for display: 'cards' — leave it out`);
+    for (const columns of [1, 7, 2.5, '3']) {
+      refuses({ type: 'select', options: AB, display: 'grid', columns }, `${at}: 'columns' must be a whole number from 2 to 6, got ${typeof columns === 'string' ? "'3'" : columns}`);
+    }
+    refuses({ type: 'select', options: AB, search: 'yes' }, `${at}: 'search' must be true or false, got 'yes'`);
+    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, visibleWhen, optional, default, options, display, columns`);
+    refuses({ type: 'length', display: 'grid' }, `${at}: unknown field 'display' for a length value`);
+  });
+
+  it("takes every display, with columns from 2 to 6 where the display has them", () => {
+    for (const display of ['list', 'grid']) {
+      expect(() => register(withParam('height', { type: 'select', options: AB, display, search: true }))).not.toThrow();
+    }
+    for (const display of ['list', 'inline', 'buttons', 'cards']) {
+      expect(() => register(withParam('height', { type: 'radio', options: AB, display }))).not.toThrow();
+    }
+    for (const columns of [2, 6]) {
+      expect(() => register(withParam('height', { type: 'select', options: AB, display: 'grid', columns }))).not.toThrow();
+      expect(() => register(withParam('height', { type: 'radio', options: AB, display: 'cards', columns }))).not.toThrow();
+    }
+  });
+
+  it("resolves a radio as a select: its default, else its first option — an optional one stays unset", () => {
+    const params = {
+      declared: { type: 'radio', options: AB, default: 'b' },
+      first: { type: 'radio', options: AB },
+      unset: { type: 'radio', options: AB, optional: true },
+    };
+    const meta = getFeatureMeta(register(bossMeta({ params, call: [{ declared: 'declared', first: 'first', unset: 'unset' }] })))!;
+    expect(meta.params.first).toEqual({ type: 'radio', options: AB, default: 'a' });
+    expect('default' in meta.params.unset).toBe(false);
+    expect(parseCall(meta, [])).toEqual({ declared: 'b', first: 'a', unset: undefined });
+    expect(parseCall(meta, [{ first: 'b', unset: 'a' }])).toEqual({ declared: 'b', first: 'b', unset: 'a' });
+    expect(() => parseCall(meta, [{ first: 'c' }])).toThrow(`boss(): 'first' must be one of "a", "b", got 'c'`);
+    expect(snapshotFeatureMeta(meta).params.first).toEqual({ type: 'radio', options: AB, default: 'a', label: 'First' });
+  });
+
+  it("leaves a plain select's snapshot as it was", () => {
+    const meta = getFeatureMeta(register(withParam('height', { type: 'select', options: AB })))!;
+    expect(snapshotFeatureMeta(meta).params.height).toEqual({ type: 'select', options: AB, default: 'a', label: 'Height' });
+    expect(JSON.stringify(snapshotFeatureMeta(meta).params.height)).toBe('{"type":"select","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}],"default":"a","label":"Height"}');
+  });
+
+  it("carries the fastener's displays, images, groups and keywords into the snapshot verbatim", () => {
+    const { meta } = defineFastener();
+    const { size, head } = snapshotFeatureMeta(meta).params as Record<string, Record<string, any>>;
+    expect(size).toMatchObject({ type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3 });
+    expect(size.options[0]).toEqual({ label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] });
+    expect(size.options.map((o: { group: string }) => o.group)).toEqual(['Metric', 'Metric', 'Metric', 'Imperial', 'Imperial']);
+    expect(head).toMatchObject({ type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 3 });
+    expect(head.options.map((o: { value: string; image: string }) => [o.value, o.image])).toEqual([
+      ['plain', './fastener/plain.svg'], ['counterbore', './fastener/counterbore.svg'], ['countersink', './fastener/countersink.svg'],
+    ]);
+    expect(JSON.parse(JSON.stringify(snapshotFeatureMeta(meta)))).toEqual(snapshotFeatureMeta(meta));
+  });
+
+  it("lists every declared asset once, in order: the icon, then the options' images", () => {
+    const { meta } = defineFastener();
+    const assets = [
+      './fastener.svg',
+      './fastener/m3.svg', './fastener/m4.svg', './fastener/m5.svg', './fastener/n4.svg', './fastener/n6.svg',
+      './fastener/plain.svg', './fastener/counterbore.svg', './fastener/countersink.svg',
+    ];
+    expect(FeatureMetas.assetsOf(meta)).toEqual(assets);
+    expect(FeatureMetas.assetsOf(snapshotFeatureMeta(meta))).toEqual(assets);
+
+    // A file two options share, or an option shares with the icon, is listed once; no icon, no images, nothing.
+    const shared = [{ label: 'A', value: 'a', image: './boss.svg' }, { label: 'B', value: 'b', image: './b.png' }, { label: 'C', value: 'c', image: './b.png' }, { label: 'D', value: 'd' }];
+    const twice = getFeatureMeta(register({ ...withParam('height', { type: 'radio', options: shared }), icon: './boss.svg' }))!;
+    expect(FeatureMetas.assetsOf(twice)).toEqual(['./boss.svg', './b.png']);
+    expect(FeatureMetas.assetsOf(getFeatureMeta(register(withParam('height', { type: 'select', options: AB })))!)).toEqual([]);
   });
 });

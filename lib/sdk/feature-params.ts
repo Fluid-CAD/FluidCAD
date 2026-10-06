@@ -32,7 +32,7 @@ type Picked<S, T> = S extends ListSpec ? T[] : T;
 
 /** The value a typed-in spec gives the feature. */
 type ScalarValueOf<S> =
-  S extends { type: 'select'; options: readonly { value: infer V extends string | number }[] } ? V
+  S extends { type: 'select' | 'radio'; options: readonly { value: infer V extends string | number }[] } ? V
   : S extends { type: 'boolean' } ? boolean
   : S extends { type: 'text' } ? string
   : S extends { type: 'number' | 'integer' | 'length' | 'angle' } ? number
@@ -40,7 +40,7 @@ type ScalarValueOf<S> =
 
 /**
  * The value one spec gives the feature when the call passes it: a number, a
- * boolean, a string, a select's option values, the picked selection of a
+ * boolean, a string, a select's or a radio's option values, the picked selection of a
  * face or edge picker, the picked scene object of any other picker — a
  * connector, a point, an anchor among them — or of a picker of several kinds
  * (a selection when every kind is a face or an edge); a list of them for a
@@ -54,12 +54,12 @@ type PassedValueOf<S> =
 
 /**
  * Whether a call may leave the value out: it has a default — declared, or
- * the one a boolean or a select resolves to without one — is `optional`, is
+ * the one a boolean, a select or a radio resolves to without one — is `optional`, is
  * a list (an empty one then), or is a sketch that defaults to the active one.
  */
 type CanLeaveOut<S> =
   S extends { default: string | number | boolean } ? true
-  : S extends { type: 'boolean' | 'select' } ? true
+  : S extends { type: 'boolean' | 'select' | 'radio' } ? true
   : S extends { optional: true } ? true
   : S extends ListSpec ? true
   : S extends { picker: 'sketch'; implicitDefault: true } ? true
@@ -68,16 +68,17 @@ type CanLeaveOut<S> =
 /**
  * What a value the call may leave out reaches the feature as when it does:
  * its default when it has one — a boolean without one is `false`, a select
- * without one its first option — an empty list for a list, and `undefined`
- * for the rest (an optional select without a default among them). Never,
+ * or a radio without one its first option — an empty list for a list, and
+ * `undefined` for the rest (an optional select or radio without a default
+ * among them). Never,
  * for a value the call must pass.
  */
 type LeftOut<S> =
   CanLeaveOut<S> extends false ? never
   : S extends { default: string | number | boolean } ? never
   : S extends { type: 'boolean' } ? never
-  : S extends { type: 'select'; optional: true } ? undefined
-  : S extends { type: 'select' } ? never
+  : S extends { type: 'select' | 'radio'; optional: true } ? undefined
+  : S extends { type: 'select' | 'radio' } ? never
   : S extends ListSpec ? never
   : undefined;
 

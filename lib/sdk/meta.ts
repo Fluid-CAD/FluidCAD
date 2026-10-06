@@ -27,7 +27,7 @@ export type FeatureKind = 'tool' | 'modifier';
 export type FeatureContext = 'part';
 
 /** A value the dialog types in: lengths are in the document's unit, angles in degrees. */
-export type ScalarParamType = 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'text';
+export type ScalarParamType = 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text';
 
 /** A value the dialog picks in the viewport or the timeline. */
 export type PickerKind = 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
@@ -46,8 +46,8 @@ type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'grou
   /**
    * The value may be left out; without a default it then reaches the feature
    * as `undefined`. A boolean always has a value (`false` without a
-   * default), so it changes nothing there; a select without a default stays
-   * unset rather than taking its first option.
+   * default), so it changes nothing there; a select or a radio without a
+   * default stays unset rather than taking its first option.
    */
   optional?: boolean;
 };
@@ -63,20 +63,56 @@ export type BooleanParamSpec = ParamCommon & {
   default?: boolean;
 };
 
+/**
+ * One choice of a select or a radio: the part parameters' `{ label, value }`,
+ * and what the dialog may show with it. Only `value` reaches the feature.
+ */
+export type ChoiceOption = SelectOption & {
+  /** A picture of the choice: an image file next to the module, as `icon` is. */
+  image?: string;
+  /** A line under the label. */
+  description?: string;
+  /** The heading the option is listed under. */
+  group?: string;
+  /** Further words a search finds the option by. */
+  keywords?: readonly string[];
+};
+
 export type SelectParamSpec = ParamCommon & {
   type: 'select';
-  options: readonly SelectOption[];
+  options: readonly ChoiceOption[];
   /**
    * Left out, the first option's value — the one the dialog shows — unless
    * the value is `optional`: it then stays unset, and the dialog offers an
    * empty choice.
    */
   default?: string | number;
+  /** How the options are laid out: a `list` of rows (the default) or a `grid` of images. */
+  display?: 'list' | 'grid';
+  /** How many columns a `grid` has, 2 to 6. */
+  columns?: number;
+  /** Whether the options can be searched by label, description and keywords. */
+  search?: boolean;
+};
+
+/** One of a few choices, all of them on show: a select's value, default rule and options. */
+export type RadioParamSpec = ParamCommon & {
+  type: 'radio';
+  options: readonly ChoiceOption[];
+  /** Left out, the first option's value, unless the value is `optional`: it then stays unset. */
+  default?: string | number;
+  /**
+   * How the options are laid out: a `list` of stacked radios (the default),
+   * `inline` on one line, a row of `buttons`, or image `cards`.
+   */
+  display?: 'list' | 'inline' | 'buttons' | 'cards';
+  /** How many columns `cards` have, 2 to 6. */
+  columns?: number;
 };
 
 export type TextParamSpec = ParamCommon & { type: 'text'; default?: string };
 
-export type ScalarParamSpec = NumberParamSpec | BooleanParamSpec | SelectParamSpec | TextParamSpec;
+export type ScalarParamSpec = NumberParamSpec | BooleanParamSpec | SelectParamSpec | RadioParamSpec | TextParamSpec;
 
 /** What a picker that may pick several things declares. */
 type ListPicker = {
@@ -304,8 +340,18 @@ class FeatureMetaValidator {
     length: FeatureMetaValidator.NUMBER_FIELDS,
     angle: FeatureMetaValidator.NUMBER_FIELDS,
     boolean: ['default'],
-    select: ['default', 'options'],
+    select: ['default', 'options', 'display', 'columns', 'search'],
+    radio: ['default', 'options', 'display', 'columns'],
     text: ['default'],
+  };
+
+  /** What one option of a select or a radio may carry. */
+  private static readonly OPTION_FIELDS = ['label', 'value', 'image', 'description', 'group', 'keywords'];
+
+  /** Each choice type's displays, the default first, and the one of them that has columns. */
+  private static readonly CHOICES: Record<'select' | 'radio', { displays: readonly string[]; columned: string }> = {
+    select: { displays: ['list', 'grid'], columned: 'grid' },
+    radio: { displays: ['list', 'inline', 'buttons', 'cards'], columned: 'cards' },
   };
 
   private static readonly LIST_FIELDS = ['multiple', 'max', 'ordered'];
@@ -330,7 +376,7 @@ class FeatureMetaValidator {
   };
 
   private static readonly BOOLEAN_FIELDS = new Set([
-    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges',
+    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges', 'search',
   ]);
 
   private static readonly ANCHORS = ['center', 'start', 'end', 'offset'];
@@ -381,7 +427,7 @@ class FeatureMetaValidator {
 
     const label = this.text(meta.label, "'label'");
     const description = meta.description === undefined ? undefined : this.text(meta.description, "'description'", true);
-    const icon = meta.icon === undefined ? undefined : this.assetPath(meta.icon, 'icon', FeatureMetaValidator.IMAGE, 'an image (.svg, .png, .jpg or .webp)');
+    const icon = meta.icon === undefined ? undefined : this.image(meta.icon, 'icon');
     const group = this.oneOf(meta.group, "'group'", ['create', 'modify']) as FeatureGroup;
     const kind = this.oneOf(meta.kind, "'kind'", ['tool', 'modifier']) as FeatureKind;
     this.checkKind(featureClass as typeof Feature, kind);
@@ -615,8 +661,8 @@ class FeatureMetaValidator {
       }
       return;
     }
-    if (type === 'select') {
-      this.checkSelect(where, spec);
+    if (type === 'select' || type === 'radio') {
+      this.checkChoice(where, type, spec);
       return;
     }
 
@@ -642,22 +688,63 @@ class FeatureMetaValidator {
     }
   }
 
-  private checkSelect(where: string, spec: Record<string, unknown>): void {
+  /** What a select and a radio share: their options, their default, and how they are laid out. */
+  private checkChoice(where: string, type: 'select' | 'radio', spec: Record<string, unknown>): void {
     const options = spec.options;
     if (!Array.isArray(options) || options.length === 0) {
-      this.fail(`${where}: a select needs 'options', a list of { label, value }`);
+      this.fail(`${where}: a ${type} needs 'options', a list of { label, value }`);
     }
     for (const option of options) {
-      const entry = option as Record<string, unknown>;
-      if (!FeatureCall.isPlainObject(option) || typeof entry.label !== 'string' || entry.label.trim() === ''
-          || (typeof entry.value !== 'string' && typeof entry.value !== 'number')
-          || Object.keys(entry).some(key => key !== 'label' && key !== 'value')) {
-        this.fail(`${where}: each option is { label, value } with a string or number value, got ${JSON.stringify(option)}`);
-      }
+      this.checkOption(where, option);
     }
     this.distinct(options.map(option => option.value), `${where}: 'options'`);
     if (spec.default !== undefined && !options.some(option => option.value === spec.default)) {
       this.fail(`${where}: the default ${JSON.stringify(spec.default)} is not one of its options' values`);
+    }
+
+    const { displays, columned } = FeatureMetaValidator.CHOICES[type];
+    if (spec.display !== undefined) {
+      this.oneOf(spec.display, `${where}: 'display'`, displays);
+    }
+    if (spec.columns !== undefined) {
+      if (spec.display !== columned) {
+        this.fail(`${where}: 'columns' is for display: '${columned}' — leave it out`);
+      }
+      if (typeof spec.columns !== 'number' || !Number.isInteger(spec.columns) || spec.columns < 2 || spec.columns > 6) {
+        this.fail(`${where}: 'columns' must be a whole number from 2 to 6, got ${FeatureMetaValidator.describe(spec.columns)}`);
+      }
+    }
+  }
+
+  private checkOption(where: string, option: unknown): void {
+    const entry = option as Record<string, unknown>;
+    if (!FeatureCall.isPlainObject(option) || typeof entry.label !== 'string' || entry.label.trim() === ''
+        || (typeof entry.value !== 'string' && typeof entry.value !== 'number')) {
+      this.fail(`${where}: each option is { label, value } with a string or number value, got ${JSON.stringify(option)}`);
+    }
+    const at = `${where}: option ${JSON.stringify(entry.value)}`;
+    for (const field of Object.keys(entry)) {
+      if (!FeatureMetaValidator.OPTION_FIELDS.includes(field)) {
+        this.fail(`${at}: unknown field '${field}' — an option's fields are ${FeatureMetaValidator.OPTION_FIELDS.join(', ')}`);
+      }
+    }
+    if (entry.image !== undefined) {
+      this.image(entry.image, 'image', `${at}: `);
+    }
+    if (entry.description !== undefined) {
+      this.text(entry.description, `${at}: 'description'`, true);
+    }
+    if (entry.group !== undefined) {
+      this.text(entry.group, `${at}: 'group'`);
+    }
+    if (entry.keywords !== undefined) {
+      const keywords = entry.keywords;
+      if (!Array.isArray(keywords) || keywords.length === 0) {
+        this.fail(`${at}: 'keywords' must be a non-empty list of words — leave it out when the option has none, got ${FeatureMetaValidator.describe(keywords)}`);
+      }
+      for (const keyword of keywords) {
+        this.text(keyword, `${at}: each of 'keywords'`);
+      }
     }
   }
 
@@ -772,15 +859,20 @@ class FeatureMetaValidator {
     return value;
   }
 
+  /** The image a field names — the feature's icon, an option's picture: an asset of the image kinds. */
+  private image(value: unknown, field: string, where = ''): string {
+    return this.assetPath(value, field, FeatureMetaValidator.IMAGE, 'an image (.svg, .png, .jpg or .webp)', where);
+  }
+
   /** A path to a file next to the module: relative, inside its directory, of the given kind. */
-  private assetPath(value: unknown, field: string, extension: RegExp, kind: string): string {
-    const path = this.text(value, `'${field}'`);
+  private assetPath(value: unknown, field: string, extension: RegExp, kind: string, where = ''): string {
+    const path = this.text(value, `${where}'${field}'`);
     const segments = path.replace(/^\.\//, '').split('/');
     if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('/') || path.includes('\\') || segments.some(segment => segment === '..' || segment === '')) {
-      this.fail(`'${field}' must be a relative path inside the module's directory, such as './${field}.svg', got '${path}'`);
+      this.fail(`${where}'${field}' must be a relative path inside the module's directory, such as './${field}.svg', got '${path}'`);
     }
     if (!extension.test(path)) {
-      this.fail(`'${field}' must be ${kind}, got '${path}'`);
+      this.fail(`${where}'${field}' must be ${kind}, got '${path}'`);
     }
     return path;
   }
@@ -822,6 +914,7 @@ class FeatureMetaValidator {
       case 'text':
         return typeof value === 'string';
       case 'select':
+      case 'radio':
         return spec.options.some(option => option.value === value);
       default:
         return typeof value === 'number' && Number.isFinite(value);
@@ -1057,6 +1150,20 @@ export class FeatureMetas {
   }
 
   /**
+   * Every file the metadata declares, each once, in order: the icon, then
+   * the options' images in declaration order. Reads the metadata or its
+   * snapshot; it is the whole list of what may be served for the feature.
+   */
+  static assetsOf(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
+    const paths: unknown[] = [meta.icon];
+    for (const spec of Object.values(meta.params ?? {})) {
+      const options = 'options' in spec && Array.isArray(spec.options) ? spec.options as readonly ChoiceOption[] : [];
+      paths.push(...options.map(option => option.image));
+    }
+    return [...new Set(paths.filter((path): path is string => typeof path === 'string'))];
+  }
+
+  /**
    * Whether the dialog draws a preview: what the checking kernel resolved,
    * or — for metadata nobody checked yet — the same rule read off the class.
    */
@@ -1126,10 +1233,10 @@ export class FeatureMetas {
    * the dialog shows, so a row left untouched writes nothing and still
    * builds: the declared `default`; else, for a control that always shows a
    * value, the one it shows — `false` for a boolean, the first option for a
-   * select that isn't `optional`. Nothing for the rest: a picked value, a
-   * number or a text without a default (the dialog shows those empty, and
-   * asks for one that isn't optional), an optional select without one (the
-   * dialog offers an empty choice).
+   * select or a radio that isn't `optional`. Nothing for the rest: a picked
+   * value, a number or a text without a default (the dialog shows those
+   * empty, and asks for one that isn't optional), an optional select or radio
+   * without one (the dialog offers an empty choice, or shows none chosen).
    */
   static defaultOf(spec: ParamSpec): FeatureScalar | undefined {
     if (!('type' in spec)) {
@@ -1141,7 +1248,7 @@ export class FeatureMetas {
     if (spec.type === 'boolean') {
       return false;
     }
-    if (spec.type === 'select' && !spec.optional) {
+    if ((spec.type === 'select' || spec.type === 'radio') && !spec.optional) {
       return spec.options[0]?.value;
     }
     return undefined;
@@ -1205,6 +1312,7 @@ export class FeatureMetas {
         }
         return value;
       case 'select':
+      case 'radio':
         if (!spec.options.some(option => option.value === value)) {
           throw new Error(`${callee}(): '${name}' must be one of ${spec.options.map(option => JSON.stringify(option.value)).join(', ')}, got ${got}`);
         }

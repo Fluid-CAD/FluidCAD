@@ -360,3 +360,26 @@ describe("a custom feature's timeline row", () => {
     expect(scene.getRenderedObject(named)!.name).toBe('Fan mount');
   });
 });
+
+describe("a defineFeature() feature with a radio", () => {
+  it("fills a radio left out with its first option, leaves an optional one unset, and refuses a value that is no option", () => {
+    const options = [{ label: 'Plain', value: 'plain' }, { label: 'Counterbore', value: 'counterbore', image: './cbore.svg' }] as const;
+    class Hole extends Feature.with({
+      head: { type: 'radio', display: 'cards', columns: 2, options },
+      finish: { type: 'radio', optional: true, options },
+    }) {
+      static id = 'acme.hole';
+      buildTool(): Shape[] {
+        return [];
+      }
+    }
+    const hole = defineFeature(Hole, { label: 'Hole', group: 'create', call: [{ head: 'head', finish: 'finish' }] });
+    const meta = getFeatureMeta(hole)!;
+
+    expect(meta.params.head).toEqual({ type: 'radio', display: 'cards', columns: 2, options, default: 'plain' });
+    expect(parseCall(meta, [])).toEqual({ head: 'plain', finish: undefined });
+    const head: 'plain' | 'counterbore' = new Hole({ head: 'counterbore', finish: undefined }).values.head;
+    expect(head).toBe('counterbore');
+    expect(() => parseCall(meta, [{ head: 'pan' }])).toThrow(`hole(): 'head' must be one of "plain", "counterbore", got 'pan'`);
+  });
+});

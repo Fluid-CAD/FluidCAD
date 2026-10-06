@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { CheckJs } from "../helpers/check-js.js";
 
@@ -181,6 +183,53 @@ part('plate', () => {
     expect(check.typeOf('boss.feature.js', 'pin')).toBe('ISceneObject | undefined');
     expect(check.typeOf('boss.feature.js', 'sides')).toBe('ISelection[]');
     expect(check.typeOf('boss.feature.js', 'origin')).toBe('Point');
+  });
+
+  it("types a radio's value as its options' values, as a select's, in the fastener fixture as a project writes it", () => {
+    const fixture = fileURLToPath(new URL('../../../server/tests/fixtures/custom-features/fastener.feature.js', import.meta.url));
+    const check = CheckJs.check({
+      'fastener.feature.js': readFileSync(fixture, 'utf8'),
+      'trim.feature.js': `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+
+export class Trim extends Feature.with({
+  edge: { type: 'radio', options: [{ label: 'Sharp', value: 'sharp' }, { label: 'Round', value: 2 }] },
+  finish: { type: 'radio', optional: true, display: 'buttons', options: [{ label: 'Matte', value: 'matte', image: './matte.svg' }] },
+}) {
+  static id = 'acme.trim';
+
+  buildTool() {
+    const { edge, finish } = this.values;
+    return [];
+  }
+}
+
+export const trim = defineFeature(Trim, { label: 'Trim', group: 'create', call: [{ edge: 'edge', finish: 'finish' }] });
+`,
+      'plate.part.js': `
+import { extrude, connector, part } from 'fluidcad/core';
+import { fastener } from './fastener.feature.js';
+import { trim } from './trim.feature.js';
+
+part('plate', () => {
+  const plate = extrude(5);
+  const bolt = connector('bolt', plate.endFaces());
+  fastener(bolt);
+  fastener(bolt, { size: 'n6', head: 'countersink', depth: 4 });
+  trim();
+  trim({ edge: 2, finish: 'matte' });
+  fastener(bolt, { head: 'pan' });
+});
+`,
+    });
+    expect(errorsOf(check)).toEqual([
+      expect.stringContaining(`plate.part.js:13: Type '"pan"' is not assignable to type '"plain" | "counterbore" | "countersink" | undefined'`),
+    ]);
+    expect(check.typeOf('fastener.feature.js', 'head')).toBe('"plain" | "counterbore" | "countersink"');
+    expect(check.typeOf('fastener.feature.js', 'size')).toBe('"m3" | "m4" | "m5" | "n4" | "n6"');
+    // A radio without a default takes its first option; an optional one without one stays unset.
+    expect(check.typeOf('trim.feature.js', 'edge')).toBe('2 | "sharp"');
+    expect(check.typeOf('trim.feature.js', 'finish')).toBe('"matte" | undefined');
   });
 
   it("marks a picker of several kinds that names a kind there isn't", () => {

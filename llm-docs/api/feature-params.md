@@ -1,9 +1,9 @@
 ---
 id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
-summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. Left out, a boolean without a default is false and a select its first option (unset when optional) — what the dialog shows; a number or a text without one is required unless optional. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
+summary: "Each value a custom feature declares in Feature.with({ … }) is typed in (type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text'; a select with multiple: true is a list) or picked (picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor', or a union of kinds). How a row looks is separate from what the value is: display (slider, stepper, checkbox, grid, buttons, cards), suffix, hint, an option's image and description, and when on an option, which narrows what the dialog offers by another value. One table gives what an untouched row shows, what the builder gets for a value left out, and whether an empty row blocks Apply."
 tags: [api, sdk, custom-feature, type]
-symbols: [ParamSpec, PickerKind, VisibleWhen]
+symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen]
 seeAlso: [api/feature, api/define-feature, api/feature-layout, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
 ---
 
@@ -16,20 +16,23 @@ one entry per value, in dialog order.
 type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
 // Every value
-{ label?: string; description?: string; group?: string; tab?: string;
+{ label?: string; description?: string; hint?: string; group?: string; tab?: string;
   visibleWhen?: { [typedInValue: string]: scalar | scalar[] }; optional?: boolean }
 
-// Typed in
-{ type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
-{ type: 'boolean'; default?: boolean }                     // no default: false
-{ type: 'select'; options: Option[]; default?: string | number;
+// Typed in — NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec
+{ type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number;
+  display?: 'slider' | 'stepper'; suffix?: string }
+{ type: 'boolean'; default?: boolean; display?: 'checkbox' }   // no default: false
+{ type: 'select'; options: ChoiceOption[]; default?: string | number;
   display?: 'list' | 'grid'; columns?: number; search?: boolean }
-{ type: 'radio'; options: Option[]; default?: string | number;
+{ type: 'radio'; options: ChoiceOption[]; default?: string | number;
   display?: 'list' | 'inline' | 'buttons' | 'cards'; columns?: number }
-                                                           // both, no default: the first option; unset when optional
-// Option
+                                                           // both, no default: the first option offered; unset when optional
+{ type: 'select'; multiple: true; options: ChoiceOption[]; default?: (string | number)[]; min?: number; max?: number;
+  display?: 'list' | 'grid'; columns?: number; search?: boolean }   // a list; no default: []
+{ type: 'text'; default?: string; multiline?: boolean; placeholder?: string; maxLength?: number; pattern?: string }
+// ChoiceOption — one option of a select or a radio; only `value` reaches the feature
 { label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[]; when?: { [otherValue: string]: scalar | scalar[] } }
-{ type: 'text'; default?: string }
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
 { picker: 'sketch'; implicitDefault?: boolean; hasGeometry?: boolean; wire?: boolean }
@@ -97,37 +100,26 @@ description and keywords; a `radio` takes no `search`. `columns` on any other
 display is refused: `param 'size': 'columns' is for display: 'grid' — leave
 it out`.
 
-```js
-size: {
-  type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3,
-  options: [
-    { label: 'M3', value: 'm3', image: './img/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] },
-    { label: '#4', value: 'n4', image: './img/n4.svg', group: 'Imperial' },
-  ],
-},
-head: {
-  type: 'radio', display: 'cards',
-  options: [
-    { label: 'Plain', value: 'plain', image: './img/plain.svg' },
-    { label: 'Counterbore', value: 'counterbore', image: './img/cbore.svg' },
-  ],
-},
-```
+The [screw hole](#example-a-screw-hole-with-choices) below declares a grid of
+images, cards, buttons and a searchable list.
 
-**A value left out** (or `null`) takes its default. A `boolean`, a
-`select` and a `radio` always resolve to one, declared or not, because their dialog rows
-always show one:
+**What the dialog shows is what the builder gets.** A value left out of a
+call (or passed `null`) takes its default, and every control that always shows
+a value resolves to the one it shows, declared or not:
 
-| Declared | Left out, the feature gets | The dialog shows |
-|---|---|---|
-| any type with a `default` | the default | the default |
-| `boolean`, no default | `false` (`optional` changes nothing) | the toggle off |
-| `select` or `radio`, no default | its first option's value | the first option |
-| `select`, no default, `optional: true` | `undefined` | an empty choice, "—" |
-| `radio`, no default, `optional: true` | `undefined` | none chosen |
-| `number`, `integer`, `length`, `angle` or `text`, no default | required: `post(): 'height' is required` | an empty row; Apply says "Height is required." |
-| the same, `optional: true` | `undefined` | an empty row |
+| Declared | Untouched, the row shows | Left out, the builder gets | Empty, it blocks Apply |
+|---|---|---|---|
+| any type with a `default` | the default (a plain number row: empty, the default greyed) | the default | no |
+| `boolean`, no default (toggle or `checkbox`) | off | `false` (`optional` changes nothing) | never empty |
+| `select` or `radio`, no default | the first option offered | that option's value | never empty, unless no option is offered ("No options") |
+| `select`, no default, `optional: true` | an empty choice, "—" | `undefined` | no |
+| `radio`, no default, `optional: true` | none chosen | `undefined` | no |
+| `select` with `multiple: true` | the `default`, else `None` | the `default`, else `[]` — never `undefined` (`optional` changes nothing) | no: an empty list is a value; fewer than `min` or more than `max` blocks |
+| number with `display: 'slider'`, no default | the thumb and the input at `min` | `min` | only when the input is emptied by hand and the value is not `optional` |
+| `number`, `integer`, `length`, `angle` (plain or `stepper`) or `text`, no default | an empty row (a text's `placeholder`) | required: `post(): 'height' is required` | yes: "Height is required." |
+| the same, `optional: true` | an empty row | `undefined` | no |
 
+A text over its `maxLength` or off its `pattern` blocks Apply with the reason.
 A picked value that isn't `optional` (or a sketch with
 `implicitDefault: true`) is required too: `standoff(): 'face' is required`. The resolved default is what the builder
 fills, what the editor's catalog carries and what the dialog shows, so a row
@@ -147,7 +139,7 @@ create, and drops the value from the statement in an edit.
 
 | Field | On | Rule |
 |---|---|---|
-| `display: 'slider'` | `number`, `integer`, `length`, `angle` | A track above the input, which stays: a variable or an expression still types in. Needs both `min` and `max`. Without a `default` the value resolves to `min` (the track always shows a position), so a call may leave it out and `this.values` never holds `undefined` for it. `step` drives the track: left out, 1 for an `integer`, else a hundredth of the range. An integer slider's `min` is a whole number. |
+| `display: 'slider'` | `number`, `integer`, `length`, `angle` | A track above the input, which stays: a variable or an expression still types in. Needs both `min` and `max`. Without a `default` the value resolves to `min` (the track always shows a position). `step` drives the track: left out, 1 for an `integer`, else a hundredth of the range. An integer slider's `min` is a whole number. |
 | `display: 'stepper'` | `number`, `integer` only | − / + buttons beside the input, stepping by `step` (1 left out), kept inside `min` / `max`. Refused on a `length` or an `angle`. |
 | `suffix` | the four number types | A short unit at the end of the input: a non-empty string of at most 8 characters. On an `angle` it replaces the "(°)" in the label. |
 | `display: 'checkbox'` | `boolean` | A checkbox in place of the toggle. |
@@ -158,16 +150,6 @@ create, and drops the value from the statement in an edit.
 | `hint` | every value, pickers included | A line of small text under the row: a non-empty string. `description` stays the tooltip. |
 
 Leaving `display` out is the plain input (or the toggle): `'input'` and `'toggle'` are not values. A declared `default` must keep to `maxLength` and `pattern`, and so must a value a call passes: `fastener(): 'marking' must be at most 12 characters, got 14`.
-
-What the dialog shows is what the builder gets:
-
-| Row | Untouched, it shows | Left out, the builder gets | Empty, it blocks Apply |
-|---|---|---|---|
-| slider | the thumb and the input at `default`, else `min` | `default`, else `min` | only when emptied by hand with no `default` and not `optional` (a plain number's rule) |
-| stepper | the plain input's row: empty, the `default` greyed | `default`, else `undefined` (it must be `optional`) | as a plain number |
-| checkbox | checked or not, by `default` (`false`) | `default`, else `false` | never |
-| text with limits | empty, or the `placeholder` | `default`, else `undefined` | as a plain text; a value over `maxLength` or off `pattern` blocks Apply with the reason |
-| select with `multiple: true` | `default`, else `None` (nothing chosen) | `default`, else `[]` — never `undefined` | never: an empty list is a value (`[]`); fewer than `min` or more than `max` blocks Apply |
 
 ### Options that depend on another value: `when`
 
@@ -440,5 +422,154 @@ export const fanPlate = part("Fan plate", () => {
   extrude(3);
 
   boltCircle("z", { circle: 45.25 });
+});
+```
+
+## Example: a screw hole with choices
+
+Every control on one dialog: buttons for the standard, a grid of screw
+pictures that offers the chosen standard's sizes only (`when`), cards for the
+head, a stepper, a checkbox, a slider with a unit and a hint, a text with
+limits and a list of finishes. Its [layout](feature-layout.md) puts two rows
+side by side, folds the rarely used ones away and shows a section drawing
+beside the rows. The images are files next to the module, in `screw-hole/`.
+
+```feature.js
+// screw-hole.feature.js
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { Primitives, ShapeOps } from 'fluidcad/sdk/kernel';
+import { Matrix4 } from 'fluidcad/math';
+
+/** Each screw's clearance hole, head diameter and head height, in mm. */
+const SCREWS = {
+  m3: { clearance: 3.4, head: 6.5, headHeight: 3 },
+  m4: { clearance: 4.5, head: 8, headHeight: 4 },
+  m5: { clearance: 5.5, head: 10, headHeight: 5 },
+  n4: { clearance: 3.3, head: 6, headHeight: 2.8 },
+  n6: { clearance: 3.9, head: 7.5, headHeight: 3.5 },
+};
+
+/** A washer's thickness, in mm. */
+const WASHER = 0.5;
+
+/** Long enough to cut through anything a screw goes into. */
+const THROUGH = 1000;
+
+export class ScrewHole extends Feature.with({
+  at: { picker: 'connector', label: 'At' },
+  standard: {
+    type: 'radio', display: 'buttons',
+    options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }],
+  },
+  size: {
+    type: 'select', label: 'Screw', display: 'grid', columns: 3, search: true,
+    options: [
+      { label: 'M3', value: 'm3', image: './screw-hole/m3.svg', description: '3.4 mm clearance', when: { standard: 'iso' } },
+      { label: 'M4', value: 'm4', image: './screw-hole/m4.svg', description: '4.5 mm clearance', when: { standard: 'iso' } },
+      { label: 'M5', value: 'm5', image: './screw-hole/m5.svg', description: '5.5 mm clearance', when: { standard: 'iso' } },
+      { label: '#4', value: 'n4', image: './screw-hole/n4.svg', description: '3.3 mm clearance', when: { standard: 'unc' }, keywords: ['inch'] },
+      { label: '#6', value: 'n6', image: './screw-hole/n6.svg', description: '3.9 mm clearance', when: { standard: 'unc' }, keywords: ['inch'] },
+    ],
+  },
+  head: {
+    type: 'radio', display: 'cards', columns: 2,
+    options: [
+      { label: 'Plain', value: 'plain', image: './screw-hole/plain.svg', description: 'Nothing for the head' },
+      { label: 'Counterbore', value: 'counterbore', image: './screw-hole/counterbore.svg', description: 'A flat recess the head sinks into' },
+    ],
+  },
+  washers: { type: 'integer', display: 'stepper', default: 0, min: 0, max: 3, visibleWhen: { head: 'counterbore' }, hint: 'Each deepens the recess by 0.5 mm' },
+  through: { type: 'boolean', display: 'checkbox', label: 'Through all', default: true },
+  depth: { type: 'length', default: 10, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface', visibleWhen: { through: false } },
+  marking: { type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes' },
+  finishes: {
+    type: 'select', multiple: true, default: ['deburr'], max: 2,
+    options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
+  },
+}) {
+  static id = 'acme.screwHole';
+
+  buildTool() {
+    const { size, head, washers, through, depth } = this.values;
+    const screw = SCREWS[size];
+    const frame = this.frameOf(this.values.at);
+    const length = through ? THROUGH : depth;
+    const recess = head === 'counterbore' ? screw.headHeight + washers * WASHER : 0;
+    if (!(length > recess)) {
+      throw new Error(`screw hole: the hole (${length}) must be deeper than the recess for its head (${recess})`);
+    }
+    const tools = [this.sunk(Primitives.makeCylinder(screw.clearance / 2, length), length, frame)];
+    if (recess > 0) {
+      tools.push(this.sunk(Primitives.makeCylinder(screw.head / 2, recess), recess, frame));
+    }
+    return tools;
+  }
+
+  /**
+   * A cylinder built on the XY plane, moved to end at the frame's origin, `depth` into the material.
+   * @param {import('fluidcad/sdk/kernel').Shape} cylinder
+   * @param {number} depth
+   * @param {import('fluidcad/math').Plane} frame
+   */
+  sunk(cylinder, depth, frame) {
+    const lowered = ShapeOps.transform(cylinder, Matrix4.fromTranslation(0, 0, -depth));
+    const placed = ShapeOps.transform(lowered, Matrix4.fromBasis(frame.xDirection, frame.yDirection, frame.normal, frame.origin));
+    cylinder.dispose();
+    lowered.dispose();
+    return placed;
+  }
+}
+
+export const screwHole = defineFeature(ScrewHole, {
+  label: 'Screw hole',
+  description: 'A clearance hole for a screw, plain or counterbored',
+  group: 'create',
+  operations: ['remove'],
+  call: ['at', { standard: 'standard', size: 'size', head: 'head', washers: 'washers', through: 'through', depth: 'depth', marking: 'marking', finishes: 'finishes' }],
+  width: 'wide',
+  layout: [
+    'at',
+    { row: ['standard', 'through'], widths: [2, 1] },
+    'size',
+    { row: ['head', 'washers'] },
+    { note: 'The recess is sized for the head of the screw.', visibleWhen: { head: 'counterbore' } },
+    'depth',
+    { section: 'Finish', collapsed: true, items: [{ row: ['marking', 'finishes'] }] },
+  ],
+  aside: [{ image: './screw-hole/section.svg', alt: 'A section through the hole: clearance, recess and depth' }],
+});
+```
+
+A cover plate with an M4 counterbored hole at its centre. The size is written
+because the user changed it; `standard` stays at its default and is left out.
+`finishes` is always an array literal.
+
+```fluid.js
+import { part, sketch, line, extrude, connector } from "fluidcad/core";
+import { coincident, horizontal, vertical, distance, fix } from "fluidcad/constraints";
+import { screwHole } from "./screw-hole.feature.js";
+
+export const cover = part("Cover plate", () => {
+  sketch("xy", () => {
+    const b = line([-31, -19], [29, -21]);
+    const r = line([29, -21], [31, 19]);
+    const t = line([31, 19], [-29, 21]);
+    const l = line([-29, 21], [-31, -19]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [-30, -20]);
+    distance(b.start(), b.end(), 60);
+    distance(r.start(), r.end(), 40);
+  });
+  const plate = extrude(8);
+  const mount = connector("mount", plate.endFaces());
+
+  screwHole(mount, { size: "m4", head: "counterbore", washers: 1, finishes: ["deburr", "chamfer"] });
 });
 ```

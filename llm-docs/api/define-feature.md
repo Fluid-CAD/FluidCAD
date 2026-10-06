@@ -60,7 +60,7 @@ that message, and a model that imports the module fails to compile with it.
 |---|---|
 | `label` | Required. The Custom dropdown cell's caption and the timeline row's name ("Bolt circle"); `.name('…')` on a statement still wins. |
 | `description` | The cell's tooltip, after the label. |
-| `icon` | A relative path to an image inside the module's directory (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`): `'./standoff.svg'`, never `../` or a URL. Only the files the metadata declares are served: this icon and the `image` of each option of a `select` or a `radio` ([feature-params](./feature-params.md)). A generic icon stands in when left out. Line art in a mid-tone reads in both the light and the dark theme. |
+| `icon` | A relative path to an image inside the module's directory (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`): `'./standoff.svg'`, never `../` or a URL. Only the files the metadata declares are served: this icon, the `image` of each option of a `select` or a `radio` ([feature-params](./feature-params.md)), and each `image` of the `layout` and the `aside` ([feature-layout](./feature-layout.md)). A generic icon stands in when left out. Line art in a mid-tone reads in both the light and the dark theme. |
 | `group` | Required: `'create'` or `'modify'`. The dropdown lists create features first, then modify, each sorted by label. |
 | `operations` | A tool's operations, which its dialog offers as tabs (see below). A modifier takes none. |
 | `call` | Required: the call shape (see below). Every value appears in it exactly once. |
@@ -116,9 +116,9 @@ statement the dialog wrote is exactly one the builder reads back. In order:
 
 - Any argument may be left out when the values it holds may be: a trailing
   one is dropped, an option loses its key, an empty object of options goes.
-  A value may be left out when it has a default — a boolean and a select
-  always do (`false`, the first option) — or is optional (see
-  [[api/feature-params]]). A positional value left out ahead of a later
+  A value may be left out when it resolves to a default — a boolean, a
+  select, a radio, a slider and a list of options always do — or is optional
+  (the table in [[api/feature-params]]). A positional value left out ahead of a later
   argument is passed as `undefined` (the dialog writes its default there:
   `draft(5, …)`).
 - With both options and a rest, an argument that is not a plain object is
@@ -136,7 +136,10 @@ chains (`.add()`, `.new()`, `.remove()`, `.scope(…)`) right after the call;
 other chains, such as `.name('…')`, are kept as written. A statement written
 another way still runs if the builder can read it, but its timeline row
 opens as not editable: an options object held in a variable or spread
-(`{ ...size }`), a computed key, a string or object where a number goes.
+(`{ ...size }`), a computed key, a string or object where a number goes, a
+select, a radio, a text or a list of options given as anything but a plain
+literal (`size: screw`, `finishes: [...common]`: "screwHole()'s 'size' is not
+a plain string or number").
 The message ends "— not editable in the dialog; edit the statement in the
 source".
 
@@ -145,9 +148,8 @@ only the typed-in values the user changed. Every row left alone shows the
 value the builder fills for it, so the call leaves it out and still builds:
 `grille(e.endFaces())` for a grille whose pattern (a select) and chamfer (a
 boolean) declare no default gets the first pattern and no chamfer, as its
-dialog showed. A number or a text with no default and not optional shows
-empty, and Apply asks for it ("Depth is required."). An optional select with
-no default shows an empty choice, "—", which writes nothing. An edit
+dialog showed. What each kind of row shows untouched, and which empty rows
+block Apply, is one table in [[api/feature-params]]. An edit
 rewrites only what the user changed; a value the statement leaves out opens
 on that same default and stays out unless changed.
 

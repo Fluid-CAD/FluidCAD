@@ -3,7 +3,7 @@ id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
 summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets. The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
-seeAlso: [api/feature, api/define-feature, api/feature-params, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph]
+seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph]
 ---
 
 # Custom features
@@ -175,6 +175,38 @@ top faces in `endFaces` (edge buckets left out are derived from the faces).
 Without `setBuckets()` the feature's accessors are empty: `post.endEdges()`
 names nothing, so a fillet on it fails, and the editor names picks on the
 standoff's geometry with filters instead.
+
+## What the dialog can hold
+
+The dialog is drawn from the declaration: one row per value, in the order
+`Feature.with()` lists them. What a value **is** (`type`, or `picker`) and how
+its row **looks** are separate, and only the first reaches the statement: two
+features that differ in looks alone write the same code.
+
+```js
+pattern: { type: 'radio', display: 'buttons', options: [{ label: 'Slots', value: 'slots' }, { label: 'Holes', value: 'holes' }] },
+count: { type: 'integer', display: 'stepper', default: 5, min: 1, max: 40 },
+pitch: { type: 'length', display: 'slider', default: 6, min: 2, max: 20, suffix: 'mm', hint: 'Centre to centre' },
+shape: {
+  type: 'select',
+  options: [
+    { label: 'Round', value: 'round', when: { pattern: 'holes' } },
+    { label: 'Hex', value: 'hex', when: { pattern: 'holes' } },
+    { label: 'Straight', value: 'straight', when: { pattern: 'slots' } },
+  ],
+},
+```
+
+- **Each value's row** — a select as a list or a grid of images, a radio as
+  buttons or cards, a slider, a stepper, a checkbox, a unit, a hint, a text's
+  limits, a select that holds several options, and options offered only for
+  another value's choice (`when`): [[api/feature-params]], which also has the
+  one table of what an untouched row shows and what the builder gets.
+- **Where the rows sit** — rows side by side, sections that fold, tabs, notes,
+  pictures, a wider dialog and a column beside the rows (`layout`, `width`,
+  `aside`): [[api/feature-layout]]. A value's own `group` and `tab` are the
+  short form for a simple dialog.
+- **The call the dialog writes and reads back**: [[api/define-feature]].
 
 ## How the editor finds it
 

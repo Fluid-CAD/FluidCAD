@@ -31,7 +31,7 @@ the same statement, and a hand-written call is checked the same way.
 | `{ section: 'Title', items: [...] }` | `collapsible?: boolean`, `collapsed?: boolean`, `visibleWhen?` | Rows under a heading: names, rows and static items — no section inside a section, no tabs. `collapsed: true` opens it folded and makes it collapsible; with `collapsible: false` it is refused. |
 | `{ tabs: [{ label, items }] }` | — | At the top level only, at most once; two tabs or more, with distinct labels. A tab's items are names, rows, sections and static items. |
 | `{ note: 'text' }` | `tone?: 'info' \| 'warning'`, `visibleWhen?` | A line of text. |
-| `{ image: './x.svg' }` | `alt?: string`, `height?: number`, `visibleWhen?` | A picture next to the module, by relative path, like `icon` and an option's `image` (`.svg`, `.png`, `.jpg`, `.webp`). `height` is in pixels, 16 to 480. |
+| `{ image: './x.svg' }` | `alt?: string`, `height?: number`, `visibleWhen?` | A picture next to the module, by relative path, like `icon` and an option's `image` (`.svg`, `.png`, `.jpg`, `.webp`). Shown as a picture, so `currentColor` in an SVG draws black: pick colours that read on both themes ([feature-params](feature-params.md), Options). `height` is in pixels, 16 to 480. |
 | `{ divider: true }` | — | A rule between rows. |
 
 An item object has exactly one of `row`, `section`, `tabs`, `note`, `image`,
@@ -155,6 +155,9 @@ export const boltCircle = defineFeature(BoltCircle, {
   aside: [{ image: './bolt-circle-dims.svg', alt: 'Circle diameter and start angle' }],
 });
 ```
+
+A dialog with every control, a row of two cells, a folded section and an
+aside is the [screw hole](feature-params.md#example-a-screw-hole-with-choices).
 
 ## The snapshot
 

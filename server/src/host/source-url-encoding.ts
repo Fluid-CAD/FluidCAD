@@ -24,6 +24,9 @@ export function encodeSourceUrl(url: string): string {
  *
  * This rewrites that comment with the id percent-encoded, which V8 keeps;
  * `extractSourceLocation` decodes the frame path back to the real one.
+ * The value is rebuilt from the module id rather than from the comment:
+ * newer Vite already encodes the whitespace (but not `%`), and encoding its
+ * output again would leave `%2520` behind.
  */
 export function installSourceUrlEncoding(environment: DevEnvironment): void {
   const viteFetch = environment.fetchModule.bind(environment);
@@ -39,7 +42,7 @@ export function installSourceUrlEncoding(environment: DevEnvironment): void {
     const valueStart = start + SOURCE_URL_MARKER.length;
     const lineEnd = result.code.indexOf('\n', valueStart);
     const valueEnd = lineEnd === -1 ? result.code.length : lineEnd;
-    const encoded = encodeSourceUrl(result.code.slice(valueStart, valueEnd));
+    const encoded = encodeSourceUrl(result.id);
     return {
       ...result,
       code: result.code.slice(0, valueStart) + encoded + result.code.slice(valueEnd),

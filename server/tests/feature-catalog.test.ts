@@ -237,6 +237,28 @@ describe('the feature catalog over a workspace', () => {
     ]);
   });
 
+  it('always lists a layout: the one a feature declares as written, else the one derived from its values', async () => {
+    const entries = await list();
+    // The standoff declares none, and no group or tab: its values in order.
+    const standoff = entries.find(entry => entry.exportName === 'standoff')!.meta as Record<string, any>;
+    expect(standoff.layout).toEqual(Object.keys(standoff.params));
+    expect('aside' in standoff).toBe(false);
+    expect('width' in standoff).toBe(false);
+
+    const fastener = entries.find(entry => entry.exportName === 'fastener')!.meta as Record<string, any>;
+    expect(fastener.layout).toEqual([
+      'at', 'standard', 'size', 'head',
+      { note: 'The recess is sized for the head of the screw.', visibleWhen: { head: ['counterbore', 'countersink'] } },
+      'depth',
+      { image: './fastener/depth.svg', alt: 'The depth, measured from the surface', height: 64 },
+      { section: 'Finish', collapsed: true, items: [{ row: ['marking', 'finishes'] }] },
+    ]);
+    expect(fastener.aside).toEqual([{ image: './fastener/section.svg', alt: 'A section through the hole' }]);
+    // Their images are assets like an option's: a save of one is announced.
+    expect(catalog.noteFileChange(at('fastener/depth.svg'))).toBe(true);
+    expect(catalog.noteFileChange(at('fastener/section.svg'))).toBe(true);
+  });
+
   it('announces a saved image a feature declares, its metadata left as scanned', async () => {
     await list();
     expect(catalog.noteFileChange(at('fastener/m3.svg'))).toBe(true);
@@ -416,6 +438,16 @@ describe('the feature catalog routes', () => {
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await res.text()).toBe(fs.readFileSync(path.join(FIXTURES, 'standoff.svg'), 'utf8'));
+  });
+
+  it('serves the images a layout and an aside declare', async () => {
+    const id = (await list()).find(entry => entry.exportName === 'fastener')!.id!;
+    for (const file of ['fastener/depth.svg', 'fastener/section.svg']) {
+      const res = await fetch(`${baseUrl}/features/asset?id=${id}&path=${encodeURIComponent(`./${file}`)}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/svg+xml');
+      expect(await res.text()).toBe(fs.readFileSync(path.join(FIXTURES, file), 'utf8'));
+    }
   });
 
   it('serves an option’s declared image from a directory beside the module', async () => {

@@ -1507,3 +1507,8 @@ export function listFeatureExports(namespace: object): FeatureExport[] {
 export function snapshotFeatureMeta(meta: FeatureMeta | ResolvedFeatureMeta): FeatureMetaSnapshot {
   return FeatureMetas.snapshot(meta);
 }
+
+/** Every file a feature's metadata declares — its icon, its options' images (see {@link FeatureMetas.assetsOf}). */
+export function listFeatureAssets(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
+  return FeatureMetas.assetsOf(meta);
+}

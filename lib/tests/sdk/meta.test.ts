@@ -3,7 +3,7 @@ import { setupOC } from "../setup.js";
 import select from "../../core/select.js";
 import extrude from "../../core/extrude.js";
 import { face } from "../../filters/index.js";
-import { getFeatureMeta, listFeatureExports, registerBuilder, snapshotFeatureMeta } from "../../index.js";
+import { getFeatureMeta, listFeatureAssets, listFeatureExports, registerBuilder, snapshotFeatureMeta } from "../../index.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { Feature, parseCall, type FeatureMeta, type FeatureBuildContext } from "../../sdk/index.js";
 import type { Shape } from "../../sdk/kernel.js";
@@ -620,6 +620,8 @@ describe("choice values: select and radio", () => {
     ];
     expect(FeatureMetas.assetsOf(meta)).toEqual(assets);
     expect(FeatureMetas.assetsOf(snapshotFeatureMeta(meta))).toEqual(assets);
+    // The engine's root entry lists them too: what the editor's catalog serves from.
+    expect(listFeatureAssets(snapshotFeatureMeta(meta))).toEqual(assets);
 
     // A file two options share, or an option shares with the icon, is listed once; no icon, no images, nothing.
     const shared = [{ label: 'A', value: 'a', image: './boss.svg' }, { label: 'B', value: 'b', image: './b.png' }, { label: 'C', value: 'c', image: './b.png' }, { label: 'D', value: 'd' }];

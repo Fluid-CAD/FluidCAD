@@ -210,7 +210,7 @@ export function registerBuilder<T extends Function>(
   return fn as ReturnType<typeof builder>;;
 }
 
-export { getFeatureMeta, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
+export { getFeatureMeta, listFeatureAssets, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
 export type {
   FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureGroup, FeatureKind, FeatureContext,
   ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,

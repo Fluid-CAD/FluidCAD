@@ -84,7 +84,7 @@
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "commander": "^14.0.3",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.2",
     "express": "^5.2.1",
     "fontkit": "^2.0.4",
     "get-system-fonts": "^2.0.2",

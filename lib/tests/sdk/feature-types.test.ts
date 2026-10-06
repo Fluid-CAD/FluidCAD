@@ -240,6 +240,7 @@ part('plate', () => {
     expect(check.typeOf('trim.feature.js', 'coats')).toBe('(2 | "prime" | "paint")[]');
     expect(check.typeOf('trim.feature.js', 'passes')).toBe('("prime" | "paint")[]');
     expect(check.typeOf('fastener.feature.js', 'head')).toBe('"plain" | "counterbore" | "countersink"');
+    // An option's 'when' is taken (the fixture's sizes carry one) and narrows the dialog, not the type: every option's value, whatever the standard.
     expect(check.typeOf('fastener.feature.js', 'size')).toBe('"m3" | "m4" | "m5" | "n4" | "n6"');
     // A radio without a default takes its first option; an optional one without one stays unset.
     expect(check.typeOf('trim.feature.js', 'edge')).toBe('2 | "sharp"');

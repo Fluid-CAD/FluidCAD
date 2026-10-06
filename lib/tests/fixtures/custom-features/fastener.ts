@@ -3,8 +3,9 @@
 // or a face's centre, with a recess for the head: none (`plain`), the head's
 // own height (`counterbore`), or the depth a 90° cone would reach
 // (`countersink`; the SDK's primitives have no cone, so it is a flat recess).
-// It is the fixture with choices: `size` is a select shown as a grid of
-// images under Metric and Imperial headings, `head` a radio shown as cards.
+// It is the fixture with choices: `standard` is a radio shown as buttons,
+// `size` a select shown as a grid of images that offers the screws of the
+// chosen standard only (each option's `when`), `head` a radio shown as cards.
 // Written against the SDK entry points only. The JavaScript copy is
 // server/tests/fixtures/custom-features/fastener.feature.js, with the images
 // in fastener/ beside it; keep them in step.
@@ -23,19 +24,23 @@ export const FASTENER_SIZES = {
   n6: { clearance: 3.9, head: 7.5, headHeight: 3.5 },
 } as const;
 
-export const FASTENER_DEFAULTS = { size: 'm3', head: 'plain', depth: 10 } as const;
+export const FASTENER_DEFAULTS = { standard: 'iso', size: 'm3', head: 'plain', depth: 10 } as const;
 
 /** The fastener's values, as `Feature.with()` declares them. */
 const FASTENER_PARAMS = {
   at: { picker: ['connector', 'point', 'anchor'], anchors: ['center'], label: 'At' },
+  standard: {
+    type: 'radio', display: 'buttons',
+    options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }],
+  },
   size: {
     type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3,
     options: [
-      { label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: 'M4', value: 'm4', image: './fastener/m4.svg', description: '4.5 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: 'M5', value: 'm5', image: './fastener/m5.svg', description: '5.5 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: '#4', value: 'n4', image: './fastener/n4.svg', description: '3.3 mm clearance', group: 'Imperial', keywords: ['unc', 'inch'] },
-      { label: '#6', value: 'n6', image: './fastener/n6.svg', description: '3.9 mm clearance', group: 'Imperial', keywords: ['unc', 'inch'] },
+      { label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: 'M4', value: 'm4', image: './fastener/m4.svg', description: '4.5 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: 'M5', value: 'm5', image: './fastener/m5.svg', description: '5.5 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: '#4', value: 'n4', image: './fastener/n4.svg', description: '3.3 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
+      { label: '#6', value: 'n6', image: './fastener/n6.svg', description: '3.9 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
     ],
   },
   head: {
@@ -56,8 +61,8 @@ const FASTENER_PARAMS = {
   },
 } as const;
 
-/** `fastener(at, { size, head, depth, marking, finishes })`. */
-const FASTENER_CALL = ['at', { size: 'size', head: 'head', depth: 'depth', marking: 'marking', finishes: 'finishes' }] as const;
+/** `fastener(at, { standard, size, head, depth, marking, finishes })`. */
+const FASTENER_CALL = ['at', { standard: 'standard', size: 'size', head: 'head', depth: 'depth', marking: 'marking', finishes: 'finishes' }] as const;
 
 export type FastenerValues = ValuesOf<typeof FASTENER_PARAMS>;
 

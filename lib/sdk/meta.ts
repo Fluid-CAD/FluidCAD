@@ -93,6 +93,16 @@ export type ChoiceOption = SelectOption & {
   group?: string;
   /** Further words a search finds the option by. */
   keywords?: readonly string[];
+  /**
+   * When the dialog offers the option: the grammar of a value's `visibleWhen`,
+   * `{ otherValue: scalar | scalar[] }`, every clause holding. An option
+   * without one is always offered. It narrows the dialog only: a call written
+   * by hand may pass any declared option whatever the other values are, and
+   * the builder gets it. The default must be offered while every other value
+   * is at its own default; left out, the default is the first option offered
+   * there.
+   */
+  when?: VisibleWhen;
 };
 
 export type SelectParamSpec = ParamCommon & {
@@ -412,7 +422,7 @@ class FeatureMetaValidator {
   private static readonly SUFFIX_LENGTH = 8;
 
   /** What one option of a select or a radio may carry. */
-  private static readonly OPTION_FIELDS = ['label', 'value', 'image', 'description', 'group', 'keywords'];
+  private static readonly OPTION_FIELDS = ['label', 'value', 'image', 'description', 'group', 'keywords', 'when'];
 
   /** Each choice type's displays, the default first, and the one of them that has columns. */
   private static readonly CHOICES: Record<'select' | 'radio', { displays: readonly string[]; columned: string }> = {
@@ -609,10 +619,15 @@ class FeatureMetaValidator {
     }
     for (const [name, spec] of Object.entries(out)) {
       if (spec.visibleWhen !== undefined) {
-        this.visibleWhen(name, spec.visibleWhen, out);
+        this.clauses(`param '${name}': 'visibleWhen'`, name, spec.visibleWhen, out);
+      }
+      for (const option of FeatureMetaValidator.optionsOf(spec)) {
+        if (option.when !== undefined) {
+          this.clauses(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out);
+        }
       }
     }
-    return Object.freeze(out);
+    return Object.freeze(this.atRest(out, params));
   }
 
   private param(name: string, value: unknown): ParamSpec {
@@ -967,9 +982,91 @@ class FeatureMetaValidator {
     }
   }
 
-  /** Every clause names another typed-in value, compared with values of its own type. */
-  private visibleWhen(name: string, value: unknown, params: Record<string, ParamSpec>): void {
-    const where = `param '${name}': 'visibleWhen'`;
+  /**
+   * The values at rest — every one at its resolved default, which is what an
+   * untouched dialog shows — and the defaults that depend on them: a select
+   * or a radio whose options carry `when` must have its default offered
+   * there, and with none declared takes the first option that is. Values are
+   * settled in the order their options depend on each other, which is why a
+   * circle of them is refused.
+   */
+  private atRest(params: Record<string, ParamSpec>, declared: Record<string, unknown>): Record<string, ParamSpec> {
+    const order: string[] = [];
+    const settled = new Map<string, boolean>();
+    for (const name of Object.keys(params)) {
+      this.settle(name, params, settled, [], order);
+    }
+    const out = { ...params };
+    const rest: Record<string, unknown> = {};
+    for (const name of order) {
+      const given = (declared[name] as Record<string, unknown>).default !== undefined;
+      out[name] = this.offeredDefault(name, params[name], given, rest);
+      rest[name] = FeatureMetas.defaultOf(out[name]);
+    }
+    return out;
+  }
+
+  /** Depth first over the values a value's options name: `order` gets each after those it waits on. */
+  private settle(name: string, params: Record<string, ParamSpec>, settled: Map<string, boolean>, chain: string[], order: string[]): void {
+    if (settled.get(name) === true) {
+      return;
+    }
+    if (settled.get(name) === false) {
+      const circle = [...chain.slice(chain.indexOf(name)), name].join(' → ');
+      this.fail(`param '${name}': the 'when' of its options comes back round to it (${circle}) — options that wait on each other have no first one to offer`);
+    }
+    settled.set(name, false);
+    const named = new Set(FeatureMetaValidator.optionsOf(params[name]).flatMap(option => Object.keys(option.when ?? {})));
+    for (const other of named) {
+      this.settle(other, params, settled, [...chain, name], order);
+    }
+    settled.set(name, true);
+    order.push(name);
+  }
+
+  /** `spec` with a default that is offered at `rest`, or a refusal saying why it has none. */
+  private offeredDefault(name: string, spec: ParamSpec, given: boolean, rest: Record<string, unknown>): ParamSpec {
+    const options = FeatureMetaValidator.optionsOf(spec);
+    if (!options.some(option => option.when !== undefined)) {
+      return spec;
+    }
+    const where = `param '${name}'`;
+    const offered = options.filter(option => FeatureMetas.holds(option.when, rest)).map(option => option.value);
+    const atRest = `while the other values are at their defaults`;
+    if (FeatureMetas.isChoices(spec)) {
+      for (const value of spec.default ?? []) {
+        if (!offered.includes(value)) {
+          this.fail(`${where}: the default's ${JSON.stringify(value)} is not offered ${atRest} — an untouched dialog would show one thing and the builder get another`);
+        }
+      }
+      return spec;
+    }
+    const choice = spec as SelectParamSpec | RadioParamSpec;
+    if (given) {
+      if (!offered.includes(choice.default as string | number)) {
+        this.fail(`${where}: the default ${JSON.stringify(choice.default)} is not offered ${atRest} — an untouched dialog would show one thing and the builder get another`);
+      }
+      return spec;
+    }
+    if (choice.optional) {
+      return spec;
+    }
+    if (offered.length === 0) {
+      this.fail(`${where}: none of its options is offered ${atRest} — leave the 'when' off one, or make the value 'optional'`);
+    }
+    return Object.freeze({ ...choice, default: offered[0] }) as ParamSpec;
+  }
+
+  /** The options of a select or a radio; none for any other value. */
+  private static optionsOf(spec: ParamSpec): readonly ChoiceOption[] {
+    return 'type' in spec && (spec.type === 'select' || spec.type === 'radio') ? spec.options : [];
+  }
+
+  /**
+   * The clauses of a `visibleWhen` or of an option's `when`: each names
+   * another typed-in value, compared with values of its own type.
+   */
+  private clauses(where: string, name: string, value: unknown, params: Record<string, ParamSpec>): void {
     if (!FeatureCall.isPlainObject(value) || Object.keys(value).length === 0) {
       this.fail(`${where} must be an object of values to match, such as { style: 'counterbore' }`);
     }
@@ -1465,6 +1562,18 @@ export class FeatureMetas {
       return `must match ${spec.pattern}, got ${JSON.stringify(value)}`;
     }
     return undefined;
+  }
+
+  /**
+   * Whether every clause of a `visibleWhen` or an option's `when` holds for
+   * `values` by name. A value that is not there holds no clause; no clauses
+   * always hold.
+   */
+  static holds(when: VisibleWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
+    return Object.entries(when ?? {}).every(([name, expected]) => {
+      const value = values[name];
+      return value !== undefined && (Array.isArray(expected) ? expected.includes(value) : expected === value);
+    });
   }
 
   /** `spec` with its resolved default ({@link defaultOf}) written in, when it resolves to one. */

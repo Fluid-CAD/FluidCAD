@@ -59,6 +59,15 @@ describe("the fastener fixture", () => {
     expect(volumes(scene)[0]).toBeCloseTo(PLATE_VOLUME - hole, 3);
   });
 
+  it("builds a size its 'when' does not offer for the standard — the dialog narrows, a call owes it nothing", () => {
+    plateIn(top => {
+      (fastener(top, { size: 'n4', head: 'plain', depth: 8 }) as unknown as Feature).new();
+    });
+    const scene = render();
+    expect(errorsOf(scene)).toEqual([]);
+    expect(volumes(scene)).toHaveLength(2);
+  });
+
   it.each([
     ['counterbore', FASTENER_SIZES.m5.headHeight],
     ['countersink', (FASTENER_SIZES.m5.head - FASTENER_SIZES.m5.clearance) / 2],

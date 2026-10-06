@@ -515,6 +515,94 @@ describe("a value the call leaves out", () => {
   });
 });
 
+describe("dependent options: an option's 'when'", () => {
+  const STANDARD = { type: 'radio', options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }] };
+  const sized = (patch: Record<string, unknown> = {}, iso: unknown = { standard: 'iso' }) => ({
+    type: 'select',
+    options: [{ label: 'M3', value: 'm3', when: iso }, { label: '#4', value: 'n4', when: { standard: 'unc' } }, { label: 'Custom', value: 'custom' }],
+    ...patch,
+  });
+  /** The boss with further typed-in values, all in its options object. */
+  const meta = (extra: Record<string, unknown>) => bossMeta({
+    params: { face: { picker: 'face', optional: true }, height: { type: 'length', default: 5 }, ...extra },
+    call: ['face', Object.fromEntries(['height', ...Object.keys(extra)].map(name => [name, name]))],
+  });
+  const refuses = (extra: Record<string, unknown>, message: string) =>
+    expect(() => register(meta(extra))).toThrow(`feature 'acme.boss': ${message}`);
+  const resolved = (extra: Record<string, unknown>) => getFeatureMeta(register(meta(extra)))!;
+  const dependent = (name: string, on: string) => ({ type: 'select', optional: true, options: [{ label: 'A', value: 'a', when: { [on]: 'a' } }], label: name });
+
+  it("refuses a clause as 'visibleWhen' refuses it, naming the option", () => {
+    const at = `param 'size': option "m3": 'when'`;
+    refuses({ standard: STANDARD, size: sized({}, { standrd: 'iso' }) }, `${at} names 'standrd', which is not one of the feature's values`);
+    refuses({ standard: STANDARD, size: sized({}, { face: 'iso' }) }, `${at} names 'face', a picked value — it can only name a typed-in one`);
+    refuses({ standard: { type: 'select', multiple: true, options: STANDARD.options }, size: sized() },
+      `${at} names 'standard', a select with 'multiple: true' — it can only name a value that holds one thing`);
+    refuses({ standard: STANDARD, size: sized({}, { size: 'custom' }) }, `${at} names the value itself`);
+    refuses({ standard: STANDARD, size: sized({}, { standard: 'din' }) }, `${at}: "din" is not a value 'standard' can take`);
+    refuses({ standard: STANDARD, size: sized({}, { standard: [] }) }, `${at}: the values listed for 'standard' are empty`);
+    refuses({ standard: STANDARD, size: sized({}, {}) }, `${at} must be an object of values to match`);
+  });
+
+  it("refuses options that wait on each other, naming the circle", () => {
+    refuses({ a: dependent('A', 'b'), b: dependent('B', 'a') },
+      `param 'a': the 'when' of its options comes back round to it (a → b → a) — options that wait on each other have no first one to offer`);
+    refuses({ a: dependent('A', 'b'), b: dependent('B', 'c'), c: dependent('C', 'a') }, `param 'a': the 'when' of its options comes back round to it (a → b → c → a)`);
+    expect(() => register(meta({ a: dependent('A', 'b'), b: dependent('B', 'c'), c: { type: 'select', options: [{ label: 'A', value: 'a' }] } }))).not.toThrow();
+  });
+
+  it("refuses a declared default that is not offered while the other values are at their defaults", () => {
+    refuses({ standard: STANDARD, size: sized({ default: 'n4' }) },
+      `param 'size': the default "n4" is not offered while the other values are at their defaults — an untouched dialog would show one thing and the builder get another`);
+    expect(resolved({ standard: { ...STANDARD, default: 'unc' }, size: sized({ default: 'n4' }) }).params.size).toMatchObject({ default: 'n4' });
+    expect(resolved({ standard: STANDARD, size: sized({ default: 'custom' }) }).params.size).toMatchObject({ default: 'custom' });
+  });
+
+  it("takes the first option offered there for a default left out — whatever the order the values are declared in", () => {
+    expect(FeatureMetas.defaultOf(resolved({ standard: { ...STANDARD, default: 'unc' }, size: sized() }).params.size)).toBe('n4');
+    expect(FeatureMetas.defaultOf(resolved({ size: sized(), standard: { ...STANDARD, default: 'unc' } }).params.size)).toBe('n4');
+    expect(FeatureMetas.defaultOf(resolved({ standard: STANDARD, size: sized() }).params.size)).toBe('m3');
+    // A chain: `thread` waits on `size`, which waits on `standard`.
+    const thread = { type: 'radio', options: [{ label: 'Coarse', value: 'coarse', when: { size: 'm3' } }, { label: 'UNC', value: 'unc', when: { size: 'n4' } }] };
+    const chain = resolved({ thread, size: sized(), standard: { ...STANDARD, default: 'unc' } });
+    expect(FeatureMetas.defaultOf(chain.params.thread)).toBe('unc');
+    expect(parseCall(chain, [undefined, {}])).toMatchObject({ standard: 'unc', size: 'n4', thread: 'unc' });
+    expect((snapshotFeatureMeta(chain).params.thread as { default: unknown }).default).toBe('unc');
+  });
+
+  it("refuses a value with no option offered there, unless it is optional — a clause on a value with nothing at rest does not hold", () => {
+    const only = (patch: Record<string, unknown> = {}) => ({ type: 'select', options: [{ label: '#4', value: 'n4', when: { standard: 'unc' } }], ...patch });
+    refuses({ standard: STANDARD, size: only() },
+      `param 'size': none of its options is offered while the other values are at their defaults — leave the 'when' off one, or make the value 'optional'`);
+    const optional = resolved({ standard: STANDARD, size: only({ optional: true }) });
+    expect(FeatureMetas.defaultOf(optional.params.size)).toBeUndefined();
+    expect(parseCall(optional, [undefined, {}]).size).toBeUndefined();
+    const onCount = { type: 'select', options: [{ label: 'Two', value: 'two', when: { count: 2 } }] };
+    refuses({ count: { type: 'integer' }, size: onCount }, `param 'size': none of its options is offered while the other values are at their defaults`);
+    expect(FeatureMetas.defaultOf(resolved({ count: { type: 'integer', default: 2 }, size: onCount }).params.size)).toBe('two');
+  });
+
+  it("holds a multi-select's default to the same rule, element by element", () => {
+    refuses({ standard: STANDARD, size: sized({ multiple: true, default: ['m3', 'n4'] }) },
+      `param 'size': the default's "n4" is not offered while the other values are at their defaults — an untouched dialog would show one thing and the builder get another`);
+    expect(FeatureMetas.defaultOf(resolved({ standard: STANDARD, size: sized({ multiple: true, default: ['m3', 'custom'] }) }).params.size)).toEqual(['m3', 'custom']);
+    expect(FeatureMetas.defaultOf(resolved({ standard: STANDARD, size: sized({ multiple: true }) }).params.size)).toEqual([]);
+  });
+
+  it("narrows the dialog only: a call may pass any declared option, whatever the other values are", () => {
+    const lenient = resolved({ standard: STANDARD, size: sized() });
+    expect(parseCall(lenient, [undefined, { size: 'n4' }])).toMatchObject({ standard: 'iso', size: 'n4' });
+    expect(parseCall(lenient, [undefined, { standard: 'unc', size: 'm3' }])).toMatchObject({ standard: 'unc', size: 'm3' });
+    expect(() => parseCall(lenient, [undefined, { size: 'm9' }])).toThrow();
+  });
+
+  it("carries 'when' into the snapshot verbatim", () => {
+    const { size } = snapshotFeatureMeta(resolved({ standard: STANDARD, size: sized() })).params as Record<string, Record<string, any>>;
+    expect(size.options).toEqual([{ label: 'M3', value: 'm3', when: { standard: 'iso' } }, { label: '#4', value: 'n4', when: { standard: 'unc' } }, { label: 'Custom', value: 'custom' }]);
+    expect(size.default).toBe('m3');
+  });
+});
+
 describe("choice values: select and radio", () => {
   const AB = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }];
   const at = "feature 'acme.boss': param 'height'";
@@ -530,9 +618,7 @@ describe("choice values: select and radio", () => {
   });
 
   it("refuses an option field it doesn't know, by name", () => {
-    refuses(option({ icon: './a.svg' }), `${at}: option "a": unknown field 'icon' — an option's fields are label, value, image, description, group, keywords`);
-    // Dependent options are not here yet.
-    refuses(option({ when: { style: 'iso' } }), `${at}: option "a": unknown field 'when'`);
+    refuses(option({ icon: './a.svg' }), `${at}: option "a": unknown field 'icon' — an option's fields are label, value, image, description, group, keywords, when`);
   });
 
   it("refuses an option's image that is not an image inside the module's directory", () => {
@@ -602,8 +688,8 @@ describe("choice values: select and radio", () => {
     const { meta } = defineFastener();
     const { size, head } = snapshotFeatureMeta(meta).params as Record<string, Record<string, any>>;
     expect(size).toMatchObject({ type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3 });
-    expect(size.options[0]).toEqual({ label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] });
-    expect(size.options.map((o: { group: string }) => o.group)).toEqual(['Metric', 'Metric', 'Metric', 'Imperial', 'Imperial']);
+    expect(size.options[0]).toEqual({ label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] });
+    expect(size.options.map((o: { when: unknown }) => o.when)).toEqual([{ standard: 'iso' }, { standard: 'iso' }, { standard: 'iso' }, { standard: 'unc' }, { standard: 'unc' }]);
     expect(head).toMatchObject({ type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 3 });
     expect(head.options.map((o: { value: string; image: string }) => [o.value, o.image])).toEqual([
       ['plain', './fastener/plain.svg'], ['counterbore', './fastener/counterbore.svg'], ['countersink', './fastener/countersink.svg'],

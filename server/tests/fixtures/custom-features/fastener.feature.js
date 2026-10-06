@@ -3,8 +3,9 @@
 // or a face's centre, with a recess for the head: none (`plain`), the head's
 // own height (`counterbore`), or the depth a 90° cone would reach
 // (`countersink`; the SDK's primitives have no cone, so it is a flat recess).
-// It is the fixture with choices: `size` is a select shown as a grid of
-// images under Metric and Imperial headings, `head` a radio shown as cards.
+// It is the fixture with choices: `standard` is a radio shown as buttons,
+// `size` a select shown as a grid of images that offers the screws of the
+// chosen standard only (each option's `when`), `head` a radio shown as cards.
 // This is the file a project keeps as `fastener.feature.js`, written against
 // the public entry points only, with its images in fastener/ beside it. The
 // TypeScript copy the lib tests build from is
@@ -25,14 +26,18 @@ const SIZES = {
 
 export class Fastener extends Feature.with({
   at: { picker: ['connector', 'point', 'anchor'], anchors: ['center'], label: 'At' },
+  standard: {
+    type: 'radio', display: 'buttons',
+    options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }],
+  },
   size: {
     type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3,
     options: [
-      { label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: 'M4', value: 'm4', image: './fastener/m4.svg', description: '4.5 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: 'M5', value: 'm5', image: './fastener/m5.svg', description: '5.5 mm clearance', group: 'Metric', keywords: ['iso'] },
-      { label: '#4', value: 'n4', image: './fastener/n4.svg', description: '3.3 mm clearance', group: 'Imperial', keywords: ['unc', 'inch'] },
-      { label: '#6', value: 'n6', image: './fastener/n6.svg', description: '3.9 mm clearance', group: 'Imperial', keywords: ['unc', 'inch'] },
+      { label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: 'M4', value: 'm4', image: './fastener/m4.svg', description: '4.5 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: 'M5', value: 'm5', image: './fastener/m5.svg', description: '5.5 mm clearance', when: { standard: 'iso' }, keywords: ['iso'] },
+      { label: '#4', value: 'n4', image: './fastener/n4.svg', description: '3.3 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
+      { label: '#6', value: 'n6', image: './fastener/n6.svg', description: '3.9 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
     ],
   },
   head: {
@@ -93,5 +98,5 @@ export const fastener = defineFeature(Fastener, {
   icon: './fastener.svg',
   group: 'create',
   operations: ['remove', 'new'],
-  call: ['at', { size: 'size', head: 'head', depth: 'depth', marking: 'marking', finishes: 'finishes' }],
+  call: ['at', { standard: 'standard', size: 'size', head: 'head', depth: 'depth', marking: 'marking', finishes: 'finishes' }],
 });

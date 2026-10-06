@@ -67,7 +67,11 @@ export class TypedInKinds {
     read: node => stringArgValue(node),
   };
 
-  /** One of the declared options, by its value: a number written as one, a string as a literal. */
+  /**
+   * One of the declared options, by its value: a number written as one, a
+   * string as a literal. A select and a radio are the one kind — how the
+   * options are shown never reaches a statement.
+   */
   private static readonly CHOICE: TypedInKind = {
     name: 'string or number',
     expression: false,
@@ -90,6 +94,7 @@ export class TypedInKinds {
     boolean: TypedInKinds.BOOLEAN,
     text: TypedInKinds.TEXT,
     select: TypedInKinds.CHOICE,
+    radio: TypedInKinds.CHOICE,
   };
 
   /** A type's entry, or null for a type the table doesn't hold; a value with no declared type is a number. */

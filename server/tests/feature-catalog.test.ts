@@ -91,6 +91,11 @@ beforeAll(async () => {
   fs.mkdirSync(workspace);
   fs.copyFileSync(path.join(FIXTURES, 'standoff.feature.js'), at('standoff.feature.js'));
   fs.copyFileSync(path.join(FIXTURES, 'standoff.svg'), at('standoff.svg'));
+  fs.copyFileSync(path.join(FIXTURES, 'fastener.feature.js'), at('fastener.feature.js'));
+  fs.copyFileSync(path.join(FIXTURES, 'fastener.svg'), at('fastener.svg'));
+  fs.cpSync(path.join(FIXTURES, 'fastener'), at('fastener'), { recursive: true });
+  // An image beside the declared ones that no option names.
+  write('fastener/spare.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>');
   write('plate-defaults.js', `export const PLATE_LABEL = 'Plate';\n`);
   write('parts/plate.feature.js', featureModule({
     id: 'acme.plate', exportName: 'plate', label: 'PLATE_LABEL',
@@ -178,7 +183,7 @@ describe('the feature catalog over a workspace', () => {
   it('walks like the part catalog: gitignored and node_modules modules stay out', async () => {
     const modules = await FeatureModules.list(workspace);
     expect(modules.map(file => path.relative(workspace, file)).sort()).toEqual([
-      'broken.feature.js', 'helpers.feature.js', 'parts/plate.feature.js', 'standoff.feature.js',
+      'broken.feature.js', 'fastener.feature.js', 'helpers.feature.js', 'parts/plate.feature.js', 'standoff.feature.js',
     ]);
     expect((await list()).some(entry => entry.id === 'acme.hidden')).toBe(false);
   });
@@ -214,6 +219,32 @@ describe('the feature catalog over a workspace', () => {
     scans.length = 0;
     await list();
     expect(scans).toEqual(['broken.feature.js', 'parts/plate.feature.js', 'standoff.feature.js']);
+  });
+
+  it('lists the fastener, its choices and their images as declared', async () => {
+    const fastener = (await list()).find(entry => entry.exportName === 'fastener');
+    expect(fastener?.error).toBeUndefined();
+    expect(fastener).toMatchObject({ modulePath: at('fastener.feature.js'), builtIn: false });
+    const params = fastener!.meta!.params as Record<string, any>;
+    expect(params.size).toMatchObject({ type: 'select', display: 'grid', columns: 3 });
+    expect(params.size.options[0]).toMatchObject({ value: 'm3', image: './fastener/m3.svg', group: 'Metric' });
+    expect(params.head).toMatchObject({ type: 'radio', display: 'cards' });
+    expect(params.head.options.map((option: any) => option.image)).toEqual([
+      './fastener/plain.svg', './fastener/counterbore.svg', './fastener/countersink.svg',
+    ]);
+  });
+
+  it('announces a saved image a feature declares, its metadata left as scanned', async () => {
+    await list();
+    expect(catalog.noteFileChange(at('fastener/m3.svg'))).toBe(true);
+    expect(catalog.noteFileChange(at('fastener.svg'))).toBe(true);
+    expect(catalog.noteFileChange(at('standoff.svg'))).toBe(true);
+    // An image no feature declares reaches nothing, in the same directory or not.
+    expect(catalog.noteFileChange(at('fastener/spare.svg'))).toBe(false);
+    expect(catalog.noteFileChange(at('other.svg'))).toBe(false);
+    scans.length = 0;
+    await list();
+    expect(scans).not.toContain('fastener.feature.js');
   });
 
   it('refuses an id two builders share, on both entries', async () => {
@@ -382,6 +413,29 @@ describe('the feature catalog routes', () => {
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await res.text()).toBe(fs.readFileSync(path.join(FIXTURES, 'standoff.svg'), 'utf8'));
+  });
+
+  it('serves an option’s declared image from a directory beside the module', async () => {
+    const id = (await list()).find(entry => entry.exportName === 'fastener')!.id!;
+    for (const [asked, file] of [['./fastener/m3.svg', 'fastener/m3.svg'], ['./fastener/countersink.svg', 'fastener/countersink.svg'], ['./fastener.svg', 'fastener.svg']]) {
+      const res = await fetch(`${baseUrl}/features/asset?id=${id}&path=${encodeURIComponent(asked)}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/svg+xml');
+      expect(res.headers.get('content-security-policy')).toContain('sandbox');
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(await res.text()).toBe(fs.readFileSync(path.join(FIXTURES, file), 'utf8'));
+    }
+  });
+
+  it('refuses a file beside the declared images that no option names, and a declared one spelled another way', async () => {
+    const id = (await list()).find(entry => entry.exportName === 'fastener')!.id!;
+    for (const asked of ['./fastener/spare.svg', 'fastener/m3.svg', './fastener/../fastener/m3.svg', './fastener/', './standoff.svg']) {
+      const res = await fetch(`${baseUrl}/features/asset?id=${id}&path=${encodeURIComponent(asked)}`);
+      expect({ asked, status: res.status }).toEqual({ asked, status: 404 });
+      expect((await res.json()).error).toContain(`declares no asset '${asked}'`);
+    }
+    // Another feature's declared image is not this one's.
+    expect((await fetch(`${baseUrl}/features/asset?id=acme.standoff&path=${encodeURIComponent('./fastener/m3.svg')}`)).status).toBe(404);
   });
 
   it('refuses every path the feature does not declare', async () => {

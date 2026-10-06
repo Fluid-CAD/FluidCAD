@@ -50,6 +50,30 @@ const SWATCH_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** Choices: a select and two radios, shown as a grid and cards with images, groups and keywords. */
+const CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 2, options: [{ label: 'Plain', value: 'plain', image: './clip/plain.svg' }, { label: 'Counterbore', value: 'counterbore', description: 'A flat recess' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** The same choices with nothing but labels and values. */
+const BARE_CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', options: [{ label: 'Plain', value: 'plain' }, { label: 'Counterbore', value: 'counterbore' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const QUIET_META = { ...STANDOFF_META, id: 'acme.quiet', label: 'Quiet', ghost: false } as unknown as ScannedFeature['meta'];
 
 /** Bosses at connectors, points and face centres: a picker of three kinds. */
@@ -289,6 +313,17 @@ describe('feature-ghost route — custom features', () => {
       const answered = await post({ feature: 'custom', id: 'acme.swatch', values: { tint } });
       expect(answered).toEqual({ status: 400, body: { success: false, reason: `Tint is of the type 'colour', which this version of FluidCAD does not know` } });
     }
+    expect(received).toBeUndefined();
+  });
+
+  it('carries a radio as a literal, like a select, and checks only that it could be an option', async () => {
+    entries!.push(entry(CLIP_META, 'clip', '/ws/clip.feature.js'));
+    await post({ feature: 'custom', id: 'acme.clip', values: { size: 'm4', head: 'counterbore', turns: 2 } });
+    expect(received).toMatchObject({ feature: 'custom', exportName: 'clip', values: { size: 'm4', head: 'counterbore', turns: 2 } });
+
+    received = undefined;
+    const answered = await post({ feature: 'custom', id: 'acme.clip', values: { head: true } });
+    expect(answered).toEqual({ status: 400, body: { success: false, reason: 'Head must be one of its options' } });
     expect(received).toBeUndefined();
   });
 

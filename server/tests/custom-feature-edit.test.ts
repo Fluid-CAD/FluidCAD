@@ -85,7 +85,32 @@ const SWATCH_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** Choices: a select and two radios, shown as a grid and cards with images, groups and keywords. */
+const CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 2, options: [{ label: 'Plain', value: 'plain', image: './clip/plain.svg' }, { label: 'Counterbore', value: 'counterbore', description: 'A flat recess' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** The same choices with nothing but labels and values. */
+const BARE_CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', options: [{ label: 'Plain', value: 'plain' }, { label: 'Counterbore', value: 'counterbore' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
+  '/ws/clip.feature.js': [{ exportName: 'clip', meta: CLIP_META }],
   '/ws/swatch.feature.js': [{ exportName: 'swatch', meta: SWATCH_META }],
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/lib/taper.feature.js': [{ exportName: 'taper', meta: TAPER_META }],
@@ -623,5 +648,49 @@ describe('a typed-in type the table does not hold', () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.ok === false && parsed.reason).toContain(`swatch()'s 'tint' is of the type 'colour', which this version of FluidCAD does not know`);
     expect(parsed.ok === false && parsed.reason).toContain('not editable in the dialog');
+  });
+});
+
+describe('a radio value, and choices that differ only in how they are shown', () => {
+  function clipSpec(meta: ScannedFeature['meta'], values: CustomFeatureOptions['values']): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: [],
+      parts: [],
+      imports: [],
+      custom: { id: 'acme.clip', exportName: 'clip', modulePath: '/ws/clip.feature.js', shape: CustomFeatureStatement.shapeOf(meta), values },
+    };
+  }
+
+  it('writes a radio as a select: a string as a literal, a number as one — whatever the presentation', async () => {
+    const values: CustomFeatureOptions['values'] = {
+      size: { kind: 'literal', value: 'm4' }, head: { kind: 'literal', value: 'counterbore' }, turns: { kind: 'value', value: 2 },
+    };
+    const shown = await applyFeatureEdit(PLATE, clipSpec(CLIP_META, values), { callees: catalog() });
+    const bare = await applyFeatureEdit(PLATE, clipSpec(BARE_CLIP_META, values), { callees: catalog() });
+    expect(shown.error).toBeUndefined();
+    expect(shown.newCode).toContain(`clip({ size: 'm4', head: 'counterbore', turns: 2 })`);
+    expect(bare.newCode).toBe(shown.newCode);
+    // The shape a statement is written by carries no presentation at all.
+    expect(CustomFeatureStatement.shapeOf(CLIP_META)).toEqual(CustomFeatureStatement.shapeOf(BARE_CLIP_META));
+  });
+
+  it('reads a radio back, edits it keeping the rest, and refuses one that is no plain literal', async () => {
+    const code = src(`import { clip } from './clip.feature.js'`, ``, `clip({ size: 'm4', head: 'counterbore', turns: 2 })`);
+    const callees = await catalog().calleesFor(code, MODEL);
+    const parsed = await parseFeatureStatement(code, 3, callees);
+    expect(parsed.ok && parsed.parsed).toMatchObject({ feature: 'custom', id: 'acme.clip', values: { size: 'm4', head: 'counterbore', turns: 2 } });
+
+    const edited = await applyFeatureEdit(code, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      edit: { line: 3, column: 0, custom: { id: 'acme.clip', values: { size: { kind: 'keep' }, head: { kind: 'literal', value: 'plain' }, turns: { kind: 'keep' } } } },
+    }, { callees: catalog() });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`clip({ size: 'm4', head: 'plain', turns: 2 })`);
+
+    const computed = src(`import { clip } from './clip.feature.js'`, ``, `clip({ head: pick() })`);
+    const refused = await parseFeatureStatement(computed, 3, await catalog().calleesFor(computed, MODEL));
+    expect(refused.ok === false && refused.reason).toContain(`clip()'s 'head' is not a plain string or number`);
   });
 });

@@ -66,7 +66,32 @@ const SWATCH_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** Choices: a select and two radios, shown as a grid and cards with images, groups and keywords. */
+const CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 2, options: [{ label: 'Plain', value: 'plain', image: './clip/plain.svg' }, { label: 'Counterbore', value: 'counterbore', description: 'A flat recess' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** The same choices with nothing but labels and values. */
+const BARE_CLIP_META = {
+  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
+  params: {
+    size: { type: 'select', label: 'Screw', default: 'm3', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] },
+    head: { type: 'radio', label: 'Head', default: 'plain', options: [{ label: 'Plain', value: 'plain' }, { label: 'Counterbore', value: 'counterbore' }] },
+    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+  },
+  call: [{ size: 'size', head: 'head', turns: 'turns' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
+  '/ws/clip.feature.js': [{ exportName: 'clip', meta: CLIP_META }],
   '/ws/swatch.feature.js': [{ exportName: 'swatch', meta: SWATCH_META }],
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/gusset.feature.js': [{ exportName: 'gusset', meta: GUSSET_META }],
@@ -607,5 +632,45 @@ describe('a typed-in type the table does not hold', () => {
       expect(body.reason ?? body.error).toContain(`Tint is of the type 'colour', which this version of FluidCAD does not know`);
     }
     expect(relayed).toEqual([]);
+  });
+});
+
+describe('a radio value through the routes', () => {
+  const CLIPPED = [`import { clip } from './clip.feature.js'`, ``, `clip({ size: 'm4', head: 'counterbore', turns: 2 })`, ``].join('\n');
+
+  function clipEntry(meta: ScannedFeature['meta']): FeatureCatalogEntry {
+    return { id: 'acme.clip', exportName: 'clip', modulePath: '/ws/clip.feature.js', builtIn: false, meta };
+  }
+
+  it('writes the option chosen, the same statement whatever the presentation, and refuses one that is no option', async () => {
+    const base = await serve();
+    const request = { feature: 'custom', preview: true, custom: { id: 'acme.clip', values: { size: 'm4', head: 'counterbore', turns: 2 }, picks: {} } };
+    const previews: string[] = [];
+    for (const meta of [CLIP_META, BARE_CLIP_META]) {
+      entries = [clipEntry(meta)];
+      const { status, body } = await post(`${base}/apply-feature`, request);
+      expect(status).toBe(200);
+      previews.push(body.preview);
+    }
+    expect(previews).toEqual([`clip({ size: 'm4', head: 'counterbore', turns: 2 })`, `clip({ size: 'm4', head: 'counterbore', turns: 2 })`]);
+
+    const refused = await post(`${base}/apply-feature`, { ...request, custom: { ...request.custom, values: { head: 'pan' } } });
+    expect(refused.status).toBe(422);
+    expect(refused.body.reason ?? refused.body.error).toContain('Head must be one of "plain", "counterbore"');
+  });
+
+  it('reads a radio back for the dialog and previews an edit of it', async () => {
+    entries = [clipEntry(CLIP_META)];
+    currentCode = CLIPPED;
+    const base = await serve();
+    const read = await post(`${base}/feature/parse`, { line: 3, filePath: MODEL });
+    expect(read.status).toBe(200);
+    expect(read.body.parsed).toMatchObject({ feature: 'custom', id: 'acme.clip', values: { size: 'm4', head: 'counterbore', turns: 2 } });
+
+    const { status, body } = await post(`${base}/apply-feature`, {
+      feature: 'custom', preview: true, edit: { filePath: MODEL, line: 3, column: 0 }, custom: { id: 'acme.clip', values: { head: 'plain', turns: 1 }, picks: {} },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`clip({ size: 'm4', head: 'plain', turns: 1 })`);
   });
 });

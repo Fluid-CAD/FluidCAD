@@ -10,6 +10,10 @@ import {
 } from '../apply-feature-edit/index.ts';
 import { ScanCache } from '../part-catalog/cache.ts';
 import type { FeatureMetaSnapshot } from '../../../lib/dist/index.js';
+// The kernel's entry first: `sdk/meta.js` sits on an import cycle that only
+// resolves when the kernel is entered through its index.
+import '../../../lib/dist/index.js';
+import { FeatureMetas } from '../../../lib/dist/sdk/meta.js';
 import { FeatureModules } from './walk.ts';
 import { FeatureScanner, type FeatureScanResult } from './scan.ts';
 import { RawOcctUse } from './raw-occt.ts';
@@ -55,7 +59,7 @@ export type FeatureCatalogOptions = {
   hasLiveBuffer?: (absPath: string) => boolean;
 };
 
-/** Where a feature's icon is served from, or why it isn't. */
+/** Where one of a feature's declared images is served from, or why it isn't. */
 export type FeatureAssetLookup = { file: string } | { status: number; error: string };
 
 /**
@@ -77,6 +81,8 @@ export class FeatureCatalog implements FeatureCalleeSource {
   private readonly workspacePath: string;
   private readonly cache = new ScanCache<FeatureScanResult>();
   private readonly inflight = new Map<string, Promise<FeatureScanResult | null>>();
+  /** The files each scanned module's features declare (icons, option images), by module. */
+  private readonly assets = new Map<string, Set<string>>();
   private builtInEntries: Promise<FeatureCatalogEntry[]> | null = null;
 
   constructor(private readonly options: FeatureCatalogOptions) {
@@ -133,10 +139,11 @@ export class FeatureCatalog implements FeatureCalleeSource {
   }
 
   /**
-   * The file behind a feature's declared icon. `path` must be exactly the
-   * feature's `icon`, and the file must stay inside the module's directory
-   * once symlinks are resolved — the metadata check refuses `..` already,
-   * so this guards the request and the links on disk.
+   * The file behind one of a feature's declared images: its icon, or an
+   * option's image. `path` must be exactly one the metadata declares
+   * ({@link FeatureMetas.assetsOf}), and the file must stay inside the
+   * module's directory once symlinks are resolved — the metadata check
+   * refuses `..` already, so this guards the request and the links on disk.
    */
   async asset(id: string, path: string): Promise<FeatureAssetLookup> {
     const entries = await this.list();
@@ -147,7 +154,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     if (!entry || !entry.meta) {
       return { status: 404, error: `no feature '${id}' in this workspace` };
     }
-    if (path !== entry.meta.icon) {
+    if (!FeatureMetas.assetsOf(entry.meta).includes(path)) {
       return { status: 404, error: `feature '${id}' declares no asset '${path}'` };
     }
     const directory = dirname(entry.modulePath);
@@ -168,12 +175,39 @@ export class FeatureCatalog implements FeatureCalleeSource {
   /**
    * A workspace file changed on disk: drop the scans it invalidates and say
    * whether the catalog may have changed — the file is a feature module,
-   * or one a cached module imports.
+   * one a cached module imports, or an image a scanned feature declares
+   * (its metadata stands, but the page must fetch the image again).
    */
   noteFileChange(absPath: string): boolean {
     const file = normalizePath(absPath);
     const dropped = this.cache.dropDependents(file);
-    return FeatureModules.isModule(file) || dropped;
+    return FeatureModules.isModule(file) || dropped || this.declaresAsset(file);
+  }
+
+  /** Whether a scanned module's features declare the file as an image. */
+  private declaresAsset(file: string): boolean {
+    for (const declared of this.assets.values()) {
+      if (declared.has(file)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Keep the files a module's features declare, from its latest scan; a module that declares none is forgotten. */
+  private noteAssets(modulePath: string, result: FeatureScanResult): void {
+    const directory = dirname(modulePath);
+    const declared = new Set<string>();
+    for (const feature of result.features) {
+      for (const asset of FeatureMetas.assetsOf(feature.meta)) {
+        declared.add(normalizePath(resolve(directory, asset)));
+      }
+    }
+    if (declared.size > 0) {
+      this.assets.set(modulePath, declared);
+    } else {
+      this.assets.delete(modulePath);
+    }
   }
 
   /** The catalog entries one module yields; null while the engine is not up. */
@@ -230,6 +264,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     if (result === null) {
       return null;
     }
+    this.noteAssets(modulePath, result);
     const raw = await RawOcctUse.scan(modulePath, this.workspacePath);
     const deps = result.deps.length > 0 ? [...new Set([...result.deps, ...raw.files])] : result.deps;
     return { ...result, deps, usesOcct: raw.usesOcct };

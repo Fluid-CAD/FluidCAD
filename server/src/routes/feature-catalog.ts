@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import type { FeatureCatalog } from '../feature-catalog/catalog.ts';
 
-/** The image types a feature's icon may be (the metadata check admits no others). */
+/** The image types a feature's declared images may be (the metadata check admits no others). */
 const ASSET_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -15,7 +15,7 @@ const ASSET_TYPES: Record<string, string> = {
 /**
  * The feature catalog's backend: the features the workspace offers (its
  * `*.feature.js` modules' builders and the engine's own, as metadata
- * snapshots — the UI never runs feature code), and each feature's icon.
+ * snapshots — the UI never runs feature code), and each feature's declared images (its icon, its options' images).
  */
 export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePath: string): Router {
   const router = Router();
@@ -34,7 +34,8 @@ export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePat
   });
 
   // `?id=acme.standoff&path=./standoff.svg` — the path exactly as the
-  // feature's metadata declares it. Served for <img>, where an SVG's
+  // feature's metadata declares it: its icon, or an option's image
+  // (`./fastener/m3.svg`). Served for <img>, where an SVG's
   // scripts never run; the policy below keeps them inert when the URL is
   // opened on its own too.
   router.get('/features/asset', async (req, res) => {

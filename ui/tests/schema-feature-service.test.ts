@@ -98,6 +98,20 @@ const GRILLE = meta('acme.grille', 'Grille', {
   finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }, { label: 'Gloss', value: 'gloss' }] },
 }, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { pattern: 'pattern', chamfered: 'chamfered', finish: 'finish' }] });
 
+/** A clip seat cut into a face: a rich select (a grid of images) and two radios, one of which may hold nothing. */
+const CLIP = meta('acme.clip', 'Clip', {
+  face: { picker: 'face', label: 'Panel' },
+  size: {
+    type: 'select', label: 'Size', default: 'm4', display: 'grid', columns: 2,
+    options: ['m3', 'm4'].map(v => ({ label: v.toUpperCase(), value: v, image: `./clip/${v}.svg` })),
+  },
+  head: {
+    type: 'radio', label: 'Head', default: 'pan', display: 'cards',
+    options: [{ label: 'Pan', value: 'pan', image: './clip/pan.svg' }, { label: 'Hex', value: 'hex', image: './clip/hex.svg' }],
+  },
+  lock: { type: 'radio', label: 'Lock', optional: true, options: [{ label: 'Nylon', value: 'nylon' }, { label: 'Split', value: 'split' }] },
+}, { icon: './clip.svg', operations: ['remove'], defaultOperation: 'remove', call: ['face', { size: 'size', head: 'head', lock: 'lock' }] });
+
 /** A name plate engraved into a face: its depth and its text declare no default, so the dialog asks for both. */
 const NAMEPLATE = meta('acme.nameplate', 'Nameplate', {
   face: { picker: 'face', label: 'On face' },
@@ -641,6 +655,57 @@ describe('a row left alone, as the builder gets it', () => {
     expect(lastEdit()!.values).toEqual({ finish: null });
   });
 
+  it('writes nothing for a rich select or a radio left alone, and only the radio an edit changes', async () => {
+    const { service, panel, input, lastCreate, lastEdit, lastGhost } = mount(CLIP);
+    const radios = (name: string) => [...input(name).querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"]')];
+    service.enter();
+    expect(input('size').tagName).toBe('BUTTON');
+    expect(input('size').textContent).toContain('M4');
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({ id: 'acme.clip', values: {}, preview: true });
+    // The ghost draws what the rows show; the radio holding nothing sends nothing.
+    expect(lastGhost()![0].values).toEqual({ size: 'm4', head: 'pan' });
+    await apply(service);
+    expect(created()).toHaveLength(1);
+    expect(created()[0].values).toEqual({});
+
+    // A user's choice is written as the option's value, exactly as a select's.
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    radios('lock')[0].click();
+    input('size').click();
+    document.querySelectorAll<HTMLElement>('[role="option"]')[0].click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ size: 'm3', lock: 'nylon' });
+    service.exit();
+
+    const rendered = [...scene(), {
+      id: 'cl', type: 'acme.clip', name: 'Clip', parentId: 'part', ownShapes: [], sourceLocation: at(12, 2),
+      sceneShapes: [{ shapeId: 'clip-solid', shapeType: 'solid', meshes: MESH }],
+    }] as SceneObjectRender[];
+    const statement: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.clip', callee: 'clip',
+      values: { size: 'm3', lock: 'split' }, picks: { face: [{ text: 'pad.endFaces()', start: 0, end: 14 }] },
+      operation: 'remove', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(12, 2), statement, { index: 6, type: 'acme.clip', expectedStatement: "clip(pad.endFaces(), { size: 'm3', lock: 'split' })" });
+    service.handleSceneRendered(rendered, 5, true);
+    expect(input('size').textContent).toContain('M3');
+    expect(radios('lock').map(r => (r as HTMLInputElement).checked)).toEqual([false, true]);
+    expect(radios('head').map(r => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({});
+
+    radios('head')[1].click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ head: 'hex' });
+    // Clearing the radio that may hold nothing drops the statement's value.
+    [...panel().querySelectorAll('button')].find(b => b.textContent === 'Clear')!.click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ head: 'hex', lock: null });
+  });
+
   it('blocks Apply on a number or a text without a default left empty, and says which — the engine would refuse it', async () => {
     const { service, type, message } = mount(NAMEPLATE);
     service.enter();
@@ -1093,6 +1158,41 @@ describe('the feature catalog on the page', () => {
     dialogs.apply([entry(BRACKET)]);
     expect(registry.ids).toEqual(['feature:acme.bracket']);
     expect(ObjectIcons.srcFor(undefined, 'acme.standoff')).toBe('icons/acme.standoff.png');
+  });
+
+  it('asks for every declared image again after a module was saved — a saved image changes no metadata, so no dialog is rebuilt for it', async () => {
+    const { dialogs, built, container } = catalog();
+    dialogs.apply([entry(CLIP), entry(BRACKET)]);
+    // Shown, so its rows hold their defaults: the select's button wears the chosen option's image.
+    built.find(service => service.id === 'feature:acme.clip')!.dialogPanel.show();
+    const dialog = container.querySelector<HTMLElement>('#fluidcad-feature-acme-clip')!;
+    const srcs = (root: ParentNode) => [...root.querySelectorAll('img')].map(img => img.getAttribute('src'));
+    const asset = (file: string, revision: number) =>
+      `api/features/asset?id=acme.clip&path=${encodeURIComponent(file)}${revision > 0 ? `&v=${revision}` : ''}`;
+    const shownAt = (revision: number) => {
+      expect(dialog.querySelector('[data-role="icon"]')!.getAttribute('src')).toBe(asset('./clip.svg', revision));
+      expect(srcs(dialog.querySelector('[data-role="value-size"]')!)).toEqual([asset('./clip/m4.svg', revision)]);
+      expect(srcs(dialog.querySelector('[data-role="value-head"]')!)).toEqual([asset('./clip/pan.svg', revision), asset('./clip/hex.svg', revision)]);
+      expect(srcs(dialogs.menu.entries.find(cell => cell.el.dataset.tool === 'feature:acme.clip')!.el)).toEqual([asset('./clip.svg', revision)]);
+      expect(ObjectIcons.srcFor(undefined, 'acme.clip')).toBe(asset('./clip.svg', revision));
+    };
+    shownAt(0);
+
+    for (const revision of [1, 2]) {
+      vi.mocked(api.getFeatureCatalog).mockResolvedValueOnce([entry(CLIP), entry(BRACKET)]);
+      await dialogs.refresh({ changed: true });
+      expect(built).toHaveLength(2);
+      shownAt(revision);
+    }
+    // The popover is drawn at each opening: its images are the saved ones too.
+    dialog.querySelector<HTMLElement>('[data-role="value-size"]')!.click();
+    expect(srcs(document.querySelector('[role="option"]')!)).toEqual([asset('./clip/m3.svg', 2)]);
+    dialog.querySelector<HTMLElement>('[data-role="value-size"]')!.click();
+
+    // A refresh that follows no save (the engine coming up) asks for nothing again.
+    vi.mocked(api.getFeatureCatalog).mockResolvedValueOnce([entry(CLIP), entry(BRACKET)]);
+    await dialogs.refresh();
+    shownAt(2);
   });
 
   it("offers an entry it can't as a greyed cell that says why — a built-in's as a greyed button", async () => {

@@ -6117,11 +6117,40 @@ type FeatureParamCommon = {
   optional?: boolean;
 };
 
+/** One choice of a select or a radio (mirror of the engine's `ChoiceOption`); only `value` reaches the feature. */
+export type FeatureChoiceOption = {
+  label: string;
+  value: string | number;
+  /** A picture of the choice: a file next to the module, served as the icon is. */
+  image?: string;
+  /** A line under the label. */
+  description?: string;
+  /** The heading the option is listed under. */
+  group?: string;
+  /** Further words a search finds the option by. */
+  keywords?: string[];
+};
+
 /** A value the dialog types in. Lengths are in the document's unit, angles in degrees. */
 export type FeatureScalarParam = FeatureParamCommon & (
   | { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
   | { type: 'boolean'; default?: boolean }
-  | { type: 'select'; options: { label: string; value: string | number }[]; default?: string | number }
+  | {
+    type: 'select'; options: FeatureChoiceOption[]; default?: string | number;
+    /** A `list` of rows (the default) or a `grid` of images. */
+    display?: 'list' | 'grid';
+    /** A grid's columns, 2 to 6. */
+    columns?: number;
+    /** Whether the options can be searched; left out, on above twelve of them. */
+    search?: boolean;
+  }
+  | {
+    type: 'radio'; options: FeatureChoiceOption[]; default?: string | number;
+    /** Stacked radios (`list`, the default), `inline` on one line, a row of `buttons`, or image `cards`. */
+    display?: 'list' | 'inline' | 'buttons' | 'cards';
+    /** The cards' columns, 2 to 6. */
+    columns?: number;
+  }
   | { type: 'text'; default?: string }
 );
 

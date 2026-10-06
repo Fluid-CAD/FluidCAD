@@ -152,3 +152,25 @@ describe('FeatureSchema', () => {
     expect(FeatureSchema.numberError(count, 12)).toBeNull();
   });
 });
+
+describe("where a feature's declared files are served", () => {
+  const meta: FeatureMetaSnapshot = {
+    id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: ['remove'], defaultOperation: 'remove',
+    params: {
+      head: { type: 'radio', label: 'Head', default: 'pan', options: [{ label: 'Pan', value: 'pan', image: './clip/pan.svg' }] },
+    },
+    call: [], ghost: true, contexts: ['part'],
+  };
+
+  it('leaves a path as declared with nowhere to serve it from — a built-in declares none', () => {
+    expect(new FeatureSchema(meta).assetUrl('./clip/pan.svg')).toBe('./clip/pan.svg');
+  });
+
+  it('asks its catalog at every call, so a path resolved after a save is the saved file', () => {
+    let revision = 0;
+    const schema = new FeatureSchema(meta, { assetUrl: path => `served:${path}@${revision}` });
+    expect(schema.assetUrl('./clip/pan.svg')).toBe('served:./clip/pan.svg@0');
+    revision = 4;
+    expect(schema.assetUrl('./clip/pan.svg')).toBe('served:./clip/pan.svg@4');
+  });
+});

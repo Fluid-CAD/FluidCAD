@@ -380,6 +380,11 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.runner.schedulePreview();
   }
 
+  /** A module was saved and the dialog stayed: the images its rows show may be new files. */
+  assetsChanged(): void {
+    this.panel.refreshImages();
+  }
+
   /** Take the dialog and its button (or menu cell) off the page — its feature changed or left the catalog. */
   destroy(): void {
     this.exit({ resume: 'lazy' });

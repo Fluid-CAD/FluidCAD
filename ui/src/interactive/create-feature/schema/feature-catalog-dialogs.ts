@@ -17,6 +17,9 @@ import type { SchemaFeatureService } from './schema-feature-service';
  */
 export type SchemaDialogFactory = (schema: FeatureSchema, iconSrc: string, launcher?: FeatureLauncher) => SchemaFeatureService;
 
+/** How every {@link featureAssetUrl} starts. */
+const FEATURE_ASSET_PREFIX = 'api/features/asset?';
+
 /** A catalog entry the page can offer: one feature, with its metadata. */
 type OfferedEntry = FeatureCatalogEntry & { id: string; meta: FeatureMetaSnapshot };
 
@@ -46,9 +49,13 @@ export class FeatureCatalogDialogs {
   /** The toolbar's Custom dropdown, listing the workspace's features. */
   readonly menu: CustomFeaturesMenu;
 
-  private readonly dialogs = new Map<string, { service: SchemaFeatureService; signature: string; builtIn: boolean }>();
+  private readonly dialogs = new Map<string, {
+    service: SchemaFeatureService; signature: string; builtIn: boolean;
+    /** The icon file a workspace feature declares, as declared. */
+    icon: string | null;
+  }>();
   private readonly broken = new Map<string, { launcher: FeatureLauncher; error: string }>();
-  /** Bumped on every module change, so a rebuilt dialog's icon is fetched fresh. */
+  /** Bumped on every module change, so an image shown after one — a rebuilt dialog's, a kept one's — is fetched fresh. */
   private revision = 0;
   /** The latest refresh — an older one's answer is dropped. */
   private ticket = 0;
@@ -89,6 +96,41 @@ export class FeatureCatalogDialogs {
         service.codeChanged();
       }
     }
+    if (opts.changed) {
+      this.reloadImages(kept ?? new Set());
+    }
+  }
+
+  /**
+   * A saved image leaves the metadata as it was, so no dialog is rebuilt for
+   * it: every image a kept dialog, the menu and the timeline show is asked
+   * for again at the new revision — the icons where they stand, an option's
+   * image through its row.
+   */
+  private reloadImages(kept: ReadonlySet<SchemaFeatureService>): void {
+    for (const [id, held] of this.dialogs) {
+      if (!held.builtIn && held.icon !== null) {
+        ObjectIcons.register(id, featureAssetUrl(id, held.icon, this.revision));
+      }
+      if (kept.has(held.service)) {
+        held.service.assetsChanged();
+      }
+    }
+    FeatureCatalogDialogs.repoint(document, this.revision);
+    // A closed dropdown's cells are off the page.
+    for (const cell of this.menu.entries) {
+      FeatureCatalogDialogs.repoint(cell.el, this.revision);
+    }
+  }
+
+  /** Point every feature image under `root` at `revision`, so the browser fetches the file again. */
+  private static repoint(root: ParentNode, revision: number): void {
+    for (const img of root.querySelectorAll('img')) {
+      const src = img.getAttribute('src');
+      if (src?.startsWith(FEATURE_ASSET_PREFIX)) {
+        img.setAttribute('src', `${src.replace(/&v=\d+$/, '')}&v=${revision}`);
+      }
+    }
   }
 
   /** Bring the page in line with `entries`. */
@@ -115,7 +157,11 @@ export class FeatureCatalogDialogs {
         continue;
       }
       const icon = FeatureCatalogDialogs.iconOf(entry, this.revision);
-      const schema = new FeatureSchema(entry.meta, { usesOcct: entry.usesOcct });
+      // Read at each ask, so an image shown after a save is the saved one.
+      const schema = new FeatureSchema(entry.meta, {
+        usesOcct: entry.usesOcct,
+        assetUrl: entry.builtIn ? undefined : path => featureAssetUrl(id, path, this.revision),
+      });
       const service = entry.builtIn
         ? this.create(schema, icon)
         : this.create(schema, icon, this.menu.add({
@@ -127,7 +173,10 @@ export class FeatureCatalogDialogs {
       if (!entry.builtIn) {
         ObjectIcons.register(id, icon);
       }
-      this.dialogs.set(id, { service, signature: FeatureCatalogDialogs.signatureOf(entry), builtIn: entry.builtIn });
+      this.dialogs.set(id, {
+        service, signature: FeatureCatalogDialogs.signatureOf(entry), builtIn: entry.builtIn,
+        icon: entry.builtIn ? null : entry.meta.icon ?? null,
+      });
       changed = true;
     }
     changed = this.syncBroken(broken) || changed;

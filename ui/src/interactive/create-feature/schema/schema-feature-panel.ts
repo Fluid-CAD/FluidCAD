@@ -270,6 +270,13 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
+  /** A file the feature declares was saved: every row showing one asks for it again. */
+  refreshImages(): void {
+    for (const field of this.fields.values()) {
+      field.refreshImages();
+    }
+  }
+
   destroy(): void {
     for (const field of this.fields.values()) {
       field.destroy();
@@ -327,7 +334,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       this.pickers.set(name, picker);
       return picker.row;
     }
-    const field = SchemaField.create(name, spec as FeatureScalarParam);
+    const field = SchemaField.create(name, spec as FeatureScalarParam, { assetUrl: path => this.schema.assetUrl(path) });
     field.onChange = () => {
       this.syncVisibility();
       this.onChange?.();

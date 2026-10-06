@@ -33,8 +33,24 @@ export class FeatureSchema {
    */
   readonly usesOcct: boolean;
 
-  constructor(readonly meta: FeatureMetaSnapshot, opts: { usesOcct?: boolean } = {}) {
+  private readonly resolveAsset: ((path: string) => string) | undefined;
+
+  /**
+   * `assetUrl`: where a file the feature declares is served (the catalog's,
+   * for a workspace feature). A built-in declares none.
+   */
+  constructor(readonly meta: FeatureMetaSnapshot, opts: { usesOcct?: boolean; assetUrl?: (path: string) => string } = {}) {
     this.usesOcct = opts.usesOcct === true;
+    this.resolveAsset = opts.assetUrl;
+  }
+
+  /**
+   * Where a declared file (an option's image) is served, as of the module's
+   * latest save — asked again after one, the answer fetches the file fresh.
+   * With nowhere to serve it from, the path as declared.
+   */
+  assetUrl(path: string): string {
+    return this.resolveAsset ? this.resolveAsset(path) : path;
   }
 
   get id(): string {

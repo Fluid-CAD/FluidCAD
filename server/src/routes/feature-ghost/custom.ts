@@ -2,11 +2,12 @@
 
 import type { Response } from 'express';
 import type { FeatureMetaSnapshot, ParamSpecSnapshot } from '../../../../lib/dist/index.js';
+import { TypedInKinds, type TypedInSpec } from '../../apply-feature-edit/index.ts';
 import type { FeatureCatalogEntry } from '../../feature-catalog/catalog.ts';
 import type { CustomGhostRequest, FluidCadServer, GhostCustomRef } from '../../fluidcad-server/index.ts';
 import { parseEntityRefs } from './refs.ts';
 import { ValueScope } from './value-scope.ts';
-import { isValueExpr, type ValueExpr } from './values.ts';
+import type { ValueExpr } from './values.ts';
 import { STANDARD_AXES, STANDARD_PLANES } from './vocabulary.ts';
 
 /** The feature catalog as the ghost reads it: every feature the workspace offers. */
@@ -173,14 +174,18 @@ export class CustomGhostRoute {
       if (value === null || value === undefined) {
         continue;
       }
-      const refusal = CustomGhostRoute.scalar(spec, value);
+      const kind = TypedInKinds.of(spec.type);
+      if (!kind) {
+        return { reason: `${spec.label} ${TypedInKinds.unknown(spec.type)}` };
+      }
+      const refusal = kind.preview(spec as TypedInSpec, value);
       if (refusal) {
         return { reason: refusal };
       }
-      if (spec.type === 'boolean' || spec.type === 'select' || spec.type === 'text') {
-        literals[name] = value as string | boolean | number;
-      } else {
+      if (kind.expression) {
         numbers[name] = value as ValueExpr;
+      } else {
+        literals[name] = value as string | boolean | number;
       }
     }
 
@@ -225,20 +230,6 @@ export class CustomGhostRoute {
       exclude,
       unbounded: body.unbounded === true,
     };
-  }
-
-  /** Why a typed-in value doesn't fit its declaration's kind, or null; ranges are the kernel's to check. */
-  private static scalar(spec: ParamSpecSnapshot & { type: string }, value: unknown): string | null {
-    switch (spec.type) {
-      case 'boolean':
-        return typeof value === 'boolean' ? null : `${spec.label} must be true or false`;
-      case 'text':
-        return typeof value === 'string' ? null : `${spec.label} must be text`;
-      case 'select':
-        return typeof value === 'string' || typeof value === 'number' ? null : `${spec.label} must be one of its options`;
-      default:
-        return isValueExpr(value) ? null : `${spec.label} must be a number or an expression`;
-    }
   }
 
   private static article(word: string): string {

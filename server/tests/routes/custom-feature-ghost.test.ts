@@ -42,6 +42,14 @@ const BOLT_CIRCLE_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** A value of a type the server holds no entry for: the SDK refuses one, a newer engine's snapshot may carry it. */
+const SWATCH_META = {
+  id: 'acme.swatch', label: 'Swatch', group: 'create', kind: 'tool', operations: [],
+  params: { tint: { type: 'colour', default: '#fff', label: 'Tint' } },
+  call: [{ tint: 'tint' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const QUIET_META = { ...STANDOFF_META, id: 'acme.quiet', label: 'Quiet', ghost: false } as unknown as ScannedFeature['meta'];
 
 /** Bosses at connectors, points and face centres: a picker of three kinds. */
@@ -271,6 +279,15 @@ describe('feature-ghost route — custom features', () => {
     for (const [body, reason] of refusals) {
       const answered = await post({ feature: 'custom', ...(body as object) });
       expect({ request: body, answered }).toEqual({ request: body, answered: { status: 400, body: { success: false, reason } } });
+    }
+    expect(received).toBeUndefined();
+  });
+
+  it('refuses a value of a type the table does not hold by name, never resolving it as a number', async () => {
+    entries!.push(entry(SWATCH_META, 'swatch', '/ws/swatch.feature.js'));
+    for (const tint of ['#f00', 12]) {
+      const answered = await post({ feature: 'custom', id: 'acme.swatch', values: { tint } });
+      expect(answered).toEqual({ status: 400, body: { success: false, reason: `Tint is of the type 'colour', which this version of FluidCAD does not know` } });
     }
     expect(received).toBeUndefined();
   });

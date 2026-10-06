@@ -77,7 +77,16 @@ const POCKET_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** A value of a type the server holds no entry for: the SDK refuses one, a newer engine's snapshot may carry it. */
+const SWATCH_META = {
+  id: 'acme.swatch', label: 'Swatch', group: 'create', kind: 'tool', operations: [],
+  params: { tint: { type: 'colour', default: '#fff', label: 'Tint' } },
+  call: [{ tint: 'tint' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
+  '/ws/swatch.feature.js': [{ exportName: 'swatch', meta: SWATCH_META }],
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/lib/taper.feature.js': [{ exportName: 'taper', meta: TAPER_META }],
   '/ws/gusset.feature.js': [{ exportName: 'gusset', meta: GUSSET_META }],
@@ -584,5 +593,35 @@ describe("a custom feature's default operation", () => {
 
     const back = await applyFeatureEdit(result.newCode!, edit(9, { id: 'acme.pocket', values: { depth: { kind: 'keep' } }, operation: 'new' }), { callees: catalog() });
     expect(back.newCode).toContain(`\npocket({ depth: 4 }).new()\n`);
+  });
+});
+
+describe('a typed-in type the table does not hold', () => {
+  it('refuses to write a value of it, by name', async () => {
+    const result = await applyFeatureEdit(PLATE, {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: [],
+      parts: [],
+      imports: [],
+      custom: {
+        id: 'acme.swatch',
+        exportName: 'swatch',
+        modulePath: '/ws/swatch.feature.js',
+        shape: CustomFeatureStatement.shapeOf(SWATCH_META),
+        values: { tint: { kind: 'literal', value: '#f00' } },
+      },
+    }, { callees: catalog() });
+    expect(result.newCode).toBe(PLATE);
+    expect(result.error).toContain(`'tint' is of the type 'colour', which this version of FluidCAD does not know`);
+  });
+
+  it('reads a statement that writes one as not editable, saying the type is unknown', async () => {
+    const code = src(`import { swatch } from './swatch.feature.js'`, ``, `swatch({ tint: '#f00' })`);
+    const callees = await catalog().calleesFor(code, MODEL);
+    const parsed = await parseFeatureStatement(code, 3, callees);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.ok === false && parsed.reason).toContain(`swatch()'s 'tint' is of the type 'colour', which this version of FluidCAD does not know`);
+    expect(parsed.ok === false && parsed.reason).toContain('not editable in the dialog');
   });
 });

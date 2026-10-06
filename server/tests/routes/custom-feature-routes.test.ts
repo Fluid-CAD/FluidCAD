@@ -58,7 +58,16 @@ const COPIER_META = {
   hasOnChange: false, ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** A value of a type the server holds no entry for: the SDK refuses one, a newer engine's snapshot may carry it. */
+const SWATCH_META = {
+  id: 'acme.swatch', label: 'Swatch', group: 'create', kind: 'tool', operations: [],
+  params: { tint: { type: 'colour', default: '#fff', label: 'Tint' } },
+  call: [{ tint: 'tint' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
+  '/ws/swatch.feature.js': [{ exportName: 'swatch', meta: SWATCH_META }],
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
   '/ws/gusset.feature.js': [{ exportName: 'gusset', meta: GUSSET_META }],
   '/ws/boss.feature.js': [{ exportName: 'boss', meta: BOSS_META }],
@@ -585,5 +594,18 @@ describe('a custom feature at locations', () => {
     expect(status).toBe(200);
     expect(answer.preview).toBe('boss([e.endFaces().center(), e.endEdges(0).start()], { height: 8 })');
     expect(slotCalls[0].before).toEqual({ ...BEFORE, type: 'acme.boss', line: 12 });
+  });
+});
+
+describe('a typed-in type the table does not hold', () => {
+  it('is refused by name, never read as a number', async () => {
+    entries.push({ id: 'acme.swatch', exportName: 'swatch', modulePath: '/ws/swatch.feature.js', builtIn: false, meta: SWATCH_META });
+    const base = await serve();
+    for (const tint of ['#f00', 12]) {
+      const { status, body } = await post(`${base}/apply-feature`, { feature: 'custom', custom: { id: 'acme.swatch', values: { tint }, picks: {} } });
+      expect(status).toBe(422);
+      expect(body.reason ?? body.error).toContain(`Tint is of the type 'colour', which this version of FluidCAD does not know`);
+    }
+    expect(relayed).toEqual([]);
   });
 });

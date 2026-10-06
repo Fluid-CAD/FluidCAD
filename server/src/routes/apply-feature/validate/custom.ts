@@ -3,9 +3,10 @@
 import {
   validConnectorAnchor,
   validHolePlacementSlot,
-  validValueExpr,
+  TypedInKinds,
   type ConnectorAnchorSpec,
   type CustomValueSource,
+  type TypedInSpec,
 } from '../../../apply-feature-edit/index.ts';
 import type { FeatureMetaSnapshot, FeatureOperation, ParamSpecSnapshot } from '../../../../../lib/dist/index.js';
 import {
@@ -295,38 +296,11 @@ export class CustomFeatureInputs {
     return kinds.find(takes) ?? null;
   }
 
+  /** A typed-in value's source by its type's entry in the table, or why it doesn't fit; a type without one is refused by name. */
   private static scalar(spec: ParamSpecSnapshot, raw: unknown): CustomValueSource | string {
-    const scalar = spec as ParamSpecSnapshot & { type: string; min?: number; max?: number; options?: { value: string | number }[] };
-    switch (scalar.type) {
-      case 'boolean':
-        return typeof raw === 'boolean' ? { kind: 'literal', value: raw } : `${spec.label} must be true or false`;
-      case 'text':
-        return typeof raw === 'string' && raw.length <= 2000 ? { kind: 'literal', value: raw } : `${spec.label} must be a string`;
-      case 'select': {
-        const option = (scalar.options ?? []).find(o => o.value === raw);
-        if (!option) {
-          return `${spec.label} must be one of ${(scalar.options ?? []).map(o => JSON.stringify(o.value)).join(', ')}`;
-        }
-        return typeof option.value === 'number' ? { kind: 'value', value: option.value } : { kind: 'literal', value: option.value };
-      }
-      default: {
-        if (!validValueExpr(raw)) {
-          return `${spec.label} must be a number or an expression`;
-        }
-        if (typeof raw === 'number') {
-          if (scalar.type === 'integer' && !Number.isInteger(raw)) {
-            return `${spec.label} must be a whole number`;
-          }
-          if (scalar.min !== undefined && raw < scalar.min) {
-            return `${spec.label} must be at least ${scalar.min}`;
-          }
-          if (scalar.max !== undefined && raw > scalar.max) {
-            return `${spec.label} must be at most ${scalar.max}`;
-          }
-        }
-        return { kind: 'value', value: raw as number | string };
-      }
-    }
+    const scalar = spec as TypedInSpec;
+    const kind = TypedInKinds.of(scalar.type);
+    return kind ? kind.source(scalar, raw) : `${spec.label} ${TypedInKinds.unknown(scalar.type)}`;
   }
 
   /** Whether a create must send the value: nothing stands in for one left out. */

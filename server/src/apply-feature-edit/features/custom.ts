@@ -15,16 +15,15 @@ import { CallShapeMismatch, FeatureCall } from '../../../../lib/dist/sdk/call-sh
 import type { CallArgument, CallOperation, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
 import type { FeatureMetaSnapshot } from '../../../../lib/dist/index.js';
 import { renderSolvedTarget, type SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
-import {
-  anyValueArg, booleanArgValue, connectorInstanceRead, numericArgValue, resolveRepeatTargetRef, stringArgValue,
-} from '../ast/args.ts';
+import { connectorInstanceRead, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse, ParsedScopeChain } from '../parse/parsed-statement.ts';
 import { isScopeTargetProducer, isSketchProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
-import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { validValueExpr, type ValueExpr } from '../value-expr.ts';
 import type { RepeatEditTargetSource } from './repeat.ts';
+import { TypedInKinds } from './typed-in-kinds.ts';
 
 /**
  * One value of a custom feature, as its statement reads: typed in (its
@@ -163,14 +162,6 @@ const POINT_SUFFIX = /^\.(?:center|start|end)\(\)$|^\.offset\('(?:relative|absol
 /** The methods a feature with operations owns on its statement. */
 const OPERATION_METHODS = new Set(['add', 'new', 'remove', 'scope']);
 
-/** The types whose values are numbers (or expressions). */
-const NUMBER_TYPES = new Set(['number', 'integer', 'length', 'angle']);
-
-/** Literals that read as expression text but never evaluate to a number. */
-const NOT_NUMBERS = new Set([
-  'string', 'template_string', 'true', 'false', 'object', 'array', 'arrow_function', 'function_expression', 'regex',
-]);
-
 /**
  * Reading a custom feature's statement as syntax: an argument left out is
  * `undefined` (or `null`, which the builder treats alike), and the object
@@ -225,8 +216,8 @@ export class CustomFeatureStatement {
         params[name] = { picker, list: declared.multiple === true || declared.max !== undefined };
         continue;
       }
-      const fallback = declared.default;
-      params[name] = typeof fallback === 'number' || typeof fallback === 'string' || typeof fallback === 'boolean'
+      const fallback = TypedInKinds.defaultOf(declared.default);
+      params[name] = fallback !== undefined
         ? { type: declared.type, list: false, default: fallback }
         : { type: declared.type, list: false };
     }
@@ -301,10 +292,12 @@ export class CustomFeatureStatement {
       }
       if (source.kind === 'keep') {
         values[param] = parsed?.texts[param];
-      } else if (source.kind === 'value') {
-        values[param] = formatValue(source.value);
-      } else if (source.kind === 'literal') {
-        values[param] = typeof source.value === 'boolean' ? String(source.value) : CustomFeatureStatement.quote(source.value);
+      } else if (source.kind === 'value' || source.kind === 'literal') {
+        const type = shape.params[param]?.type;
+        if (!TypedInKinds.of(type)) {
+          return { error: `'${param}' ${TypedInKinds.unknown(type)}` };
+        }
+        values[param] = TypedInKinds.text(source);
       } else {
         const elements: string[] = [];
         for (const item of source.items) {
@@ -346,7 +339,7 @@ export class CustomFeatureStatement {
       // A value left out ahead of a later argument writes its default rather
       // than `undefined`: `draft(5, e.sideFaces())`.
       layout = call.layout<string>(values, operation, {
-        placeholder: param => CustomFeatureStatement.defaultText(shape.params[param]),
+        placeholder: param => TypedInKinds.defaultText(shape.params[param]?.default),
       });
     } catch (error) {
       return { error: (error as Error).message };
@@ -438,9 +431,13 @@ export class CustomFeatureStatement {
         picks[param] = elements.map(element => CustomFeatureStatement.pickText(element, start));
         continue;
       }
-      const value = CustomFeatureStatement.scalarOf(kind.type, node, bindings);
+      const typedIn = TypedInKinds.of(kind.type);
+      if (!typedIn) {
+        return notEditable(`${callee}()'s '${param}' ${TypedInKinds.unknown(kind.type)}`);
+      }
+      const value = typedIn.read(node, bindings);
       if (value === null) {
-        return notEditable(`${callee}()'s '${param}' is not a plain ${CustomFeatureStatement.typeName(kind.type)}`);
+        return notEditable(`${callee}()'s '${param}' is not a plain ${typedIn.name}`);
       }
       values[param] = value;
     }
@@ -591,18 +588,6 @@ export class CustomFeatureStatement {
     return { exprs };
   }
 
-  /** A typed-in value's default as the statement writes it, or undefined for a value without one. */
-  private static defaultText(kind: CustomParamKind | undefined): string | undefined {
-    const fallback = kind?.default;
-    if (typeof fallback === 'number') {
-      return formatValue(fallback);
-    }
-    if (typeof fallback === 'string') {
-      return CustomFeatureStatement.quote(fallback);
-    }
-    return typeof fallback === 'boolean' ? String(fallback) : undefined;
-  }
-
   private static renderArgument(arg: CallArgument<string>): string {
     if (arg.kind === 'options') {
       return `{ ${arg.entries.map(entry => `${entry.key}: ${CustomFeatureStatement.renderList(entry.value)}`).join(', ')} }`;
@@ -626,46 +611,6 @@ export class CustomFeatureStatement {
     const seed = copy ? resolveRepeatTargetRef(copy.variable, statementStart) : null;
     const ref = seed ? { ...seed, slot: copy!.slot } : resolveRepeatTargetRef(node, statementStart);
     return { text: node.text, start: node.startIndex, end: node.endIndex, ...(ref ? { ref } : {}) };
-  }
-
-  /**
-   * A typed-in value's reading: a number or expression, a boolean, a
-   * string; null for anything else — a number's slot holding what is
-   * provably no number (a selection, `draft(sel)`'s angle) among them.
-   */
-  private static scalarOf(type: string | undefined, node: TSNode, bindings: LexicalBindings): ValueExpr | boolean | string | null {
-    if (type === 'boolean') {
-      return booleanArgValue(node);
-    }
-    if (type === 'text') {
-      return stringArgValue(node);
-    }
-    if (type === 'select') {
-      return stringArgValue(node) ?? numericArgValue(node);
-    }
-    if (!NUMBER_TYPES.has(type ?? 'number') || NOT_NUMBERS.has(node.type) || bindings.kindOf(node) === 'other') {
-      return null;
-    }
-    return anyValueArg(node);
-  }
-
-  private static typeName(type: string | undefined): string {
-    if (type === 'boolean') {
-      return 'true or false';
-    }
-    if (type === 'text') {
-      return 'string';
-    }
-    if (type === 'select') {
-      return 'string or number';
-    }
-    return 'number or expression';
-  }
-
-  /** A string as a single-quoted literal. */
-  private static quote(text: string): string {
-    const escaped = JSON.stringify(text).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'");
-    return `'${escaped}'`;
   }
 }
 

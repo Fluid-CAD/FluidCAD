@@ -327,6 +327,24 @@ describe('feature-ghost route — custom features', () => {
     expect(received).toBeUndefined();
   });
 
+  it('carries a select of several as its list, and refuses a value that is no list', async () => {
+    const meta = {
+      id: 'acme.finish', label: 'Finish', group: 'create', kind: 'tool', operations: [],
+      params: { steps: { type: 'select', multiple: true, label: 'Steps', default: [], options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }] } },
+      call: [{ steps: 'steps' }], ghost: true, contexts: ['part'],
+    } as unknown as ScannedFeature['meta'];
+    entries!.push(entry(meta, 'finish', '/ws/finish.feature.js'));
+    await post({ feature: 'custom', id: 'acme.finish', values: { steps: ['polish'] } });
+    expect(received).toMatchObject({ feature: 'custom', exportName: 'finish', values: { steps: ['polish'] } });
+    await post({ feature: 'custom', id: 'acme.finish', values: { steps: [] } });
+    expect(received).toMatchObject({ values: { steps: [] } });
+
+    received = undefined;
+    const answered = await post({ feature: 'custom', id: 'acme.finish', values: { steps: 'polish' } });
+    expect(answered).toEqual({ status: 400, body: { success: false, reason: 'Steps must be a list of its options' } });
+    expect(received).toBeUndefined();
+  });
+
   it('refuses custom features when the router has no catalog', async () => {
     const app = express();
     app.use(express.json());

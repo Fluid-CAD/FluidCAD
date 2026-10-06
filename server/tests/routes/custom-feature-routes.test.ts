@@ -90,7 +90,18 @@ const BARE_CLIP_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** A select of several: the finishing steps a part goes through, two at most. */
+const FINISH_META = {
+  id: 'acme.finish', label: 'Finish', group: 'create', kind: 'tool', operations: [],
+  params: {
+    steps: { type: 'select', multiple: true, label: 'Steps', default: [], max: 2, options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }, { label: 'Paint', value: 'paint' }] },
+  },
+  call: [{ steps: 'steps' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
 const MODULES: Record<string, ScannedFeature[]> = {
+  '/ws/finish.feature.js': [{ exportName: 'finish', meta: FINISH_META }],
   '/ws/clip.feature.js': [{ exportName: 'clip', meta: CLIP_META }],
   '/ws/swatch.feature.js': [{ exportName: 'swatch', meta: SWATCH_META }],
   '/ws/standoff.feature.js': [{ exportName: 'standoff', meta: STANDOFF_META }],
@@ -672,5 +683,57 @@ describe('a radio value through the routes', () => {
     });
     expect(status).toBe(200);
     expect(body.preview).toBe(`clip({ size: 'm4', head: 'plain', turns: 1 })`);
+  });
+});
+
+describe('a select of several through the routes', () => {
+  const FINISHED = [`import { finish } from './finish.feature.js'`, ``, `finish({ steps: ['deburr', 'polish'] })`, ``].join('\n');
+
+  function request(steps: unknown): unknown {
+    return { feature: 'custom', preview: true, custom: { id: 'acme.finish', values: { steps }, picks: {} } };
+  }
+
+  beforeEach(() => {
+    entries = [{ id: 'acme.finish', exportName: 'finish', modulePath: '/ws/finish.feature.js', builtIn: false, meta: FINISH_META }];
+  });
+
+  it('writes the list as one array literal — one element and none keep their brackets', async () => {
+    const base = await serve();
+    const written: string[] = [];
+    for (const steps of [['deburr', 'paint'], ['polish'], []]) {
+      const { status, body } = await post(`${base}/apply-feature`, request(steps));
+      expect(status).toBe(200);
+      written.push(body.preview);
+    }
+    expect(written).toEqual([`finish({ steps: ['deburr', 'paint'] })`, `finish({ steps: ['polish'] })`, `finish({ steps: [] })`]);
+  });
+
+  it('refuses a bare value, a value that is no option, one listed twice and more than the declaration takes', async () => {
+    const base = await serve();
+    const refusals: [unknown, string][] = [
+      ['deburr', 'Steps must be a list of "deburr", "polish", "paint"'],
+      [['sand'], 'Steps must be a list of "deburr", "polish", "paint"'],
+      [['paint', 'paint'], 'Steps lists "paint" twice'],
+      [['deburr', 'polish', 'paint'], 'Steps takes at most 2'],
+    ];
+    for (const [steps, reason] of refusals) {
+      const { status, body } = await post(`${base}/apply-feature`, request(steps));
+      expect(status).toBe(422);
+      expect(body.reason ?? body.error).toContain(reason);
+    }
+  });
+
+  it('reads a list back for the dialog, and an edit that empties it writes the empty list', async () => {
+    currentCode = FINISHED;
+    const base = await serve();
+    const read = await post(`${base}/feature/parse`, { line: 3, filePath: MODEL });
+    expect(read.status).toBe(200);
+    expect(read.body.parsed).toMatchObject({ feature: 'custom', id: 'acme.finish', values: { steps: ['deburr', 'polish'] } });
+
+    const { status, body } = await post(`${base}/apply-feature`, {
+      feature: 'custom', preview: true, edit: { filePath: MODEL, line: 3, column: 0 }, custom: { id: 'acme.finish', values: { steps: [] }, picks: {} },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`finish({ steps: [] })`);
   });
 });

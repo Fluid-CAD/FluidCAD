@@ -4,7 +4,7 @@ title: "defineFeature(FeatureClass, meta) — a custom feature's builder, metada
 summary: "Turns a Feature.with() class into the builder a model calls, from fluidcad/sdk: the metadata gives it its Custom dropdown cell and dialog (label, description, icon, group), its operations (the default is add when offered, else the first listed, and needs no chain), its call shape (positional values, one object of options, one trailing ...rest list) that both the builder and the dialog read and write, ghost and contexts. The kind is read from the class. Refused by name: id, defaultOperation, illustration, onChange, class, params, kind."
 tags: [api, sdk, custom-feature, metadata, call-shape, type]
 symbols: [defineFeature, DefineFeatureMeta, CallShape, FeatureOperation]
-seeAlso: [concepts/custom-features, api/feature, api/feature-params, api/register-builder, api/draft]
+seeAlso: [concepts/custom-features, api/feature, api/feature-params, api/feature-layout, api/register-builder, api/draft]
 ---
 
 # defineFeature
@@ -66,6 +66,7 @@ that message, and a model that imports the module fails to compile with it.
 | `call` | Required: the call shape (see below). Every value appears in it exactly once. |
 | `ghost` | `false` turns the dialog's preview off. A tool previews by default; a modifier only when its class overrides `ghost(ctx)`, and `ghost: true` on one that doesn't is refused. |
 | `contexts` | `['part']`, the only context so far: custom features run in parts, not at the top level of an assembly file. `'assembly'` is refused ("custom features run in parts only for now — 'contexts' takes 'part'"). |
+| `layout`, `width`, `aside` | Optional: how the dialog is laid out — rows, sections, tabs, notes and images; a wider dialog; static items beside the rows. See [feature-layout](feature-layout.md). Left out, the layout is derived from the values' `group` and `tab`. |
 
 ## Operations and the default operation
 

@@ -4,7 +4,7 @@ title: "ParamSpec — a custom feature's values: typed-in values and pickers"
 summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. Left out, a boolean without a default is false and a select its first option (unset when optional) — what the dialog shows; a number or a text without one is required unless optional. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
 tags: [api, sdk, custom-feature, type]
 symbols: [ParamSpec, PickerKind, VisibleWhen]
-seeAlso: [api/feature, api/define-feature, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
+seeAlso: [api/feature, api/define-feature, api/feature-layout, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
 ---
 
 # ParamSpec
@@ -51,8 +51,8 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 |---|---|
 | `label` | The dialog row's label. Left out, the name made readable: `holeDiameter` → "Hole diameter". |
 | `description` | The row's tooltip. |
-| `group` | A heading over the rows that share it; a grouped row joins its group where the group first appears. |
-| `tab` | The dialog tab the row sits on. Rows without a tab sit above the tabs; tabs appear in first-appearance order. |
+| `group` | A heading over the rows that share it; a grouped row joins its group where the group first appears. The short form of a `section` in a [layout](feature-layout.md): refused when the feature declares a `layout`, which places the rows itself. |
+| `tab` | The dialog tab the row sits on. Rows without a tab sit above the tabs; tabs appear in first-appearance order. The short form of `tabs` in a [layout](feature-layout.md): refused when the feature declares a `layout`. |
 | `visibleWhen` | When the row shows: every named value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }`. It names typed-in values only. A hidden row writes nothing in a create. |
 | `optional` | The call may leave the value out. Without a `default` it then reaches the feature as `undefined` — except a boolean, which is always `false` or `true`. |
 

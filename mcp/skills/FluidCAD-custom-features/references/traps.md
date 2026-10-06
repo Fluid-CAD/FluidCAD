@@ -72,11 +72,29 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
 - **Why.** A module never renders itself; its write re-renders the open model.
 - **Fix.** Write the test part right after the module's first version; it becomes the open model, and later module writes report on it.
 
+## Dialog controls and layout
+
+Each is refused where the module loads (the model fails to compile, the Custom cell is greyed with the message) unless it says otherwise.
+
+- **`group` or `tab` beside a `layout`.** `param 'size': leave 'group' out — the layout places it`. Move the heading into a `{ section }` or `{ tabs }` item.
+- **A value left out of the `layout`, or placed twice.** `the value 'depth' has no place in the layout`, `the value 'depth' is placed twice in the layout`. List every declared value exactly once, hidden ones included (`visibleWhen` hides the row where it sits).
+- **A picked value inside a `row`.** `… names 'face' — a picked value takes a full row`. Put the picker on its own line; rows hold typed-in values, notes and images, 2 to 4 cells.
+- **`columns` or `search` where they don't apply.** `param 'size': 'columns' is for display: 'grid' — leave it out` (`'cards'` on a radio); `search` on a radio is refused as an unknown field. `columns` is 2 to 6.
+- **A slider without both ends.** `display: 'slider' needs both 'min' and 'max' — the track runs from one to the other`. A stepper on a `length` or an `angle`: `display: 'stepper' is for a number or an integer — a length takes 'slider', or leave it out`.
+- **A default that `when` does not offer at rest.** `the default "m4" is not offered … — an untouched dialog would show one thing and the builder get another`: the default must be offered while every other value is at its own default. Leave `default` out (the first option offered there is taken) or pick one that is. `none of its options is offered … — leave the 'when' off one, or make the value 'optional'` is the same rule with no candidate.
+- **Options that wait on each other.** `param 'size': the 'when' of its options comes back round to it (…) — options that wait on each other have no first one to offer`. Let one value lead and the other follow.
+- **`when` is not a check.** `fastener(at, { standard: 'iso', size: 'n4' })` builds: a hand-written call may pass any declared option. Validate in `buildTool()` if a combination can't be built.
+- **A multi-select written as a bare value.** `fastener(): 'finishes' must be a list of "deburr", "chamfer", "polish", got 'deburr'` — a compile error at the call. Always an array literal: `finishes: ['deburr']`, `[]` for none. `this.values.finishes` is never `undefined`.
+- **A choice held in a variable.** `size: screw` or `finishes: [...common]` builds, but the row opens as `screwHole()'s 'size' is not a plain string or number — not editable in the dialog; edit the statement in the source`. Write select, radio, text and list arguments as plain literals; numbers alone take variables and expressions.
+- **An image that is not a declared path beside the module.** `'image' must be a relative path inside the module's directory, such as './image.svg', got '../m3.svg'`. No `../`, no URL, no absolute path; `.svg`, `.png`, `.jpg` or `.webp`. Only declared images are served. They are drawn as pictures, so `currentColor` in an SVG is black on both themes: use a mid-tone stroke (`#8a94a6`).
+- **`visibleWhen` (or `when`) naming the wrong kind of value.** `… names 'face', a picked value — it can only name a typed-in one`; `… names 'finishes', a select with 'multiple: true' — it can only name a value that holds one thing`. Add a boolean or a radio for the dialog to switch on.
+
 ## Smaller ones
 
 - **Picks are only checked in the dialog.** `surface: 'planar'` and `curve: 'circle'` limit what the dialog takes; a model's own call isn't checked: check in `buildTool()` when the geometry depends on it.
 - **Units.** Lengths are plain numbers in the model file's unit; a default does not scale with `unit('in')`. Angles are degrees: convert with `* Math.PI / 180`.
 - **A corner point faces along its edge.** A point picked at a solid's corner is the end of an edge (`e.endEdges(0).end()`), and `frameOf()` gives it that edge's tangent as Z, not a face normal.
 - **Node built-ins are blocked** in feature modules as in models (fs, child_process, net, http, os and the like).
+- **A helper method's parameters need JSDoc types.** `this.values` is typed by inference, but a method of your own (`sunk(cylinder, depth, frame)`) is not: under the workspace's `checkJs` it reports `Parameter 'depth' implicitly has an 'any' type`. Add `@param {number} depth`, `@param {import('fluidcad/sdk/kernel').Shape} cylinder`, `@param {import('fluidcad/math').Plane} frame`.
 - **Ids are unique.** Two builders with one `static id` grey both cells (`the feature id 'acme.ventGrid' is used by more than one builder …`), in one module or two.
 - **Custom features run in parts only**, not at the top level of an `*.assembly.js` file.

@@ -29,7 +29,15 @@ Before code, write the design down the way a CAD user would describe a feature d
 - **Name and id.** A label for the toolbar ("Vent grid") and a namespaced id (`acme.ventGrid`; take the namespace from the user or the project, else `acme`). The id is the feature's type in every timeline: pick it once.
 - **What it does to the solids.** Adds material, cuts it, or keeps a separate body: that is a **tool** (`buildTool()` returns solids, the base fuses or cuts them) with `operations`. Changes existing solids in another way (tilts faces, offsets, splits): a **modifier** (`build()`); prefer a tool whenever the feature adds or removes material — the modifier surface is the engine's internals, not a settled SDK.
 - **Operations and the default.** `['add', 'new']` for a boss-like feature, `['remove']` for a cut-only one (it cuts with no chain and shows no tabs), `['remove', 'new']` for a pocket that may also be a separate body. The default is `add` when offered, else the first listed.
-- **Each value, as a dialog row.** Typed in: `length` (in the model's unit), `angle` (degrees), `integer`, `number`, `boolean`, `select`, `text`, with a `min`/`max` that keep the geometry valid. A row left alone in the dialog builds what it shows: a `boolean` without a `default` is off, a `select` without one takes its first option (an `optional` one stays unset, shown as "—"); a number or a text without one must be typed in (Apply says "Height is required."), so give every size a sensible `default`. Picked: `face`, `edge`, `axis` (takes world axes, axis statements, straight edges and connectors), `plane`, `sketch`, `solid`, `feature`, `connector`, `point`, `anchor`, or a union of kinds that take different clicks. One pick or a list (`multiple: true`). Group rows, put rarely used ones on a second tab, hide rows that only matter for one choice (`visibleWhen`).
+- **Each value, as a dialog row.** Typed in: `length` (in the model's unit), `angle` (degrees), `integer`, `number`, `boolean`, `select`, `radio`, `text`, with a `min`/`max` that keep the geometry valid. A row left alone in the dialog builds what it shows: a `boolean` without a `default` is off, a `select` or a `radio` without one takes its first option (an `optional` one stays unset), a slider without one sits at its `min`, a select with `multiple: true` is `[]`; a number or a text without one must be typed in (Apply says "Height is required."), so give every size a sensible `default`. Picked: `face`, `edge`, `axis` (takes world axes, axis statements, straight edges and connectors), `plane`, `sketch`, `solid`, `feature`, `connector`, `point`, `anchor`, or a union of kinds that take different clicks. One pick or a list (`multiple: true`). Hide rows that only matter for one choice (`visibleWhen`).
+- **The control for each typed-in value.** `type` is what the value is; `display` and the fields beside it are only how its row looks, and never change the statement. Choose by what the user is deciding:
+  - a few choices, all worth seeing at once: `radio` — `display: 'buttons'` for 2–3 short labels, `'cards'` when pictures tell them apart;
+  - many choices: `select` — `display: 'grid'` with an `image` per option when they are recognised by shape, `search: true` beyond a dozen;
+  - several at once: `select` with `multiple: true` (the value is a list; `min`/`max` count it);
+  - a bounded number the user explores: `display: 'slider'` (needs `min` and `max`); a small count: `display: 'stepper'` (`number`/`integer` only); a unit: `suffix: 'mm'`; a remark that must stay visible: `hint` (`description` is the tooltip);
+  - one choice narrows another (the sizes of the chosen standard): one select whose options carry `when: { standard: 'iso' }`, not two selects swapped with `visibleWhen`. `when` narrows the dialog only — a hand-written call may pass any declared option, so the builder must handle every one;
+  - images are files next to the module (`'./vent/slots.svg'`), drawn as pictures: use mid-tone strokes, not `currentColor`.
+- **The layout, only when it earns it.** A handful of rows needs none: declaration order is the dialog, with a value's `group` and `tab` as the short form. Write a `layout` (with `width: 'wide'` when rows sit side by side) when values pair up in a `row` (count and spacing), a rarely used set should fold (`{ section, collapsed: true }`), or a dimension drawing belongs in the `aside`. A layout places every value exactly once, and then no value may keep its own `group` or `tab`.
 - **The call a model writes.** Picked geometry first and positional, sizes in one object of options: `ventGrid(panel.endFaces(), { rows: 4, columns: 6, pitch: 8 })`. A list of picks is one array argument or a trailing rest.
 - **The buckets.** Which faces of the result are its start faces (where it meets what it grew from), end faces (its far end), side faces, internal faces (bores, a cut's walls) and cap faces. A downstream fillet and every pick on the feature read these; without them `f.endEdges()` names nothing. For a cut, the plane the tool starts on (`startPlane`) classifies the rims.
 - **The preview.** A tool previews by default by running `buildTool()`; one that takes over 1.5 s to build is paused in the dialog. Keep the build cheap, or override `ghost()` with a cheaper shape.
@@ -42,12 +50,13 @@ Before code, write the design down the way a CAD user would describe a feature d
 - `concepts/custom-features` — the module, discovery, the lifecycle, where errors show;
 - `api/feature` — the class, `buildTool()`, `setBuckets()`, the reference readers, `ghost()`;
 - `api/define-feature` — the metadata, operations, the call shape, what the dialog can edit;
-- `api/feature-params` — every value kind, picker and option, unions;
+- `api/feature-params` — every value kind, picker and option, unions; each `display`; the table of what an untouched row shows and the builder gets; a runnable example with every control ("a screw hole with choices");
+- `api/feature-layout` — only when the design has a `layout`, `width` or `aside`;
 - `api/sdk-kernel` — the geometry, and who owns which shape;
 - `api/sdk-occt` — only when the design needs raw OpenCascade;
 - `api/register-builder` — only when the builder must act before it reads its arguments.
 
-`get_type_definition` resolves `Feature`, `FeatureBuckets`, `ParamSpec`, `CallShape`, `FeatureMeta`, `OccScope` and the kernel classes; `get_api_signature` resolves `defineFeature`, `registerBuilder`, `parseCall` and `getOC`. Then read `references/traps.md` in this skill.
+`get_type_definition` resolves `Feature`, `FeatureBuckets`, `ParamSpec`, `ChoiceOption`, `FeatureLayout`, `CallShape`, `FeatureMeta`, `OccScope` and the kernel classes; `get_api_signature` resolves `defineFeature`, `registerBuilder`, `parseCall` and `getOC`. Then read `references/traps.md` in this skill.
 
 ## 4. Write the module
 
@@ -60,13 +69,14 @@ import { Matrix4, Plane } from 'fluidcad/math';
 
 export class VentGrid extends Feature.with({
   face: { picker: 'face', label: 'Panel face', surface: 'planar' },
-  rows: { type: 'integer', default: 3, min: 1, max: 50 },
+  rows: { type: 'integer', display: 'stepper', default: 3, min: 1, max: 50 },
+  pitch: { type: 'length', display: 'slider', default: 8, min: 2, max: 40, suffix: 'mm' },
   // …
 }) {
   static id = 'acme.ventGrid';
 
   buildTool() {
-    const { rows } = this.values;              // typed: a number
+    const { rows, pitch } = this.values;       // typed: numbers
     const [face] = this.facesOf(this.values.face);
     // Build on the XY plane, sort the faces into buckets there, place with
     // ShapeOps.transformTracking, name the placed images, dispose what you drop.
@@ -80,9 +90,12 @@ export const ventGrid = defineFeature(VentGrid, {
   description: 'A grid of round vent holes through a panel',
   group: 'create',
   operations: ['remove'],
-  call: ['face', { rows: 'rows' /* , … */ }],
+  call: ['face', { rows: 'rows', pitch: 'pitch' /* , … */ }],
+  // layout: ['face', { row: ['rows', 'pitch'] }, …], width: 'wide'   — only when the design calls for one
 });
 ```
+
+Every value the class declares must appear in `call` (and in the `layout`, when there is one). A complete module with every control and a layout is the screw hole in `api/feature-params`.
 
 The rules that keep it right:
 
@@ -101,6 +114,7 @@ The rules that keep it right:
 
 A recognisable part (a panel, a bracket, a PCB plate), built by the FluidCAD skill's rules: imports from every entry it uses (`import { ventGrid } from './vent-grid.feature.js'`), named dimensions, fully constrained sketches. Exercise what a user will do:
 
+- every argument as the dialog writes it: a select, radio or text as a plain literal, a `multiple: true` select as an array literal (`finishes: ['deburr']`, `[]` for none);
 - the feature on a picked face written as an accessor (`panel.endFaces()`), as the dialog would write it;
 - each operation it offers, and `.scope(…)` when it matters;
 - a `repeat()` or `copy()` of the feature, when its use calls for patterns;

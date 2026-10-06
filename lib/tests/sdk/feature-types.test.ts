@@ -344,4 +344,49 @@ probe(plate.endFaces(), 'z', { pitch: 0.7 });
       expect.stringMatching(/^plate\.part\.js:18: .*Property 'count' is missing in type '\{ pitch: 0\.7; \}'/s),
     ]);
   });
+
+  it("types a layout over the class's values: a misspelled name is an error, in a row, a section and a tab as at the top", () => {
+    const check = CheckJs.check({
+      'plate.feature.js': `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+
+export class Plate extends Feature.with({
+  face: { picker: 'face' },
+  width: { type: 'length', default: 20 },
+  depth: { type: 'length', default: 10 },
+}) {
+  static id = 'acme.plate';
+  buildTool() {
+    return [];
+  }
+}
+
+export const plate = defineFeature(Plate, {
+  label: 'Plate', group: 'create', width: 'wide',
+  call: ['face', { width: 'width', depth: 'depth' }],
+  layout: [
+    'face',
+    { section: 'Size', collapsed: true, items: [{ row: ['width', 'depth'], widths: [2, 1] }] },
+    { note: 'Sizes are in mm.', tone: 'info', visibleWhen: { width: 20 } },
+    { divider: true },
+  ],
+  aside: [{ image: './plate-dims.svg', alt: 'Width and depth', height: 120 }],
+});
+
+const call = /** @type {const} */ (['face', { width: 'width', depth: 'depth' }]);
+export const top = defineFeature(Plate, { label: 'Plate', group: 'create', call, layout: ['face', 'width', 'dept'] });
+export const row = defineFeature(Plate, { label: 'Plate', group: 'create', call, layout: ['face', { row: ['width', 'dept'] }] });
+export const tab = defineFeature(Plate, { label: 'Plate', group: 'create', call, layout: [{ tabs: [{ label: 'A', items: ['face', 'width'] }, { label: 'B', items: [{ section: 'S', items: ['dept'] }] }] }] });
+export const aside = defineFeature(Plate, { label: 'Plate', group: 'create', call, aside: ['width'] });
+export const wide = defineFeature(Plate, { label: 'Plate', group: 'create', call, width: 'huge' });
+`,
+    });
+    expect(errorsOf(check)).toEqual([
+      expect.stringContaining(`plate.feature.js:28: Type '"dept"' is not assignable to type 'FeatureLayoutItem<`),
+      expect.stringContaining(`plate.feature.js:29: Type '"dept"' is not assignable to type '"face" | "width" | "depth" | FeatureLayoutNote | FeatureLayoutImage'.`),
+      expect.stringContaining(`plate.feature.js:30: Type '"dept"' is not assignable to type '"face" | "width" | "depth" | FeatureStaticItem | FeatureLayoutRow<"face" | "width" | "depth">'.`),
+      expect.stringContaining(`plate.feature.js:31: Type 'string' is not assignable to type 'FeatureStaticItem'.`),
+      expect.stringContaining(`plate.feature.js:32: Type '"huge"' is not assignable to type 'FeatureDialogWidth | undefined'.`),
+    ]);
+  });
 });

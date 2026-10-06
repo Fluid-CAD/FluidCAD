@@ -383,3 +383,48 @@ describe("a defineFeature() feature with a radio", () => {
     expect(() => parseCall(meta, [{ head: 'pan' }])).toThrow(`hole(): 'head' must be one of "plain", "counterbore", got 'pan'`);
   });
 });
+
+describe("defineFeature() with a layout", () => {
+  function plateClass(values: Record<string, unknown> = {}) {
+    return class Plate extends Feature.with({
+      face: { picker: 'face' },
+      width: { type: 'length', default: 20 },
+      depth: { type: 'length', default: 10 },
+      ...values,
+    }) {
+      static id = 'acme.plate';
+      buildTool(): Shape[] {
+        return [];
+      }
+    };
+  }
+  const CALL = ['face', { width: 'width', depth: 'depth' }] as const;
+
+  it("lays the dialog out over the class's values, with a width and an aside", () => {
+    const layout = ['face', { section: 'Size', items: [{ row: ['width', 'depth'] }] }] as const;
+    const plate = defineFeature(plateClass(), {
+      label: 'Plate', group: 'create', call: CALL, width: 'wide', layout,
+      aside: [{ image: './plate-dims.svg', alt: 'Width and depth' }],
+    });
+    const meta = getFeatureMeta(plate)!;
+    expect(meta.layout).toEqual(layout);
+    expect(meta.width).toBe('wide');
+    expect(snapshotFeatureMeta(meta).aside).toEqual([{ image: './plate-dims.svg', alt: 'Width and depth' }]);
+  });
+
+  it("derives the layout from the values' group and tab when none is given", () => {
+    const plate = defineFeature(plateClass({ width: { type: 'length', default: 20, group: 'Size' }, depth: { type: 'length', default: 10, group: 'Size' } }), {
+      label: 'Plate', group: 'create', call: CALL,
+    });
+    expect(getFeatureMeta(plate)!.layout).toEqual(['face', { section: 'Size', items: ['width', 'depth'] }]);
+  });
+
+  it("refuses a layout that misplaces a value, and a value's group beside a layout", () => {
+    const define = (featureClass: ReturnType<typeof plateClass>, layout: unknown) => () => getFeatureMeta(defineFeature(featureClass, {
+      label: 'Plate', group: 'create', call: CALL, layout: layout as ['face'],
+    }));
+    expect(define(plateClass(), ['face', 'width'])).toThrow("feature 'acme.plate': the value 'depth' has no place in the layout");
+    expect(define(plateClass({ depth: { type: 'length', default: 10, group: 'Size' } }), ['face', 'width', 'depth']))
+      .toThrow("feature 'acme.plate': param 'depth': leave 'group' out — the layout places it");
+  });
+});

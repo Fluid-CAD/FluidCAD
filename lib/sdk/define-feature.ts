@@ -2,6 +2,7 @@ import { registerBuilder, type SceneParserContext } from "../index.js";
 import type { Feature } from "./feature.js";
 import type { FeatureArgs, FeatureCallShape, FeatureParams } from "./feature-params.js";
 import { FeatureMetas, type FeatureMeta } from "./meta.js";
+import type { FeatureLayout } from "./layout.js";
 
 /** A feature class `defineFeature()` takes: one that declares its values, through `Feature.with()`. */
 export type DefinableFeatureClass = (abstract new (values: any) => Feature<any>) & { readonly id: string; readonly params: FeatureParams };
@@ -9,11 +10,13 @@ export type DefinableFeatureClass = (abstract new (values: any) => Feature<any>)
 /**
  * What `defineFeature()` is told about a feature: its metadata, less what
  * the class carries — the class itself, its values and its kind — with a
- * call shape over the class's values.
+ * call shape and a layout over the class's values.
  */
 export type DefineFeatureMeta<P extends FeatureParams = FeatureParams> =
-  Omit<FeatureMeta, 'class' | 'params' | 'kind' | 'call'> & {
+  Omit<FeatureMeta, 'class' | 'params' | 'kind' | 'call' | 'layout'> & {
     call: FeatureCallShape<P>;
+    /** The dialog's rows over the class's values (see {@link FeatureLayout}); derived from their `group` and `tab` when left out. */
+    layout?: FeatureLayout<P>;
     /** Leave it out: the class is `defineFeature()`'s first argument. */
     class?: never;
     /** Leave them out: the values are the class's own, declared with `Feature.with()`. */
@@ -36,8 +39,8 @@ export type DefineFeatureMeta<P extends FeatureParams = FeatureParams> =
  * });
  * ```
  *
- * The call names the class's values, so a misspelled one is an error in
- * the editor, and the builder's arguments are typed from it:
+ * The call — and a `layout`, when one is given — names the class's values,
+ * so a misspelled one is an error in the editor, and the builder's arguments are typed from it:
  * `standoff(e.endFaces(), { height: 12 })`. The kind is read from the
  * class — a tool implements `buildTool()`, a modifier overrides `build()`.
  */

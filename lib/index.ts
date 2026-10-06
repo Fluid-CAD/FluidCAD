@@ -216,6 +216,10 @@ export type {
   ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
   UnionPickerSpec,
 } from './sdk/meta.js';
+export type {
+  FeatureLayout, FeatureLayoutItem, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs, FeatureLayoutTab,
+  FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
+} from './sdk/layout.js';
 export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
 export type {
   CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallLayoutOptions, CallOperation, CallReader, ChainReading,

@@ -143,7 +143,7 @@ describe("feature metadata refusals", () => {
     refuses(bossMeta({ onChange: () => undefined }), "feature metadata: leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)");
     // Even left undefined: the field is named, so it is refused rather than passed over.
     refuses(taperMeta({ illustration: undefined }), /leave 'illustration' out/);
-    refuses(bossMeta({ lable: 'Boss' }), /the fields are class, label, description, icon, group, kind, operations, params, call, ghost, contexts$/);
+    refuses(bossMeta({ lable: 'Boss' }), /the fields are class, label, description, icon, group, kind, operations, params, call, ghost, contexts, layout, width, aside$/);
   });
 
   it("refuse an edge value's tangents by name: tangent chains are for fillet and chamfer only", () => {
@@ -346,6 +346,8 @@ describe("a feature metadata snapshot", () => {
       call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
       ghost: true,
       contexts: ['part'],
+      // No layout of its own, no group, no tab: the derived one is its values in order.
+      layout: ['face', 'height', 'outer', 'hole'],
     });
     expect(Object.keys(snapshot.params)).toEqual(['face', 'height', 'outer', 'hole']);
   });
@@ -697,12 +699,13 @@ describe("choice values: select and radio", () => {
     expect(JSON.parse(JSON.stringify(snapshotFeatureMeta(meta)))).toEqual(snapshotFeatureMeta(meta));
   });
 
-  it("lists every declared asset once, in order: the icon, then the options' images", () => {
+  it("lists every declared asset once, in order: the icon, the options' images, then the layout's and the aside's", () => {
     const { meta } = defineFastener();
     const assets = [
       './fastener.svg',
       './fastener/m3.svg', './fastener/m4.svg', './fastener/m5.svg', './fastener/n4.svg', './fastener/n6.svg',
       './fastener/plain.svg', './fastener/counterbore.svg', './fastener/countersink.svg',
+      './fastener/depth.svg', './fastener/section.svg',
     ];
     expect(FeatureMetas.assetsOf(meta)).toEqual(assets);
     expect(FeatureMetas.assetsOf(snapshotFeatureMeta(meta))).toEqual(assets);

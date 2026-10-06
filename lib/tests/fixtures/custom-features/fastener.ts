@@ -121,6 +121,17 @@ export function defineFastener(): FastenerDefinition {
     group: 'create',
     operations: ['remove', 'new'],
     call: FASTENER_CALL,
+    layout: [
+      'at',
+      'standard',
+      'size',
+      'head',
+      { note: 'The recess is sized for the head of the screw.', visibleWhen: { head: ['counterbore', 'countersink'] } },
+      'depth',
+      { image: './fastener/depth.svg', alt: 'The depth, measured from the surface', height: 64 },
+      { section: 'Finish', collapsed: true, items: [{ row: ['marking', 'finishes'] }] },
+    ],
+    aside: [{ image: './fastener/section.svg', alt: 'A section through the hole' }],
   });
   return { Fastener, fastener, meta: getFeatureMeta(fastener)! };
 }

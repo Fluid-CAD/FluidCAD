@@ -12,6 +12,7 @@ import { PlaneObject } from "../features/plane.js";
 import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { Locations, type LocationKind } from "../features/locations.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
+import { FeatureLayouts, type FeatureDialogWidth, type FeatureLayout, type FeatureLayoutChecks, type FeatureStaticItem } from "./layout.js";
 
 /** Where a feature's button sits: with the features that make solids, or those that change them. */
 export type FeatureGroup = 'create' | 'modify';
@@ -315,6 +316,16 @@ export type FeatureMeta = {
   ghost?: boolean;
   /** Where the feature may be used; `['part']`, the only context so far, when left out. */
   contexts?: readonly FeatureContext[];
+  /**
+   * The dialog's rows, top to bottom (see {@link FeatureLayout}): every
+   * value placed exactly once, and none carrying a `group` or `tab` of its
+   * own. Left out, it is derived from the values' `group` and `tab`.
+   */
+  layout?: FeatureLayout;
+  /** How wide the dialog opens; the default width when left out. */
+  width?: FeatureDialogWidth;
+  /** Notes, images and dividers shown beside the rows. */
+  aside?: readonly FeatureStaticItem[];
 };
 
 /**
@@ -322,7 +333,7 @@ export type FeatureMeta = {
  * the class, every default filled — a value's too, where it resolves to one
  * it doesn't declare (see {@link FeatureMetas.defaultOf}).
  */
-export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'ghost' | 'contexts'> & {
+export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'ghost' | 'contexts' | 'layout'> & {
   id: string;
   operations: readonly FeatureOperation[];
   /** What a statement without an operation chain does (see `FeatureCall.defaultOperationOf`); null without operations. */
@@ -330,6 +341,8 @@ export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'gho
   /** Whether the dialog draws a preview: the metadata allows one and the class has one to draw. */
   ghost: boolean;
   contexts: readonly FeatureContext[];
+  /** The dialog's rows: the author's, or the one derived from the values' `group` and `tab` (see {@link FeatureLayouts.derive}). */
+  layout: FeatureLayout;
 }>;
 
 /** A value's spec in a snapshot: as declared, its label and its resolved default filled in (see {@link FeatureMetas.defaultOf}). */
@@ -354,6 +367,10 @@ export type FeatureMetaSnapshot = {
   /** Whether the dialog draws a preview — the UI asks for none when false. */
   ghost: boolean;
   contexts: FeatureContext[];
+  /** The dialog's rows, always there: as the author wrote them, or derived from the values' `group` and `tab`. */
+  layout: FeatureLayout;
+  width?: FeatureDialogWidth;
+  aside?: readonly FeatureStaticItem[];
 };
 
 /** A module export that is a feature's builder. */
@@ -368,7 +385,7 @@ class FeatureMetaValidator {
 
   private static readonly FIELDS = new Set([
     'class', 'label', 'description', 'icon', 'group', 'kind', 'operations',
-    'params', 'call', 'ghost', 'contexts',
+    'params', 'call', 'ghost', 'contexts', 'layout', 'width', 'aside',
   ]);
 
   /** Fields refused by name rather than as unknown, each with why it is left out. */
@@ -512,12 +529,28 @@ class FeatureMetaValidator {
     const call = this.call(meta.call, operations, params, id);
     const ghost = this.ghost(meta.ghost, featureClass as typeof Feature);
     const contexts = this.contexts(meta.contexts);
+    const checks = this.layoutChecks(params);
+    const layout = meta.layout === undefined ? FeatureLayouts.derive(params) : FeatureLayouts.check(meta.layout, checks);
+    const width = meta.width === undefined ? undefined : this.oneOf(meta.width, "'width'", FeatureLayouts.WIDTHS);
+    const aside = meta.aside === undefined ? undefined : FeatureLayouts.checkAside(meta.aside, checks);
 
     const resolved: Record<string, unknown> = {
       id, class: featureClass, label, description, icon, group, kind, operations,
       defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, ghost, contexts,
+      layout, width, aside,
     };
     return Object.freeze(FeatureMetaValidator.defined(resolved)) as ResolvedFeatureMeta;
+  }
+
+  /** What the layout's checks borrow: the values, this validator's refusals, its clause check and its image check. */
+  private layoutChecks(params: Record<string, ParamSpec>): FeatureLayoutChecks {
+    return {
+      params,
+      fail: message => this.fail(message),
+      clauses: (where, value) => this.clauses(where, '', value, params),
+      image: (value, where) => this.image(value, 'image', where),
+      describe: value => FeatureMetaValidator.describe(value),
+    };
   }
 
   /** The class's id, refusing anything but a `Feature` subclass with a well-formed one. */
@@ -1404,7 +1437,8 @@ export class FeatureMetas {
   /**
    * The metadata as plain JSON: the class left out (it becomes its id),
    * every default filled, each value's label filled from its name when it
-   * declares none. Reads any metadata object, checked or not, and
+   * declares none, the layout always there — the declared one as written,
+   * else the derived one. Reads any metadata object, checked or not, and
    * whichever kernel checked it.
    */
   static snapshot(meta: FeatureMeta | ResolvedFeatureMeta): FeatureMetaSnapshot {
@@ -1427,12 +1461,16 @@ export class FeatureMetas {
       call: FeatureMetas.json(meta.call ?? []),
       ghost: FeatureMetas.ghostOf(meta),
       contexts: [...(meta.contexts ?? ['part'])],
+      layout: FeatureMetas.json(meta.layout ?? FeatureLayouts.derive(meta.params ?? {})),
+      width: meta.width,
+      aside: meta.aside === undefined ? undefined : FeatureMetas.json(meta.aside),
     }) as FeatureMetaSnapshot;
   }
 
   /**
-   * Every file the metadata declares, each once, in order: the icon, then
-   * the options' images in declaration order. Reads the metadata or its
+   * Every file the metadata declares, each once, in order: the icon, the
+   * options' images in declaration order, then the images of the layout
+   * and of the aside. Reads the metadata or its
    * snapshot; it is the whole list of what may be served for the feature.
    */
   static assetsOf(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
@@ -1441,6 +1479,7 @@ export class FeatureMetas {
       const options = 'options' in spec && Array.isArray(spec.options) ? spec.options as readonly ChoiceOption[] : [];
       paths.push(...options.map(option => option.image));
     }
+    paths.push(...FeatureLayouts.images(meta.layout), ...FeatureLayouts.images(meta.aside));
     return [...new Set(paths.filter((path): path is string => typeof path === 'string'))];
   }
 
@@ -1871,7 +1910,7 @@ export function snapshotFeatureMeta(meta: FeatureMeta | ResolvedFeatureMeta): Fe
   return FeatureMetas.snapshot(meta);
 }
 
-/** Every file a feature's metadata declares — its icon, its options' images (see {@link FeatureMetas.assetsOf}). */
+/** Every file a feature's metadata declares — its icon, its options' images, its layout's and aside's (see {@link FeatureMetas.assetsOf}). */
 export function listFeatureAssets(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
   return FeatureMetas.assetsOf(meta);
 }

@@ -116,6 +116,8 @@ describe("draft, written on the Feature base", () => {
       call: ['angle', '...faces'],
       ghost: true,
       contexts: ['part'],
+      // Derived: draft declares no layout, no group, no tab.
+      layout: ['angle', 'faces'],
     });
   });
 

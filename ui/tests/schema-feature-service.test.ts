@@ -1457,3 +1457,41 @@ describe('a select of several in a custom feature dialog', () => {
     expect(lastEdit()!.values).toEqual({ finishes: [], marks: [2] });
   });
 });
+
+describe('options that wait on another value in a custom feature dialog', () => {
+  /** A tapped hole: the sizes on offer are the standard's own. */
+  const TAP = meta('acme.tap', 'Tap', {
+    face: { picker: 'face', label: 'Face' },
+    standard: { type: 'select', label: 'Standard', default: 'iso', options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }] },
+    size: {
+      type: 'select', label: 'Size', default: 'm3',
+      options: [
+        { label: 'M3', value: 'm3', when: { standard: 'iso' } },
+        { label: 'M4', value: 'm4', when: { standard: 'iso' } },
+        { label: '#4', value: 'n4', when: { standard: 'unc' } },
+        { label: '#6', value: 'n6', when: { standard: 'unc' } },
+      ],
+    },
+  }, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { standard: 'standard', size: 'size' }] });
+
+  it('writes nothing while untouched, and the size that moved with the standard once it is switched', async () => {
+    const { service, type, input, lastCreate, lastGhost } = mount(TAP);
+    service.enter();
+    expect([...input('size').options].map(o => o.textContent)).toEqual(['M3', 'M4']);
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({});
+
+    // The user changed the standard only: its sizes replace the others, and the size shown is written with it.
+    type('standard', '1');
+    await vi.advanceTimersByTimeAsync(300);
+    expect([...input('size').options].map(o => o.textContent)).toEqual(['#4', '#6']);
+    expect(lastCreate()!.values).toEqual({ standard: 'unc', size: 'n4' });
+    expect(lastGhost()![0].values).toEqual({ standard: 'unc', size: 'n4' });
+
+    type('size', '1');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ standard: 'unc', size: 'n6' });
+    service.exit();
+  });
+});

@@ -1,5 +1,5 @@
-import type { FeatureChoiceOption, FeatureScalarParam, FeatureScalarValue, NewVariable, ValueExpr } from '../../../api';
-import { OptionButton, RadioGroup, type ChoiceItem } from '../../../ui/controls';
+import type { FeatureBooleanSpec, FeatureChoiceOption, FeatureNumberSpec, FeatureScalarParam, FeatureTextSpec, FeatureScalarValue, NewVariable, ValueExpr } from '../../../api';
+import { OptionButton, RadioGroup, RangeTrack, type ChoiceItem } from '../../../ui/controls';
 import { ExpressionField } from '../../../ui/expression-field';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeatureSchema } from './feature-schema';
@@ -99,6 +99,12 @@ export abstract class SchemaField {
 
   /** The row for a value of this declaration. */
   static create(name: string, spec: FeatureScalarParam, context: SchemaFieldContext = SchemaField.BARE): SchemaField {
+    const field = SchemaField.build(name, spec, context);
+    FeatureSchema.appendHint(field.row, spec.hint);
+    return field;
+  }
+
+  private static build(name: string, spec: FeatureScalarParam, context: SchemaFieldContext): SchemaField {
     switch (spec.type) {
       case 'boolean':
         return new BooleanField(name, spec);
@@ -123,14 +129,20 @@ export abstract class SchemaField {
  * for a value left out; one without a default holds nothing.
  */
 class NumberField extends SchemaField {
+  private static readonly STEP_CLASS = 'btn btn-sm btn-square btn-ghost border border-base-300';
+
   private readonly field: ExpressionField;
+  private readonly look: FeatureNumberSpec;
+  private track: RangeTrack | null = null;
+  private steppers: HTMLButtonElement[] = [];
 
   constructor(name: string, spec: FeatureScalarParam) {
     super(name, spec);
+    this.look = spec as FeatureNumberSpec;
     this.row.className = 'flex flex-col gap-1.5';
     const label = document.createElement('span');
     label.className = LABEL_CLASS;
-    label.textContent = spec.label + NumberField.unitHint(spec);
+    label.textContent = spec.label + NumberField.unitHint(this.look);
     const input = document.createElement('input');
     input.dataset.role = `value-${name}`;
     input.type = 'number';
@@ -138,11 +150,96 @@ class NumberField extends SchemaField {
     if (typeof spec.default === 'number') {
       input.placeholder = String(spec.default);
     }
-    this.row.append(label, input);
+    this.row.append(label);
+    const { min, max, display, suffix } = this.look;
+    if (display === 'slider' && min !== undefined && max !== undefined) {
+      this.track = new RangeTrack({ min, max, step: NumberField.trackStep(this.look) });
+      this.track.element.dataset.role = `track-${name}`;
+      this.track.onInput = value => this.write(value);
+      this.row.append(this.track.element);
+    }
+    const line = document.createElement('div');
+    line.className = 'flex items-center gap-1';
+    const box = document.createElement('div');
+    box.className = 'relative flex-1';
+    box.append(input);
+    if (suffix) {
+      const unit = document.createElement('span');
+      unit.dataset.role = `suffix-${name}`;
+      unit.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-base-content/50 pointer-events-none';
+      unit.textContent = suffix;
+      input.classList.add('pr-10');
+      box.append(unit);
+    }
+    line.append(box);
+    if (display === 'stepper') {
+      this.steppers = [-1, 1].map(direction => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.role = `${direction < 0 ? 'decrement' : 'increment'}-${name}`;
+        button.className = NumberField.STEP_CLASS;
+        button.textContent = direction < 0 ? '−' : '+';
+        button.setAttribute('aria-label', `${direction < 0 ? 'Decrease' : 'Increase'} ${spec.label}`);
+        button.addEventListener('click', () => this.stepBy(direction));
+        return button;
+      });
+      line.prepend(this.steppers[0]);
+      line.append(this.steppers[1]);
+    }
+    this.row.append(line);
     // The field flips the input to text, so identifiers and expressions type in.
     this.field = new ExpressionField(input);
     this.field.onSubmit = () => this.onSubmit?.();
-    input.addEventListener('input', () => this.touch());
+    input.addEventListener('input', () => {
+      this.follow();
+      this.touch();
+    });
+    this.follow();
+  }
+
+  /** The number the input holds: undefined for an expression or a variable; null while it is empty. */
+  private get plain(): number | null | undefined {
+    const read = this.field.read();
+    if ('error' in read) {
+      return read.error === 'empty' ? null : undefined;
+    }
+    return typeof read.value === 'number' ? read.value : undefined;
+  }
+
+  /** The track and the buttons follow the input: a number places the thumb, an expression greys both. */
+  private follow(): void {
+    const plain = this.plain;
+    this.track?.setValue(typeof plain === 'number' ? plain : undefined);
+    for (const button of this.steppers) {
+      button.disabled = plain === undefined;
+    }
+  }
+
+  /** A number from the track or the buttons: into the input, as the user's. */
+  private write(value: number): void {
+    this.field.setValue(Number(value.toPrecision(12)));
+    this.follow();
+    this.touch();
+  }
+
+  /** One step up or down from the number shown (an empty row starts at its default, else its min, else 0), kept inside the range. */
+  private stepBy(direction: number): void {
+    const plain = this.plain;
+    if (plain === undefined) {
+      return;
+    }
+    const { min, max, step, default: fallback } = this.look;
+    const next = (plain ?? fallback ?? min ?? 0) + direction * (step ?? 1);
+    this.write(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, next)));
+  }
+
+  /** The track's step: the declared one, 1 for an integer, else a hundredth of the range to one figure. */
+  private static trackStep(spec: FeatureNumberSpec): number {
+    if (spec.step !== undefined) {
+      return spec.step;
+    }
+    const span = (spec.max ?? 0) - (spec.min ?? 0);
+    return spec.type === 'integer' || !(span > 0) ? 1 : Number((span / 100).toPrecision(1));
   }
 
   current(): FeatureScalarValue | undefined {
@@ -166,6 +263,7 @@ class NumberField extends SchemaField {
 
   protected show(value: ValueExpr | boolean | string | undefined): void {
     this.field.setValue(typeof value === 'number' || typeof value === 'string' ? value : '');
+    this.follow();
   }
 
   setVariables(variables: VariableInfo[]): void {
@@ -176,8 +274,9 @@ class NumberField extends SchemaField {
     this.field.destroy();
   }
 
-  private static unitHint(spec: FeatureScalarParam): string {
-    return spec.type === 'angle' ? ' (°)' : '';
+  /** An angle says its unit in the label, unless a `suffix` says it in the input. */
+  private static unitHint(spec: FeatureNumberSpec): string {
+    return spec.type === 'angle' && !spec.suffix ? ' (°)' : '';
   }
 }
 
@@ -194,10 +293,17 @@ class BooleanField extends SchemaField {
     this.input = document.createElement('input');
     this.input.dataset.role = `value-${name}`;
     this.input.type = 'checkbox';
-    this.input.className = 'toggle toggle-sm toggle-primary';
+    const checkbox = (spec as FeatureBooleanSpec).display === 'checkbox';
+    this.input.className = checkbox ? 'checkbox checkbox-sm checkbox-primary' : 'toggle toggle-sm toggle-primary';
     const wrap = document.createElement('label');
-    wrap.className = 'contents';
-    wrap.append(label, this.input);
+    wrap.className = checkbox ? 'flex items-center gap-2 cursor-pointer' : 'contents';
+    if (checkbox) {
+      // A checkbox leads its label, as checkboxes do.
+      this.row.className = 'flex items-center cursor-pointer';
+      wrap.append(this.input, label);
+    } else {
+      wrap.append(label, this.input);
+    }
     this.row.append(wrap);
     this.input.addEventListener('change', () => this.touch());
   }
@@ -434,26 +540,54 @@ class RadioField extends ChoiceField {
  * nothing; with one, emptying the row writes the empty string.
  */
 class TextField extends SchemaField {
-  private readonly input: HTMLInputElement;
+  private readonly input: HTMLInputElement | HTMLTextAreaElement;
+  private readonly look: FeatureTextSpec;
+  /** The declared pattern, matched against the whole value; null without one. */
+  private readonly pattern: RegExp | null;
 
   constructor(name: string, spec: FeatureScalarParam) {
     super(name, spec);
+    this.look = spec as FeatureTextSpec;
+    this.pattern = TextField.compile(this.look.pattern);
     this.row.className = 'flex flex-col gap-1.5';
     const label = document.createElement('span');
     label.className = LABEL_CLASS;
     label.textContent = spec.label;
-    this.input = document.createElement('input');
+    const multiline = this.look.multiline === true;
+    if (multiline) {
+      this.input = document.createElement('textarea');
+      this.input.rows = 3;
+      this.input.className = 'textarea textarea-sm textarea-bordered w-full text-xs';
+    } else {
+      this.input = document.createElement('input');
+      this.input.type = 'text';
+      this.input.className = INPUT_CLASS;
+    }
     this.input.dataset.role = `value-${name}`;
-    this.input.type = 'text';
-    this.input.className = INPUT_CLASS;
+    if (this.look.placeholder) {
+      this.input.placeholder = this.look.placeholder;
+    }
     this.row.append(label, this.input);
     this.input.addEventListener('input', () => this.touch());
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
+    this.input.addEventListener('keydown', (e: Event) => {
+      const key = e as KeyboardEvent;
+      // Several lines: Enter is a new line, and Ctrl/Cmd+Enter applies.
+      if (key.key === 'Enter' && (!multiline || key.ctrlKey || key.metaKey)) {
+        key.preventDefault();
         this.onSubmit?.();
       }
     });
+  }
+
+  private static compile(pattern: string | undefined): RegExp | null {
+    if (!pattern) {
+      return null;
+    }
+    try {
+      return new RegExp(`^(?:${pattern})$`, 'u');
+    } catch {
+      return null;
+    }
   }
 
   current(): FeatureScalarValue | undefined {
@@ -461,7 +595,17 @@ class TextField extends SchemaField {
   }
 
   read(): FieldRead {
-    return this.holdsNothing ? { empty: true } : { value: this.input.value };
+    if (this.holdsNothing) {
+      return { empty: true };
+    }
+    const value = this.input.value;
+    if (this.look.maxLength !== undefined && value.length > this.look.maxLength) {
+      return { error: `${this.spec.label} is at most ${this.look.maxLength} characters` };
+    }
+    if (this.pattern && !this.pattern.test(value)) {
+      return { error: `${this.spec.label} must match ${this.look.pattern}` };
+    }
+    return { value };
   }
 
   protected show(value: ValueExpr | boolean | string | undefined): void {

@@ -6112,6 +6112,8 @@ type FeatureParamCommon = {
   group?: string;
   /** The dialog tab the row sits on; rows without one sit above the tabs. */
   tab?: string;
+  /** A line of small text under the row's control; `description` stays the tooltip. */
+  hint?: string;
   visibleWhen?: FeatureVisibleWhen;
   /** The value may be left out. */
   optional?: boolean;
@@ -6132,9 +6134,24 @@ export type FeatureChoiceOption = {
 };
 
 /** A value the dialog types in. Lengths are in the document's unit, angles in degrees. */
+/** A number's declaration: its range, and how its row looks beside the input. */
+export type FeatureNumberSpec = {
+  type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number;
+  /** A `slider` (a track from `min` to `max`, its default `min`) or a `stepper` (− / +); left out, the plain input. */
+  display?: 'slider' | 'stepper';
+  /** A short unit shown at the end of the input. */
+  suffix?: string;
+};
+
+/** A boolean's declaration: a `checkbox` in place of the toggle. */
+export type FeatureBooleanSpec = { type: 'boolean'; default?: boolean; display?: 'checkbox' };
+
+/** A text's declaration: several lines, what the empty input shows, and the limits the whole value keeps to. */
+export type FeatureTextSpec = { type: 'text'; default?: string; multiline?: boolean; placeholder?: string; maxLength?: number; pattern?: string };
+
 export type FeatureScalarParam = FeatureParamCommon & (
-  | { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
-  | { type: 'boolean'; default?: boolean }
+  | FeatureNumberSpec
+  | FeatureBooleanSpec
   | {
     type: 'select'; options: FeatureChoiceOption[]; default?: string | number;
     /** A `list` of rows (the default) or a `grid` of images. */
@@ -6151,7 +6168,7 @@ export type FeatureScalarParam = FeatureParamCommon & (
     /** The cards' columns, 2 to 6. */
     columns?: number;
   }
-  | { type: 'text'; default?: string }
+  | FeatureTextSpec
 );
 
 /** The public picker kinds. */

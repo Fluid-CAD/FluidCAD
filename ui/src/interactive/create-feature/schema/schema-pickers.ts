@@ -217,6 +217,7 @@ export class SchemaPicker {
     }
     const mount = document.createElement('div');
     this.row.appendChild(mount);
+    FeatureSchema.appendHint(this.row, spec.hint);
     this.slot = new PickSlot(mount, {
       label: spec.label,
       multiple: this.isList,

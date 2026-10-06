@@ -196,6 +196,19 @@ export class FeatureSchema {
   }
 
   /** Why a typed-in number can't be this value, or null — the engine's own checks, before it sees it. */
+  /** A value's `hint` as a line of small text at the end of its row — a typed-in row's and a picker's alike. */
+  static appendHint(row: HTMLElement, hint: string | undefined): void {
+    if (!hint) {
+      return;
+    }
+    const line = document.createElement('div');
+    line.dataset.role = 'hint';
+    line.className = 'w-full text-[11px] text-base-content/50';
+    line.textContent = hint;
+    row.classList.add('flex-wrap');
+    row.append(line);
+  }
+
   static numberError(spec: FeatureScalarParam, value: number): string | null {
     if (spec.type !== 'number' && spec.type !== 'integer' && spec.type !== 'length' && spec.type !== 'angle') {
       return null;

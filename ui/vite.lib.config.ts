@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import tailwindcss from '@tailwindcss/vite';
+import { buildLogger } from './build-logger.ts';
 
 /**
  * Library build of the read-only viewer core (`fluidcad/viewer-ui`). Emits a
@@ -10,9 +11,11 @@ import tailwindcss from '@tailwindcss/vite';
  */
 export default defineConfig({
   root: path.resolve(import.meta.dirname),
+  customLogger: buildLogger(),
   plugins: [tailwindcss()],
   build: {
     outDir: 'dist-lib',
+    reportCompressedSize: false,
     emptyOutDir: true,
     cssCodeSplit: false,
     lib: {

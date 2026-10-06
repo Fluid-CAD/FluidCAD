@@ -83,7 +83,9 @@ and optionally an `image`, a `description` (a line under the label), a
 search finds it by; a non-empty list). An `image` is a relative path to an
 image inside the module's directory, as `icon` is in
 [`defineFeature`](./define-feature.md): `'./img/m3.svg'`, never `../` or a
-URL. Any other option field is refused by name.
+URL. It is shown as a picture, so `currentColor` in an SVG draws black:
+line art in a mid-tone (`stroke="#8a94a6"`) reads in both the light and the
+dark theme. Any other option field is refused by name.
 
 | Type | `display` | `columns` |
 |---|---|---|

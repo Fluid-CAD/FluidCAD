@@ -76,6 +76,19 @@ export abstract class SchemaField {
     this.show(value);
   }
 
+  /**
+   * Narrows the row to the options the typed-in values offer; true when what
+   * it holds moved for it. Only a row of options has any to narrow.
+   */
+  setOffered(_scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    return false;
+  }
+
+  /** Counts the row as changed without announcing it: the panel's pass that moved it announces once. */
+  protected moved(): void {
+    this.changed = true;
+  }
+
   protected abstract show(value: FieldValue | undefined): void;
 
   setVisible(visible: boolean): void {
@@ -334,6 +347,12 @@ type ChoiceValue = string | number;
  */
 abstract class OptionsField extends SchemaField {
   protected readonly options: readonly FeatureChoiceOption[];
+  /** The options the row lists now: all of them until `setOffered` narrows. */
+  protected offered: readonly FeatureChoiceOption[];
+  private open: readonly FeatureChoiceOption[];
+  private kept: ChoiceValue[] = [];
+  private fresh = false;
+  private none: HTMLElement | null = null;
 
   constructor(name: string, spec: FeatureScalarParam, protected readonly context: SchemaFieldContext) {
     super(name, spec);
@@ -343,11 +362,99 @@ abstract class OptionsField extends SchemaField {
     label.textContent = spec.label;
     this.row.append(label);
     this.options = spec.type === 'select' || spec.type === 'radio' ? spec.options : [];
+    this.offered = this.open = this.options;
+  }
+
+  /** The muted line that stands in for the choices; made the first time there are none, so a row that always has some is unchanged. */
+  private note(): HTMLElement {
+    if (!this.none) {
+      this.none = document.createElement('span');
+      this.none.className = 'text-xs text-base-content/50';
+      this.none.dataset.role = 'no-options';
+      this.none.textContent = 'No options';
+      this.row.append(this.none);
+    }
+    return this.none;
+  }
+
+  /** What the row holds, as a list: a single choice is a list of one or none. */
+  protected abstract held(): ChoiceValue[];
+
+  /** Shows `offered` in the control, holding on to what of `before` it still carries. */
+  protected abstract offer(before: ChoiceValue[]): void;
+
+  /** The element that shows the choices, which "No options" stands in for. */
+  protected abstract get control(): HTMLElement;
+
+  /** Seeding starts from every option: the pass that follows narrows them around what was seeded. */
+  seed(value: FieldValue | undefined): void {
+    this.fresh = true;
+    this.kept = [];
+    this.open = this.options;
+    this.present(this.options, []);
+    super.seed(value);
+  }
+
+  /**
+   * The options whose `when` holds, in declared order. What a seed put in the
+   * row stays listed though its `when` fails — a statement may hold any
+   * declared option, and the row shows what the statement says — until the
+   * other values change what is offered. A choice that then falls away moves
+   * to the first one offered (a list drops it) and the row counts as changed.
+   */
+  setOffered(scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    if (!this.options.some(option => option.when !== undefined)) {
+      return false;
+    }
+    const open = this.options.filter(option => FeatureSchema.holds(option.when, scalars));
+    if (this.fresh) {
+      this.kept = this.held().filter(value => !open.some(option => option.value === value));
+    } else if (!OptionsField.same(open, this.open)) {
+      this.kept = [];
+    }
+    this.fresh = false;
+    this.open = open;
+    const before = this.held();
+    if (!this.present(this.options.filter(option => open.includes(option) || this.kept.includes(option.value)), before)) {
+      return false;
+    }
+    const after = this.held();
+    if (before.length === after.length && before.every((value, index) => value === after[index])) {
+      return false;
+    }
+    this.moved();
+    return true;
+  }
+
+  /** Puts `offered` in the row; false when it is what the row shows already. */
+  private present(offered: readonly FeatureChoiceOption[], before: ChoiceValue[]): boolean {
+    if (OptionsField.same(offered, this.offered)) {
+      return false;
+    }
+    this.offered = offered;
+    this.offer(before);
+    if (offered.length === 0 || this.none) {
+      this.note().hidden = offered.length > 0;
+    }
+    this.control.hidden = offered.length === 0;
+    return true;
+  }
+
+  /** What `read()` answers while no option is offered, and nothing otherwise. */
+  protected get nothingOffered(): FieldRead | undefined {
+    if (this.offered.length > 0) {
+      return undefined;
+    }
+    return this.spec.optional ? { empty: true } : { error: `${this.spec.label} has no option to choose.` };
+  }
+
+  private static same(a: readonly FeatureChoiceOption[], b: readonly FeatureChoiceOption[]): boolean {
+    return a.length === b.length && a.every((option, index) => option === b[index]);
   }
 
   /** The options as a control takes them, each image where it is served now. */
   protected items(): ChoiceItem<ChoiceValue>[] {
-    return this.options.map(option => ({
+    return this.offered.map(option => ({
       value: option.value,
       label: option.label,
       image: option.image === undefined ? undefined : this.context.assetUrl(option.image),
@@ -394,8 +501,22 @@ abstract class ChoiceField extends OptionsField {
 
   read(): FieldRead {
     const value = this.chosen;
-    return value === undefined ? { empty: true } : { value };
+    return this.nothingOffered ?? (value === undefined ? { empty: true } : { value });
   }
+
+  protected held(): ChoiceValue[] {
+    const value = this.chosen;
+    return value === undefined ? [] : [value];
+  }
+
+  protected offer(before: ChoiceValue[]): void {
+    this.relist();
+    const stays = this.offered.some(option => option.value === before[0]);
+    this.choose(stays ? before[0] : this.unset ? undefined : this.offered[0]?.value);
+  }
+
+  /** Rebuilds the control's choices from `offered`. */
+  protected abstract relist(): void;
 
   /** A value no option carries shows as a fresh row does: nothing where the row may hold nothing, else the first option. */
   protected show(value: FieldValue | undefined): void {
@@ -417,13 +538,13 @@ class SelectField extends ChoiceField {
   static readonly SEARCH_ABOVE = 12;
 
   /** What each entry of the control stands for, by its index; the empty choice is undefined. */
-  private readonly values: (ChoiceValue | undefined)[];
+  private values: (ChoiceValue | undefined)[] = [];
   private readonly select: HTMLSelectElement | null = null;
   private readonly button: OptionButton<number> | null = null;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
     super(name, spec, context);
-    this.values = this.unset ? [undefined, ...this.options.map(o => o.value)] : this.options.map(o => o.value);
+    this.index();
     if (SelectField.isRich(spec)) {
       const select = spec.type === 'select' ? spec : undefined;
       this.button = new OptionButton<number>({
@@ -441,14 +562,32 @@ class SelectField extends ChoiceField {
     this.select = document.createElement('select');
     this.select.dataset.role = `value-${name}`;
     this.select.className = 'select select-sm select-bordered w-full text-xs';
-    this.values.forEach((value, index) => {
-      const el = document.createElement('option');
-      el.value = String(index);
-      el.textContent = value === undefined ? ChoiceField.NONE : this.options[index - (this.unset ? 1 : 0)].label;
-      this.select!.appendChild(el);
-    });
+    this.relist();
     this.row.append(this.select);
     this.select.addEventListener('change', () => this.touch());
+  }
+
+  protected get control(): HTMLElement {
+    return (this.select ?? this.button!.element);
+  }
+
+  private index(): void {
+    const values = this.offered.map(o => o.value);
+    this.values = this.unset ? [undefined, ...values] : values;
+  }
+
+  protected relist(): void {
+    this.index();
+    if (!this.select) {
+      this.button?.setItems(this.entries());
+      return;
+    }
+    this.select.replaceChildren(...this.values.map((value, index) => {
+      const el = document.createElement('option');
+      el.value = String(index);
+      el.textContent = value === undefined ? ChoiceField.NONE : this.offered[index - (this.unset ? 1 : 0)].label;
+      return el;
+    }));
   }
 
   protected get chosen(): ChoiceValue | undefined {
@@ -530,8 +669,25 @@ class MultiSelectField extends OptionsField {
     return undefined;
   }
 
+  protected get control(): HTMLElement {
+    return this.button.element;
+  }
+
+  protected held(): ChoiceValue[] {
+    return this.button.value;
+  }
+
+  /** The button keeps the values its items still carry, and lets go of the rest. */
+  protected offer(): void {
+    this.button.setItems(this.items());
+  }
+
   read(): FieldRead {
     const value = this.button.value;
+    const nothing = this.nothingOffered;
+    if (nothing) {
+      return nothing;
+    }
     if (this.min !== undefined && value.length < this.min) {
       return { error: `${this.spec.label} takes at least ${this.min}.` };
     }
@@ -566,12 +722,20 @@ class MultiSelectField extends OptionsField {
  * may hold nothing starts with none chosen and offers a Clear once one is.
  */
 class RadioField extends ChoiceField {
-  private group: RadioGroup<ChoiceValue>;
+  private readonly group: RadioGroup<ChoiceValue>;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
     super(name, spec, context);
     this.group = this.build(undefined);
     this.row.append(this.group.element);
+  }
+
+  protected get control(): HTMLElement {
+    return this.group.element;
+  }
+
+  protected relist(): void {
+    this.group.setItems(this.items());
   }
 
   protected get chosen(): ChoiceValue | undefined {
@@ -584,13 +748,9 @@ class RadioField extends ChoiceField {
 
   /** The group is drawn once, so new images take a new one — holding what the old one held. */
   refreshImages(): void {
-    if (!this.hasImages) {
-      return;
+    if (this.hasImages) {
+      this.group.setItems(this.items());
     }
-    const old = this.group;
-    this.group = this.build(old.value);
-    old.element.replaceWith(this.group.element);
-    old.destroy();
   }
 
   destroy(): void {

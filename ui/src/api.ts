@@ -6125,6 +6125,8 @@ type FeatureParamCommon = {
 export type FeatureChoiceOption = {
   label: string;
   value: string | number;
+  /** When the dialog offers the option: the clauses of a `visibleWhen`. Always, without one. */
+  when?: FeatureVisibleWhen;
   /** A picture of the choice: a file next to the module, served as the icon is. */
   image?: string;
   /** A line under the label. */

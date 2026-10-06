@@ -519,3 +519,126 @@ describe('a select of several in a schema dialog', () => {
     panel.hide();
   });
 });
+
+describe("dependent options in a schema dialog: an option's 'when'", () => {
+  const SIZES = [
+    { label: 'M3', value: 'm3', when: { standard: 'iso' } },
+    { label: 'M4', value: 'm4', when: { standard: 'iso' } },
+    { label: '#4', value: 'n4', when: { standard: 'unc' } },
+  ];
+  const SCREW: FeatureMetaSnapshot = {
+    ...VENT,
+    id: 'acme.screw',
+    label: 'Screw',
+    params: {
+      standard: { type: 'select', label: 'Standard', default: 'iso', options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }, { label: 'Other', value: 'other' }] },
+      // The three select paths — the native one, the popover, the list — and a radio at the end of a chain: standard → size → thread.
+      size: { type: 'select', label: 'Size', default: 'm3', options: SIZES },
+      grid: { type: 'select', label: 'Grid', default: 'm3', display: 'grid', options: SIZES },
+      several: { type: 'select', multiple: true, label: 'Several', default: ['m3'], options: [...SIZES, { label: 'Custom', value: 'custom' }] },
+      thread: {
+        type: 'radio', label: 'Thread', default: 'coarse',
+        options: [{ label: 'Coarse', value: 'coarse', when: { size: 'm3' } }, { label: 'Fine', value: 'fine', when: { size: ['m3', 'm4'] } }, { label: 'UNC', value: 'unc', when: { size: 'n4' } }],
+      },
+      stamp: { type: 'select', label: 'Stamp', optional: true, options: [{ label: 'Lot', value: 'lot', when: { standard: 'unc' } }] },
+    },
+  };
+  const panels: SchemaFeaturePanel[] = [];
+  const screw = () => {
+    const { panel, root } = mount(SCREW);
+    panels.push(panel);
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    const listed = (name: string) => [...(control(name) as HTMLSelectElement).options].map(option => option.textContent);
+    const pick = (name: string, label: string) => {
+      const select = control(name) as HTMLSelectElement;
+      select.selectedIndex = listed(name).indexOf(label);
+      select.dispatchEvent(new Event('change'));
+    };
+    const field = (name: string) => panel.fields.get(name)!;
+    const dirty = () => [...panel.fields].filter(([, each]) => each.dirty).map(([name]) => name);
+    // The muted line is made the first time a row has no option; shown is there and not hidden.
+    const note = (name: string) => field(name).row.querySelector<HTMLElement>('[data-role="no-options"]');
+    const none = (name: string) => ({ hidden: note(name)?.hidden ?? true, textContent: note(name)?.textContent });
+    return { panel, root, control, listed, pick, field, dirty, none };
+  };
+
+  afterEach(() => {
+    panels.splice(0).forEach(panel => panel.destroy());
+  });
+
+  it('opens on what the defaults offer, with nothing the user\'s — an untouched create writes nothing', () => {
+    const { control, listed, field, dirty, none } = screw();
+    expect(listed('size')).toEqual(['M3', 'M4']);
+    expect(control('grid').textContent).toContain('M3');
+    expect(field('several').read()).toEqual({ value: ['m3'] });
+    expect([...control('thread').querySelectorAll('input[type="radio"], [role="radio"]')]).toHaveLength(2);
+    expect(dirty()).toEqual([]);
+    // An optional row with nothing offered shows so, and holds nothing.
+    expect(none('stamp').hidden).toBe(false);
+    expect(control('stamp').hidden).toBe(true);
+    expect(field('stamp').read()).toEqual({ empty: true });
+    expect(none('size').hidden).toBe(true);
+  });
+
+  it('moves a choice that fell away to the first one offered, on every path and down the chain, as one change', () => {
+    const { panel, control, listed, pick, field, dirty, none } = screw();
+    let changes = 0;
+    panel.onChange = () => changes++;
+    pick('standard', 'Imperial');
+    expect(changes).toBe(1);
+    expect(listed('size')).toEqual(['#4']);
+    expect(field('size').read()).toEqual({ value: 'n4' });
+    expect(field('grid').read()).toEqual({ value: 'n4' });
+    expect(control('grid').textContent).toContain('#4');
+    // A list drops what is no longer offered and keeps the rest.
+    expect(field('several').read()).toEqual({ value: [] });
+    // The radio waits on `size`, which moved in the same pass.
+    expect(field('thread').read()).toEqual({ value: 'unc' });
+    expect([...control('thread').querySelectorAll('input[type="radio"], [role="radio"]')]).toHaveLength(1);
+    expect(dirty()).toEqual(['standard', 'size', 'grid', 'several', 'thread']);
+    // The optional row has an option now, and still holds nothing: it had none to lose.
+    expect(none('stamp').hidden).toBe(true);
+    expect(listed('stamp')).toEqual(['—', 'Lot']);
+    expect(field('stamp').read()).toEqual({ empty: true });
+  });
+
+  it('shows "No options" where none is offered, and a required row then blocks with its reason', () => {
+    const { control, pick, field, none } = screw();
+    pick('standard', 'Other');
+    expect(none('size').hidden).toBe(false);
+    expect(none('size').textContent).toBe('No options');
+    expect(control('size').hidden).toBe(true);
+    expect(field('size').read()).toEqual({ error: 'Size has no option to choose.' });
+    expect(field('thread').read()).toEqual({ error: 'Thread has no option to choose.' });
+    // A list keeps the option that carries no `when`.
+    expect(field('several').read()).toEqual({ value: [] });
+    expect(none('several').hidden).toBe(true);
+    pick('standard', 'Metric');
+    expect(none('size').hidden).toBe(true);
+    expect(field('size').read()).toEqual({ value: 'm3' });
+    expect(field('thread').read()).toEqual({ value: 'coarse' });
+  });
+
+  it('shows what an edited statement says though its \'when\' fails, clean until the other values narrow it away', () => {
+    const { panel, listed, pick, field, dirty } = screw();
+    panel.showEdit({ values: { standard: 'iso', size: 'n4', grid: 'n4', several: ['n4', 'custom'], thread: 'unc' }, operation: 'new', seedPicks: () => {} });
+    expect(listed('size')).toEqual(['M3', 'M4', '#4']);
+    expect(field('size').read()).toEqual({ value: 'n4' });
+    expect(field('grid').read()).toEqual({ value: 'n4' });
+    expect(field('several').read()).toEqual({ value: ['n4', 'custom'] });
+    expect(field('thread').read()).toEqual({ value: 'unc' });
+    expect(dirty()).toEqual([]);
+    // Offered under the other standard, it stays and stays clean; back again, it is no longer the statement's to keep.
+    pick('standard', 'Imperial');
+    expect(dirty()).toEqual(['standard']);
+    pick('standard', 'Metric');
+    expect(listed('size')).toEqual(['M3', 'M4']);
+    expect(field('size').read()).toEqual({ value: 'm3' });
+    expect(field('several').read()).toEqual({ value: ['custom'] });
+    expect(dirty()).toEqual(['standard', 'size', 'grid', 'several', 'thread']);
+    // A fresh dialog after it starts from the defaults again, clean.
+    panel.show();
+    expect(listed('size')).toEqual(['M3', 'M4']);
+    expect(dirty()).toEqual([]);
+  });
+});

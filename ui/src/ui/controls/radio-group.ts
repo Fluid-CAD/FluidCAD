@@ -56,6 +56,8 @@ export class RadioGroup<V> {
   private readonly choices: RadioChoice<V>[] = [];
   private readonly clearButton: HTMLButtonElement | null = null;
   private readonly display: RadioDisplay;
+  private readonly body: HTMLElement;
+  private readonly name: string;
   private current: V | undefined;
 
   /** Groups made so far — each run of native radios needs a name of its own. */
@@ -72,31 +74,21 @@ export class RadioGroup<V> {
     if (options.label) {
       this.element.setAttribute('aria-label', options.label);
     }
-    const body = document.createElement('div');
+    const body = this.body = document.createElement('div');
     body.setAttribute('role', 'presentation');
     this.element.appendChild(body);
+    this.name = `radio-group-${++RadioGroup.made}`;
     if (this.display === 'list' || this.display === 'inline') {
       body.className = this.display === 'list' ? LIST : INLINE;
-      const name = `radio-group-${++RadioGroup.made}`;
-      // Stacked labels stay in one column: every row gets a box once any item has an image.
-      const boxed = this.display === 'list' && options.items.some(item => item.image);
-      for (const item of options.items) {
-        this.addRadio(body, item, name, boxed);
-      }
     } else if (this.display === 'buttons') {
       body.className = BUTTONS;
-      for (const item of options.items) {
-        this.addButton(body, item);
-      }
     } else {
       body.className = CARDS;
       const columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
       body.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
       this.element.dataset.columns = String(columns);
-      for (const item of options.items) {
-        this.addCard(body, item);
-      }
     }
+    this.fill(options.items);
     if (options.allowClear) {
       this.clearButton = document.createElement('button');
       this.clearButton.type = 'button';
@@ -118,6 +110,39 @@ export class RadioGroup<V> {
   setValue(value: V | undefined): void {
     this.current = value;
     this.sync();
+  }
+
+  /**
+   * Other choices in the same group: the value stays while one of them still
+   * carries it and is nothing otherwise, and the focus stays in the group
+   * when a choice held it. No `onChange`: the caller changed the choices.
+   */
+  setItems(items: readonly ChoiceItem<V>[]): void {
+    const focused = this.choices.some(choice => choice.control === document.activeElement);
+    this.body.replaceChildren();
+    this.choices.length = 0;
+    this.fill(items);
+    if (!items.some(item => item.value === this.current)) {
+      this.current = undefined;
+    }
+    this.sync();
+    if (focused) {
+      this.choices.find(choice => choice.control.tabIndex === 0)?.control.focus({ preventScroll: true });
+    }
+  }
+
+  private fill(items: readonly ChoiceItem<V>[]): void {
+    // Stacked labels stay in one column: every row gets a box once any item has an image.
+    const boxed = this.display === 'list' && items.some(item => item.image);
+    for (const item of items) {
+      if (this.display === 'list' || this.display === 'inline') {
+        this.addRadio(this.body, item, this.name, boxed);
+      } else if (this.display === 'buttons') {
+        this.addButton(this.body, item);
+      } else {
+        this.addCard(this.body, item);
+      }
+    }
   }
 
   destroy(): void {

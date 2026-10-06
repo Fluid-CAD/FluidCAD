@@ -236,7 +236,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
    * slot that just hid hands the armed state on.
    */
   syncVisibility(): void {
-    const scalars = this.scalars();
+    const scalars = this.settleOffered();
     for (const [name, field] of this.fields) {
       field.setVisible(this.schema.isVisible(name, scalars));
     }
@@ -256,6 +256,28 @@ export class SchemaFeaturePanel extends FeaturePanel {
     if (this.armed === null && this.pickableValues().length > 0) {
       this.armFirstPicker();
     }
+  }
+
+  /**
+   * Narrows every options row to what the typed-in values offer now, and
+   * gives those values back as they stand afterwards. A row whose choice
+   * fell away moves, which may narrow a row that waits on it: the pass runs
+   * again until nothing moves — a row per pass at most, a feature's options
+   * never waiting on each other in a circle.
+   */
+  private settleOffered(): Record<string, FeatureScalarValue | undefined> {
+    let scalars = this.scalars();
+    for (let pass = 0; pass < this.fields.size; pass++) {
+      let moved = false;
+      for (const field of this.fields.values()) {
+        moved = field.setOffered(scalars) || moved;
+      }
+      if (!moved) {
+        break;
+      }
+      scalars = this.scalars();
+    }
+    return scalars;
   }
 
   setOperation(op: FeatureOpKind): void {

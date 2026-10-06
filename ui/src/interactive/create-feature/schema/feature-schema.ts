@@ -2,6 +2,7 @@ import type {
   FeatureMetaSnapshot, FeatureOpKind, FeatureParam, FeaturePickerKind, FeaturePickerParam, FeatureScalarParam,
   FeatureListValue,
   FeatureScalarValue,
+  FeatureVisibleWhen,
 } from '../../../api';
 
 /** Rows gathered under one group heading (`group: null` — a row of its own). */
@@ -157,11 +158,15 @@ export class FeatureSchema {
    * `visibleWhen` names must equal the one given, or one of a list.
    */
   isVisible(name: string, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
-    const when = this.param(name).visibleWhen;
-    if (!when) {
-      return true;
-    }
-    return Object.entries(when).every(([other, expected]) => {
+    return FeatureSchema.holds(this.param(name).visibleWhen, scalars);
+  }
+
+  /**
+   * Whether every clause of a value's `visibleWhen` or of an option's `when`
+   * holds for the typed-in values the dialog shows now. No clauses always hold.
+   */
+  static holds(when: FeatureVisibleWhen | undefined, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    return Object.entries(when ?? {}).every(([other, expected]) => {
       const current = scalars[other];
       return Array.isArray(expected) ? expected.some(e => e === current) : expected === current;
     });

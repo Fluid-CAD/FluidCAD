@@ -224,3 +224,30 @@ describe.each(DISPLAYS)('RadioGroup as %s', (display) => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe('RadioGroup.setItems', () => {
+  let group: RadioGroup<string> | null = null;
+
+  afterEach(() => {
+    group?.destroy();
+    group = null;
+  });
+
+  it.each(DISPLAYS)('swaps the choices of a %s group, keeping the value one still carries, the focus, and its silence', display => {
+    group = new RadioGroup<string>({ items: HEADS, display, value: HEADS[1].value });
+    document.body.appendChild(group.element);
+    const onChange = vi.fn();
+    group.onChange = onChange;
+    const controls = () => [...group!.element.querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"]')];
+    controls()[1].focus();
+    group.setItems(HEADS.slice(1));
+    expect(controls()).toHaveLength(HEADS.length - 1);
+    expect(group.value).toBe(HEADS[1].value);
+    expect(document.activeElement).toBe(controls()[0]);
+    // A value no choice carries any more is nothing, and the first choice takes the tab stop.
+    group.setItems(HEADS.slice(0, 1));
+    expect(group.value).toBeUndefined();
+    expect(controls().map(control => control.tabIndex)).toEqual([0]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});

@@ -9,11 +9,7 @@ import {
   type FeatureCalleeSource,
 } from '../apply-feature-edit/index.ts';
 import { ScanCache } from '../part-catalog/cache.ts';
-import type { FeatureMetaSnapshot } from '../../../lib/dist/index.js';
-// The kernel's entry first: `sdk/meta.js` sits on an import cycle that only
-// resolves when the kernel is entered through its index.
-import '../../../lib/dist/index.js';
-import { FeatureMetas } from '../../../lib/dist/sdk/meta.js';
+import { listFeatureAssets, type FeatureMetaSnapshot } from '../../../lib/dist/index.js';
 import { FeatureModules } from './walk.ts';
 import { FeatureScanner, type FeatureScanResult } from './scan.ts';
 import { RawOcctUse } from './raw-occt.ts';
@@ -141,7 +137,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
   /**
    * The file behind one of a feature's declared images: its icon, or an
    * option's image. `path` must be exactly one the metadata declares
-   * ({@link FeatureMetas.assetsOf}), and the file must stay inside the
+   * ({@link listFeatureAssets}), and the file must stay inside the
    * module's directory once symlinks are resolved — the metadata check
    * refuses `..` already, so this guards the request and the links on disk.
    */
@@ -154,7 +150,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     if (!entry || !entry.meta) {
       return { status: 404, error: `no feature '${id}' in this workspace` };
     }
-    if (!FeatureMetas.assetsOf(entry.meta).includes(path)) {
+    if (!listFeatureAssets(entry.meta).includes(path)) {
       return { status: 404, error: `feature '${id}' declares no asset '${path}'` };
     }
     const directory = dirname(entry.modulePath);
@@ -199,7 +195,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     const directory = dirname(modulePath);
     const declared = new Set<string>();
     for (const feature of result.features) {
-      for (const asset of FeatureMetas.assetsOf(feature.meta)) {
+      for (const asset of listFeatureAssets(feature.meta)) {
         declared.add(normalizePath(resolve(directory, asset)));
       }
     }

@@ -15,7 +15,8 @@ const ASSET_TYPES: Record<string, string> = {
 /**
  * The feature catalog's backend: the features the workspace offers (its
  * `*.feature.js` modules' builders and the engine's own, as metadata
- * snapshots — the UI never runs feature code), and each feature's declared images (its icon, its options' images).
+ * snapshots — the UI never runs feature code), and each feature's declared
+ * images: its icon and its options' images.
  */
 export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePath: string): Router {
   const router = Router();

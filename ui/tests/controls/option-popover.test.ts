@@ -22,6 +22,8 @@ afterEach(() => {
   for (const popover of opened.splice(0)) {
     popover.destroy();
   }
+  // A dismissing press holds its click back until the next press: none is pending for the next test.
+  document.dispatchEvent(new Event('pointerdown'));
   vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
@@ -289,6 +291,30 @@ describe('OptionPopover keyboard', () => {
     } finally {
       document.removeEventListener('keydown', heard);
     }
+  });
+
+  it('lets go of the page once its panel is taken off it: it answers neither the next Escape nor the next press', () => {
+    // Asserted on the popover alone: the suite shares one document, and what
+    // another file left listening there is not this test's to vouch for.
+    const { popover, onClose } = mount();
+    popover.open();
+    // The page was rebuilt under it — as a test file's reset does to one left open.
+    document.body.innerHTML = '';
+    const elsewhere = document.body.appendChild(document.createElement('button'));
+    const stop = vi.spyOn(KeyboardEvent.prototype, 'stopPropagation');
+    key(elsewhere, 'Escape');
+    expect(popover.isOpen).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+
+    popover.open();
+    document.body.innerHTML = '';
+    const next = document.body.appendChild(document.createElement('button'));
+    const listened = vi.spyOn(document, 'addEventListener');
+    next.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(popover.isOpen).toBe(false);
+    // No click is held back for a press that dismissed nothing on show.
+    expect(listened.mock.calls.filter(([type]) => type === 'click')).toEqual([]);
   });
 
   it('keeps every key pressed in the popover from the page — a letter over an option is no shortcut', () => {

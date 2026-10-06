@@ -524,9 +524,22 @@ export class OptionPopover<V> {
     }
   };
 
+  /**
+   * The panel was taken off the page behind the popover's back (the page
+   * rebuilt under it): it lets go of the page's events rather than answer
+   * them for a list nobody sees.
+   */
+  private gone(): boolean {
+    if (this.element.isConnected) {
+      return false;
+    }
+    this.close();
+    return true;
+  }
+
   /** Escape closes the popover only — a dialog under it stays. */
   private readonly onDocumentKeyDown = (e: KeyboardEvent): void => {
-    if (e.key !== 'Escape') {
+    if (this.gone() || e.key !== 'Escape') {
       return;
     }
     e.preventDefault();
@@ -536,6 +549,9 @@ export class OptionPopover<V> {
   };
 
   private readonly onPointerDown = (e: PointerEvent): void => {
+    if (this.gone()) {
+      return;
+    }
     const target = e.target as Node;
     // A press on the anchor is the anchor's to answer (it toggles).
     if (!this.element.contains(target) && !this.anchor.contains(target)) {
@@ -575,12 +591,18 @@ export class OptionPopover<V> {
 
   /** A wheel or scroll elsewhere moves what the popover hangs off. */
   private readonly onMovedUnder = (e: Event): void => {
+    if (this.gone()) {
+      return;
+    }
     if (!(e.target instanceof Node) || !this.element.contains(e.target)) {
       this.close();
     }
   };
 
   private readonly onResize = (): void => {
+    if (this.gone()) {
+      return;
+    }
     this.position();
   };
 }

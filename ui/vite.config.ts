@@ -12,6 +12,10 @@ export default defineConfig({
     port: 3200
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    // Monaco's editor API alone is ~2.7 MB minified, so the 500 kB default
+    // fires on every build. The limit sits above today's largest chunk to
+    // keep flagging real growth.
+    chunkSizeWarningLimit: 3500
   }
 });

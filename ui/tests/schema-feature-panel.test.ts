@@ -310,6 +310,19 @@ describe('the choice rows of a schema dialog', () => {
     expect(size.textContent).toContain('M3');
   });
 
+  it('closes a rich select\'s popover when its dialog hides, and when its row does', () => {
+    const { control, field, options, panel } = clip();
+    control('size').click();
+    expect(options().length).toBeGreaterThan(0);
+    panel.hide();
+    expect(options()).toEqual([]);
+
+    control('size').click();
+    expect(options().length).toBeGreaterThan(0);
+    field('size').setVisible(false);
+    expect(options()).toEqual([]);
+  });
+
   it('searches a rich select above twelve options, and reads a numeric option as its number', () => {
     const { control, field, options, pick } = clip();
     control('stock').click();

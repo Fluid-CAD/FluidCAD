@@ -183,6 +183,8 @@ export class RadioGroup<V> {
   /** A tile: the image in a square over a truncated label, outlined when chosen. */
   private addCard(host: HTMLElement, item: ChoiceItem<V>): void {
     const card = this.createRadioButton(item);
+    // A tile's label is cut to its width: the tooltip says it in full.
+    card.title = item.description ? `${item.label} — ${item.description}` : item.label;
     card.appendChild(ChoiceImage.create(item.image, ChoiceImage.SQUARE));
     const label = document.createElement('span');
     label.className = CARD_LABEL;

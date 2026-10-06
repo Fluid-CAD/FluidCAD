@@ -77,7 +77,13 @@ export abstract class SchemaField {
 
   setVisible(visible: boolean): void {
     this.row.classList.toggle('hidden', !visible);
+    if (!visible) {
+      this.dismiss();
+    }
   }
+
+  /** The row is going out of view — hidden, or its dialog closed: close whatever it opened over the page. */
+  dismiss(): void {}
 
   get visible(): boolean {
     return !this.row.classList.contains('hidden');
@@ -343,6 +349,10 @@ class SelectField extends ChoiceField {
     if (this.button && this.hasImages) {
       this.button.setItems(this.entries());
     }
+  }
+
+  dismiss(): void {
+    this.button?.close();
   }
 
   destroy(): void {

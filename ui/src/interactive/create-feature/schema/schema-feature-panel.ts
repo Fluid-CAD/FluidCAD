@@ -277,6 +277,14 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
+  /** A popover a row opened hangs off the page, not the dialog: it goes when the dialog does. */
+  hide(): void {
+    for (const field of this.fields.values()) {
+      field.dismiss();
+    }
+    super.hide();
+  }
+
   destroy(): void {
     for (const field of this.fields.values()) {
       field.destroy();

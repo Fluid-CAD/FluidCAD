@@ -84,13 +84,13 @@ describe('RadioGroup displays', () => {
     expect(el.dataset.display).toBe('buttons');
   });
 
-  it('renders cards in a grid columns wide: image or placeholder over the label, description as the title', () => {
+  it('renders cards in a grid columns wide: image or placeholder over the label, the label and description as the title', () => {
     const { el, radios } = mount({ display: 'cards', columns: 4, value: 'plain' });
     const cards = radios();
     expect(el.dataset.columns).toBe('4');
     expect(cards[0].parentElement!.className).toContain('grid');
-    expect(cards[0].title).toBe('No recess');
-    expect(cards[1].title).toBe('');
+    expect(cards[0].title).toBe('Plain — No recess');
+    expect(cards[1].title).toBe('Counterbore');
     expect(cards[1].querySelector('img')!.getAttribute('src')).toBe('/img/cbore.svg');
     expect(cards[2].querySelector(`[${ChoiceImage.PLACEHOLDER}]`)).not.toBeNull();
     expect(cards.map(c => c.className.includes('border-primary'))).toEqual([true, false, false]);

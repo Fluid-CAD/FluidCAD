@@ -600,10 +600,10 @@ class TextField extends SchemaField {
     }
     const value = this.input.value;
     if (this.look.maxLength !== undefined && value.length > this.look.maxLength) {
-      return { error: `${this.spec.label} is at most ${this.look.maxLength} characters` };
+      return { error: `${this.spec.label} is at most ${this.look.maxLength} characters.` };
     }
     if (this.pattern && !this.pattern.test(value)) {
-      return { error: `${this.spec.label} must match ${this.look.pattern}` };
+      return { error: `${this.spec.label} must match ${this.look.pattern}.` };
     }
     return { value };
   }

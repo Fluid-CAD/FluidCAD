@@ -177,11 +177,11 @@ describe('a text\'s lines and limits', () => {
     expect(row.read()).toEqual({ value: 'A2-70' });
     expect(row.dirty).toBe(true);
     type('A2-700');
-    expect(row.read()).toEqual({ error: 'Marking is at most 5 characters' });
+    expect(row.read()).toEqual({ error: 'Marking is at most 5 characters.' });
     type('a2');
-    expect(row.read()).toEqual({ error: 'Marking must match [A-Z0-9-]*' });
+    expect(row.read()).toEqual({ error: 'Marking must match [A-Z0-9-]*.' });
     // The whole value is matched, not a part of it.
     type('A b');
-    expect(row.read()).toEqual({ error: 'Marking must match [A-Z0-9-]*' });
+    expect(row.read()).toEqual({ error: 'Marking must match [A-Z0-9-]*.' });
   });
 });

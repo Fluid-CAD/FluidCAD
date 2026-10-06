@@ -43,7 +43,9 @@ export class Fastener extends Feature.with({
       { label: 'Countersink', value: 'countersink', image: './fastener/countersink.svg', description: 'A shallow recess for a flat head' },
     ],
   },
-  depth: { type: 'length', default: 10, min: 0 },
+  depth: { type: 'length', default: 10, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface' },
+  /** A note kept with the hole — a part number, a torque class. It cuts nothing. */
+  marking: { type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes' },
 }) {
   static id = 'acme.fastener';
 
@@ -86,5 +88,5 @@ export const fastener = defineFeature(Fastener, {
   icon: './fastener.svg',
   group: 'create',
   operations: ['remove', 'new'],
-  call: ['at', { size: 'size', head: 'head', depth: 'depth' }],
+  call: ['at', { size: 'size', head: 'head', depth: 'depth', marking: 'marking' }],
 });

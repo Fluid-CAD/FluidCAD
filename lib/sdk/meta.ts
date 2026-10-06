@@ -42,6 +42,8 @@ export type VisibleWhen = { readonly [param: string]: FeatureScalar | readonly F
 type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'group'>> & {
   /** The dialog tab the row sits on; rows without one sit above the tabs. */
   tab?: string;
+  /** A line of small text under the row's control; `description` stays the tooltip. */
+  hint?: string;
   visibleWhen?: VisibleWhen;
   /**
    * The value may be left out; without a default it then reaches the feature
@@ -54,13 +56,28 @@ type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'grou
 
 export type NumberParamSpec = ParamCommon & Partial<Pick<ParamDefinition, 'min' | 'max' | 'step'>> & {
   type: 'number' | 'integer' | 'length' | 'angle';
+  /**
+   * Left out, the dialog shows the row empty and asks for a value — unless
+   * it is a `slider`: a track always shows a position, so it is then `min`.
+   */
   default?: number;
+  /**
+   * How the row looks beside its input, which stays (a variable or an
+   * expression still types in): a `slider` is a track from `min` to `max`,
+   * both of which it needs; a `stepper` is − / + buttons, for a `number` or
+   * an `integer` only. Left out, the plain input.
+   */
+  display?: 'slider' | 'stepper';
+  /** A short unit shown at the end of the input, at most 8 characters: `'mm'`. */
+  suffix?: string;
 };
 
 export type BooleanParamSpec = ParamCommon & {
   type: 'boolean';
   /** Left out, `false`: the toggle the dialog shows off. */
   default?: boolean;
+  /** A `checkbox` in place of the toggle. Left out, the toggle. */
+  display?: 'checkbox';
 };
 
 /**
@@ -110,7 +127,18 @@ export type RadioParamSpec = ParamCommon & {
   columns?: number;
 };
 
-export type TextParamSpec = ParamCommon & { type: 'text'; default?: string };
+export type TextParamSpec = ParamCommon & {
+  type: 'text';
+  default?: string;
+  /** Several lines: Enter is a new line, Ctrl/Cmd+Enter applies. */
+  multiline?: boolean;
+  /** What the empty input shows. */
+  placeholder?: string;
+  /** The most characters the text may have, 1 or more. */
+  maxLength?: number;
+  /** A regular expression the whole text must match: `'[A-Z0-9-]*'`. */
+  pattern?: string;
+};
 
 export type ScalarParamSpec = NumberParamSpec | BooleanParamSpec | SelectParamSpec | RadioParamSpec | TextParamSpec;
 
@@ -330,20 +358,34 @@ class FeatureMetaValidator {
 
   private static readonly NAME = /^[A-Za-z_$][\w$]*$/;
 
-  private static readonly COMMON_FIELDS = ['label', 'description', 'group', 'tab', 'visibleWhen', 'optional'];
+  private static readonly COMMON_FIELDS = ['label', 'description', 'group', 'tab', 'hint', 'visibleWhen', 'optional'];
 
   private static readonly NUMBER_FIELDS = ['default', 'min', 'max', 'step'];
 
+  /** What a number type may declare: its numbers, and how its row looks. */
+  private static readonly NUMBER_SPEC_FIELDS = [...FeatureMetaValidator.NUMBER_FIELDS, 'display', 'suffix'];
+
   private static readonly SCALAR_FIELDS: Record<ScalarParamType, string[]> = {
-    number: FeatureMetaValidator.NUMBER_FIELDS,
-    integer: FeatureMetaValidator.NUMBER_FIELDS,
-    length: FeatureMetaValidator.NUMBER_FIELDS,
-    angle: FeatureMetaValidator.NUMBER_FIELDS,
-    boolean: ['default'],
+    number: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
+    integer: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
+    length: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
+    angle: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
+    boolean: ['default', 'display'],
     select: ['default', 'options', 'display', 'columns', 'search'],
     radio: ['default', 'options', 'display', 'columns'],
-    text: ['default'],
+    text: ['default', 'multiline', 'placeholder', 'maxLength', 'pattern'],
   };
+
+  /** Each number type's displays; leaving `display` out is the plain input. */
+  private static readonly NUMBER_DISPLAYS: Record<NumberParamSpec['type'], readonly string[]> = {
+    number: ['slider', 'stepper'],
+    integer: ['slider', 'stepper'],
+    length: ['slider'],
+    angle: ['slider'],
+  };
+
+  /** The most characters a `suffix` may have. */
+  private static readonly SUFFIX_LENGTH = 8;
 
   /** What one option of a select or a radio may carry. */
   private static readonly OPTION_FIELDS = ['label', 'value', 'image', 'description', 'group', 'keywords'];
@@ -376,7 +418,7 @@ class FeatureMetaValidator {
   };
 
   private static readonly BOOLEAN_FIELDS = new Set([
-    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges', 'search',
+    'optional', 'multiple', 'ordered', 'implicitDefault', 'hasGeometry', 'wire', 'sameFile', 'facesAsEdges', 'search', 'multiline',
   ]);
 
   private static readonly ANCHORS = ['center', 'start', 'end', 'offset'];
@@ -565,7 +607,7 @@ class FeatureMetaValidator {
       }
     }
 
-    for (const field of ['label', 'description', 'group', 'tab']) {
+    for (const field of ['label', 'description', 'group', 'tab', 'hint']) {
       if (spec[field] !== undefined) {
         this.text(spec[field], `${where}: '${field}'`, field === 'description');
       }
@@ -659,6 +701,13 @@ class FeatureMetaValidator {
       if (value !== undefined && typeof value !== expected) {
         this.fail(`${where}: the default must be ${type === 'boolean' ? 'true or false' : 'a string'}, got ${FeatureMetaValidator.describe(value)}`);
       }
+      if (type === 'boolean') {
+        if (spec.display !== undefined && spec.display !== 'checkbox') {
+          this.fail(`${where}: 'display' must be 'checkbox' — leave it out for the toggle — got ${FeatureMetaValidator.describe(spec.display)}`);
+        }
+      } else {
+        this.checkText(where, spec);
+      }
       return;
     }
     if (type === 'select' || type === 'radio') {
@@ -684,6 +733,61 @@ class FeatureMetaValidator {
       }
       if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
         this.fail(`${where}: the default (${value}) is outside ${FeatureMetaValidator.range(min, max)}`);
+      }
+    }
+    this.checkNumberLook(where, type, spec);
+  }
+
+  /** How a number's row looks: its `display`, which its type must have, and its `suffix`. */
+  private checkNumberLook(where: string, type: NumberParamSpec['type'], spec: Record<string, unknown>): void {
+    if (spec.display !== undefined) {
+      const displays = FeatureMetaValidator.NUMBER_DISPLAYS[type];
+      if (spec.display === 'stepper' && !displays.includes('stepper')) {
+        this.fail(`${where}: display: 'stepper' is for a number or an integer — ${type === 'angle' ? 'an angle' : 'a length'} takes 'slider', or leave it out`);
+      }
+      if (typeof spec.display !== 'string' || !displays.includes(spec.display)) {
+        this.fail(`${where}: 'display' must be one of ${displays.join(', ')} — leave it out for the plain input — got ${FeatureMetaValidator.describe(spec.display)}`);
+      }
+    }
+    if (spec.display === 'slider') {
+      if (spec.min === undefined || spec.max === undefined) {
+        this.fail(`${where}: display: 'slider' needs both 'min' and 'max' — the track runs from one to the other`);
+      }
+      if (type === 'integer' && !Number.isInteger(spec.min)) {
+        this.fail(`${where}: the min of an integer slider must be a whole number, got ${spec.min} — without a default the slider starts there`);
+      }
+    }
+    if (spec.suffix !== undefined) {
+      const suffix = spec.suffix;
+      if (typeof suffix !== 'string' || suffix.trim() === '' || suffix.length > FeatureMetaValidator.SUFFIX_LENGTH) {
+        this.fail(`${where}: 'suffix' must be a non-empty string of at most ${FeatureMetaValidator.SUFFIX_LENGTH} characters, got ${FeatureMetaValidator.describe(suffix)}`);
+      }
+    }
+  }
+
+  /** A text's own fields: its placeholder, its limits, and a default that keeps to them. */
+  private checkText(where: string, spec: Record<string, unknown>): void {
+    if (spec.placeholder !== undefined) {
+      this.text(spec.placeholder, `${where}: 'placeholder'`);
+    }
+    const { maxLength, pattern } = spec;
+    if (maxLength !== undefined && !(typeof maxLength === 'number' && Number.isInteger(maxLength) && maxLength >= 1)) {
+      this.fail(`${where}: 'maxLength' must be a whole number of 1 or more, got ${FeatureMetaValidator.describe(maxLength)}`);
+    }
+    if (pattern !== undefined) {
+      if (typeof pattern !== 'string' || pattern === '') {
+        this.fail(`${where}: 'pattern' must be a regular expression as a non-empty string, got ${FeatureMetaValidator.describe(pattern)}`);
+      }
+      try {
+        FeatureMetas.wholePattern(pattern);
+      } catch (error) {
+        this.fail(`${where}: 'pattern' is not a regular expression: ${(error as Error).message}`);
+      }
+    }
+    if (typeof spec.default === 'string') {
+      const fault = FeatureMetas.textFault(spec as TextParamSpec, spec.default);
+      if (fault) {
+        this.fail(`${where}: the default ${fault}`);
       }
     }
   }
@@ -1233,7 +1337,8 @@ export class FeatureMetas {
    * the dialog shows, so a row left untouched writes nothing and still
    * builds: the declared `default`; else, for a control that always shows a
    * value, the one it shows — `false` for a boolean, the first option for a
-   * select or a radio that isn't `optional`. Nothing for the rest: a picked
+   * select or a radio that isn't `optional`, `min` for a slider (its track
+   * always shows a position). Nothing for the rest: a picked
    * value, a number or a text without a default (the dialog shows those
    * empty, and asks for one that isn't optional), an optional select or radio
    * without one (the dialog offers an empty choice, or shows none chosen).
@@ -1248,8 +1353,31 @@ export class FeatureMetas {
     if (spec.type === 'boolean') {
       return false;
     }
+    if (spec.type !== 'select' && spec.type !== 'radio' && spec.type !== 'text' && spec.display === 'slider') {
+      return spec.min;
+    }
     if ((spec.type === 'select' || spec.type === 'radio') && !spec.optional) {
       return spec.options[0]?.value;
+    }
+    return undefined;
+  }
+
+  /** A text's `pattern` as it is matched: against the whole value. Throws when it doesn't compile. */
+  static wholePattern(pattern: string): RegExp {
+    return new RegExp(`^(?:${pattern})$`, 'u');
+  }
+
+  /**
+   * What is wrong with a text value by its spec's `maxLength` and `pattern`,
+   * as the rest of a sentence about it ("must be at most 12 characters, got
+   * 14"); nothing when it keeps to both.
+   */
+  static textFault(spec: Pick<TextParamSpec, 'maxLength' | 'pattern'>, value: string): string | undefined {
+    if (spec.maxLength !== undefined && value.length > spec.maxLength) {
+      return `must be at most ${spec.maxLength} characters, got ${value.length}`;
+    }
+    if (spec.pattern !== undefined && !FeatureMetas.wholePattern(spec.pattern).test(value)) {
+      return `must match ${spec.pattern}, got ${JSON.stringify(value)}`;
     }
     return undefined;
   }
@@ -1309,6 +1437,12 @@ export class FeatureMetas {
       case 'text':
         if (typeof value !== 'string') {
           throw new Error(`${callee}(): '${name}' must be a string, got ${got}`);
+        }
+        {
+          const fault = FeatureMetas.textFault(spec, value);
+          if (fault) {
+            throw new Error(`${callee}(): '${name}' ${fault}`);
+          }
         }
         return value;
       case 'select':

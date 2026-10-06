@@ -194,7 +194,7 @@ describe("feature metadata refusals", () => {
 
   it("refuse a field the picker kind doesn't have, and a list where one thing is picked", () => {
     refuses(withParam('face', { picker: 'edge', surface: 'planar' }),
-      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, visibleWhen, optional, multiple, max, ordered, curve, facesAsEdges");
+      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, hint, visibleWhen, optional, multiple, max, ordered, curve, facesAsEdges");
     refuses(withParam('face', { picker: 'axis', multiple: true }), "feature 'acme.boss': param 'face': an axis picker picks one axis, so it takes no 'multiple'");
     refuses(withParam('face', { picker: 'plane', ordered: true }), "feature 'acme.boss': param 'face': a plane picker picks one plane, so it takes no 'ordered'");
     refuses(withParam('face', { picker: 'face', default: 'top' }), /param 'face': a picker takes no default/);
@@ -236,7 +236,7 @@ describe("feature metadata refusals", () => {
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: true }] }), /each option is \{ label, value \} with a string or number value/);
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'a' }] }), `feature 'acme.boss': param 'height': 'options' lists "a" twice`);
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: 'a' }], default: 'b' }), `feature 'acme.boss': param 'height': the default "b" is not one of its options' values`);
-    refuses(withParam('height', { type: 'boolean', min: 0 }), /param 'height': unknown field 'min' for a boolean value — its fields are label, description, group, tab, visibleWhen, optional, default/);
+    refuses(withParam('height', { type: 'boolean', min: 0 }), /param 'height': unknown field 'min' for a boolean value — its fields are label, description, group, tab, hint, visibleWhen, optional, default/);
   });
 
   it("refuse a visibleWhen that names no typed-in value, or a value it can't take", () => {
@@ -560,8 +560,8 @@ describe("choice values: select and radio", () => {
       refuses({ type: 'select', options: AB, display: 'grid', columns }, `${at}: 'columns' must be a whole number from 2 to 6, got ${typeof columns === 'string' ? "'3'" : columns}`);
     }
     refuses({ type: 'select', options: AB, search: 'yes' }, `${at}: 'search' must be true or false, got 'yes'`);
-    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, visibleWhen, optional, default, options, display, columns`);
-    refuses({ type: 'length', display: 'grid' }, `${at}: unknown field 'display' for a length value`);
+    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, hint, visibleWhen, optional, default, options, display, columns`);
+    refuses({ type: 'length', display: 'grid' }, `${at}: 'display' must be one of slider — leave it out for the plain input — got 'grid'`);
   });
 
   it("takes every display, with columns from 2 to 6 where the display has them", () => {
@@ -628,5 +628,86 @@ describe("choice values: select and radio", () => {
     const twice = getFeatureMeta(register({ ...withParam('height', { type: 'radio', options: shared }), icon: './boss.svg' }))!;
     expect(FeatureMetas.assetsOf(twice)).toEqual(['./boss.svg', './b.png']);
     expect(FeatureMetas.assetsOf(getFeatureMeta(register(withParam('height', { type: 'select', options: AB })))!)).toEqual([]);
+  });
+});
+
+describe("how a typed-in value's row looks: slider, stepper, suffix, checkbox, text limits, hint", () => {
+  const at = "feature 'acme.boss': param 'height'";
+  const refuses = (spec: Record<string, unknown>, message: string) =>
+    expect(() => register(withParam('height', spec))).toThrow(message);
+  const snapshot = (spec: Record<string, unknown>) =>
+    snapshotFeatureMeta(getFeatureMeta(register(withParam('height', spec)))!).params.height as Record<string, unknown>;
+
+  it("refuses a slider without both ends, a stepper on a length or an angle, and a display there isn't", () => {
+    for (const type of ['number', 'integer', 'length', 'angle']) {
+      refuses({ type, display: 'slider' }, `${at}: display: 'slider' needs both 'min' and 'max' — the track runs from one to the other`);
+      refuses({ type, display: 'slider', min: 0 }, `${at}: display: 'slider' needs both 'min' and 'max'`);
+      refuses({ type, display: 'slider', max: 5 }, `${at}: display: 'slider' needs both 'min' and 'max'`);
+      expect(() => register(withParam('height', { type, display: 'slider', min: 0, max: 5 }))).not.toThrow();
+    }
+    refuses({ type: 'length', display: 'stepper' }, `${at}: display: 'stepper' is for a number or an integer — a length takes 'slider', or leave it out`);
+    refuses({ type: 'angle', display: 'stepper' }, `${at}: display: 'stepper' is for a number or an integer — an angle takes 'slider', or leave it out`);
+    refuses({ type: 'number', display: 'input' }, `${at}: 'display' must be one of slider, stepper — leave it out for the plain input — got 'input'`);
+    refuses({ type: 'integer', display: 'slider', min: 0.5, max: 4 }, `${at}: the min of an integer slider must be a whole number, got 0.5`);
+    expect(() => register(withParam('height', { type: 'integer', display: 'stepper' }))).not.toThrow();
+    expect(() => register(withParam('height', { type: 'number', display: 'stepper', min: 0, step: 0.5 }))).not.toThrow();
+  });
+
+  it("refuses a suffix that is empty, long or not a string, a boolean display but 'checkbox', and an empty hint", () => {
+    refuses({ type: 'length', suffix: '' }, `${at}: 'suffix' must be a non-empty string of at most 8 characters, got ''`);
+    refuses({ type: 'length', suffix: 'millimetres' }, `${at}: 'suffix' must be a non-empty string of at most 8 characters, got 'millimetres'`);
+    refuses({ type: 'length', suffix: 3 }, `${at}: 'suffix' must be a non-empty string of at most 8 characters, got 3`);
+    refuses({ type: 'text', suffix: 'mm' }, `${at}: unknown field 'suffix' for a text value`);
+    refuses({ type: 'boolean', display: 'toggle' }, `${at}: 'display' must be 'checkbox' — leave it out for the toggle — got 'toggle'`);
+    refuses({ type: 'length', hint: '' }, `${at}: 'hint' must be a non-empty string, got ''`);
+    expect(() => register(bossMeta({ params: { face: { picker: 'face', hint: 7 } }, call: ['face'] }))).toThrow("param 'face': 'hint' must be a non-empty string, got 7");
+    expect(() => register(bossMeta({ params: { face: { picker: 'face', hint: 'The face it stands on' } }, call: ['face'] }))).not.toThrow();
+  });
+
+  it("refuses a text's limits that don't hold, and a default that breaks them", () => {
+    refuses({ type: 'text', multiline: 'yes' }, `${at}: 'multiline' must be true or false, got 'yes'`);
+    refuses({ type: 'text', placeholder: '' }, `${at}: 'placeholder' must be a non-empty string, got ''`);
+    for (const maxLength of [0, 2.5, '12']) {
+      refuses({ type: 'text', maxLength }, `${at}: 'maxLength' must be a whole number of 1 or more, got ${typeof maxLength === 'string' ? "'12'" : maxLength}`);
+    }
+    refuses({ type: 'text', pattern: 7 }, `${at}: 'pattern' must be a regular expression as a non-empty string, got 7`);
+    refuses({ type: 'text', pattern: '[A-Z' }, `${at}: 'pattern' is not a regular expression: `);
+    refuses({ type: 'text', maxLength: 3, default: 'abcd' }, `${at}: the default must be at most 3 characters, got 4`);
+    refuses({ type: 'text', pattern: '[A-Z]+', default: 'A1' }, `${at}: the default must match [A-Z]+, got "A1"`);
+    // The whole value is matched: a part of it matching is not enough.
+    refuses({ type: 'text', pattern: 'A', default: 'AA' }, `${at}: the default must match A, got "AA"`);
+    refuses({ type: 'length', maxLength: 3 }, `${at}: unknown field 'maxLength' for a length value`);
+    expect(() => register(withParam('height', { type: 'text', multiline: true, placeholder: 'A note', maxLength: 4, pattern: '[A-Z]+', default: 'ABCD' }))).not.toThrow();
+  });
+
+  it("resolves a slider without a default to its min, in the snapshot and in a call that leaves it out", () => {
+    expect(snapshot({ type: 'length', display: 'slider', min: 2, max: 9 })).toEqual({ type: 'length', display: 'slider', min: 2, max: 9, default: 2, label: 'Height' });
+    expect(snapshot({ type: 'length', display: 'slider', min: 2, max: 9, default: 4 }).default).toBe(4);
+    expect(snapshot({ type: 'length', display: 'slider', min: 2, max: 9, optional: true }).default).toBe(2);
+    expect(snapshot({ type: 'integer', display: 'stepper', min: 2 })).not.toHaveProperty('default');
+    const meta = getFeatureMeta(register(bossMeta({ params: { height: { type: 'length', display: 'slider', min: 2, max: 9 } }, call: [{ height: 'height' }] })))!;
+    expect(parseCall(meta, [])).toEqual({ height: 2 });
+    expect(parseCall(meta, [{ height: 5 }])).toEqual({ height: 5 });
+    expect(() => parseCall(meta, [{ height: 10 }])).toThrow("boss(): 'height' must be at most 9, got 10");
+  });
+
+  it("holds a call's text to maxLength and pattern", () => {
+    const meta = getFeatureMeta(register(bossMeta({ params: { height: { type: 'text', maxLength: 4, pattern: '[A-Z-]*' } }, call: [{ height: 'height' }] })))!;
+    expect(parseCall(meta, [{ height: 'A-B' }])).toEqual({ height: 'A-B' });
+    expect(parseCall(meta, [{ height: '' }])).toEqual({ height: '' });
+    expect(() => parseCall(meta, [{ height: 'ABCDE' }])).toThrow("boss(): 'height' must be at most 4 characters, got 5");
+    expect(() => parseCall(meta, [{ height: 'a1' }])).toThrow(`boss(): 'height' must match [A-Z-]*, got "a1"`);
+  });
+
+  it("carries every new field into the snapshot verbatim, and leaves a spec without them as it was", () => {
+    expect(snapshot({ type: 'integer', display: 'stepper', min: 1, max: 8, step: 2, suffix: 'x', hint: 'How many' }))
+      .toEqual({ type: 'integer', display: 'stepper', min: 1, max: 8, step: 2, suffix: 'x', hint: 'How many', label: 'Height' });
+    expect(snapshot({ type: 'boolean', display: 'checkbox' })).toEqual({ type: 'boolean', display: 'checkbox', default: false, label: 'Height' });
+    expect(snapshot({ type: 'text', multiline: true, placeholder: 'A note', maxLength: 40, pattern: '[^!]*' }))
+      .toEqual({ type: 'text', multiline: true, placeholder: 'A note', maxLength: 40, pattern: '[^!]*', label: 'Height' });
+    expect(JSON.stringify(snapshot({ type: 'length', min: 0 }))).toBe('{"type":"length","min":0,"label":"Height"}');
+    const { depth, marking } = snapshotFeatureMeta(defineFastener().meta).params as Record<string, unknown>;
+    expect(depth).toEqual({ type: 'length', default: 10, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface', label: 'Depth' });
+    expect(marking).toEqual({ type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes', label: 'Marking' });
   });
 });

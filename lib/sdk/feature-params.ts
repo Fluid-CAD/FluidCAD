@@ -24,8 +24,8 @@ import type { ParamSpec } from "./meta.js";
 /** A feature's values by name, as `Feature.with()` declares them. */
 export type FeatureParams = { readonly [name: string]: ParamSpec };
 
-/** A spec whose value is a list: a picker with `multiple: true` or a `max`. */
-type ListSpec = { multiple: true } | { max: number };
+/** A spec whose value is a list: a picker with `multiple: true` or a `max` (a number's `max` is its range, not a list). */
+type ListSpec = { picker: unknown } & ({ multiple: true } | { max: number });
 
 /** A picked value: a list of `T` for a list picker, one `T` otherwise. */
 type Picked<S, T> = S extends ListSpec ? T[] : T;
@@ -54,12 +54,13 @@ type PassedValueOf<S> =
 
 /**
  * Whether a call may leave the value out: it has a default — declared, or
- * the one a boolean, a select or a radio resolves to without one — is `optional`, is
+ * the one a boolean, a select, a radio or a slider (its `min`) resolves to without one — is `optional`, is
  * a list (an empty one then), or is a sketch that defaults to the active one.
  */
 type CanLeaveOut<S> =
   S extends { default: string | number | boolean } ? true
   : S extends { type: 'boolean' | 'select' | 'radio' } ? true
+  : S extends { display: 'slider' } ? true
   : S extends { optional: true } ? true
   : S extends ListSpec ? true
   : S extends { picker: 'sketch'; implicitDefault: true } ? true
@@ -77,6 +78,7 @@ type LeftOut<S> =
   CanLeaveOut<S> extends false ? never
   : S extends { default: string | number | boolean } ? never
   : S extends { type: 'boolean' } ? never
+  : S extends { display: 'slider' } ? never
   : S extends { type: 'select' | 'radio'; optional: true } ? undefined
   : S extends { type: 'select' | 'radio' } ? never
   : S extends ListSpec ? never

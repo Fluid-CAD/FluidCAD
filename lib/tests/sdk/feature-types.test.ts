@@ -195,16 +195,18 @@ import { Feature, defineFeature } from 'fluidcad/sdk';
 export class Trim extends Feature.with({
   edge: { type: 'radio', options: [{ label: 'Sharp', value: 'sharp' }, { label: 'Round', value: 2 }] },
   finish: { type: 'radio', optional: true, display: 'buttons', options: [{ label: 'Matte', value: 'matte', image: './matte.svg' }] },
+  reach: { type: 'length', display: 'slider', min: 1, max: 9, suffix: 'mm', hint: 'From the edge' },
+  slack: { type: 'length', optional: true, min: 1, max: 9 },
 }) {
   static id = 'acme.trim';
 
   buildTool() {
-    const { edge, finish } = this.values;
+    const { edge, finish, reach, slack } = this.values;
     return [];
   }
 }
 
-export const trim = defineFeature(Trim, { label: 'Trim', group: 'create', call: [{ edge: 'edge', finish: 'finish' }] });
+export const trim = defineFeature(Trim, { label: 'Trim', group: 'create', call: [{ edge: 'edge', finish: 'finish', reach: 'reach', slack: 'slack' }] });
 `,
       'plate.part.js': `
 import { extrude, connector, part } from 'fluidcad/core';
@@ -230,6 +232,9 @@ part('plate', () => {
     // A radio without a default takes its first option; an optional one without one stays unset.
     expect(check.typeOf('trim.feature.js', 'edge')).toBe('2 | "sharp"');
     expect(check.typeOf('trim.feature.js', 'finish')).toBe('"matte" | undefined');
+    // A slider left out is its min — trim() above passes none — where an optional length is undefined.
+    expect(check.typeOf('trim.feature.js', 'reach')).toBe('number');
+    expect(check.typeOf('trim.feature.js', 'slack')).toBe('number | undefined');
   });
 
   it("marks a picker of several kinds that names a kind there isn't", () => {

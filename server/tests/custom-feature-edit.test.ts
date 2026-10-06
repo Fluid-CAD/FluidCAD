@@ -149,6 +149,32 @@ const BARE_DIAL_META = {
 
 MODULES['/ws/dial.feature.js'] = [{ exportName: 'dial', meta: DIAL_META }];
 
+/** Two multi-selects — one with a default list, one starting empty — ahead of a length, all positional. */
+const RIM_META = {
+  id: 'acme.rim', label: 'Rim', group: 'create', kind: 'tool', operations: [],
+  params: {
+    coats: { type: 'select', multiple: true, label: 'Coats', default: [], options: [{ label: 'Prime', value: 'prime' }, { label: 'Two', value: 2 }] },
+    finishes: { type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], min: 0, max: 2, display: 'grid', columns: 3, search: true, hint: 'Up to two', options: [{ label: 'Deburr', value: 'deburr', description: 'Break the edge' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }] },
+    depth: { type: 'length', label: 'Depth', optional: true },
+  },
+  call: ['coats', 'finishes', 'depth'],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** The same lists with nothing but labels, values and counts. */
+const BARE_RIM_META = {
+  id: 'acme.rim', label: 'Rim', group: 'create', kind: 'tool', operations: [],
+  params: {
+    coats: { type: 'select', multiple: true, label: 'Coats', default: [], options: [{ label: 'Prime', value: 'prime' }, { label: 'Two', value: 2 }] },
+    finishes: { type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], min: 0, max: 2, options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }] },
+    depth: { type: 'length', label: 'Depth', optional: true },
+  },
+  call: ['coats', 'finishes', 'depth'],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+MODULES['/ws/rim.feature.js'] = [{ exportName: 'rim', meta: RIM_META }];
+
 function catalog(): FeatureCatalog {
   return new FeatureCatalog({
     workspacePath: '/ws',
@@ -779,5 +805,94 @@ describe('rows that differ only in how they look: slider, stepper, suffix, check
     const line = written.newCode.split('\n').findIndex(text => text.includes('dial({')) + 1;
     const parsed = await parseFeatureStatement(written.newCode, line, await catalog().calleesFor(written.newCode, MODEL));
     expect(parsed.ok && parsed.parsed).toMatchObject({ feature: 'custom', id: 'acme.dial', values: { note: 'A2\n70' } });
+  });
+});
+
+describe('a multi-select: a list of option values, written as one array literal', () => {
+  const FINISHES = { label: 'Finishes', type: 'select', multiple: true, min: 1, max: 2, options: [{ value: 'deburr' }, { value: 'chamfer' }, { value: 2 }] };
+
+  function rimSpec(meta: ScannedFeature['meta'], values: CustomFeatureOptions['values']): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: [],
+      parts: [],
+      imports: [],
+      custom: { id: 'acme.rim', exportName: 'rim', modulePath: '/ws/rim.feature.js', shape: CustomFeatureStatement.shapeOf(meta), values },
+    };
+  }
+
+  async function rimAt(code: string) {
+    return parseFeatureStatement(code, 3, await catalog().calleesFor(code, MODEL));
+  }
+
+  it('is the list kind of the one table: checked against its options and counts, and never a single select', () => {
+    const list = TypedInKinds.of('select', true)!;
+    expect(list).not.toBe(TypedInKinds.of('select'));
+    expect(TypedInKinds.of('radio', true)).toBe(TypedInKinds.of('radio'));
+    expect(list.source(FINISHES, ['chamfer', 2])).toEqual({ kind: 'list', values: ['chamfer', 2] });
+    expect(list.source({ ...FINISHES, min: 0 }, [])).toEqual({ kind: 'list', values: [] });
+    expect(list.source(FINISHES, 'deburr')).toBe('Finishes must be a list of "deburr", "chamfer", 2');
+    expect(list.source(FINISHES, ['polish'])).toBe('Finishes must be a list of "deburr", "chamfer", 2');
+    expect(list.source(FINISHES, ['deburr', 'deburr'])).toBe('Finishes lists "deburr" twice');
+    expect(list.source(FINISHES, [])).toBe('Finishes takes at least 1');
+    expect(list.source(FINISHES, ['deburr', 'chamfer', 2])).toBe('Finishes takes at most 2');
+    // A preview takes any list of strings and numbers; the options and counts are the kernel's to check.
+    expect(list.preview(FINISHES, ['polish'])).toBeNull();
+    expect(list.preview(FINISHES, [])).toBeNull();
+    expect(list.preview(FINISHES, 'deburr')).toBe('Finishes must be a list of its options');
+    expect(list.preview(FINISHES, [true])).toBe('Finishes must be a list of its options');
+  });
+
+  it('keeps its brackets around one element and around none', () => {
+    expect(TypedInKinds.text({ kind: 'list', values: ['deburr', 'polish'] })).toBe(`['deburr', 'polish']`);
+    expect(TypedInKinds.text({ kind: 'list', values: ['deburr'] })).toBe(`['deburr']`);
+    expect(TypedInKinds.text({ kind: 'list', values: [] })).toBe(`[]`);
+    expect(TypedInKinds.text({ kind: 'list', values: [2, `it's`] })).toBe(`[2, 'it\\'s']`);
+  });
+
+  it.each([
+    [['deburr', 'polish'], `['deburr', 'polish']`],
+    [['deburr'], `['deburr']`],
+    [[], `[]`],
+  ])('writes %j as %s and reads it back, whatever the presentation', async (values, text) => {
+    const sources: CustomFeatureOptions['values'] = { coats: { kind: 'list', values: [2] }, finishes: { kind: 'list', values } };
+    const shown = await applyFeatureEdit(PLATE, rimSpec(RIM_META, sources), { callees: catalog() });
+    const bare = await applyFeatureEdit(PLATE, rimSpec(BARE_RIM_META, sources), { callees: catalog() });
+    expect(shown.error).toBeUndefined();
+    expect(shown.newCode).toContain(`rim([2], ${text})`);
+    expect(bare.newCode).toBe(shown.newCode);
+    expect(CustomFeatureStatement.shapeOf(RIM_META)).toEqual(CustomFeatureStatement.shapeOf(BARE_RIM_META));
+
+    const line = shown.newCode.split('\n').findIndex(row => row.includes('rim(')) + 1;
+    const parsed = await parseFeatureStatement(shown.newCode, line, await catalog().calleesFor(shown.newCode, MODEL));
+    expect(parsed.ok && parsed.parsed).toMatchObject({ feature: 'custom', id: 'acme.rim', values: { coats: [2], finishes: values } });
+  });
+
+  it('writes the default list where a list is left out before a later argument', async () => {
+    const written = await applyFeatureEdit(PLATE, rimSpec(RIM_META, { depth: { kind: 'value', value: 4 } }), { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`rim([], ['deburr'], 4)`);
+  });
+
+  it('edits the list alone, and writes an emptied one as [] rather than dropping it', async () => {
+    const code = src(`import { rim } from './rim.feature.js'`, ``, `rim(['prime'], ['deburr', 'polish'], 4)`);
+    const edit = (finishes: (string | number)[]) => applyFeatureEdit(code, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      edit: { line: 3, column: 0, custom: { id: 'acme.rim', values: { coats: { kind: 'keep' }, finishes: { kind: 'list', values: finishes }, depth: { kind: 'keep' } } } },
+    }, { callees: catalog() });
+    const changed = await edit(['chamfer']);
+    expect(changed.error).toBeUndefined();
+    expect(changed.newCode).toContain(`rim(['prime'], ['chamfer'], 4)`);
+    expect((await edit([])).newCode).toContain(`rim(['prime'], [], 4)`);
+  });
+
+  it('refuses a statement whose list is no plain list of strings and numbers, by message', async () => {
+    for (const coats of [`[...base]`, `base`, `['prime', two]`, `'prime'`, `[['prime']]`]) {
+      const refused = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(${coats}, ['deburr'], 4)`));
+      expect(refused.ok === false && refused.reason).toContain(`rim()'s 'coats' is not a plain list of strings or numbers`);
+    }
+    const read = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(["prime", 2], [], 4)`));
+    expect(read.ok && read.parsed).toMatchObject({ values: { coats: ['prime', 2], finishes: [], depth: 4 } });
   });
 });

@@ -299,7 +299,7 @@ export class CustomFeatureInputs {
   /** A typed-in value's source by its type's entry in the table, or why it doesn't fit; a type without one is refused by name. */
   private static scalar(spec: ParamSpecSnapshot, raw: unknown): CustomValueSource | string {
     const scalar = spec as TypedInSpec;
-    const kind = TypedInKinds.of(scalar.type);
+    const kind = TypedInKinds.of(scalar.type, scalar.multiple);
     return kind ? kind.source(scalar, raw) : `${spec.label} ${TypedInKinds.unknown(scalar.type)}`;
   }
 

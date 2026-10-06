@@ -498,7 +498,7 @@ export type CustomGhostRequest = {
   /** The name the module exports the builder by. */
   exportName: string;
   /** Typed-in values by name, numbers resolved; one left out takes its default. */
-  values: Record<string, number | string | boolean>;
+  values: Record<string, number | string | boolean | (string | number)[]>;
   /** Picked values by name, one ref per element. */
   refs: Record<string, GhostCustomRef[]>;
   /** The operation the dialog shows; null applies the feature's default. */

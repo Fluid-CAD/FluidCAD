@@ -30,7 +30,7 @@ import { TypedInKinds } from './typed-in-kinds.ts';
  * type), or picked (its picker kind); a typed-in value's default is what a
  * call that leaves it out ahead of a later argument writes in its place.
  */
-export type CustomParamKind = { type?: string; picker?: string | string[]; list: boolean; default?: number | string | boolean };
+export type CustomParamKind = { type?: string; picker?: string | string[]; list: boolean; multiple?: boolean; default?: number | string | boolean | (string | number)[] };
 
 /**
  * How a custom feature's statements are laid out — from the catalog's
@@ -84,6 +84,8 @@ export type CustomValueSource =
   | { kind: 'value'; value: ValueExpr }
   /** A string or a boolean, written as a literal. */
   | { kind: 'literal'; value: string | boolean }
+  /** A multi-select's option values, written as one array literal — `['a']` for one, `[]` for none (never a pick list, which writes one element bare). */
+  | { kind: 'list'; values: (string | number)[] }
   /** A picked value, one element per pick: a list takes several, a single value one. */
   | { kind: 'picks'; items: CustomPickSource[] }
   /** An edit's keep: the statement's own text for the value. */
@@ -137,7 +139,7 @@ export type ParsedCustomFeature = ParsedScopeChain & {
   /** The callee as the statement writes it — an import alias included. */
   callee: string;
   /** The typed-in values the statement writes; one it leaves out is absent. */
-  values: Record<string, ValueExpr | boolean | string>;
+  values: Record<string, ValueExpr | boolean | string | (string | number)[]>;
   /** The picked values it writes, element by element; one it leaves out is absent. */
   picks: Record<string, CustomPickText[]>;
   /** The operation the statement applies: its operation chain's, else the feature's default. */
@@ -217,9 +219,10 @@ export class CustomFeatureStatement {
         continue;
       }
       const fallback = TypedInKinds.defaultOf(declared.default);
+      const multiple = declared.type === 'select' && declared.multiple === true ? { multiple: true } : {};
       params[name] = fallback !== undefined
-        ? { type: declared.type, list: false, default: fallback }
-        : { type: declared.type, list: false };
+        ? { type: declared.type, list: false, ...multiple, default: fallback }
+        : { type: declared.type, list: false, ...multiple };
     }
     return { call: meta.call, operations: [...(meta.operations ?? [])], params };
   }
@@ -292,7 +295,7 @@ export class CustomFeatureStatement {
       }
       if (source.kind === 'keep') {
         values[param] = parsed?.texts[param];
-      } else if (source.kind === 'value' || source.kind === 'literal') {
+      } else if (source.kind === 'value' || source.kind === 'literal' || source.kind === 'list') {
         const type = shape.params[param]?.type;
         if (!TypedInKinds.of(type)) {
           return { error: `'${param}' ${TypedInKinds.unknown(type)}` };
@@ -431,7 +434,7 @@ export class CustomFeatureStatement {
         picks[param] = elements.map(element => CustomFeatureStatement.pickText(element, start));
         continue;
       }
-      const typedIn = TypedInKinds.of(kind.type);
+      const typedIn = TypedInKinds.of(kind.type, kind.multiple);
       if (!typedIn) {
         return notEditable(`${callee}()'s '${param}' ${TypedInKinds.unknown(kind.type)}`);
       }
@@ -488,6 +491,8 @@ export class CustomFeatureStatement {
       }
       const valid = source?.kind === 'value' ? validValueExpr(source.value)
         : source?.kind === 'literal' ? typeof source.value === 'string' || typeof source.value === 'boolean'
+        : source?.kind === 'list' ? Array.isArray(source.values)
+          && source.values.every(value => typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))
           : source?.kind === 'keep' ? parsed !== null
             : source?.kind === 'picks' && Array.isArray(source.items)
               && source.items.every(item => CustomFeatureStatement.validPick(item, spec, parsed !== null));

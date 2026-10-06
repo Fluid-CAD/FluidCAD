@@ -88,7 +88,7 @@ export class CustomGhostRoute {
       instances: fluidCadServer.getRenderedInstances(),
       parts: fluidCadServer.getRenderedParts(),
     }, valueScope);
-    const values: Record<string, number | string | boolean> = { ...shaped.literals };
+    const values: Record<string, number | string | boolean | (string | number)[]> = { ...shaped.literals };
     for (const [name, expr] of Object.entries(shaped.numbers)) {
       const resolved = scope.resolve(expr);
       if (resolved === null) {
@@ -151,7 +151,7 @@ export class CustomGhostRoute {
    */
   private static shape(body: CustomGhostBody, meta: FeatureMetaSnapshot): {
     numbers: Record<string, ValueExpr>;
-    literals: Record<string, string | boolean | number>;
+    literals: Record<string, string | boolean | number | (string | number)[]>;
     refs: Record<string, GhostCustomRef[]>;
     operation: CustomGhostRequest['operation'];
     exclude: { filePath: string; line: number } | null;
@@ -162,7 +162,7 @@ export class CustomGhostRoute {
       return { reason: 'values must be an object of values by name' };
     }
     const numbers: Record<string, ValueExpr> = {};
-    const literals: Record<string, string | boolean | number> = {};
+    const literals: Record<string, string | boolean | number | (string | number)[]> = {};
     for (const [name, value] of Object.entries(rawValues)) {
       const spec = meta.params[name];
       if (!spec) {
@@ -174,7 +174,7 @@ export class CustomGhostRoute {
       if (value === null || value === undefined) {
         continue;
       }
-      const kind = TypedInKinds.of(spec.type);
+      const kind = TypedInKinds.of(spec.type, (spec as TypedInSpec).multiple);
       if (!kind) {
         return { reason: `${spec.label} ${TypedInKinds.unknown(spec.type)}` };
       }
@@ -185,7 +185,7 @@ export class CustomGhostRoute {
       if (kind.expression) {
         numbers[name] = value as ValueExpr;
       } else {
-        literals[name] = value as string | boolean | number;
+        literals[name] = value as string | boolean | number | (string | number)[];
       }
     }
 

@@ -252,3 +252,23 @@ export function connectorInstanceRead(node: TSNode): { variable: TSNode; slot: n
   }
   return { variable: object, slot };
 }
+
+/**
+ * An array literal's values when every element is a string or a number
+ * literal, in the order written (`[]` is the empty list). Null for anything
+ * else: a spread, an identifier, a nested list, a comment inside it.
+ */
+export function listArgValue(node: TSNode): (string | number)[] | null {
+  if (node.type !== 'array') {
+    return null;
+  }
+  const values: (string | number)[] = [];
+  for (const element of node.namedChildren) {
+    const value = element ? stringArgValue(element) ?? numericArgValue(element) : null;
+    if (value === null) {
+      return null;
+    }
+    values.push(value);
+  }
+  return values;
+}

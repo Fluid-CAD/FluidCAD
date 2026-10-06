@@ -1,20 +1,22 @@
 // Typed-in kinds: the one table of a custom feature's typed-in types — checked, written, read back, previewed.
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
-import { anyValueArg, booleanArgValue, numericArgValue, stringArgValue } from '../ast/args.ts';
+import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, stringArgValue } from '../ast/args.ts';
 import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 import type { CustomValueSource } from './custom.ts';
 
-/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string. */
-export type TypedInValue = ValueExpr | boolean | string;
+/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values. */
+export type TypedInValue = ValueExpr | boolean | string | (string | number)[];
 
 /** A typed-in value's source: what a statement writes for it. */
-export type TypedInSource = Extract<CustomValueSource, { kind: 'value' | 'literal' }>;
+export type TypedInSource = Extract<CustomValueSource, { kind: 'value' | 'literal' | 'list' }>;
 
 /** A typed-in value's declaration, as far as a kind reads it — never its presentation. */
 export type TypedInSpec = {
   label: string;
   type: string;
+  /** A select that holds a list of its options' values; `min` and `max` then count the list. */
+  multiple?: boolean;
   min?: number;
   max?: number;
   options?: readonly { value: string | number }[];
@@ -93,6 +95,21 @@ export class TypedInKinds {
     read: node => stringArgValue(node) ?? numericArgValue(node),
   };
 
+  /**
+   * A select with `multiple: true`: a list of distinct option values, as
+   * many as `min` and `max` allow, written as one array literal — the empty
+   * list as `[]`, never left out.
+   */
+  private static readonly CHOICES: TypedInKind = {
+    name: 'list of strings or numbers',
+    expression: false,
+    source: (spec, raw) => TypedInKinds.listSource(spec, raw),
+    preview: (spec, raw) => Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
+      ? null
+      : `${spec.label} must be a list of its options`,
+    read: node => listArgValue(node),
+  };
+
   private static readonly KINDS: Readonly<Record<string, TypedInKind>> = {
     number: TypedInKinds.number(false),
     integer: TypedInKinds.number(true),
@@ -104,9 +121,16 @@ export class TypedInKinds {
     radio: TypedInKinds.CHOICE,
   };
 
-  /** A type's entry, or null for a type the table doesn't hold; a value with no declared type is a number. */
-  static of(type: string | undefined): TypedInKind | null {
+  /**
+   * A type's entry, or null for a type the table doesn't hold; a value with
+   * no declared type is a number, and a select with `multiple` is the list
+   * kind.
+   */
+  static of(type: string | undefined, multiple?: boolean): TypedInKind | null {
     const name = type ?? 'number';
+    if (name === 'select' && multiple === true) {
+      return TypedInKinds.CHOICES;
+    }
     return Object.hasOwn(TypedInKinds.KINDS, name) ? TypedInKinds.KINDS[name] : null;
   }
 
@@ -115,8 +139,15 @@ export class TypedInKinds {
     return `is of the type '${type}', which this version of FluidCAD does not know`;
   }
 
-  /** A typed-in source as the statement writes it: a number or expression as it reads, a string or boolean as a literal. */
+  /**
+   * A typed-in source as the statement writes it: a number or expression as
+   * it reads, a string or boolean as a literal, a list as one array literal
+   * — brackets kept around one element, and around none.
+   */
   static text(source: TypedInSource): string {
+    if (source.kind === 'list') {
+      return TypedInKinds.listText(source.values);
+    }
     if (source.kind === 'value') {
       return formatValue(source.value);
     }
@@ -124,12 +155,18 @@ export class TypedInKinds {
   }
 
   /** A declared default a statement can write in a left-out value's place, or undefined. */
-  static defaultOf(fallback: unknown): number | string | boolean | undefined {
+  static defaultOf(fallback: unknown): number | string | boolean | (string | number)[] | undefined {
+    if (Array.isArray(fallback)) {
+      return fallback.every(entry => typeof entry === 'string' || typeof entry === 'number') ? [...fallback] : undefined;
+    }
     return typeof fallback === 'number' || typeof fallback === 'string' || typeof fallback === 'boolean' ? fallback : undefined;
   }
 
   /** A typed-in value's default as the statement writes it, or undefined for a value without one. */
-  static defaultText(fallback: number | string | boolean | undefined): string | undefined {
+  static defaultText(fallback: number | string | boolean | (string | number)[] | undefined): string | undefined {
+    if (Array.isArray(fallback)) {
+      return TypedInKinds.listText(fallback);
+    }
     if (typeof fallback === 'number') {
       return formatValue(fallback);
     }
@@ -143,6 +180,30 @@ export class TypedInKinds {
   static quote(text: string): string {
     const escaped = JSON.stringify(text).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'");
     return `'${escaped}'`;
+  }
+
+  /** A list of option values as an array literal: strings single-quoted, numbers bare, `[]` for none. */
+  private static listText(values: readonly (string | number)[]): string {
+    return `[${values.map(value => typeof value === 'number' ? formatValue(value) : TypedInKinds.quote(value)).join(', ')}]`;
+  }
+
+  /** A list of the declared options' values, none twice, within the declaration's `min` and `max` counts. */
+  private static listSource(spec: TypedInSpec, raw: unknown): TypedInSource | string {
+    const offered = (spec.options ?? []).map(option => option.value);
+    if (!Array.isArray(raw) || raw.some(entry => !offered.includes(entry))) {
+      return `${spec.label} must be a list of ${offered.map(value => JSON.stringify(value)).join(', ')}`;
+    }
+    const repeated = raw.find((entry, index) => raw.indexOf(entry) !== index);
+    if (repeated !== undefined) {
+      return `${spec.label} lists ${JSON.stringify(repeated)} twice`;
+    }
+    if (spec.min !== undefined && raw.length < spec.min) {
+      return `${spec.label} takes at least ${spec.min}`;
+    }
+    if (spec.max !== undefined && raw.length > spec.max) {
+      return `${spec.label} takes at most ${spec.max}`;
+    }
+    return { kind: 'list', values: [...raw] };
   }
 
   /** A string within the flat limit, and within its declaration's `maxLength` and `pattern` (matched against the whole of it). */

@@ -871,6 +871,8 @@ describe("the layout tree of a schema dialog", () => {
     const copy = one('[data-role="aside"]');
     expect(body.firstElementChild).toBe(copy);
     expect(copy.className).toContain('sm:hidden');
+    // The sheet is as wide as the window: a picture with no height of its own is held to a strip, not the sheet's whole body.
+    expect(copy.className).toContain('[&_img]:max-h-40');
     expect(card.className).toContain('max-sm:hidden');
     for (const host of [card, copy]) {
       expect([...host.children].map(el => (el as HTMLElement).dataset.role)).toEqual(['image', 'divider', 'note']);

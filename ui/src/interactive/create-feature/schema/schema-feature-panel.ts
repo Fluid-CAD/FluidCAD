@@ -91,7 +91,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       // The card hides where the dialog is a sheet: the body keeps its own copy for there.
       const card = this.shell.addSideCard();
       card.classList.add(...COLUMN_CLASS.split(' '));
-      for (const host of [card, this.append('aside', `sm:hidden ${COLUMN_CLASS}`)]) {
+      for (const host of [card, this.append('aside', `sm:hidden [&_img]:max-h-40 ${COLUMN_CLASS}`)]) {
         this.asides.push({ host, nodes: aside.map(item => this.renderStatic(host, item)) });
       }
     }

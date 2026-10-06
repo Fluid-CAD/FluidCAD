@@ -1,7 +1,7 @@
 ---
 id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
-summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. Left out, a boolean without a default is false and a select its first option (unset when optional) — what the dialog shows; a number or a text without one is required unless optional. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
+summary: "Each value a custom feature declares in Feature.with({ … }) is typed in ({ type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text', default, min, max }) or picked ({ picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor' }, a list with multiple/max), with label, description, group, tab, visibleWhen and optional for the dialog. Left out, a boolean without a default is false and a select its first option (unset when optional) — what the dialog shows; a number or a text without one is required unless optional. picker: [kinds] is a union whose kinds must take different clicks. An axis picker always takes connectors. tangents, connector on an axis, and a picker's default are refused by name."
 tags: [api, sdk, custom-feature, type]
 symbols: [ParamSpec, PickerKind, VisibleWhen]
 seeAlso: [api/feature, api/define-feature, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
@@ -22,8 +22,13 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 // Typed in
 { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number }
 { type: 'boolean'; default?: boolean }                     // no default: false
-{ type: 'select'; options: { label: string; value: string | number }[]; default?: string | number }
-                                                           // no default: the first option; unset when optional
+{ type: 'select'; options: Option[]; default?: string | number;
+  display?: 'list' | 'grid'; columns?: number; search?: boolean }
+{ type: 'radio'; options: Option[]; default?: string | number;
+  display?: 'list' | 'inline' | 'buttons' | 'cards'; columns?: number }
+                                                           // both, no default: the first option; unset when optional
+// Option
+{ label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[] }
 { type: 'text'; default?: string }
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
@@ -61,6 +66,7 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 | `angle` | `number` | degrees |
 | `boolean` | `boolean` | a toggle |
 | `select` | the union of its options' values | `options: [{ label: 'M3 (3.4 mm)', value: 'm3' }, …]`; values are strings or numbers |
+| `radio` | the union of its options' values | a select's `options` and default rule, for a few choices that are all on show |
 | `text` | `string` | |
 
 The builder checks every value it is called with, so a model that passes a
@@ -68,16 +74,55 @@ wrong one fails to compile at that call: `boltCircle(): 'count' must be at
 least 1, got 0`, `boltCircle(): 'size' must be one of "m3", "m4", "m5",
 "custom", got 'm6'`, `boltCircle(): 'count' must be a whole number, got 2.5`.
 
-**A value left out** (or `null`) takes its default. A `boolean` and a
-`select` always resolve to one, declared or not, because their dialog rows
+`type` is what the value is and `display` how its row is laid out: a display
+never changes the value or the statement the dialog writes.
+
+**Options.** A `select` and a `radio` share one option: `label` and `value`,
+and optionally an `image`, a `description` (a line under the label), a
+`group` (the heading it is listed under) and `keywords` (further words a
+search finds it by; a non-empty list). An `image` is a relative path to an
+image inside the module's directory, as `icon` is in
+[`defineFeature`](./define-feature.md): `'./img/m3.svg'`, never `../` or a
+URL. Any other option field is refused by name.
+
+| Type | `display` | `columns` |
+|---|---|---|
+| `select` | `'list'` (the default): one row per option. `'grid'`: a grid of the options' images | `2`–`6`, with `'grid'` only |
+| `radio` | `'list'` (the default): stacked. `'inline'`: on one line. `'buttons'`: a segmented row. `'cards'`: image tiles | `2`–`6`, with `'cards'` only |
+
+`search: true` on a `select` lets its options be searched by label,
+description and keywords; a `radio` takes no `search`. `columns` on any other
+display is refused: `param 'size': 'columns' is for display: 'grid' — leave
+it out`.
+
+```js
+size: {
+  type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3,
+  options: [
+    { label: 'M3', value: 'm3', image: './img/m3.svg', description: '3.4 mm clearance', group: 'Metric', keywords: ['iso'] },
+    { label: '#4', value: 'n4', image: './img/n4.svg', group: 'Imperial' },
+  ],
+},
+head: {
+  type: 'radio', display: 'cards',
+  options: [
+    { label: 'Plain', value: 'plain', image: './img/plain.svg' },
+    { label: 'Counterbore', value: 'counterbore', image: './img/cbore.svg' },
+  ],
+},
+```
+
+**A value left out** (or `null`) takes its default. A `boolean`, a
+`select` and a `radio` always resolve to one, declared or not, because their dialog rows
 always show one:
 
 | Declared | Left out, the feature gets | The dialog shows |
 |---|---|---|
 | any type with a `default` | the default | the default |
 | `boolean`, no default | `false` (`optional` changes nothing) | the toggle off |
-| `select`, no default | its first option's value | the first option |
+| `select` or `radio`, no default | its first option's value | the first option |
 | `select`, no default, `optional: true` | `undefined` | an empty choice, "—" |
+| `radio`, no default, `optional: true` | `undefined` | none chosen |
 | `number`, `integer`, `length`, `angle` or `text`, no default | required: `post(): 'height' is required` | an empty row; Apply says "Height is required." |
 | the same, `optional: true` | `undefined` | an empty row |
 

@@ -60,7 +60,7 @@ that message, and a model that imports the module fails to compile with it.
 |---|---|
 | `label` | Required. The Custom dropdown cell's caption and the timeline row's name ("Bolt circle"); `.name('…')` on a statement still wins. |
 | `description` | The cell's tooltip, after the label. |
-| `icon` | A relative path to an image inside the module's directory (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`): `'./standoff.svg'`, never `../` or a URL. Only the declared file is served. A generic icon stands in when left out. Line art in a mid-tone reads in both the light and the dark theme. |
+| `icon` | A relative path to an image inside the module's directory (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`): `'./standoff.svg'`, never `../` or a URL. Only the files the metadata declares are served: this icon and the `image` of each option of a `select` or a `radio` ([feature-params](./feature-params.md)). A generic icon stands in when left out. Line art in a mid-tone reads in both the light and the dark theme. |
 | `group` | Required: `'create'` or `'modify'`. The dropdown lists create features first, then modify, each sorted by label. |
 | `operations` | A tool's operations, which its dialog offers as tabs (see below). A modifier takes none. |
 | `call` | Required: the call shape (see below). Every value appears in it exactly once. |

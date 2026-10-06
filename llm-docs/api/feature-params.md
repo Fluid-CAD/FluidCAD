@@ -167,6 +167,28 @@ What the dialog shows is what the builder gets:
 | stepper | the plain input's row: empty, the `default` greyed | `default`, else `undefined` (it must be `optional`) | as a plain number |
 | checkbox | checked or not, by `default` (`false`) | `default`, else `false` | never |
 | text with limits | empty, or the `placeholder` | `default`, else `undefined` | as a plain text; a value over `maxLength` or off `pattern` blocks Apply with the reason |
+| select with `multiple: true` | `default`, else `None` (nothing chosen) | `default`, else `[]` — never `undefined` | never: an empty list is a value (`[]`); fewer than `min` or more than `max` blocks Apply |
+
+## A list of options: `select` with `multiple: true`
+
+The one typed-in value that is a list. The dialog shows a popover with a check mark per chosen option that stays open while you toggle; the row reads the chosen labels, `N selected` above two, or `None`.
+
+```text
+finishes: {
+  type: 'select', multiple: true, label: 'Finishes',
+  options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
+  default: ['deburr'],   // optional: a list of option values; left out it is []
+  min: 0, max: 2,        // optional counts of chosen values
+}
+// this.values.finishes: ('deburr' | 'chamfer' | 'polish')[]   (never undefined; `optional` changes nothing)
+// the dialog writes:    fastener(at, { finishes: ['deburr', 'polish'] })   — ['deburr'] for one, [] for none
+```
+
+- `this.values.<name>` is always a list, in the order the call wrote it (the dialog writes declaration order). A call must pass a list: one value alone is refused (`'finishes' must be a list of "deburr", "chamfer", "polish"`), as are a value that is no option, a value listed twice, and a count outside `min` / `max`.
+- `default` is a list of distinct option values within `min` / `max`. `min` is a whole number ≥ 0, `max` a whole number ≥ 1, `min ≤ max ≤` the number of options. A `min` above 0 needs a `default` (the list would start empty, which its own `min` refuses).
+- `display: 'grid'`, `columns` and `search` work as on a single select.
+- Refused by name: `multiple` on a `radio`; `min` / `max` on a select without `multiple: true`; a multi-select as the call shape's rest value (`...name` is for a picker with `multiple: true`); a `visibleWhen` that names one (it can only name a value that holds one thing).
+- The dialog edits a statement only when the argument is a plain list of string and number literals; a spread, a variable or a nested list is left to the code.
 
 ## Picked values
 

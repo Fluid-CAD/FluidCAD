@@ -18,6 +18,10 @@ export type TypedInSpec = {
   min?: number;
   max?: number;
   options?: readonly { value: string | number }[];
+  /** A text's most characters. */
+  maxLength?: number;
+  /** A regular expression a text must match as a whole. */
+  pattern?: string;
 };
 
 /** One typed-in type: how its values are checked, read back and previewed. */
@@ -51,6 +55,9 @@ export class TypedInKinds {
     'string', 'template_string', 'true', 'false', 'object', 'array', 'arrow_function', 'function_expression', 'regex',
   ]);
 
+  /** The most characters any text may have, whatever it declares. */
+  private static readonly TEXT_LIMIT = 2000;
+
   private static readonly BOOLEAN: TypedInKind = {
     name: 'true or false',
     expression: false,
@@ -62,7 +69,7 @@ export class TypedInKinds {
   private static readonly TEXT: TypedInKind = {
     name: 'string',
     expression: false,
-    source: (spec, raw) => typeof raw === 'string' && raw.length <= 2000 ? { kind: 'literal', value: raw } : `${spec.label} must be a string`,
+    source: (spec, raw) => TypedInKinds.textSource(spec, raw),
     preview: (spec, raw) => typeof raw === 'string' ? null : `${spec.label} must be text`,
     read: node => stringArgValue(node),
   };
@@ -136,6 +143,20 @@ export class TypedInKinds {
   static quote(text: string): string {
     const escaped = JSON.stringify(text).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'");
     return `'${escaped}'`;
+  }
+
+  /** A string within the flat limit, and within its declaration's `maxLength` and `pattern` (matched against the whole of it). */
+  private static textSource(spec: TypedInSpec, raw: unknown): TypedInSource | string {
+    if (typeof raw !== 'string' || raw.length > TypedInKinds.TEXT_LIMIT) {
+      return `${spec.label} must be a string`;
+    }
+    if (spec.maxLength !== undefined && raw.length > spec.maxLength) {
+      return `${spec.label} must be at most ${spec.maxLength} characters`;
+    }
+    if (spec.pattern !== undefined && !new RegExp(`^(?:${spec.pattern})$`, 'u').test(raw)) {
+      return `${spec.label} must match ${spec.pattern}`;
+    }
+    return { kind: 'literal', value: raw };
   }
 
   /** A number, or an expression that evaluates to one; `whole` refuses a fraction typed as a number. */

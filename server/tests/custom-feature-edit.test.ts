@@ -5,6 +5,8 @@ import {
   parseFeatureStatement,
   type ApplyFeatureEditSpec,
   type CustomFeatureOptions,
+  TypedInKinds,
+  type TypedInSpec,
 } from '../src/apply-feature-edit/index.ts';
 import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import type { ScannedFeature } from '../src/feature-catalog/scan.ts';
@@ -118,6 +120,34 @@ const MODULES: Record<string, ScannedFeature[]> = {
   '/ws/bolt-circle.feature.js': [{ exportName: 'boltCircle', meta: BOLT_CIRCLE_META }],
   '/ws/pocket.feature.js': [{ exportName: 'pocket', meta: POCKET_META }],
 };
+
+/** Every C4 presentation field on show: a slider, a stepper, a checkbox, a text with its limits, hints. */
+const DIAL_META = {
+  id: 'acme.dial', label: 'Dial', group: 'create', kind: 'tool', operations: [],
+  params: {
+    depth: { type: 'length', label: 'Depth', default: 2, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface' },
+    count: { type: 'integer', label: 'Count', optional: true, min: 1, max: 8, display: 'stepper', suffix: 'x' },
+    flush: { type: 'boolean', label: 'Flush', default: false, display: 'checkbox', hint: 'Level with the face' },
+    note: { type: 'text', label: 'Note', optional: true, multiline: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9\\n-]*', hint: 'Letters, digits and dashes' },
+  },
+  call: [{ depth: 'depth', count: 'count', flush: 'flush', note: 'note' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+/** The same values with no presentation: what is left is what a statement may depend on. */
+const BARE_DIAL_META = {
+  id: 'acme.dial', label: 'Dial', group: 'create', kind: 'tool', operations: [],
+  params: {
+    depth: { type: 'length', label: 'Depth', default: 2, min: 1, max: 50 },
+    count: { type: 'integer', label: 'Count', optional: true, min: 1, max: 8 },
+    flush: { type: 'boolean', label: 'Flush', default: false },
+    note: { type: 'text', label: 'Note', optional: true, maxLength: 12, pattern: '[A-Za-z0-9\\n-]*' },
+  },
+  call: [{ depth: 'depth', count: 'count', flush: 'flush', note: 'note' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+MODULES['/ws/dial.feature.js'] = [{ exportName: 'dial', meta: DIAL_META }];
 
 function catalog(): FeatureCatalog {
   return new FeatureCatalog({
@@ -692,5 +722,62 @@ describe('a radio value, and choices that differ only in how they are shown', ()
     const computed = src(`import { clip } from './clip.feature.js'`, ``, `clip({ head: pick() })`);
     const refused = await parseFeatureStatement(computed, 3, await catalog().calleesFor(computed, MODEL));
     expect(refused.ok === false && refused.reason).toContain(`clip()'s 'head' is not a plain string or number`);
+  });
+});
+
+describe('rows that differ only in how they look: slider, stepper, suffix, checkbox, hint, placeholder, multiline', () => {
+  function dialSpec(meta: ScannedFeature['meta'], values: CustomFeatureOptions['values']): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: [],
+      parts: [],
+      imports: [],
+      custom: { id: 'acme.dial', exportName: 'dial', modulePath: '/ws/dial.feature.js', shape: CustomFeatureStatement.shapeOf(meta), values },
+    };
+  }
+
+  it('writes byte-identical statements from two declarations that differ only in presentation', async () => {
+    const values: CustomFeatureOptions['values'] = {
+      depth: { kind: 'value', value: 12 }, count: { kind: 'value', value: 3 }, flush: { kind: 'literal', value: true }, note: { kind: 'literal', value: 'A2-70' },
+    };
+    const shown = await applyFeatureEdit(PLATE, dialSpec(DIAL_META, values), { callees: catalog() });
+    const bare = await applyFeatureEdit(PLATE, dialSpec(BARE_DIAL_META, values), { callees: catalog() });
+    expect(shown.error).toBeUndefined();
+    expect(shown.newCode).toContain(`dial({ depth: 12, count: 3, flush: true, note: 'A2-70' })`);
+    expect(bare.newCode).toBe(shown.newCode);
+    expect(CustomFeatureStatement.shapeOf(DIAL_META)).toEqual(CustomFeatureStatement.shapeOf(BARE_DIAL_META));
+    // A value's check reads no presentation either: the same verdicts from both declarations.
+    for (const [name, raw] of [['depth', 12], ['depth', 51], ['depth', 'gap * 2'], ['count', 2.5], ['flush', true], ['note', 'A2-70'], ['note', 'no!']] as const) {
+      const [a, b] = [DIAL_META, BARE_DIAL_META].map(meta => {
+        const spec = (meta.params as Record<string, TypedInSpec>)[name];
+        return TypedInKinds.of(spec.type)!.source(spec, raw);
+      });
+      expect(a).toEqual(b);
+    }
+  });
+
+  it("holds a text to its declaration's maxLength and pattern, inside the flat limit", () => {
+    const text = TypedInKinds.of('text')!;
+    const spec = { label: 'Note', type: 'text', maxLength: 12, pattern: '[A-Za-z0-9-]*' };
+    expect(text.source(spec, 'A2-70')).toEqual({ kind: 'literal', value: 'A2-70' });
+    expect(text.source(spec, '')).toEqual({ kind: 'literal', value: '' });
+    expect(text.source(spec, 'A2-70-A2-70-A2')).toBe('Note must be at most 12 characters');
+    expect(text.source(spec, 'A2 70')).toBe('Note must match [A-Za-z0-9-]*');
+    // The whole value is matched, not a part of it.
+    expect(text.source({ label: 'Note', type: 'text', pattern: 'A' }, 'AA')).toBe('Note must match A');
+    expect(text.source({ label: 'Note', type: 'text' }, 'x'.repeat(2000))).toEqual({ kind: 'literal', value: 'x'.repeat(2000) });
+    expect(text.source({ label: 'Note', type: 'text', maxLength: 5000 }, 'x'.repeat(2001))).toBe('Note must be a string');
+    expect(text.source(spec, 7)).toBe('Note must be a string');
+  });
+
+  it('writes a text of several lines as one single-quoted literal and reads it back', async () => {
+    expect(TypedInKinds.quote(`it's\na "b"\\`)).toBe(`'it\\'s\\na "b"\\\\'`);
+    const written = await applyFeatureEdit(PLATE, dialSpec(DIAL_META, { note: { kind: 'literal', value: 'A2\n70' } }), { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`dial({ note: 'A2\\n70' })`);
+    const line = written.newCode.split('\n').findIndex(text => text.includes('dial({')) + 1;
+    const parsed = await parseFeatureStatement(written.newCode, line, await catalog().calleesFor(written.newCode, MODEL));
+    expect(parsed.ok && parsed.parsed).toMatchObject({ feature: 'custom', id: 'acme.dial', values: { note: 'A2\n70' } });
   });
 });

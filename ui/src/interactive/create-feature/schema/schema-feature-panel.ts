@@ -1,9 +1,14 @@
-import type { FeatureListValue, FeatureOpKind, FeaturePickerParam, FeatureScalarParam, FeatureScalarValue } from '../../../api';
+import type {
+  FeatureLayoutImage, FeatureLayoutItem, FeatureLayoutNote, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs,
+  FeatureListValue, FeatureOpKind, FeaturePickerParam, FeatureScalarParam, FeatureScalarValue, FeatureStaticItem,
+  FeatureVisibleWhen,
+} from '../../../api';
+import { FoldingSection } from '../../../ui/controls';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeaturePanel } from '../feature-panel';
 import { ChoiceTabs } from '../panel-controls';
 import { ScopeSlotControl } from '../scope-slot';
-import { FeatureSchema, type SchemaBlock } from './feature-schema';
+import { FeatureSchema } from './feature-schema';
 import { SchemaField } from './schema-fields';
 import { SchemaPicker } from './schema-pickers';
 
@@ -11,15 +16,39 @@ import { SchemaPicker } from './schema-pickers';
 export type ArmedSlot = string | 'scope' | null;
 
 const GROUP_HEADING_CLASS = 'text-[10px] uppercase tracking-wide text-base-content/45';
+const COLUMN_CLASS = 'flex flex-col gap-3.5';
+
+type Scalars = Readonly<Record<string, FeatureScalarValue | undefined>>;
+
+/**
+ * One rendered item of the layout, as visibility walks it: a value's row
+ * (`name`), or the element an item hides (`el`) with what it holds.
+ */
+interface LayoutNode {
+  item: FeatureLayoutItem;
+  name?: string;
+  el?: HTMLElement;
+  children: LayoutNode[];
+}
+
+/** Where a value's row sits: its tab's pane, the section that may fold over it, and every `visibleWhen` above it. */
+interface RowPlace {
+  tab: string | null;
+  fold: FoldingSection | null;
+  when: FeatureVisibleWhen[];
+}
 
 /**
  * The dialog a custom feature's metadata describes, rendered from its
  * {@link FeatureSchema}: the operation tabs when the feature offers a choice
- * of operations, then every value in declaration order — typed-in rows
- * (expression fields, selects, toggles, text) and pick slots — under their
- * group headings, the tabbed ones on their tab's pane, and the framework's
- * `.scope(…)` row last, for any feature with operations.
- * Rows whose `visibleWhen` fails hide. Pure DOM and form state: the service
+ * of operations, then the feature's layout tree — typed-in rows
+ * (expression fields, selects, toggles, text) and pick slots, side by side
+ * in a row's grid, under a section's heading (which may fold), on a tab's
+ * pane, with notes, images and dividers between them — and the framework's
+ * `.scope(…)` row last, for any feature with operations. An `aside` shows
+ * on the card beside the dialog, and at the top of the body where the card
+ * has no room. Rows and items whose `visibleWhen` fails hide, and a
+ * container with nothing left to show. Pure DOM and form state: the service
  * owns the scene, the picks' routing, the previews and the apply.
  */
 export class SchemaFeaturePanel extends FeaturePanel {
@@ -37,9 +66,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
   readonly scopeSlot: ScopeSlotControl | null = null;
 
   private readonly opTabs: ChoiceTabs<FeatureOpKind> | null = null;
-  private readonly tabs: ChoiceTabs<string> | null = null;
+  private tabs: ChoiceTabs<string> | null = null;
   private readonly panes = new Map<string, HTMLElement>();
-  private readonly groupHosts: { host: HTMLElement; names: string[] }[] = [];
+  private readonly nodes: LayoutNode[];
+  private readonly asides: { host: HTMLElement; nodes: LayoutNode[] }[] = [];
+  private readonly places = new Map<string, RowPlace>();
+  private readonly images: { img: HTMLImageElement; path: string }[] = [];
   private readonly pausedRow: HTMLElement;
   private readonly pausedText: HTMLElement;
   private armed: ArmedSlot = null;
@@ -50,7 +82,18 @@ export class SchemaFeaturePanel extends FeaturePanel {
       title: schema.label,
       icon: iconSrc,
       bodyHtml: '',
+      width: schema.meta.width,
     });
+
+    const aside = schema.meta.aside;
+    if (aside && aside.length > 0) {
+      // The card hides where the dialog is a sheet: the body keeps its own copy for there.
+      const card = this.shell.addSideCard();
+      card.classList.add(...COLUMN_CLASS.split(' '));
+      for (const host of [card, this.append('aside', `sm:hidden ${COLUMN_CLASS}`)]) {
+        this.asides.push({ host, nodes: aside.map(item => this.renderStatic(host, item)) });
+      }
+    }
 
     const operations = schema.operations;
     if (schema.offersOperationChoice) {
@@ -65,19 +108,10 @@ export class SchemaFeaturePanel extends FeaturePanel {
       };
     }
 
-    const layout = schema.layout();
-    this.renderBlocks(this.body, layout.top);
-    if (layout.tabs.length > 0) {
-      const tabHost = this.append('tabs', 'join w-full');
-      this.tabs = new ChoiceTabs(tabHost, layout.tabs.map(t => ({ key: t.name, label: t.name, title: t.name })),
-        layout.tabs[0].name, { compact: layout.tabs.length > 3 });
-      for (const tab of layout.tabs) {
-        const pane = this.append(`tab-${tab.name}`, 'flex flex-col gap-3.5');
-        this.renderBlocks(pane, tab.blocks);
-        this.panes.set(tab.name, pane);
-      }
+    this.nodes = this.renderItems(this.body, schema.layout(), { tab: null, fold: null, when: [] });
+    if (this.tabs) {
       this.tabs.onChange = () => this.showTab(this.tabs!.value);
-      this.showTab(layout.tabs[0].name);
+      this.showTab(this.tabs.value);
     }
 
     if (operations.length > 0) {
@@ -175,12 +209,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   /**
-   * Move the armed state onto one slot. A hidden value, or one on a tab out
-   * of view, can't be armed; null disarms every slot.
+   * Move the armed state onto one slot. A hidden value, one on a tab out of
+   * view or one under a folded section can't be armed; null disarms every slot.
    */
   armSlot(slot: ArmedSlot): void {
     const picker = slot && slot !== 'scope' ? this.pickers.get(slot) : undefined;
-    if (picker && (!picker.visible || !this.onShownTab(picker))) {
+    if (picker && !this.reachable(picker)) {
       return;
     }
     if (slot === 'scope' && !this.scopeSlot?.visible) {
@@ -221,30 +255,54 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
-  /** The picked values the dialog can arm right now — shown, on the shown tab — in the order they read. */
+  /** The picked values the dialog can arm right now, in the order they read. */
   private pickableValues(): SchemaPicker[] {
-    return [...this.pickers.values()].filter(p => p.visible && this.onShownTab(p));
+    return [...this.pickers.values()].filter(p => this.reachable(p));
   }
 
-  private onShownTab(picker: SchemaPicker): boolean {
-    return !picker.spec.tab || !this.tabs || picker.spec.tab === this.tabs.value;
+  /** A pick can land in this value: its row shows, on the shown tab, under no folded section. */
+  private reachable(picker: SchemaPicker): boolean {
+    const place = this.places.get(picker.name);
+    const onShownTab = !place?.tab || !this.tabs || place.tab === this.tabs.value;
+    return picker.visible && onShownTab && place?.fold?.folded !== true;
   }
 
   /**
-   * Show each row whose `visibleWhen` holds, its group heading while any of
-   * its rows shows, and the scope row unless the operation is New. An armed
-   * slot that just hid hands the armed state on.
+   * Bring a value's row into view: switch to its tab and unfold its section
+   * — what Apply does for the value that blocks it.
+   */
+  reveal(name: string): void {
+    const place = this.places.get(name);
+    if (!place) {
+      return;
+    }
+    if (place.tab && this.tabs && this.tabs.value !== place.tab) {
+      this.tabs.setValue(place.tab);
+      this.showTab(place.tab);
+    }
+    if (place.fold?.folded) {
+      place.fold.setFolded(false);
+      this.onFold(false);
+    }
+  }
+
+  /**
+   * Show each row whose `visibleWhen` holds and every one above it in the
+   * layout, each item whose own holds, a container (a row, a section) while
+   * anything in it shows, and the scope row unless the operation is New. An
+   * armed slot that just hid hands the armed state on.
    */
   syncVisibility(): void {
     const scalars = this.settleOffered();
     for (const [name, field] of this.fields) {
-      field.setVisible(this.schema.isVisible(name, scalars));
+      field.setVisible(this.rowShows(name, scalars));
     }
     for (const [name, picker] of this.pickers) {
-      picker.setVisible(this.schema.isVisible(name, scalars));
+      picker.setVisible(this.rowShows(name, scalars));
     }
-    for (const { host, names } of this.groupHosts) {
-      const anyShown = names.some(name => this.fields.get(name)?.visible ?? this.pickers.get(name)?.visible);
+    this.syncNodes(this.nodes, scalars);
+    for (const { host, nodes } of this.asides) {
+      const anyShown = this.syncNodes(nodes, scalars);
       host.classList.toggle('hidden', !anyShown);
     }
     this.scopeSlot?.setVisible(this.operation !== 'new');
@@ -292,10 +350,13 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
-  /** A file the feature declares was saved: every row showing one asks for it again. */
+  /** A file the feature declares was saved: every row showing one asks for it again, and the layout's and the aside's pictures. */
   refreshImages(): void {
     for (const field of this.fields.values()) {
       field.refreshImages();
+    }
+    for (const { img, path } of this.images) {
+      img.src = this.schema.assetUrl(path);
     }
   }
 
@@ -321,38 +382,202 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
     // A slot on the pane just hidden hands the armed state on.
     const armed = this.armedPicker;
-    if (armed && !this.onShownTab(armed)) {
+    if (armed && !this.reachable(armed)) {
       this.armFirstPicker();
     }
   }
 
+  /**
+   * A section folded or unfolded: a slot it just folded over hands the armed
+   * state on, and one it just uncovered takes it when none holds it.
+   */
+  private onFold(folded: boolean): void {
+    const armed = this.armedPicker;
+    if (folded && armed && !this.reachable(armed)) {
+      this.armFirstPicker();
+    }
+    if (!folded && this.armed === null && this.pickableValues().length > 0) {
+      this.armFirstPicker();
+    }
+  }
+
+  /** A value's row shows: its own `visibleWhen` holds, and that of every item it sits in. */
+  private rowShows(name: string, scalars: Scalars): boolean {
+    const above = this.places.get(name)?.when ?? [];
+    return this.schema.isVisible(name, scalars) && above.every(when => FeatureSchema.holds(when, scalars));
+  }
+
+  /**
+   * Hide each item whose `visibleWhen` fails and each container left with
+   * nothing to show; whether anything among `nodes` shows. A divider shows
+   * but is nothing to keep a container for.
+   */
+  private syncNodes(nodes: LayoutNode[], scalars: Scalars): boolean {
+    let anyShown = false;
+    for (const node of nodes) {
+      anyShown = this.syncNode(node, scalars) || anyShown;
+    }
+    return anyShown;
+  }
+
+  private syncNode(node: LayoutNode, scalars: Scalars): boolean {
+    const { item } = node;
+    if (node.name !== undefined) {
+      return (this.fields.get(node.name)?.visible ?? this.pickers.get(node.name)?.visible) === true;
+    }
+    if (typeof item === 'string' || 'divider' in item) {
+      return false;
+    }
+    if ('tabs' in item) {
+      // A tab stays on the row even when its pane has nothing to show.
+      this.syncNodes(node.children, scalars);
+      return true;
+    }
+    const inside = 'row' in item || 'section' in item ? this.syncNodes(node.children, scalars) : true;
+    const shows = inside && FeatureSchema.itemShows(item, scalars);
+    node.el?.classList.toggle('hidden', !shows);
+    return shows;
+  }
+
   private append(role: string, className: string): HTMLElement {
+    return this.appendTo(this.body, role, className);
+  }
+
+  private appendTo(host: HTMLElement, role: string, className: string): HTMLElement {
     const el = document.createElement('div');
     el.dataset.role = role;
     el.className = className;
-    this.body.appendChild(el);
+    host.appendChild(el);
     return el;
   }
 
-  private renderBlocks(host: HTMLElement, blocks: SchemaBlock[]): void {
-    for (const block of blocks) {
-      let target = host;
-      if (block.group !== null) {
-        const group = document.createElement('div');
-        group.dataset.group = block.group;
-        group.className = 'flex flex-col gap-3.5';
-        const heading = document.createElement('div');
-        heading.className = GROUP_HEADING_CLASS;
-        heading.textContent = block.group;
-        group.appendChild(heading);
-        host.appendChild(group);
-        this.groupHosts.push({ host: group, names: block.names });
-        target = group;
-      }
-      for (const name of block.names) {
-        target.appendChild(this.renderRow(name));
-      }
+  private renderItems(host: HTMLElement, items: readonly FeatureLayoutItem[], place: RowPlace): LayoutNode[] {
+    return items.map(item => this.renderItem(host, item, place));
+  }
+
+  /** One item of the layout into `host`: a value's row, a row of cells, a section, the tabs, or a static item. */
+  private renderItem(host: HTMLElement, item: FeatureLayoutItem, place: RowPlace): LayoutNode {
+    if (typeof item === 'string') {
+      this.places.set(item, place);
+      host.appendChild(this.renderRow(item));
+      return { item, name: item, children: [] };
     }
+    if ('row' in item) {
+      return this.renderCells(host, item, place);
+    }
+    if ('section' in item) {
+      return this.renderSection(host, item, place);
+    }
+    if ('tabs' in item) {
+      return this.renderTabs(host, item, place);
+    }
+    return this.renderStatic(host, item);
+  }
+
+  /** A row's cells side by side: one grid track per cell, `widths` as their shares, inputs level along the bottom. */
+  private renderCells(host: HTMLElement, item: FeatureLayoutRow, place: RowPlace): LayoutNode {
+    const el = document.createElement('div');
+    el.dataset.role = 'layout-row';
+    el.className = 'grid gap-2 items-end';
+    el.style.gridTemplateColumns = item.row.map((_, i) => `minmax(0, ${item.widths?.[i] ?? 1}fr)`).join(' ');
+    const inside = SchemaFeaturePanel.under(place, item.visibleWhen);
+    const children = item.row.map(cell => {
+      const slot = document.createElement('div');
+      slot.dataset.role = 'layout-cell';
+      slot.className = 'min-w-0';
+      el.appendChild(slot);
+      return this.renderItem(slot, cell, inside);
+    });
+    host.appendChild(el);
+    return { item, el, children };
+  }
+
+  /**
+   * A heading over its items. One that folds wears the heading as a button
+   * and keeps its items in the body it folds; one that doesn't is the plain
+   * group it always was.
+   */
+  private renderSection(host: HTMLElement, item: FeatureLayoutSection, place: RowPlace): LayoutNode {
+    const inside = SchemaFeaturePanel.under(place, item.visibleWhen);
+    if (FeatureSchema.folds(item)) {
+      const fold = new FoldingSection({
+        title: item.section, folded: item.collapsed === true, headingClass: GROUP_HEADING_CLASS, columnClass: COLUMN_CLASS,
+      });
+      fold.root.dataset.group = item.section;
+      fold.onToggle = folded => this.onFold(folded);
+      host.appendChild(fold.root);
+      return { item, el: fold.root, children: this.renderItems(fold.body, item.items, { ...inside, fold }) };
+    }
+    const group = document.createElement('div');
+    group.dataset.group = item.section;
+    group.className = COLUMN_CLASS;
+    const heading = document.createElement('div');
+    heading.className = GROUP_HEADING_CLASS;
+    heading.textContent = item.section;
+    group.appendChild(heading);
+    host.appendChild(group);
+    return { item, el: group, children: this.renderItems(group, item.items, inside) };
+  }
+
+  /** The tab row, then a pane per tab; more than three tabs wear the compact look. */
+  private renderTabs(host: HTMLElement, item: FeatureLayoutTabs, place: RowPlace): LayoutNode {
+    const children: LayoutNode[] = [];
+    if (this.tabs || item.tabs.length === 0) {
+      return { item, children };
+    }
+    const tabHost = this.appendTo(host, 'tabs', 'join w-full');
+    this.tabs = new ChoiceTabs(tabHost, item.tabs.map(t => ({ key: t.label, label: t.label, title: t.label })),
+      item.tabs[0].label, { compact: item.tabs.length > 3 });
+    for (const tab of item.tabs) {
+      const pane = this.appendTo(host, `tab-${tab.label}`, COLUMN_CLASS);
+      children.push(...this.renderItems(pane, tab.items, { ...place, tab: tab.label }));
+      this.panes.set(tab.label, pane);
+    }
+    return { item, children };
+  }
+
+  /** A note, an image or a divider — in the layout, a row's cell or the aside. */
+  private renderStatic(host: HTMLElement, item: FeatureStaticItem): LayoutNode {
+    let el: HTMLElement;
+    if ('note' in item) {
+      el = this.renderNote(item);
+    } else if ('image' in item) {
+      el = this.renderImage(item);
+    } else {
+      el = document.createElement('div');
+      el.dataset.role = 'divider';
+      el.className = 'border-t border-base-content/10';
+    }
+    host.appendChild(el);
+    return { item, el, children: [] };
+  }
+
+  private renderNote(item: FeatureLayoutNote): HTMLElement {
+    const el = document.createElement('div');
+    el.dataset.role = 'note';
+    el.dataset.tone = item.tone ?? 'info';
+    el.className = `text-xs leading-snug ${item.tone === 'warning' ? 'text-warning' : 'text-base-content/70'}`;
+    el.textContent = item.note;
+    return el;
+  }
+
+  /** The picture a layout or an aside names, served as of the module's latest save. */
+  private renderImage(item: FeatureLayoutImage): HTMLElement {
+    const img = document.createElement('img');
+    img.dataset.role = 'image';
+    img.className = 'block max-w-full mx-auto object-contain';
+    img.alt = item.alt ?? '';
+    img.src = this.schema.assetUrl(item.image);
+    if (item.height !== undefined) {
+      img.style.height = `${item.height}px`;
+    }
+    this.images.push({ img, path: item.image });
+    return img;
+  }
+
+  /** `place` with one more `visibleWhen` above it. */
+  private static under(place: RowPlace, when: FeatureVisibleWhen | undefined): RowPlace {
+    return when ? { ...place, when: [...place.when, when] } : place;
   }
 
   private renderRow(name: string): HTMLElement {

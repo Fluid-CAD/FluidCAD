@@ -24,6 +24,7 @@ vi.mock('../src/api', async (importOriginal) => ({
 
 import * as api from '../src/api';
 import type { FeatureCatalogEntry, FeatureMetaSnapshot, ParsedFeatureStatement } from '../src/api';
+import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureCatalogDialogs } from '../src/interactive/create-feature/schema/feature-catalog-dialogs';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeatureService } from '../src/interactive/create-feature/schema/schema-feature-service';
@@ -62,10 +63,10 @@ const at = (line: number, column = 2) => ({ filePath: FILE, line, column });
 const MESH = [{ vertices: [], indices: [] }] as never;
 
 function meta(id: string, label: string, params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaSnapshot> = {}): FeatureMetaSnapshot {
-  return {
+  return DerivedLayout.snapshot({
     id, label, group: 'create', kind: 'tool', operations: [], defaultOperation: null, params, call: [],
     ghost: true, contexts: ['part'], ...extra,
-  };
+  });
 }
 
 const STANDOFF = meta('acme.standoff', 'Standoff', {
@@ -1493,5 +1494,80 @@ describe('options that wait on another value in a custom feature dialog', () => 
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({ standard: 'unc', size: 'n6' });
     service.exit();
+  });
+});
+
+describe('a dialog laid out by its feature', () => {
+  const VALUES: FeatureMetaSnapshot['params'] = {
+    height: { type: 'length', label: 'Height', default: 10 },
+    count: { type: 'integer', label: 'Count', default: 4 },
+    depth: { type: 'length', label: 'Depth' },
+    base: { picker: 'face', label: 'Base' },
+  };
+  const LAID = meta('acme.laid', 'Laid', VALUES, {
+    width: 'wider',
+    aside: [{ note: 'Seen from the side.' }],
+    layout: [
+      { row: ['height', 'count'] },
+      { tabs: [
+        { label: 'Main', items: [{ note: 'Nothing to set here.' }] },
+        { label: 'More', items: [
+          { section: 'Deep', collapsed: true, items: ['depth'] },
+          { section: 'Place', collapsed: true, items: ['base'] },
+        ] },
+      ] },
+    ],
+  });
+  const DEFAULTS: FeatureMetaSnapshot['params'] = { ...VALUES, depth: { type: 'length', label: 'Depth', default: 3 }, base: { picker: 'face', label: 'Base', optional: true } };
+
+  const services: SchemaFeatureService[] = [];
+  const open = (featureMeta: FeatureMetaSnapshot) => {
+    const mounted = mount(featureMeta);
+    services.push(mounted.service);
+    mounted.service.enter();
+    const rowShown = (name: string) => !mounted.panel().querySelector(`[data-param="${name}"]`)!.closest('.hidden');
+    const apply = async () => {
+      await mounted.service.dialogPanel.onApply!();
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    return { ...mounted, rowShown, apply };
+  };
+  const created = () => vi.mocked(api.applyCustomFeature).mock.calls.map(call => call[0]).filter(request => !request.preview);
+
+  afterEach(() => {
+    services.splice(0).forEach(service => service.destroy());
+  });
+
+  it('brings the value that blocks Apply into view — its tab shown, its section unfolded — and names it; a preview moves nothing', async () => {
+    const { type, message, rowShown, apply, panel } = open(LAID);
+    type('height', '12');
+    await vi.advanceTimersByTimeAsync(300);
+    // The statement preview asked for the request too: the dialog stays where the user left it.
+    expect(rowShown('depth')).toBe(false);
+    await apply();
+    expect(message()).toBe('Depth is required.');
+    expect(rowShown('depth')).toBe(true);
+    expect(panel().querySelector('[data-group="Deep"] [data-role="section-toggle"]')!.getAttribute('aria-expanded')).toBe('true');
+    // The section of the value that didn't block stays folded.
+    expect(rowShown('base')).toBe(false);
+    type('depth', '3');
+    await apply();
+    // Now the pick left out blocks: its section unfolds.
+    expect(message()).not.toBe('Depth is required.');
+    expect(message()).not.toBe('');
+    expect(rowShown('base')).toBe(true);
+    expect(created()).toEqual([]);
+  });
+
+  it('writes nothing for an untouched create, and the same request as the dialog without a layout', async () => {
+    const laid = open(meta('acme.laid', 'Laid', DEFAULTS, { width: LAID.width, aside: LAID.aside, layout: LAID.layout }));
+    expect(laid.panel().innerHTML).toContain('sm:w-72');
+    expect(laid.panel().querySelector('[data-role="side-card"]')!.textContent).toBe('Seen from the side.');
+    await laid.apply();
+    const plain = open(meta('acme.laid', 'Laid', DEFAULTS));
+    await plain.apply();
+    expect(created()).toHaveLength(2);
+    expect(created()[0].values).toEqual({});
+    expect(created()[0]).toEqual(created()[1]);
   });
 });

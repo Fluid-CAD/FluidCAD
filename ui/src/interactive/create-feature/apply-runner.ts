@@ -31,8 +31,12 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
   constructor(private readonly opts: {
     panel: RunnerPanel;
     isArmed: () => boolean;
-    /** The current request (edit or create), or the message blocking it. */
-    build: () => R | { error: string };
+    /**
+     * The current request (edit or create), or the message blocking it —
+     * asked `'apply'` when the user pressed Apply, `'preview'` for the
+     * statement preview a change schedules.
+     */
+    build: (purpose: 'apply' | 'preview') => R | { error: string };
     /** The matching API call; `extras` carries the preview flag + signal. */
     send: (request: R, extras: { preview?: true; signal?: AbortSignal }) => Promise<ApplyFeatureResponse>;
     /** A successful (non-preview) apply — the service exits. */
@@ -79,7 +83,7 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
     if (!this.opts.isArmed() || this.applying) {
       return;
     }
-    const request = this.opts.build();
+    const request = this.opts.build('apply');
     if ('error' in request) {
       panel.setMessage(request.error as string);
       return;
@@ -131,7 +135,7 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
     if (!this.opts.isArmed() || this.applying) {
       return;
     }
-    const request = this.opts.build();
+    const request = this.opts.build('preview');
     if ('error' in request) {
       panel.setPreview(null);
       this.opts.ghost?.apply(null);

@@ -214,7 +214,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.runner = new ApplyRunner<CreateRequest | EditRequest>({
       panel: this.panel,
       isArmed: () => this.armed,
-      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      build: purpose => this.editTarget ? this.buildEditRequest(purpose === 'apply') : this.buildRequest(purpose === 'apply'),
       send: (request, extras) => this.editTarget
         ? applyCustomFeatureEdit(this.editTarget, { ...(request as EditRequest), ...extras })
         : applyCustomFeature({ ...(request as CreateRequest), ...extras }),
@@ -667,12 +667,12 @@ export class SchemaFeatureService implements FeatureDialogService {
   // -------------------------------------------------------------------------
 
   /** The create request for the current form, or the message blocking it. */
-  private buildRequest(): CreateRequest | { error: string } {
-    const values = this.collectValues(false);
+  private buildRequest(reveal: boolean): CreateRequest | { error: string } {
+    const values = this.collectValues(false, reveal);
     if ('error' in values) {
       return values;
     }
-    const picks = this.collectPicks();
+    const picks = this.collectPicks(reveal);
     if ('error' in picks) {
       return picks;
     }
@@ -694,12 +694,12 @@ export class SchemaFeatureService implements FeatureDialogService {
    * pick still on the statement's own elements, an unchanged operation or
    * scope is left out, so the statement keeps its own text there.
    */
-  private buildEditRequest(): EditRequest | { error: string } {
-    const values = this.collectValues(true);
+  private buildEditRequest(reveal: boolean): EditRequest | { error: string } {
+    const values = this.collectValues(true, reveal);
     if ('error' in values) {
       return values;
     }
-    const picks = this.collectPicks();
+    const picks = this.collectPicks(reveal);
     if ('error' in picks) {
       return picks;
     }
@@ -733,7 +733,7 @@ export class SchemaFeatureService implements FeatureDialogService {
    * when the builder has something to fall back on. A select of several is
    * never empty in that sense: with none chosen it writes an empty list.
    */
-  private collectValues(editing: boolean): {
+  private collectValues(editing: boolean, reveal: boolean): {
     values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
     newVariables?: NewVariable[];
   } | { error: string } {
@@ -746,16 +746,19 @@ export class SchemaFeatureService implements FeatureDialogService {
       const missing = `${this.schema.param(name).label} is required.`;
       if (!field.dirty) {
         if (!editing && this.schema.required(name)) {
+          this.blockedAt(name, reveal);
           return { error: missing };
         }
         continue;
       }
       const read = field.read();
       if ('error' in read) {
+        this.blockedAt(name, reveal);
         return read;
       }
       if ('empty' in read) {
         if (this.schema.required(name)) {
+          this.blockedAt(name, reveal);
           return { error: missing };
         }
         if (editing) {
@@ -771,8 +774,19 @@ export class SchemaFeatureService implements FeatureDialogService {
     return newVariables.length > 0 ? { values, newVariables } : { values };
   }
 
+  /**
+   * The value `name` blocks the request. On Apply its row comes into view —
+   * its tab shown, its section unfolded — so the message names a row the
+   * user can see; a preview's request leaves the dialog where it is.
+   */
+  private blockedAt(name: string, reveal: boolean): void {
+    if (reveal) {
+      this.panel.reveal(name);
+    }
+  }
+
   /** The picked values to write, or the message blocking the apply. */
-  private collectPicks(): { picks: Record<string, CustomPickInput[]> } | { error: string } {
+  private collectPicks(reveal: boolean): { picks: Record<string, CustomPickInput[]> } | { error: string } {
     const picks: Record<string, CustomPickInput[]> = {};
     for (const [name, picker] of this.panel.pickers) {
       if (!picker.visible) {
@@ -783,6 +797,7 @@ export class SchemaFeatureService implements FeatureDialogService {
         continue;
       }
       if ('error' in request) {
+        this.blockedAt(name, reveal);
         return request;
       }
       picks[name] = request;

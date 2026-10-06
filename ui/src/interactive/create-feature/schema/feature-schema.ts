@@ -1,18 +1,10 @@
 import type {
+  FeatureLayoutItem, FeatureLayoutSection,
   FeatureMetaSnapshot, FeatureOpKind, FeatureParam, FeaturePickerKind, FeaturePickerParam, FeatureScalarParam,
   FeatureListValue,
   FeatureScalarValue,
   FeatureVisibleWhen,
 } from '../../../api';
-
-/** Rows gathered under one group heading (`group: null` — a row of its own). */
-export type SchemaBlock = { group: string | null; names: string[] };
-
-/** Where a feature's rows sit: above the tabs, then one pane per tab. */
-export type SchemaLayout = {
-  top: SchemaBlock[];
-  tabs: { name: string; blocks: SchemaBlock[] }[];
-};
 
 const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> = {
   add: { label: 'Add', title: 'Join the result to the solids it touches' },
@@ -22,7 +14,7 @@ const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> 
 
 /**
  * A custom feature's dialog, described by its metadata snapshot: which rows
- * it has and where they sit (groups, tabs), when each row shows
+ * it has and where they sit (the layout tree), when each row shows
  * (`visibleWhen`), what a fresh dialog shows in each, and the checks a
  * typed-in value must pass before the engine sees it. Pure data — the
  * panel renders it and the service drives it.
@@ -128,29 +120,42 @@ export class FeatureSchema {
   }
 
   /**
-   * The rows above the tabs, then each tab's — in the order their first row
-   * is declared. Within each, a grouped row joins the heading its group got
-   * where the group first appeared; an ungrouped row stands alone.
+   * Where every row sits: the tree the engine resolved — the author's, or
+   * the one it derived from the values' `group` and `tab`. A snapshot
+   * without one lists the values in declaration order.
    */
-  layout(): SchemaLayout {
-    const top: SchemaBlock[] = [];
-    const tabs = new Map<string, SchemaBlock[]>();
-    for (const name of this.names) {
-      const spec = this.param(name);
-      let blocks = top;
-      if (spec.tab) {
-        blocks = tabs.get(spec.tab) ?? [];
-        tabs.set(spec.tab, blocks);
-      }
-      const group = spec.group ?? null;
-      const existing = group === null ? undefined : blocks.find(b => b.group === group);
-      if (existing) {
-        existing.names.push(name);
-      } else {
-        blocks.push({ group, names: [name] });
-      }
+  layout(): FeatureLayoutItem[] {
+    return this.meta.layout ?? this.names;
+  }
+
+  /** The declared value names an item places, in the order they read — the item itself when it is one. */
+  static namesIn(item: FeatureLayoutItem): string[] {
+    if (typeof item === 'string') {
+      return [item];
     }
-    return { top, tabs: [...tabs].map(([name, blocks]) => ({ name, blocks })) };
+    if ('row' in item) {
+      return item.row.filter((cell): cell is string => typeof cell === 'string');
+    }
+    if ('section' in item) {
+      return item.items.flatMap(each => FeatureSchema.namesIn(each));
+    }
+    if ('tabs' in item) {
+      return item.tabs.flatMap(tab => tab.items.flatMap(each => FeatureSchema.namesIn(each)));
+    }
+    return [];
+  }
+
+  /** Whether an item's own `visibleWhen` holds; an item that takes none always shows. */
+  static itemShows(item: FeatureLayoutItem, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    if (typeof item === 'string' || 'divider' in item || 'tabs' in item) {
+      return true;
+    }
+    return FeatureSchema.holds(item.visibleWhen, scalars);
+  }
+
+  /** Whether a section folds: `collapsible`, or `collapsed` — which starts it folded. */
+  static folds(section: FeatureLayoutSection): boolean {
+    return section.collapsible === true || section.collapsed === true;
   }
 
   /**

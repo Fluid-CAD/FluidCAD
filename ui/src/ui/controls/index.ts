@@ -8,3 +8,4 @@ export { OptionButton, type OptionButtonOptions } from './option-button';
 export { OptionMultiButton, type OptionMultiButtonOptions } from './option-multi-button';
 export { RadioGroup, type RadioDisplay, type RadioGroupOptions } from './radio-group';
 export { RangeTrack, type RangeTrackOptions } from './range-track';
+export { FoldingSection, type FoldingSectionOptions } from './folding-section';

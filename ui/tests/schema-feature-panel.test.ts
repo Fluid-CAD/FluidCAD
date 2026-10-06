@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FeatureMetaSnapshot } from '../src/api';
+import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeaturePanel } from '../src/interactive/create-feature/schema/schema-feature-panel';
 
@@ -12,7 +13,7 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-const VENT: FeatureMetaSnapshot = {
+const VENT: BareFeatureMeta = {
   id: 'acme.vent',
   label: 'Vent',
   group: 'create',
@@ -36,10 +37,10 @@ const VENT: FeatureMetaSnapshot = {
   contexts: ['part'],
 };
 
-function mount(meta: FeatureMetaSnapshot = VENT, opts: ConstructorParameters<typeof FeatureSchema>[1] = {}): { panel: SchemaFeaturePanel; root: HTMLElement } {
+function mount(meta: BareFeatureMeta = VENT, opts: ConstructorParameters<typeof FeatureSchema>[1] = {}): { panel: SchemaFeaturePanel; root: HTMLElement } {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const panel = new SchemaFeaturePanel(container, new FeatureSchema(meta, opts), 'icon.svg');
+  const panel = new SchemaFeaturePanel(container, new FeatureSchema(DerivedLayout.snapshot(meta), opts), 'icon.svg');
   panel.show();
   return { panel, root: container.querySelector<HTMLElement>(`#fluidcad-feature-${meta.id.replace('.', '-')}`)! };
 }
@@ -227,7 +228,7 @@ describe('the schema dialog', () => {
 
 const SIZES = ['m3', 'm4', 'm5'].map(v => ({ label: v.toUpperCase(), value: v, image: `./clip/${v}.svg` }));
 
-const CLIP: FeatureMetaSnapshot = {
+const CLIP: BareFeatureMeta = {
   ...VENT,
   id: 'acme.clip',
   label: 'Clip',
@@ -426,7 +427,7 @@ describe('the choice rows of a schema dialog', () => {
 });
 
 describe('a select of several in a schema dialog', () => {
-  const TREAT: FeatureMetaSnapshot = {
+  const TREAT: BareFeatureMeta = {
     ...VENT,
     id: 'acme.treat',
     label: 'Treat',
@@ -526,7 +527,7 @@ describe("dependent options in a schema dialog: an option's 'when'", () => {
     { label: 'M4', value: 'm4', when: { standard: 'iso' } },
     { label: '#4', value: 'n4', when: { standard: 'unc' } },
   ];
-  const SCREW: FeatureMetaSnapshot = {
+  const SCREW: BareFeatureMeta = {
     ...VENT,
     id: 'acme.screw',
     label: 'Screw',
@@ -640,5 +641,253 @@ describe("dependent options in a schema dialog: an option's 'when'", () => {
     panel.show();
     expect(listed('size')).toEqual(['M3', 'M4']);
     expect(dirty()).toEqual([]);
+  });
+});
+
+describe("the layout tree of a schema dialog", () => {
+  const PLATE: BareFeatureMeta = {
+    id: 'acme.plate', label: 'Plate', group: 'create', kind: 'tool', operations: ['remove'], defaultOperation: 'remove',
+    params: {
+      face: { picker: 'face', label: 'On face' },
+      count: { type: 'integer', label: 'Count', default: 4 },
+      start: { type: 'angle', label: 'Start', default: 0 },
+      through: { type: 'boolean', label: 'Through', default: true },
+      depth: { type: 'length', label: 'Depth', default: 5 },
+      edge: { picker: 'edge', label: 'Along edge', optional: true },
+      finish: { type: 'select', label: 'Finish', options: [{ label: 'Plain', value: 'plain' }, { label: 'Anodized', value: 'anodized' }], default: 'plain' },
+      rim: { picker: 'edge', label: 'Rim', optional: true },
+      colour: { type: 'text', label: 'Colour', default: 'black' },
+    },
+    call: [], ghost: true, contexts: ['part'],
+    width: 'wide',
+    aside: [
+      { image: './plate/section.svg', alt: 'Section' },
+      { divider: true },
+      { note: 'Blind holes stop short.', tone: 'warning', visibleWhen: { through: false } },
+    ],
+    layout: [
+      'face',
+      { row: ['count', 'start', { note: 'per turn' }], widths: [2, 1, 1] },
+      { tabs: [
+        { label: 'Hole', items: [
+          'through',
+          { section: 'Depth', collapsed: true, items: [
+            'depth', 'edge', { image: './plate/depth.svg', alt: 'Depth', height: 48, visibleWhen: { through: false } },
+          ] },
+          { divider: true },
+        ] },
+        { label: 'Finish', items: [
+          { section: 'Coating', collapsible: true, visibleWhen: { through: true }, items: ['finish', 'rim'] },
+          { row: ['colour', { image: './plate/swatch.svg' }], visibleWhen: { finish: 'anodized' } },
+          { section: 'Notes', items: [{ note: 'Anodized only.', visibleWhen: { finish: 'anodized' } }] },
+        ] },
+      ] },
+      { note: 'Cuts everything.', visibleWhen: { through: true } },
+    ],
+  };
+
+  const panels: SchemaFeaturePanel[] = [];
+  const open = (meta: BareFeatureMeta = PLATE, opts: ConstructorParameters<typeof FeatureSchema>[1] = {}) => {
+    const { panel, root } = mount(meta, opts);
+    panels.push(panel);
+    const one = (selector: string) => root.querySelector<HTMLElement>(selector)!;
+    const all = (selector: string) => [...root.querySelectorAll<HTMLElement>(selector)];
+    const tab = (label: string) => all('[data-role="tabs"] button').find(b => b.textContent === label)!.click();
+    const toggle = (section: string) => one(`[data-group="${section}"] > [data-role="section-toggle"]`);
+    const set = (name: string, change: (el: HTMLInputElement & HTMLSelectElement) => void) => {
+      const el = one(`[data-role="value-${name}"]`) as HTMLInputElement & HTMLSelectElement;
+      change(el);
+      el.dispatchEvent(new Event('change'));
+    };
+    const body = one('[data-role="scope-slot"]').parentElement!;
+    const sign = (el: Element): string => {
+      const { group, role, param } = (el as HTMLElement).dataset;
+      return group ? `group:${group}` : role && /^(tabs?|scope-slot|ghost-paused|aside|layout-row|note|image|divider)/.test(role)
+        ? role : param ?? (el.querySelector<HTMLElement>('[data-param]')?.dataset.param ?? role ?? el.tagName);
+    };
+    return { panel, root, one, all, tab, toggle, set, body, sign };
+  };
+
+  afterEach(() => {
+    panels.splice(0).forEach(panel => panel.destroy());
+  });
+
+  it('draws a derived layout as the dialog always was: rows, plain group hosts, the tab row, a pane per tab', () => {
+    const { root, body, sign, all, one } = open(VENT);
+    expect([...body.children].map(sign)).toEqual(
+      ['face', 'style', 'group:Pattern', 'group:Slot', 'tabs', 'tab-Finish', 'tab-Notes', 'scope-slot', 'ghost-paused']);
+    const pattern = one('[data-group="Pattern"]');
+    expect(pattern.className).toBe('flex flex-col gap-3.5');
+    expect(pattern.firstElementChild!.tagName).toBe('DIV');
+    expect(pattern.firstElementChild!.className).toBe('text-[10px] uppercase tracking-wide text-base-content/45');
+    expect([...pattern.children].slice(1).map(sign)).toEqual(['count', 'pitch']);
+    expect([...one('[data-role="tab-Finish"]').children].map(sign)).toEqual(['rounded', 'guide']);
+    expect(one('[data-role="tab-Finish"]').className).toBe('flex flex-col gap-3.5');
+    expect(one('[data-role="tab-Notes"]').className).toBe('flex-col gap-3.5 hidden');
+    expect(all('[data-role="section-toggle"], [data-role="layout-row"], [data-role="note"], [data-role="image"], [data-role="aside"], [data-role="side-card"]')).toEqual([]);
+    expect(root.innerHTML).toContain('sm:w-60');
+  });
+
+  it('lays a row out as a grid of its widths, a note as a cell, and wears the declared width', () => {
+    const { root, body, sign, one } = open();
+    expect([...body.children].map(sign)).toEqual(
+      ['aside', 'face', 'layout-row', 'tabs', 'tab-Hole', 'tab-Finish', 'note', 'scope-slot', 'ghost-paused']);
+    const row = one('[data-role="layout-row"]');
+    expect(row.style.gridTemplateColumns).toBe('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)');
+    expect(row.className).toBe('grid gap-2 items-end');
+    expect([...row.children].map(cell => cell.className)).toEqual(['min-w-0', 'min-w-0', 'min-w-0']);
+    expect([...row.children].map(cell => sign(cell.firstElementChild!))).toEqual(['count', 'start', 'note']);
+    expect(row.querySelector('[data-role="note"]')!.textContent).toBe('per turn');
+    expect(one('[data-role="tab-Finish"] [data-role="layout-row"]').style.gridTemplateColumns).toBe('minmax(0, 1fr) minmax(0, 1fr)');
+    expect(root.innerHTML).toContain('sm:w-68');
+    expect(root.innerHTML).not.toContain('sm:w-60');
+  });
+
+  it('folds a collapsible section from its heading, one declared collapsed starting folded, sections sitting on tabs', () => {
+    const { one, tab, toggle } = open();
+    const depth = one('[data-group="Depth"]');
+    expect(depth.closest('[data-role="tab-Hole"]')).not.toBeNull();
+    expect(toggle('Depth').tagName).toBe('BUTTON');
+    expect(toggle('Depth').textContent).toBe('Depth');
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
+    expect(shown(one('[data-param="depth"]'))).toBe(false);
+    toggle('Depth').click();
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('true');
+    expect(shown(one('[data-param="depth"]'))).toBe(true);
+    toggle('Depth').click();
+    expect(shown(one('[data-param="depth"]'))).toBe(false);
+    tab('Finish');
+    expect(toggle('Coating').getAttribute('aria-expanded')).toBe('true');
+    expect(shown(one('[data-param="finish"]'))).toBe(true);
+    // A section that doesn't fold keeps the plain heading.
+    expect(one('[data-group="Notes"]').querySelector('[data-role="section-toggle"]')).toBeNull();
+  });
+
+  it('draws a note in its tone, an image through the asset URL with its alt and height, and a divider as a hairline', () => {
+    const { one, all } = open(PLATE, { assetUrl: path => `served:${path}` });
+    const note = one('[data-role="aside"] [data-role="note"]');
+    expect(note.dataset.tone).toBe('warning');
+    expect(note.className).toContain('text-warning');
+    expect(one('[data-role="layout-row"] [data-role="note"]').className).toBe('text-xs leading-snug text-base-content/70');
+    const image = one('[data-group="Depth"] [data-role="image"]') as HTMLImageElement;
+    expect(image.getAttribute('src')).toBe('served:./plate/depth.svg');
+    expect(image.alt).toBe('Depth');
+    expect(image.style.height).toBe('48px');
+    expect(image.className).toContain('max-w-full');
+    expect(image.className).toContain('object-contain');
+    expect((one('[data-role="tab-Finish"] [data-role="image"]') as HTMLImageElement).style.height).toBe('');
+    expect(all('[data-role="tab-Hole"] > [data-role="divider"]').map(el => el.className)).toEqual(['border-t border-base-content/10']);
+  });
+
+  it("hides an item whose visibleWhen fails with the rows in it, and a container left with nothing to show", () => {
+    const { panel, one, set, tab, toggle } = open();
+    const hidden = (selector: string) => one(selector).classList.contains('hidden');
+    tab('Finish');
+    // Plain: the row of the colour and the note of the Notes section fail — the row and the section hide.
+    expect(hidden('[data-role="tab-Finish"] [data-role="layout-row"]')).toBe(true);
+    expect(panel.fields.get('colour')!.visible).toBe(false);
+    expect(hidden('[data-group="Notes"]')).toBe(true);
+    expect(hidden('[data-group="Coating"]')).toBe(false);
+    set('finish', el => { el.selectedIndex = 1; });
+    expect(hidden('[data-role="tab-Finish"] [data-role="layout-row"]')).toBe(false);
+    expect(panel.fields.get('colour')!.visible).toBe(true);
+    expect(hidden('[data-group="Notes"]')).toBe(false);
+    expect(hidden('[data-group="Notes"] [data-role="note"]')).toBe(false);
+    // Through off: the Coating section fails — its rows hide with it, a picker among them.
+    expect(hidden('[data-group="Depth"] [data-role="image"]')).toBe(true);
+    tab('Hole');
+    set('through', el => { el.checked = false; });
+    expect(hidden('[data-group="Coating"]')).toBe(true);
+    expect(panel.fields.get('finish')!.visible).toBe(false);
+    expect(panel.pickers.get('rim')!.visible).toBe(false);
+    expect(hidden('[data-group="Depth"] [data-role="image"]')).toBe(false);
+    expect(one('[data-role="scope-slot"]').parentElement!.querySelector(':scope > [data-role="note"]')!.classList.contains('hidden')).toBe(true);
+    // A tab whose pane has nothing to show stays on the row.
+    expect(one('[data-role="tabs"]').textContent).toContain('Finish');
+    toggle('Depth').click();
+    expect(shown(one('[data-param="depth"]'))).toBe(true);
+  });
+
+  it('arms no slot under a folded section, hands the armed state on when one folds, and arms one it uncovers', () => {
+    const { panel, tab, toggle } = open();
+    expect(panel.armedSlot).toBe('face');
+    panel.armSlot('edge');
+    expect(panel.armedSlot).toBe('face');
+    toggle('Depth').click();
+    expect(panel.armedSlot).toBe('face');
+    panel.armSlot('edge');
+    expect(panel.armedSlot).toBe('edge');
+    toggle('Depth').click();
+    expect(panel.armedSlot).toBe('face');
+    // With none armed, unfolding a section arms the slot it uncovers.
+    panel.pickers.get('face')!.setVisible(false);
+    panel.armSlot(null);
+    toggle('Depth').click();
+    expect(panel.armedSlot).toBe('edge');
+    // The tab switch and the fold together: a slot is reachable only on the shown tab and unfolded.
+    tab('Finish');
+    expect(panel.armedSlot).toBe('rim');
+    panel.armSlot('edge');
+    expect(panel.armedSlot).toBe('rim');
+    toggle('Coating').click();
+    expect(panel.armedSlot).toBeNull();
+    tab('Hole');
+    panel.armSlot('rim');
+    expect(panel.armedSlot).toBeNull();
+    panel.armSlot('edge');
+    expect(panel.armedSlot).toBe('edge');
+    panel.advanceFrom('edge');
+    expect(panel.armedSlot).toBe('edge');
+  });
+
+  it('reveals a value: its tab shown, its section unfolded, and nothing moved for one in view', () => {
+    const { panel, one, tab, toggle } = open();
+    tab('Finish');
+    toggle('Coating').click();
+    panel.reveal('face');
+    expect(shown(one('[data-param="finish"]'))).toBe(false);
+    panel.reveal('depth');
+    expect(shown(one('[data-param="depth"]'))).toBe(true);
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('true');
+    expect(shown(one('[data-param="through"]'))).toBe(true);
+    expect(shown(one('[data-param="finish"]'))).toBe(false);
+    panel.reveal('finish');
+    expect(shown(one('[data-param="finish"]'))).toBe(true);
+    expect(shown(one('[data-param="depth"]'))).toBe(false);
+    panel.reveal('nothing-by-this-name');
+  });
+
+  it('shows the aside on the side card and again at the top of the body for the sheet, each item by its visibleWhen', () => {
+    const { one, all, set, body } = open(PLATE, { assetUrl: path => `served:${path}` });
+    const card = one('[data-role="side-card"]');
+    const copy = one('[data-role="aside"]');
+    expect(body.firstElementChild).toBe(copy);
+    expect(copy.className).toContain('sm:hidden');
+    expect(card.className).toContain('max-sm:hidden');
+    for (const host of [card, copy]) {
+      expect([...host.children].map(el => (el as HTMLElement).dataset.role)).toEqual(['image', 'divider', 'note']);
+      expect(host.querySelector('img')!.getAttribute('src')).toBe('served:./plate/section.svg');
+      expect(host.querySelector('img')!.alt).toBe('Section');
+      expect(host.querySelector('[data-role="note"]')!.classList.contains('hidden')).toBe(true);
+    }
+    set('through', el => { el.checked = false; });
+    expect(all('[data-role="side-card"] [data-role="note"], [data-role="aside"] [data-role="note"]').map(el => el.classList.contains('hidden')))
+      .toEqual([false, false]);
+  });
+
+  it('asks for the layout\'s and the aside\'s images again after a save', () => {
+    let revision = 1;
+    const { panel, all } = open(PLATE, { assetUrl: path => `${path}?v=${revision}` });
+    // The body's copy of the aside, the layout's two, then the side card's.
+    const sources = () => all('[data-role="image"]').map(img => img.getAttribute('src'));
+    expect(sources()).toEqual([
+      './plate/section.svg?v=1', './plate/depth.svg?v=1', './plate/swatch.svg?v=1', './plate/section.svg?v=1',
+    ]);
+    revision = 2;
+    panel.refreshImages();
+    expect(sources()).toEqual([
+      './plate/section.svg?v=2', './plate/depth.svg?v=2', './plate/swatch.svg?v=2', './plate/section.svg?v=2',
+    ]);
+    expect([...panel.fields.values()].some(field => field.dirty)).toBe(false);
   });
 });

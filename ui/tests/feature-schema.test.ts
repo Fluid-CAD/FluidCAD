@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FeatureMetaSnapshot, FeaturePickerParam } from '../src/api';
+import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 
 // The custom feature dialog is drawn from its metadata snapshot alone: these
@@ -7,7 +8,7 @@ import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-
 // fresh dialog holds and what a create can't do without.
 
 function meta(params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaSnapshot> = {}): FeatureMetaSnapshot {
-  return {
+  return DerivedLayout.snapshot({
     id: 'acme.test',
     label: 'Test',
     group: 'create',
@@ -19,7 +20,7 @@ function meta(params: FeatureMetaSnapshot['params'], extra: Partial<FeatureMetaS
     ghost: true,
     contexts: ['part'],
     ...extra,
-  };
+  });
 }
 
 /** The standoff fixture's snapshot, as the catalog serves it. */
@@ -76,18 +77,47 @@ describe('FeatureSchema', () => {
     expect(new FeatureSchema(meta({})).offersOperationChoice).toBe(false);
   });
 
-  it('gathers grouped rows under their heading and tabbed rows on their pane', () => {
-    const layout = new FeatureSchema(VENT).layout();
-    expect(layout.top).toEqual([
-      { group: null, names: ['face'] },
-      { group: null, names: ['style'] },
-      { group: 'Pattern', names: ['count', 'pitch'] },
-      { group: null, names: ['width'] },
+  it('gives the layout tree the snapshot carries', () => {
+    expect(new FeatureSchema(VENT).layout()).toEqual([
+      'face',
+      'style',
+      { section: 'Pattern', items: ['count', 'pitch'] },
+      'width',
+      { tabs: [
+        { label: 'Finish', items: ['rounded', { section: 'Edges', items: ['chamfer'] }] },
+        { label: 'Notes', items: ['label'] },
+      ] },
     ]);
-    expect(layout.tabs).toEqual([
-      { name: 'Finish', blocks: [{ group: null, names: ['rounded'] }, { group: 'Edges', names: ['chamfer'] }] },
-      { name: 'Notes', blocks: [{ group: null, names: ['label'] }] },
-    ]);
+    const placed = meta({ a: { type: 'length', label: 'A', default: 1 }, b: { type: 'length', label: 'B', default: 2 } },
+      { layout: [{ row: ['b', 'a'] }] });
+    expect(new FeatureSchema(placed).layout()).toEqual([{ row: ['b', 'a'] }]);
+  });
+
+  it('lists the values in order for a snapshot without a layout', () => {
+    const bare = { ...VENT } as Partial<FeatureMetaSnapshot>;
+    delete bare.layout;
+    expect(new FeatureSchema(bare as FeatureMetaSnapshot).layout()).toEqual(Object.keys(VENT.params));
+  });
+
+  it('names the values an item places, in the order they read', () => {
+    expect(FeatureSchema.namesIn('size')).toEqual(['size']);
+    expect(FeatureSchema.namesIn({ row: ['a', { note: 'n' }, 'b'] })).toEqual(['a', 'b']);
+    expect(FeatureSchema.namesIn({ section: 'S', items: ['a', { row: ['b', 'c'] }, { divider: true }] })).toEqual(['a', 'b', 'c']);
+    expect(FeatureSchema.namesIn({ tabs: [{ label: 'T', items: ['a', { section: 'S', items: ['b'] }] }, { label: 'U', items: ['c'] }] }))
+      .toEqual(['a', 'b', 'c']);
+    expect(FeatureSchema.namesIn({ image: './a.svg' })).toEqual([]);
+  });
+
+  it("holds an item's own visibleWhen against the typed-in values, and folds a section that says so", () => {
+    expect(FeatureSchema.itemShows({ note: 'n', visibleWhen: { through: true } }, { through: true })).toBe(true);
+    expect(FeatureSchema.itemShows({ note: 'n', visibleWhen: { through: true } }, { through: false })).toBe(false);
+    expect(FeatureSchema.itemShows({ section: 'S', items: ['a'], visibleWhen: { head: ['pan', 'hex'] } }, { head: 'hex' })).toBe(true);
+    expect(FeatureSchema.itemShows({ row: ['a', 'b'] }, {})).toBe(true);
+    expect(FeatureSchema.itemShows({ divider: true }, {})).toBe(true);
+    expect(FeatureSchema.itemShows('a', {})).toBe(true);
+    expect(FeatureSchema.folds({ section: 'S', items: ['a'] })).toBe(false);
+    expect(FeatureSchema.folds({ section: 'S', items: ['a'], collapsible: true })).toBe(true);
+    expect(FeatureSchema.folds({ section: 'S', items: ['a'], collapsed: true })).toBe(true);
   });
 
   it('shows a row while every value its visibleWhen names matches — one value, or any of a list', () => {

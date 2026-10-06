@@ -6243,7 +6243,43 @@ export type FeatureMetaSnapshot = {
   call: unknown;
   ghost: boolean;
   contexts: string[];
+  /**
+   * Where every value's row sits in the dialog: the author's tree, or the
+   * one derived from the values' `group` and `tab`. Each value exactly once.
+   */
+  layout: FeatureLayoutItem[];
+  /** A wider dialog, when the feature asks for one. */
+  width?: 'wide' | 'wider';
+  /** What the card beside the dialog shows — notes, images and dividers only. */
+  aside?: FeatureStaticItem[];
 };
+
+/** A line of small text among the rows. */
+export type FeatureLayoutNote = { note: string; tone?: 'info' | 'warning'; visibleWhen?: FeatureVisibleWhen };
+/** A picture among the rows: a file relative to the feature's module, `height` in px. */
+export type FeatureLayoutImage = { image: string; alt?: string; height?: number; visibleWhen?: FeatureVisibleWhen };
+export type FeatureLayoutDivider = { divider: true };
+/** An item that holds no value. */
+export type FeatureStaticItem = FeatureLayoutNote | FeatureLayoutImage | FeatureLayoutDivider;
+/** Two to four typed-in rows, notes or images side by side; `widths` one relative share per cell. */
+export type FeatureLayoutRow = {
+  row: (string | FeatureLayoutNote | FeatureLayoutImage)[];
+  widths?: number[];
+  visibleWhen?: FeatureVisibleWhen;
+};
+/** Items under a heading; `collapsed` starts folded and implies `collapsible`. */
+export type FeatureLayoutSection = {
+  section: string;
+  items: (string | FeatureLayoutRow | FeatureStaticItem)[];
+  collapsible?: boolean;
+  collapsed?: boolean;
+  visibleWhen?: FeatureVisibleWhen;
+};
+export type FeatureLayoutTab = { label: string; items: (string | FeatureLayoutRow | FeatureLayoutSection | FeatureStaticItem)[] };
+/** The one set of tabs, at the top level only. */
+export type FeatureLayoutTabs = { tabs: FeatureLayoutTab[] };
+/** One item of a dialog's layout; a string is a declared value's name. */
+export type FeatureLayoutItem = string | FeatureLayoutRow | FeatureLayoutSection | FeatureLayoutTabs | FeatureStaticItem;
 
 /**
  * One entry of the workspace's feature catalog. A module that fails to load,

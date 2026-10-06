@@ -291,6 +291,23 @@ describe('OptionPopover keyboard', () => {
     }
   });
 
+  it('keeps every key pressed in the popover from the page — a letter over an option is no shortcut', () => {
+    const { popover, options } = mount();
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    try {
+      popover.open();
+      for (const name of ['e', 'ArrowDown', 'Home', 'x']) {
+        key(document.activeElement!, name);
+      }
+      expect(popover.isOpen).toBe(true);
+      expect(options().length).toBeGreaterThan(0);
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', heard);
+    }
+  });
+
   it('keeps an Escape pressed on the anchor from the anchor\'s own ancestors too', () => {
     const { popover, anchor } = mount();
     const heard = vi.fn();

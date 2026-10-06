@@ -394,8 +394,14 @@ export class OptionPopover<V> {
     }
   };
 
-  /** Arrows, Home/End, Enter/Space and Tab; anything typed goes to the search box. */
+  /**
+   * Arrows, Home/End, Enter/Space and Tab; anything typed goes to the search
+   * box. A key pressed in the popover is the popover's alone: an option is
+   * no text field, so the page's shortcuts (a window listener) would
+   * otherwise take a letter typed over it as a chord.
+   */
   private readonly onPanelKeyDown = (e: KeyboardEvent): void => {
+    e.stopPropagation();
     if (e.key === 'Tab') {
       // Focus goes back to the anchor first, so the browser's own Tab leaves from there.
       this.close();

@@ -23,7 +23,7 @@
   "devDependencies": {
     "@types/node": "^22.14.1",
     "cross-env": "^10.1.0",
-    "electron": "^40.0.0",
+    "electron": "^44.5.1",
     "electron-builder": "^26.0.12",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.2"

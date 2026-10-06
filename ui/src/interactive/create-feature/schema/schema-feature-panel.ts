@@ -206,6 +206,15 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
     this.opTabs?.setValue(state.operation);
     this.refold();
+    // An edit shows what the statement says: a section opens over a value it writes.
+    for (const name of Object.keys(state.values)) {
+      this.places.get(name)?.fold?.setFolded(false);
+    }
+    for (const picker of this.pickers.values()) {
+      if (!picker.isEmpty) {
+        this.places.get(picker.name)?.fold?.setFolded(false);
+      }
+    }
     this.syncVisibility();
     this.armFirstPicker({ preferEmpty: false });
     this.shell.show();
@@ -390,7 +399,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
-  /** Every folding section back to how it was declared: the dialog opens with 'collapsed' folded, whatever the last one left. */
+  /** Every folding section back to how it was declared: the dialog opens with 'collapsed' folded, whatever the last one left — an edit then opens those its statement writes into. */
   private refold(): void {
     for (const { fold, collapsed } of this.folds) {
       fold.setFolded(collapsed);
@@ -484,11 +493,15 @@ export class SchemaFeaturePanel extends FeaturePanel {
     return this.renderStatic(host, item);
   }
 
-  /** A row's cells side by side: one grid track per cell, `widths` as their shares, inputs level along the bottom. */
+  /**
+   * A row's cells side by side: one grid track per cell, `widths` as their
+   * shares, level along the top — labels on one line and inputs on the next,
+   * a hint hanging under its own cell without lifting it.
+   */
   private renderCells(host: HTMLElement, item: FeatureLayoutRow, place: RowPlace): LayoutNode {
     const el = document.createElement('div');
     el.dataset.role = 'layout-row';
-    el.className = 'grid gap-2 items-end';
+    el.className = 'grid gap-2 items-start';
     el.style.gridTemplateColumns = item.row.map((_, i) => `minmax(0, ${item.widths?.[i] ?? 1}fr)`).join(' ');
     const inside = SchemaFeaturePanel.under(place, item.visibleWhen);
     const children = item.row.map(cell => {

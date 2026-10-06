@@ -734,7 +734,7 @@ describe("the layout tree of a schema dialog", () => {
       ['aside', 'face', 'layout-row', 'tabs', 'tab-Hole', 'tab-Finish', 'note', 'scope-slot', 'ghost-paused']);
     const row = one('[data-role="layout-row"]');
     expect(row.style.gridTemplateColumns).toBe('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)');
-    expect(row.className).toBe('grid gap-2 items-end');
+    expect(row.className).toBe('grid gap-2 items-start');
     expect([...row.children].map(cell => cell.className)).toEqual(['min-w-0', 'min-w-0', 'min-w-0']);
     expect([...row.children].map(cell => sign(cell.firstElementChild!))).toEqual(['count', 'start', 'note']);
     expect(row.querySelector('[data-role="note"]')!.textContent).toBe('per turn');
@@ -762,6 +762,12 @@ describe("the layout tree of a schema dialog", () => {
     expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
     expect(shown(one('[data-param="depth"]'))).toBe(false);
     toggle('Depth').click();
+    panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
+    // An edit opens a folded section over a value its statement writes: the row shows what the code says.
+    panel.showEdit({ values: { depth: 4 }, operation: 'remove', seedPicks: () => {} });
+    expect(toggle('Depth').getAttribute('aria-expanded')).toBe('true');
+    expect(shown(one('[data-param="depth"]'))).toBe(true);
     panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
     expect(toggle('Depth').getAttribute('aria-expanded')).toBe('false');
     tab('Finish');

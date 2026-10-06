@@ -141,6 +141,33 @@ emptied number row shows its default greyed; an emptied text row with a
 default writes `''`. Choosing "—" in an optional select writes nothing in a
 create, and drops the value from the statement in an edit.
 
+### How a row looks: `display`, `suffix`, `hint`, and a text's limits
+
+`type` is what the value is; these fields are how its row looks. None of them changes the statement a dialog writes.
+
+| Field | On | Rule |
+|---|---|---|
+| `display: 'slider'` | `number`, `integer`, `length`, `angle` | A track above the input, which stays: a variable or an expression still types in. Needs both `min` and `max`. Without a `default` the value resolves to `min` (the track always shows a position), so a call may leave it out and `this.values` never holds `undefined` for it. `step` drives the track: left out, 1 for an `integer`, else a hundredth of the range. An integer slider's `min` is a whole number. |
+| `display: 'stepper'` | `number`, `integer` only | − / + buttons beside the input, stepping by `step` (1 left out), kept inside `min` / `max`. Refused on a `length` or an `angle`. |
+| `suffix` | the four number types | A short unit at the end of the input: a non-empty string of at most 8 characters. On an `angle` it replaces the "(°)" in the label. |
+| `display: 'checkbox'` | `boolean` | A checkbox in place of the toggle. |
+| `multiline` | `text` | `true` for a text of several lines: Enter is a new line, Ctrl/Cmd+Enter applies. Written as one single-quoted string with `\n` escapes. |
+| `placeholder` | `text` | What the empty input shows: a non-empty string. |
+| `maxLength` | `text` | The most characters, a whole number of 1 or more. |
+| `pattern` | `text` | A regular expression, as a string, that the whole value must match (`'[A-Za-z0-9-]*'`, no anchors needed). It must compile. |
+| `hint` | every value, pickers included | A line of small text under the row: a non-empty string. `description` stays the tooltip. |
+
+Leaving `display` out is the plain input (or the toggle): `'input'` and `'toggle'` are not values. A declared `default` must keep to `maxLength` and `pattern`, and so must a value a call passes: `fastener(): 'marking' must be at most 12 characters, got 14`.
+
+What the dialog shows is what the builder gets:
+
+| Row | Untouched, it shows | Left out, the builder gets | Empty, it blocks Apply |
+|---|---|---|---|
+| slider | the thumb and the input at `default`, else `min` | `default`, else `min` | only when emptied by hand with no `default` and not `optional` (a plain number's rule) |
+| stepper | the plain input's row: empty, the `default` greyed | `default`, else `undefined` (it must be `optional`) | as a plain number |
+| checkbox | checked or not, by `default` (`false`) | `default`, else `false` | never |
+| text with limits | empty, or the `placeholder` | `default`, else `undefined` | as a plain text; a value over `maxLength` or off `pattern` blocks Apply with the reason |
+
 ## Picked values
 
 Every scene-object value is picked in the viewport or the timeline. What the

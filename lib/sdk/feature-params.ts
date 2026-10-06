@@ -27,12 +27,16 @@ export type FeatureParams = { readonly [name: string]: ParamSpec };
 /** A spec whose value is a list: a picker with `multiple: true` or a `max` (a number's `max` is its range, not a list). */
 type ListSpec = { picker: unknown } & ({ multiple: true } | { max: number });
 
+/** A select with `multiple: true`: the typed-in value that is a list of its option values, always there (empty at the least). */
+type ChoicesSpec = { type: 'select'; multiple: true };
+
 /** A picked value: a list of `T` for a list picker, one `T` otherwise. */
 type Picked<S, T> = S extends ListSpec ? T[] : T;
 
 /** The value a typed-in spec gives the feature. */
 type ScalarValueOf<S> =
-  S extends { type: 'select' | 'radio'; options: readonly { value: infer V extends string | number }[] } ? V
+  S extends { type: 'select'; multiple: true; options: readonly { value: infer V extends string | number }[] } ? V[]
+  : S extends { type: 'select' | 'radio'; options: readonly { value: infer V extends string | number }[] } ? V
   : S extends { type: 'boolean' } ? boolean
   : S extends { type: 'text' } ? string
   : S extends { type: 'number' | 'integer' | 'length' | 'angle' } ? number
@@ -55,10 +59,11 @@ type PassedValueOf<S> =
 /**
  * Whether a call may leave the value out: it has a default — declared, or
  * the one a boolean, a select, a radio or a slider (its `min`) resolves to without one — is `optional`, is
- * a list (an empty one then), or is a sketch that defaults to the active one.
+ * a list (an empty one then; a select with `multiple: true` is one), or is a sketch that defaults to the active one.
  */
 type CanLeaveOut<S> =
-  S extends { default: string | number | boolean } ? true
+  S extends ChoicesSpec ? true
+  : S extends { default: string | number | boolean } ? true
   : S extends { type: 'boolean' | 'select' | 'radio' } ? true
   : S extends { display: 'slider' } ? true
   : S extends { optional: true } ? true
@@ -76,6 +81,7 @@ type CanLeaveOut<S> =
  */
 type LeftOut<S> =
   CanLeaveOut<S> extends false ? never
+  : S extends ChoicesSpec ? never
   : S extends { default: string | number | boolean } ? never
   : S extends { type: 'boolean' } ? never
   : S extends { display: 'slider' } ? never

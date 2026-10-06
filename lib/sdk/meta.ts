@@ -98,19 +98,43 @@ export type ChoiceOption = SelectOption & {
 export type SelectParamSpec = ParamCommon & {
   type: 'select';
   options: readonly ChoiceOption[];
-  /**
-   * Left out, the first option's value — the one the dialog shows — unless
-   * the value is `optional`: it then stays unset, and the dialog offers an
-   * empty choice.
-   */
-  default?: string | number;
   /** How the options are laid out: a `list` of rows (the default) or a `grid` of images. */
   display?: 'list' | 'grid';
   /** How many columns a `grid` has, 2 to 6. */
   columns?: number;
   /** Whether the options can be searched by label, description and keywords. */
   search?: boolean;
+} & (SingleSelect | MultiSelect);
+
+/** A select that holds one of its options. */
+type SingleSelect = {
+  multiple?: false;
+  /**
+   * Left out, the first option's value — the one the dialog shows — unless
+   * the value is `optional`: it then stays unset, and the dialog offers an
+   * empty choice.
+   */
+  default?: string | number;
 };
+
+/**
+ * A select that holds several of its options: its value is a list of option
+ * values, in the order the call wrote them, none twice. The list is always
+ * there — empty when nothing is chosen, never `undefined` — so `optional`
+ * changes nothing.
+ */
+type MultiSelect = {
+  multiple: true;
+  /** A list of option values within `min` and `max`. Left out, the empty list — which a `min` above 0 refuses, so that needs one. */
+  default?: readonly (string | number)[];
+  /** The fewest values the list may hold: a whole number, 0 or more. */
+  min?: number;
+  /** The most values the list may hold: a whole number, 1 or more, at most the number of options. */
+  max?: number;
+};
+
+/** A select with `multiple: true`: the one typed-in value that is a list. */
+export type MultiSelectParamSpec = SelectParamSpec & { multiple: true };
 
 /** One of a few choices, all of them on show: a select's value, default rule and options. */
 export type RadioParamSpec = ParamCommon & {
@@ -371,7 +395,7 @@ class FeatureMetaValidator {
     length: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
     angle: FeatureMetaValidator.NUMBER_SPEC_FIELDS,
     boolean: ['default', 'display'],
-    select: ['default', 'options', 'display', 'columns', 'search'],
+    select: ['default', 'options', 'display', 'columns', 'search', 'multiple', 'min', 'max'],
     radio: ['default', 'options', 'display', 'columns'],
     text: ['default', 'multiline', 'placeholder', 'maxLength', 'pattern'],
   };
@@ -626,6 +650,9 @@ class FeatureMetaValidator {
   }
 
   private scalarFields(where: string, spec: Record<string, unknown>): string[] {
+    if (spec.type === 'radio' && spec.multiple !== undefined) {
+      this.fail(`${where}: 'multiple' is for a select — a radio holds one value`);
+    }
     if (typeof spec.type !== 'string' || !FeatureMetaValidator.owns(FeatureMetaValidator.SCALAR_FIELDS, spec.type)) {
       this.fail(`${where}: unknown type ${FeatureMetaValidator.describe(spec.type)} — the types are ${Object.keys(FeatureMetaValidator.SCALAR_FIELDS).join(', ')}`);
     }
@@ -802,8 +829,17 @@ class FeatureMetaValidator {
       this.checkOption(where, option);
     }
     this.distinct(options.map(option => option.value), `${where}: 'options'`);
-    if (spec.default !== undefined && !options.some(option => option.value === spec.default)) {
-      this.fail(`${where}: the default ${JSON.stringify(spec.default)} is not one of its options' values`);
+    if (spec.multiple === true) {
+      this.checkChoices(where, spec, options.map(option => option.value));
+    } else {
+      for (const field of ['min', 'max']) {
+        if (spec[field] !== undefined) {
+          this.fail(`${where}: '${field}' counts the values of a select with 'multiple: true' — add it or leave '${field}' out`);
+        }
+      }
+      if (spec.default !== undefined && !options.some(option => option.value === spec.default)) {
+        this.fail(`${where}: the default ${JSON.stringify(spec.default)} is not one of its options' values`);
+      }
     }
 
     const { displays, columned } = FeatureMetaValidator.CHOICES[type];
@@ -817,6 +853,47 @@ class FeatureMetaValidator {
       if (typeof spec.columns !== 'number' || !Number.isInteger(spec.columns) || spec.columns < 2 || spec.columns > 6) {
         this.fail(`${where}: 'columns' must be a whole number from 2 to 6, got ${FeatureMetaValidator.describe(spec.columns)}`);
       }
+    }
+  }
+
+  /** A multi-select's own rules: its counts, and a default that is a list its own counts accept. */
+  private checkChoices(where: string, spec: Record<string, unknown>, values: unknown[]): void {
+    if (spec.min !== undefined && !(typeof spec.min === 'number' && Number.isInteger(spec.min) && spec.min >= 0)) {
+      this.fail(`${where}: 'min' must be a whole number, 0 or more, got ${FeatureMetaValidator.describe(spec.min)}`);
+    }
+    if (spec.max !== undefined && !(typeof spec.max === 'number' && Number.isInteger(spec.max) && spec.max >= 1)) {
+      this.fail(`${where}: 'max' must be a whole number, 1 or more, got ${FeatureMetaValidator.describe(spec.max)}`);
+    }
+    const { min, max } = spec as { min?: number; max?: number };
+    if (min !== undefined && max !== undefined && min > max) {
+      this.fail(`${where}: 'min' (${min}) is above 'max' (${max})`);
+    }
+    for (const [field, count] of [['min', min], ['max', max]] as const) {
+      if (count !== undefined && count > values.length) {
+        this.fail(`${where}: '${field}' (${count}) is more than its ${values.length} options`);
+      }
+    }
+    const fallback = spec.default;
+    if (fallback === undefined) {
+      if (min !== undefined && min > 0) {
+        this.fail(`${where}: with 'min: ${min}' it needs a 'default' — left out, the list starts empty, which its own 'min' refuses`);
+      }
+      return;
+    }
+    if (!Array.isArray(fallback)) {
+      this.fail(`${where}: the default must be a list of its options' values, got ${FeatureMetaValidator.describe(fallback)}`);
+    }
+    for (const value of fallback) {
+      if (!values.includes(value)) {
+        this.fail(`${where}: the default's ${JSON.stringify(value)} is not one of its options' values`);
+      }
+    }
+    this.distinct(fallback, `${where}: the default`);
+    if (min !== undefined && fallback.length < min) {
+      this.fail(`${where}: the default holds ${fallback.length}, under its 'min' (${min})`);
+    }
+    if (max !== undefined && fallback.length > max) {
+      this.fail(`${where}: the default holds ${fallback.length}, over its 'max' (${max})`);
     }
   }
 
@@ -906,6 +983,9 @@ class FeatureMetaValidator {
       }
       if (!('type' in target)) {
         this.fail(`${where} names '${other}', a picked value — it can only name a typed-in one`);
+      }
+      if (FeatureMetas.isChoices(target)) {
+        this.fail(`${where} names '${other}', a select with 'multiple: true' — it can only name a value that holds one thing`);
       }
       const candidates = Array.isArray(expected) ? expected : [expected];
       if (candidates.length === 0) {
@@ -1342,10 +1422,15 @@ export class FeatureMetas {
    * value, a number or a text without a default (the dialog shows those
    * empty, and asks for one that isn't optional), an optional select or radio
    * without one (the dialog offers an empty choice, or shows none chosen).
+   * A select with `multiple: true` always has one: its declared list, or the
+   * empty list.
    */
-  static defaultOf(spec: ParamSpec): FeatureScalar | undefined {
+  static defaultOf(spec: ParamSpec): FeatureScalar | readonly (string | number)[] | undefined {
     if (!('type' in spec)) {
       return undefined;
+    }
+    if (FeatureMetas.isChoices(spec)) {
+      return spec.default ?? [];
     }
     if (spec.default !== undefined) {
       return spec.default;
@@ -1390,6 +1475,38 @@ export class FeatureMetas {
       : { ...spec, default: fallback } as ParamSpec;
   }
 
+  /** Whether a value is a select with `multiple: true`: the typed-in value that is a list of option values. */
+  static isChoices(spec: ParamSpec | undefined): spec is MultiSelectParamSpec {
+    return !!spec && 'type' in spec && spec.type === 'select' && spec.multiple === true;
+  }
+
+  /**
+   * A multi-select's value, checked: a list (one value alone is not one) of
+   * option values, none twice, as many as `min` and `max` allow — a copy, in
+   * the order written.
+   */
+  private static choicesValue(callee: string, name: string, spec: MultiSelectParamSpec, value: unknown): (string | number)[] {
+    const offered = spec.options.map(option => JSON.stringify(option.value)).join(', ');
+    if (!Array.isArray(value)) {
+      throw new Error(`${callee}(): '${name}' must be a list of ${offered}, got ${FeatureMetaValidator.describe(value)}`);
+    }
+    for (const [index, entry] of value.entries()) {
+      if (!spec.options.some(option => option.value === entry)) {
+        throw new Error(`${callee}(): each of '${name}' must be one of ${offered}, got ${FeatureMetaValidator.describe(entry)}`);
+      }
+      if (value.indexOf(entry) !== index) {
+        throw new Error(`${callee}(): '${name}' lists ${JSON.stringify(entry)} twice`);
+      }
+    }
+    if (spec.min !== undefined && value.length < spec.min) {
+      throw new Error(`${callee}(): '${name}' takes at least ${spec.min}, got ${value.length}`);
+    }
+    if (spec.max !== undefined && value.length > spec.max) {
+      throw new Error(`${callee}(): '${name}' takes at most ${spec.max}, got ${value.length}`);
+    }
+    return [...value];
+  }
+
   /** Whether a value is a list: a picker with `multiple` or a `max`. */
   static isList(spec: ParamSpec | undefined): boolean {
     if (!spec || !('picker' in spec)) {
@@ -1421,6 +1538,9 @@ export class FeatureMetas {
   }
 
   private static scalarValue(callee: string, name: string, spec: ScalarParamSpec, value: unknown): FeatureValues[string] {
+    if (FeatureMetas.isChoices(spec)) {
+      return FeatureMetas.choicesValue(callee, name, spec, value ?? []);
+    }
     if (value === undefined || value === null) {
       if (!spec.optional) {
         throw new Error(`${callee}(): '${name}' is required`);

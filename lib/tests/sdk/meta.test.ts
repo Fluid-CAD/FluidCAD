@@ -631,6 +631,85 @@ describe("choice values: select and radio", () => {
   });
 });
 
+describe("a select with multiple: true — a list of option values", () => {
+  setupOC();
+
+  const ABC = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }, { label: 'C', value: 3 }];
+  const at = "feature 'acme.boss': param 'height'";
+  const multi = (patch: Record<string, unknown> = {}) => ({ type: 'select', multiple: true, options: ABC, ...patch });
+  const refuses = (spec: Record<string, unknown>, message: string) =>
+    expect(() => register(withParam('height', spec))).toThrow(message);
+  const snapshot = (spec: Record<string, unknown>) =>
+    snapshotFeatureMeta(withParam('height', spec) as FeatureMeta).params.height as Record<string, unknown>;
+  const call = (spec: Record<string, unknown>, ...args: unknown[]) =>
+    parseCall(getFeatureMeta(register(withParam('height', spec)))!, [select(face().planar()), ...args]).height;
+
+  it("refuses 'multiple' and its counts where they don't belong, by name", () => {
+    refuses({ type: 'radio', multiple: true, options: ABC }, `${at}: 'multiple' is for a select — a radio holds one value`);
+    refuses({ type: 'select', options: ABC, min: 1 }, `${at}: 'min' counts the values of a select with 'multiple: true' — add it or leave 'min' out`);
+    refuses({ type: 'select', multiple: false, options: ABC, max: 2 }, `${at}: 'max' counts the values of a select with 'multiple: true' — add it or leave 'max' out`);
+    refuses(multi({ min: -1 }), `${at}: 'min' must be a whole number, 0 or more, got -1`);
+    refuses(multi({ max: 0 }), `${at}: 'max' must be a whole number, 1 or more, got 0`);
+    refuses(multi({ max: 1.5 }), `${at}: 'max' must be a whole number, 1 or more, got 1.5`);
+    refuses(multi({ min: 2, max: 1, default: ['a', 'b'] }), `${at}: 'min' (2) is above 'max' (1)`);
+    refuses(multi({ max: 4 }), `${at}: 'max' (4) is more than its 3 options`);
+    refuses(multi({ min: 4, default: ['a'] }), `${at}: 'min' (4) is more than its 3 options`);
+  });
+
+  it("refuses a default that is not a list its own options and counts accept", () => {
+    refuses(multi({ default: 'a' }), `${at}: the default must be a list of its options' values, got 'a'`);
+    refuses(multi({ default: ['a', 'z'] }), `${at}: the default's "z" is not one of its options' values`);
+    refuses(multi({ default: ['a', 'a'] }), `${at}: the default lists "a" twice`);
+    refuses(multi({ min: 2, default: ['a'] }), `${at}: the default holds 1, under its 'min' (2)`);
+    refuses(multi({ max: 1, default: ['a', 'b'] }), `${at}: the default holds 2, over its 'max' (1)`);
+    // An untouched dialog would show an empty list the builder then refuses.
+    refuses(multi({ min: 1 }), `${at}: with 'min: 1' it needs a 'default' — left out, the list starts empty, which its own 'min' refuses`);
+    expect(() => register(withParam('height', multi({ min: 1, max: 2, default: ['b', 3], display: 'grid', columns: 3, search: true })))).not.toThrow();
+  });
+
+  it("refuses one as the rest value, and as what a visibleWhen names", () => {
+    expect(() => register(withParam('height', multi(), ['face', '...height'])))
+      .toThrow("the rest value '...height' must be a list — a picker with 'multiple: true'");
+    expect(() => register({
+      ...withParam('height', multi(), ['face', { height: 'height', depth: 'depth' }]),
+      params: { face: { picker: 'face' }, height: multi(), depth: { type: 'length', optional: true, visibleWhen: { height: 'a' } } },
+    })).toThrow("param 'depth': 'visibleWhen' names 'height', a select with 'multiple: true' — it can only name a value that holds one thing");
+  });
+
+  it("resolves the default to the declared list, or the empty one, in the snapshot", () => {
+    expect(snapshot(multi())).toEqual({ type: 'select', multiple: true, options: ABC, default: [], label: 'Height' });
+    expect(snapshot(multi({ optional: true })).default).toEqual([]);
+    expect(snapshot(multi({ default: ['b', 'a'], max: 2 }))).toMatchObject({ default: ['b', 'a'], max: 2 });
+  });
+
+  it("gives the builder a list always: the call's, in the order written, or the default", () => {
+    expect(call(multi(), { height: ['b', 'a'] })).toEqual(['b', 'a']);
+    expect(call(multi(), { height: [] })).toEqual([]);
+    expect(call(multi())).toEqual([]);
+    expect(call(multi({ optional: true }))).toEqual([]);
+    expect(call(multi({ default: [3, 'a'] }))).toEqual([3, 'a']);
+    expect(call(multi({ default: [3, 'a'] }), { height: ['b'] })).toEqual(['b']);
+  });
+
+  it("refuses a call's value that is not a list of distinct options within the counts", () => {
+    const options = '"a", "b", 3';
+    expect(() => call(multi(), { height: 'a' })).toThrow(`boss(): 'height' must be a list of ${options}, got 'a'`);
+    expect(() => call(multi(), { height: ['a', 'z'] })).toThrow(`boss(): each of 'height' must be one of ${options}, got 'z'`);
+    expect(() => call(multi(), { height: ['a', 'b', 'a'] })).toThrow(`boss(): 'height' lists "a" twice`);
+    expect(() => call(multi({ max: 2 }), { height: ['a', 'b', 3] })).toThrow(`boss(): 'height' takes at most 2, got 3`);
+    expect(() => call(multi({ min: 2, default: ['a', 'b'] }), { height: ['a'] })).toThrow(`boss(): 'height' takes at least 2, got 1`);
+  });
+
+  it("compares two lists element by element: the same list is equal, another order is not", () => {
+    const Tags = class extends Feature<{ tags: string[] }> {
+      static id = 'acme.tags';
+    };
+    expect(new Tags({ tags: ['a', 'b'] }).compareTo(new Tags({ tags: ['a', 'b'] }))).toBe(true);
+    expect(new Tags({ tags: ['a', 'b'] }).compareTo(new Tags({ tags: ['b', 'a'] }))).toBe(false);
+    expect(new Tags({ tags: [] }).compareTo(new Tags({ tags: ['a'] }))).toBe(false);
+  });
+});
+
 describe("how a typed-in value's row looks: slider, stepper, suffix, checkbox, text limits, hint", () => {
   const at = "feature 'acme.boss': param 'height'";
   const refuses = (spec: Record<string, unknown>, message: string) =>

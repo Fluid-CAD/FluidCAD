@@ -71,7 +71,7 @@ export type CustomGhostRequest = {
   /** The builder the feature's module exports. */
   builder: Function;
   /** Typed-in values by name; one left out takes its default. */
-  values: Record<string, FeatureScalar>;
+  values: Record<string, FeatureScalar | FeatureScalar[]>;
   /** Picked values by name, one ref per element; one left out is left out of the call. */
   refs: Record<string, GhostCustomRef[]>;
   /** The operation the dialog shows; null applies the feature's default. */

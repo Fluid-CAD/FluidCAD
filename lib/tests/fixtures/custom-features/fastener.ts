@@ -49,10 +49,15 @@ const FASTENER_PARAMS = {
   depth: { type: 'length', default: FASTENER_DEFAULTS.depth, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface' },
   /** A note kept with the hole — a part number, a torque class. It cuts nothing. */
   marking: { type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes' },
+  /** What is done to the hole's rim afterwards, at most two of them. It cuts nothing. */
+  finishes: {
+    type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], max: 2,
+    options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
+  },
 } as const;
 
-/** `fastener(at, { size, head, depth, marking })`. */
-const FASTENER_CALL = ['at', { size: 'size', head: 'head', depth: 'depth', marking: 'marking' }] as const;
+/** `fastener(at, { size, head, depth, marking, finishes })`. */
+const FASTENER_CALL = ['at', { size: 'size', head: 'head', depth: 'depth', marking: 'marking', finishes: 'finishes' }] as const;
 
 export type FastenerValues = ValuesOf<typeof FASTENER_PARAMS>;
 

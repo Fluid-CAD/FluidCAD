@@ -197,16 +197,18 @@ export class Trim extends Feature.with({
   finish: { type: 'radio', optional: true, display: 'buttons', options: [{ label: 'Matte', value: 'matte', image: './matte.svg' }] },
   reach: { type: 'length', display: 'slider', min: 1, max: 9, suffix: 'mm', hint: 'From the edge' },
   slack: { type: 'length', optional: true, min: 1, max: 9 },
+  coats: { type: 'select', multiple: true, max: 2, options: [{ label: 'Prime', value: 'prime' }, { label: 'Paint', value: 'paint' }, { label: 'Two', value: 2 }] },
+  passes: { type: 'select', multiple: true, optional: true, default: ['paint'], options: [{ label: 'Prime', value: 'prime' }, { label: 'Paint', value: 'paint' }] },
 }) {
   static id = 'acme.trim';
 
   buildTool() {
-    const { edge, finish, reach, slack } = this.values;
+    const { edge, finish, reach, slack, coats, passes } = this.values;
     return [];
   }
 }
 
-export const trim = defineFeature(Trim, { label: 'Trim', group: 'create', call: [{ edge: 'edge', finish: 'finish', reach: 'reach', slack: 'slack' }] });
+export const trim = defineFeature(Trim, { label: 'Trim', group: 'create', call: [{ edge: 'edge', finish: 'finish', reach: 'reach', slack: 'slack', coats: 'coats', passes: 'passes' }] });
 `,
       'plate.part.js': `
 import { extrude, connector, part } from 'fluidcad/core';
@@ -221,12 +223,22 @@ part('plate', () => {
   trim();
   trim({ edge: 2, finish: 'matte' });
   fastener(bolt, { head: 'pan' });
+  fastener(bolt, { finishes: ['deburr', 'polish'] });
+  trim({ coats: [], passes: ['prime', 'paint'] });
+  trim({ coats: 'prime' });
+  trim({ coats: ['gloss'] });
 });
 `,
     });
     expect(errorsOf(check)).toEqual([
       expect.stringContaining(`plate.part.js:13: Type '"pan"' is not assignable to type '"plain" | "counterbore" | "countersink" | undefined'`),
+      // A multi-select takes a list, of its options' values only.
+      expect.stringContaining(`plate.part.js:16: Type 'string' is not assignable to type`),
+      expect.stringContaining(`plate.part.js:17: Type '"gloss"' is not assignable to type '2 | "prime" | "paint"'`),
     ]);
+    // A multi-select is a list of its options' values, there whether the call passes it or not — optional or not.
+    expect(check.typeOf('trim.feature.js', 'coats')).toBe('(2 | "prime" | "paint")[]');
+    expect(check.typeOf('trim.feature.js', 'passes')).toBe('("prime" | "paint")[]');
     expect(check.typeOf('fastener.feature.js', 'head')).toBe('"plain" | "counterbore" | "countersink"');
     expect(check.typeOf('fastener.feature.js', 'size')).toBe('"m3" | "m4" | "m5" | "n4" | "n6"');
     // A radio without a default takes its first option; an optional one without one stays unset.

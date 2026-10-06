@@ -96,7 +96,8 @@ export class SelectionIndex {
   /**
    * Sub-shape key → the feature whose added-face/edge history record claims
    * it. Deliberately OUTSIDE the bucket index: creator records have no public
-   * accessor, so they must never feed selector synthesis — only attribution's
+   * accessor, so they cannot supply a selector by themselves. Attribution
+   * uses them to prefer an existing matching classified bucket, or for its
    * "which feature created this?" fallback. A sub-shape has one such record:
    * a cut, a fusion or a fillet records what it made, and whatever passes
    * through it unchanged stays with the feature that added it. Were two

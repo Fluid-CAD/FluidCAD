@@ -63,7 +63,7 @@ export function inPartScope(scene: SelectionScene, feature: SceneObject, scope: 
   return scene.findEnclosingPart(feature) === scope;
 }
 
-/** Bucket memberships of `key` whose feature can name a pick in `scope`, in the index's preference order. */
+/** Bucket memberships that can name a pick here, preferring its actual creator. */
 function scopedHits(
   scene: SelectionScene,
   index: SelectionIndex,
@@ -71,7 +71,15 @@ function scopedHits(
   kind: SubShapeKind,
   scope: SceneObject | null,
 ): BucketHit[] {
-  return index.findHits(key, kind).filter(hit => inPartScope(scene, hit.bucket.feature, scope));
+  const hits = index.findHits(key, kind).filter(hit => inPartScope(scene, hit.bucket.feature, scope));
+  const creator = index.creatorOf(key);
+  // A later fusion can merge a face with existing stock and incidentally
+  // acquire its boundary edges. That membership can disappear when a
+  // dimension changes. Prefer the creator's matching classified bucket;
+  // provenance alone never invents an accessor or crosses a part boundary.
+  // Keep the index's ordering when the creator has no eligible bucket.
+  return hits.sort((a, b) =>
+    Number(b.bucket.feature === creator) - Number(a.bucket.feature === creator));
 }
 
 /**

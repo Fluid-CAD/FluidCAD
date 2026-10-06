@@ -28,7 +28,7 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
   display?: 'list' | 'inline' | 'buttons' | 'cards'; columns?: number }
                                                            // both, no default: the first option; unset when optional
 // Option
-{ label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[] }
+{ label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[]; when?: { [otherValue: string]: scalar | scalar[] } }
 { type: 'text'; default?: string }
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
@@ -168,6 +168,47 @@ What the dialog shows is what the builder gets:
 | checkbox | checked or not, by `default` (`false`) | `default`, else `false` | never |
 | text with limits | empty, or the `placeholder` | `default`, else `undefined` | as a plain text; a value over `maxLength` or off `pattern` blocks Apply with the reason |
 | select with `multiple: true` | `default`, else `None` (nothing chosen) | `default`, else `[]` — never `undefined` | never: an empty list is a value (`[]`); fewer than `min` or more than `max` blocks Apply |
+
+### Options that depend on another value: `when`
+
+An option of a `select` or a `radio` may carry `when`, written exactly as a
+value's `visibleWhen`: `{ otherValue: scalar | scalar[] }`, every clause
+holding. The dialog offers the option only while it holds; an option without
+one is always offered.
+
+```js
+standard: { type: 'radio', display: 'buttons', options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }] },
+size: {
+  type: 'select',
+  options: [
+    { label: 'M3', value: 'm3', when: { standard: 'iso' } },
+    { label: 'M4', value: 'm4', when: { standard: 'iso' } },
+    { label: '#4', value: 'n4', when: { standard: 'unc' } },
+    { label: 'Custom', value: 'custom' },
+  ],
+},
+```
+
+- A clause names another typed-in value that holds one thing (not a picked
+  value, not a `multiple: true` select, not the value itself) and lists values
+  it can take. Options may not wait on each other in a circle (`a` on `b`,
+  `b` on `a`, or a longer chain): the declaration is refused, naming the chain.
+- **The default must be offered at rest**, that is while every other value is
+  at its own default. A declared `default` that is not offered there is
+  refused. With no `default`, the value starts at the **first option offered
+  there** (not blindly the first listed); if none is offered and the value is
+  not `optional`, the declaration is refused. Every element of a
+  `multiple: true` default must be offered there. A clause on a value with no
+  default (an empty number) does not hold at rest.
+- In the dialog, when the chosen option stops being offered the row moves to
+  the first one offered (a list drops it) and that is written on Apply. A row
+  with no option offered shows "No options"; it blocks Apply unless the value
+  is `optional`.
+- **`when` narrows the dialog only.** A call written by hand may pass any
+  declared option whatever the other values are, and the builder gets it:
+  `fastener(at, { standard: 'iso', size: 'n4' })` builds. Editing such a
+  statement shows the value it holds. The value's type is still every option's
+  value.
 
 ## A list of options: `select` with `multiple: true`
 

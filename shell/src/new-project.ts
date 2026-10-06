@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog } from 'electron';
 import path from 'path';
 import { inspectFolder } from '../../launcher/src/projects/scaffold';
+import { inLastDirectory, rememberDirectory } from './dialog-directory';
 
 /**
  * "New project" from the start screen or the File menu: the user picks an
@@ -17,17 +18,18 @@ export type NewProjectChoice =
   | { path: string; create: false };
 
 export async function chooseNewProjectFolder(parent: BrowserWindow | null): Promise<NewProjectChoice | null> {
-  const options: Electron.OpenDialogOptions = {
+  const options = inLastDirectory<Electron.OpenDialogOptions>({
     title: 'New FluidCAD project',
     message: 'Choose an empty folder. FluidCAD will set the project up inside it.',
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Create project',
-  };
+  });
   const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
   if (picked.canceled || !picked.filePaths[0]) {
     return null;
   }
   const folder = path.resolve(picked.filePaths[0]);
+  rememberDirectory(folder);
 
   switch (inspectFolder(folder)) {
     case 'empty':

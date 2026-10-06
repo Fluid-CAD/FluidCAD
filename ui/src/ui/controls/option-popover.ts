@@ -24,9 +24,11 @@ export interface OptionPopoverOptions<V> {
 // The menu look (menu-styles.ts) from the page body: a dialog's body is a
 // clipping scroller, and a grid may be wider than the dialog it serves.
 // z-[1200] clears the feature dialogs, as the Custom menu's dropdown does.
+// Opaque (bg-base-200), where a menu is panel-bg: it opens over the dialog's
+// own rows, and their text would read through a see-through panel.
 const PANEL =
   'fixed z-[1200] flex flex-col p-1 max-w-[calc(100vw-16px)] text-xs '
-  + 'panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+  + 'bg-base-200 border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 const SEARCH = 'input input-sm input-bordered w-full text-xs mb-1 shrink-0';
 const LIST = 'flex-1 min-h-0 overflow-y-auto focus:outline-none';
 const ROWS = 'flex flex-col';
@@ -456,9 +458,39 @@ export class OptionPopover<V> {
     const target = e.target as Node;
     // A press on the anchor is the anchor's to answer (it toggles).
     if (!this.element.contains(target) && !this.anchor.contains(target)) {
+      this.swallowPress(e);
       this.close();
     }
   };
+
+  /**
+   * The press that dismisses the popover does nothing else, as with a native
+   * select's list: it is no pick in the viewport and no press on the control
+   * under it. Stopped here, with what the same press sends after it, through
+   * its click; a press that ends in no click (a drag) is let go at the next one.
+   */
+  private swallowPress(e: PointerEvent): void {
+    const FOLLOWING = ['pointerup', 'mousedown', 'mouseup', 'click'];
+    const release = (): void => {
+      for (const type of FOLLOWING) {
+        document.removeEventListener(type, swallow, true);
+      }
+      document.removeEventListener('pointerdown', release, true);
+    };
+    const swallow = (following: Event): void => {
+      following.preventDefault();
+      following.stopPropagation();
+      if (following.type === 'click') {
+        release();
+      }
+    };
+    e.preventDefault();
+    e.stopPropagation();
+    for (const type of FOLLOWING) {
+      document.addEventListener(type, swallow, true);
+    }
+    document.addEventListener('pointerdown', release, true);
+  }
 
   /** A wheel or scroll elsewhere moves what the popover hangs off. */
   private readonly onMovedUnder = (e: Event): void => {

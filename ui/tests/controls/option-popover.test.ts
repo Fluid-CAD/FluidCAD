@@ -352,6 +352,33 @@ describe('OptionPopover dismissal', () => {
     expect(onChoose).not.toHaveBeenCalled();
   });
 
+  it('keeps the press that dismisses it from what is under it, through its click, and lets the next one through', () => {
+    const { popover } = mount();
+    const under = document.createElement('div');
+    document.body.appendChild(under);
+    const heard: string[] = [];
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+      under.addEventListener(type, () => heard.push(type));
+    }
+    const press = () => {
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        under.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+      }
+    };
+    popover.open();
+    press();
+    expect(popover.isOpen).toBe(false);
+    expect(heard).toEqual([]);
+    press();
+    expect(heard).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+  });
+
+  it('is opaque: it opens over a dialog whose rows would read through panel-bg', () => {
+    const { panel } = mount();
+    expect(panel.classList.contains('bg-base-200')).toBe(true);
+    expect(panel.classList.contains('panel-bg')).toBe(false);
+  });
+
   it('closes on a wheel or scroll outside, not on its own', () => {
     const { popover, panel } = mount();
     const elsewhere = document.createElement('div');

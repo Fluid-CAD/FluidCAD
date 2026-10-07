@@ -681,14 +681,17 @@ export interface IExtrude extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
-   * Applies a draft (taper) angle to the extrusion walls.
+   * Applies a draft (taper) angle to the extrusion walls. Positive angles flare the
+   * walls outward as the extrusion rises, so the end face is larger than the profile;
+   * negative angles taper them inward.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
-   * Offsets the end face by a specified distance along the extrusion direction.
-   * @param value - The offset distance.
+   * Pulls the end face back toward the sketch plane by a specified distance. A positive
+   * value stops short of the distance (or of the target face); a negative value overshoots it.
+   * @param value - The offset distance. Positive = shorter, negative = longer.
    */
   endOffset(value: NumberParam): this;
 
@@ -744,8 +747,9 @@ export interface ICut extends ISceneObject {
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
-   * Offsets the cut end face by a specified distance along the cut direction.
-   * @param value - The offset distance.
+   * Pulls the cut end face back toward the sketch plane by a specified distance. A positive
+   * value stops short of the depth (or of the target face); a negative value overshoots it.
+   * @param value - The offset distance. Positive = shallower, negative = deeper.
    */
   endOffset(value: NumberParam): this;
 

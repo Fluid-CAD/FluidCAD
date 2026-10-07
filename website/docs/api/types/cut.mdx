@@ -74,11 +74,12 @@ Applies a draft (taper) angle to the cut walls.
 endOffset(value: NumberParam): this
 ```
 
-Offsets the cut end face by a specified distance along the cut direction.
+Pulls the cut end face back toward the sketch plane by a specified distance. A positive
+value stops short of the depth (or of the target face); a negative value overshoots it.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `value` | NumberParam | The offset distance. |
+| `value` | NumberParam | The offset distance. Positive = shallower, negative = deeper. |
 
 ---
 

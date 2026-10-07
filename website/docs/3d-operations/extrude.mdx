@@ -30,7 +30,7 @@ Extrude pulls a closed sketch profile along the sketch plane's normal into a sol
 
 ## In the viewport
 
-1. Finish a sketch (or select an existing sketch row in the timeline) and click **Extrude** on the toolbar. Finishing a sketch also offers Extrude directly from the green **Finish sketch** button.
+1. Finish a sketch with the green **Finish Sketch** button (or select an existing sketch row in the timeline), then click **Extrude** on the toolbar.
 2. Fill in the dialog. A translucent ghost previews the result while you edit, and the statement being written shows under the dialog.
 3. Click **Apply**: the timeline gains an Extrude row and the statement is written to the file.
 
@@ -41,9 +41,9 @@ Extrude pulls a closed sketch profile along the sketch plane's normal into a sol
     {n: 1, x: 5, y: 11, label: 'Add / Remove / New', description: 'What the new material does to the solids already in the scene. Add fuses, New keeps it separate, Remove cuts it away — see Add, New and Remove below.'},
     {n: 2, x: 5, y: 21, label: 'Sketch', description: 'The profile being extruded, filled with the last sketch. Click another sketch in the timeline, or its wires in the viewport, to change it. The grey number is the line the sketch was made on; the arrow jumps there.'},
     {n: 3, x: 5, y: 32, label: 'Direction', description: 'One direction, Symmetric, Two distances, or Up to face — a picked face, the first face or the last face the extrusion meets.'},
-    {n: 4, x: 5, y: 42, label: 'Distance', description: 'A number, an expression, or a parameter name. Dragging the ghost in the viewport sets it too. On the Remove tab this becomes Depth, with a Through all toggle beside it.'},
-    {n: 5, x: 5, y: 52, label: 'Draft angle', description: 'Tapers the walls as the extrusion rises. Positive angles pull them inward, negative angles flare them out.'},
-    {n: 6, x: 5, y: 62, label: 'End offset', description: 'Shifts the end face further along the extrusion direction — handy when the distance comes from a face or a parameter and you need a little more.'},
+    {n: 4, x: 5, y: 42, label: 'Distance', description: 'A number, an expression, or a parameter name. On the Remove tab this becomes Depth, with a Through all toggle beside it.'},
+    {n: 5, x: 5, y: 52, label: 'Draft angle', description: 'Tilts the walls as the extrusion rises. Positive angles flare them outward, negative angles taper them inward.'},
+    {n: 6, x: 5, y: 62, label: 'End offset', description: 'Pulls the end face back by this much — handy when the distance comes from a face or a parameter and you need to stop a little short. A negative value overshoots instead.'},
     {n: 7, x: 5, y: 70, label: 'Drill holes / Thin walls', description: 'Drill holes (on by default) treats profiles nested inside others as holes. Thin walls replaces the filled profile with a wall of the thickness you then type.'},
     {n: 8, x: 5, y: 85, label: 'Scope', description: 'Which solids the Add or Remove applies to. Left as All it touches everything it meets; pick solids to narrow it.'},
     {n: 9, x: 5, y: 94, label: 'Apply', description: 'Writes the statement and adds the timeline row. Exit closes the dialog and writes nothing.'},
@@ -81,7 +81,7 @@ Two different distances per side are the **Two distances** direction: `extrude(2
 
 ## Draft angle
 
-Type an angle in the **Draft** field. Positive angles taper the walls inward as the extrusion rises, negative angles flare them outward.
+Type an angle in the **Draft** field. Positive angles flare the walls outward as the extrusion rises, so the top ends up larger than the sketch; negative angles taper them inward.
 
 ![Extrude with draft angle](/img/docs/3d-operations/extrude-draft.png)
 
@@ -269,7 +269,7 @@ When the region's own boundary changes — a line drawn across it, a bounding en
 extrude()                      // uses a default distance of 25
 ```
 
-With no argument the extrusion takes a default distance, and the ghost in the viewport can be dragged to set it.
+With no argument the extrusion takes a default distance of 25.
 
 ## Accessing geometry
 

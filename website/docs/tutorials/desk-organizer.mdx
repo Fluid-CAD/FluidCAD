@@ -71,7 +71,7 @@ Click **Apply**. Each corner is replaced by an arc that is tangent to both of it
 
 ### Extrude the body
 
-The 3D operations that take a sketch as input stay on the toolbar while the sketch is open. Click **Extrude**. The Extrude dialog opens with the sketch already in its Sketch slot. Set **Distance** to `110`. The green ghost is a live preview of the solid the extrude will add, and the statement under the dialog reads `extrude(110)`.
+Click **Finish Sketch**: the sketch tools leave the toolbar and the 3D operations come back. Click **Extrude**. The Extrude dialog opens with the sketch already in its Sketch slot. Set **Distance** to `110`. The green ghost is a live preview of the solid the extrude will add, and the statement under the dialog reads `extrude(110)`.
 
 ![Extrude dialog with the 110 mm ghost preview](/img/docs/tutorials/desk-organizer-ui-10-extrude-preview.png)
 
@@ -164,7 +164,7 @@ The spine does not need to reach either wall. The rib will be extended to meet t
 
 ### Build the rib
 
-Click **Rib** on the toolbar. Set **Thickness** to `5`, and switch on **Parallel to sketch plane** and **Extend to walls**. *Parallel* grows the rib in the sketch plane, so it stands as a wall rather than being pushed out normal to the plane; *Extend* stretches the spine until it meets the surrounding solids. The green ghost shows the wall between the column and the outer shell, and the statement reads `rib(5).parallel().extend()`.
+Click **Finish Sketch**, then **Rib** on the toolbar. Set **Thickness** to `5`, and switch on **Parallel to sketch plane** and **Extend to walls**. *Parallel* grows the rib in the sketch plane, so it stands as a wall rather than being pushed out normal to the plane; *Extend* stretches the spine until it meets the surrounding solids. The green ghost shows the wall between the column and the outer shell, and the statement reads `rib(5).parallel().extend()`.
 
 ![Rib dialog with the parallel, extended rib preview](/img/docs/tutorials/desk-organizer-ui-23-rib-preview.png)
 
@@ -196,7 +196,7 @@ Click **Sketch** and pick the **XZ** plane. Pick the **Center Arc** tool: click 
 
 ### Revolve it as a thin cut
 
-Click **Revolve** on the toolbar. Select the **Remove** tab so the revolved shape is subtracted. The axis defaults to *World Z axis*. Switch on **Thin walls** and set **Thickness** to `30`: an open arc cannot enclose a solid on its own, so the thin option turns it into a 30 mm thick hemispherical shell. The red ghost is the shell that will be removed; the 30 mm is deliberately generous so it consumes everything above the dome.
+Click **Finish Sketch**, then **Revolve** on the toolbar. Select the **Remove** tab so the revolved shape is subtracted. The axis defaults to *World Z axis*. Switch on **Thin walls** and set **Thickness** to `30`: an open arc cannot enclose a solid on its own, so the thin option turns it into a 30 mm thick hemispherical shell. The red ghost is the shell that will be removed; the 30 mm is deliberately generous so it consumes everything above the dome.
 
 ![Revolve dialog with the thin, removed hemisphere preview](/img/docs/tutorials/desk-organizer-ui-27-revolve-preview.png)
 

@@ -1,6 +1,7 @@
 // The generic create path: validate, bind producers, render and land the statement.
 
 import {
+  declarationImports,
   declareParamStatements,
   declareParamStatementsFor,
   ensureSymbolImport,
@@ -671,8 +672,8 @@ export async function applyCreateEdit(
       imports.add(symbol);
     }
   }
-  if (declsResult.paramDecls.length > 0) {
-    imports.add('param');
+  for (const symbol of declarationImports(declsResult.paramDecls)) {
+    imports.add(symbol);
   }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
@@ -724,7 +725,9 @@ export async function landNewVariableDecls(
     // declarations went in above it; the import comes last so it cannot
     // shift that line first.
     working = await declareParamStatementsFor(working, sourceLine, declsResult.paramDecls);
-    working = await ensureSymbolImport(working, 'param');
+    for (const symbol of declarationImports(declsResult.paramDecls)) {
+      working = await ensureSymbolImport(working, symbol);
+    }
   }
   return { newCode: working };
 }

@@ -212,7 +212,7 @@ export class ExpressionField {
     }
     if (classified.kind === 'declare') {
       return {
-        value: classified.name,
+        value: classified.expression,
         newVariable: { name: classified.name, initializer: classified.initializer },
       };
     }

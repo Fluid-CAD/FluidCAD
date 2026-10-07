@@ -31,7 +31,9 @@ import {
   importLocalName,
   collectBoundNames,
   getJavaScriptParser,
+  declareParamStatements,
   declareParamStatementsFor,
+  updateDimensionExpressionWithVariable,
 } from '../src/code-editor/index.ts';
 
 describe('addBreakpoint', () => {
@@ -1759,5 +1761,178 @@ describe('part definition properties in scope', () => {
     const vars = await extractVariablesInScope(assembly, 3, both);
     expect(vars.find(v => v.name === 'box.properties.w')).toMatchObject({ initializer: '1' });
     expect(vars.find(v => v.name === 'box1.properties.w')).toMatchObject({ initializer: '5' });
+  });
+});
+
+describe("a part's own property() declarations in the scope read", () => {
+  const housing = [
+    "import { part, param, sketch, circle, extrude, property } from 'fluidcad/core';",
+    '',
+    "export const housing = part('Housing', () => {",
+    "  const width = param('Width', 60);",
+    "  const wall = param('Wall', 4);",
+    "  sketch('xy', () => {",
+    '    circle([0, 0], width);',
+    '  });',
+    '  extrude(20);',
+    '  const floor = 3;',
+    '  extrude(floor);',
+    "  property('Pocket diameter', 'pocketDiameter', width - 2 * wall);",
+    "  property('Pocket depth', 'pocketDepth', 20 - floor);",
+    "  property('Bolt count', 'boltCount', 4);",
+    "  property('Finish', 'finish', 'anodized');",
+    "  const lip = property('Lip', 'lip', wall / 2);",
+    '});',
+  ].join('\n');
+
+  it('offers an unbound property by name, its whole call as the initializer', async () => {
+    const vars = await extractVariablesInScope(housing, 7); // the circle, inside the sketch
+    expect(vars.find(v => v.name === 'pocketDiameter')).toEqual({
+      name: 'pocketDiameter',
+      initializer: "property('Pocket diameter', 'pocketDiameter', width - 2 * wall)",
+      numeric: true,
+      unbound: true,
+    });
+    expect(vars.find(v => v.name === 'boltCount')).toMatchObject({ numeric: true, unbound: true });
+    expect(vars.find(v => v.name === 'finish')).toMatchObject({ numeric: false, unbound: true });
+  });
+
+  it('keeps back one whose value reads a name the statement cannot see yet', async () => {
+    // `floor` is declared below the sketch: the property could not move above it.
+    const inSketch = (await extractVariablesInScope(housing, 7)).map(v => v.name);
+    expect(inSketch).not.toContain('pocketDepth');
+    // From the second extrude, `floor` is in scope and so is the property.
+    const later = await extractVariablesInScope(housing, 11);
+    expect(later.find(v => v.name === 'pocketDepth')).toMatchObject({ unbound: true, numeric: true });
+  });
+
+  it('lists a bound property as the numeric variable it is', async () => {
+    const vars = await extractVariablesInPart(housing, 3);
+    expect(vars.find(v => v.name === 'lip')).toEqual({
+      name: 'lip', initializer: "property('Lip', 'lip', wall / 2)", numeric: true,
+    });
+    expect(vars.filter(v => v.name === 'lip')).toHaveLength(1);
+  });
+
+  it('offers them to a statement appended to the part', async () => {
+    const vars = await extractVariablesInPart(housing, 3);
+    expect(vars.find(v => v.name === 'pocketDepth')).toMatchObject({ unbound: true });
+  });
+
+  it("never offers another part's", async () => {
+    const two = `${housing}\nexport const plug = part('Plug', () => {\n  extrude(5);\n});\n`;
+    expect((await extractVariablesInScope(two, 19)).map(v => v.name)).not.toContain('pocketDiameter');
+  });
+});
+
+describe('binding a property on first use', () => {
+  const housing = [
+    "import { part, param, sketch, circle, extrude, property } from 'fluidcad/core';",
+    '',
+    "export const housing = part('Housing', () => {",
+    "  const width = param('Width', 60);",
+    "  const wall = param('Wall', 4);",
+    "  sketch('xy', () => {",
+    '    circle([0, 0], 50);',
+    '  });',
+    '  extrude(20);',
+    '',
+    "  property('Pocket diameter', 'pocketDiameter', width - 2 * wall); // what the plug fits",
+    "  property('Bolt count', 'boltCount', 4);",
+    '});',
+  ].join('\n');
+  const pocket = { name: 'pocketDiameter', initializer: "property('Pocket diameter', 'pocketDiameter', width - 2 * wall)" };
+
+  it('moves the bare statement up after the params, bound, comment and all', async () => {
+    const result = await updateDimensionExpressionWithVariable(housing, 7, 'pocketDiameter', 6, pocket);
+    expect(result.newCode).toBe([
+      "import { part, param, sketch, circle, extrude, property } from 'fluidcad/core';",
+      '',
+      "export const housing = part('Housing', () => {",
+      "  const width = param('Width', 60);",
+      "  const wall = param('Wall', 4);",
+      "  const pocketDiameter = property('Pocket diameter', 'pocketDiameter', width - 2 * wall); // what the plug fits",
+      "  sketch('xy', () => {",
+      '    circle([0, 0], pocketDiameter);',
+      '  });',
+      '  extrude(20);',
+      '',
+      "  property('Bolt count', 'boltCount', 4);",
+      '});',
+    ].join('\n'));
+  });
+
+  it('lands after the last declaration the value reads when that is below the params', async () => {
+    const code = [
+      "import { part, param, extrude, property } from 'fluidcad/core';",
+      "export const housing = part('Housing', () => {",
+      "  const height = param('Height', 25);",
+      '  extrude(height);',
+      '  const floor = 3;',
+      '  extrude(floor);',
+      "  property('Pocket depth', 'pocketDepth', height - floor);",
+      '});',
+    ].join('\n');
+    const landed = await declareParamStatements(code, 2, [
+      "const pocketDepth = property('Pocket depth', 'pocketDepth', height - floor);",
+    ]);
+    expect(landed).toEqual({ newCode: [
+      "import { part, param, extrude, property } from 'fluidcad/core';",
+      "export const housing = part('Housing', () => {",
+      "  const height = param('Height', 25);",
+      '  extrude(height);',
+      '  const floor = 3;',
+      "  const pocketDepth = property('Pocket depth', 'pocketDepth', height - floor);",
+      '  extrude(floor);',
+      '});',
+    ].join('\n') });
+  });
+
+  it('prefixes in place a statement already where it would land', async () => {
+    const code = [
+      "import { part, param, extrude, property } from 'fluidcad/core';",
+      "export const housing = part('Housing', () => {",
+      "  const height = param('Height', 25);",
+      "  property('Half', 'half', height / 2);",
+      '  extrude(height);',
+      '});',
+    ].join('\n');
+    const landed = await declareParamStatements(code, 2, ["const half = property('Half', 'half', height / 2);"]);
+    expect(landed).toEqual({ newCode: code.replace("  property('Half'", "  const half = property('Half'") });
+  });
+
+  it('declares a new property like a param() when the body publishes none of that name', async () => {
+    const code = [
+      "import { part, param, extrude } from 'fluidcad/core';",
+      "export const housing = part('Housing', () => {",
+      "  const height = param('Height', 25);",
+      '  extrude(height);',
+      '});',
+    ].join('\n');
+    const result = await updateDimensionExpressionWithVariable(
+      code, 4, 'half', 2, { name: 'half', initializer: "property('Half', 'half', height / 2)" },
+    );
+    expect(result.newCode).toBe([
+      "import { property, part, param, extrude } from 'fluidcad/core';",
+      "export const housing = part('Housing', () => {",
+      "  const height = param('Height', 25);",
+      "  const half = property('Half', 'half', height / 2);",
+      '  extrude(half);',
+      '});',
+    ].join('\n'));
+  });
+
+  it('lands a param() and a property bind from one commit, the param first', async () => {
+    const result = await updateDimensionExpressionWithVariable(housing, 7, 'pocketDiameter - gap', 6, [
+      pocket,
+      { name: 'gap', initializer: "param('Gap', 1)" },
+    ]);
+    expect(result.newCode).toContain([
+      "  const wall = param('Wall', 4);",
+      "  const gap = param('Gap', 1);",
+      "  const pocketDiameter = property('Pocket diameter', 'pocketDiameter', width - 2 * wall); // what the plug fits",
+      "  sketch('xy', () => {",
+      '    circle([0, 0], pocketDiameter - gap);',
+    ].join('\n'));
   });
 });

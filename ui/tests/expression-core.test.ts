@@ -18,12 +18,13 @@ describe('classifyCommit', () => {
   });
 
   it('declares a fresh name from the seed value', () => {
-    expect(classifyCommit('depth', VARS, '25')).toEqual({ kind: 'declare', name: 'depth', initializer: '25' });
+    expect(classifyCommit('depth', VARS, '25'))
+      .toEqual({ kind: 'declare', name: 'depth', initializer: '25', expression: 'depth' });
   });
 
   it('declares from an explicit name = value form', () => {
     expect(classifyCommit('depth = 12.5', VARS, '25'))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: '12.5' });
+      .toEqual({ kind: 'declare', name: 'depth', initializer: '12.5', expression: 'depth' });
   });
 
   it('rejects redefining an existing variable', () => {
@@ -46,11 +47,53 @@ describe('classifyCommit', () => {
 
   it('wraps a declaration initializer as param() when asParam is set', () => {
     expect(classifyCommit('depth = 12.5', VARS, '25', false, true))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 12.5)' });
+      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 12.5)', expression: 'depth' });
     expect(classifyCommit('depth = height * 2', VARS, '25', false, true))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", height * 2)' });
+      .toEqual({
+        kind: 'declare', name: 'depth', initializer: 'param("depth", height * 2)', expression: 'depth',
+      });
     expect(classifyCommit('depth', VARS, '25', false, true))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 25)' });
+      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 25)', expression: 'depth' });
+  });
+
+  describe('a property the part publishes without binding it', () => {
+    const POCKET = "property('Pocket diameter', 'pocketDiameter', width - 2 * wall)";
+    const vars = [
+      ...VARS,
+      { name: 'wall', initializer: '4' },
+      { name: 'pocketDiameter', initializer: POCKET, numeric: true, unbound: true },
+      { name: 'boltCount', initializer: "property('Bolt count', 'boltCount', 4)", numeric: true, unbound: true },
+      { name: 'lipHeight', initializer: "property('Lip', 'lipHeight', wall / 2)" },
+    ];
+
+    it('reads as the expression typed and declares the name over the property call', () => {
+      expect(classifyCommit('pocketDiameter', vars, '25')).toEqual({
+        kind: 'declare', name: 'pocketDiameter', initializer: POCKET, expression: 'pocketDiameter', property: true,
+      });
+      expect(classifyCommit('pocketDiameter / 2 + height', vars, '25')).toEqual({
+        kind: 'declare',
+        name: 'pocketDiameter',
+        initializer: POCKET,
+        expression: 'pocketDiameter / 2 + height',
+        property: true,
+      });
+    });
+
+    it('never wraps the bind as a param(), whatever the toggle says', () => {
+      expect(classifyCommit('pocketDiameter', vars, '25', false, true)).toMatchObject({ initializer: POCKET });
+    });
+
+    it('is a plain expression once bound, and a member read is no use of it', () => {
+      expect(classifyCommit('lipHeight * 2', vars, '25')).toEqual({ kind: 'expression', expression: 'lipHeight * 2' });
+      expect(classifyCommit('box.properties.pocketDiameter', vars, '25'))
+        .toEqual({ kind: 'expression', expression: 'box.properties.pocketDiameter' });
+    });
+
+    it('binds one property per commit', () => {
+      expect(classifyCommit('pocketDiameter + boltCount', vars, '25')).toMatchObject({ kind: 'error' });
+      expect(classifyCommit('gap = pocketDiameter - 1', vars, '25')).toMatchObject({ kind: 'error' });
+      expect(classifyCommit('pocketDiameter = 4', vars, '25')).toMatchObject({ kind: 'error' });
+    });
   });
 
   it('numericOnly refuses identifiers', () => {
@@ -101,6 +144,12 @@ describe('declaredVariableName', () => {
     expect(declaredVariableName('height * 2', VARS, '25')).toBeNull();
     expect(declaredVariableName('height = 40', VARS, '25')).toBeNull();
     expect(declaredVariableName('class = 4', VARS, '25')).toBeNull();
+  });
+
+  it('yields null for a property bind — the P toggle has nothing to wrap', () => {
+    const vars = [...VARS, { name: 'lip', initializer: "property('Lip', 'lip', 3)", unbound: true }];
+    expect(declaredVariableName('lip', vars, '25')).toBeNull();
+    expect(declaredVariableName('lip * 2', vars, '25')).toBeNull();
   });
 });
 
@@ -157,6 +206,14 @@ describe('suggestionKind', () => {
     expect(suggestionKind({ name: 'thickness' }, false)).toBe('variable');
   });
 
+  it('reads a property() off the initializer, bound or not', () => {
+    const call = "property('Pocket diameter', 'pocketDiameter', w - 2 * wall)";
+    expect(suggestionKind({ name: 'pocketDiameter', initializer: call, unbound: true }, false)).toBe('property');
+    expect(suggestionKind({ name: 'pocketDiameter', initializer: call }, false)).toBe('property');
+    expect(suggestionKind({ name: 'count', initializer: 'property("Bolt count", "count", 4)' }, false))
+      .toBe('property');
+  });
+
   it('chips the new-variable offer as what its commit would declare', () => {
     const [offer] = filterSuggestions('depth', VARS, 'depth', '25');
     expect(offer).toMatchObject({ isNew: true });
@@ -179,6 +236,15 @@ describe('suggestionItemHtml', () => {
       .toContain('bg-primary/20 text-primary border-primary/40');
     expect(suggestionItemHtml({ name: 'height', initializer: '30' }, 0, false, false))
       .toContain('bg-variable/20 text-variable border-variable/40');
+  });
+
+  it('chips a property Pr in its own teal, with no value hint', () => {
+    const html = suggestionItemHtml(
+      { name: 'lip', initializer: "property('Lip', 'lip', wall / 2)", unbound: true }, 0, false, false,
+    );
+    expect(html).toContain('>Pr</span>');
+    expect(html).toContain('bg-property/20 text-property border-property/40');
+    expect(html).not.toContain('wall / 2');
   });
 });
 
@@ -259,6 +325,14 @@ describe('resolveExpressionValue', () => {
   it('uses the pending declaration for its own name', () => {
     expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: '25' })).toBe(25);
     expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: 'param("cx", 7)' })).toBe(7);
+  });
+
+  it('unwraps a property() to the value it publishes, listed or pending as a bind', () => {
+    const call = "property('Pocket diameter', 'pocketDiameter', width - 2 * wall)";
+    const vars = [...VARS, { name: 'wall', initializer: '4' }];
+    expect(resolveExpressionValue('pocketDiameter', [...vars, { name: 'pocketDiameter', initializer: call, unbound: true }]))
+      .toBe(92);
+    expect(resolveExpressionValue('pocketDiameter / 2', vars, { name: 'pocketDiameter', initializer: call })).toBe(46);
   });
 
   it('returns null for calls, unknown names, cycles and non-finite results', () => {

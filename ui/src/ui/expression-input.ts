@@ -329,7 +329,9 @@ export class ExpressionInput {
       return false;
     }
     if (this.validate) {
-      const gated = classified.kind === 'declare' ? classified.initializer : classified.expression;
+      const gated = classified.kind === 'declare' && !classified.property
+        ? classified.initializer
+        : classified.expression;
       const refusal = this.validate(gated);
       if (refusal !== null) {
         this.showInlineError(refusal);
@@ -338,7 +340,7 @@ export class ExpressionInput {
     }
     if (classified.kind === 'declare') {
       this.onCommit({
-        expression: classified.name,
+        expression: classified.expression,
         newVariable: { name: classified.name, initializer: classified.initializer },
       });
     } else {

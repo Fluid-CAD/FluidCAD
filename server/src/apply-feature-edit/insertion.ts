@@ -2,6 +2,7 @@
 
 import {
   chainRootCallee,
+  declarationImports,
   declareParamStatements,
   ensureSymbolImport,
   findEditableCallAt,
@@ -85,8 +86,8 @@ export async function appendTopLevelStatement(
     return { newCode: code, error: landed.error };
   }
   result = await ensureSymbolImport(landed.newCode, callee);
-  if (declsResult.paramDecls.length > 0) {
-    result = await ensureSymbolImport(result, 'param');
+  for (const symbol of declarationImports(declsResult.paramDecls)) {
+    result = await ensureSymbolImport(result, symbol);
   }
   return { newCode: result };
 }

@@ -33,6 +33,7 @@
   --color-error: #f87272;
   --color-error-content: #470000;
   --color-variable: #f472b6;
+  --color-property: #2dd4bf;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -90,6 +91,7 @@
   --color-error: #dc2626;
   --color-error-content: #ffffff;
   --color-variable: #db2777;
+  --color-property: #0d9488;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -127,11 +129,13 @@
 }
 
 /* The expression suggestions' V (variable) chip: a light pink beside the P
-   chip's primary blue, deepened per theme above the way primary is.
-   Registered so the chip can take bg-/text-/border-variable with opacity
-   modifiers; the themes' values override this default. */
+   chip's primary blue, and the Pr (property) chip's teal, both deepened per
+   theme above the way primary is. Registered so the chips can take
+   bg-/text-/border-variable and -property with opacity modifiers; the
+   themes' values override these defaults. */
 @theme {
   --color-variable: #f472b6;
+  --color-property: #2dd4bf;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

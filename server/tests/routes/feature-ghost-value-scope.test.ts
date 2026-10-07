@@ -362,3 +362,48 @@ describe('ValueScope — part definition properties', () => {
     expect(scope.resolve('box.properties.lidClearance')).toBeNull();
   });
 });
+
+describe("ValueScope — a part's property() values", () => {
+  const HOUSING = [
+    `import { part, param, sketch, circle, extrude, property } from 'fluidcad/core';`,
+    `export const housing = part('Housing', () => {`,
+    `  const width = param('Width', 60);`,
+    `  const wall = param('Wall', 4);`,
+    `  const lip = property('Lip', 'lip', wall / 2);`,
+    `  sketch('xy', () => {`,
+    `    circle([0, 0], width);`,
+    `  });`,
+    `  extrude(20);`,
+    `  property('Pocket diameter', 'pocketDiameter', width - 2 * wall);`,
+    `  property('Loop', 'loop', loop + 1);`,
+    `});`,
+    `export const plug = part('Plug', () => {`,
+    `  extrude(5);`,
+    `});`,
+  ].join('\n');
+
+  it('reads a bound property as the value it publishes', async () => {
+    const scope = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, statement(7, 5));
+    expect(scope.resolve('lip')).toBe(2);
+    expect(scope.resolve('lip * 3')).toBe(6);
+  });
+
+  it('reads an unbound property of the enclosing part by name — what its first use binds', async () => {
+    const inSketch = await ValueScope.open(
+      { code: HOUSING, filePath: FILE, definitions: [definedAt('Width', 100, 3)] }, statement(7, 5),
+    );
+    expect(inSketch.resolve('pocketDiameter')).toBe(92);
+    expect(inSketch.resolve('pocketDiameter / 2')).toBe(46);
+    const appended = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, append(2));
+    expect(appended.resolve('pocketDiameter')).toBe(52);
+  });
+
+  it("resolves nothing for another part's, a cycle, or outside every part", async () => {
+    const inPlug = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, statement(14, 3));
+    expect(inPlug.resolve('pocketDiameter')).toBeNull();
+    const inSketch = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, statement(7, 5));
+    expect(inSketch.resolve('loop')).toBeNull();
+    const topLevel = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, null);
+    expect(topLevel.resolve('pocketDiameter')).toBeNull();
+  });
+});

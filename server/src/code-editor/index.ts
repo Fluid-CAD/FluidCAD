@@ -78,11 +78,16 @@ export {
 export { getDimensionExpression, updateDimension, updateDimensionExpression } from './dimensions.ts';
 export { declareTopLevelVariable, findTopLevelDeclarationAnchor } from './declarations.ts';
 export {
+  bareProperties,
+  declarationImports,
   declareInPartBody,
   declareParamStatements,
   declareParamStatementsFor,
   findEnclosingPart,
   findPartAt,
+  freeIdentifiers,
+  isPartLevelInitializer,
+  type BareProperty,
   type PartBody,
 } from './parts.ts';
 export {

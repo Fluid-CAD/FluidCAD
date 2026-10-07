@@ -1,7 +1,9 @@
 // Applying a solved emission: hoist the targets to bindings and append the statement to the sketch body.
 
 import {
+  declarationImports,
   declareParamStatementsFor,
+  isPartLevelInitializer,
   declareSketchVariable,
   ensureSymbolImport,
   findEditableCallAt,
@@ -86,8 +88,8 @@ export async function applySolvedEmission(
   // re-anchored by the shift. `param()` initializers instead land at top
   // level after the whole edit, so nothing here moves.
   const requestedVars = spec.newVariables ?? [];
-  const paramVars = requestedVars.filter(v => /\bparam\s*\(/.test(v.initializer));
-  const localVars = requestedVars.filter(v => !/\bparam\s*\(/.test(v.initializer));
+  const paramVars = requestedVars.filter(v => isPartLevelInitializer(v.initializer));
+  const localVars = requestedVars.filter(v => !isPartLevelInitializer(v.initializer));
   // The settle rewrites literals in place (never the line count), so every
   // line-addressed target and removal still points at its statement.
   const settled = await settleSketchPositions(code, spec.settle);
@@ -364,8 +366,8 @@ export async function applySolvedEmission(
   for (const kind of new Set(spec.constraints.map(c => c.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/constraints');
   }
-  if (paramVars.length > 0) {
-    result = await ensureSymbolImport(result, 'param');
+  for (const symbol of declarationImports(paramVars.map(v => v.initializer))) {
+    result = await ensureSymbolImport(result, symbol);
   }
 
   // Imports and param declarations only ever add lines ABOVE the sketch —

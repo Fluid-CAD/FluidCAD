@@ -29,21 +29,33 @@ export function isValidNewIdentifier(s: string): boolean {
 
 /** `numeric: false` marks a variable whose value is not a plain constant or
  * arithmetic expression (e.g. a feature result like `extrude(...)`) — kept in
- * the list for name-collision checks but hidden from the dropdown. */
-export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
+ * the list for name-collision checks but hidden from the dropdown.
+ * `unbound` marks a `property()` the part publishes without binding a
+ * variable (`property('Label', 'name', value);` on its own, as the
+ * Parameters panel writes it): its initializer is the whole call, and the
+ * first commit that reads the name declares it over that call — the server
+ * binds the existing declaration rather than writing a second one. */
+export type VariableInfo = { name: string; initializer?: string; numeric?: boolean; unbound?: boolean };
 
 export type Suggestion = VariableInfo & { isNew?: boolean };
 
+/**
+ * What a committed input writes. A `declare` carries the `const name =
+ * initializer` to land with the statement and the `expression` the
+ * statement reads: the bare name for a new variable, the typed text for
+ * one that binds a part's unbound `property()` (`property: true`) — that
+ * text may use the name inside arithmetic.
+ */
 export type ClassifiedCommit =
   | { kind: 'expression'; expression: string }
-  | { kind: 'declare'; name: string; initializer: string }
+  | { kind: 'declare'; name: string; initializer: string; expression: string; property?: boolean }
   | { kind: 'error'; message: string };
 
 /**
  * The name a committed input would declare — an explicit `name = value`, or a
  * fresh identifier (no existing-variable match) over a seed value. Null when
- * the commit is a plain expression or an error — drives the hosts' "declare
- * as param" toggle visibility.
+ * the commit is a plain expression, an error, or binds an existing
+ * property — drives the hosts' "declare as param" toggle visibility.
  */
 export function declaredVariableName(
   raw: string,
@@ -51,7 +63,7 @@ export function declaredVariableName(
   seedValue: string,
 ): string | null {
   const classified = classifyCommit(raw, variables, seedValue);
-  return classified.kind === 'declare' ? classified.name : null;
+  return classified.kind === 'declare' && !classified.property ? classified.name : null;
 }
 
 /** A declaration initializer wrapped as a `param()` call, labeled by name. */
@@ -127,16 +139,16 @@ export function classifyCommit(
     if (!rhs) {
       return { kind: 'error', message: 'Missing value' };
     }
-    return { kind: 'declare', name, initializer: asParam ? paramInitializer(name, rhs) : rhs };
+    const [unbound] = unboundPropertiesIn(rhs, variables);
+    if (unbound) {
+      return { kind: 'error', message: bindFirstMessage(unbound.name) };
+    }
+    return {
+      kind: 'declare', name, initializer: asParam ? paramInitializer(name, rhs) : rhs, expression: name,
+    };
   }
 
-  if (IDENT_RE.test(raw)) {
-    if (variables.some((v) => v.name === raw)) {
-      return { kind: 'expression', expression: raw };
-    }
-    if (!isValidNewIdentifier(raw)) {
-      return { kind: 'expression', expression: raw };
-    }
+  if (IDENT_RE.test(raw) && !variables.some((v) => v.name === raw) && isValidNewIdentifier(raw)) {
     const initializer = seedValue.trim();
     if (!initializer) {
       return { kind: 'error', message: 'No value to assign' };
@@ -145,10 +157,43 @@ export function classifyCommit(
       kind: 'declare',
       name: raw,
       initializer: asParam ? paramInitializer(raw, initializer) : initializer,
+      expression: raw,
     };
   }
 
+  // Reading a property the part publishes without binding it binds it: the
+  // commit declares the name over the property's own call, and the server
+  // moves that declaration up to where the statement reads it. One per
+  // commit — a second has to wait for the next.
+  const [first, second] = unboundPropertiesIn(raw, variables);
+  if (second) {
+    return { kind: 'error', message: bindFirstMessage(first.name) };
+  }
+  if (first) {
+    return {
+      kind: 'declare', name: first.name, initializer: first.initializer!, expression: raw, property: true,
+    };
+  }
   return { kind: 'expression', expression: raw };
+}
+
+/** Every identifier `text` reads — a name after a `.` is a member, not one. */
+const READ_IDENT_RE = /(?<![\w$.])[a-zA-Z_$][\w$]*/g;
+
+/** The unbound properties `text` reads, in reading order, each once. */
+function unboundPropertiesIn(text: string, variables: VariableInfo[]): VariableInfo[] {
+  const found: VariableInfo[] = [];
+  for (const [name] of text.matchAll(READ_IDENT_RE)) {
+    const variable = variables.find((v) => v.name === name && v.unbound && v.initializer);
+    if (variable && !found.includes(variable)) {
+      found.push(variable);
+    }
+  }
+  return found;
+}
+
+function bindFirstMessage(name: string): string {
+  return `Use '${name}' on its own first — that binds the property`;
 }
 
 type ArithToken =
@@ -273,17 +318,25 @@ function evaluateArithmetic(
 }
 
 const PARAM_INIT_RE = /^param\(\s*(['"`])[^'"`]*\1\s*,\s*([\s\S]+)\)\s*;?\s*$/;
+const PROPERTY_INIT_RE =
+  /^property\(\s*(['"`])[^'"`]*\1\s*,\s*(['"`])[^'"`]*\2\s*,\s*([\s\S]+)\)\s*;?\s*$/;
 
-/** A `param("name", value)` initializer contributes its value expression. */
-function unwrapParam(initializer: string): string {
-  const match = initializer.trim().match(PARAM_INIT_RE);
-  return match ? match[2] : initializer;
+/** A `param("name", value)` or `property("Label", "name", value)` initializer contributes its value expression. */
+function unwrapDeclaration(initializer: string): string {
+  const trimmed = initializer.trim();
+  const param = trimmed.match(PARAM_INIT_RE);
+  if (param) {
+    return param[2];
+  }
+  const property = trimmed.match(PROPERTY_INIT_RE);
+  return property ? property[3] : initializer;
 }
 
 /**
  * Best-effort numeric value of a committed expression, for previews only:
  * arithmetic over the in-scope variables, with identifiers resolved
- * recursively through their initializers (`param()` wrappers unwrapped).
+ * recursively through their initializers (`param()` and `property()`
+ * wrappers unwrapped).
  * Null when the expression reaches beyond plain arithmetic (function calls,
  * unknown names, non-numeric initializers, cycles) or doesn't yield a finite
  * number — callers fall back to the live cursor value until the re-render
@@ -305,7 +358,7 @@ export function resolveExpressionValue(
       if (!initializer || !initializer.trim()) {
         return null;
       }
-      return evaluate(unwrapParam(initializer), new Set(seen).add(name));
+      return evaluate(unwrapDeclaration(initializer), new Set(seen).add(name));
     });
 
   const value = evaluate(expression, new Set());
@@ -395,10 +448,10 @@ export function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** What a dropdown entry names: a `param()` declaration, a plain value (a
- * number literal, or an import whose value the file doesn't show), or a value
- * computed from any other expression. */
-export type SuggestionKind = 'param' | 'variable' | 'expression';
+/** What a dropdown entry names: a `param()` declaration, a `property()` the
+ * part publishes, a plain value (a number literal, or an import whose value
+ * the file doesn't show), or a value computed from any other expression. */
+export type SuggestionKind = 'param' | 'property' | 'variable' | 'expression';
 
 /**
  * A suggestion's kind, read off its initializer. The new-variable offer is
@@ -413,6 +466,9 @@ export function suggestionKind(v: Suggestion, newAsParam: boolean): SuggestionKi
   if (PARAM_INIT_RE.test(initializer)) {
     return 'param';
   }
+  if (PROPERTY_INIT_RE.test(initializer)) {
+    return 'property';
+  }
   if (!initializer || Number.isFinite(Number(initializer))) {
     return 'variable';
   }
@@ -425,6 +481,11 @@ const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors
     letter: 'P',
     title: 'Parameter — param()',
     colors: 'bg-primary/20 text-primary border-primary/40',
+  },
+  property: {
+    letter: 'Pr',
+    title: 'Property — property()',
+    colors: 'bg-property/20 text-property border-property/40',
   },
   variable: {
     letter: 'V',
@@ -465,7 +526,7 @@ export function suggestionItemHtml(
 ): string {
   const activeClass = active ? 'bg-primary/10' : '';
   const chip = KIND_CHIPS[suggestionKind(v, newAsParam)];
-  const chipHtml = `<span title="${chip.title}" class="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded border text-[10px] font-semibold leading-none select-none ${chip.colors}">${chip.letter}</span>`;
+  const chipHtml = `<span title="${chip.title}" class="inline-flex items-center justify-center shrink-0 min-w-4 h-4 px-0.5 rounded border text-[10px] font-semibold leading-none select-none ${chip.colors}">${chip.letter}</span>`;
   const badge = v.isNew
     ? '<span class="text-primary/70 ml-0.5 text-[10px] uppercase select-none">new</span>'
     : '';

@@ -558,7 +558,7 @@ export class PointInput {
     }
 
     if (classified.kind === 'declare') {
-      axis.locked = classified.name;
+      axis.locked = classified.expression;
       axis.newVariable = { name: classified.name, initializer: classified.initializer };
     } else {
       axis.locked = classified.expression;

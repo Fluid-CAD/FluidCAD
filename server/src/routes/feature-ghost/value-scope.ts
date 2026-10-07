@@ -2,7 +2,9 @@
 
 import { ParamSites, type ParamSiteDefinition } from '../../apply-feature-edit/index.ts';
 import {
+  bareProperties,
   findEditableCallAt,
+  findEnclosingPart,
   findSketchBody,
   getJavaScriptParser,
   LexicalBindings,
@@ -64,9 +66,12 @@ export type ValueScopeSource = {
  * nested block redeclares around the statement. Only what
  * {@link Arithmetic} allows evaluates, plus the `param()` calls the model
  * declares: those take the value the last render gave that call site (see
- * {@link ParamSites}), else their default argument. A name that is
- * reassigned, destructured, imported or a function parameter has no single
- * value to read, and resolves to nothing.
+ * {@link ParamSites}), else their default argument — and the `property()`
+ * calls, each the value it publishes. A name that is reassigned,
+ * destructured, imported or a function parameter has no single value to
+ * read, and resolves to nothing. A name no declaration binds may still be
+ * a `property()` the enclosing part publishes as a bare statement: an
+ * expression field offers those, and reads the value the call would bind.
  *
  * A member access `<binding>.properties.<name>` reads the property the
  * last render computed for the instance the binding's `insert()` call
@@ -85,6 +90,7 @@ export class ValueScope {
 
   private constructor(
     private readonly parser: ExpressionParser,
+    private readonly tree: TSTree,
     private readonly bindings: LexicalBindings,
     private readonly params: ParamSites,
     private readonly rendered: RenderedProperties,
@@ -119,7 +125,7 @@ export class ValueScope {
     const rendered = new RenderedProperties(source.filePath, { instances: source.instances, parts: source.parts });
     const inFile = at !== null && normalizePath(at.filePath) === normalizePath(source.filePath);
     const anchor = inFile ? ValueScope.anchorAt(tree, splitLines(code), at) : tree.rootNode;
-    return new ValueScope(parser, bindings, params, rendered, anchor);
+    return new ValueScope(parser, tree, bindings, params, rendered, anchor);
   }
 
   /** A dialog value's number, or null when it isn't one the preview can work out. */
@@ -167,7 +173,29 @@ export class ValueScope {
   /** The number `name` holds where `at` sits, or null. */
   private valueAt(name: string, at: TSNode): number | null {
     const binding = this.bindings.resolve(name, at);
-    return binding ? this.bindingValue(binding) : null;
+    return binding ? this.bindingValue(binding) : this.bareProperty(name, at);
+  }
+
+  /**
+   * The value a `property()` statement of the part enclosing `at` publishes
+   * under `name` without binding it — what the first use of the name binds.
+   */
+  private bareProperty(name: string, at: TSNode): number | null {
+    const part = findEnclosingPart(this.tree, at.startPosition.row);
+    const bare = part ? bareProperties(part.body).find((p) => p.name === name) : undefined;
+    if (!bare?.value || this.bindings.fluidCadCallee(bare.call)?.name !== 'property') {
+      return null;
+    }
+    const key = `property:${bare.call.startIndex}`;
+    if (this.evaluating.has(key)) {
+      return null;
+    }
+    this.evaluating.add(key);
+    try {
+      return this.evaluateSource(bare.value);
+    } finally {
+      this.evaluating.delete(key);
+    }
   }
 
   private bindingValue(binding: Binding): number | null {
@@ -202,7 +230,7 @@ export class ValueScope {
   private evaluateSource(node: TSNode): number | null {
     return Arithmetic.evaluate(node, {
       identifier: (id) => this.valueAt(id.text, id),
-      call: (call) => this.paramValue(call),
+      call: (call) => this.declaredValue(call),
       member: (access) => this.propertyValue(access, access),
     });
   }
@@ -247,12 +275,19 @@ export class ValueScope {
   }
 
   /**
-   * A `param()` call's number: the value the last render gave this call
-   * site, else — no definition is its — the default it declares. A
-   * definition that isn't a number (a select, a checkbox) is no length.
+   * The number a declaration call stands for: a `param()`'s is the value
+   * the last render gave this call site, else — no definition is its — the
+   * default it declares; a definition that isn't a number (a select, a
+   * checkbox) is no length. A `property()`'s is the value it publishes,
+   * its third argument, returned unchanged to the variable it binds.
    */
-  private paramValue(call: TSNode): number | null {
-    if (this.bindings.fluidCadCallee(call)?.name !== 'param') {
+  private declaredValue(call: TSNode): number | null {
+    const callee = this.bindings.fluidCadCallee(call)?.name;
+    if (callee === 'property') {
+      const value = call.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment')[2];
+      return value ? this.evaluateSource(value) : null;
+    }
+    if (callee !== 'param') {
       return null;
     }
     const definition = this.params.definitionOf(call);

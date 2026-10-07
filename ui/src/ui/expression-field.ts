@@ -82,6 +82,8 @@ export class ExpressionField {
    * unchanged it is what the statement already says, never a declaration. */
   private seededExpression: string | null = null;
   private suppressFilter = false;
+  /** The user has typed since the value was last set — a late variable list refilters for them. */
+  private typing = false;
   private readonly onDocMousedown = (e: MouseEvent) => {
     if (e.target !== this.input && !this.dropdown.contains(e.target as Node)) {
       this.closeDropdown();
@@ -125,6 +127,7 @@ export class ExpressionField {
     input.addEventListener('input', () => this.handleInput());
     input.addEventListener('focus', () => this.updateParamBtn());
     input.addEventListener('blur', () => {
+      this.typing = false;
       this.closeDropdown();
       this.hideParamBtn();
     });
@@ -143,9 +146,18 @@ export class ExpressionField {
     });
   }
 
-  /** The variables offered by the dropdown (pushed by the owning service). */
+  /**
+   * The variables offered by the dropdown (pushed by the owning service).
+   * The scope read often lands after the user has started typing — it
+   * queues behind the recompute a parameter edit just triggered — so a
+   * field being typed into refilters with the list the moment it arrives,
+   * instead of offering nothing until the next keystroke.
+   */
   setVariables(variables: VariableInfo[]): void {
     this.variables = variables;
+    if (this.typing && document.activeElement === this.input) {
+      this.filterAndRender();
+    }
   }
 
   /** Programmatic value (defaults, edit-mode prefill); closes the dropdown. */
@@ -158,6 +170,7 @@ export class ExpressionField {
     } else {
       this.seededExpression = str.trim() || null;
     }
+    this.typing = false;
     this.closeDropdown();
     this.hideParamBtn();
   }
@@ -261,6 +274,7 @@ export class ExpressionField {
   }
 
   private handleInput(): void {
+    this.typing = true;
     if (this.isPlainNumber(this.input.value)) {
       this.seedValue = this.input.value.trim();
     }

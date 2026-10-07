@@ -11,7 +11,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_SLOT } from '../../ui/icons';
-import { ExpressionInput, CommitResult } from '../../ui/expression-input';
+import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import { classifyDelta } from './ortho-snap';
 import { dimMagnitude, emittedPointOnSnap, sameVertexRef, slotEmission } from './solved-emission';
 import {
@@ -99,6 +99,10 @@ export class SlotTool extends SketchTool {
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundKeyUp = this.handleKeyUp.bind(this);
+  }
+
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.expressionInput.setVariables(variables);
   }
 
   protected onActivate(): void {

@@ -199,6 +199,10 @@ export class SolvedConstraintToolbarService {
       window.addEventListener('keydown', this.boundKeyDown);
       void this.fetchVariables().then((variables) => {
         this.cachedVariables = variables;
+        // A dimension typed before the read landed completes with it.
+        if (this.valueInput.isVisible) {
+          this.valueInput.setVariables(variables);
+        }
       });
     }
   }

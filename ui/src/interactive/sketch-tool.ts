@@ -57,6 +57,8 @@ export abstract class SketchTool {
   protected pointInput: PointInput;
   protected cachedVariables: VariableInfo[] = [];
   private fetchVariablesFn: FetchVariablesFn | null;
+  /** Identity of the latest scope read — an older one landing later is dropped. */
+  private variablesRead = 0;
   /** The locked-point marker, kept out of `previewGroup` so tool rebuilds keep it. */
   private lockMarkerGroup: Group;
   private pointClientX = 0;
@@ -149,9 +151,31 @@ export abstract class SketchTool {
   /** Consumes a point typed into the pill, as if it had been clicked. */
   protected onTypedPoint(_point: PickedPoint): void {}
 
+  /**
+   * Re-read the sketch's scope. The read often lands after the user has
+   * started typing — it queues behind the recompute a parameter edit just
+   * triggered, and a freshly armed tool starts with no list at all — so the
+   * list goes into the open pill (and the tool's own dimension input, via
+   * `onVariablesLoaded`) the moment it arrives. An older read never
+   * overwrites a newer one.
+   */
   protected refreshVariables(): void {
-    this.fetchVariablesFn?.().then((vars) => { this.cachedVariables = vars; });
+    if (!this.fetchVariablesFn) {
+      return;
+    }
+    const read = ++this.variablesRead;
+    void this.fetchVariablesFn().then((vars) => {
+      if (read !== this.variablesRead) {
+        return;
+      }
+      this.cachedVariables = vars;
+      this.pointInput.setVariables(vars);
+      this.onVariablesLoaded(vars);
+    });
   }
+
+  /** A scope read landed — tools with a dimension input of their own push it there. */
+  protected onVariablesLoaded(_variables: VariableInfo[]): void {}
 
   /**
    * Merge the pill's pinned axes into a clicked point: a locked axis

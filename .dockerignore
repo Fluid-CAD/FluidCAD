@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/dist
+**/dist-lib
+**/dist-start
+**/*.tsbuildinfo
+shell/release
+shell/engine

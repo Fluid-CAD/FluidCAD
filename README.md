@@ -140,6 +140,38 @@ This creates a project with an empty part, `part1.part.js`, and opens the worksp
 
 Start with the [getting-started guide](https://fluidcad.io/docs/getting-started) to build a hinge, or [choose a tutorial](https://fluidcad.io/docs/tutorials/).
 
+### Docker
+
+To keep your projects in one place and open them from any device on your network, run the start screen in a container. From a clone of this repository:
+
+```bash
+docker build -t fluidcad .
+docker run -d --name fluidcad -p 127.0.0.1:3100:3100 \
+  -v "$PWD/projects:/app/projects" \
+  -v fluidcad-home:/home/node/.fluidcad \
+  fluidcad
+```
+
+Or with Docker Compose:
+
+```yaml
+services:
+  fluidcad:
+    build: .
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./projects:/app/projects
+      - fluidcad-home:/home/node/.fluidcad
+    restart: unless-stopped
+
+volumes:
+  fluidcad-home:
+```
+
+The port is published on `127.0.0.1`, so only the machine running Docker can reach FluidCAD. To open it from other devices, put an HTTPS reverse proxy in front and pass `--public-url https://cad.example.com` after the image name (`command:` in Compose). On a network you trust, you can publish on every interface instead by dropping `127.0.0.1:`.
+
+
 ## Fits your workflow
 
 ### Editors

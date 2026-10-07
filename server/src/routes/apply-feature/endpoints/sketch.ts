@@ -417,17 +417,21 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
   // carry each geometry statement's final line — the polyline chain
   // references its previous segment by line without waiting for a render.
   router.post('/sketch/insert-solved', async (req, res) => {
-    const { sketchLine, filePath, geometry, constraints, newVariables, removals } = req.body ?? {};
+    const { sketchLine, filePath, geometry, constraints, newVariables, removals, settle } = req.body ?? {};
     // A removals-only body is a legal edit: the constraint bar deletes the
     // coincident(s) behind a vertex pick through this rail so a junction's
     // several statements go in one edit.
     const removalCount = Array.isArray(removals) ? removals.length : 0;
+    // The settle write-back riding the emission (the Offset tool's side
+    // locks read the settled sketch).
+    const cleanSettle = validateSketchPositionEdits(settle);
     if (typeof sketchLine !== 'number'
       || !Array.isArray(geometry) || !Array.isArray(constraints)
       || geometry.length + constraints.length + removalCount === 0
       || (filePath !== undefined && typeof filePath !== 'string')
       || (newVariables !== undefined && !Array.isArray(newVariables))
-      || (removals !== undefined && !Array.isArray(removals))) {
+      || (removals !== undefined && !Array.isArray(removals))
+      || cleanSettle === null) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -497,6 +501,7 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
       constraints: cleanConstraints,
       ...(cleanVariables.length > 0 ? { newVariables: cleanVariables } : {}),
       ...(cleanRemovals.length > 0 ? { removals: cleanRemovals } : {}),
+      ...(cleanSettle.length > 0 ? { settle: cleanSettle } : {}),
     };
 
     // Preflight for the line info (and a fast honest 422); the dispatcher

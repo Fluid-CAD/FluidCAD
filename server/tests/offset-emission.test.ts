@@ -14,6 +14,7 @@ import * as filters from '../../lib/filters/index.js';
 import * as math from '../../lib/math/index.js';
 import { Scene } from '../../lib/rendering/scene.js';
 import { applySolvedEmission, type SolvedEmissionSpec } from '../src/sketch-solved-edit/index.ts';
+import type { SketchPositionEdit } from '../src/code-editor/index.ts';
 import { buildOffsetEmission } from '../../ui/src/interactive/tools/offset-emission.ts';
 import type { SketchOffsetPlanChain } from '../../ui/src/api.ts';
 import type { SolvedPick } from '../../ui/src/interactive/sketch-hover-select-handler.ts';
@@ -41,14 +42,17 @@ function pick(entityId: number, line: number, kind: 'line' | 'arc', start: V2, e
   };
 }
 
-async function emitAndSolve(source: string, sketchLine: number, sources: { pick: SolvedPick; view: SolvedEntityView }[], chains: SketchOffsetPlanChain[], distanceExpr: string) {
+async function emitAndSolve(source: string, sketchLine: number, sources: { pick: SolvedPick; view: SolvedEntityView }[], chains: SketchOffsetPlanChain[], distanceExpr: string, settle?: SketchPositionEdit[]) {
   const model = { entities: new Map(sources.map(s => [s.view.entityId, s.view])), constraints: [] } as unknown as SolvedSketchModel;
   const emission = buildOffsetEmission({ sources: sources.map(s => s.pick), chains, model, distanceExpr });
   expect(emission.ok, emission.ok ? '' : emission.reason).toBe(true);
   if (!emission.ok) {
     throw new Error(emission.reason);
   }
-  const spec: SolvedEmissionSpec = { sketchLine, geometry: emission.request.geometry, constraints: emission.request.constraints };
+  const spec: SolvedEmissionSpec = {
+    sketchLine, geometry: emission.request.geometry, constraints: emission.request.constraints,
+    ...(settle ? { settle } : {}),
+  };
   const edited = await applySolvedEmission(source, spec);
   expect(edited.error).toBeUndefined();
   const scene = runFluid(edited.newCode);
@@ -149,5 +153,89 @@ describe('constrained offset emissions solve clean', () => {
     expect(solver.newCode).toContain('offsetFrom([l1, a1], [a, b], 3);');
     expect(solver.newCode).toContain('coincident(l2.start(), b.end());');
     expect(solver.newCode).toContain('coincident(l3.end(), a.start());');
+  });
+
+  it('settles stale source literals first so the side lock reads the solved sketch', async () => {
+    // The rectangle was drawn around y = 300 and later dimensioned down to
+    // the origin: its literals are stale guesses, its solved rails run
+    // y = 0 and y = 50. The offset plan (built on the SOLVED sketch) puts
+    // the inward offset of the bottom edge at y = 5 — ABOVE the solved
+    // edge but far BELOW the stale literal, so without settling the sketch
+    // first the offsetFrom side lock reads the bottom offset as outward and
+    // the solve lands it at y = -5 while the other three edges go inward.
+    const source = [
+      `import { sketch, line } from "fluidcad/core";`,
+      `import { coincident, horizontal, vertical, fix, distance } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 300], [100, 300]);`,
+      `  const b = line([100, 300], [100, 350]);`,
+      `  const c = line([100, 350], [0, 350]);`,
+      `  const d = line([0, 350], [0, 300]);`,
+      `  coincident(a.end(), b.start());`,
+      `  coincident(b.end(), c.start());`,
+      `  coincident(c.end(), d.start());`,
+      `  coincident(d.end(), a.start());`,
+      `  fix(a.start(), [0, 0]);`,
+      `  horizontal(a);`,
+      `  vertical(b);`,
+      `  horizontal(c);`,
+      `  vertical(d);`,
+      `  distance(a.start(), a.end(), 100);`,
+      `  distance(b.start(), b.end(), 50);`,
+      `});`,
+    ].join('\n');
+    const sources = [
+      pick(0, 5, 'line', [0, 0], [100, 0]),
+      pick(1, 6, 'line', [100, 0], [100, 50]),
+      pick(2, 7, 'line', [100, 50], [0, 50]),
+      pick(3, 8, 'line', [0, 50], [0, 0]),
+    ];
+    const chains: SketchOffsetPlanChain[] = [{
+      closed: true,
+      edges: [
+        { kind: 'line', source: 0, start: [5, 5], end: [95, 5], joinNext: 'corner' },
+        { kind: 'line', source: 1, start: [95, 5], end: [95, 45], joinNext: 'corner' },
+        { kind: 'line', source: 2, start: [95, 45], end: [5, 45], joinNext: 'corner' },
+        { kind: 'line', source: 3, start: [5, 45], end: [5, 5], joinNext: 'corner' },
+      ],
+    }];
+    // The settle write-back the dialog sends: every drifted literal of the
+    // four source lines, on its solved position.
+    const settle: SketchPositionEdit[] = [
+      { sourceLine: 5, points: [
+        { pointIndex: 0, position: [0, 0], expected: [0, 300] },
+        { pointIndex: 1, position: [100, 0], expected: [100, 300] },
+      ] },
+      { sourceLine: 6, points: [
+        { pointIndex: 0, position: [100, 0], expected: [100, 300] },
+        { pointIndex: 1, position: [100, 50], expected: [100, 350] },
+      ] },
+      { sourceLine: 7, points: [
+        { pointIndex: 0, position: [100, 50], expected: [100, 350] },
+        { pointIndex: 1, position: [0, 50], expected: [0, 350] },
+      ] },
+      { sourceLine: 8, points: [
+        { pointIndex: 0, position: [0, 50], expected: [0, 350] },
+        { pointIndex: 1, position: [0, 0], expected: [0, 300] },
+      ] },
+    ];
+    const solver = await emitAndSolve(source, 4, sources, chains, '5', settle);
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(0);
+    expect(solver.newCode).toContain('const a = line([0, 0], [100, 0]);');
+    expect(solver.newCode).toContain('const c = line([100, 50], [0, 50]);');
+    expect(solver.newCode).toContain('offsetFrom([l1, l2, l3, l4], [a, b, c, d], 5);');
+    // Every offset line solved on the inside of the rectangle.
+    const lineAt = (id: number): number[] => {
+      const entity = solver.entities.find((e: { id: number }) => e.id === id)!;
+      return solver.params.slice(entity.paramOffset, entity.paramOffset + 4).map((v: number) => Math.round(v * 1000) / 1000);
+    };
+    expect(lineAt(4)).toEqual([5, 5, 95, 5]);
+    expect(lineAt(5)).toEqual([95, 5, 95, 45]);
+    expect(lineAt(6)).toEqual([95, 45, 5, 45]);
+    expect(lineAt(7)).toEqual([5, 45, 5, 5]);
   });
 });

@@ -2175,6 +2175,8 @@ export async function insertSolvedGeometry(options: {
    * the constraint bar swaps out a replaced orientation and deletes the
    * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
 }): Promise<{
   success: boolean;
   reason?: string;

@@ -27,6 +27,11 @@ import type { NextFunction, Request, Response } from 'express';
  * cookie is `Secure` too, and that URL's origin is an origin of the page's
  * own.
  *
+ * Without auth (`--no-auth`, for a trusted network), every request counts as signed in, and the Host check
+ * is what keeps rebinding out instead: a server bound beyond loopback must
+ * name the hosts it answers to (`--allowed-host`), since a hostile page has
+ * its own name as its Host. The origin and header checks stay as they are.
+ *
  * The same loopback rule as the engine's (`server/src/host-guard.ts`), kept
  * apart for the reason `engine/project-pin.ts` is: the launcher must not
  * depend on engine code.
@@ -37,11 +42,8 @@ export const LAUNCHER_REQUEST_HEADER = 'x-fluidcad-launcher';
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
-/** True for a Host header (with or without a port) that names this machine's loopback. */
-export function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) {
-    return false;
-  }
+/** A Host header's (or an `--allowed-host` value's) name, lowercased, without its port. */
+export function hostnameOf(host: string): string {
   let hostname = host.trim().toLowerCase();
   if (hostname.startsWith('[')) {
     const end = hostname.indexOf(']');
@@ -49,6 +51,15 @@ export function isLoopbackHost(host: string | undefined): boolean {
   } else if (hostname.includes(':') && hostname.indexOf(':') === hostname.lastIndexOf(':')) {
     hostname = hostname.slice(0, hostname.indexOf(':'));
   }
+  return hostname;
+}
+
+/** True for a Host header (with or without a port) that names this machine's loopback. */
+export function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) {
+    return false;
+  }
+  const hostname = hostnameOf(host);
   if (LOOPBACK_NAMES.has(hostname) || hostname.endsWith('.localhost')) {
     return true;
   }
@@ -125,6 +136,10 @@ export type LauncherAuthOptions = {
   publicOrigin?: string | null;
   /** The page is reached over HTTPS: the cookie is never sent in the clear. */
   secureCookie?: boolean;
+  /** No key and no cookie: every request counts as signed in (`--no-auth`). */
+  noAuth?: boolean;
+  /** The only Host names answered besides loopback (`--allowed-host`); every Host when absent and exposed. */
+  allowedHosts?: readonly string[];
 };
 
 export class LauncherAuth {
@@ -134,6 +149,8 @@ export class LauncherAuth {
   private readonly exposed: boolean;
   private readonly publicOrigin: string | null;
   private readonly secureCookie: boolean;
+  readonly noAuth: boolean;
+  private readonly allowedHosts: Set<string> | null;
 
   /** `port` names the cookie, so two start servers in one browser do not sign each other out. */
   constructor(port: number, options: LauncherAuthOptions = {}) {
@@ -141,16 +158,32 @@ export class LauncherAuth {
     this.exposed = options.exposed === true;
     this.publicOrigin = options.publicOrigin ?? null;
     this.secureCookie = options.secureCookie === true;
+    this.noAuth = options.noAuth === true;
+    this.allowedHosts = options.allowedHosts?.length ? new Set(options.allowedHosts.map(hostnameOf)) : null;
   }
 
-  /** Every request: loopback Host only (DNS rebinding), unless bound for other machines. */
+  /**
+   * Every request: loopback Host only (DNS rebinding), unless bound for other
+   * machines; then any Host, or only the allowed ones when they are named.
+   */
   readonly hostGuard = (request: Request, response: Response, next: NextFunction): void => {
-    if (!this.exposed && !isLoopbackHost(request.headers.host)) {
-      response.status(403).type('text/plain').send('FluidCAD answers only to localhost.');
+    if (!this.hostAllowed(request.headers.host)) {
+      response.status(403).type('text/plain').send(this.allowedHosts ? 'FluidCAD does not answer to this host name.' : 'FluidCAD answers only to localhost.');
       return;
     }
     next();
   };
+
+  /** Whether a Host header passes `hostGuard`. */
+  hostAllowed(host: string | undefined): boolean {
+    if (isLoopbackHost(host)) {
+      return true;
+    }
+    if (this.allowedHosts) {
+      return host !== undefined && this.allowedHosts.has(hostnameOf(host));
+    }
+    return this.exposed;
+  }
 
   /**
    * The start page: a valid `?token=` becomes the cookie and is taken out of
@@ -158,6 +191,10 @@ export class LauncherAuth {
    * the link is.
    */
   readonly pageLogin = (request: Request, response: Response, next: NextFunction): void => {
+    if (this.noAuth) {
+      next();
+      return;
+    }
     const offered = request.query.token;
     if (typeof offered === 'string') {
       if (!this.matches(offered)) {
@@ -200,6 +237,9 @@ export class LauncherAuth {
 
   /** Whether the request carries this session's cookie. */
   signedIn(request: HeaderSource): boolean {
+    if (this.noAuth) {
+      return true;
+    }
     const cookie = parseCookies(header(request, 'cookie')).get(this.cookieName);
     return cookie !== undefined && this.matches(cookie);
   }

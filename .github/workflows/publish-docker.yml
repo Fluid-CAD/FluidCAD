@@ -38,15 +38,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `latest` moves only when this release is the repository's latest one,
+      # so publishing a pre-release or an older release leaves it alone.
+      - name: Check whether this is the latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          latest=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
+          echo "enable=$([ "$latest" = "$TAG" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Describe the image
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/fluid-cad/fluidcad
-          # `v0.0.47` becomes `0.0.47`; `latest` follows the newest release.
+          # `v0.0.47` becomes `0.0.47`.
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ steps.latest.outputs.enable }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

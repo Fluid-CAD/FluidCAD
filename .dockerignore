@@ -6,3 +6,6 @@
 **/*.tsbuildinfo
 shell/release
 shell/engine
+.claude
+.env*
+projects

@@ -24,8 +24,9 @@
 // LM as a closure.
 
 import { Vector3 } from 'three';
-import { mateSideIds, type BodyState, type ConnectorState, type MateRecord } from './types.js';
+import { mateSideIds, type BodyState, type ConnectorState, type MateRecord, type RelationRecord } from './types.js';
 import { resolveContact } from './contact-model.js';
+import { RelationModel, type ComponentRelation } from './relation-model.js';
 
 export type TreeEdge = {
   parent: BodyState;
@@ -65,6 +66,12 @@ export type Component = {
   /** Set of instance ids that lie on at least one cycle. */
   loopBodies: Set<string>;
   /**
+   * Relations coupling two of this component's mates. A relation joins the
+   * components of its two mates into one (one LM problem), so both mates
+   * are always found here; its rows enter the LM like closure rows.
+   */
+  relations: ComponentRelation[];
+  /**
    * Roots of the BFS forest: ALL grounded bodies in the component, plus
    * one root per tree-connected cluster the connector-mate BFS can't
    * reach (a body attached only through contact edges is un-parented by
@@ -94,6 +101,14 @@ function warnDroppedMate(mateId: string, reason: string): void {
   if (warnedDroppedMates.has(mateId)) return;
   warnedDroppedMates.add(mateId);
   console.warn(`[solver] mate ${mateId} is not being enforced — ${reason}.`);
+}
+
+/** The same tripwire for a relation whose mate is missing or has nothing to couple. */
+const warnedDroppedRelations = new Set<string>();
+function warnDroppedRelation(relationId: string, reason: string): void {
+  if (warnedDroppedRelations.has(relationId)) return;
+  warnedDroppedRelations.add(relationId);
+  console.warn(`[solver] relation ${relationId} is not being enforced — ${reason}.`);
 }
 
 // Lower number = more rigid → preferred as tree edge.
@@ -134,6 +149,7 @@ export function buildMateGraph(
   bodies: BodyState[],
   mates: MateRecord[],
   draggedInstanceId?: string,
+  relations: RelationRecord[] = [],
 ): MateGraph {
   const byId = new Map(bodies.map(b => [b.instanceId, b]));
 
@@ -312,6 +328,7 @@ export function buildMateGraph(
       closureEdges: closureMates,
       contactEdges,
       loopBodies,
+      relations: [],
       roots,
     });
     for (const b of orderedBodies) {
@@ -320,7 +337,105 @@ export function buildMateGraph(
     }
   }
 
-  return { components, bodyComponent };
+  return RelationMerge.apply(components, bodyComponent, mates, relations);
+}
+
+/**
+ * Relations join components: a gear on one grounded plate meshing a gear on
+ * another is one LM problem, so the two mates' components merge into one
+ * (bodies, forest and closures concatenated — each forest's BFS order stays
+ * valid on its own, and the LM already handles several roots). A relation
+ * whose mate is missing, dropped, or has no motion of the needed kind is
+ * dropped with a warning, never silently.
+ */
+class RelationMerge {
+  static apply(
+    components: Component[],
+    bodyComponent: Map<string, number>,
+    mates: MateRecord[],
+    relations: RelationRecord[],
+  ): MateGraph {
+    if (relations.length === 0) return { components, bodyComponent };
+    const mateById = new Map(mates.map(m => [m.mateId, m]));
+    const enforced = RelationMerge.enforcedMates(components);
+    const parent = components.map((_, i) => i);
+    const find = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+      }
+      return i;
+    };
+    const resolved: { relation: ComponentRelation; component: number }[] = [];
+    for (const record of relations) {
+      const mateA = mateById.get(record.mateA);
+      const mateB = mateById.get(record.mateB);
+      if (!mateA || !mateB) {
+        warnDroppedRelation(record.relationId, 'a mate it couples is not in the solve');
+        continue;
+      }
+      if (!RelationModel.sideHasParam(mateA, RelationModel.paramA(record))
+        || !RelationModel.sideHasParam(mateB, RelationModel.paramB(record))) {
+        warnDroppedRelation(record.relationId, 'a mate it couples has no motion of the kind it needs');
+        continue;
+      }
+      const ca = enforced.get(mateA.mateId);
+      const cb = enforced.get(mateB.mateId);
+      if (ca === undefined || cb === undefined) {
+        warnDroppedRelation(record.relationId, 'a mate it couples is not being enforced');
+        continue;
+      }
+      parent[find(ca)] = find(cb);
+      resolved.push({ relation: { record, mateA, mateB }, component: ca });
+    }
+    if (resolved.length === 0) return { components, bodyComponent };
+
+    // Rebuild the list: one entry per union-find group, at its first
+    // member's position, members concatenated in their original order.
+    const groups = new Map<number, number[]>();
+    components.forEach((_, i) => {
+      const root = find(i);
+      const list = groups.get(root) ?? [];
+      list.push(i);
+      groups.set(root, list);
+    });
+    const merged: Component[] = [];
+    const newIndex = new Map<number, number>();
+    for (const members of groups.values()) {
+      const target = merged.length;
+      for (const i of members) newIndex.set(i, target);
+      merged.push(members.length === 1 ? components[members[0]] : RelationMerge.concat(members.map(i => components[i])));
+    }
+    for (const [id, index] of bodyComponent) {
+      bodyComponent.set(id, newIndex.get(index)!);
+    }
+    for (const entry of resolved) {
+      merged[newIndex.get(entry.component)!].relations.push(entry.relation);
+    }
+    return { components: merged, bodyComponent };
+  }
+
+  /** mateId → component index, for every mate a component enforces (tree or closure edge). */
+  private static enforcedMates(components: Component[]): Map<string, number> {
+    const out = new Map<string, number>();
+    components.forEach((component, i) => {
+      for (const edge of component.treeEdges) out.set(edge.mate.mateId, i);
+      for (const closure of component.closureEdges) out.set(closure.mateId, i);
+    });
+    return out;
+  }
+
+  private static concat(parts: Component[]): Component {
+    return {
+      bodies: parts.flatMap(c => c.bodies),
+      treeEdges: parts.flatMap(c => c.treeEdges),
+      closureEdges: parts.flatMap(c => c.closureEdges),
+      contactEdges: parts.flatMap(c => c.contactEdges),
+      loopBodies: new Set(parts.flatMap(c => [...c.loopBodies])),
+      relations: parts.flatMap(c => c.relations),
+      roots: parts.flatMap(c => c.roots),
+    };
+  }
 }
 
 /**

@@ -18,6 +18,7 @@ import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
 import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
 import { applyAssemblyExportEdit, applyConnectorPropsEdit } from '../../assembly-mate-edit.ts';
+import { applyAssemblyRelationEdit } from '../../assembly-relation-edit.ts';
 import { applyAssemblyReplicateEdit } from '../../assembly-replicate-edit.ts';
 import {
   applyAssemblyConnectorCopyWithDecls,
@@ -188,6 +189,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.assemblyExport) {
     return applyAssemblyExportEdit(code, spec.assemblyExport);
+  }
+  if (spec.assemblyRelation) {
+    return applyAssemblyRelationEdit(code, spec.assemblyRelation);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

@@ -5501,6 +5501,54 @@ export async function applyAssemblyMate(
   }
 }
 
+/** The relation types the solver couples (mirrors the kernel's relation()). */
+export type AssemblyRelationType = 'gear' | 'rack-and-pinion';
+
+/**
+ * One side of a relation statement: the `mate()` statement starting on
+ * `mateLine` (its serialized sourceLocation). The server dereferences the
+ * statement's `const` binding, hoisting one onto a bare `mate(...)`.
+ */
+export type AssemblyRelationMateRef = { mateLine: number };
+
+export type AssemblyRelationPayload = {
+  type: AssemblyRelationType;
+  mateA: AssemblyRelationMateRef;
+  mateB: AssemblyRelationMateRef;
+  /** Gear: turns of B per turn of A. Rack-and-pinion: B's travel per revolution of A. Positive. */
+  ratio: number;
+  /** `.reverse()` — false/absent writes nothing. */
+  reverse?: boolean;
+};
+
+/**
+ * Relation-dialog commit: append a fresh `relation()` statement (`create`)
+ * or re-render an existing one in place (`edit`, addressed by the
+ * statement's serialized sourceLocation line). Failure bodies surface their
+ * reason (preflight refusal, stale line, ack timeout).
+ */
+export async function applyAssemblyRelation(
+  filePath: string,
+  spec:
+    | { create: AssemblyRelationPayload }
+    | { edit: AssemblyRelationPayload & { sourceLine: number } },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/assembly-relation', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, ...spec }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** What one tangent-mate pick resolves to (17-mate-tangent §7.3). */
 export type ContactPickResult = {
   /** The picked geometry's enclosing part and its exposure bookkeeping. */

@@ -22,6 +22,7 @@ import { residual } from './joint-model.js';
 import { contactResidualMaxAbs, resolveContact } from './contact-model.js';
 import { connectorMateFailure, contactMateFailure } from './mate-gap.js';
 import { applyLoopRelaxations } from './loop-relaxation.js';
+import { RelationModel, type RelationBaseline } from './relation-model.js';
 import type { BodyState, MateFailure, SolverInput, SolverOutput } from './types.js';
 import {
   applyTreeFixups,
@@ -50,7 +51,15 @@ export class Solver {
    */
   solve(input: SolverInput): SolverOutput {
     // Partition the mate graph and pick a spanning tree per component.
-    const graph = buildMateGraph(input.bodies, input.mates, input.draggedInstanceId);
+    const graph = buildMateGraph(input.bodies, input.mates, input.draggedInstanceId, input.relations ?? []);
+
+    // Relation baselines are the INPUT poses — measured before the
+    // warm-start moves anything, so each relation couples this solve's
+    // motion (see relation-model.ts for why the coupling is incremental).
+    const relationBaselines = RelationModel.baselines(
+      graph.components.flatMap(c => c.relations),
+      new Map(input.bodies.map(b => [b.instanceId, b])),
+    );
 
     // Precompute fastened-cluster membership once per solve. Without
     // this, every non-fastened tree edge's drag helper recomputes its
@@ -71,7 +80,7 @@ export class Solver {
     // the closure manifold and propagates a dragged chain's IK. Returns
     // each closure component's loop DOF (joint variables minus the rank
     // of the closure Jacobian at the solution).
-    const loopDof = applyLoopRelaxations(input.bodies, graph.components, drag);
+    const loopDof = applyLoopRelaxations(input.bodies, graph.components, drag, relationBaselines);
 
     // DOF accounting, per component: closure components use the
     // rank-based loop DOF (a 4-bar reads 1, not 3 — its closure eats
@@ -99,6 +108,7 @@ export class Solver {
       dof,
       failed: [],
       failures: [],
+      failedRelations: [],
     };
 
     // Drag target: a dragged body whose position the warm-start didn't
@@ -126,9 +136,40 @@ export class Solver {
     // joints-panel red dots.
     out.failures = collectFailedMates(input, out);
     out.failed = out.failures.map(f => f.mateId);
-    out.result = out.failed.length > 0 ? 'inconsistent' : 'okay';
+    out.failedRelations = collectFailedRelations(graph, input, out, relationBaselines);
+    out.result = out.failed.length > 0 || out.failedRelations.length > 0 ? 'inconsistent' : 'okay';
     return out;
   }
+}
+
+/**
+ * Every relation whose sides did not move in ratio over this solve,
+ * measured at the OUTPUT poses against the input baseline — a gear train
+ * the LM could not turn together (both gears held, say). Relations the
+ * graph dropped never reached the solver and are reported upstream.
+ */
+function collectFailedRelations(
+  graph: MateGraph,
+  input: SolverInput,
+  out: SolverOutput,
+  baselines: Map<string, RelationBaseline>,
+): string[] {
+  const relations = graph.components.flatMap(c => c.relations);
+  if (relations.length === 0) return [];
+  const solvedById = new Map(out.bodies.map(b => [b.instanceId, b]));
+  const atOutput = new Map<string, BodyState>();
+  for (const body of input.bodies) {
+    const solved = solvedById.get(body.instanceId);
+    if (solved) {
+      atOutput.set(body.instanceId, { ...body, position: solved.position, quaternion: solved.quaternion });
+    }
+  }
+  const failed: string[] = [];
+  for (const relation of relations) {
+    const r = RelationModel.residual(relation, atOutput, baselines);
+    if (r !== null && Math.abs(r) > FAILED_MATE_EPS) failed.push(relation.record.relationId);
+  }
+  return failed;
 }
 
 /**

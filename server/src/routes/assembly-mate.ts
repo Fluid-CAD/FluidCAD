@@ -11,6 +11,7 @@ import {
   type AssemblyMateType,
   type MateFrameRef,
 } from '../assembly-mate-edit.ts';
+import { ASSEMBLY_RELATION_TYPES, type AssemblyRelationPayload } from '../assembly-relation-edit.ts';
 import {
   isConnectorRef,
   isFrameRef,
@@ -76,6 +77,20 @@ function isMateOptions(v: unknown): v is AssemblyMateOptions {
     && (o.offset === undefined || o.offset === null || isVec3(o.offset))
     && (o.limits === undefined || o.limits === null || isPair(o.limits))
     && (o.propagate === undefined || typeof o.propagate === 'boolean');
+}
+
+/** The relation dialog's wire payload: two mate statement lines, the ratio, the sense. */
+function isRelationPayload(v: unknown): v is AssemblyRelationPayload {
+  if (v === null || typeof v !== 'object') {
+    return false;
+  }
+  const o = v as any;
+  const isMateRef = (side: unknown) => side !== null && typeof side === 'object'
+    && Number.isInteger((side as any).mateLine) && (side as any).mateLine >= 1;
+  return ASSEMBLY_RELATION_TYPES.includes(o.type)
+    && isMateRef(o.mateA) && isMateRef(o.mateB)
+    && typeof o.ratio === 'number' && Number.isFinite(o.ratio)
+    && (o.reverse === undefined || typeof o.reverse === 'boolean');
 }
 
 /**
@@ -317,6 +332,61 @@ export function createAssemblyMateRouter(
       parts: [],
       imports: [],
       assemblyMate,
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The relation dialog's commit endpoint: write a fresh `relation()`
+  // statement (create) or re-render one in place (edit), through the same
+  // dispatcher — preflight refusals (a side that is not a mate(), a mate
+  // type with nothing to couple, a non-positive ratio) answer 422 before
+  // the editor is touched.
+  router.post('/assembly-relation', async (req, res) => {
+    const { filePath, create, edit } = req.body ?? {};
+    const editValid = edit === undefined
+      || (isRelationPayload(edit) && Number.isInteger((edit as any).sourceLine) && (edit as any).sourceLine >= 1);
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || (create === undefined) === (edit === undefined)
+      || (create !== undefined && !isRelationPayload(create))
+      || !editValid
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (detectKind(currentFile) !== 'assembly') {
+      res.status(422).json({ success: false, reason: 'Relations target an assembly — open a *.assembly.js file first.' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this relation belongs to ${basename(filePath)} — open that file to edit it there.`,
+      });
+      return;
+    }
+    const payload = (create ?? edit) as AssemblyRelationPayload;
+    const relationPayload: AssemblyRelationPayload = {
+      type: payload.type,
+      mateA: { mateLine: payload.mateA.mateLine },
+      mateB: { mateLine: payload.mateB.mateLine },
+      ratio: payload.ratio,
+      ...(payload.reverse ? { reverse: true } : {}),
+    };
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      assemblyRelation: create !== undefined
+        ? { create: relationPayload }
+        : { edit: { ...relationPayload, sourceLine: (edit as any).sourceLine } },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

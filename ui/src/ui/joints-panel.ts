@@ -11,7 +11,9 @@
 // empty state. The real row rendering and click-to-highlight wiring lands
 // alongside `mate()` in phase 06+.
 
-import { connectorLabel, type SerializedAssemblyMate, type RenderedInstance } from '../types';
+import { type SerializedAssemblyMate, type SerializedAssemblyRelation, type RenderedInstance } from '../types';
+import { MateLabel } from './mate-label';
+import { sceneUnit } from '../units/scene-unit';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ICON_PLAY } from './icons';
 import { AccordionSection } from './accordion-section';
@@ -38,12 +40,33 @@ export interface JointsPanelOptions {
    * non-mutating action, so owned (sub-assembly) mates get it too.
    */
   onAnimate?: (mateId: string) => void;
+  /** A relation row clicked: highlight the two joints it couples. */
+  onSelectRelation?: (relationId: string) => void;
+  /** A relation row's "Show in source". */
+  onShowRelationInSource?: (relationId: string) => void;
+  /** A relation row's "Edit relation…" — opens the relation dialog on it. */
+  onEditRelation?: (relationId: string) => void;
+  /** A relation row's "Delete" — drops the `relation()` statement. */
+  onDeleteRelation?: (relationId: string) => void;
 }
+
+/** What a dialog picking a joint from this panel receives. */
+export type JointPickHandler = (mate: SerializedAssemblyMate) => void;
 
 export class JointsPanel {
   private header: HTMLDivElement;
   private body: HTMLDivElement;
   private mates: SerializedAssemblyMate[] = [];
+  /** `relation()` rows, listed after the joints they couple. */
+  private relations: SerializedAssemblyRelation[] = [];
+  /** Relations the last solve could not hold (red dot). */
+  private failedRelations = new Set<string>();
+  /**
+   * While a dialog picks a joint from the rail, a row click hands the mate
+   * to it instead of selecting; relation rows sit inert. See {@link setPickMode}.
+   */
+  private pickHandler: JointPickHandler | null = null;
+  private pickHint = '';
   private instancesById = new Map<string, RenderedInstance>();
   /** Assembly connectors by scene id — how a frame side labels itself. */
   private worldConnectorNames = new Map<string, string>();
@@ -60,6 +83,7 @@ export class JointsPanel {
   private onDelete: (mateId: string) => void;
   private readonly readOnly: boolean;
   private readonly onAnimate: ((mateId: string) => void) | undefined;
+  private readonly relationActions: Pick<JointsPanelOptions, 'onSelectRelation' | 'onShowRelationInSource' | 'onEditRelation' | 'onDeleteRelation'>;
 
   constructor(
     host: HTMLElement,
@@ -72,6 +96,7 @@ export class JointsPanel {
   ) {
     this.readOnly = options.readOnly === true;
     this.onAnimate = options.onAnimate;
+    this.relationActions = options;
     this.onSelectMate = onSelectMate;
     this.onShowInSource = onShowInSource;
     this.onEditMate = onEditMate;
@@ -100,16 +125,35 @@ export class JointsPanel {
     mates: SerializedAssemblyMate[],
     instances: RenderedInstance[],
     connectors: ReadonlyArray<{ connectorId: string; name: string; copy?: { slot: number } }> = [],
+    relations: SerializedAssemblyRelation[] = [],
+    failedRelations: ReadonlySet<string> = new Set(),
   ): void {
     // Labelled the way code names them — a copy as `bay.instance(2)`.
-    this.worldConnectorNames = new Map(connectors.map(c => [c.connectorId, connectorLabel(c.name, c.copy?.slot)]));
+    this.worldConnectorNames = MateLabel.worldConnectorNames(connectors);
     this.mates = mates;
+    this.relations = relations;
+    this.failedRelations = new Set(failedRelations);
     this.instancesById.clear();
     for (const inst of instances) {
       this.instancesById.set(inst.instanceId, inst);
     }
     const countLabel = this.header.querySelector<HTMLSpanElement>('[data-ref="joints-count"]')!;
-    countLabel.textContent = mates.length > 0 ? String(mates.length) : '';
+    const count = mates.length + relations.length;
+    countLabel.textContent = count > 0 ? String(count) : '';
+    this.renderRows();
+  }
+
+  /**
+   * Route row clicks to a picking dialog (the relation dialog filling a
+   * mate slot) instead of selecting, with `hint` shown above the rows;
+   * `null` restores selection. The ⋮ menus stay reachable either way.
+   */
+  setPickMode(handler: JointPickHandler | null, hint = 'Click a joint to pick it'): void {
+    if (this.pickHandler === handler && this.pickHint === hint) {
+      return;
+    }
+    this.pickHandler = handler;
+    this.pickHint = hint;
     this.renderRows();
   }
 
@@ -153,14 +197,17 @@ export class JointsPanel {
   }
 
   private renderRows(): void {
-    if (this.mates.length === 0) {
+    if (this.mates.length === 0 && this.relations.length === 0) {
       this.body.innerHTML = AccordionSection.emptyState(
         'No joints yet — define mates with <code>mate(...)</code>.',
       );
       return;
     }
 
-    let html = '';
+    const picking = this.pickHandler !== null;
+    let html = picking
+      ? `<div class="px-3 py-1.5 text-[11px] text-primary/80" data-pick-hint>${escapeHtml(this.pickHint)}</div>`
+      : '';
     for (const mate of this.mates) {
       // Tangent mates carry geometry sides instead of connector sides;
       // assembly-connector sides label with the connector's name.
@@ -190,8 +237,9 @@ export class JointsPanel {
       const failureLine = mate.status === 'inconsistent'
         ? `<span class="pl-11 text-[10px] text-error/80" data-failure-detail="${mate.mateId}">${escapeHtml(this.failureDetails.get(mate.mateId) ?? '')}</span>`
         : '';
+      const pickClass = picking ? ' hover:bg-primary/10' : ' hover:bg-base-content/[0.06]';
       html += `
-        <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
+        <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer${pickClass} text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
             <span class="flex items-center gap-2 text-sm">
               <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
@@ -208,6 +256,9 @@ export class JointsPanel {
         </div>
       `;
     }
+    for (const relation of this.relations) {
+      html += this.relationRow(relation, picking);
+    }
     this.body.innerHTML = html;
 
     this.body.querySelectorAll<HTMLElement>('[data-mate-id]').forEach((row) => {
@@ -215,6 +266,14 @@ export class JointsPanel {
         const target = e.target as HTMLElement;
         if (target.closest('[data-dots], [data-animate]')) return;
         const id = row.dataset.mateId!;
+        // A picking dialog takes the joint; nothing gets selected.
+        if (this.pickHandler) {
+          const mate = this.mates.find(m => m.mateId === id);
+          if (mate) {
+            this.pickHandler(mate);
+          }
+          return;
+        }
         this.selectedId = id;
         this.renderRows();
         this.onSelectMate(id);
@@ -247,6 +306,117 @@ export class JointsPanel {
         this.onAnimate!(btn.dataset.animate!);
       });
     });
+    this.body.querySelectorAll<HTMLElement>('[data-relation-id]').forEach((row) => {
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('[data-relation-dots]') || this.pickHandler) return;
+        const id = row.dataset.relationId!;
+        this.selectedId = id;
+        this.renderRows();
+        this.relationActions.onSelectRelation?.(id);
+      });
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const hostRect = this.host().getBoundingClientRect();
+        this.showRelationDropdown(row.dataset.relationId!, {
+          top: e.clientY - hostRect.top,
+          left: e.clientX - hostRect.left,
+        });
+      });
+    });
+    this.body.querySelectorAll<HTMLElement>('[data-relation-dots]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rect = btn.getBoundingClientRect();
+        const hostRect = this.host().getBoundingClientRect();
+        this.showRelationDropdown(btn.dataset.relationDots!, {
+          top: rect.bottom - hostRect.top + 2,
+          left: rect.left - hostRect.left - 140,
+        }, btn);
+      });
+    });
+  }
+
+  /**
+   * A relation's row: the gear icon, `Gear × 2` / `Rack and pinion · 62.8
+   * mm/rev` (+ `reverse`), the two coupled joints described under it, and a
+   * dot that turns red when the last solve could not hold the coupling.
+   * Inert (dimmed) while a dialog is picking joints.
+   */
+  private relationRow(relation: SerializedAssemblyRelation, picking: boolean): string {
+    const names = new Map([...this.instancesById].map(([id, inst]) => [id, inst.name]));
+    const describe = (mateId: string): string => {
+      const mate = this.mates.find(m => m.mateId === mateId);
+      return mate ? MateLabel.describe(mate, names, this.worldConnectorNames) : `? (${mateId})`;
+    };
+    const value = relation.type === 'gear'
+      ? `× ${relation.ratio}`
+      : `· ${relation.ratio} ${sceneUnit.current}/rev`;
+    const label = `${relation.type === 'gear' ? 'Gear' : 'Rack and pinion'} ${value}${relation.reverse ? ' · reverse' : ''}`;
+    const failed = this.failedRelations.has(relation.relationId);
+    const dotColor = failed ? STATUS_COLORS.inconsistent : STATUS_COLORS.satisfied;
+    const selectedClass = this.selectedId === relation.relationId ? ' bg-primary/10' : '';
+    const stateClass = picking ? ' opacity-50' : ' cursor-pointer hover:bg-base-content/[0.06]';
+    const dots = this.readOnly
+      ? ''
+      : `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-relation-dots="${relation.relationId}">${DOTS_SVG}</button>`;
+    return `
+      <div class="group flex items-start gap-2 px-3 py-1.5 text-base-content/80${stateClass}${selectedClass}" data-relation-id="${relation.relationId}">
+        <div class="flex-1 min-w-0 flex flex-col leading-tight">
+          <span class="flex items-center gap-2 text-sm">
+            <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
+            <img src="${iconUrl('relation-gear')}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
+            ${escapeHtml(label)}
+          </span>
+          <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(describe(relation.mateA))}</span>
+          <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(describe(relation.mateB))}</span>
+          ${failed ? `<span class="pl-11 text-[10px] text-error/80">could not hold the ratio — a coupled joint is held</span>` : ''}
+        </div>
+        ${dots}
+      </div>
+    `;
+  }
+
+  /** The ⋮ menu of a relation row: Show in source, Edit relation…, Delete (owned rows: source only). */
+  private showRelationDropdown(
+    relationId: string,
+    position: { top: number; left: number },
+    anchor?: HTMLElement,
+  ): void {
+    this.closeDropdown();
+    if (this.readOnly) {
+      return;
+    }
+    const relation = this.relations.find(r => r.relationId === relationId);
+    const owned = (relation?.owner ?? '') !== '';
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+    dropdown.style.top = `${position.top}px`;
+    dropdown.style.left = `${position.left}px`;
+    dropdown.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[160px]">
+        <li><button data-action="show-in-source">Show in source</button></li>
+        ${owned ? '' : `
+        <li><button data-action="edit-relation">Edit relation…</button></li>
+        <li><button data-action="delete" class="text-error">Delete</button></li>`}
+      </ul>
+    `;
+    this.host().appendChild(dropdown);
+    this.activeDropdown = dropdown;
+    dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      this.relationActions.onShowRelationInSource?.(relationId);
+    });
+    if (!owned) {
+      dropdown.querySelector('[data-action="edit-relation"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.relationActions.onEditRelation?.(relationId);
+      });
+      dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.relationActions.onDeleteRelation?.(relationId);
+      });
+    }
+    this.watchOutsideClicks(dropdown, anchor);
   }
 
   /** Slider and revolute mates can be driven by the animate bar. */
@@ -336,6 +506,11 @@ export class JointsPanel {
       });
     }
 
+    this.watchOutsideClicks(dropdown, anchor);
+  }
+
+  /** Dismiss the open menu on a click or right-click outside it (and its anchor button). */
+  private watchOutsideClicks(dropdown: HTMLElement, anchor?: HTMLElement): void {
     const onClickOutside = (e: MouseEvent) => {
       if (!dropdown.contains(e.target as Node) && !anchor?.contains(e.target as Node)) {
         this.closeDropdown();

@@ -23,8 +23,9 @@
 // ungrounded root. A 4-bar is 3 variables, not 21.
 //
 // **Cost**: closure-mate residuals evaluated at the forward-kinematics
-// poses, plus an optional drag residual on the dragged body's grab
-// point. Tree mates contribute NO residuals — FK through `pose()` makes
+// poses, relation rows (Δb − gain·Δa for every gear / rack-and-pinion in
+// the component, see relation-model.ts), plus an optional drag residual
+// on the dragged body's grab point. Tree mates contribute NO residuals — FK through `pose()` makes
 // them exact by construction, which is what lets `.limits()` become
 // plain box constraints (projected LM: limited params are clamped in
 // the `normalize` hook after each accepted step). This closes the old
@@ -68,6 +69,7 @@ import {
   type ResolvedContact,
 } from './contact-model.js';
 import type { BodyState, ConnectorState, DrivenJoint, MateRecord } from './types.js';
+import { RelationModel, type ComponentRelation, type RelationBaseline } from './relation-model.js';
 
 export type LoopDragInfo = {
   draggedInstanceId?: string;
@@ -136,19 +138,23 @@ export function applyLoopRelaxations(
   bodies: BodyState[],
   components: Component[],
   drag: LoopDragInfo = {},
+  relationBaselines: Map<string, RelationBaseline> = new Map(),
 ): Array<number | null> {
   const loopDof: Array<number | null> = new Array(components.length).fill(null);
   if (components.length === 0) return loopDof;
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
   components.forEach((component, i) => {
     if (!shouldRelax(component, drag)) return;
-    loopDof[i] = relaxComponent(component, bodyById, drag);
+    loopDof[i] = relaxComponent(component, bodyById, drag, relationBaselines);
   });
   return loopDof;
 }
 
 function shouldRelax(component: Component, drag: LoopDragInfo): boolean {
   if (component.closureEdges.length > 0) return true;
+  // Relations are residual-only like contacts: the LM is what couples
+  // the two mates' motions.
+  if (component.relations.length > 0) return true;
   // Contact (tangent) edges are residual-only — LM is the only thing
   // that enforces them, so a component with contacts is never drag-only.
   if (component.contactEdges.length > 0) return true;
@@ -160,6 +166,7 @@ function relaxComponent(
   component: Component,
   bodyById: Map<string, BodyState>,
   drag: LoopDragInfo,
+  relationBaselines: Map<string, RelationBaseline>,
 ): number | null {
   // Safety net: unreachable from the DSL (lib/core/mate.ts rejects
   // unimplemented mate types at parse time), but it must never be
@@ -184,6 +191,10 @@ function relaxComponent(
     const rc = resolveContact(mate, bodyById);
     if (rc) contacts.push(rc);
   }
+  // Relations without a baseline (a side that stopped resolving) drop out
+  // of this solve — the graph builder already warned.
+  const relations = component.relations.filter(r => relationBaselines.has(r.record.relationId));
+  const coupled = closures.length > 0 || contacts.length > 0;
 
   // Variable layout: [one 6-var pose block (3 pos + 3 rotation-vector)
   // per UNGROUNDED forest root, in roots order] then each tree edge's
@@ -206,11 +217,16 @@ function relaxComponent(
   // they translate rigidly beyond the grabbed joint's own motion, which
   // is deterministic and jitter-free. A component with contact edges is
   // never drag-only — LM is the only thing enforcing the contacts.
-  if (closures.length === 0 && contacts.length === 0 && ungroundedRoots.length > 0) {
+  if (!coupled && relations.length === 0 && ungroundedRoots.length > 0) {
     return null;
   }
+  // A component held together only by relations keeps that trade-off: its
+  // ungrounded roots stay where the warm-start put them (relation rows are
+  // relative measures and could not pin a root anyway) and the rigid
+  // cluster drag closes the cursor gap; only the joint params vary.
+  const rootVars = coupled ? ungroundedRoots : [];
 
-  let n = 6 * ungroundedRoots.length;
+  let n = 6 * rootVars.length;
 
   for (const edge of component.treeEdges) {
     const spec = JOINT_SPECS[edge.mate.type]!;
@@ -275,18 +291,18 @@ function relaxComponent(
   // contact — any misfit is irreducible (a both-grounded tangent
   // degenerates to a pure check via collectFailedMates) and the
   // mechanism has zero loop DOF.
-  if (n === 0) return closures.length + contacts.length > 0 ? 0 : null;
+  if (n === 0) return closures.length + contacts.length + relations.length > 0 ? 0 : null;
   // Nothing pulling on the variables.
-  if (closures.length === 0 && contacts.length === 0 && !dragApplies) return null;
+  if (!coupled && relations.length === 0 && !dragApplies) return null;
 
-  const dragWeight = component.closureEdges.length + component.contactEdges.length > 0
-    ? CLOSURE_DRAG_WEIGHT
-    : 1;
+  // Relations are exactly satisfiable alongside a drag (the other mate
+  // follows), so they take the full drag weight like a chain.
+  const dragWeight = coupled ? CLOSURE_DRAG_WEIGHT : 1;
   const draggedBody = dragApplies ? bodyById.get(drag.draggedInstanceId!) : undefined;
 
   // x0 from the warm-started state.
   const x0 = new Float64Array(n);
-  const rootStates = ungroundedRoots.map((root, i) => ({
+  const rootStates = rootVars.map((root, i) => ({
     root,
     base: { position: root.position.clone(), quaternion: root.quaternion.clone() },
     offset: 6 * i,
@@ -319,7 +335,8 @@ function relaxComponent(
   const evaluate = (x: Float64Array): Float64Array => {
     applyForwardKinematics(x, rootStates, edgeStates);
     return computeResiduals(
-      closures, contacts, dragApplies ? draggedBody : undefined, drag, dragWeight,
+      closures, contacts, relations, bodyById, relationBaselines,
+      dragApplies ? draggedBody : undefined, drag, dragWeight,
     );
   };
 
@@ -332,7 +349,8 @@ function relaxComponent(
   // of surface forms fixes the dimension), not per-type.
   const constraintRowCount = closures.reduce(
     (sum, c) => sum + residualDimension(c.mate.type), 0,
-  ) + contacts.reduce((sum, rc) => sum + contactRowCount(rc), 0);
+  ) + contacts.reduce((sum, rc) => sum + contactRowCount(rc), 0)
+    + relations.length;
   const constraintRankAt = (xAt: Float64Array): number => {
     if (constraintRowCount === 0) return 0;
     const J = new Float64Array(constraintRowCount * n);
@@ -351,12 +369,15 @@ function relaxComponent(
     }
     return matrixRank(J, constraintRowCount, n);
   };
+  // Roots kept out of the variables (relations-only components) still
+  // carry their 6 free DOF each — they are simply not the LM's to move.
+  const fixedRootDof = 6 * (ungroundedRoots.length - rootVars.length);
   const finishWithLoopDof = (xFinal: Float64Array): number | null => {
     if (constraintRowCount === 0) {
       applyForwardKinematics(xFinal, rootStates, edgeStates);
       return null;
     }
-    const dof = Math.max(0, n - constraintRankAt(xFinal));
+    const dof = Math.max(0, n - constraintRankAt(xFinal)) + fixedRootDof;
     applyForwardKinematics(xFinal, rootStates, edgeStates);
     return dof;
   };
@@ -493,6 +514,9 @@ function resolveClosures(
 function computeResiduals(
   closures: ResolvedClosure[],
   contacts: ResolvedContact[],
+  relations: ComponentRelation[],
+  bodyById: Map<string, BodyState>,
+  relationBaselines: Map<string, RelationBaseline>,
   draggedBody: BodyState | undefined,
   drag: LoopDragInfo,
   dragWeight: number,
@@ -502,11 +526,17 @@ function computeResiduals(
     const r = residual(c.mate.type, c.a, c.aConn, c.b, c.bConn, c.mate.options ?? {});
     for (const v of r) rows.push(v);
   }
-  // Contact rows follow the closures so the [closure + contact] block
-  // stays the leading constraint slice the rank computation reads.
+  // Contact and relation rows follow the closures so the [closure +
+  // contact + relation] block stays the leading constraint slice the rank
+  // computation reads.
   for (const rc of contacts) {
     const r = contactResidual(rc);
     for (const v of r) rows.push(v);
+  }
+  for (const relation of relations) {
+    // A baseline was required for the relation to be in this list; the
+    // sides resolved then, so they resolve now (the same bodies).
+    rows.push(RelationModel.residual(relation, bodyById, relationBaselines) ?? 0);
   }
   if (draggedBody && drag.draggedGrabLocal && drag.draggedCursorWorld) {
     const r = residualDrag(draggedBody, drag.draggedGrabLocal, drag.draggedCursorWorld);

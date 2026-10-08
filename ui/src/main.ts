@@ -52,7 +52,7 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
@@ -61,6 +61,7 @@ import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
+import { AssemblyRelationService } from './interactive/assembly-relation/relation-service';
 import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
 import { normalizeAssemblyPayload } from './scene/assembly-payload';
 import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
@@ -574,6 +575,31 @@ function buildAssemblyRail(): LeftRail {
         viewer.highlightMate(mate);
         animateBar.open({ mateId: id, kind: state.kind, limits: mate.options?.limits });
       },
+      // Relation rows: the two coupled joints highlight together; the ⋮
+      // menu edits the statement in the relation dialog or drops it.
+      onSelectRelation: (id) => {
+        parts.setSelected(null);
+        const relation = findRelation(id);
+        if (!relation) return;
+        viewer.highlightMates(relationMates(relation));
+      },
+      onShowRelationInSource: (id) => {
+        const relation = findRelation(id);
+        if (relation?.sourceLocation) {
+          gotoSource(relation.sourceLocation);
+        }
+      },
+      onEditRelation: (id) => {
+        const relation = findRelation(id);
+        if (!relation?.sourceLocation || relation.owner) return;
+        assemblyRelationService.beginEdit(relation);
+      },
+      onDeleteRelation: (id) => {
+        const relation = findRelation(id);
+        if (!relation?.sourceLocation || relation.owner) return;
+        // Drops the whole `relation(...)` statement; nothing references it.
+        removeFeature(relation.sourceLocation);
+      },
     },
   );
   const dragReadout = new DragReadout(container);
@@ -645,6 +671,8 @@ function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
 
 let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
+/** Relations the last solve could not hold — the joints panel's red dots on relation rows. */
+let lastFailedRelationIds = new Set<string>();
 /** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
 const lastPartTemplates = new Map<string, any>();
 
@@ -685,6 +713,17 @@ function findOccurrence(occurrenceId: string) {
 
 function findMate(mateId: string) {
   return lastAssemblyPayload?.mates.find(m => m.mateId === mateId);
+}
+
+function findRelation(relationId: string) {
+  return lastAssemblyPayload?.relations?.find(r => r.relationId === relationId);
+}
+
+/** The two mates a relation couples, as the viewport highlights them (a missing side is skipped). */
+function relationMates(relation: SerializedAssemblyRelation): SerializedAssemblyMate[] {
+  return [relation.mateA, relation.mateB]
+    .map(findMate)
+    .filter((m): m is SerializedAssemblyMate => m !== undefined);
 }
 
 /** The replicate statement that produced a replica record (by its tag), or undefined. */
@@ -761,13 +800,24 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
       lastFailedMateIds.delete(id);
     }
   }
+  for (const id of [...lastFailedRelationIds]) {
+    if (!assembly.relations?.find(r => r.relationId === id)) {
+      lastFailedRelationIds.delete(id);
+    }
+  }
   const rendered: RenderedInstance[] = assembly.instances.map(i => ({
     ...i,
     visible: rail.instanceVisibility.get(i.instanceId) ?? true,
   }));
   rail.parts.update(rendered, assembly.occurrences ?? []);
   rail.connectors.update(assembly.connectors ?? []);
-  rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered, assembly.connectors ?? []);
+  rail.joints.update(
+    matesWithStatus(assembly.mates, lastFailedMateIds),
+    rendered,
+    assembly.connectors ?? [],
+    assembly.relations ?? [],
+    lastFailedRelationIds,
+  );
   // The animated mate vanished from the source (deleted / renamed) — the
   // bar would keep driving a ghost.
   const animated = rail.animateBar.mateId();
@@ -987,6 +1037,7 @@ new AssemblyToolbar(navbar, {
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
+  onRelation: (type) => assemblyRelationService.enter(type),
   onReplicate: () => {
     const inst = toolSelectedInstanceId ? findInstance(toolSelectedInstanceId) : undefined;
     if (!inst) {
@@ -2477,10 +2528,11 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
-    // One picking dialog at a time: a replicate or copy session yields to
-    // the mate dialog (and vice versa below).
+    // One picking dialog at a time: a replicate, copy or relation session
+    // yields to the mate dialog (and vice versa below).
     assemblyReplicateService.exit();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2511,6 +2563,32 @@ const connectorPropsEditor = new ConnectorPropsEditor(container, viewer, {
   onRenamed: (slot, newName) => assemblyMateService.noteConnectorRenamed(slot, newName),
 });
 
+// The relation dialog: a toolbar Gear / Rack button opens it armed for
+// joint picking — rows of the Joints panel, or parts in the viewport — and
+// apply writes the relation() statement via /api/assembly-relation.
+const assemblyRelationService = new AssemblyRelationService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    // One picking dialog at a time.
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
+    assemblyConnectorService.exit();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.joints.setPickMode((mate) => assemblyRelationService.pickMate(mate.mateId), 'Click a joint to pick it for the relation');
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.joints.setPickMode(null);
+    }
+  },
+});
+
 // The assembly-connector dialog: the toolbar's Connector button opens it in
 // create mode; rail rows and mate-chip pens open it in edit mode. Apply
 // writes the connector() statement via /api/assembly-connector.
@@ -2523,6 +2601,7 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
   },
 });
 
@@ -2541,6 +2620,7 @@ const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container,
     assemblyMateService.exit();
     assemblyReplicateService.exit();
     assemblyConnectorService.exit();
+    assemblyRelationService.exit();
   },
   // The rail's rows pick for the armed slot: a copy's row only as the axis
   // (a copy is never copied again), so it sits inert while targets are picked.
@@ -2572,6 +2652,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     selectionInfoOverlay.hide();
     assemblyMateService.exit();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2592,8 +2673,11 @@ viewer.setSolverUpdateHandler((output) => {
   // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
   // full panel re-render every event pegs the CPU.
   const newFailed = new Set(output.failed);
-  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
+  const newFailedRelations = new Set(output.failedRelations ?? []);
+  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed)
+    || failedSetsDiffer(lastFailedRelationIds, newFailedRelations);
   lastFailedMateIds = newFailed;
+  lastFailedRelationIds = newFailedRelations;
   // Misclosure per failing mate ("6.0 mm gap along Y") — the joints panel
   // shows it on the inconsistent rows, patching text in place per frame.
   const failureDetails = new Map(
@@ -2610,6 +2694,8 @@ viewer.setSolverUpdateHandler((output) => {
       matesWithStatus(lastAssemblyPayload.mates, lastFailedMateIds),
       rendered,
       lastAssemblyPayload.connectors ?? [],
+      lastAssemblyPayload.relations ?? [],
+      lastFailedRelationIds,
     );
   }
   currentRail.joints.setFailureDetails(failureDetails);
@@ -2682,7 +2768,8 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking && !assemblyConnectorCopyService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking
+      && !assemblyConnectorCopyService.isPicking && !assemblyRelationService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2725,6 +2812,11 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
       assemblyMateService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
+    // The armed relation dialog: a click on a part offers its joints.
+    if (assemblyRelationService.isPicking) {
+      assemblyRelationService.handleClick(shapeId, sub, instanceId, modifiers);
       return;
     }
     // Likewise the armed replicate dialog (or its seed pick).
@@ -3379,6 +3471,7 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
+    assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
     }

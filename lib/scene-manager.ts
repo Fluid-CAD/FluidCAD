@@ -1,5 +1,5 @@
 import { Scene } from "./rendering/scene.js";
-import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedReplicate } from "./rendering/assembly-scene.js";
+import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedRelation, SerializedReplicate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
@@ -159,6 +159,7 @@ class SceneManager {
     occurrences: SerializedOccurrence[];
     connectors: SerializedAssemblyConnector[];
     replicates: SerializedReplicate[];
+    relations: SerializedRelation[];
   } | null {
     if (!(scene instanceof AssemblyScene)) {
       return null;
@@ -169,6 +170,7 @@ class SceneManager {
       occurrences: scene.getSerializedOccurrences(),
       connectors: scene.getSerializedAssemblyConnectors(),
       replicates: scene.getSerializedReplicates(),
+      relations: scene.getSerializedRelations(),
     };
   }
 

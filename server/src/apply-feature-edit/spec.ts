@@ -25,6 +25,7 @@ import type {
   ConnectorPropsEditSpec,
 } from '../assembly-mate-edit.ts';
 import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
+import type { AssemblyRelationEditSpec } from '../assembly-relation-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
@@ -346,6 +347,13 @@ export type ApplyFeatureEditSpec = {
    * `assemblyMate`; every other spec field is ignored.
    */
   assemblyReplicate?: AssemblyReplicateEditSpec;
+  /**
+   * Relation-dialog statement write: append a `relation(type, mateA,
+   * mateB, ratio)` statement in the mates' scope, or re-render the one at
+   * its source line. Rides the same round trip as `assemblyMate`; every
+   * other spec field is ignored.
+   */
+  assemblyRelation?: AssemblyRelationEditSpec;
   /**
    * Part-tool statement write: append `part('<name>', () => {})` at top
    * level, the name auto-allocated past every part name already in the file

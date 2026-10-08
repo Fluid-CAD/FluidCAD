@@ -1,5 +1,5 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, connectorLabel } from '../types';
+import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
@@ -24,7 +24,7 @@ import {
   matesReferenceWorld,
   worldConnectorRef,
 } from '../solver';
-import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
+import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, RelationRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
 
@@ -100,6 +100,8 @@ export class AssemblyController {
   private partTemplates = new Map<string, SceneObjectRender>();
   private allObjects: SceneObjectRender[] = [];
   private mates: MateRecord[] = [];
+  /** The committed `relation()` records, as the solver couples them. */
+  private relations: RelationRecord[] = [];
   private dragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private dragClaimHandler: InstanceDragClaimHandler | null = null;
   private solverUpdateHandler: SolverUpdateHandler | null = null;
@@ -183,6 +185,13 @@ export class AssemblyController {
    * when the dialog closes or its picks change.
    */
   private provisionalMate: MateRecord | null = null;
+  /**
+   * The relation dialog's live preview: a not-yet-committed relation solved
+   * alongside the real ones, so dragging either gear turns the other while
+   * the dialog is open. Same contract as {@link provisionalMate}: a record
+   * sharing a committed id replaces it (the edit dialog), a fresh id appends.
+   */
+  private provisionalRelation: RelationRecord | null = null;
 
   /**
    * The replicate dialog's live preview: ghost clones of the seed's bodies,
@@ -327,6 +336,7 @@ export class AssemblyController {
       }
     }
     this.mates = assembly.mates.map(toSolverMateRecord);
+    this.relations = (assembly.relations ?? []).map(toSolverRelationRecord);
     this.rebuildWorldConnectors(assembly.connectors ?? []);
     // Ghost clones were built from the previous render's meshes; the
     // replicate dialog re-sends its spec once its picks re-resolve.
@@ -408,9 +418,11 @@ export class AssemblyController {
     this.partTemplates.clear();
     this.allObjects = [];
     this.mates = [];
+    this.relations = [];
     this.hoveredInstanceId = null;
     this.externalDrag = null;
     this.provisionalMate = null;
+    this.provisionalRelation = null;
     this.disposeProvisionalReplicas();
     this.worldPinned.clear();
     this.rebuildWorldConnectors([]);
@@ -690,9 +702,23 @@ export class AssemblyController {
     return {
       bodies: this.collectBodies(),
       mates: this.solverMates(),
+      relations: this.solverRelations(),
       draggedInstanceId,
       draggedTargetOrigin,
     };
+  }
+
+  /**
+   * The relation set a solve runs against: the committed records plus the
+   * provisional one, which REPLACES the committed relation sharing its id
+   * (the edit dialog's preview) or appends (a create preview's id is never
+   * minted by a render).
+   */
+  private solverRelations(): RelationRecord[] {
+    const provisional = this.provisionalRelation;
+    return provisional
+      ? [...this.relations.filter(r => r.relationId !== provisional.relationId), provisional]
+      : this.relations;
   }
 
   /**
@@ -804,6 +830,7 @@ export class AssemblyController {
         dof: 0,
         failed: [],
         failures: [],
+        failedRelations: [],
       });
       return;
     }
@@ -1379,6 +1406,23 @@ export class AssemblyController {
   }
 
   /**
+   * Solve a not-yet-committed relation live (the relation dialog's preview),
+   * or clear it. Relations are incremental couplings — they never move a
+   * part on their own — so clearing one needs no pose restore: the parts
+   * simply stop following each other.
+   */
+  setProvisionalRelation(record: RelationRecord | null): void {
+    if (record === null && this.provisionalRelation === null) return;
+    this.provisionalRelation = record;
+    this.runSolverRefresh();
+  }
+
+  /** The provisional relation was committed: forget it, keep the poses (the render brings the real one). */
+  commitProvisionalRelation(): void {
+    this.provisionalRelation = null;
+  }
+
+  /**
    * Solve the replicate dialog's candidate rows live (or clear them). Each
    * row's clones start at the seed's serialized pose — its mates pull the
    * ghost onto the row's targets — and render lightened and translucent
@@ -1813,6 +1857,23 @@ export class AssemblyController {
    */
   highlightMate(mate: SerializedAssemblyMate, color: number): void {
     this.clearHighlight();
+    this.applyMateHighlight(mate, color);
+    this.requestRender();
+  }
+
+  /**
+   * Highlight several mates at once — a relation's two coupled joints —
+   * each exactly as {@link highlightMate} would alone.
+   */
+  highlightMates(mates: SerializedAssemblyMate[], color: number): void {
+    this.clearHighlight();
+    for (const mate of mates) {
+      this.applyMateHighlight(mate, color);
+    }
+    this.requestRender();
+  }
+
+  private applyMateHighlight(mate: SerializedAssemblyMate, color: number): void {
     // Tangent mates carry geometry sides — tint the instances, no
     // connector gizmos to pin.
     const aId = mate.connectorA?.instanceId ?? mate.geometryA?.instanceId;
@@ -1837,7 +1898,6 @@ export class AssemblyController {
     if (mate.frameA || mate.frameB) {
       this.applyWorldConnectorVisibility();
     }
-    this.requestRender();
   }
 
   /**
@@ -1937,6 +1997,18 @@ function pickedSlotKey(instanceId: string, connectorId: string): string {
  * A serialized mate as the solver reads it. Exported for the replicate
  * dialog, which builds its provisional rows from the payload's mates.
  */
+/** A serialized `relation()` as the solver couples it. */
+export function toSolverRelationRecord(r: SerializedAssemblyRelation): RelationRecord {
+  return {
+    relationId: r.relationId,
+    type: r.type,
+    mateA: r.mateA,
+    mateB: r.mateB,
+    ratio: r.ratio,
+    reverse: r.reverse,
+  };
+}
+
 export function toSolverMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {
     mateId: m.mateId,

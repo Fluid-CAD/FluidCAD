@@ -20,9 +20,9 @@ This page creates the file for the first leaf and puts a **part container** in i
 
 ## Do you need a part container?
 
-A `.part.js` file can hold bare modelling statements. Sketch, extrude, fillet at the top level and the file renders. The `part()` container is optional for a part you only ever look at on its own.
+A `.part.js` file can hold bare modelling statements. Sketch, extrude, fillet at the top level and the file renders. The `part()` container is not required, but it is recommended even for a part you only ever look at on its own: it is what gives the part parameters, properties and a material.
 
-It is required as soon as the part is going to be **inserted into an assembly**. An assembly imports the file and inserts an *exported part definition*, so the leaf needs `export const fixedLeaf = part('Fixed leaf', () => { … })` around its features. The container is also what parameters, connectors and exposed geometry attach to. Since this leaf ends up in a hinge, start with the container.
+It is required as soon as the part is going to be **inserted into an assembly**. An assembly imports the file and inserts an *exported part definition*, so the leaf needs `export const fixedLeaf = part('Fixed leaf', () => { … })` around its features. The container is also what connectors and exposed geometry attach to. Since this leaf ends up in a hinge, start with the container.
 
 ## In the viewport
 
@@ -36,7 +36,7 @@ Nothing renders yet: the part is empty. The History panel shows the part row, an
 <ExplainedCode code={step1} fileName="hinge-leaf-fixed.part.js" open />
 
 :::note
-Statements you add while a part row is active go inside that part. The active part is the highlighted row with a dot after its name in the History panel; click a part row to make it active. Click the active part again to step out of it: the dot goes, the row stays highlighted, and new statements go at the top level of the file, after the part. Click the row once more to step back in.
+Statements you add while a part row is active go inside that part. The active part is the highlighted row with a dot after its name in the History panel; click a part row to make it active. Click the active part again to step out of it: the dot goes, the row loses its highlight and reads like any other part row, and new statements go at the top level of the file, after the part. Click the row once more to step back in.
 :::
 
 Next: [Creating a basic sketch](/docs/getting-started/basic-sketch).

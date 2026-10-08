@@ -25,8 +25,10 @@ are two builds; equal overrides share one).
 
 Rules of thumb:
 
-- A standalone model does not need `part()`; a `.part.js` file with bare
-  statements renders.
+- A standalone model does not require `part()`, but one is recommended: a
+  `.part.js` file with bare statements renders, while a `part()` gives the
+  model parameters, properties and a material, and is what an assembly can
+  insert.
 - A model an assembly will insert **must** be a `part()` and the file must
   `export` it. Convention: one part per `.part.js` file, `bracket.part.js`
   exports `bracket`.

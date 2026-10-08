@@ -12,7 +12,7 @@ A part is a named container for modelling statements. Inside it, sketches, extru
 
 ## When you need one
 
-- **A standalone model does not need a part.** A `.part.js` file with bare statements renders as it always has.
+- **A standalone model does not require a part, but one is recommended.** A `.part.js` file with bare statements renders as it always has; wrapping them in a part gives the model [parameters](./param), [properties](./property) and a [material](/docs/part/part-definition#material), and makes it ready to insert into an assembly.
 - **A model that will be inserted into an assembly must be a part**, and the file must `export` it. The Insert dialog lists the exported definitions it finds in the workspace.
 - **Several components in one file** each get their own part so they stay separate solids.
 

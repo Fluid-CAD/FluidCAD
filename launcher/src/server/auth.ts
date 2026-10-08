@@ -42,7 +42,12 @@ export const LAUNCHER_REQUEST_HEADER = 'x-fluidcad-launcher';
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
-/** A Host header's (or an `--allowed-host` value's) name, lowercased, without its port. */
+/**
+ * A Host header's (or an `--allowed-host` value's) name, lowercased, without
+ * its port. An IPv6 address comes out in brackets whichever way it was
+ * written, since that is how a browser sends it: `--allowed-host fd00::1`
+ * matches a Host of `[fd00::1]:3100`.
+ */
 export function hostnameOf(host: string): string {
   let hostname = host.trim().toLowerCase();
   if (hostname.startsWith('[')) {
@@ -50,6 +55,8 @@ export function hostnameOf(host: string): string {
     hostname = end === -1 ? hostname : hostname.slice(0, end + 1);
   } else if (hostname.includes(':') && hostname.indexOf(':') === hostname.lastIndexOf(':')) {
     hostname = hostname.slice(0, hostname.indexOf(':'));
+  } else if (hostname.includes(':')) {
+    hostname = `[${hostname}]`;
   }
   return hostname;
 }

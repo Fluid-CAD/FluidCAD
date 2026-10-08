@@ -67,6 +67,14 @@ export class Navbar {
   private visibleSignature = '';
   /** Current workbench — only groups of this mode are shown. */
   private mode: NavbarMode = 'part';
+  /**
+   * The bar as the last full render left it — every group host, divider and
+   * button wrapper mapped to its display (null = hidden) — for {@link freeze}
+   * to put back. Null until {@link captureLayout} has run once.
+   */
+  private layout: Map<HTMLElement, string | null> | null = null;
+  /** A feature edit session owns the view — see {@link freeze}. */
+  private frozen = false;
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
@@ -174,6 +182,87 @@ export class Navbar {
     this.reflow();
   }
 
+  /**
+   * Remember the bar as it stands, so a feature edit session can {@link freeze}
+   * it to this layout. main.ts calls it after every full (non-rollback)
+   * render. Skipped while an exclusive group owns the bar (an edit session
+   * always opens over the 3D tools, never the sketch ones) and while frozen
+   * (the displays on screen are the overrides, not the owners' state).
+   */
+  captureLayout(): void {
+    if (this.frozen || this.exclusiveActive()) {
+      return;
+    }
+    const layout = new Map<HTMLElement, string | null>();
+    const record = (el: HTMLElement) => {
+      const hidden = el.classList.contains('hidden') || el.classList.contains('feature-sketch-hidden');
+      layout.set(el, hidden ? null : getComputedStyle(el).display);
+    };
+    for (const group of this.groups) {
+      record(group.divider);
+      record(group.host);
+      for (const child of group.host.children) {
+        record(child as HTMLElement);
+      }
+    }
+    this.layout = layout;
+  }
+
+  /**
+   * A feature edit session opened: the bar keeps the layout of the last full
+   * render (the session's rollback render would otherwise hide most tools —
+   * a rolled-back model offers none) and takes no clicks until
+   * {@link unfreeze}. The owners' own visibility updates keep flowing
+   * underneath as inline overrides, so unfreezing lands on their current
+   * state. The group hosts go inert — buttons, tooltips and focus alike —
+   * and the dimming rides the `navbar-frozen` class (styles.css).
+   */
+  freeze(): void {
+    if (this.frozen) {
+      return;
+    }
+    this.frozen = true;
+    this.el.classList.add('navbar-frozen');
+    if (this.layout) {
+      for (const [el, display] of this.layout) {
+        el.style.setProperty('display', display ?? 'none', 'important');
+      }
+    }
+    for (const group of this.groups) {
+      group.host.setAttribute('inert', '');
+    }
+    this.scroller.refresh();
+  }
+
+  /** The edit session is over and a full render has landed — back to the owners' state. */
+  unfreeze(): void {
+    if (!this.frozen) {
+      return;
+    }
+    this.frozen = false;
+    this.el.classList.remove('navbar-frozen');
+    if (this.layout) {
+      for (const el of this.layout.keys()) {
+        el.style.removeProperty('display');
+      }
+    }
+    for (const group of this.groups) {
+      group.host.removeAttribute('inert');
+    }
+    this.reflow();
+  }
+
+  get isFrozen(): boolean {
+    return this.frozen;
+  }
+
+  /** An exclusive group of the current mode is up — it owns the bar. */
+  private exclusiveActive(): boolean {
+    return this.groups.some(
+      (g) => g.exclusive && g.visible && (g.mode === 'all' || g.mode === this.mode),
+    );
+  }
+
   /** A group shows only if its condition holds and no exclusive group is overriding it. */
   private isEffectivelyVisible(group: ToolbarGroup): boolean {
     if (group.mode !== 'all' && group.mode !== this.mode) {
@@ -191,10 +280,7 @@ export class Navbar {
     // An exclusive group in the *other* mode is off-bar and must not
     // suppress anything (a lingering sketch-group vote while the scene
     // flips to assembly would otherwise blank the assembly tools).
-    const exclusiveActive = this.groups.some(
-      (g) => g.exclusive && g.visible && (g.mode === 'all' || g.mode === this.mode),
-    );
-    return exclusiveActive ? group.exclusive : true;
+    return this.exclusiveActive() ? group.exclusive : true;
   }
 
   /** Apply effective visibility to each group and show a leading divider only
@@ -212,6 +298,12 @@ export class Navbar {
       }
     }
 
+    // A frozen bar shows its captured layout regardless of the classes just
+    // toggled (inline overrides win) — nothing to scroll for; unfreezing
+    // reflows again and settles the scroller then.
+    if (this.frozen) {
+      return;
+    }
     // A different set of groups is a different toolbar — entering sketch mode
     // swaps the bar wholesale — so show it from the start rather than stranding
     // the user mid-scroll in tools they have never seen. Buttons appearing and

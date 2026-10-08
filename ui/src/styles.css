@@ -247,6 +247,15 @@ html.fluidcad-editor-animating {
 /* The code editor's breakpoint gutter. Monaco has no breakpoint concept, so a
    glyph-margin decoration stands in — and it is only ever a view of the
    `breakpoint()` call in the source, re-derived after every change. */
+/*
+ * The tool bar while a feature edit session is open (Navbar.freeze): its
+ * groups are inert, and every tool but the armed one — the dialog being
+ * edited — dims to read as disabled.
+ */
+.navbar-frozen [inert] .btn:not(.btn-primary) {
+  opacity: 0.4;
+}
+
 .fluidcad-breakpoint-glyph {
   background: var(--color-error, #f87272);
   border-radius: 50%;

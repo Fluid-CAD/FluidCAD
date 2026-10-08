@@ -1041,6 +1041,24 @@ const syncSketchButtonBlocked = () => {
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
+  syncEditFreeze();
+};
+// A feature edit session (timeline double-click) owns the view: it rolls the
+// model back to just before the edited statement, and at that rollback every
+// idle service hides its tools — a rolled-back model offers none to add. The
+// bar keeps the full model's tools instead, frozen and inert, until the
+// session ends and a full render lands (runSceneServices unfreezes there).
+// Only the freeze is driven from the services' armed flips; the unfreeze
+// waits for that render so the bar never flashes the rolled-back layout.
+const featureEditOpen = () =>
+  [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService,
+    helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService,
+  ].some(service => service.isEditing)
+  || textEditService.isActive;
+const syncEditFreeze = () => {
+  if (featureEditOpen()) {
+    navbar.freeze();
+  }
 };
 // The create dialogs' shared sketch-UI suspend/resume: recompute the pin first
 // (so it is set before the suspended empty scene would hide the bar), then
@@ -1336,6 +1354,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
 // it never takes viewer or timeline picks, so it sits outside the create
 // group and the intercept chain.
 const textEditService = new TextEditService(container, viewer, {
+  onActiveChange: () => syncEditFreeze(),
   onEnter: () => {
     projectionService.exit({ resume: 'lazy' });
     modifyService.exit();
@@ -2025,6 +2044,7 @@ sketchService.onConstraintPick = (pick) => {
   }
 };
 const modifyService = new ModifyPickService(container, viewer, navbar, {
+  onActiveChange: () => syncEditFreeze(),
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
@@ -3197,6 +3217,15 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   booleanService.handleSceneRendered(result, renderStop, isRollback);
   planeService.handleSceneRendered(result, renderStop, isRollback);
   textEditService.handleSceneRendered(result, renderStop, isRollback);
+  // A full render with no edit session open is the bar's resting state:
+  // release a freeze the last session left (its exit scheduled this render)
+  // and remember the layout for the next one. A full render that lands
+  // mid-session is transient — the session re-asserts its rollback — so
+  // the bar stays frozen on the layout it captured before.
+  if (!isRollback && !featureEditOpen()) {
+    navbar.unfreeze();
+    navbar.captureLayout();
+  }
 }
 
 /**

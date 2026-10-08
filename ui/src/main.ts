@@ -1008,22 +1008,26 @@ const projectionService = new ProjectionPickService(container, viewer);
 // keep the sketch toolbar pinned in place — the bar stays on the sketch tools
 // until the feature is applied — even though the dialog suspends sketch editing
 // so the free 3D view can be picked. Derived from the dialogs' own suspend
-// state: these services suspend only when armed from an active sketch, so a
+// state: a create arming suspends only from an active sketch, so a
 // suspended-and-still-armed one means the finishing flow is live. On apply the
 // service disarms (isActive false) before it resumes, so this reads false at
 // that point and the bar hands off to the 3D toolbar; on cancel it resumes the
-// sketch. (The modify service's sketch-on-face / New Sketch flow keeps the
-// plain hooks — starting a new sketch does drop the bar.)
+// sketch. An EDIT session (timeline double-click) suspends unconditionally —
+// its rollback owns the view, no sketch is being finished — so it never pins.
+// (The modify service's sketch-on-face / New Sketch flow keeps the plain hooks
+// — starting a new sketch does drop the bar.)
+const finishingSketch = (service: { isActive: boolean; isEditing: boolean; sketchUISuspended: boolean }) =>
+  service.isActive && !service.isEditing && service.sketchUISuspended;
 const syncKeepToolbar = () => sketchService.setKeepToolbar(
-  (extrudeService.isActive && extrudeService.sketchUISuspended)
-  || (ribService.isActive && ribService.sketchUISuspended)
-  || (holeService.isActive && holeService.sketchUISuspended)
-  || (revolveService.isActive && revolveService.sketchUISuspended)
-  || (sweepService.isActive && sweepService.sketchUISuspended)
-  || (loftService.isActive && loftService.sketchUISuspended)
-  || (wrapService.isActive && wrapService.sketchUISuspended)
-  || (planeService.isActive && planeService.sketchUISuspended)
-  || (connectorService.isActive && connectorService.sketchUISuspended),
+  finishingSketch(extrudeService)
+  || finishingSketch(ribService)
+  || finishingSketch(holeService)
+  || finishingSketch(revolveService)
+  || finishingSketch(sweepService)
+  || finishingSketch(loftService)
+  || finishingSketch(wrapService)
+  || finishingSketch(planeService)
+  || finishingSketch(connectorService),
 );
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm, alongside

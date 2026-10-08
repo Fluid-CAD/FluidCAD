@@ -141,7 +141,9 @@ Selects edges on the cap faces of a thin-walled extrusion from an open profile.
 
 ### `draft()`
 
-Applies a draft (taper) angle to the extrusion walls.
+Applies a draft (taper) angle to the extrusion walls. Positive angles flare the
+walls outward as the extrusion rises, so the end face is larger than the profile;
+negative angles taper them inward.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -149,11 +151,12 @@ Applies a draft (taper) angle to the extrusion walls.
 
 ### `endOffset()`
 
-Offsets the end face by a specified distance along the extrusion direction.
+Pulls the end face back toward the sketch plane by a specified distance. A positive
+value stops short of the distance (or of the target face); a negative value overshoots it.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `NumberParam` | The offset distance. |
+| `value` | `NumberParam` | The offset distance. Positive = shorter, negative = longer. |
 
 ### `drill()`
 

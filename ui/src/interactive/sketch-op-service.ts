@@ -10,6 +10,7 @@ import {
   buildFilletPlan, type FilletPlan, type FilletPlanError, type SketchFilletRequest,
 } from './tools/fillet-plan';
 import { buildOffsetEmission, offsetNeedsStatement, offsetSourcePicks } from './tools/offset-emission';
+import { buildSettleWriteBack } from '../sketch-solver-client/write-back';
 import type { SolvedEmissionRequest, SolvedEmitResult } from './tools/solved-emission';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
@@ -1059,9 +1060,16 @@ export class SketchOpService {
           this.applyBtn.disabled = false;
           return;
         }
+        // The plan's guesses come from the SOLVED sketch while the source
+        // statements' literals may have drifted under later dimensions —
+        // and offsetFrom locks its inside/outside from the guesses. Settle
+        // the sketch in the same edit so the side is read against the
+        // geometry the user offset, as the fillet transform does.
+        const { edits: settle } = buildSettleWriteBack(model);
         const result = await this.solved!.emit({
           ...emission.request,
           ...(newVariables ? { newVariables } : {}),
+          ...(settle.length > 0 ? { settle } : {}),
         });
         if (result.success) {
           this.onDone();

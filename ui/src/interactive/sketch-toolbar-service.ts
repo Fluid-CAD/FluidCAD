@@ -941,6 +941,8 @@ export class SketchToolbarService {
         ? { newVariables: request.newVariables } : {}),
       ...(request.removals && request.removals.length > 0
         ? { removals: request.removals } : {}),
+      ...(request.settle && request.settle.length > 0
+        ? { settle: request.settle } : {}),
     });
     if (!result.success) {
       if (opts.toast) {

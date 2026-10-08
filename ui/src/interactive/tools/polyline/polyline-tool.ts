@@ -7,7 +7,7 @@ import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
 import { projectToSketch, roundPoint } from '../../sketch-plane-utils';
 import { ICON_POLYLINE } from '../../../ui/icons';
-import { ExpressionInput } from '../../../ui/expression-input';
+import { VariableInfo, ExpressionInput } from '../../../ui/expression-input';
 import { SNAP_VERTEX_COLOR, SNAP_GRID_COLOR, addDot } from '../tool-preview-utils';
 import { ModeIndicator } from './mode-indicator';
 import { LineMode } from './mode-line';
@@ -135,6 +135,10 @@ export class PolylineTool extends SketchTool {
 
   private get currentMode(): SegmentMode {
     return this.modes[this.currentModeIndex];
+  }
+
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.expressionInput.setVariables(variables);
   }
 
   protected onActivate(): void {

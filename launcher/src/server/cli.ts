@@ -23,6 +23,10 @@ export type LauncherCliOptions = {
   host?: string;
   /** The origin a reverse proxy presents this at. See `LauncherServerOptions`. */
   publicUrl?: string;
+  /** No key and no cookie. See `LauncherServerOptions`. */
+  noAuth?: boolean;
+  /** The host names the server answers to. See `LauncherServerOptions`. */
+  allowedHosts?: string[];
 };
 
 /**
@@ -99,6 +103,8 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
     projectsRoot: options.projectsRoot,
     host: options.host,
     publicUrl: options.publicUrl,
+    noAuth: options.noAuth,
+    allowedHosts: options.allowedHosts,
   });
   writeLauncherInstance({
     schemaVersion: 1,
@@ -114,7 +120,12 @@ export async function runLauncher(options: LauncherCliOptions): Promise<void> {
     console.log(`Port ${options.port} is in use, so FluidCAD took ${server.port}.`);
   }
   console.log(`FluidCAD ${server.version}. The start screen:\n\n  ${server.loginUrl}\n`);
-  if (server.exposed) {
+  if (server.noAuth) {
+    console.log(
+      'Auth is off: anyone who can reach this address can read and change every project it opens. ' +
+        'Keep it on a network you trust, never on the internet.',
+    );
+  } else if (server.exposed) {
     console.log(
       `Listening on ${server.host}:${server.port}, for other machines too. Anyone with that link can use FluidCAD as you, ` +
         'and can read and change every project it opens: keep the link private' +

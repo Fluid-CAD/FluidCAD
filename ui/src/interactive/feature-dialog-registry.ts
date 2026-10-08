@@ -175,9 +175,18 @@ export class FeatureDialogRegistry {
     return this.dialogs.some(d => d.blocksSketchButton && d.isActive);
   }
 
-  /** A sketch-finishing dialog is armed with the sketch UI suspended. */
+  /**
+   * A sketch-finishing dialog is armed with the sketch UI suspended. An edit
+   * session suspends unconditionally — its rollback owns the view, no sketch
+   * is being finished — so it never pins.
+   */
   get pinsSketchToolbar(): boolean {
-    return this.dialogs.some(d => d.pinsSketchToolbar && d.isActive && d.sketchUISuspended);
+    return this.dialogs.some(d => d.pinsSketchToolbar && d.isActive && !d.isEditing && d.sketchUISuspended);
+  }
+
+  /** Some dialog has an edit session open. */
+  get isEditing(): boolean {
+    return this.dialogs.some(d => d.isEditing);
   }
 
   get sketchUISuspended(): boolean {

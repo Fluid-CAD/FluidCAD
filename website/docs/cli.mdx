@@ -72,7 +72,9 @@ one in a new tab instead of starting a second.
 | `--no-open` | Don't launch a browser, only print the start screen's link | _opens by default_ |
 | `--projects <dir>` | Keep every project in this folder (see below) | _projects live anywhere_ |
 | `--host <address>` | The address to listen on; `0.0.0.0` lets other machines reach FluidCAD (see below) | `127.0.0.1` |
-| `--public-url <url>` | The origin browsers reach FluidCAD at behind a reverse proxy, such as `https://cad.example.com` | _none_ |
+| `--public-url <url>` | The origin browsers reach FluidCAD at behind a reverse proxy, such as `https://cad.example.com`. Also `FLUIDCAD_PUBLIC_URL` | _none_ |
+| `--no-auth` | No sign-in link: anyone who reaches the start screen can use it (see below). Also `FLUIDCAD_NO_AUTH=1` | _sign-in link_ |
+| `--allowed-host <name>` | A host name browsers reach FluidCAD by; any other is refused. Repeatable, or `FLUIDCAD_ALLOWED_HOSTS=a,b` | _any, when bound beyond loopback_ |
 
 The link it prints carries a key for the session, so that no other page or user
 on your machine can drive FluidCAD through it. Open it yourself when the
@@ -136,6 +138,27 @@ way.
 
 One start server is one session, for one person or a group who share the
 link. It has no accounts of its own.
+
+### Without a sign-in link
+
+```bash
+npx fluidcad --projects /srv/cad --host 0.0.0.0 --no-auth --allowed-host cad-server --no-open
+```
+
+On a network you trust, `--no-auth` drops the link and its cookie: `http://cad-server:3100` opens the
+start screen on any device, every time. Anyone who can reach it can read and
+change every project, and run code on the machine through them, so never
+use it on a server the internet can reach.
+
+Bound beyond loopback, `--no-auth` needs `--allowed-host` for every name the
+start screen is reached by (`cad-server`, `192.0.2.20`, a Tailscale name),
+and refuses to start without one. A request under any other name is turned
+away, which keeps out a hostile web page that points its own name at your
+machine: without the cookie, its Host is what gives it away. The
+`--public-url` name is always allowed. Calls that change something still have
+to come from FluidCAD's own pages.
+
+`--allowed-host` also works with the link, to refuse every other name.
 
 ---
 

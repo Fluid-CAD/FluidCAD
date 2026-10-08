@@ -2,6 +2,7 @@
 
 import {
   clearBreakpoints as stripBreakpoints,
+  declarationImports,
   declareParamStatements,
   ensureSymbolImport,
   findEditableCallAt,
@@ -213,8 +214,8 @@ export async function applyStatementEdit(
       imports.add(symbol);
     }
   }
-  if (declsResult.paramDecls.length > 0) {
-    imports.add('param');
+  for (const symbol of declarationImports(declsResult.paramDecls)) {
+    imports.add(symbol);
   }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');

@@ -120,33 +120,43 @@ export const ROUND_RULES: Record<string, ConstraintRule> = {
 export const fmt = (n: number): string => String(Math.round(n * 100) / 100);
 export const pointText = (p: [number, number]): string => `[${fmt(p[0])}, ${fmt(p[1])}]`;
 
+/**
+ * Settle the sketch on the geometry the render reported before editing it:
+ * write every drifted solved position into its literal guess (the drag
+ * write-back's own transform, same drift guards). The edit's own literals
+ * then agree with every untouched literal, so the source it leaves
+ * describes one sketch that is already solved — the re-solve has nothing to
+ * move, the geometry stays where the user saw it, and every guess-locked
+ * side (a distance's side, an offsetFrom's inside/outside) is read against
+ * the sketch the user was looking at rather than literals that drifted
+ * under earlier dimensions. Literals never change the line count, so the
+ * spec's line numbers survive; a settle that would (a literal spanning
+ * lines) refuses rather than edit the wrong statement.
+ */
+export async function settleSketchPositions(
+  code: string,
+  edits: SketchPositionEdit[] | undefined,
+): Promise<{ code: string } | { error: string }> {
+  if (!edits || edits.length === 0) {
+    return { code };
+  }
+  const settled = await updateSketchPositions(code, edits);
+  if (settled.error) {
+    return { error: settled.error };
+  }
+  if (splitLines(settled.newCode).length !== splitLines(code).length) {
+    return { error: 'a position literal spans several lines — settle the sketch by hand first' };
+  }
+  return { code: settled.newCode };
+}
+
 export class SketchEntityRewrite extends StatementAnalysis {
-  /**
-   * Settle the sketch on the geometry the render reported before cutting
-   * it: write every drifted solved position into its literal guess (the
-   * drag write-back's own transform, same drift guards). The cut's literals
-   * then agree with every untouched literal, so the source the cut leaves
-   * describes one sketch that is already solved — the re-solve has nothing
-   * to move and the geometry stays where the user saw it. Literals never
-   * change the line count, so the spec's line numbers survive; a settle
-   * that would (a literal spanning lines) refuses rather than cut the wrong
-   * statement.
-   */
+  /** The cut tools' settle step — see {@link settleSketchPositions}. */
   protected static async settle(
     code: string,
     edits: SketchPositionEdit[] | undefined,
   ): Promise<{ code: string } | { error: string }> {
-    if (!edits || edits.length === 0) {
-      return { code };
-    }
-    const settled = await updateSketchPositions(code, edits);
-    if (settled.error) {
-      return { error: settled.error };
-    }
-    if (splitLines(settled.newCode).length !== splitLines(code).length) {
-      return { error: 'a position literal spans several lines — settle the sketch by hand first' };
-    }
-    return { code: settled.newCode };
+    return settleSketchPositions(code, edits);
   }
 
   /**

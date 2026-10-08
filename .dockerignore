@@ -1,0 +1,18 @@
+.git
+**/node_modules
+**/dist
+**/dist-lib
+**/dist-start
+**/*.tsbuildinfo
+dist-engines
+# The desktop shell and the website's build are not part of the package. The
+# website's sources stay: the llm-docs build reads website/scripts.
+shell
+website/build
+website/static
+website/.docusaurus
+.claude
+.gstack
+.verify-tmp
+.env*
+projects

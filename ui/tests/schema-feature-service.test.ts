@@ -880,7 +880,7 @@ describe("a custom feature's ghost", () => {
     // A new variable travels as its declaration's initializer, not a name the code lacks yet.
     type('height', 'tall = 14');
     await vi.advanceTimersByTimeAsync(300);
-    expect(lastGhost()![0]).toMatchObject({ values: { height: 'param("tall", 14)', outer: 6, hole: 3 } });
+    expect(lastGhost()![0]).toMatchObject({ values: { height: "param('tall', 14)", outer: 6, hole: 3 } });
   });
 
   it("draws a cut in the remove colour, a world axis as a ref, and sends no hidden row's value", async () => {

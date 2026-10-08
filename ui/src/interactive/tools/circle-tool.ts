@@ -11,7 +11,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_CIRCLE } from '../../ui/icons';
-import { ExpressionInput, CommitResult } from '../../ui/expression-input';
+import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -60,6 +60,10 @@ export class CircleTool extends SketchTool {
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+  }
+
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.expressionInput.setVariables(variables);
   }
 
   protected onActivate(): void {

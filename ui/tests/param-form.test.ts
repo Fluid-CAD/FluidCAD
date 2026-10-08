@@ -49,7 +49,7 @@ describe('instance parameter expressions', () => {
     type(form, 'depth = 75');
     expect(form.commitChanges()).toEqual({
       set: { Length: { expr: 'depth' } },
-      newVariables: [{ name: 'depth', initializer: 'param("depth", 75)' }],
+      newVariables: [{ name: 'depth', initializer: "param('depth', 75)" }],
     });
     type(form, '');
     expect(form.commitChanges()).toEqual({ error: 'Length: enter a value' });

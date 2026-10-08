@@ -8,6 +8,7 @@
 // against the statement-time values (P4 gotcha).
 
 import type {
+  SketchPositionEditParam,
   SolvedConstraintParam as WireConstraintParam,
   SolvedEmissionTargetParam,
   SolvedGeometryParam,
@@ -46,6 +47,11 @@ export type SolvedEmissionRequest = {
    * the constraint bar swaps out a replaced orientation and deletes the
    * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
+  /** The sketch's drifted literals, settled on their solved positions
+   * first — sent by a tool whose guesses come from the solved geometry and
+   * whose constraints lock a side from them (the Offset tool), so the side
+   * is read against the sketch the user saw. */
+  settle?: SketchPositionEditParam[];
 };
 
 /** Injected into drawing tools inside a solved sketch (null in legacy

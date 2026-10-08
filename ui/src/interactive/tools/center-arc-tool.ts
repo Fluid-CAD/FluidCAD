@@ -93,6 +93,10 @@ export class CenterArcTool extends SketchTool {
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.expressionInput.setVariables(variables);
+  }
+
   protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);

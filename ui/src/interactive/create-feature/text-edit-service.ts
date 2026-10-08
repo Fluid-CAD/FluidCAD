@@ -83,6 +83,8 @@ export class TextEditService {
     private hooks: {
       /** Another dialog may own the view — let it release first. */
       onEnter?: () => void;
+      /** The edit session opened or closed. */
+      onActiveChange?: () => void;
       /** An edit session armed while a sketch is edited — release the sketch UI. */
       onSuspendSketchUI?: () => void;
       /** The suspension ended without an apply — restore the sketch UI. */
@@ -186,6 +188,7 @@ export class TextEditService {
       }
     });
     this.schedulePreview();
+    this.hooks.onActiveChange?.();
   }
 
   /**
@@ -459,6 +462,7 @@ export class TextEditService {
     // A render always follows the session end (the cancel path clears the
     // breakpoint, an apply rebuilds) — resume lazily and let it re-enter.
     this.sketchUI.resume(false);
+    this.hooks.onActiveChange?.();
   }
 
   private schedulePreview(): void {

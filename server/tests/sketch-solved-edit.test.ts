@@ -352,10 +352,10 @@ describe('applySolvedEmission', () => {
       sketchLine: 4,
       geometry: [{ kind: 'circle', text: 'circle([10, 10], d)' }],
       constraints: [],
-      newVariables: [{ name: 'd', initializer: 'param("d", 20)' }],
+      newVariables: [{ name: 'd', initializer: "param('d', 20)" }],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`part('Plate', () => {\n  const d = param("d", 20);\n  sketch('xy', () => {`);
+    expect(result.newCode).toContain(`part('Plate', () => {\n  const d = param('d', 20);\n  sketch('xy', () => {`);
     expect(result.newCode).not.toMatch(/^const d/m);
     expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from "fluidcad\/core"/);
     const lines = result.newCode.split('\n');

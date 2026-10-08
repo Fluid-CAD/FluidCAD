@@ -66,9 +66,9 @@ export function declaredVariableName(
   return classified.kind === 'declare' && !classified.property ? classified.name : null;
 }
 
-/** A declaration initializer wrapped as a `param()` call, labeled by name. */
+/** A declaration initializer wrapped as a `param()` call, labeled by name — single-quoted, like the rest of the source the UI writes. */
 export function paramInitializer(name: string, initializer: string): string {
-  return `param("${name}", ${initializer})`;
+  return `param('${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', ${initializer})`;
 }
 
 /**
@@ -321,7 +321,7 @@ const PARAM_INIT_RE = /^param\(\s*(['"`])[^'"`]*\1\s*,\s*([\s\S]+)\)\s*;?\s*$/;
 const PROPERTY_INIT_RE =
   /^property\(\s*(['"`])[^'"`]*\1\s*,\s*(['"`])[^'"`]*\2\s*,\s*([\s\S]+)\)\s*;?\s*$/;
 
-/** A `param("name", value)` or `property("Label", "name", value)` initializer contributes its value expression. */
+/** A `param('name', value)` or `property('Label', 'name', value)` initializer contributes its value expression. */
 function unwrapDeclaration(initializer: string): string {
   const trimmed = initializer.trim();
   const param = trimmed.match(PARAM_INIT_RE);

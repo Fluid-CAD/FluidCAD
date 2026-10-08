@@ -247,12 +247,12 @@ describe('applyInsertParamsEdit', () => {
       parts: [],
       imports: [],
       insertParams: { line: 3, set: { Length: { expr: 'beamLength' } } },
-      newVariables: [{ name: 'beamLength', initializer: `param("beamLength", 540)` }],
+      newVariables: [{ name: 'beamLength', initializer: `param('beamLength', 540)` }],
     };
     const result = await applyFeatureEdit(code, spec);
     expect(result.error).toBeUndefined();
     expect(result.newCode).toMatch(/import \{\s*param, insert \} from 'fluidcad\/core';/);
-    expect(result.newCode).toContain(`const beamLength = param("beamLength", 540);`);
+    expect(result.newCode).toContain(`const beamLength = param('beamLength', 540);`);
     expect(result.newCode).toContain(`const front = insert(extrusion, { Length: beamLength });`);
   });
 });

@@ -212,13 +212,13 @@ describe('instance-pose route', () => {
       rotateXYZ: null,
       position: [120, 2, 3],
       translateExprs: ['spacing', null, null],
-      newVariables: [{ name: 'spacing', initializer: 'param("spacing", 120)' }],
+      newVariables: [{ name: 'spacing', initializer: "param('spacing', 120)" }],
     });
     const msg = await untilRelayed();
     const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
     expect(roundTrip.body.error).toBeUndefined();
     expect(roundTrip.body.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
-    expect(roundTrip.body.newCode).toContain('const spacing = param("spacing", 120);');
+    expect(roundTrip.body.newCode).toContain("const spacing = param('spacing', 120);");
     expect(roundTrip.body.newCode.indexOf('const spacing'))
       .toBeLessThan(roundTrip.body.newCode.indexOf('const h = insert'));
     await applied;

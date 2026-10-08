@@ -8,7 +8,7 @@ import type { VariableInfo } from '../src/ui/expression-core';
 // must refilter with the list when it arrives rather than offer nothing
 // until the next keystroke.
 
-const VARS: VariableInfo[] = [{ name: 'width', initializer: 'param("width", 40)' }];
+const VARS: VariableInfo[] = [{ name: 'width', initializer: "param('width', 40)" }];
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};

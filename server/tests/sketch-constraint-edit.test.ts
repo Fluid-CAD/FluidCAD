@@ -237,11 +237,11 @@ describe('applySketchConstraint', () => {
       kind: 'distance',
       targets: [{ line: 6, role: 'start' }, { line: 7, role: 'end' }],
       valueExpr: 'pitch',
-      newVariables: [{ name: 'pitch', initializer: 'param("pitch", 64)' }],
+      newVariables: [{ name: 'pitch', initializer: "param('pitch', 64)" }],
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
-      `  const width = param('Width', 80);\n  const pitch = param("pitch", 64);\n  sketch('xy', () => {`,
+      `  const width = param('Width', 80);\n  const pitch = param('pitch', 64);\n  sketch('xy', () => {`,
     );
     expect(result.newCode).toContain(`    distance(a.start(), b.end(), pitch);\n  });`);
     expect(result.newCode).not.toContain(`});\n  const pitch`);

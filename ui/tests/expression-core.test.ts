@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions, paramInitializer,
   resolveExpressionValue, suggestionItemHtml, suggestionKind, suggestsExistingName,
   suggestionValueHint, trailingIdentifier,
 } from '../src/ui/expression-core';
@@ -47,13 +47,19 @@ describe('classifyCommit', () => {
 
   it('wraps a declaration initializer as param() when asParam is set', () => {
     expect(classifyCommit('depth = 12.5', VARS, '25', false, true))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 12.5)', expression: 'depth' });
+      .toEqual({ kind: 'declare', name: 'depth', initializer: "param('depth', 12.5)", expression: 'depth' });
     expect(classifyCommit('depth = height * 2', VARS, '25', false, true))
       .toEqual({
-        kind: 'declare', name: 'depth', initializer: 'param("depth", height * 2)', expression: 'depth',
+        kind: 'declare', name: 'depth', initializer: "param('depth', height * 2)", expression: 'depth',
       });
     expect(classifyCommit('depth', VARS, '25', false, true))
-      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 25)', expression: 'depth' });
+      .toEqual({ kind: 'declare', name: 'depth', initializer: "param('depth', 25)", expression: 'depth' });
+  });
+
+  it('writes the param() label single-quoted, escaping quotes and backslashes', () => {
+    expect(paramInitializer('length', '60')).toBe("param('length', 60)");
+    expect(paramInitializer("it's", '1')).toBe("param('it\\'s', 1)");
+    expect(paramInitializer('a\\b', '1')).toBe("param('a\\\\b', 1)");
   });
 
   describe('a property the part publishes without binding it', () => {
@@ -191,7 +197,7 @@ describe('suggestsExistingName', () => {
 
 describe('suggestionKind', () => {
   it('reads param(), plain values and computed expressions off the initializer', () => {
-    expect(suggestionKind({ name: 'w', initializer: 'param("w", 40)' }, false)).toBe('param');
+    expect(suggestionKind({ name: 'w', initializer: "param('w', 40)" }, false)).toBe('param');
     expect(suggestionKind({ name: 'w', initializer: "param('w', 40, 'number', { min: 1 })" }, false))
       .toBe('param');
     expect(suggestionKind({ name: 'height', initializer: '30' }, false)).toBe('variable');
@@ -232,7 +238,7 @@ describe('suggestionItemHtml', () => {
   });
 
   it('wears the P toggle blue for params and the variable pink for plain values', () => {
-    expect(suggestionItemHtml({ name: 'w', initializer: 'param("w", 40)' }, 0, false, false))
+    expect(suggestionItemHtml({ name: 'w', initializer: "param('w', 40)" }, 0, false, false))
       .toContain('bg-primary/20 text-primary border-primary/40');
     expect(suggestionItemHtml({ name: 'height', initializer: '30' }, 0, false, false))
       .toContain('bg-variable/20 text-variable border-variable/40');
@@ -315,7 +321,7 @@ describe('resolveExpressionValue', () => {
 
   it('resolves chained and param()-wrapped initializers', () => {
     const vars = [
-      { name: 'w', initializer: 'param("w", 40)' },
+      { name: 'w', initializer: "param('w', 40)" },
       { name: 'half', initializer: 'w / 2' },
     ];
     expect(resolveExpressionValue('w', vars)).toBe(40);
@@ -324,7 +330,7 @@ describe('resolveExpressionValue', () => {
 
   it('uses the pending declaration for its own name', () => {
     expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: '25' })).toBe(25);
-    expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: 'param("cx", 7)' })).toBe(7);
+    expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: "param('cx', 7)" })).toBe(7);
   });
 
   it('unwraps a property() to the value it publishes, listed or pending as a bind', () => {

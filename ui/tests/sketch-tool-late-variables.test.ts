@@ -9,7 +9,7 @@ import type { VariableInfo } from '../src/ui/expression-core';
 // already open; both take the list then. An older read never overwrites a
 // newer one.
 
-const VARS: VariableInfo[] = [{ name: 'width', initializer: 'param("width", 40)' }];
+const VARS: VariableInfo[] = [{ name: 'width', initializer: "param('width', 40)" }];
 
 type Deferred = { promise: Promise<VariableInfo[]>; resolve: (v: VariableInfo[]) => void };
 function deferred(): Deferred {

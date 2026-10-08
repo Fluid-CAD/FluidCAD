@@ -1388,6 +1388,28 @@ export class FluidCadServer {
   }
 
   /**
+   * Whether the part at `from` builds from the part at `to`: the chain of
+   * part names between them (`from` first, `to` last), or null when it does
+   * not — also when there is no scene, either site is not a rendered part,
+   * or the workspace kernel predates the query. The consumer-side guard of
+   * a cross-part pick: a donor that already builds from the consumer must
+   * not be read by it, or the two parts would depend on each other.
+   */
+  resolvePartDependency(
+    from: { filePath: string; line: number; column?: number },
+    to: { filePath: string; line: number; column?: number },
+  ): string[] | null {
+    if (!this.sceneManager || !this.sceneManager.resolvePartDependency) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolvePartDependency(scene, from, to) ?? null;
+  }
+
+  /**
    * Tangent-mate pick resolution: exposure find-or-create data plus the
    * picked face/edge's contact classification (seed + G1 chain + bounds).
    * Read-only over the rendered scene; null when there is no scene or the

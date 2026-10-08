@@ -77,6 +77,10 @@ let currentExposureResolution: any;
 let statementPartCalls: unknown[];
 /** Per-test result for the consumer-part lookup; null keeps every pick local. */
 let currentStatementPart: any;
+/** (from, to) site pairs forwarded to the part dependency lookup. */
+let dependencyCalls: unknown[][];
+/** Per-test chain for the part dependency lookup; null means the donor does not build from the consumer. */
+let currentPartDependency: string[] | null;
 /** Picks and chains forwarded to synthesizeApplyFeature, per call. */
 let synthesizeInputs: { picks: unknown; chains: unknown }[];
 
@@ -93,6 +97,10 @@ const fakeServer = {
   resolveStatementPart: (loc: unknown) => {
     statementPartCalls.push(loc);
     return typeof currentStatementPart === 'function' ? currentStatementPart(loc) : currentStatementPart;
+  },
+  resolvePartDependency: (from: unknown, to: unknown) => {
+    dependencyCalls.push([from, to]);
+    return currentPartDependency;
   },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
@@ -225,6 +233,8 @@ describe('apply-feature route validation', () => {
     currentExposureResolution = null;
     statementPartCalls = [];
     currentStatementPart = null;
+    dependencyCalls = [];
+    currentPartDependency = null;
     synthesizeInputs = [];
   });
 
@@ -643,6 +653,70 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(422);
       expect(body.reason).toContain('not bound to a const');
       expect(relayed).toHaveLength(0);
+    });
+
+    describe('dependency loops', () => {
+      const DONOR = { partName: 'Donor', filePath: FILE, line: 3, column: 18 };
+
+      beforeEach(() => {
+        currentCode = TWO_PART_CODE;
+        currentFileName = FILE;
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+      });
+
+      it('refuses a donor that already builds from the active part, before anything is written', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toBe(
+          '"Donor" already builds from "Consumer" (Donor → Consumer), so "Consumer" can\'t use its geometry — '
+          + 'the two parts would depend on each other. Sketch on it from "Donor", or from the file\'s top level.',
+        );
+        // Asked donor → consumer, in the scene's own site terms.
+        expect(dependencyCalls).toEqual([[expect.objectContaining(DONOR), ACTIVE]]);
+        expect(relayed).toHaveLength(0);
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('refuses the preview the same way, so the dialog never offers the reference', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE, preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('would depend on each other');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('names the parts a longer chain runs through', async () => {
+        currentPartDependency = ['Donor', 'Hinge', 'Latch', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('"Donor" already builds from "Consumer" through "Hinge", "Latch" (Donor → Hinge → Latch → Consumer)');
+      });
+
+      it('lets a donor that does not build from the active part through', async () => {
+        currentPartDependency = null;
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+        expect(dependencyCalls).toHaveLength(1);
+        expect(relayed).toHaveLength(1);
+      });
+
+      it('never asks for a consumer at the file\'s top level — no part reads the top level', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status } = await post({ feature: 'sketch', entities: [PICK] });
+        expect(status).toBe(200);
+        expect(dependencyCalls).toEqual([]);
+        expect(relayed).toHaveLength(1);
+      });
     });
   });
 
@@ -6397,6 +6471,27 @@ describe('apply-feature route validation', () => {
         });
         expect(status).toBe(422);
         expect(body.reason).toContain('not bound to a const');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('refuses a donor that already builds from the sketch\'s part, on preview and apply alike', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        currentPartDependency = ['Donor', 'Consumer'];
+        const preview = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(preview.status).toBe(422);
+        expect(preview.body.reason).toContain('"Donor" already builds from "Consumer"');
+        const apply = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(apply.status).toBe(422);
+        expect(apply.body.reason).toContain('would depend on each other');
+        // Asked donor → the sketch's own part, resolved from the sketch location.
+        expect(dependencyCalls).toEqual([
+          [expect.objectContaining({ partName: 'Donor', line: 3, column: 18 }), CONSUMER],
+          [expect.objectContaining({ partName: 'Donor', line: 3, column: 18 }), CONSUMER],
+        ]);
         expect(relayed).toHaveLength(0);
       });
 

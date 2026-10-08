@@ -140,6 +140,58 @@ This creates a project with an empty part, `part1.part.js`, and opens the worksp
 
 Start with the [getting-started guide](https://fluidcad.io/docs/getting-started) to build a hinge, or [choose a tutorial](https://fluidcad.io/docs/tutorials/).
 
+### Docker
+
+To keep your projects in one place on a server, run the start screen in a container. Pick the example that matches your network, save it as `compose.yaml`, and run `docker compose up -d`. To build the image yourself from a clone of this repository, replace `image:` with `build: .`.
+
+**On a network you trust** (home LAN, Tailscale), with no sign-in:
+
+```yaml
+services:
+  fluidcad:
+    image: ghcr.io/fluid-cad/fluidcad:latest
+    ports:
+      - "3100:3100"
+    environment:
+      FLUIDCAD_NO_AUTH: "1"
+      # Every name you open FluidCAD by; any other is refused.
+      FLUIDCAD_ALLOWED_HOSTS: "fluidcad.example.com,192.0.2.20"
+    volumes:
+      - ./projects:/app/projects
+      - fluidcad-home:/home/node/.fluidcad
+    restart: unless-stopped
+
+volumes:
+  fluidcad-home:
+```
+
+Open `http://fluidcad.example.com:3100` from any device. Anyone who can reach that port can read and change every project, and run code on the server through them, so don't expose it beyond that network.
+
+**On a shared network** (office, school), behind an HTTPS reverse proxy on the same machine (Caddy, nginx, Tailscale Serve) that forwards WebSocket upgrades:
+
+```yaml
+services:
+  fluidcad:
+    image: ghcr.io/fluid-cad/fluidcad:latest
+    ports:
+      - "127.0.0.1:3100:3100"
+    environment:
+      FLUIDCAD_PUBLIC_URL: "https://fluidcad.example.com"
+    volumes:
+      - ./projects:/app/projects
+      - fluidcad-home:/home/node/.fluidcad
+    restart: unless-stopped
+
+volumes:
+  fluidcad-home:
+```
+
+The port is published on `127.0.0.1`, so only the proxy on the same machine reaches it. Sign in with the link from `docker compose logs fluidcad`, once in each browser. The link changes every time the container starts.
+
+FluidCAD is not built to face the internet: keep it on a network you control, and reach it from outside through a VPN such as Tailscale.
+
+In both, `./projects` holds your projects and must be writable by uid 1000 (`sudo chown 1000:1000 projects` on Linux). The `fluidcad-home` volume keeps engines downloaded for projects pinned to another FluidCAD version, recent projects and previews.
+
 ## Fits your workflow
 
 ### Editors

@@ -1,4 +1,5 @@
 import { Part } from "./part.js";
+import { PartBuildStack } from "./part-build-stack.js";
 import { registerPartDefinitionClass } from "./part-args.js";
 import type { Connector } from "./connector.js";
 import type { Exposed } from "./exposed.js";
@@ -68,6 +69,11 @@ export class PartDefinition<T = unknown> {
 
   getSourceLocation(): SourceLocation | null {
     return this.sourceLocation;
+  }
+
+  /** The name variants materialize with — `partName` unless `.name()` overrode it. */
+  getDisplayName(): string {
+    return this.displayName;
   }
 
   getType(): string {
@@ -179,6 +185,9 @@ export class PartDefinition<T = unknown> {
     if (cached) {
       return cached;
     }
+    // A read that lands here while THIS definition's body is still running
+    // is a dependency loop — refused with the loop named, never recursed.
+    PartBuildStack.enter(scene, this);
 
     const partObj = new Part(this.displayName);
     if (this.sourceLocation) {
@@ -218,6 +227,7 @@ export class PartDefinition<T = unknown> {
       }
       throw e;
     } finally {
+      PartBuildStack.exit(scene, this);
       if (scope) {
         popParamScope();
       }

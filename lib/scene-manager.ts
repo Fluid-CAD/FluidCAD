@@ -62,6 +62,7 @@ import {
 import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
+import { resolvePartDependency } from "./selection/part-dependencies.js";
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
@@ -506,6 +507,21 @@ class SceneManager {
       return null;
     }
     return resolveStatementPart(scene, loc);
+  }
+
+  /**
+   * Whether the part at `from` builds from the part at `to`, as the chain
+   * of part names between them (`from` first) — null when it does not. The
+   * consumer-side guard of a cross-part pick: a donor that already builds
+   * from the consumer must not be read by it, or the two would depend on
+   * each other and the next build would refuse the loop. Assembly scenes
+   * have no authoring-frame consumer, so they resolve to null.
+   */
+  resolvePartDependency(scene: Scene, from: StatementLoc, to: StatementLoc): string[] | null {
+    if (scene instanceof AssemblyScene) {
+      return null;
+    }
+    return resolvePartDependency(scene, from, to);
   }
 
   /**

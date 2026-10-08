@@ -508,3 +508,85 @@ describe('bound for other machines', () => {
     ).rejects.toThrow('origin only');
   });
 });
+
+/** A request to the server under a Host of the test's choosing, which `fetch` will not send. */
+function statusUnder(host: string, options: { method?: string; path?: string; headers?: Record<string, string>; body?: string } = {}): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      { host: '127.0.0.1', port: server.port, method: options.method ?? 'GET', path: options.path ?? '/', headers: { host, ...options.headers } },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      },
+    );
+    request.on('error', reject);
+    request.end(options.body);
+  });
+}
+
+/** The start page's own POST, from a page at `host`. */
+function helloUnder(host: string, headers: Record<string, string> = {}): Promise<number> {
+  return statusUnder(host, {
+    method: 'POST',
+    path: '/api/start/hello',
+    body: '{"protocol":3}',
+    headers: { 'content-type': 'application/json', 'x-fluidcad-launcher': '1', origin: `http://${host}`, 'sec-fetch-site': 'same-origin', ...headers },
+  });
+}
+
+/** A WebSocket upgrade under `host`, answered with this status. */
+function upgradeUnder(host: string): Promise<number> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/p/nobody/`, { headers: { host, origin: `http://${host}` } });
+    socket.on('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0));
+    socket.on('error', () => undefined);
+  });
+}
+
+describe('without auth', () => {
+  async function restartWithoutAuth(options: { allowedHosts?: string[]; publicUrl?: string }): Promise<void> {
+    await server.close();
+    server = await startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, host: '0.0.0.0', noAuth: true, ...options });
+  }
+
+  it('will not listen beyond loopback without the names it is reached by', async () => {
+    await expect(restartWithoutAuth({})).rejects.toThrow('--allowed-host');
+    // Kept for afterEach, which closes whatever `server` is.
+    server = await startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined });
+  });
+
+  it('opens with no key under an allowed name, and refuses every other name, the WebSocket too', async () => {
+    await restartWithoutAuth({ allowedHosts: ['cad-server', '192.0.2.20:3100'] });
+    expect(server.noAuth).toBe(true);
+    expect(server.loginUrl).toBe(`http://cad-server:${server.port}/`);
+    expect(await statusUnder(`cad-server:${server.port}`)).toBe(200);
+    expect(await helloUnder(`cad-server:${server.port}`)).toBe(200);
+    expect(await helloUnder('192.0.2.20:8080')).toBe(200);
+    expect(await helloUnder(`localhost:${server.port}`)).toBe(200);
+    // A hostile page rebound to this address carries its own name as its Host.
+    expect(await helloUnder('evil.example.com')).toBe(403);
+    // The origin and header checks still stand without the cookie.
+    expect(await helloUnder('cad-server', { 'sec-fetch-site': 'cross-site' })).toBe(403);
+    expect(await helloUnder('cad-server', { 'x-fluidcad-launcher': '' })).toBe(403);
+    expect(await upgradeUnder('evil.example.com')).toBe(403);
+    // Past the Host check and signed in without a cookie: only the project is missing.
+    expect(await upgradeUnder('cad-server')).toBe(503);
+  });
+
+  it("answers to the public URL's name with no other name given", async () => {
+    await restartWithoutAuth({ publicUrl: 'https://cad.example.com' });
+    expect(server.loginUrl).toBe('https://cad.example.com/');
+    expect(await statusUnder('cad.example.com')).toBe(200);
+    expect(await statusUnder('other.example.com')).toBe(403);
+  });
+});
+
+describe('allowed hosts with auth on', () => {
+  it('still asks for the key, and refuses other names', async () => {
+    await server.close();
+    server = await startLauncherServer({ packageRoot: path.join(root, 'package'), port: 0, log: () => undefined, host: '0.0.0.0', allowedHosts: ['cad-server'] });
+    expect(server.loginUrl).toMatch(new RegExp(`^http://cad-server:${server.port}/\\?token=`));
+    expect(await statusUnder('cad-server')).toBe(401);
+    expect(await statusUnder('evil.example.com')).toBe(403);
+  });
+});

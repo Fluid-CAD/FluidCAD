@@ -15,6 +15,7 @@ import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
 import { PartDefinition } from "../features/part-definition.js";
+import { PartBuildStack } from "../features/part-build-stack.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { setupOC, render } from "./setup.js";
 
@@ -516,5 +517,71 @@ describe("part(...).material(id)", () => {
     expect(same.compareTo(other)).toBe(true);
     other.setMaterial("fluidcad-pla");
     expect(same.compareTo(other)).toBe(false);
+  });
+});
+
+describe("part dependency loops", () => {
+  setupOC();
+
+  it("refuses two parts reading each other with the loop named, instead of overflowing the stack", () => {
+    const a: any = part("construct", () => {
+      const s = sketch("xy", () => { testRect(20, 20); });
+      const e = extrude(10, s);
+      expose("g6", e.startFaces());
+      sketch(b.features.g1, () => {});
+    });
+    const b: any = part("Part 8", () => {
+      const s = sketch(a.features.g6, () => { testRect(5, 5); });
+      const e = extrude(-5, s);
+      expose("g1", e.startFaces());
+    }).name("back_door");
+    expect(() => render()).toThrow(
+      /part "construct" depends on itself: "construct" → "back_door" → "construct" — "back_door" reads it back/,
+    );
+  });
+
+  it("names every part of a longer loop", () => {
+    const a: any = part("A", () => { expose("x", sketch("xy", () => { testRect(1, 1); })); c.features.x; });
+    const b: any = part("B", () => { expose("x", sketch("xy", () => { testRect(1, 1); })); a.features.x; });
+    const c: any = part("C", () => { expose("x", sketch("xy", () => { testRect(1, 1); })); b.features.x; });
+    expect(() => render()).toThrow(/"A" → "C" → "B" → "A"/);
+  });
+
+  it("refuses a part reading its own exposures mid-body", () => {
+    const a: any = part("Self", () => {
+      expose("x", sketch("xy", () => { testRect(1, 1); }));
+      a.features.x;
+    });
+    expect(() => render()).toThrow(/part "Self" depends on itself: "Self" → "Self" — its own body reads it/);
+  });
+
+  it("refuses the loop through a differently parameterized variant", () => {
+    getSceneManager().startAssemblyScene();
+    const a: any = part("Self", () => {
+      param("Length", 100);
+      insert(a, { Length: 50 });
+    });
+    expect(() => insert(a)).toThrow(/part "Self" depends on itself/);
+  });
+
+  it("lets two parts share a third donor — a diamond is not a loop", () => {
+    const donor = part("Donor", () => {
+      const e = extrude(10, sketch("xy", () => { testRect(20, 20); }));
+      expose("top", e.endFaces());
+    });
+    let built = 0;
+    part("Left", () => { sketch(donor.features.top, () => { testRect(2, 2); }); extrude(1); built++; });
+    part("Right", () => { sketch(donor.features.top, () => { testRect(3, 3); }); extrude(1); built++; });
+    render();
+    expect(built).toBe(2);
+  });
+
+  it("leaves nothing building behind after a body throws, so later builds are not mistaken for loops", () => {
+    const scene = getCurrentScene();
+    const broken: any = part("Broken", () => { throw new Error("boom"); });
+    expect(() => broken.features).toThrow(/boom/);
+    expect(PartBuildStack.building(scene)).toEqual([]);
+    const fine = part("Fine", () => { expose("x", sketch("xy", () => { testRect(1, 1); })); });
+    expect(Object.keys(fine.features)).toEqual(["x"]);
   });
 });

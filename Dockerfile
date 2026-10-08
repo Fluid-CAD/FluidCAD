@@ -1,12 +1,18 @@
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /src
+# The manifests first, on their own layer: `npm ci` is cached across builds
+# whose lockfile did not change, and the sources below invalidate only the
+# build. `extension/vscode` is a workspace, so its manifest has to be there.
+COPY package.json package-lock.json ./
+COPY extension/vscode/package.json extension/vscode/
+RUN npm ci
+
 COPY . .
 # Build the package, keep only what `npm pack` would publish (the "files" in
 # package.json), and prune node_modules to the production dependencies the
 # lockfile pins.
-RUN npm ci \
-  && npm run build \
+RUN npm run build \
   && npm pack --pack-destination /tmp \
   && mkdir -p /out/fluidcad \
   && tar -xzf /tmp/fluidcad-*.tgz -C /out/fluidcad --strip-components=1 \

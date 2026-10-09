@@ -125,6 +125,8 @@ export type TrackedPartDefinition = {
   materializeInto(scene: Scene): unknown;
   /** The variants built into `scene`, in build order. */
   builtVariantsIn(scene: Scene): readonly SceneObject[];
+  /** Where the `part()` call ran, or null when the capture found no script frame. */
+  getSourceLocation(): { filePath: string } | null;
 };
 
 /**
@@ -219,19 +221,62 @@ export class Scene {
   }
 
   /**
-   * Build every tracked definition that has no variant in this scene yet —
-   * the entry-file pass that keeps an open part file WYSIWYG: `part()` no
-   * longer builds at call time, so definitions nothing exported or inserted
-   * would otherwise silently vanish from the render. Called after module
+   * Build every tracked definition the entry file declares that has no
+   * variant in this scene yet — the pass that keeps an open part file
+   * WYSIWYG: `part()` is lazy, so a part the file declares but never
+   * exports, inserts or reads would otherwise vanish from its own render.
+   * A definition another file declares — an imported `.part.js`, every part
+   * a package's index re-exports next to the feature the file imported — is
+   * left unbuilt: a part file shows the parts it declares, and other files'
+   * parts reach a scene through insert() in an assembly. Called after module
    * evaluation for part-kind entry scenes only; assembly scenes build
    * strictly via insert().
    */
   materializeLeftoverDefinitions(): void {
+    // The entry document of this render: what the host passed to
+    // setCurrentFile(), mirrored on the unit registry (scene.ts never
+    // imports the scene manager).
+    const entryFile = getUnitRegistry().rootFile;
     for (const { definition } of this.partDefinitions) {
-      if (!definition.hasVariantIn(this)) {
+      if (!definition.hasVariantIn(this) && Scene.isDeclaredIn(definition, entryFile)) {
         definition.materializeInto(this);
       }
     }
+  }
+
+  /**
+   * Whether `definition`'s `part()` call is written in `entryFile`. The call
+   * site is the first script frame of the capture, so a `part()` reached
+   * through a plain-module helper the entry file calls counts as the
+   * entry's. A definition with no location (the capture found no script
+   * frame — a bundled browser model, a test) and a scene with no entry file
+   * (a bare scene nothing rendered from a file) keep the behaviour from
+   * before the rule: the definition builds.
+   */
+  private static isDeclaredIn(definition: TrackedPartDefinition, entryFile: string): boolean {
+    const location = definition.getSourceLocation();
+    if (!location || !entryFile) {
+      return true;
+    }
+    return Scene.normalizeSourcePath(location.filePath) === Scene.normalizeSourcePath(entryFile);
+  }
+
+  /**
+   * One spelling per file for the comparison above: no `virtual:live-render:`
+   * prefix (a live editor buffer), forward slashes and an uppercase drive
+   * letter (Windows), and macOS's `/private/var` (`/tmp`, `/etc`) as the
+   * `/var` its symlink stands for — a module resolved through its real path
+   * names the same file as the entry path the host was handed.
+   */
+  private static normalizeSourcePath(path: string): string {
+    const virtualPrefix = 'virtual:live-render:';
+    const virtualIdx = path.lastIndexOf(virtualPrefix);
+    let normalized = virtualIdx === -1 ? path : path.slice(virtualIdx + virtualPrefix.length);
+    normalized = normalized.replace(/\\/g, '/');
+    if (/^[A-Za-z]:/.test(normalized)) {
+      normalized = normalized[0].toUpperCase() + normalized.slice(1);
+    }
+    return normalized.replace(/^\/private\/(var|tmp|etc)\//, '/$1/');
   }
 
   /**

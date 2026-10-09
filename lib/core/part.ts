@@ -28,11 +28,11 @@ function part<T>(name: string, callback: () => T): PartDefinition<T> {
     throw new Error("part(): the second argument is the body callback building the part's geometry.");
   }
   const definition = new PartDefinition<T>(name, callback, captureSourceLocation());
-  // Track on the scene (when one is current) so an entry render can
-  // materialize definitions nothing exported or inserted — the open part
-  // file stays WYSIWYG. Definitions created outside any scene (a library
-  // module imported before init) are legal; only insert/export can build
-  // those.
+  // Track on the scene (when one is current) so a part-kind entry render can
+  // materialize the definitions the entry file declares but nothing
+  // exported or inserted — the open part file stays WYSIWYG. Definitions
+  // created outside any scene (a library module imported before init) are
+  // legal; only insert/export can build those.
   getCurrentScene()?.trackPartDefinition(definition);
   return definition;
 }

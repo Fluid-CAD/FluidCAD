@@ -279,8 +279,9 @@ export class BrowserEngineHost {
           result.run();
         }
       }
-      // part() is lazy — definitions nothing exported still render standalone
-      // in a part scene; assembly scenes build strictly via insert().
+      // part() is lazy — the entry file's definitions nothing exported still
+      // render standalone in a part scene; assembly scenes build strictly
+      // via insert().
       if (sceneKind !== "assembly") {
         scene.materializeLeftoverDefinitions();
       }

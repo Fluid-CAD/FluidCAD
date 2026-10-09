@@ -1,6 +1,6 @@
 ---
 name: FluidCAD-custom-features
-description: "Writing custom features for FluidCAD: a feature type of the project's own in a `*.feature.js` module (`fluidcad/sdk` — `Feature.with()`, `defineFeature()`, `buildTool()`, `setBuckets()`, pickers, call shapes, `fluidcad/sdk/kernel`, raw OpenCascade through `fluidcad/sdk/occt`) that the toolbar's Custom dropdown offers with its own dialog and preview, and that models call like a built-in. Use this skill whenever the user wants a custom feature, their own feature type or toolbar button, a reusable feature, a `.feature.js` file, `fluidcad/sdk`, `Feature`, `defineFeature` or `registerBuilder`, or asks to turn a construction they keep repeating into one statement. Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and a feature type, not a part, is being written."
+description: "Writing custom features for FluidCAD: a feature type of the project's own in a `*.feature.js` module (`fluidcad/sdk` — `Feature.with()`, `defineFeature()`, `buildTool()`, `setBuckets()`, pickers, call shapes, `fluidcad/sdk/kernel`, raw OpenCascade through `fluidcad/sdk/occt`) that the toolbar's Custom dropdown offers with its own dialog and preview, and that models call like a built-in. Use this skill whenever the user wants a custom feature, their own feature type or toolbar button, a reusable feature, a `.feature.js` file, `fluidcad/sdk`, `Feature`, `defineFeature` or `registerBuilder`, asks to turn a construction they keep repeating into one statement, or wants to share custom features as a package (`fluidcad.json` `package` block, the `pack` tool). Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and a feature type, not a part, is being written."
 ---
 
 Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/FluidCAD`), under `mcp/skills/`. The installed local skill files are the runtime source of truth.
@@ -136,7 +136,25 @@ A recognisable part (a panel, a bracket, a PCB plate), built by the FluidCAD ski
 
 Saving the module's code rebuilds its statements in every model that read it, with no engine restart; with the MCP, the module write re-renders the open model in full and reports on it. Change one thing per write. When a value change misbehaves but a fresh write is right, suspect state kept between renders.
 
-## 8. Report only what was checked
+## 8. Package it, when it should travel
+
+Do this only when the user wants the feature in other projects or for other people; a feature used in its own workspace needs no package. A package is the workspace's own `fluidcad.json` with a `package` block, packed into one `.fluidpkg` file (`read_doc concepts/packages`).
+
+1. **The block.** With a shell, `npx fluidcad package init --name @acme/vent-hardware` in the workspace writes it: version `0.1.0`, every `*.feature.js` as an export. Without one, add it to `fluidcad.json` with `write_file`, keeping every other key (`engine`, `unit`, `materials`):
+   ```json
+   "package": {
+     "name": "@acme/vent-hardware",
+     "version": "0.1.0",
+     "description": "A vent grid for enclosure panels",
+     "exports": ["vent-grid.feature.js"]
+   }
+   ```
+   The name is `@scope/name` in lowercase letters, digits and dashes, and every feature id must start with the scope (`acme.ventGrid` in `@acme/…`). `exports` lists only what is shared: the feature modules, plus a `*.part.js` only when its parts should travel too. The test part stays out.
+2. **`pack`** with `saveAsPath` set to an absolute path named as the result's `fileName` (`acme-vent-hardware-0.1.0.fluidpkg`), outside the workspace unless the user asked for it there. The engine evaluates every export and builds every exported part first; `pack-refused` carries one sentence naming the file (an id outside the scope, a missing image, an import from node_modules or another package, a part that fails to build, unsaved editor changes). Fix that file and pack again.
+3. **Report** the package name, version, `savedTo` and what it holds (the features and parts the result lists). Tell the user how it is used: `npx fluidcad install <file>` or **Install package…** in the UI installs it into their library, and a model imports it by name, `import { ventGrid } from '@acme/vent-hardware'`. Never install it yourself into the user's library; to try the archive, install it with `FLUIDCAD_PACKAGES` set to a scratch folder.
+4. **A new version:** edit the module, raise `package.version` (`npx fluidcad version minor`, or edit the block), and `pack` again. An installed version never changes, so a fix to a released version is always a new version.
+
+## 9. Report only what was checked
 
 Report the design (section 2), what you rendered, validated, measured and resolved, and the typecheck and catalog results. Name what you did not check: the dialog and its preview are only seen in the FluidCAD UI, so unless a browser drove them, say "not checked in the dialog" rather than implying it. Tell the user where the feature appears (the toolbar's **Custom** dropdown, last on the part toolbar) and that a model imports it from the module.
 
@@ -149,4 +167,5 @@ Report the design (section 2), what you rendered, validated, measured and resolv
 5. `write_file` a recognisable test part that uses it as a user would.
 6. `render.state`, `objectErrors`, `validate`, `screenshot`, `measure`, `resolve_selection` on its buckets; typecheck and the catalog when a shell is available.
 7. Iterate on the module: each write re-renders the open model (`render.openModel`).
-8. Report what was checked, and what was not.
+8. When it should travel: the `package` block in `fluidcad.json`, then `pack` with `saveAsPath` (section 8).
+9. Report what was checked, and what was not.

@@ -139,7 +139,8 @@ Four skills ship with the repo, under `mcp/skills/`:
 - **FluidCAD-custom-features** — layered on top, for writing a custom feature:
   a feature type in a `*.feature.js` module (`fluidcad/sdk`) that the
   toolbar's Custom dropdown offers with its own dialog, and that models call
-  like a built-in.
+  like a built-in; and, when it should travel, packing it as a package with
+  `pack`.
 
 `mcp/tests/skills.test.ts` checks that every tool name a skill mentions is
 registered by the server and that the `mcp__FluidCAD__*` prefix in each skill's

@@ -127,6 +127,26 @@ export class RelationModel {
   }
 
   /**
+   * mateId → the free scalars relations couple on it. The warm-start leaves
+   * these out of its analytic drag step: spinning one coupled joint on its
+   * own toward the cursor breaks the relation before the relaxation runs,
+   * which then moves the whole coupled train exactly instead.
+   */
+  static coupledParams(relations: ComponentRelation[]): Map<string, Set<SideParam>> {
+    const out = new Map<string, Set<SideParam>>();
+    const add = (mateId: string, param: SideParam) => {
+      const set = out.get(mateId) ?? new Set<SideParam>();
+      set.add(param);
+      out.set(mateId, set);
+    };
+    for (const relation of relations) {
+      add(relation.mateA.mateId, RelationModel.paramA(relation.record));
+      add(relation.mateB.mateId, RelationModel.paramB(relation.record));
+    }
+    return out;
+  }
+
+  /**
    * Whether the mate has the free scalar the relation side needs: a
    * rotation for `rotZ` (revolute, cylindrical), a slide for `slideZ`
    * (slider, cylindrical). The kernel refuses the rest at parse time; the

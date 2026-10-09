@@ -58,6 +58,12 @@ function spinDeg(out: SolverOutput, id: string): number {
   return (Math.atan2(x.y, x.x) * 180) / Math.PI;
 }
 
+/** Expect two angles (degrees) equal modulo a full turn — 180° and −180° are the same pose. */
+function expectAngle(actual: number, expected: number, digits = 3): void {
+  const d = actual - expected;
+  expect(d - 360 * Math.round(d / 360)).toBeCloseTo(0, digits);
+}
+
 function positionOf(out: SolverOutput, id: string): Vector3 {
   return out.bodies.find(b => b.instanceId === id)!.position;
 }
@@ -181,8 +187,8 @@ describe('relation(gear)', () => {
     scene.bodies[2].quaternion.setFromAxisAngle(new Vector3(0, 0, 1), (262.5 * Math.PI) / 180);
     const out = dragG1To(-175, [gear('m1', 'm2', 1.5)], scene);
     // g1 went 175° → 185° (reads −175°); g2 followed by 15°: 262.5° → 277.5° (reads −82.5°).
-    expect(spinDeg(out, 'g1')).toBeCloseTo(-175, 3);
-    expect(spinDeg(out, 'g2')).toBeCloseTo(-82.5, 3);
+    expectAngle(spinDeg(out, 'g1'), -175);
+    expectAngle(spinDeg(out, 'g2'), -82.5);
     expect(out.failedRelations).toEqual([]);
   });
 
@@ -285,7 +291,7 @@ describe('relation(rack-and-pinion)', () => {
       drivenJoint: { mateId: 'travel', value: 18 },
     });
     expect(positionOf(slid, 'rack').x).toBeCloseTo(18, 3);
-    expect(spinDeg(slid, 'pinion')).toBeCloseTo(180, 2);
+    expectAngle(spinDeg(slid, 'pinion'), 180, 2);
     const fresh = rackScene();
     const reversed = new Solver().solve({
       bodies: fresh.bodies, mates: fresh.mates, relations: [{ ...fresh.relation, reverse: true }],

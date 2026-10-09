@@ -1,4 +1,4 @@
-export { Solver, isUsableSolution } from './solver.js';
+export { Solver, isAcceptableDragFrame, isUsableSolution } from './solver.js';
 export { bodyFreedom, buildMateGraph, isInstanceFullyLocked } from './graph.js';
 export {
   WORLD_BODY_ID,

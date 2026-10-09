@@ -224,4 +224,11 @@ export type SolverOutput = {
   failures: MateFailure[];
   /** Ids of every relation the solve could not hold (its sides did not move in ratio). */
   failedRelations: string[];
+  /**
+   * The subset of `failedRelations` dropped because their ratios contradict
+   * the others around a cycle of relations — a static authoring error,
+   * reported on every solve. The rest of the solve is exact without them,
+   * so a drag frame failing only on these is still a valid configuration.
+   */
+  contradictedRelations: string[];
 };

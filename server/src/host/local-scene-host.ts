@@ -1,4 +1,5 @@
 import { type DevEnvironment, type ViteDevServer, createServer } from 'vite';
+import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
 import { normalizePath } from '../normalize-path.ts';
@@ -33,6 +34,13 @@ export class LocalSceneHost implements SceneHost {
 
   server!: ViteDevServer;
   private rootPath: string = '';
+  /**
+   * The workspace root through its symlinks: a workspace opened by a linked
+   * directory (macOS's `/var` among them) has its modules named by real
+   * path in Vite's graph. Equal to `rootPath` when nothing on the way is a
+   * link.
+   */
+  private realRootPath: string = '';
   private buffers: Map<string, string> = new Map();
   private engineImports: EngineImportResolver | null = null;
   /** True when this engine answers the workspace's own `import 'fluidcad'` too, not only its packages'. */
@@ -55,6 +63,7 @@ export class LocalSceneHost implements SceneHost {
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
+    this.realRootPath = LocalSceneHost.realPathOf(this.rootPath);
     this.packages.setProject(rootPath);
     const that = this;
     // A workspace with no engine install of its own gets a marked
@@ -183,7 +192,7 @@ export class LocalSceneHost implements SceneHost {
     if (this.packages.rootOf(file) !== null) {
       return true;
     }
-    return this.rootPath !== '' && isAbsolute(file) && !file.startsWith(`${this.rootPath.replace(/\/+$/, '')}/`);
+    return this.rootPath !== '' && isAbsolute(file) && !this.inWorkspace(file);
   }
 
   /**
@@ -216,10 +225,27 @@ export class LocalSceneHost implements SceneHost {
     if (id.startsWith('virtual:live-render')) {
       return true;
     }
-    if (id.startsWith(this.rootPath) && !id.includes('/node_modules/')) {
+    if (this.inWorkspace(id) && !id.includes('/node_modules/')) {
       return true;
     }
     return this.packages.rootOf(id) !== null;
+  }
+
+  /** Whether `file` lies under the workspace root, by the spelling the host was handed or by its real path. */
+  private inWorkspace(file: string): boolean {
+    return [this.rootPath, this.realRootPath].some(root => {
+      const dir = root.replace(/\/+$/, '');
+      return dir !== '' && (file === dir || file.startsWith(`${dir}/`));
+    });
+  }
+
+  /** `path` with its symlinks resolved, normalized; `path` itself when it does not resolve. */
+  private static realPathOf(path: string): string {
+    try {
+      return normalizePath(realpathSync(path));
+    } catch {
+      return path;
+    }
   }
 
   setBuffer(id: string, code: string) {
@@ -284,7 +310,7 @@ export class LocalSceneHost implements SceneHost {
       // Only workspace files gate the cache — node_modules churn is invisible
       // to mtime checks anyway (Vite externalizes fluidcad) and never holds
       // user parts.
-      if (!file.startsWith(this.rootPath) || file.includes('/node_modules/')) {
+      if (!this.inWorkspace(file) || file.includes('/node_modules/')) {
         continue;
       }
       seen.add(file);
@@ -316,7 +342,7 @@ export class LocalSceneHost implements SceneHost {
         continue;
       }
       seen.add(file);
-      if (!file.startsWith(this.rootPath) || file.includes('/node_modules/')) {
+      if (!this.inWorkspace(file) || file.includes('/node_modules/')) {
         continue;
       }
       importers.add(file);

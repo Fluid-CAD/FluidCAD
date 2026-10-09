@@ -523,8 +523,9 @@ export class FluidCadServer {
         // part() definitions are lazy — a part-kind entry scene materializes
         // the definitions the entry file declares but nothing exported or
         // inserted, so the open file stays WYSIWYG; parts other modules
-        // declare are left out. Assembly scenes build strictly via insert(). (Optional call: the workspace's fluidcad
-        // install may predate lazy definitions.)
+        // declare are left out. Assembly scenes build strictly via insert().
+        // (Optional call: the workspace's fluidcad install may predate lazy
+        // definitions.)
         if (sceneKind !== 'assembly') {
           try {
             (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();

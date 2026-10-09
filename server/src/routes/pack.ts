@@ -1,61 +1,42 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import { packModel } from '../model-package/pack.ts';
-import type { ModelPackageCamera } from '../model-package/types.ts';
-import { readProjectConfig } from '../project-config.ts';
-import type { CameraStateMessage } from '../ws-protocol.ts';
+import { PackageBuildError, packPackage } from '../packages/package-builder.ts';
+import { PackageLayout } from '../packages/package-manifest.ts';
 
 /**
- * `POST /api/pack` — produce a `.fluidpkg` (zip) archive of the currently
- * rendered file. Pulls live param overrides and the last-known camera state
- * from the running server so the archive matches what the user is seeing.
- * Returns the binary archive directly (application/zip).
+ * `POST /api/pack` — pack the open workspace's package (`fluidcad.json`
+ * `package`) into a `.fluidpkg` (research §2), as `fluidcad pack` does, and
+ * return the archive (application/zip). The workspace's running engine
+ * evaluates the exports, so nothing boots twice; a file whose editor
+ * buffer differs from the disk is refused, because the disk is what ships.
+ * Nothing is written to the workspace.
+ *
+ * A refusal — not a package, or a pack check failing — is a 400 whose
+ * `error` is the sentence the CLI prints.
  */
 export function createPackRouter(
   fluidCadServer: FluidCadServer,
   workspacePath: string,
   fluidcadVersion: string,
-  getLastCameraState: () => CameraStateMessage | null,
 ): Router {
   const router = Router();
 
-  router.post('/pack', async (req, res) => {
-    const currentFile = fluidCadServer.getCurrentFileName();
-    if (!currentFile) {
-      res.status(404).json({ error: 'No active scene to pack' });
-      return;
-    }
-    const { name, description } = (req.body ?? {}) as { name?: string; description?: string };
-    const cameraMsg = getLastCameraState();
-    const camera: ModelPackageCamera | undefined = cameraMsg
-      ? {
-          position: cameraMsg.position,
-          target: cameraMsg.target,
-          up: cameraMsg.up,
-          projection: cameraMsg.projection,
-        }
-      : undefined;
+  router.post('/pack', async (_req, res) => {
     try {
-      const result = await packModel({
-        entryPath: currentFile,
-        workspacePath,
-        fluidcadVersion,
-        name,
-        description,
-        paramOverrides: fluidCadServer.getParamOverrides(currentFile),
-        camera,
-        // Read per request, not at boot: `fluidcad.json` may have been edited
-        // since the server started, and the package must say what it says now.
-        unit: readProjectConfig(workspacePath).unit ?? 'mm',
-      });
+      const { manifest, zip } = await packPackage({ workspacePath, fluidcadVersion, engine: fluidCadServer });
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('X-FluidCAD-Package-Name', result.manifest.name);
+      res.setHeader('X-FluidCAD-Package-Name', manifest.name);
+      res.setHeader('X-FluidCAD-Package-Version', manifest.version);
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="${encodeURIComponent(result.manifest.name)}.fluidpkg"`,
+        `attachment; filename="${PackageLayout.archiveName(manifest.name, manifest.version)}"`,
       );
-      res.send(result.zip);
+      res.send(zip);
     } catch (err: any) {
+      if (err instanceof PackageBuildError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: err?.message ?? String(err) });
     }
   });

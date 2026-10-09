@@ -60,6 +60,8 @@ export type StartProject = {
   lastOpenedAt: string;
   open: boolean;
   thumbnail: string | null;
+  /** A package workspace's identity (its `fluidcad.json` `package` block), for the card's "Package" badge. */
+  package?: { name: string; version: string } | null;
 };
 
 export type EngineOptions = {

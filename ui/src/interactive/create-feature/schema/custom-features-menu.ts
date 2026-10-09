@@ -1,4 +1,5 @@
-import { ICON_CHEVRON_DOWN, ICON_CUSTOM_FEATURES } from '../../../ui/icons';
+import { ICON_CHEVRON_DOWN } from '../../../ui/icons';
+import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
@@ -148,7 +149,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.button.setAttribute('aria-haspopup', 'true');
     this.button.setAttribute('aria-expanded', 'false');
     this.button.innerHTML =
-      `<span class="w-7 h-7 shrink-0 flex items-center justify-center [&>svg]:w-6 [&>svg]:h-6">${ICON_CUSTOM_FEATURES}</span>`
+      `<img src="${iconUrl('custom-features')}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
       + `<span class="${TOOLBAR_BTN_LABEL} flex items-center gap-0.5">Custom`
       + `<span class="[&>svg]:size-2.5" aria-hidden="true">${ICON_CHEVRON_DOWN}</span></span>`;
     this.button.addEventListener('click', () => this.toggle());

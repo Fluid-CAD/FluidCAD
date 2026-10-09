@@ -5,6 +5,7 @@ import {
   GRID_MIN_CELL_PX_RANGE,
   MAX_WORKERS_RANGE,
   MEASURE_LENGTH_UNITS,
+  PACKAGE_INSTALL_TARGETS,
   PICK_RADIUS_PX_RANGE,
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
@@ -14,6 +15,7 @@ import {
   type Preferences,
 } from '../preferences.ts';
 import { parseProjectMaterials } from '../project-config.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 /** Bounds an editor font family: one line of plain text, no CSS injection surface. */
 const MAX_FONT_FAMILY_CHARS = 120;
@@ -58,6 +60,15 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   router.post('/preferences', async (req, res) => {
     try {
       const body = req.body;
+      // The one setting refused out loud rather than dropped: a library
+      // folder the user typed that can't hold packages. Nothing is saved.
+      const libraryProblem = typeof body.packageLibraryPath === 'string' && body.packageLibraryPath.trim() !== ''
+        ? PackageRoots.checkLibraryPath(body.packageLibraryPath.trim())
+        : null;
+      if (libraryProblem) {
+        res.status(400).json({ error: libraryProblem, key: 'packageLibraryPath' });
+        return;
+      }
       const saved = await serialized(async () => {
         const current = await loadPreferences();
         if (body.theme && typeof body.theme === 'string') {
@@ -156,9 +167,18 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
             current.materials = materials.materials;
           }
         }
+        // Empty puts the library back at its default.
+        if (typeof body.packageLibraryPath === 'string') {
+          current.packageLibraryPath = body.packageLibraryPath.trim();
+        }
+        if (PACKAGE_INSTALL_TARGETS.includes(body.packageInstallTarget)) {
+          current.packageInstallTarget = body.packageInstallTarget;
+        }
         await savePreferences(current);
         return current;
       });
+      // The library may have moved: every cached package-root verdict goes.
+      PackageRoots.forget();
       onSaved(saved);
       res.json(saved);
     } catch (err: any) {
@@ -172,6 +192,7 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   router.post('/preferences/reset', async (_req, res) => {
     try {
       const prefs = await serialized(() => resetPreferences());
+      PackageRoots.forget();
       onSaved(prefs);
       res.json(prefs);
     } catch (err: any) {

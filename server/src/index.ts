@@ -27,6 +27,8 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createPackagesRouter } from './routes/packages.ts';
+import { PackageInstaller } from './packages/package-installer.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
@@ -235,6 +237,7 @@ app.use('/api', createUnitRouter({
   broadcastToUI,
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
+app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
@@ -726,6 +729,14 @@ httpServer.listen(PORT, HOST, () => {
   const dependenciesWarning = describeProjectDependenciesProblem(PROJECT_CONFIG);
   if (dependenciesWarning) {
     console.warn(dependenciesWarning);
+  }
+
+  // What an install killed mid-way left in the package roots' scratch
+  // (`<root>/.tmp/<pid>-…` of a process that is gone). Housekeeping only.
+  try {
+    PackageInstaller.sweep(WORKSPACE_PATH || null);
+  } catch {
+    // An unreadable root sweeps on a later start.
   }
 
   // Tell the page about edits made outside it. Announcement only — the CLI's

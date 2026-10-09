@@ -14,5 +14,6 @@ export function normalizeAssemblyPayload(raw: Partial<SerializedAssembly> | null
     occurrences: raw?.occurrences ?? [],
     connectors: raw?.connectors ?? [],
     replicates: raw?.replicates ?? [],
+    relations: raw?.relations ?? [],
   };
 }

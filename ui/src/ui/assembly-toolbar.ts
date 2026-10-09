@@ -1,7 +1,7 @@
 import { Navbar } from './navbar';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
-import type { AssemblyMateType } from '../api';
+import type { AssemblyMateType, AssemblyRelationType } from '../api';
 import { iconUrl } from './icon-url';
 
 /** The click handlers main.ts wires the implemented assembly tools to. */
@@ -13,6 +13,8 @@ export type AssemblyToolbarHandlers = {
   onReplicate?: () => void;
   /** A mate button — opens the mate dialog with that type preselected. */
   onMate?: (type: AssemblyMateType) => void;
+  /** A relation button (Gear, Rack) — opens the relation dialog with that type preselected. */
+  onRelation?: (type: AssemblyRelationType) => void;
 };
 
 /**
@@ -59,6 +61,23 @@ export class AssemblyToolbar {
       }
     }
     // this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
+
+    // Relations couple two mates' motions: a gear ties two rotations, a
+    // rack-and-pinion a rotation to a slide. One button per type, sharing
+    // the gear icon until the rack gets its own.
+    const relationGroup = navbar.addGroup('assembly-relation', { mode: 'assembly' });
+    const relations: { type: AssemblyRelationType; label: string; tip: string }[] = [
+      { type: 'gear', label: 'Gear', tip: 'Gear relation — couple two rotating mates' },
+      { type: 'rack-and-pinion', label: 'Rack', tip: 'Rack and pinion relation — couple a rotating mate to a slider' },
+    ];
+    for (const { type, label, tip } of relations) {
+      const opts = { icon: 'relation-gear', label, tip };
+      if (handlers.onRelation) {
+        this.addButton(relationGroup, opts, () => handlers.onRelation!(type));
+      } else {
+        this.addPlaceholder(relationGroup, opts);
+      }
+    }
 
     // Last group, the occasional tools after the daily mates: Replicate
     // (copies of a mated seed onto new targets) then Connector.

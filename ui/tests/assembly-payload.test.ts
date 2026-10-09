@@ -14,6 +14,7 @@ describe('normalizeAssemblyPayload', () => {
       occurrences: [{ occurrenceId: 'asm-0' } as NonNullable<SerializedAssembly['occurrences']>[number]],
       connectors: [{ connectorId: 'w-0' } as NonNullable<SerializedAssembly['connectors']>[number]],
       replicates: [{ replicateId: 'rep-0' } as NonNullable<SerializedAssembly['replicates']>[number]],
+      relations: [{ relationId: 'rel-0' } as NonNullable<SerializedAssembly['relations']>[number]],
     };
     const out = normalizeAssemblyPayload(raw);
     expect(out).toEqual(raw);
@@ -30,7 +31,9 @@ describe('normalizeAssemblyPayload', () => {
       occurrences: [],
       connectors: [],
       replicates: [],
+      relations: [],
     });
     expect(normalizeAssemblyPayload(undefined).replicates).toEqual([]);
+    expect(normalizeAssemblyPayload(undefined).relations).toEqual([]);
   });
 });

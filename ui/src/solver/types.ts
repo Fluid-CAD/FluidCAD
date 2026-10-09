@@ -112,6 +112,22 @@ export type MateRecord = {
   };
 };
 
+/**
+ * One `relation()`: couples the free scalar of two mates — gear: both
+ * rotations (revolute / cylindrical); rack-and-pinion: A's rotation to B's
+ * slide (slider / cylindrical). `ratio` is positive (gear: turns of B per
+ * turn of A; rack: B's travel per revolution of A); `reverse` flips the
+ * sense. See relation-model.ts for the coupling's semantics.
+ */
+export type RelationRecord = {
+  relationId: string;
+  type: 'gear' | 'rack-and-pinion';
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+};
+
 /** The two body-side references of a mate, connector- or geometry-authored. */
 export function mateSideIds(mate: MateRecord): { aId: string; bId: string } | null {
   if (mate.connectorA && mate.connectorB) {
@@ -126,6 +142,8 @@ export function mateSideIds(mate: MateRecord): { aId: string; bId: string } | nu
 export type SolverInput = {
   bodies: BodyState[];
   mates: MateRecord[];
+  /** Couplings between mates' free motions; absent = none. */
+  relations?: RelationRecord[];
   /** When set, the solver translates this body so its origin tracks `draggedTargetOrigin`. */
   draggedInstanceId?: string;
   /**
@@ -204,4 +222,6 @@ export type SolverOutput = {
   failed: string[];
   /** The same mates with their measured misclosure, same order as `failed`. */
   failures: MateFailure[];
+  /** Ids of every relation the solve could not hold (its sides did not move in ratio). */
+  failedRelations: string[];
 };

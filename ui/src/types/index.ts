@@ -527,6 +527,8 @@ export type SerializedAssemblyOccurrence = {
 
 export type SerializedAssemblyMate = {
   mateId: string;
+  /** The authored `.name('…')`, when the statement has one. */
+  name?: string;
   /** Scope the mate() statement ran in: "" (or absent) for the open file. */
   owner?: string;
   type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
@@ -544,6 +546,25 @@ export type SerializedAssemblyMate = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a replicated mate: its statement is the `replicate()` call; edit the seed mate instead. */
   replica?: ReplicaTag;
+};
+
+/**
+ * One `relation()` statement: a gear or rack-and-pinion coupling between
+ * the free motions of two mates, by their ids. `ratio` is positive — gear:
+ * turns of B per turn of A; rack-and-pinion: B's travel per revolution of
+ * A — and `reverse` carries the sense.
+ */
+export type SerializedAssemblyRelation = {
+  relationId: string;
+  name?: string;
+  /** Scope the relation() statement ran in: "" for the open file. */
+  owner: string;
+  type: 'gear' | 'rack-and-pinion';
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+  sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 /**
@@ -574,6 +595,8 @@ export type SerializedAssembly = {
   connectors?: SerializedAssemblyConnector[];
   /** Absent on engines predating `replicate()`. */
   replicates?: SerializedAssemblyReplicate[];
+  /** Absent on engines predating `relation()`. */
+  relations?: SerializedAssemblyRelation[];
 };
 
 /**

@@ -219,6 +219,22 @@ export type SerializedAssemblyConnector = {
   copy?: { slot: number; seedId: string };
 };
 
+/**
+ * One `relation()` statement: a gear or rack-and-pinion coupling between the
+ * free motions of two mates, by their ids. Absent on engines predating it.
+ */
+export type SerializedAssemblyRelation = {
+  relationId: string;
+  name?: string;
+  owner: string;
+  type: 'gear' | 'rack-and-pinion';
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export type SerializedAssembly = {
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];
@@ -226,6 +242,8 @@ export type SerializedAssembly = {
   connectors?: SerializedAssemblyConnector[];
   /** Absent on engines predating `replicate()`. */
   replicates?: SerializedAssemblyReplicate[];
+  /** Absent on engines predating `relation()`. */
+  relations?: SerializedAssemblyRelation[];
 };
 
 export type SceneRenderedMessage = {

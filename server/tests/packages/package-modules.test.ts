@@ -31,13 +31,13 @@ function rectangle(x: number, y: number, w: number, h: number): string {
 
 /**
  * The part model: a 40 × 30 × 5 plate (built-ins) and the package's standoff
- * 12 tall on its top. It imports the package's spacer too, whose `part()`
- * runs when the package module evaluates: the part scene materializes it as
- * a definition the module created (top-level tracking). `probe.js`, a
- * workspace module importing `fluidcad/sdk`, is imported after the package.
+ * 12 tall on its top. The package's index re-exports its spacer too, whose
+ * `part()` runs when the package module evaluates — but a part file shows
+ * only the parts it declares itself, so the spacer stays unbuilt. `probe.js`,
+ * a workspace module importing `fluidcad/sdk`, is imported after the package.
  */
 const MODEL = [
-  `import { standoff, spacer } from '@acme/kit';`,
+  `import { standoff } from '@acme/kit';`,
   `import { Feature } from './probe.js';`,
   `import { sketch, extrude, line, select } from 'fluidcad/core';`,
   `import { coincident, fix } from 'fluidcad/constraints';`,
@@ -177,12 +177,24 @@ describe('the @acme/kit fixture', () => {
 });
 
 describe('a model importing an installed package', () => {
-  it('renders the package\'s standoff on the plate and its spacer beside it, every object without an error', async () => {
+  it('renders the package\'s standoff on the plate and none of the package\'s parts, every object without an error', async () => {
     await start();
     const data = await render();
     expect(errorsOf(data)).toEqual([]);
     expect(rowsOf(data).filter(row => row.type === 'acme.standoff')).toHaveLength(1);
-    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    // The index evaluated the spacer's part() — the part file declares no
+    // spacer, so it never builds.
+    expect(rowsFrom(data, inKit('parts/spacer.part.js'))).toEqual([]);
+    expect(rowsOf(data).filter(row => row.type === 'part')).toEqual([]);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12), 3);
+  });
+
+  it('leaves out a package part the model imports by name but never inserts', async () => {
+    await start();
+    const data = await render(MODEL.replace(`import { standoff } from '@acme/kit';`, `import { standoff, spacer } from '@acme/kit';`));
+    expect(errorsOf(data)).toEqual([]);
+    expect(rowsFrom(data, inKit('parts/spacer.part.js'))).toEqual([]);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12), 3);
   });
 
   it('inserts the package\'s spacer in an assembly, measured in the package\'s inches', async () => {
@@ -211,18 +223,27 @@ describe('a model importing an installed package', () => {
     expect(cylinder!.sourceLocation!.line - definition!.sourceLocation!.line).toBe(2);
   });
 
-  it('re-evaluates the package on every render: the second render still tracks the spacer and builds the standoff', async () => {
+  it('re-evaluates the package on every render: the second render runs the spacer\'s part() again and builds the standoff', async () => {
     await start();
     const first = await render();
     expect(errorsOf(first)).toEqual([]);
-    expect(volumeOf(rowsOf(first))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    expect(volumeOf(rowsOf(first))).toBeCloseTo(PLATE + tube(12), 3);
+    const firstSpacer = (await host!.loadModuleRaw(inKit('parts/spacer.part.js'))).spacer;
 
     // Without re-evaluation the package's part() ran once, on the first
-    // scene: the second would no longer know the spacer.
+    // render: the second would serve that render's definition.
     const second = await render(`${MODEL}// a note\n`);
     expect(errorsOf(second)).toEqual([]);
-    expect(rowsFrom(second, inKit('parts/spacer.part.js')).length).toBeGreaterThan(0);
-    expect(volumeOf(rowsOf(second))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    expect(rowsFrom(second, inKit('parts/spacer.part.js'))).toEqual([]);
+    expect(volumeOf(rowsOf(second))).toBeCloseTo(PLATE + tube(12), 3);
+    const secondSpacer = (await host!.loadModuleRaw(inKit('parts/spacer.part.js'))).spacer;
+    expect(secondSpacer).toBeDefined();
+    expect(secondSpacer).not.toBe(firstSpacer);
+
+    // The assembly, rendered after both, still inserts the package's part.
+    const assembly = await server.processFile(at('model.assembly.js'));
+    expect(errorsOf(assembly)).toEqual([]);
+    expect(volumeOf(rowsFrom(assembly, inKit('parts/spacer.part.js')))).toBeCloseTo(SPACER, 3);
   });
 
   it('loads one kernel when a package file is the first to import an engine subpath', async () => {
@@ -246,7 +267,7 @@ describe('a model importing an installed package', () => {
     // …and the package's files, outside it, still reach the engine.
     const data = await render();
     expect(errorsOf(data)).toEqual([]);
-    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12), 3);
   });
 
   it('refuses a package file that imports a blocked Node module', async () => {
@@ -279,6 +300,74 @@ describe('a model importing an installed package', () => {
     await render();
     const watched = Object.keys(host!.server.watcher.getWatched()).map(dir => dir.replace(/\\/g, '/'));
     expect(watched.some(dir => dir === kit || dir.startsWith(`${kit}/`))).toBe(false);
+  });
+});
+
+/**
+ * A part file with a part of its own: a riser it declares and never exports,
+ * beside the package's standoff — and the workspace plate part file imported
+ * for nothing but its definition.
+ */
+const RISER_MODEL = [
+  `import { standoff } from '@acme/kit';`,
+  `import { plate } from './plate.part.js';`,
+  `import { part, sketch, extrude, line, select } from 'fluidcad/core';`,
+  `import { coincident, fix } from 'fluidcad/constraints';`,
+  `import { face } from 'fluidcad/filters';`,
+  ``,
+  `part('Riser', () => {`,
+  `  sketch('xy', () => {`,
+  rectangle(0, 0, 20, 10),
+  `  });`,
+  `  extrude(8);`,
+  `  const top = select(face().planar().onPlane('xy', 8));`,
+  `  standoff(top, { height: 12 });`,
+  `});`,
+  ``,
+].join('\n');
+
+const RISER = 20 * 10 * 8;
+
+describe('a part file importing other part files', () => {
+  /** The part rows a render shows, by name. */
+  function partNames(data: SceneRenderedData | null): string[] {
+    return rowsOf(data).filter(row => row.type === 'part').map(row => (row as Row & { name: string }).name);
+  }
+
+  it('builds the parts it declares, never the imported ones, every object without an error', async () => {
+    await start();
+    const data = await render(RISER_MODEL);
+    expect(errorsOf(data)).toEqual([]);
+    expect(partNames(data)).toEqual(['Riser']);
+    expect(rowsFrom(data, at('plate.part.js'))).toEqual([]);
+    expect(rowsFrom(data, inKit('parts/spacer.part.js'))).toEqual([]);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(RISER + tube(12), 3);
+  });
+
+  it('stays the same on a second render', async () => {
+    await start();
+    expect(errorsOf(await render(RISER_MODEL))).toEqual([]);
+    const second = await render(`${RISER_MODEL}// a note\n`);
+    expect(errorsOf(second)).toEqual([]);
+    expect(partNames(second)).toEqual(['Riser']);
+    expect(volumeOf(rowsOf(second))).toBeCloseTo(RISER + tube(12), 3);
+  });
+
+  it('renders the saved file from disk as the live buffer does', async () => {
+    write(at('model.part.js'), RISER_MODEL);
+    await start();
+    const data = await server.processFile(at('model.part.js'));
+    expect(errorsOf(data)).toEqual([]);
+    expect(partNames(data)).toEqual(['Riser']);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(RISER + tube(12), 3);
+  });
+
+  it('still builds an imported part file rendered on its own', async () => {
+    await start();
+    const data = await server.processFile(at('plate.part.js'));
+    expect(errorsOf(data)).toEqual([]);
+    expect(partNames(data)).toEqual(['Plate']);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE, 3);
   });
 });
 

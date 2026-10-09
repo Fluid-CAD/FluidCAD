@@ -23,7 +23,7 @@ function rectangle(x: number, y: number, w: number, h: number): string {
   ].join('\n');
 }
 
-/** A 40 × 30 × 5 plate with the package's standoff 12 tall on top; the kit's spacer comes along (top-level tracking). */
+/** A 40 × 30 × 5 plate with the package's standoff 12 tall on top; the kit's spacer, which the part file does not declare, stays unbuilt. */
 const MODEL = [
   `import { standoff } from '@acme/kit';`,
   `import { sketch, extrude, line, select } from 'fluidcad/core';`,
@@ -123,7 +123,8 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
     await boot();
     const data = await render();
     expect(errorsOf(data)).toEqual([]);
-    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    expect(volumeOf(rowsOf(data))).toBeCloseTo(PLATE + tube(12), 3);
+    expect(rowsOf(data).filter(row => row.sourceLocation?.filePath === `${kit}/parts/spacer.part.js`)).toEqual([]);
     expect(host!.resolvedPackages()).toMatchObject([{ name: '@acme/kit', version: '0.1.0', target: 'library', directory: kit }]);
     expect(server.getPackageProblems()).toEqual([]);
   });
@@ -131,12 +132,15 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
   it('marks the rows a package file made with the package, and no other row', async () => {
     const kit = await pinKit();
     await boot();
-    const rows = rowsOf(await render());
-    const spacerRows = rows.filter(row => row.sourceLocation?.filePath === `${kit}/parts/spacer.part.js`);
+    // The spacer builds where it is inserted: in the assembly.
+    const assembly = await server.processFile(project.at('model.assembly.js'));
+    expect(errorsOf(assembly)).toEqual([]);
+    const spacerRows = rowsOf(assembly).filter(row => row.sourceLocation?.filePath === `${kit}/parts/spacer.part.js`);
     expect(spacerRows.map(row => row.type)).toEqual(expect.arrayContaining(['part', 'cylinder']));
     for (const row of spacerRows) {
       expect(row.package).toEqual({ name: '@acme/kit', version: '0.1.0' });
     }
+    const rows = rowsOf(await render());
     // The standoff statement is the model's own line: its row is editable.
     expect(standoffOf({ result: rows } as SceneRenderedData).package).toBeUndefined();
     expect(rows.filter(row => row.sourceLocation?.filePath === project.at('model.part.js')).every(row => row.package === undefined)).toBe(true);
@@ -209,7 +213,7 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
     await boot();
     const first = await render();
     expect(errorsOf(first)).toEqual([]);
-    expect(volumeOf(rowsOf(first))).toBeCloseTo(PLATE + tube(12) + SPACER, 3);
+    expect(volumeOf(rowsOf(first))).toBeCloseTo(PLATE + tube(12), 3);
     // Unchanged pins: the standoff comes from the cache.
     const again = await render(`${MODEL}// note\n`);
     expect(standoffOf(again).fromCache).toBe(true);
@@ -219,20 +223,20 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
     const switched = await render(`${MODEL}// note\n`);
     expect(errorsOf(switched)).toEqual([]);
     expect(standoffOf(switched).fromCache).toBe(false);
-    expect(volumeOf(rowsOf(switched))).toBeCloseTo(PLATE + tube(17) + SPACER, 3);
+    expect(volumeOf(rowsOf(switched))).toBeCloseTo(PLATE + tube(17), 3);
     expect(host!.resolvedPackages()).toMatchObject([{ name: '@acme/kit', version: '0.2.0' }]);
 
     // And caches again from there.
     const settled = await render(`${MODEL}// note 2\n`);
     expect(standoffOf(settled).fromCache).toBe(true);
-    expect(volumeOf(rowsOf(settled))).toBeCloseTo(PLATE + tube(17) + SPACER, 3);
+    expect(volumeOf(rowsOf(settled))).toBeCloseTo(PLATE + tube(17), 3);
   });
 
   it('loads the project\'s own copy before the library\'s', async () => {
     await pinKit();
     const copy = (await project.install('@acme/kit', '0.1.0', { target: 'project' })).dir;
     await boot();
-    const data = await render();
+    const data = await server.processFile(project.at('model.assembly.js'));
     expect(errorsOf(data)).toEqual([]);
     expect(host!.resolvedPackages()).toMatchObject([{ target: 'project', directory: copy }]);
     const spacer = rowsOf(data).find(row => row.type === 'part')!;

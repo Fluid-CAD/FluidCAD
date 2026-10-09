@@ -29,6 +29,12 @@ A global install (`npm install -g fluidcad`) is not supported — the engine and
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
+| [`fluidcad package init`](#fluidcad-package-init) | Make this project a package: write the `package` block of `fluidcad.json` |
+| [`fluidcad version`](#fluidcad-version) | Raise the package's version |
+| [`fluidcad pack`](#fluidcad-pack) | Pack the package into a `.fluidpkg` file others can install |
+| [`fluidcad install`](#fluidcad-install) | Install a package from a file, use an installed one in this project, or check that every package the project uses is installed |
+| [`fluidcad remove`](#fluidcad-remove) | Remove an installed package from your library or from this project |
+| [`fluidcad packages`](#fluidcad-packages) | List your library, and in a project its copies and the packages it uses |
 | [`fluidcad mcp`](#fluidcad-mcp) | Run the MCP server over stdio |
 
 Every command accepts `--help`, and `npx fluidcad --version` prints the installed version.
@@ -373,6 +379,159 @@ npx fluidcad export png --transparent --no-grid -o docs/hero.png
 
 If a server is already attached and no browser is on it, the command fails immediately and tells you the URL to open — re-run with `--open`, or stop that server so the CLI can spawn its own.
 :::
+
+---
+
+## Packages
+
+A [package](/docs/extra/packages) is a project's custom features and parts, packed into one `.fluidpkg` file that other projects install. These commands make one, install one, and list what is installed. Packages are installed into your library, the home directory's `~/.fluidcad/packages` unless **Settings ▸ Packages ▸ Library folder** names another folder (the `FLUIDCAD_PACKAGES` environment variable overrides both), or into a project's own `packages/` folder.
+
+### `fluidcad package init`
+
+```bash
+npx fluidcad package init --name @acme/mounting-hardware
+```
+
+Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name, version `0.1.0`, and every `*.feature.js` file as an export.
+
+```
+Wrote the "package" block to …/mounting-hardware/fluidcad.json:
+  {
+    "name": "@acme/mounting-hardware",
+    "version": "0.1.0",
+    "exports": [
+      "bolt-circle.feature.js",
+      "boss.feature.js",
+      "fastener.feature.js",
+      "standoff.feature.js"
+    ]
+  }
+"exports" lists every feature module. Add *.part.js or *.assembly.js modules to share parts, or remove what stays private.
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-n, --name <@scope/name>` | The package name, in lowercase letters, digits and dashes | asked for in a terminal |
+| `-w, --workspace <path>` | Path to the project | Current directory |
+
+It refuses a project that already has a `package` block, and a `fluidcad.json` it cannot read.
+
+### `fluidcad version`
+
+```bash
+npx fluidcad version minor
+```
+
+Raises the package's version in `fluidcad.json`: `major`, `minor` or `patch`, or an exact version such as `1.2.0`. It prints the change, `@acme/mounting-hardware 0.1.0 → 0.2.0`, and refuses the version the package already has. `-w, --workspace <path>` points it at another project.
+
+### `fluidcad pack`
+
+```bash
+npx fluidcad pack
+npx fluidcad pack -o dist/
+```
+
+Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise:
+
+```
+Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
+  4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+  2 parts: hubFlange, pcbPlate
+  28 files, 17.5 kB, unit mm
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-o, --out <path>` | The output file, or a folder to write it into | `<scope>-<name>-<version>.fluidpkg` in the project |
+| `-w, --workspace <path>` | Path to the project | Current directory |
+
+The file holds the files `exports` lists, the files they import and the pictures their features declare, unchanged, plus `README.md`, `LICENSE` and `CHANGELOG.md` when the project has them, and three generated files: `index.js`, `manifest.json` (what the package holds, read by the installer) and a `fluidcad.json` with only the unit and materials. Test models, `init.js` and anything else not exported stay out, and nothing else is written to the project. The same project packs to the same bytes every time.
+
+Before writing, the engine loads every export, builds every exported part with its default values and checks every feature. A problem stops the pack with one sentence naming the file, for example:
+
+```
+standoff.feature.js declares the feature id 'mounts.standoff', but @acme/mounting-hardware may only declare ids that start with 'acme.' (the package's scope).
+```
+
+The checks: the `package` block is valid and every export exists; no two files export the same name and no two features share an id; every feature id starts with the scope; every exported part builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
+
+To release a new version: edit, `npx fluidcad version minor`, `npx fluidcad pack`.
+
+### `fluidcad install`
+
+```bash
+npx fluidcad install acme-mounting-hardware-0.1.0.fluidpkg     # from a file
+npx fluidcad install @acme/mounting-hardware                    # use an installed package in this project
+npx fluidcad install                                            # check this project's packages
+```
+
+**From a file**, it shows what the package holds and asks before installing:
+
+```
+@acme/mounting-hardware 0.1.0 — Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange
+  4 features: acme.boltCircle (Bolt circle), acme.boss (Boss), acme.fastener (Fastener hole), acme.standoff (Standoff)
+  2 parts: hubFlange, pcbPlate
+  needs FluidCAD 0.0.45 or newer (packed on 0.0.46)
+  28 files, 41.4 kB, sha256-9gPApDnFu7GQz1+By40SoZnvxLgLSZDezAbqJSxF2Mw=
+A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.
+Installing into your library (/Users/you/.fluidcad/packages), and pinning it in this project.
+```
+
+Run inside a project, it also records the package in the project's [`dependencies`](/docs/project-configuration#dependencies); run elsewhere, it only installs. Installing the same version with the same contents again changes nothing. The same version with other contents is refused unless `--replace` is given, and in a project whose recorded hash differs, it is refused either way.
+
+**With a package name**, it records an installed package (from your library, or this project's copy) in this project, copying no files: `Pinned @acme/mounting-hardware 0.1.0 in this project's fluidcad.json (it loads from your library).` With `--project` it also copies the package into the project's `packages/` folder. Add `@version` to pick one of several installed versions.
+
+**With no arguments**, it checks that every package the project records is installed. A missing one is listed and the command exits with status 1:
+
+```
+This project pins a package that isn't installed:
+  @acme/mounting-hardware 0.1.0
+Install each from its file: fluidcad install <file.fluidpkg>. Downloading them from the hub comes later.
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--library` | Install the file into your library | _the **New packages go to** setting, the library unless changed_ |
+| `--project` | Install into this project's `packages/` folder; with a package name, copy it there from your library | _off_ |
+| `-y, --yes` | Install without asking. Without a terminal, a file install needs it | _asks_ |
+| `--replace` | Replace an installed copy of the same version whose contents differ | _off_ |
+
+### `fluidcad remove`
+
+```bash
+npx fluidcad remove @acme/mounting-hardware              # from your library
+npx fluidcad remove @acme/mounting-hardware --project    # this project's copy
+npx fluidcad remove @acme/mounting-hardware@0.1.0        # one of several installed versions
+```
+
+Removes an installed package's files. It never changes a project's `dependencies`: a project that still uses the package says so and asks for it on its next render.
+
+```
+Removed @acme/mounting-hardware 0.1.0 from your library (/Users/you/.fluidcad/packages).
+This project still pins @acme/mounting-hardware 0.1.0, which is no longer installed: its models will ask for it until you install it again (fluidcad install <file.fluidpkg>).
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--library` | Remove it from your library | _the default_ |
+| `--project` | Remove it from this project's `packages/` folder | _off_ |
+
+### `fluidcad packages`
+
+```bash
+npx fluidcad packages
+```
+
+Lists your library and, in a project, the project's own copies and the packages it uses, with where each one loads from:
+
+```
+Your library: /Users/you/.fluidcad/packages
+  @acme/mounting-hardware 0.1.0  4 features, 2 parts, 41.4 kB
+This project's packages folder: /Users/you/cad/controller-enclosure/packages
+  (empty)
+Pinned in fluidcad.json:
+  @acme/mounting-hardware 0.1.0  from your library
+```
 
 ---
 

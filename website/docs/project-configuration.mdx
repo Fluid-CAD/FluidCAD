@@ -11,11 +11,12 @@ A FluidCAD project is an ordinary folder: a descriptor, an entry point, and one 
 my-hinge/
 ├── package.json          ← npm dependencies (the fluidcad package)
 ├── jsconfig.json         ← editor type hints
-├── fluidcad.json         ← project descriptor: engine pin, unit, materials
+├── fluidcad.json         ← project descriptor: engine pin, unit, materials, packages
 ├── init.js               ← required entry point
 ├── leaf.part.js          ← a part
 ├── pin.part.js           ← another part
-└── hinge.assembly.js     ← an assembly of the two
+├── hinge.assembly.js     ← an assembly of the two
+└── packages/             ← optional: copies of installed packages the project carries
 ```
 
 `npx fluidcad init` writes the first four; you add the model files as you work. [Installation](/docs/installation#npm-installation) covers creating the project in the first place.
@@ -50,7 +51,7 @@ The project descriptor, written next to `init.js`: plain JSON that the server, t
 }
 ```
 
-Every key is optional. A project with no `fluidcad.json` behaves as if the file held none of them: no engine pin, millimetres, only the built-in materials.
+Every key is optional. A project with no `fluidcad.json` behaves as if the file held none of them: no engine pin, millimetres, only the built-in materials, no packages. Two more keys, [`package`](#package) and [`dependencies`](#dependencies), concern [packages](/docs/extra/packages).
 
 ### `engine`
 
@@ -122,6 +123,69 @@ The map travels with the project: a `.material('alloy-steel')` in a part resolve
 The map is filled for you: your own materials live in [Settings → Materials](/docs/user-interface#your-own-materials), and **Set material…** on a part row copies the picked one into this key when the project does not have it yet, keeping every other key of the file — so a project holds exactly the custom materials it uses. Nothing removes an entry automatically. Editing the JSON by hand works the same; the file is re-read before every render, so no restart is needed either way. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
 
 An invalid map is reported like a bad `unit` — an entry without a `name` string, with a density that is not a positive number, with an unknown `densityUnit`, or with an empty id — and the whole map is ignored until it is fixed. `package.json` accepts the same map under `{ "fluidcad": { "materials": { … } } }`, and `fluidcad.json` wins when both exist.
+
+### `package`
+
+Makes the project a [package](/docs/extra/packages) that others can install: its name, its version, and the files it shares. A project with this block is still an ordinary project; its own models render as before.
+
+```json
+{
+  "engine": "0.0.46",
+  "unit": "mm",
+  "package": {
+    "name": "@acme/mounting-hardware",
+    "version": "0.1.0",
+    "description": "Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange",
+    "exports": [
+      "bolt-circle.feature.js",
+      "boss.feature.js",
+      "fastener.feature.js",
+      "standoff.feature.js",
+      "hub-flange.part.js",
+      "pcb-plate.part.js"
+    ],
+    "license": "MIT",
+    "author": "Acme Robotics"
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Required. `@scope/name`, in lowercase letters, digits and dashes. Feature ids in the package must start with the scope: `acme.standoff`. |
+| `version` | Required. An exact version, `MAJOR.MINOR.PATCH` with an optional `-prerelease` (`1.2.0`, `2.0.0-beta.1`). |
+| `exports` | Required. The files whose features and parts are shared, relative to the project: `*.feature.js`, `*.part.js` or `*.assembly.js`. The files they import are packed along but not shared. Test models stay out. |
+| `description`, `license`, `author`, `homepage` | Optional text, shown when the package is installed. |
+| `keywords` | Optional list of words. |
+| `minEngine` | Optional. The oldest FluidCAD the package runs on; by default the project's `engine` pin. |
+
+[`npx fluidcad package init`](/docs/cli#fluidcad-package-init) writes the block, [`npx fluidcad version`](/docs/cli#fluidcad-version) raises the version, and [`npx fluidcad pack`](/docs/cli#fluidcad-pack) packs the project into a `.fluidpkg`. Packing never changes the project. A broken block is reported when the server starts and the project is treated as a plain project; `engine`, `unit` and `materials` keep working.
+
+### `dependencies`
+
+The packages the project uses, one entry per package: the exact version and `integrity`, a hash of the installed package's files.
+
+```json
+{
+  "engine": "0.0.46",
+  "dependencies": {
+    "@acme/mounting-hardware": {
+      "version": "0.1.0",
+      "integrity": "sha256-9gPApDnFu7GQz1+By40SoZnvxLgLSZDezAbqJSxF2Mw="
+    }
+  }
+}
+```
+
+The entry is written for you: the first time a feature or part from a package in your library is used in the project, by [`npx fluidcad install`](/docs/cli#fluidcad-install) run in the project, and when a package is installed into the project. It never holds a range: a project stays on the version it recorded however many newer versions are installed, and the hash catches an installed copy whose contents changed. A model imports the package by its name, `import { standoff } from '@acme/mounting-hardware'`; a name that has no entry here does not load.
+
+The file is re-read before every render, so editing the entry by hand takes effect without a restart. An invalid map (a range instead of a version, a malformed hash) is reported and ignored until it is fixed.
+
+## `packages/`
+
+An optional folder next to `fluidcad.json` that holds copies of installed packages, as `packages/@acme/mounting-hardware/0.1.0/`. Packages normally load from your library, the home directory's `~/.fluidcad/packages` unless Settings → Packages names another folder. A copy here wins over the library, so a project that carries its packages renders on any machine, committed to git or zipped, with nothing else to install.
+
+The folder is written only when you ask for it: **Copy into project** in the top bar's **Packages** dialog, an install whose target is **This project**, or `npx fluidcad install … --project`. Its package copies are read-only and do not appear in the editor's file list. Anything else you keep in a `packages/` folder (your own models in `packages/models/`, say) is ordinary project code. See [Packages](/docs/extra/packages#the-packages-of-a-project).
 
 ## `.part.js` — parts
 

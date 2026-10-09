@@ -1,0 +1,72 @@
+---
+sidebar_label: "Custom Features"
+title: "Custom Features"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import standoffModule from '!!raw-loader!./_examples/standoff.feature.js';
+import standoffPlate from '!!raw-loader!./_examples/standoff-pcb-plate.part.js';
+
+# Custom Features
+
+A custom feature is a feature type your project defines: a PCB standoff, a bolt circle, a vent grid. It lives in a `*.feature.js` file in the project, and from then on it works like a built-in feature: the toolbar offers it with its own dialog and preview, Apply writes the statement, its History row opens the dialog again, and models call it in code. Write one when a construction of several steps recurs with different values and should be one statement and one row.
+
+For geometry that occurs once, write the statements in the model; for the same geometry again in one model, use [Repeat or Copy](/docs/patterns/repeat); for a whole part reused with other dimensions, use a [part with parameters](/docs/part/param).
+
+## In the viewport
+
+1. Click **Custom**, the last button on the part toolbar. It lists every custom feature of the project, with its icon.
+
+   ![The Custom dropdown](/img/docs/ui/custom-features-menu.png)
+
+2. Click a feature. Its dialog opens docked on the right, built from the values the feature declares: here **On face** (click a face in the viewport), **Height**, **Boss diameter** and **Hole diameter**, with the **Add / New** tabs and a **Scope** slot.
+3. Turn on **Preview** to see the result as a ghost, green for what the feature adds and red for what it cuts. The toggle starts off and stays on once you turn it on for a feature.
+4. Click **Apply**. The statement and its import are written into the file, and the History panel gains a row with the feature's name.
+
+Double-click the row to edit the feature: the dialog opens with the statement's values (**Edit standoff**), and Apply rewrites the statement.
+
+![Editing a standoff, with its preview](/img/docs/ui/custom-feature-edit.png)
+
+The written call is plain code, and later features use the feature's faces like any other: below, a fillet on the standoff's top edges and a repeat of the pad, the standoff and the fillet at the plate's four corners.
+
+![A PCB plate with four standoffs](/img/docs/ui/custom-feature-model.png)
+
+<ExplainedCode code={standoffPlate} fileName="pcb-plate.part.js" />
+
+## Writing a feature
+
+A feature file holds a class and the builder it exports:
+
+1. The class extends `Feature.with({ … })`, which declares the feature's values: each one is typed in (`{ type: 'length', default: 10 }`) or picked in the viewport (`{ picker: 'face' }`).
+2. `static id` is the feature's type, namespaced: `'acme.standoff'`.
+3. `buildTool()` builds the solid the feature adds or cuts, where its picked face stands. FluidCAD applies the operation (add, new or remove) and fuses or cuts the result. `setBuckets()` names its faces, so that `post.endEdges()` in a model reaches its top rims.
+4. `defineFeature(Class, { … })` describes the feature for the toolbar and the dialog (label, group, the operations it offers, the call a model writes) and returns the builder. Export it by name.
+
+<ExplainedCode code={standoffModule} fileName="standoff.feature.js" />
+
+An `icon: './standoff.svg'` in the description gives the feature its picture in the Custom dropdown, from an image next to the file.
+
+### How FluidCAD finds it
+
+- Every `*.feature.js` file in the project (outside `node_modules`, dot folders and gitignored paths) is scanned, and every **named** export that is a feature builder is offered in the Custom dropdown. Nothing is registered in `init.js`.
+- A feature that can't be offered shows as a greyed entry with the reason as its tooltip: a file that fails to load, a file that exports no feature, two features with one id.
+- The file is loaded again on every render, so saving it rebuilds the statements that use it, in every open model, with no restart.
+- The code runs in the FluidCAD engine; the page only receives the description. Node built-ins such as `fs` or `child_process` are blocked in feature files, as in models.
+
+### When something goes wrong
+
+| What went wrong | Where it shows |
+|---|---|
+| A value in the description that FluidCAD doesn't know | The feature is greyed in the dropdown, and a model importing it fails to compile with the message. |
+| A call the feature can't read (a negative height, a missing value) | The model fails to compile: `standoff(): 'height' must be at least 0, got -2`. |
+| `buildTool()` throws or returns nothing | That statement's row fails with the message; the rest of the model builds. |
+
+### Limits
+
+- Custom features run in part files and part bodies, not at the top level of an assembly.
+- The faces a feature can name are the standard ones: start, end, side, internal and cap faces, and their edges.
+- The dialog is built from the declared values; a feature can't add its own controls.
+
+## Sharing a feature
+
+A feature file serves the project it lives in. To use it in other projects, or give it to someone, make the project a [package](/docs/packages): `npx fluidcad package init`, then `npx fluidcad pack`. Installed elsewhere, its features appear in the Custom dropdown under the package's name.

@@ -26,10 +26,12 @@ website/docs/
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat
   appearance/        color
-  extra/             reusable-objects, units, packages
+  extra/             reusable-objects, units
   import-export/     import, export
   part/              introduction, part, param, connector, expose
   assembly/          introduction, grounded, fastened, slider, revolute, cylindrical, planar, tangent, replicate
+  custom-features/   index (one page: using and writing a *.feature.js feature)
+  packages/          index (one page: installing, using and making packages)
   tutorials/         (unchanged)
   api/               (generated — never edit by hand; `npm run generate-api-docs`)
 ```

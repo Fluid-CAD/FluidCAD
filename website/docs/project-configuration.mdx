@@ -51,7 +51,7 @@ The project descriptor, written next to `init.js`: plain JSON that the server, t
 }
 ```
 
-Every key is optional. A project with no `fluidcad.json` behaves as if the file held none of them: no engine pin, millimetres, only the built-in materials, no packages. Two more keys, [`package`](#package) and [`dependencies`](#dependencies), concern [packages](/docs/extra/packages).
+Every key is optional. A project with no `fluidcad.json` behaves as if the file held none of them: no engine pin, millimetres, only the built-in materials, no packages. Two more keys, [`package`](#package) and [`dependencies`](#dependencies), concern [packages](/docs/packages).
 
 ### `engine`
 
@@ -126,7 +126,7 @@ An invalid map is reported like a bad `unit` — an entry without a `name` strin
 
 ### `package`
 
-Makes the project a [package](/docs/extra/packages) that others can install: its name, its version, and the files it shares. A project with this block is still an ordinary project; its own models render as before.
+Makes the project a [package](/docs/packages) that others can install: its name, its version, and the files it shares. A project with this block is still an ordinary project; its own models render as before.
 
 ```json
 {
@@ -185,7 +185,7 @@ The file is re-read before every render, so editing the entry by hand takes effe
 
 An optional folder next to `fluidcad.json` that holds copies of installed packages, as `packages/@acme/mounting-hardware/0.1.0/`. Packages normally load from your library, the home directory's `~/.fluidcad/packages` unless Settings → Packages names another folder. A copy here wins over the library, so a project that carries its packages renders on any machine, committed to git or zipped, with nothing else to install.
 
-The folder is written only when you ask for it: **Copy into project** in the top bar's **Packages** dialog, an install whose target is **This project**, or `npx fluidcad install … --project`. Its package copies are read-only and do not appear in the editor's file list. Anything else you keep in a `packages/` folder (your own models in `packages/models/`, say) is ordinary project code. See [Packages](/docs/extra/packages#the-packages-of-a-project).
+The folder is written only when you ask for it: **Copy into project** in the top bar's **Packages** dialog, an install whose target is **This project**, or `npx fluidcad install … --project`. Its package copies are read-only and do not appear in the editor's file list. Anything else you keep in a `packages/` folder (your own models in `packages/models/`, say) is ordinary project code. See [Packages](/docs/packages#the-packages-of-a-project).
 
 ## `.part.js` — parts
 

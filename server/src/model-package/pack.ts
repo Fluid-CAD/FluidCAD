@@ -28,8 +28,8 @@ export interface PackInputs {
   paramOverrides?: Record<string, ParamValue>;
   /**
    * Full param schema to embed in the manifest. `fluidcad publish` renders the
-   * model once to capture this (see `capture-params.ts`); `fluidcad pack` omits
-   * it. Kept as an input (rather than rendering inside `packModel`) so packing
+   * model once to capture this (see `capture-params.ts`); a caller that skips
+   * the render omits it. Kept as an input (rather than rendering inside `packModel`) so packing
    * stays a pure, engine-free file producer.
    */
   paramDefinitions?: ParamDefinition[];

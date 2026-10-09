@@ -46,6 +46,7 @@ export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.
 export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } from "./feature-params.js";
 export type { FeatureValue, FeatureValues, FeatureScalar, FeatureReferenceSummary } from "./feature-inputs.js";
 export { parseCall } from "./meta.js";
+export { SDK_VERSION } from "./version.js";
 export type {
   FeatureLayout, FeatureLayoutItem, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs, FeatureLayoutTab,
   FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,

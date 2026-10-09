@@ -13,10 +13,15 @@ const PACKAGE_JSON = path.resolve(import.meta.dirname, "../../../package.json");
 const HOST_ONLY_EXPORTS = ["./server", "./server/api", "./browser", "./viewer-ui", "./viewer-ui/style.css"];
 
 describe("the fluidcad/sdk entry points", () => {
-  it("export Feature, defineFeature, registerBuilder and parseCall, never SceneObject", () => {
-    expect(Object.keys(sdk).sort()).toEqual(["Feature", "defineFeature", "parseCall", "registerBuilder"]);
+  it("export Feature, defineFeature, registerBuilder, parseCall and SDK_VERSION, never SceneObject", () => {
+    expect(Object.keys(sdk).sort()).toEqual(["Feature", "SDK_VERSION", "defineFeature", "parseCall", "registerBuilder"]);
     expect(sdk.registerBuilder).toBe(registerBuilder);
     expect(Object.keys(kernel)).not.toContain("SceneObject");
+  });
+
+  it("name the SDK version a package records: a positive integer, bumped only on a breaking SDK change", () => {
+    expect(Number.isInteger(sdk.SDK_VERSION)).toBe(true);
+    expect(sdk.SDK_VERSION).toBeGreaterThanOrEqual(1);
   });
 
   it("keep the unstable kernel to the surface the standoff builds with, and the wrappers raw shapes come back into", () => {
@@ -37,6 +42,7 @@ describe("the fluidcad/sdk entry points", () => {
     expect(ENGINE_NAMESPACE_SPECIFIERS).toContain("fluidcad/sdk/occt");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const Feature =");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const defineFeature =");
+    expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const SDK_VERSION =");
     expect(engineShimModuleSource("fluidcad/sdk/kernel")).toContain("export const Primitives =");
     expect(engineShimModuleSource("fluidcad/sdk/occt")).toContain("export const OccScope =");
   });

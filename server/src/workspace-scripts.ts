@@ -5,7 +5,7 @@
 
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { collectWorkspaceFiles } from './model-package/pack.ts';
+import { WorkspaceFiles } from './files/workspace-files.ts';
 import { isScriptPath } from './file-unit.ts';
 import { normalizePath } from './normalize-path.ts';
 
@@ -53,7 +53,7 @@ export class WorkspaceScripts {
     }
     const except = normalizePath(filePath);
     const out: { filePath: string; code: string }[] = [];
-    for (const rel of await collectWorkspaceFiles(this.workspacePath)) {
+    for (const rel of await WorkspaceFiles.collect(this.workspacePath)) {
       const other = normalizePath(join(this.workspacePath, rel));
       if (!isScriptPath(rel) || other === except) {
         continue;

@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { normalizePath } from '../normalize-path.ts';
-import { collectWorkspaceFiles } from '../model-package/pack.ts';
+import { WorkspaceFiles } from '../files/workspace-files.ts';
 
 /**
  * The workspace's custom feature modules: `*.feature.js` files. The suffix
@@ -24,7 +24,7 @@ export class FeatureModules {
     if (!workspacePath) {
       return [];
     }
-    const relFiles = await collectWorkspaceFiles(workspacePath);
+    const relFiles = await WorkspaceFiles.collect(workspacePath);
     return relFiles
       .filter(rel => FeatureModules.isModule(rel))
       .map(rel => normalizePath(join(workspacePath, rel)));

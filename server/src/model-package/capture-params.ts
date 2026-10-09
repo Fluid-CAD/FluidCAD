@@ -1,5 +1,4 @@
-import { LocalSceneHost } from '../host/local-scene-host.ts';
-import { FluidCadServer } from '../fluidcad-server/index.ts';
+import { InProcessEngine } from '../packages/in-process-engine.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
 
 /**
@@ -14,20 +13,17 @@ import type { ParamDefinition } from '../../../lib/dist/index.js';
  * The render doubles as a build gate: a compile/runtime error in the model
  * propagates out of here, failing the publish before any draft is created.
  *
- * Side-effect-free at import time — it constructs its own `FluidCadServer`
- * (which boots OC wasm + a Vite SSR pipeline) and tears the Vite server down
- * before returning so a one-shot CLI process can exit. Import this (or use
- * `fluidcad/server/api`), NOT `fluidcad/server`, which boots the desktop binary.
+ * Side-effect-free at import time — it boots its own {@link InProcessEngine}
+ * (OC wasm + a Vite SSR pipeline) and closes it before returning so a
+ * one-shot CLI process can exit. Import this (or use `fluidcad/server/api`),
+ * NOT `fluidcad/server`, which boots the desktop binary.
  */
 export async function captureParamDefinitions(
   entryPath: string,
   workspacePath: string,
 ): Promise<ParamDefinition[]> {
-  const host = new LocalSceneHost();
-  const server = new FluidCadServer(host);
-  try {
-    await server.init(workspacePath);
-    const rendered = await server.processFile(entryPath);
+  return InProcessEngine.run(workspacePath, async (engine) => {
+    const rendered = await engine.server.processFile(entryPath);
     if (!rendered) {
       throw new Error(
         'The engine did not initialize — is there an init.js at the workspace root? ' +
@@ -35,13 +31,5 @@ export async function captureParamDefinitions(
       );
     }
     return rendered.params ?? [];
-  } finally {
-    // LocalSceneHost.init() starts a Vite dev server that keeps the event loop
-    // alive; close it so the CLI can exit after a single render.
-    try {
-      await host.server?.close();
-    } catch {
-      /* best-effort teardown */
-    }
-  }
+  });
 }

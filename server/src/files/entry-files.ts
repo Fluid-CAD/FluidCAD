@@ -1,10 +1,9 @@
-import { build } from 'esbuild';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../project-config.ts';
-import { blockNodeBuiltinsPlugin } from './esbuild-plugins.ts';
+import { ModuleClosure } from '../packages/module-closure.ts';
 
 /** The virtual entry that imports init.js and the model — never a shipped file. */
 const WRAPPER_NAME = '__share_entry__.js';
@@ -15,14 +14,13 @@ export type EntryFiles = Record<string, string>;
 /**
  * The workspace files one model transitively imports, including itself and
  * `init.js` when the workspace has one — the minimum a viewer needs to
- * recompile the model, which is what a share-by-link ships (a `.fluidpkg`
- * ships the whole workspace instead; see {@link collectWorkspaceFiles}).
+ * recompile the model, which is what a share-by-link ships.
  *
- * Resolution is esbuild's, the same the packer bundles with, read off its
- * metafile: `fluidcad/*` stays external (the viewer links its own engine),
- * Node built-ins are refused, and anything resolved outside the workspace
- * or into `node_modules` is an error — a link cannot carry an npm
- * dependency, and the viewer would fail to link it anyway.
+ * Resolution is esbuild's ({@link ModuleClosure}), the same the packers
+ * use: `fluidcad/*` stays external (the viewer links its own engine), Node
+ * built-ins are refused, and anything resolved outside the workspace or
+ * into `node_modules` is an error — a link cannot carry an npm dependency,
+ * and the viewer would fail to link it anyway.
  *
  * When the project sets a document unit or its own materials
  * (`fluidcad.json`, or package.json's `fluidcad.unit` / `fluidcad.materials`),
@@ -41,37 +39,13 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
   if (existsSync(initAbs)) {
     imports.unshift('./init.js');
   }
-  const result = await build({
-    stdin: {
-      contents: imports.map((rel) => `import ${JSON.stringify(rel)};\n`).join(''),
-      resolveDir: workspace,
-      sourcefile: WRAPPER_NAME,
-      loader: 'js',
-    },
-    absWorkingDir: workspace,
-    format: 'esm',
-    bundle: true,
-    write: false,
-    metafile: true,
-    platform: 'node',
-    external: ['fluidcad', 'fluidcad/*'],
-    plugins: [blockNodeBuiltinsPlugin()],
-    logLevel: 'silent',
-  });
-  if (result.errors.length) {
-    throw new Error(result.errors.map((e) => e.text).join('\n'));
-  }
+  const closure = await ModuleClosure.of(workspace, { entries: imports, wrapperName: WRAPPER_NAME });
   const files: EntryFiles = {};
-  for (const input of Object.keys(result.metafile.inputs)) {
-    // The virtual wrapper lists itself under its sourcefile name.
-    if (input === WRAPPER_NAME || input === '<stdin>') {
-      continue;
-    }
-    const rel = normalizePath(input);
-    if (rel.startsWith('..') || rel.startsWith('/')) {
+  for (const rel of closure.files) {
+    if (ModuleClosure.isOutsideWorkspace(rel)) {
       throw new Error(`${rel} lies outside the workspace and cannot be shared by link`);
     }
-    if (rel.split('/').includes('node_modules')) {
+    if (ModuleClosure.isInNodeModules(rel)) {
       throw new Error(`${rel} is an npm dependency; a link cannot carry it — share the model as a package instead`);
     }
     files[rel] = await readFile(join(workspace, rel), 'utf8');

@@ -18,7 +18,7 @@ import ignoreFactory, { type Ignore } from 'ignore';
 const ALWAYS_IGNORED = new Set(['node_modules', '.git', '.fluidcad']);
 
 // `ignore`'s CJS default export isn't callable under this repo's ESM typings —
-// the same cast `model-package/pack.ts` uses.
+// the same cast `files/workspace-files.ts` uses.
 const ignore = ignoreFactory as unknown as (options?: object) => Ignore;
 
 export interface WorkspaceIgnore {

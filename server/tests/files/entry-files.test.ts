@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { collectEntryFiles } from '../../src/model-package/entry-files.ts';
+import { collectEntryFiles } from '../../src/files/entry-files.ts';
 
 let ws: string;
 

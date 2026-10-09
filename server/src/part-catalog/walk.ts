@@ -1,7 +1,7 @@
 import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
-import { collectWorkspaceFiles } from '../model-package/pack.ts';
+import { WorkspaceFiles } from '../files/workspace-files.ts';
 import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
 import type { LengthUnit } from '../project-config.ts';
 
@@ -39,7 +39,7 @@ export async function listCandidateFiles(
   readContent?: (absPath: string) => string | null,
   projectUnit: LengthUnit = 'mm',
 ): Promise<CatalogFileEntry[]> {
-  const relFiles = await collectWorkspaceFiles(workspacePath);
+  const relFiles = await WorkspaceFiles.collect(workspacePath);
   const out: CatalogFileEntry[] = [];
   for (const rel of relFiles) {
     if (!isScriptPath(rel)) {

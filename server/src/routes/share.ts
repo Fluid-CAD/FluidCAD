@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { relative } from 'path';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import { collectEntryFiles } from '../model-package/entry-files.ts';
+import { collectEntryFiles } from '../files/entry-files.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 /** What the UI turns into a viewer link: the engine pin, the model to render first, its source tree. */

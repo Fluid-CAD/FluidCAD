@@ -1,0 +1,84 @@
+---
+sidebar_position: 10
+title: "relation"
+description: "Couples the free motions of two mates, the way meshing gears do: turning one turns the other by the ratio. The mates keep their own freedom — dragging either part, or animating either mate, moves both."
+---
+
+# relation()
+
+Couples the free motions of two mates, the way meshing gears do: turning
+one turns the other by the ratio. The mates keep their own freedom —
+dragging either part, or animating either mate, moves both.
+
+| type | A (the driver's measure) | B (follows) | ratio |
+|------|--------------------------|-------------|-------|
+| `'gear'` | revolute or cylindrical: rotation about its Z | revolute or cylindrical: rotation about its Z | turns of B per turn of A |
+| `'rack-and-pinion'` | revolute or cylindrical: the pinion's rotation | slider or cylindrical: the rack's travel along its Z | travel of B per revolution of A, in the document unit |
+
+Each rotation is measured about its own mate's Z (the first connector's
+normal), each travel along it; a positive ratio moves B in the same
+sense as A. Chain `.reverse()` when the real parts run the other way —
+two external spur gears whose axes point the same way counter-rotate.
+The relation holds from wherever the parts stand when it is solved: the
+file's poses set the mesh phase.
+
+```js
+const pinion = mate('revolute', base.connectors.axle, small.connectors.bore);
+const wheel = mate('revolute', base.connectors.axle2, big.connectors.bore);
+relation('gear', pinion, wheel, 0.5).reverse();   // 2:1 reduction
+
+const rack = mate('slider', base.connectors.rail, bar.connectors.slot);
+relation('rack-and-pinion', pinion, rack, 62.8);  // 20 mm pitch radius
+
+```
+`.name('drive')` assigns a stable authored name, unique within the owning
+assembly occurrence. Both mates must be declared in the same assembly
+scope as the relation. Only allowed in `*.assembly.js` files.
+
+**Returns**: **`RelationBuilder`**
+
+:::tip
+See the [guide](/docs/assembly/gear) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+relation(type: RelationType, a: MateBuilder, b: MateBuilder, ratio: number): RelationBuilder
+```
+
+Couples the free motions of two mates, the way meshing gears do: turning
+one turns the other by the ratio. The mates keep their own freedom —
+dragging either part, or animating either mate, moves both.
+
+| type | A (the driver's measure) | B (follows) | ratio |
+|------|--------------------------|-------------|-------|
+| `'gear'` | revolute or cylindrical: rotation about its Z | revolute or cylindrical: rotation about its Z | turns of B per turn of A |
+| `'rack-and-pinion'` | revolute or cylindrical: the pinion's rotation | slider or cylindrical: the rack's travel along its Z | travel of B per revolution of A, in the document unit |
+
+Each rotation is measured about its own mate's Z (the first connector's
+normal), each travel along it; a positive ratio moves B in the same
+sense as A. Chain `.reverse()` when the real parts run the other way —
+two external spur gears whose axes point the same way counter-rotate.
+The relation holds from wherever the parts stand when it is solved: the
+file's poses set the mesh phase.
+
+```js
+const pinion = mate('revolute', base.connectors.axle, small.connectors.bore);
+const wheel = mate('revolute', base.connectors.axle2, big.connectors.bore);
+relation('gear', pinion, wheel, 0.5).reverse();   // 2:1 reduction
+
+const rack = mate('slider', base.connectors.rail, bar.connectors.slot);
+relation('rack-and-pinion', pinion, rack, 62.8);  // 20 mm pitch radius
+
+```
+`.name('drive')` assigns a stable authored name, unique within the owning
+assembly occurrence. Both mates must be declared in the same assembly
+scope as the relation. Only allowed in `*.assembly.js` files.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | RelationType | `'gear'` or `'rack-and-pinion'`. |
+| `a` | MateBuilder | The mate whose motion is measured (a `mate()` handle). |
+| `b` | MateBuilder | The mate that follows it. |
+| `ratio` | number | Gear: turns of B per turn of A. Rack-and-pinion: B's travel per turn of A. Positive. |

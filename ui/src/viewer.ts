@@ -1547,6 +1547,11 @@ export class Viewer {
     this.assemblyController?.highlightMate(mate, themeColors.highlightColor.getHex());
   }
 
+  /** Highlight several mates at once — a relation's two coupled joints. */
+  highlightMates(mates: SerializedAssemblyMate[]): void {
+    this.assemblyController?.highlightMates(mates, themeColors.highlightColor.getHex());
+  }
+
   clearInstanceHighlight(): void {
     this.assemblyController?.clearHighlight();
   }

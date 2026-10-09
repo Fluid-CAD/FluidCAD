@@ -193,6 +193,52 @@ export type AssemblyMate = {
   }
 );
 
+/**
+ * The kinds of `relation()` — a coupling between the free motions of two
+ * mates. `'gear'` ties two rotations (revolute / cylindrical mates);
+ * `'rack-and-pinion'` ties a rotation to a slide (revolute / cylindrical to
+ * slider / cylindrical).
+ */
+export type RelationType = 'gear' | 'rack-and-pinion';
+
+/**
+ * Live relation record. `mateA`/`mateB` are live {@link AssemblyMate}
+ * references — ids are read at serialize time, the same staleness rule as a
+ * mate's connector sides. `ratio` is always positive; `reverse` carries the
+ * sense (`.reverse()`), so the dialog round-trips a statement verbatim.
+ */
+export type AssemblyRelation = {
+  relationId: string;
+  /** Optional authored identity within the owning assembly occurrence. */
+  name?: string;
+  /** Scope the relation() statement ran in: "" for root, else an occurrence path. */
+  owner: string;
+  type: RelationType;
+  mateA: AssemblyMate;
+  mateB: AssemblyMate;
+  /**
+   * Gear: turns of B per turn of A. Rack-and-pinion: the rack's travel (in
+   * the document length unit) per revolution of the pinion. Positive.
+   */
+  ratio: number;
+  /** B moves against A's sense instead of with it. */
+  reverse: boolean;
+  sourceLocation?: SourceLocation;
+};
+
+export type SerializedRelation = {
+  relationId: string;
+  name?: string;
+  owner: string;
+  type: RelationType;
+  /** The coupled mates' ids (`mate-N`, path-qualified inside occurrences). */
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+  sourceLocation?: SourceLocation;
+};
+
 export type SerializedInstance = {
   instanceId: string;
   partId: string;
@@ -333,6 +379,8 @@ export class AssemblyScene extends Scene {
   private _connectors: Connector[] = [];
   /** `replicate()` statements, in statement order. */
   private _replicates: AssemblyReplicate[] = [];
+  /** `relation()` statements, in statement order. */
+  private _relations: AssemblyRelation[] = [];
   /** Occurrence paths currently executing — insert(assembly) runs its callback under its path. */
   private _scopeStack: string[] = [];
 
@@ -477,6 +525,37 @@ export class AssemblyScene extends Scene {
 
   getMates(): AssemblyMate[] {
     return this._mates;
+  }
+
+  /** Counter-based, per scope and path-qualified — see nextInstanceId. */
+  nextRelationId(): string {
+    const owner = this.currentScopePath();
+    const local = `rel-${this._relations.filter(r => r.owner === owner).length}`;
+    return owner ? `${owner}/${local}` : local;
+  }
+
+  addRelation(relation: AssemblyRelation): void {
+    this._relations.push(relation);
+  }
+
+  getRelations(): AssemblyRelation[] {
+    return this._relations;
+  }
+
+  getSerializedRelations(): SerializedRelation[] {
+    // Mate ids read live at serialize time — same SceneCompare staleness
+    // rule as mate sides.
+    return this._relations.map(relation => ({
+      relationId: relation.relationId,
+      name: relation.name,
+      owner: relation.owner,
+      type: relation.type,
+      mateA: relation.mateA.mateId,
+      mateB: relation.mateB.mateId,
+      ratio: relation.ratio,
+      reverse: relation.reverse,
+      sourceLocation: relation.sourceLocation,
+    }));
   }
 
   /** Counter-based, per scope and path-qualified — see nextInstanceId. */

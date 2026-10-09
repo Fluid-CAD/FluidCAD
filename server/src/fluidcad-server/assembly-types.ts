@@ -93,4 +93,16 @@ export type SerializedAssembly = {
     produced: Array<{ instanceId?: string; occurrenceId?: string }>;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
+  /** `relation()` statements — absent on engines predating them. */
+  relations?: Array<{
+    relationId: string;
+    name?: string;
+    owner: string;
+    type: 'gear' | 'rack-and-pinion';
+    mateA: string;
+    mateB: string;
+    ratio: number;
+    reverse: boolean;
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
 };

@@ -249,7 +249,7 @@ function describeCall(base: string): string {
 export async function resolveStatementBinding(
   code: string,
   line: number,
-  expectedBase: 'insert' | 'connector' | 'replicate',
+  expectedBase: 'insert' | 'connector' | 'replicate' | 'mate',
   preferredName?: string,
 ): Promise<{ newCode: string; name: string } | { error: string }> {
   const parser = await getJavaScriptParser();
@@ -486,9 +486,9 @@ export function expressionRoot(expression: string): string {
   return match ? match[0] : expression;
 }
 
-/** Consecutive mate()/replicate() statements group without blank separators between them. */
+/** Consecutive mate()/replicate()/relation() statements group without blank separators between them. */
 export function isAssemblyStatementRow(line: string): boolean {
-  return /^\s*(?:const\s+[\w$[\], ]+\s*=\s*)?(?:mate|replicate)\s*\(/.test(line);
+  return /^\s*(?:const\s+[\w$[\], ]+\s*=\s*)?(?:mate|replicate|relation)\s*\(/.test(line);
 }
 
 /** Append the statement after the last top-level statement, insert-edit style. */

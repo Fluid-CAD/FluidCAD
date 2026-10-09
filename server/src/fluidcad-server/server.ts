@@ -560,6 +560,11 @@ export class FluidCadServer {
               replicate.sourceLocation.filePath = replicate.sourceLocation.filePath.replace('virtual:live-render:', '');
             }
           }
+          for (const relation of assembly.relations ?? []) {
+            if (relation.sourceLocation) {
+              relation.sourceLocation.filePath = relation.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
         }
 
         // Read after the module ran: a file's `unit()` statement declares the

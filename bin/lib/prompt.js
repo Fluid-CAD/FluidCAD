@@ -1,9 +1,11 @@
 import { emitKeypressEvents } from 'readline';
+import { createInterface } from 'readline/promises';
 
 /**
  * Minimal interactive prompts for the CLI, built on Node's built-in `readline`
  * keypress events — no dependency (the CLI only ships `commander`). Used by
- * `publish` to choose between a new model and a new version.
+ * `publish` to choose between a new model and a new version, and by `install`
+ * to ask before a package's code is installed.
  */
 
 /**
@@ -94,4 +96,18 @@ export function select(message, choices) {
 
     input.on('keypress', onKey);
   });
+}
+
+/**
+ * A y/N question, answered with a line: true only for `y` or `yes`, so a bare
+ * Enter declines. Assumes `isInteractive()`.
+ */
+export async function confirm(message) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(`${message} [y/N] `)).trim().toLowerCase();
+    return answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
 }

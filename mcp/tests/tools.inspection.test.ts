@@ -715,8 +715,12 @@ describe('inspection tools (over MCP)', () => {
       for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
         expect(byName.get(name)).toContain('`unit`');
       }
-      expect(byName.get('pack_model')).toContain('`unit`');
-      expect(byName.get('pack_model')).toContain('schemaVersion 3');
+      // `pack` packs the workspace's package; the old model packer's tool is gone.
+      expect(byName.has('pack_model')).toBe(false);
+      expect(byName.get('pack')).toContain('`unit`');
+      expect(byName.get('pack')).toContain('`manifestVersion` 1');
+      expect(byName.get('pack')).toContain('`package` block');
+      expect(byName.get('pack')).not.toContain('schemaVersion');
     } finally {
       await client.close();
       await server.close();

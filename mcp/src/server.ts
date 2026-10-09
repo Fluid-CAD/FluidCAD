@@ -49,7 +49,7 @@ import {
   clearBreakpoints,
   exportShapes,
   importStep,
-  packModel,
+  packPackage,
   recompute,
   rollbackTo,
 } from './tools/engine.ts';
@@ -1064,23 +1064,23 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   server.registerTool(
-    'pack_model',
+    'pack',
     {
-      title: 'Package the current model into a shareable .fluidpkg archive',
+      title: 'Pack the workspace\'s package into a .fluidpkg archive others can install',
       description:
-        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json` (schemaVersion 3: `name`, `entry`, `fluidcadVersion`, `hasInit`, `unit` — the project unit from fluidcad.json, `fileUnits` — per-file `unit()` declarations, `assets`, `files`, `params`, `camera`), `bundle.js`, optional `init.js`, `assets/<path>` and `files/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
+        'Packs the workspace\'s package — the `package` block of its fluidcad.json (`name`, `version`, `exports`) — into a `.fluidpkg` (zip), exactly as `fluidcad pack` does; run `fluidcad package init` once to make a workspace a package. ' +
+        'The archive holds the exported `*.feature.js`/`*.part.js`/`*.assembly.js` modules and every workspace file they import, verbatim; the images their features declare; README.md, LICENSE and CHANGELOG.md; and three generated files: `index.js` (named re-exports of every exported feature, part and assembly), `fluidcad.json` (only `unit` and `materials`) and `manifest.json` (`manifestVersion` 1: `name`, `version`, the optional identity fields, `engine` it was packed on, `minEngine`, `sdkVersion`, `unit` — the project unit, made explicit, `fileUnits` — per-file `unit()` declarations, `contents`, `features` with metadata snapshots and `usesOcct`, `parts` with their params, `files`, `createdAt`). Test models, `init.js` and anything not exported stay out, and nothing is written to the workspace. ' +
+        'The engine evaluates every export first. The pack is refused (`pack-refused`, with a sentence naming the file) when the workspace has no `package` block, an export is missing or does not evaluate, two modules export one name, a feature id does not start with the package scope, an exported part fails to build with its default parameters (any object in error), an import reaches `node_modules`, outside the workspace, `init.js`, a blocked Node built-in or another package, a declared image is missing, or a shipped file has unsaved editor changes — save first. ' +
+        'Prefer `saveAsPath` — the archive can be large and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName, version, fileName }` when saved, or `{ mimeType, base64, bytes, packageName, version, fileName }` otherwise; `fileName` is `<scope>-<name>-<version>.fluidpkg`.',
       inputSchema: {
         ...workspaceArg,
-        name: z.string().optional().describe('Optional package name; defaults to the entry file basename. Becomes the file name when `saveAsPath` is omitted.'),
-        description: z.string().optional().describe('Optional human description embedded in manifest.json.'),
         saveAsPath: z
           .string()
           .optional()
-          .describe('Absolute path to write the .fluidpkg to. If omitted, the package is returned inline (base64).'),
+          .describe('Absolute path to write the .fluidpkg to (name it `fileName`, e.g. `acme-gears-1.2.0.fluidpkg`). If omitted, the archive is returned inline (base64).'),
       },
     },
-    async ({ workspace, name, description, saveAsPath }) =>
-      toMcp(await packModel({ workspace, name, description, saveAsPath })),
+    async ({ workspace, saveAsPath }) => toMcp(await packPackage({ workspace, saveAsPath })),
   );
 
   return server;

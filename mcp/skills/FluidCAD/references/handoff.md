@@ -1,6 +1,6 @@
 # Handing the model off
 
-Read when the user wants an STL, a STEP, a shareable package, or asks how to use what was built.
+Read when the user wants an STL, a STEP, a package of their features and parts, or asks how to use what was built.
 
 ## Before any export
 
@@ -20,9 +20,11 @@ The export is of the scene as served. Confirm `render.state` is `rendered` with 
 - STEP files carry their unit, so the export is physically correct in any document unit; no scaling option applies.
 - In an assembly, `assembly: true` writes one STEP assembly: shared part prototypes, one component per instance, sub-assemblies nested, names carried. The result's `posesSource` is `"statement"`: parts sit where their `insert().translate()/.rotate()` statements put them, because mates are solved in the viewer, which the server never sees. Tell the user; the viewer's own Export writes the mated layout.
 
-## A package, for reproducing the model elsewhere
+## A package, for sharing features and parts
 
-`pack_model` produces a self-contained `.fluidpkg`: the entry file bundled, STEP assets in the workspace, the live param overrides, the camera, and the units (project unit and per-file `unit()` declarations in its manifest). Use it when the user wants to send the model as a model rather than as geometry, or to archive the exact state. Pass `saveAsPath`.
+`pack` packs the workspace's package into a `.fluidpkg` that others install: the modules its `fluidcad.json` `package` block exports, the files they import, their features' images, and a generated `manifest.json`, `index.js` and `fluidcad.json` (the unit and materials). It is not a model export: test models and anything else not exported stay out. Use it when the user wants to share the features or parts they built, in a workspace that is a package (`fluidcad package init` writes the block). Pass `saveAsPath`, named as the result's `fileName` (`<scope>-<name>-<version>.fluidpkg`). A `pack-refused` result names the file to fix; fix it and pack again. To release a new version, bump it with `fluidcad version patch|minor|major` first.
+
+To send a model itself, export STEP (above) or share the source files.
 
 ## What to hand back
 

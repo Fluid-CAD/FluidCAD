@@ -194,49 +194,67 @@ export type ExportBase64Output = {
 export type ExportOutput = ExportSavedOutput | ExportBase64Output;
 
 // ---------------------------------------------------------------------------
-// pack_model
+// pack
 // ---------------------------------------------------------------------------
 
-export type PackModelInput = WorkspaceArg & {
-  name?: string;
-  description?: string;
+export type PackInput = WorkspaceArg & {
   saveAsPath?: string;
 };
-export type PackModelOutput =
-  | { savedTo: string; bytesWritten: number; packageName: string }
-  | { mimeType: string; base64: string; bytes: number; packageName: string };
 
-export async function packModel(input: PackModelInput): Promise<ToolResult<PackModelOutput>> {
+/** The archive's identity, read off the route's headers. */
+type PackIdentity = { packageName: string; version: string; fileName: string };
+
+export type PackOutput =
+  | ({ savedTo: string; bytesWritten: number } & PackIdentity)
+  | ({ mimeType: string; base64: string; bytes: number } & PackIdentity);
+
+/**
+ * Pack the workspace's package (`POST /api/pack`, the same packer as
+ * `fluidcad pack`). A refusal — not a package, a failed pack check — comes
+ * back as `pack-refused` with the packer's sentence.
+ */
+export async function packPackage(input: PackInput): Promise<ToolResult<PackOutput>> {
   if (input.saveAsPath !== undefined && typeof input.saveAsPath !== 'string') {
     return err('invalid-input', '`saveAsPath` must be a string when provided.');
   }
   const resolved = resolveClient(input);
   if (resolved.ok === false) {
-    return resolved as ToolResult<PackModelOutput>;
+    return resolved as ToolResult<PackOutput>;
   }
   const { client } = resolved.data;
   try {
-    const raw = await client.postRaw('/api/pack', {
-      name: input.name,
-      description: input.description,
-    });
+    const raw = await client.postRaw('/api/pack', {});
     if (raw.statusCode >= 400) {
       const text = raw.data.toString('utf8');
+      let refusal: string | null = null;
+      try {
+        const body = JSON.parse(text);
+        refusal = typeof body?.error === 'string' ? body.error : null;
+      } catch {
+        refusal = null;
+      }
+      if (raw.statusCode === 400 && refusal !== null) {
+        return err('pack-refused', refusal, { statusCode: raw.statusCode });
+      }
       return err('http-error', `HTTP ${raw.statusCode}: ${text.slice(0, 200)}`, {
         statusCode: raw.statusCode,
       });
     }
-    const packageName = raw.headers['x-fluidcad-package-name'] ?? 'model';
+    const identity: PackIdentity = {
+      packageName: raw.headers['x-fluidcad-package-name'] ?? '',
+      version: raw.headers['x-fluidcad-package-version'] ?? '',
+      fileName: /filename="([^"]+)"/.exec(raw.headers['content-disposition'] ?? '')?.[1] ?? 'package.fluidpkg',
+    };
     if (input.saveAsPath) {
       const absPath = path.resolve(input.saveAsPath);
       await fsp.writeFile(absPath, raw.data);
-      return ok({ savedTo: absPath, bytesWritten: raw.data.length, packageName });
+      return ok({ savedTo: absPath, bytesWritten: raw.data.length, ...identity });
     }
     return ok({
       mimeType: raw.contentType,
       base64: raw.data.toString('base64'),
       bytes: raw.data.length,
-      packageName,
+      ...identity,
     });
   } catch (e: any) {
     if (e instanceof HttpError) {

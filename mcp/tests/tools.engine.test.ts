@@ -12,6 +12,7 @@ import {
   clearBreakpoints,
   exportShapes,
   importStep,
+  packPackage,
   recompute,
   rollbackTo,
 } from '../src/tools/engine.ts';
@@ -38,6 +39,9 @@ type ExportConfig = {
   lastBody?: any;
 };
 let exportConfig: ExportConfig = {};
+
+/** What the fake `/api/pack` answers: the archive, or a refusal. */
+let packReply: { status: number; body: Buffer; headers: Record<string, string> } | null = null;
 
 // What the scene-mutating routes report alongside `success`. Tests override
 // it to simulate a render that completed with features left broken.
@@ -112,6 +116,12 @@ function startFakeServer(): Promise<number> {
           const ct = exportConfig.contentType ?? (parsed.format === 'step' ? 'application/step' : 'application/sla');
           res.writeHead(status, { 'content-type': ct });
           res.end(bin);
+          return;
+        }
+
+        if (url === '/api/pack' && packReply) {
+          res.writeHead(packReply.status, packReply.headers);
+          res.end(packReply.body);
           return;
         }
 
@@ -362,8 +372,89 @@ describe('export', () => {
   });
 });
 
+describe('pack', () => {
+  const archive = Buffer.from('PK\u0003\u0004 a package archive');
+  const archiveReply = () => ({
+    status: 200,
+    body: archive,
+    headers: {
+      'content-type': 'application/zip',
+      'x-fluidcad-package-name': '@acme/kit',
+      'x-fluidcad-package-version': '0.1.0',
+      'content-disposition': 'attachment; filename="acme-kit-0.1.0.fluidpkg"',
+    },
+  });
+
+  afterEach(() => {
+    packReply = null;
+  });
+
+  it('saveAsPath: writes the archive there and returns savedTo with the package identity', async () => {
+    packReply = archiveReply();
+    const out = path.join(workspace, 'acme-kit-0.1.0.fluidpkg');
+    const result = await packPackage({ saveAsPath: out });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        savedTo: out,
+        bytesWritten: archive.length,
+        packageName: '@acme/kit',
+        version: '0.1.0',
+        fileName: 'acme-kit-0.1.0.fluidpkg',
+      },
+    });
+    expect(fs.readFileSync(out).equals(archive)).toBe(true);
+    const request = requests.find((r) => r.url === '/api/pack')!;
+    expect(request.method).toBe('POST');
+  });
+
+  it('without saveAsPath returns the archive inline as base64', async () => {
+    packReply = archiveReply();
+    const result = await packPackage({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    const data = result.data as { mimeType: string; base64: string; bytes: number; fileName: string };
+    expect(data.mimeType).toBe('application/zip');
+    expect(Buffer.from(data.base64, 'base64').equals(archive)).toBe(true);
+    expect(data.bytes).toBe(archive.length);
+    expect(data.fileName).toBe('acme-kit-0.1.0.fluidpkg');
+  });
+
+  it('turns the packer\'s refusal into pack-refused, with its sentence, and writes nothing', async () => {
+    const sentence = "This workspace isn't a package — run `fluidcad package init` first.";
+    packReply = {
+      status: 400,
+      body: Buffer.from(JSON.stringify({ error: sentence })),
+      headers: { 'content-type': 'application/json' },
+    };
+    const out = path.join(workspace, 'never.fluidpkg');
+    const result = await packPackage({ saveAsPath: out });
+    expect(result).toEqual({ ok: false, code: 'pack-refused', message: sentence, details: { statusCode: 400 } });
+    expect(fs.existsSync(out)).toBe(false);
+  });
+
+  it('reports any other failure as http-error', async () => {
+    packReply = {
+      status: 500,
+      body: Buffer.from(JSON.stringify({ error: 'boom' })),
+      headers: { 'content-type': 'application/json' },
+    };
+    const result = await packPackage({});
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('http-error');
+  });
+
+  it('rejects a saveAsPath that is not a string', async () => {
+    const result = await packPackage({ saveAsPath: 42 as any });
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('invalid-input');
+  });
+});
+
 describe('engine tools over MCP', () => {
-  it('the MCP client sees all six engine tools', async () => {
+  it('the MCP client sees every engine tool', async () => {
     const server = buildServer();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test', version: '0.0.0' });
@@ -378,6 +469,7 @@ describe('engine tools over MCP', () => {
         'clear_breakpoints',
         'import_step',
         'export',
+        'pack',
       ]) {
         expect(names.has(expected)).toBe(true);
       }

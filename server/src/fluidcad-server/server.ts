@@ -70,7 +70,7 @@ import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
-import { PackageLayout } from '../packages/package-manifest.ts';
+import { PackageManifests } from '../packages/package-manifests.ts';
 import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
@@ -168,8 +168,6 @@ export class FluidCadServer {
   private readonly sessionPackages = new Map<string, Map<string, ResolvedPackage>>();
   /** The package imports the last render refused (see {@link getPackageProblems}). */
   private packageProblems: PackageResolveError[] = [];
-  /** Each installed package's feature ids, from its `manifest.json`, by directory (installed trees never change). */
-  private static readonly packageFeatureIdCache = new Map<string, string[]>();
   /** Each installed package's own `materials` map (its reduced `fluidcad.json`), by directory. */
   private readonly packageMaterialMaps = new Map<string, ProjectMaterials | null>();
 
@@ -764,24 +762,9 @@ export class FluidCadServer {
     return ids;
   }
 
-  /** A package's feature ids from its `manifest.json`, read once per directory; none when it can't be read. */
+  /** A package's feature ids from its `manifest.json` (`PackageManifests`); none when it can't be read. */
   private static packageFeatureIds(directory: string): string[] {
-    const cached = FluidCadServer.packageFeatureIdCache.get(directory);
-    if (cached) {
-      return cached;
-    }
-    let ids: string[] = [];
-    try {
-      const manifest = JSON.parse(readFileSync(join(directory, PackageLayout.MANIFEST), 'utf8'));
-      ids = Array.isArray(manifest?.features)
-        ? manifest.features.map((feature: any) => feature?.id).filter((id: unknown): id is string => typeof id === 'string')
-        : [];
-    } catch {
-      // Gone or unreadable: nothing of it can be named.
-      return [];
-    }
-    FluidCadServer.packageFeatureIdCache.set(directory, ids);
-    return ids;
+    return PackageManifests.of(directory)?.features.map(feature => feature.id) ?? [];
   }
 
   /**

@@ -596,7 +596,7 @@ export async function applyCreateEdit(
       return { newCode: code, error: refusal };
     }
     const custom = spec.custom!;
-    customImport = await CustomFeatureImport.plan(code, spec.filePath, custom.exportName!, custom.modulePath!);
+    customImport = await CustomFeatureImport.plan(code, spec.filePath, custom.exportName!, custom.modulePath!, custom.importFrom);
     if (spec.producers.length === 0 && spec.parts.length === 0) {
       const rendered = CustomFeatureStatement.render(customImport.local, custom, spec, () => null);
       if ('error' in rendered) {

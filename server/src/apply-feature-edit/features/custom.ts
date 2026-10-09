@@ -1,6 +1,5 @@
 // Custom features: the statement a feature's call shape lays out, written, read back and re-rendered.
 
-import { dirname, resolve } from 'path';
 import {
   ensureSymbolImport,
   getJavaScriptParser,
@@ -9,8 +8,7 @@ import {
   type LexicalBindings,
   type TSNode,
 } from '../../code-editor/index.ts';
-import { relativeSpecifier } from '../../files/relative-specifier.ts';
-import { normalizePath } from '../../normalize-path.ts';
+import { ModuleSpecifiers } from '../../files/module-specifiers.ts';
 import { CallShapeMismatch, FeatureCall } from '../../../../lib/dist/sdk/call-shape.js';
 import type { CallArgument, CallOperation, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
 import type { FeatureMetaSnapshot } from '../../../../lib/dist/index.js';
@@ -114,6 +112,12 @@ export type CustomFeatureOptions = {
   /** A create: the builder's export, and its module (absolute, or `fluidcad/core` for a built-in). */
   exportName?: string;
   modulePath?: string;
+  /**
+   * A create: the specifier the file imports the builder by
+   * (`ModuleSpecifiers.specifierFor`) — the package's bare name for a
+   * package's feature. Absent, the module's relative path (or the core).
+   */
+  importFrom?: string;
   /** A create: the catalog's shape of the feature's statements. */
   shape?: CustomFeatureShape;
 };
@@ -232,7 +236,8 @@ export class CustomFeatureStatement {
     const custom = spec.custom;
     if (!custom || typeof custom.id !== 'string' || !custom.id
       || typeof custom.exportName !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(custom.exportName)
-      || typeof custom.modulePath !== 'string' || !custom.modulePath || !custom.shape) {
+      || typeof custom.modulePath !== 'string' || !custom.modulePath || !custom.shape
+      || (custom.importFrom !== undefined && (typeof custom.importFrom !== 'string' || !/^[^'"`\\\r\n]+$/.test(custom.importFrom)))) {
       return 'malformed custom feature spec';
     }
     const call = CustomFeatureStatement.callFor(custom.shape, custom.exportName);
@@ -625,6 +630,12 @@ export class CustomFeatureStatement {
  * builder's module wins whatever it spells the path or the name, else the
  * builder is imported under its export name — or a fresh one when the file
  * already binds that.
+ *
+ * The specifier is the one {@link ModuleSpecifiers} chose (`importFrom`,
+ * which the route supplies from the catalog): a relative path for a
+ * workspace module, the bare name for an installed package's
+ * (`@acme/gears`), `fluidcad/core` for a built-in. Without one it is the
+ * module's relative path (or the core).
  */
 export class CustomFeatureImport {
   private constructor(
@@ -634,16 +645,21 @@ export class CustomFeatureImport {
     private readonly exportName: string,
   ) {}
 
-  static async plan(code: string, filePath: string, exportName: string, modulePath: string): Promise<CustomFeatureImport> {
+  static async plan(
+    code: string,
+    filePath: string,
+    exportName: string,
+    modulePath: string,
+    importFrom?: string,
+  ): Promise<CustomFeatureImport> {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
-    const target = CustomFeatureImport.isBuiltIn(modulePath) ? 'fluidcad/core' : normalizePath(modulePath);
+    const specifier = importFrom ?? ModuleSpecifiers.LOCAL.specifierFor(filePath, modulePath, exportName)!;
     for (const [local, binding] of namedImportBindings(tree)) {
-      if (binding.imported === exportName && CustomFeatureImport.moduleOf(binding.source, filePath) === target) {
+      if (binding.imported === exportName && ModuleSpecifiers.sameModule(binding.source, specifier, filePath)) {
         return new CustomFeatureImport(local, null, exportName);
       }
     }
-    const specifier = CustomFeatureImport.isBuiltIn(modulePath) ? 'fluidcad/core' : relativeSpecifier(filePath, modulePath);
     return new CustomFeatureImport(await importLocalName(code, exportName, specifier), specifier, exportName);
   }
 
@@ -653,20 +669,5 @@ export class CustomFeatureImport {
       return code;
     }
     return ensureSymbolImport(code, this.exportName, this.specifier, this.local);
-  }
-
-  private static isBuiltIn(module: string): boolean {
-    return module === 'fluidcad/core' || module === 'fluidcad';
-  }
-
-  /** The module an import specifier names from `filePath`: a relative one resolved, a built-in by its name. */
-  private static moduleOf(source: string, filePath: string): string | null {
-    if (CustomFeatureImport.isBuiltIn(source)) {
-      return 'fluidcad/core';
-    }
-    if (!source.startsWith('./') && !source.startsWith('../')) {
-      return null;
-    }
-    return normalizePath(resolve(dirname(normalizePath(filePath)), source));
   }
 }

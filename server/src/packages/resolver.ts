@@ -6,6 +6,7 @@ import { normalizePath } from '../normalize-path.ts';
 import { readProjectConfig, type PackageDependencies } from '../project-config.ts';
 import { PackageIntegrity } from './package-integrity.ts';
 import { PackageLayout } from './package-manifest.ts';
+import { PackageManifests } from './package-manifests.ts';
 import { PackageName } from './package-name.ts';
 import { PackagePins } from './package-pins.ts';
 import { PackageRoots, type PackageLocation } from './package-roots.ts';
@@ -106,8 +107,6 @@ export class PackageResolver {
   private readonly loaded = new Map<string, ResolvedPackage>();
   /** Every refusal this render answered, one per name. */
   private readonly refusals = new Map<string, PackageResolveError>();
-  /** A package's `manifest.json`, read once per directory (installed trees never change). */
-  private static readonly manifests = new Map<string, { minEngine?: unknown; sdkVersion?: unknown } | null>();
 
   constructor(options: PackageResolverOptions = {}) {
     this.project = options.project ? PackageResolver.canonicalDirectory(options.project) : null;
@@ -254,17 +253,9 @@ export class PackageResolver {
       return new PackageResolveError(name, 'integrity',
         `The installed \`${name}\` ${pin.version} differs from the one this project was built with.`, pin.version);
     }
-    const manifest = PackageResolver.manifestOf(location.directory);
-    const minEngine = typeof manifest?.minEngine === 'string' ? Semver.parse(manifest.minEngine) : null;
-    const running = Semver.parse(this.engineVersion);
-    if (minEngine && running && Semver.compare(minEngine, running) > 0) {
-      return new PackageResolveError(name, 'min-engine',
-        `\`${name}\` ${pin.version} needs FluidCAD ${manifest!.minEngine} or newer; this engine is ${this.engineVersion}.`, pin.version);
-    }
-    if (typeof manifest?.sdkVersion === 'number' && manifest.sdkVersion !== this.sdkVersion) {
-      return new PackageResolveError(name, 'sdk-version',
-        `\`${name}\` ${pin.version} was built against feature SDK version ${manifest.sdkVersion}; ` +
-        `this engine has version ${this.sdkVersion}.`, pin.version);
+    const refusal = this.engineRefusal(name, pin.version, PackageManifests.of(location.directory));
+    if (refusal) {
+      return refusal;
     }
     const entry = `${location.directory}/${PackageResolver.ENTRY_FILE}`;
     if (!fs.existsSync(entry)) {
@@ -272,6 +263,28 @@ export class PackageResolver {
         `\`${name}\` at ${location.directory} has no ${PackageResolver.ENTRY_FILE}, so it cannot be imported.`, pin.version);
     }
     return { ...location, entry, integrity: pin.integrity };
+  }
+
+  /**
+   * Why this engine can't run `name` `version`, whose manifest is
+   * `manifest`, or null when it can: the package needs a newer engine
+   * (`minEngine`), or was built against another feature SDK (`sdkVersion`,
+   * K10). The catalogs ask it too, so a package this engine would refuse at
+   * render is never offered as usable.
+   */
+  engineRefusal(name: string, version: string, manifest: { minEngine?: unknown; sdkVersion?: unknown } | null): PackageResolveError | null {
+    const minEngine = typeof manifest?.minEngine === 'string' ? Semver.parse(manifest.minEngine) : null;
+    const running = Semver.parse(this.engineVersion);
+    if (minEngine && running && Semver.compare(minEngine, running) > 0) {
+      return new PackageResolveError(name, 'min-engine',
+        `\`${name}\` ${version} needs FluidCAD ${manifest!.minEngine} or newer; this engine is ${this.engineVersion}.`, version);
+    }
+    if (typeof manifest?.sdkVersion === 'number' && manifest.sdkVersion !== this.sdkVersion) {
+      return new PackageResolveError(name, 'sdk-version',
+        `\`${name}\` ${version} was built against feature SDK version ${manifest.sdkVersion}; ` +
+        `this engine has version ${this.sdkVersion}.`, version);
+    }
+    return null;
   }
 
   private refuse(error: PackageResolveError): PackageResolveError {
@@ -292,21 +305,6 @@ export class PackageResolver {
       }
     }
     return this.pins;
-  }
-
-  private static manifestOf(directory: string): { minEngine?: unknown; sdkVersion?: unknown } | null {
-    if (PackageResolver.manifests.has(directory)) {
-      return PackageResolver.manifests.get(directory)!;
-    }
-    let manifest: { minEngine?: unknown; sdkVersion?: unknown } | null = null;
-    try {
-      const parsed = JSON.parse(fs.readFileSync(path.join(directory, PackageLayout.MANIFEST), 'utf8'));
-      manifest = parsed && typeof parsed === 'object' ? parsed : null;
-    } catch {
-      manifest = null;
-    }
-    PackageResolver.manifests.set(directory, manifest);
-    return manifest;
   }
 
   /** This engine's version, from its own `package.json`. */

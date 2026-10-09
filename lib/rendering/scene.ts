@@ -98,6 +98,12 @@ export type SceneObjectRender = {
    * the statement more than once in this render.
    */
   sourceLocation?: { filePath: string; line: number; column: number; occurrence?: number };
+  /**
+   * The installed package whose file made the object, stamped by the
+   * engine server (never by the kernel): installed packages are read-only,
+   * so the timeline offers no edit on such a row.
+   */
+  package?: { name: string; version: string };
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
   /**

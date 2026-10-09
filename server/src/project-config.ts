@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { PackageFields, type PackageDependencies, type PackageInfo, type PackagePin } from './packages/package-fields.ts';
 
 /**
  * The project descriptor at a workspace root:
@@ -15,10 +16,24 @@ import path from 'path';
  * resolves to *latest* whenever the npx cache turns over, can say so out loud
  * instead of silently rebuilding a model on a kernel it has never seen.
  *
- * Deliberately dependency-free (node builtins only): this module is imported
+ * A package workspace adds its identity under `package`, and a project its
+ * package pins under `dependencies` (packages plan, Stage P2):
+ *
+ * ```json
+ * {
+ *   "engine": "0.0.46",
+ *   "package": { "name": "@acme/gears", "version": "1.2.0", "exports": ["gear.feature.js"] },
+ *   "dependencies": { "@acme/fasteners": { "version": "2.0.1", "integrity": "sha256-…" } }
+ * }
+ * ```
+ *
+ * Deliberately dependency-free (node builtins, and the import-free modules
+ * under `packages/` that validate the package keys): this module is imported
  * by the server (TS) and, as compiled JS out of `server/dist`, by the plain-JS
  * CLI in `bin/`.
  */
+
+export type { PackageDependencies, PackageInfo, PackagePin } from './packages/package-fields.ts';
 
 /** `package.json` is supported as an alternative home for the same pin. */
 export type EnginePinSource = 'fluidcad.json' | 'package.json';
@@ -100,15 +115,46 @@ export type ProjectConfig = {
    */
   materials: ProjectMaterials | null;
   /**
+   * The package this workspace is (`package` block), or null when it is a
+   * plain project. Read from `fluidcad.json` only — a `package.json`'s own
+   * name and version belong to npm. A block with any invalid field is
+   * dropped as a whole and reported, like `materials`.
+   */
+  package: PackageInfo | null;
+  /**
+   * The project's package pins (`dependencies` map), or null when it pins
+   * none. `fluidcad.json` only, and dropped as a whole on any invalid
+   * entry, for the same reasons as `package`.
+   */
+  dependencies: PackageDependencies | null;
+  /**
    * Why a config file that exists was not usable (unparseable JSON, an
    * `engine` that isn't a string, a `unit` that isn't one of ours, a
-   * `materials` entry that isn't a material). A workspace with no config
-   * at all leaves this undefined — that is the normal case, not a problem.
+   * `materials` entry that isn't a material, a `package` or `dependencies`
+   * entry that breaks its rules). A workspace with no config at all leaves
+   * this undefined — that is the normal case, not a problem.
    */
   error?: string;
+  /**
+   * The same sentences as `error`, keyed by what each one is about, so a
+   * reader can tell which key failed without searching the text (a user's
+   * material id or export path may well spell another key's name). Absent
+   * exactly when `error` is.
+   */
+  problems?: ProjectConfigProblems;
 };
 
-const EMPTY: ProjectConfig = { engine: null, source: null, filePath: null, unit: null, materials: null };
+/**
+ * What a `ProjectConfig` problem is about. `file` is a `fluidcad.json` that
+ * isn't JSON at all; each other key is that key failing on its own.
+ */
+export type ProjectConfigProblemKey = 'file' | 'engine' | 'unit' | 'materials' | 'package' | 'dependencies';
+
+export type ProjectConfigProblems = Partial<Record<ProjectConfigProblemKey, string>>;
+
+const EMPTY: ProjectConfig = {
+  engine: null, source: null, filePath: null, unit: null, materials: null, package: null, dependencies: null,
+};
 
 export const PROJECT_CONFIG_FILENAME = 'fluidcad.json';
 
@@ -215,10 +261,54 @@ function readMaterialsField(
 }
 
 /**
+ * Read a `package` block: absent is fine (null, no error); otherwise
+ * `PackageFields.parseInfo` decides, and a bad block is reported on its
+ * own — it never costs the engine pin, the unit or the materials.
+ */
+function readPackageField(
+  record: Record<string, unknown> | null,
+): { package: PackageInfo | null } | { error: string } {
+  const raw = record?.package;
+  if (raw === undefined || raw === null) {
+    return { package: null };
+  }
+  const parsed = PackageFields.parseInfo(raw);
+  if ('problem' in parsed) {
+    return { error: `${PROJECT_CONFIG_FILENAME} has a "package" ${parsed.problem}.` };
+  }
+  return { package: parsed.info };
+}
+
+/** Read a `dependencies` map — the same rules as `readPackageField`. */
+function readDependenciesField(
+  record: Record<string, unknown> | null,
+): { dependencies: PackageDependencies | null } | { error: string } {
+  const raw = record?.dependencies;
+  if (raw === undefined || raw === null) {
+    return { dependencies: null };
+  }
+  const parsed = PackageFields.parseDependencies(raw);
+  if ('problem' in parsed) {
+    return { error: `${PROJECT_CONFIG_FILENAME} has "dependencies" ${parsed.problem}.` };
+  }
+  return { dependencies: parsed.dependencies };
+}
+
+/** `error` and `problems` for a config, or neither when nothing failed. */
+function withProblems(problems: ProjectConfigProblems): Pick<ProjectConfig, 'error' | 'problems'> {
+  const sentences = Object.values(problems).filter((e): e is string => e !== undefined);
+  if (sentences.length === 0) {
+    return {};
+  }
+  return { error: sentences.join(' '), problems };
+}
+
+/**
  * Read the workspace's project config. `fluidcad.json` wins over
  * `package.json`'s `{ "fluidcad": { "engine": "…", "unit": "…", "materials": {…} } }`
  * key by key; a workspace with neither reads back as an empty config, which
  * every caller must treat as "behave exactly as before the config existed".
+ * `package` and `dependencies` are read from `fluidcad.json` alone.
  */
 export function readProjectConfig(workspacePath: string): ProjectConfig {
   if (!workspacePath) {
@@ -227,38 +317,58 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
 
   let engine: Pick<ProjectConfig, 'engine' | 'source' | 'filePath'> | null = null;
   let unit: LengthUnit | null = null;
-  let unitError: string | undefined;
   let materials: ProjectMaterials | null = null;
-  let materialsError: string | undefined;
+  let packageInfo: PackageInfo | null = null;
+  let dependencies: PackageDependencies | null = null;
+  // Insertion order is the order the sentences join into `error`.
+  const problems: ProjectConfigProblems = {};
 
   const configPath = path.join(workspacePath, PROJECT_CONFIG_FILENAME);
   const config = readJson(configPath);
   if (config !== null) {
     if ('error' in config) {
-      return { ...EMPTY, error: config.error };
+      return { ...EMPTY, ...withProblems({ file: config.error }) };
     }
     const record = asRecord(config.value);
     const pinned = record?.engine;
     if (typeof pinned === 'string' && pinned.trim() !== '') {
       engine = { engine: pinned.trim(), source: 'fluidcad.json', filePath: configPath };
     } else if (pinned !== undefined) {
-      return {
-        ...EMPTY,
-        error: `${PROJECT_CONFIG_FILENAME} has an "engine" that is not a version string.`,
-      };
+      problems.engine = `${PROJECT_CONFIG_FILENAME} has an "engine" that is not a version string.`;
     }
+
+    // The package keys fail on their own, whatever the rest of the file
+    // holds — even a bad `engine`, which (below) still costs the unit and
+    // the materials, as it always has.
+    const packageField = readPackageField(record);
+    if ('error' in packageField) {
+      problems.package = packageField.error;
+    } else {
+      packageInfo = packageField.package;
+    }
+    const dependenciesField = readDependenciesField(record);
+    if ('error' in dependenciesField) {
+      problems.dependencies = dependenciesField.error;
+    } else {
+      dependencies = dependenciesField.dependencies;
+    }
+
+    if (problems.engine !== undefined) {
+      return { ...EMPTY, package: packageInfo, dependencies, ...withProblems(problems) };
+    }
+
     // A `fluidcad.json` with no `engine` key is legal — a project may only
     // set its unit — so each missing key falls through to package.json
     // rather than reporting an error.
     const unitField = readUnitField(record, PROJECT_CONFIG_FILENAME);
     if ('error' in unitField) {
-      unitError = unitField.error;
+      problems.unit = unitField.error;
     } else {
       unit = unitField.unit;
     }
     const materialsField = readMaterialsField(record, PROJECT_CONFIG_FILENAME);
     if ('error' in materialsField) {
-      materialsError = materialsField.error;
+      problems.materials = materialsField.error;
     } else {
       materials = materialsField.materials;
     }
@@ -272,18 +382,18 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
     if (engine === null && typeof pinned === 'string' && pinned.trim() !== '') {
       engine = { engine: pinned.trim(), source: 'package.json', filePath: pkgPath };
     }
-    if (unit === null && unitError === undefined) {
+    if (unit === null && problems.unit === undefined) {
       const unitField = readUnitField(record, 'package.json');
       if ('error' in unitField) {
-        unitError = unitField.error;
+        problems.unit = unitField.error;
       } else {
         unit = unitField.unit;
       }
     }
-    if (materials === null && materialsError === undefined) {
+    if (materials === null && problems.materials === undefined) {
       const materialsField = readMaterialsField(record, 'package.json');
       if ('error' in materialsField) {
-        materialsError = materialsField.error;
+        problems.materials = materialsField.error;
       } else {
         materials = materialsField.materials;
       }
@@ -291,12 +401,13 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
   }
   // An unparseable workspace `package.json` is not ours to complain about.
 
-  const errors = [unitError, materialsError].filter((e): e is string => e !== undefined);
   return {
     ...(engine ?? EMPTY),
     unit,
     materials,
-    ...(errors.length > 0 ? { error: errors.join(' ') } : {}),
+    package: packageInfo,
+    dependencies,
+    ...withProblems(problems),
   };
 }
 
@@ -306,34 +417,63 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
  * not read as "ignoring the engine pin", and vice versa.
  */
 export function isProjectUnitError(config: ProjectConfig): boolean {
-  return typeof config.error === 'string' && config.error.includes('"unit"');
+  return config.problems?.unit !== undefined;
 }
 
 /** True when `config.error` is about the `materials` key — same independence rule as the unit. */
 export function isProjectMaterialsError(config: ProjectConfig): boolean {
-  return typeof config.error === 'string' && config.error.includes('"materials"');
+  return config.problems?.materials !== undefined;
+}
+
+/**
+ * True when `config.error` is about the `package` block — same independence
+ * rule: a bad block makes the workspace read as no package, and nothing else.
+ */
+export function isProjectPackageError(config: ProjectConfig): boolean {
+  return config.problems?.package !== undefined;
+}
+
+/** True when `config.error` is about the `dependencies` map — same independence rule. */
+export function isProjectDependenciesError(config: ProjectConfig): boolean {
+  return config.problems?.dependencies !== undefined;
+}
+
+/**
+ * True when the workspace's `fluidcad.json` exists but isn't JSON at all.
+ * Every writer replaces such a file with just its own patch, so a caller
+ * about to write a key the user typed (a package block) should refuse
+ * instead.
+ */
+export function isProjectConfigUnreadable(config: ProjectConfig): boolean {
+  return config.problems?.file !== undefined;
 }
 
 /**
  * True when `config.error` concerns the engine pin itself (unparseable
- * file, a non-string `engine`) rather than the unit or materials keys,
- * which are read from the same file but fail on their own.
+ * file, a non-string `engine`) rather than the unit, materials or package
+ * keys, which are read from the same file but fail on their own.
  */
 function isEnginePinError(config: ProjectConfig): boolean {
-  return typeof config.error === 'string' && !isProjectUnitError(config) && !isProjectMaterialsError(config);
+  return config.problems?.file !== undefined || config.problems?.engine !== undefined;
+}
+
+/** The workspace's `fluidcad.json` as a plain object, or null when it is absent, unparseable or not an object. */
+function readConfigRecord(workspacePath: string): Record<string, unknown> | null {
+  const existing = readJson(path.join(workspacePath, PROJECT_CONFIG_FILENAME));
+  return existing && 'value' in existing ? asRecord(existing.value) : null;
 }
 
 /**
  * Shallow-merge `patch` into the workspace's `fluidcad.json`, preserving any
- * other keys already in the file. Writing always targets `fluidcad.json`
- * even when the current values came from `package.json` — we don't rewrite
- * a file whose other contents belong to npm.
+ * other keys already in the file. A key patched to `undefined` is removed.
+ * Writing always targets `fluidcad.json` even when the current values came
+ * from `package.json` — we don't rewrite a file whose other contents belong
+ * to npm.
  */
 function mergeIntoProjectConfig(workspacePath: string, patch: Record<string, unknown>): string {
   const configPath = path.join(workspacePath, PROJECT_CONFIG_FILENAME);
-  const existing = readJson(configPath);
-  const base = existing && 'value' in existing ? asRecord(existing.value) : null;
-  const next = { ...(base ?? {}), ...patch };
+  const next = { ...(readConfigRecord(workspacePath) ?? {}), ...patch };
+  // JSON.stringify drops the undefined values, which is the removal.
   fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + '\n');
   return configPath;
 }
@@ -354,6 +494,65 @@ export function writeProjectMaterials(workspacePath: string, materials: ProjectM
 }
 
 /**
+ * Write the `package` block into the workspace's `fluidcad.json`, keeping
+ * every other key of the file and every key of the old block this engine
+ * does not read. Throws on a block that would read back invalid, so the
+ * writer never leaves a workspace that is suddenly not a package.
+ */
+export function writePackageInfo(workspacePath: string, info: PackageInfo): string {
+  const parsed = PackageFields.parseInfo(info);
+  if ('problem' in parsed) {
+    throw new Error(`Refusing to write a "package" ${parsed.problem}.`);
+  }
+  const block = PackageFields.mergeInfo(parsed.info, readConfigRecord(workspacePath)?.package);
+  return mergeIntoProjectConfig(workspacePath, { package: block });
+}
+
+/**
+ * Pin `name` at `pin` in the workspace's `dependencies`, replacing any pin
+ * it had and keeping every other entry (sorted by name, for stable diffs)
+ * and every other key of the file. Throws on a pin that would read back
+ * invalid.
+ */
+export function writeDependency(workspacePath: string, name: string, pin: PackagePin): string {
+  const parsed = PackageFields.parsePin(name, pin);
+  if ('problem' in parsed) {
+    throw new Error(`Refusing to write "dependencies" ${parsed.problem}.`);
+  }
+  const entries = { ...dependencyEntries(workspacePath), [name]: parsed.pin };
+  return mergeIntoProjectConfig(workspacePath, { dependencies: sortedByKey(entries) });
+}
+
+/**
+ * Drop `name` from the workspace's `dependencies`, keeping every other entry
+ * and key; the last pin removed takes the `dependencies` key with it. A
+ * name that isn't pinned leaves the file untouched.
+ */
+export function removeDependency(workspacePath: string, name: string): string {
+  const configPath = path.join(workspacePath, PROJECT_CONFIG_FILENAME);
+  const entries = dependencyEntries(workspacePath);
+  if (!Object.prototype.hasOwnProperty.call(entries, name)) {
+    return configPath;
+  }
+  delete entries[name];
+  const remaining = Object.keys(entries).length > 0 ? sortedByKey(entries) : undefined;
+  return mergeIntoProjectConfig(workspacePath, { dependencies: remaining });
+}
+
+/**
+ * The raw `dependencies` entries as the file holds them, invalid ones
+ * included: a writer changes the one pin it was asked to and never
+ * silently deletes the others.
+ */
+function dependencyEntries(workspacePath: string): Record<string, unknown> {
+  return { ...(asRecord(readConfigRecord(workspacePath)?.dependencies) ?? {}) };
+}
+
+function sortedByKey(entries: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(entries).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/**
  * The one-line warning for a project whose pin doesn't match the engine that
  * is actually running, or null when they agree (or there is no pin). Kept here
  * so every entry point words it the same way.
@@ -363,7 +562,7 @@ export function describeEnginePinMismatch(
   runningVersion: string,
 ): string | null {
   if (isEnginePinError(config)) {
-    return `FluidCAD: ${config.error} Ignoring the engine pin.`;
+    return `FluidCAD: ${config.problems.file ?? config.problems.engine} Ignoring the engine pin.`;
   }
   if (!config.engine || config.engine === runningVersion) {
     return null;
@@ -384,7 +583,7 @@ export function describeProjectUnitProblem(config: ProjectConfig): string | null
   if (!isProjectUnitError(config)) {
     return null;
   }
-  return `FluidCAD: ${config.error} Using mm.`;
+  return `FluidCAD: ${config.problems.unit} Using mm.`;
 }
 
 /**
@@ -396,5 +595,29 @@ export function describeProjectMaterialsProblem(config: ProjectConfig): string |
   if (!isProjectMaterialsError(config)) {
     return null;
   }
-  return `FluidCAD: ${config.error} Ignoring the project materials.`;
+  return `FluidCAD: ${config.problems.materials} Ignoring the project materials.`;
+}
+
+/**
+ * The one-line warning for a workspace whose `package` block could not be
+ * read (the workspace reads as a plain project until it is fixed), or null
+ * when it is fine or unset.
+ */
+export function describeProjectPackageProblem(config: ProjectConfig): string | null {
+  if (!isProjectPackageError(config)) {
+    return null;
+  }
+  return `FluidCAD: ${config.problems.package} Treating this workspace as a plain project, not a package.`;
+}
+
+/**
+ * The one-line warning for a project whose `dependencies` map could not be
+ * read (no package pin is used until it is fixed), or null when it is fine
+ * or unset.
+ */
+export function describeProjectDependenciesProblem(config: ProjectConfig): string | null {
+  if (!isProjectDependenciesError(config)) {
+    return null;
+  }
+  return `FluidCAD: ${config.problems.dependencies} Ignoring the project's package pins.`;
 }

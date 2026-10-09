@@ -52,6 +52,8 @@ import {
   readProjectConfig,
   describeEnginePinMismatch,
   describeProjectUnitProblem,
+  describeProjectPackageProblem,
+  describeProjectDependenciesProblem,
   type LengthUnit,
 } from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
@@ -716,6 +718,14 @@ httpServer.listen(PORT, HOST, () => {
   const unitWarning = describeProjectUnitProblem(PROJECT_CONFIG);
   if (unitWarning) {
     console.warn(unitWarning);
+  }
+  const packageWarning = describeProjectPackageProblem(PROJECT_CONFIG);
+  if (packageWarning) {
+    console.warn(packageWarning);
+  }
+  const dependenciesWarning = describeProjectDependenciesProblem(PROJECT_CONFIG);
+  if (dependenciesWarning) {
+    console.warn(dependenciesWarning);
   }
 
   // Tell the page about edits made outside it. Announcement only — the CLI's

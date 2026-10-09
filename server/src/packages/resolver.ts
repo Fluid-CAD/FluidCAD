@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { normalizePath } from '../normalize-path.ts';
+import { PackageName } from './package-name.ts';
 
 /** An installed package directory: `<root>/@scope/name/<version>/`. */
 export type PackageRoot = {
@@ -51,8 +52,8 @@ export class PackageResolveError extends Error {
  * Stage P5 replaces it with the importing project's pins.
  */
 export class PackageResolver {
-  /** `@scope/name`: lowercase letters, digits and dashes (research §1). */
-  static readonly NAME_PATTERN = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9-]{0,63}$/;
+  /** `@scope/name`: lowercase letters, digits and dashes (research §1). The grammar lives in `PackageName`. */
+  static readonly NAME_PATTERN = PackageName.PATTERN;
 
   /** The generated entry every installed package carries (K2). */
   static readonly ENTRY_FILE = 'index.js';
